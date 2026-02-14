@@ -1,0 +1,387 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g., 0.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-dashboard:
+    name: Build Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: dashboard
+
+      - name: Build
+        run: npm run build
+        working-directory: dashboard
+
+      - name: Upload dashboard artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dashboard-dist
+          path: dashboard/dist/
+          retention-days: 7
+
+  build:
+    name: Build (${{ matrix.platform }})
+    needs: build-dashboard
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            cross: false
+            binary: exiv_system
+            archive: tar.gz
+
+          - platform: linux-arm64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: true
+            binary: exiv_system
+            archive: tar.gz
+
+          - platform: macos-x64
+            os: macos-13
+            target: x86_64-apple-darwin
+            cross: false
+            binary: exiv_system
+            archive: tar.gz
+
+          - platform: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            cross: false
+            binary: exiv_system
+            archive: tar.gz
+
+          - platform: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            cross: false
+            binary: exiv_system.exe
+            archive: zip
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+
+      - name: Download dashboard artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dashboard-dist
+          path: dashboard/dist/
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          shared-key: release-${{ matrix.target }}
+
+      # H-11: Pre-build version validation
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate version matches Cargo.toml
+        shell: bash
+        run: |
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          if [[ "${{ steps.version.outputs.version }}" != "$CARGO_VERSION" ]]; then
+            echo "::error::Tag version (${{ steps.version.outputs.version }}) != Cargo.toml version ($CARGO_VERSION)"
+            exit 1
+          fi
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Install ARM64 strip tool
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu
+
+      - name: Build (native)
+        if: ${{ !matrix.cross }}
+        run: cargo build --release --target ${{ matrix.target }} --package exiv_core
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }} --package exiv_core
+
+      - name: Strip binary (Linux x64)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Strip binary (Linux arm64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Strip binary (macOS)
+        if: runner.os == 'macOS'
+        run: strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          STAGING="exiv-${{ steps.version.outputs.version }}-${{ matrix.platform }}"
+          mkdir -p "${STAGING}/scripts"
+
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "${STAGING}/"
+          cp scripts/bridge_runtime.py "${STAGING}/scripts/"
+          cp scripts/bridge_main.py "${STAGING}/scripts/"
+          cp scripts/requirements.txt "${STAGING}/scripts/"
+          cp .env.example "${STAGING}/"
+
+          tar czf "${STAGING}.tar.gz" "${STAGING}"
+
+          # L-13: Verify archive was created successfully
+          if [[ ! -f "${STAGING}.tar.gz" ]]; then
+            echo "::error::Failed to create archive ${STAGING}.tar.gz"
+            exit 1
+          fi
+
+          # Bare binary for self-update mechanism (update.rs expects this name)
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
+            "exiv_system-${{ matrix.target }}"
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $platform = "${{ matrix.platform }}"
+          $staging = "exiv-${version}-${platform}"
+
+          New-Item -Type Directory -Path "${staging}/scripts" -Force | Out-Null
+
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" "${staging}/"
+          Copy-Item "scripts/bridge_runtime.py" "${staging}/scripts/"
+          Copy-Item "scripts/bridge_main.py" "${staging}/scripts/"
+          Copy-Item "scripts/requirements.txt" "${staging}/scripts/"
+          Copy-Item ".env.example" "${staging}/"
+
+          Compress-Archive -Path "${staging}/*" -DestinationPath "${staging}.zip"
+
+          # Bare binary for self-update mechanism
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" `
+            "exiv_system-${{ matrix.target }}"
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PLATFORM="${{ matrix.platform }}"
+          TARGET="${{ matrix.target }}"
+
+          if command -v sha256sum &>/dev/null; then
+            SHA_CMD="sha256sum"
+          else
+            SHA_CMD="shasum -a 256"
+          fi
+
+          # Archive checksum
+          if [[ "${{ matrix.archive }}" == "tar.gz" ]]; then
+            $SHA_CMD "exiv-${VERSION}-${PLATFORM}.tar.gz" > "exiv-${VERSION}-${PLATFORM}.tar.gz.sha256"
+          else
+            $SHA_CMD "exiv-${VERSION}-${PLATFORM}.zip" > "exiv-${VERSION}-${PLATFORM}.zip.sha256"
+          fi
+
+          # Bare binary checksum (for self-update verification)
+          $SHA_CMD "exiv_system-${TARGET}" > "exiv_system-${TARGET}.sha256"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: |
+            exiv-${{ steps.version.outputs.version }}-${{ matrix.platform }}.*
+            exiv_system-${{ matrix.target }}
+            exiv_system-${{ matrix.target }}.sha256
+          retention-days: 7
+
+  build-installer:
+    name: Build Windows Installer
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Download Windows build artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-windows-x64
+          path: artifacts/
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $Binary = Get-ChildItem -Path artifacts/ -Filter "exiv_system-x86_64-pc-windows-msvc" | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $Binary) {
+            # Fallback: extract from ZIP
+            $Zip = Get-ChildItem -Path artifacts/ -Filter "exiv-*-windows-x64.zip" | Select-Object -First 1 -ExpandProperty FullName
+            Expand-Archive -Path $Zip -DestinationPath artifacts/extracted -Force
+            $Binary = Get-ChildItem -Path artifacts/extracted -Recurse -Filter "exiv_system.exe" | Select-Object -First 1 -ExpandProperty FullName
+          }
+          .\installer\build-installer.ps1 -Version "${{ steps.version.outputs.version }}" -BinaryPath $Binary
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: installer-windows-x64
+          path: |
+            installer/output/exiv-setup-*.exe
+            installer/output/exiv-setup-*.exe.sha256
+          retention-days: 7
+
+  release:
+    name: Create Release
+    needs: [build, build-installer]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts/
+
+      - name: Collect release files
+        run: |
+          mkdir -p release-files
+          for dir in artifacts/release-*/; do
+            cp "${dir}"* release-files/ 2>/dev/null || true
+          done
+          # Include Windows GUI installer
+          for dir in artifacts/installer-*/; do
+            cp "${dir}"* release-files/ 2>/dev/null || true
+          done
+          echo "Release files:"
+          ls -lh release-files/
+
+      - name: Generate checksums manifest
+        run: |
+          cd release-files
+          sha256sum * > SHA256SUMS.txt 2>/dev/null || shasum -a 256 * > SHA256SUMS.txt
+          echo "SHA256SUMS.txt:"
+          cat SHA256SUMS.txt
+          cd ..
+
+      - name: Sign checksums manifest (cosign keyless)
+        uses: sigstore/cosign-installer@d7d6bc7722e3daa8354c50bcb52f4837da5e9b6a # v3
+      - run: |
+          cosign sign-blob --yes \
+            --output-signature release-files/SHA256SUMS.txt.sig \
+            --output-certificate release-files/SHA256SUMS.txt.pem \
+            release-files/SHA256SUMS.txt
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+
+      - name: Create tag (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          # M-26: Check for existing tag before creating
+          if git ls-remote --tags origin | grep -q "refs/tags/v${{ steps.version.outputs.version }}$"; then
+            echo "::error::Tag v${{ steps.version.outputs.version }} already exists on remote"
+            exit 1
+          fi
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Generate release body
+        id: body
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cat > release-body.md << 'HEADER'
+          ## Install
+
+          **Windows (GUI installer — recommended):**
+          Download **exiv-setup-VERSION.exe** from the assets below and run it.
+
+          **Windows (PowerShell):**
+          ```powershell
+          irm https://raw.githubusercontent.com/Exiv-ai/Exiv/master/install.ps1 | iex
+          ```
+
+          **macOS / Linux:**
+          ```bash
+          curl -fsSL https://raw.githubusercontent.com/Exiv-ai/Exiv/master/install.sh | bash
+          ```
+
+          ---
+          HEADER
+          sed -i "s/VERSION/${VERSION}/g" release-body.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Exiv v${{ steps.version.outputs.version }}"
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'rc') }}
+          body_path: release-body.md
+          append_body: true
+          generate_release_notes: true
+          files: release-files/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

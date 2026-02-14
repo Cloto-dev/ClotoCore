@@ -1,0 +1,127 @@
+{
+  "$schema": "qa/issue-registry.schema.md",
+  "version": "1.0",
+  "description": "Mechanical verification registry for documented issues. Source of truth for bug existence proof.",
+  "issues": [
+    {
+      "id": "bug-014",
+      "summary": "Test unwrap() needs context",
+      "severity": "LOW",
+      "discovered": "2026-02-16T09:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcb13b1",
+      "file": "crates/core/tests/handlers_http_test.rs",
+      "pattern": "\\.unwrap\\(\\)",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-015",
+      "summary": "BIND_ADDRESS validation deferred",
+      "severity": "LOW",
+      "discovered": "2026-02-16T09:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcb13b1",
+      "file": "crates/core/src/config.rs",
+      "pattern": "BIND_ADDRESS.*unwrap_or",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-016",
+      "summary": "Resource cleanup on timeout incomplete",
+      "severity": "LOW",
+      "discovered": "2026-02-16T09:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcb13b1",
+      "file": "plugins/python_bridge/src/ipc.rs",
+      "pattern": "pending_calls\\.remove\\(&id\\)",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-017",
+      "summary": "CI/CD: cargo audit security check missing",
+      "severity": "HIGH",
+      "discovered": "2026-02-16T12:00:00Z",
+      "version": "0.1.0",
+      "commit": "bf59508",
+      "file": ".github/workflows/ci.yml",
+      "pattern": "cargo audit",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-018",
+      "summary": "SafeHttpClient::new() uses .expect() causing panic risk",
+      "severity": "CRITICAL",
+      "discovered": "2026-02-16T15:00:00Z",
+      "version": "0.1.0",
+      "commit": "bc5a647",
+      "file": "crates/core/src/capabilities.rs",
+      "pattern": "\\.expect\\(\"Failed to build reqwest client\"\\)",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-019",
+      "summary": "Python sandbox FORBIDDEN_MODULES missing critical modules",
+      "severity": "CRITICAL",
+      "discovered": "2026-02-16T15:00:00Z",
+      "version": "0.1.0",
+      "commit": "bc5a647",
+      "file": "scripts/bridge_runtime.py",
+      "pattern": "'socket'\\}",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-020",
+      "summary": "Agent metadata accepts unlimited size without validation",
+      "severity": "HIGH",
+      "discovered": "2026-02-16T15:30:00Z",
+      "version": "0.1.0",
+      "commit": "19c19da",
+      "file": "crates/core/src/handlers.rs",
+      "pattern": "metadata\\.len\\(\\) > 50",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-021",
+      "summary": "DeepSeek plugin silently accepts empty API key at startup",
+      "severity": "HIGH",
+      "discovered": "2026-02-16T15:30:00Z",
+      "version": "0.1.0",
+      "commit": "19c19da",
+      "file": "plugins/deepseek/src/lib.rs",
+      "pattern": "DeepSeek plugin.*No API key configured",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-022",
+      "summary": "Cerebras plugin silently accepts empty API key at startup",
+      "severity": "HIGH",
+      "discovered": "2026-02-16T15:30:00Z",
+      "version": "0.1.0",
+      "commit": "19c19da",
+      "file": "plugins/cerebras/src/lib.rs",
+      "pattern": "Cerebras plugin.*No API key configured",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-023",
+      "summary": "Release CI version check runs after build wastes resources",
+      "severity": "HIGH",
+      "discovered": "2026-02-16T15:30:00Z",
+      "version": "0.1.0",
+      "commit": "19c19da",
+      "file": ".github/workflows/release.yml",
+      "pattern": "# H-11: Pre-build version validation",
+      "expected": "present",
+      "status": "fixed"
+    }
+  ]
+}

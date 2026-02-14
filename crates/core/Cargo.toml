@@ -1,0 +1,71 @@
+[package]
+name = "exiv_core"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "exiv_system"
+path = "src/main.rs"
+
+[dependencies]
+exiv_shared = { path = "../shared" }
+plugin_ks22 = { path = "../../plugins/ks22" }
+plugin_deepseek = { path = "../../plugins/deepseek" }
+plugin_cerebras = { path = "../../plugins/cerebras" }
+plugin_moderator = { path = "../../plugins/moderator" }
+plugin_mcp = { path = "../../plugins/mcp" }
+plugin_vision = { path = "../../plugins/vision" }
+plugin_cursor = { path = "../../plugins/cursor" }
+plugin_python_bridge = { path = "../../plugins/python_bridge" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber = "0.3"
+dotenvy = "0.15"
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "sqlite", "macros"] }
+async-trait.workspace = true
+axum.workspace = true
+tower = { version = "0.4", features = ["util"] }
+reqwest.workspace = true
+tower-http.workspace = true
+futures.workspace = true
+tokio-stream.workspace = true
+async-stream.workspace = true
+rust-embed = "8.5"
+mime_guess = "2.0"
+chrono = { version = "0.4", features = ["serde"] }
+governor = "0.6"
+dashmap.workspace = true
+sha2 = "0.10"
+clap = { version = "4", features = ["derive"] }
+rand = "0.8"
+subtle = "2"
+validator = { version = "0.16", features = ["derive"] }
+semver.workspace = true
+
+[dev-dependencies]
+http = "1.0"
+criterion = { workspace = true }
+tokio-test = "0.4"
+
+[[bench]]
+name = "event_processing"
+harness = false
+
+[[bench]]
+name = "database_operations"
+harness = false
+
+[[bench]]
+name = "security_operations"
+harness = false
+
+[[bench]]
+name = "plugin_dispatch"
+harness = false
+
+[[bench]]
+name = "rate_limiting"
+harness = false

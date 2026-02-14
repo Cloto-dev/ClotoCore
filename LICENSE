@@ -1,0 +1,145 @@
+Business Source License 1.1
+
+================================================================================
+
+Parameters:
+
+Licensor:             Exiv Project
+Licensed Work:        Exiv (Existence x Virtual AI Platform)
+                      Version 0.1.0-alpha.1
+                      Repository: https://github.com/Exiv-ai/Exiv
+Additional Use Grant: See Section 3 below
+Change Date:          2028-02-14
+Change License:       MIT License
+
+================================================================================
+
+NOTICE
+
+The Licensed Work is provided under the Business Source License 1.1 (this
+"License"). On the Change Date specified above, the license for the Licensed
+Work will automatically convert to the MIT License, at which point all
+restrictions contained in this License will be removed.
+
+Until the Change Date, you may use the Licensed Work only in accordance with
+the terms and conditions of this License.
+
+================================================================================
+
+1. LICENSE GRANT
+
+Subject to the limitations in Section 2 and the Additional Use Grant in
+Section 3, the Licensor grants you a non-exclusive, worldwide, royalty-free
+license to:
+
+  (a) Use, copy, modify, and prepare derivative works of the Licensed Work
+  (b) Reproduce and distribute copies of the Licensed Work
+  (c) Publicly display and publicly perform the Licensed Work
+
+================================================================================
+
+2. LIMITATIONS
+
+You may not:
+
+  (a) Make the functionality of the Licensed Work available to third parties
+      as a competing platform or service (see Section 3 for exceptions)
+  (b) Alter, remove, or obscure any licensing, copyright, or other notices
+      of the Licensor in the Licensed Work
+  (c) Use any trademark of the Licensor to imply official endorsement
+      without prior written permission
+
+================================================================================
+
+3. ADDITIONAL USE GRANT
+
+You may use the Licensed Work for any purpose, including commercial use,
+subject to the following provisions.
+
+
+3.1 PERMITTED WITHOUT PRIOR APPROVAL
+
+The following uses are permitted without contacting the Licensor:
+
+  (a) Developing and selling plugins for the Exiv platform
+  (b) Building commercial applications using Exiv APIs
+  (c) Internal use within your organization, regardless of size
+  (d) Offering consulting, support, training, or integration services
+  (e) Embedding Exiv in products for small-scale commercial distribution
+  (f) Educational, academic, and research purposes
+  (g) Personal projects and experimentation
+
+
+3.2 REQUIRES PRIOR WRITTEN APPROVAL
+
+"Large-Scale Commercial Deployment" requires contacting the Licensor for
+approval before proceeding. Large-Scale Commercial Deployment means any of
+the following:
+
+  (a) Annual revenue from Exiv-based products or services exceeding
+      $100,000 USD
+  (b) Serving more than 1,000 active end users or customers
+  (c) Deployment by organizations with more than 50 employees
+  (d) Offering Exiv as a managed service, hosted service, or SaaS platform
+
+To request approval for Large-Scale Commercial Deployment, contact:
+
+  Email:  exiv.project@proton.me
+  Method: Submit a request describing your intended use case, scale,
+          and commercial model
+
+Approval requests will be reviewed promptly and in good faith. The Licensor
+may grant approval unconditionally, or may propose additional licensing terms
+such as revenue-sharing agreements, partnership arrangements, or other
+mutually beneficial terms.
+
+
+3.3 PROHIBITED USES
+
+The following uses are prohibited regardless of scale:
+
+  (a) Creating a forked platform that directly competes with the official
+      Exiv ecosystem as an AI agent orchestration platform
+  (b) Rebranding Exiv as your own product without substantial differentiation
+  (c) Removing or obscuring copyright notices and license attributions
+
+================================================================================
+
+4. AUTOMATIC LICENSE CONVERSION
+
+On 2028-02-14 (the "Change Date"), this License will automatically and
+irrevocably convert to the MIT License for all users. After the Change Date,
+all restrictions in Sections 2 and 3 will be removed, and the Licensed Work
+will be available under the permissive MIT License.
+
+The MIT License text that will apply after the Change Date is available at:
+https://opensource.org/licenses/MIT
+
+================================================================================
+
+5. DISCLAIMER OF WARRANTIES
+
+THE LICENSED WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NONINFRINGEMENT.
+
+IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE LICENSED WORK OR THE USE OR OTHER DEALINGS
+IN THE LICENSED WORK.
+
+================================================================================
+
+6. TERMINATION
+
+If you violate any terms of this License, your rights under this License
+terminate automatically. The Licensor may reinstate your rights at its sole
+discretion.
+
+================================================================================
+
+For the full text of the Business Source License 1.1:
+https://mariadb.com/bsl11/
+
+For questions about this License or to request approval for Large-Scale
+Commercial Deployment, contact the Licensor at the address in Section 3.2.

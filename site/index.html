@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Exiv - AI Agent Orchestration Platform</title>
+  <meta name="description" content="Download Exiv - an extensible AI agent orchestration platform written in Rust.">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79c0ff;
+      --green: #3fb950;
+      --btn-bg: #238636;
+      --btn-hover: #2ea043;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .hero {
+      text-align: center;
+      padding: 80px 24px 48px;
+      max-width: 720px;
+    }
+
+    .hero h1 {
+      font-size: 3rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+
+    .hero h1 span { color: var(--accent); }
+
+    .hero p {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-bottom: 40px;
+    }
+
+    .download-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--btn-bg);
+      color: #fff;
+      font-size: 1.1rem;
+      font-weight: 600;
+      padding: 14px 32px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+
+    .btn-primary:hover { background: var(--btn-hover); }
+
+    .btn-primary svg { width: 20px; height: 20px; }
+
+    .version-badge {
+      display: inline-block;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 4px 12px;
+      border-radius: 20px;
+    }
+
+    .version-badge a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .version-badge a:hover { text-decoration: underline; }
+
+    .platforms {
+      max-width: 640px;
+      width: 100%;
+      padding: 0 24px;
+      margin-bottom: 64px;
+    }
+
+    .platforms h2 {
+      font-size: 1rem;
+      color: var(--text-muted);
+      text-align: center;
+      margin-bottom: 16px;
+      font-weight: 400;
+    }
+
+    .platform-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .platform-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      text-align: center;
+      text-decoration: none;
+      color: var(--text);
+      transition: border-color 0.15s;
+    }
+
+    .platform-card:hover { border-color: var(--accent); }
+
+    .platform-card.detected {
+      border-color: var(--green);
+      position: relative;
+    }
+
+    .platform-card.detected::after {
+      content: "Your OS";
+      position: absolute;
+      top: -10px;
+      right: 12px;
+      background: var(--green);
+      color: #000;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+
+    .platform-card .os-name {
+      font-weight: 600;
+      font-size: 1rem;
+      margin-bottom: 4px;
+    }
+
+    .platform-card .os-arch {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .cli-section {
+      max-width: 640px;
+      width: 100%;
+      padding: 0 24px;
+      margin-bottom: 64px;
+    }
+
+    .cli-section h2 {
+      font-size: 1rem;
+      color: var(--text-muted);
+      text-align: center;
+      margin-bottom: 16px;
+      font-weight: 400;
+    }
+
+    .cli-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 8px;
+    }
+
+    .cli-block .label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .cli-block code {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.85rem;
+      color: var(--accent);
+      word-break: break-all;
+    }
+
+    footer {
+      margin-top: auto;
+      padding: 32px 24px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+      width: 100%;
+    }
+
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    .loading { opacity: 0.5; }
+
+    @media (max-width: 480px) {
+      .hero h1 { font-size: 2rem; }
+      .hero p { font-size: 1rem; }
+      .btn-primary { font-size: 1rem; padding: 12px 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h1><span>Exiv</span></h1>
+    <p>Extensible AI agent orchestration platform.<br>Plugin-based kernel with async event bus, written in Rust.</p>
+
+    <div class="download-section">
+      <a id="main-download" class="btn-primary loading" href="https://github.com/Exiv-ai/Exiv/releases/latest">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <span id="main-download-text">Download</span>
+      </a>
+      <span id="version-info" class="version-badge"></span>
+    </div>
+  </div>
+
+  <div class="platforms">
+    <h2>All platforms</h2>
+    <div class="platform-grid" id="platform-grid"></div>
+  </div>
+
+  <div class="cli-section">
+    <h2>Or install via command line</h2>
+    <div class="cli-block">
+      <div class="label">Windows (PowerShell)</div>
+      <code>irm https://raw.githubusercontent.com/Exiv-ai/Exiv/master/install.ps1 | iex</code>
+    </div>
+    <div class="cli-block">
+      <div class="label">macOS / Linux</div>
+      <code>curl -fsSL https://raw.githubusercontent.com/Exiv-ai/Exiv/master/install.sh | bash</code>
+    </div>
+  </div>
+
+  <footer>
+    <a href="https://github.com/Exiv-ai/Exiv">GitHub</a> &middot;
+    <a href="https://github.com/Exiv-ai/Exiv/issues">Issues</a> &middot;
+    BSL 1.1 &rarr; MIT 2028
+  </footer>
+
+  <script>
+    const REPO = 'Exiv-ai/Exiv';
+
+    const PLATFORMS = [
+      { name: 'Windows', arch: 'x64', file: 'exiv-setup-{v}.exe', detect: /Win/ },
+      { name: 'macOS', arch: 'Apple Silicon', file: 'exiv-{v}-macos-arm64.tar.gz', detect: /Mac.*ARM|Macintosh/ },
+      { name: 'macOS', arch: 'Intel', file: 'exiv-{v}-macos-x64.tar.gz', detect: /Mac/ },
+      { name: 'Linux', arch: 'x64', file: 'exiv-{v}-linux-x64.tar.gz', detect: /Linux.*x86_64|Linux.*x64/ },
+      { name: 'Linux', arch: 'ARM64', file: 'exiv-{v}-linux-arm64.tar.gz', detect: /Linux.*aarch64|Linux.*arm64/ },
+    ];
+
+    function detectOS() {
+      const ua = navigator.userAgent;
+      const platform = navigator.platform || '';
+      const combined = ua + ' ' + platform;
+
+      if (/Win/.test(combined)) return 0;
+      if (/Mac/.test(combined)) {
+        // Heuristic: recent Macs are likely Apple Silicon
+        try {
+          const canvas = document.createElement('canvas');
+          const gl = canvas.getContext('webgl');
+          const renderer = gl ? gl.getParameter(gl.RENDERER) : '';
+          if (/Apple/.test(renderer)) return 1; // Apple GPU = Apple Silicon
+        } catch(e) {}
+        return 2; // Default to Intel Mac
+      }
+      if (/Linux/.test(combined)) return 3;
+      return 0; // Default to Windows
+    }
+
+    async function init() {
+      const btn = document.getElementById('main-download');
+      const btnText = document.getElementById('main-download-text');
+      const versionInfo = document.getElementById('version-info');
+      const grid = document.getElementById('platform-grid');
+      const detectedIdx = detectOS();
+
+      let version = 'latest';
+      let assets = [];
+
+      try {
+        const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`);
+        if (res.ok) {
+          const data = await res.json();
+          version = data.tag_name.replace(/^v/, '');
+          assets = data.assets || [];
+          versionInfo.innerHTML = `Latest: <a href="${data.html_url}">v${version}</a>`;
+        }
+      } catch(e) {
+        versionInfo.textContent = '';
+      }
+
+      // Find asset URL by filename pattern
+      function findAsset(pattern) {
+        const filename = pattern.replace('{v}', version);
+        const asset = assets.find(a => a.name === filename);
+        return asset ? asset.browser_download_url : `https://github.com/${REPO}/releases/latest`;
+      }
+
+      // Main button
+      const detected = PLATFORMS[detectedIdx];
+      const mainUrl = findAsset(detected.file);
+      btn.href = mainUrl;
+      btnText.textContent = `Download for ${detected.name} (${detected.arch})`;
+      btn.classList.remove('loading');
+
+      // Platform grid
+      PLATFORMS.forEach((p, i) => {
+        const card = document.createElement('a');
+        card.className = 'platform-card' + (i === detectedIdx ? ' detected' : '');
+        card.href = findAsset(p.file);
+        card.innerHTML = `
+          <div class="os-name">${p.name}</div>
+          <div class="os-arch">${p.arch}</div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>

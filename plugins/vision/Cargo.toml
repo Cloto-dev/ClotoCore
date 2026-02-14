@@ -1,0 +1,16 @@
+[package]
+name = "plugin_vision"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+exiv_shared = { path = "../../crates/shared" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+base64 = "0.21"
+chrono = { version = "0.4", features = ["serde"] }
+# screenshots = "3.0" # 実際の実装時に有効化

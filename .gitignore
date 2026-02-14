@@ -1,0 +1,56 @@
+# Node.js
+node_modules/
+dist/
+.eslintcache
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+
+# Rust
+**/*.rs.bk
+target/
+*.dSYM/
+
+# Exiv Specific
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.bak
+.env
+.env.*
+!.env.example
+compiled-tailwind.css
+
+# Secrets & credentials
+*.pem
+*.key
+
+# AI tools
+.gemini/
+.claude/
+
+# Build artifacts
+vers_bin_release/
+exiv_guardian
+installer/output/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Test files
+test_*.html
+
+# Dashboard build output
+dashboard/public/
+
+# Development notes (internal, not version controlled)
+.dev-notes/

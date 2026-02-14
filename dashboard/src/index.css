@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Neural Cursor Active state to force hide native cursors on all interactive elements */
+body.neural-cursor-active,
+body.neural-cursor-active * {
+  cursor: none !important;
+}

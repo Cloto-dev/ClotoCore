@@ -1,0 +1,11 @@
+# VERS Python Bridge Dependencies
+
+# Core
+numpy>=1.24.0
+
+# Vision & Eye Tracking
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+
+# Optional: Enhanced eye tracking
+# scipy>=1.11.0  # For advanced gaze estimation
