@@ -9,8 +9,6 @@ import { PluginManifest } from '../types';
 import { useWindowManager } from '../hooks/useWindowManager';
 import { useDraggable } from '../hooks/useDraggable';
 import { useEventStream } from '../hooks/useEventStream';
-import { GazeTracker } from '../components/GazeTracker';
-
 import { api, API_BASE } from '../services/api';
 import { SystemUpdate } from '../components/SystemUpdate';
 
@@ -18,6 +16,7 @@ const StatusCore = lazy(() => import('../components/StatusCore').then(m => ({ de
 const MemoryCore = lazy(() => import('../components/MemoryCore').then(m => ({ default: m.MemoryCore })));
 const ExivWorkspace = lazy(() => import('../components/AgentWorkspace').then(m => ({ default: m.AgentWorkspace })));
 const ExivPluginManager = lazy(() => import('../components/ExivPluginManager').then(m => ({ default: m.ExivPluginManager })));
+const GazeTracker = lazy(() => import('../components/GazeTracker').then(m => ({ default: m.GazeTracker })));
 
 function SystemView() {
   const [logs, setLogs] = useState<string[]>([]);
@@ -278,7 +277,7 @@ export function Home() {
           ))}
         </div>
       </div>
-      {isGazeActive && <GazeTracker />}
+      {isGazeActive && <Suspense fallback={null}><GazeTracker /></Suspense>}
     </div>
   );
 }
