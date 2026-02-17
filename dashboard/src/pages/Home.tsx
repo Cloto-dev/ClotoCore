@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, Database, MessageSquare, Puzzle, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, LucideIcon } from 'lucide-react';
+import { Activity, Database, MessageSquare, Puzzle, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, TrendingUp, LucideIcon } from 'lucide-react';
 import { InteractiveGrid } from '../components/InteractiveGrid';
 import { GlassWindow } from '../components/GlassWindow';
 import { SecurityGuard } from '../components/SecurityGuard';
@@ -18,6 +18,7 @@ const MemoryCore = lazy(() => import('../components/MemoryCore').then(m => ({ de
 const ExivWorkspace = lazy(() => import('../components/AgentWorkspace').then(m => ({ default: m.AgentWorkspace })));
 const ExivPluginManager = lazy(() => import('../components/ExivPluginManager').then(m => ({ default: m.ExivPluginManager })));
 const GazeTracker = lazy(() => import('../components/GazeTracker').then(m => ({ default: m.GazeTracker })));
+const EvolutionCore = lazy(() => import('../components/EvolutionCore').then(m => ({ default: m.EvolutionCore })));
 
 function SystemView() {
   const [logs, setLogs] = useState<string[]>([]);
@@ -136,6 +137,7 @@ export function Home() {
     'Play': Play,
     'Pause': Pause,
     'RefreshCw': RefreshCw,
+    'TrendingUp': TrendingUp,
   };
 
   const menuItems = useMemo(() => {
@@ -158,7 +160,7 @@ export function Home() {
         pluginId: p.id
       }));
 
-    return [...baseItems, ...pluginItems, { id: 'system', label: 'SYSTEM', path: '#', icon: Settings, disabled: false }];
+    return [...baseItems, ...pluginItems, { id: 'evolve', label: 'EVOLVE', path: '/evolution', icon: TrendingUp, disabled: false }, { id: 'system', label: 'SYSTEM', path: '#', icon: Settings, disabled: false }];
   }, [plugins]);
 
   return (
@@ -227,6 +229,7 @@ export function Home() {
                 {win.type === 'sandbox' && <ExivWorkspace />}
                 {win.type === 'plugin' && <ExivPluginManager />}
                 {win.type === 'system' && <SystemView />}
+                {win.type === 'evolve' && <EvolutionCore isWindowMode={true} />}
               </Suspense>
             </GlassWindow>
           </div>

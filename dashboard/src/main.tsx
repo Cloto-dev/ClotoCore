@@ -9,6 +9,7 @@ import './compiled-tailwind.css'
 
 const StatusCore = lazy(() => import('./components/StatusCore').then(m => ({ default: m.StatusCore })));
 const MemoryCore = lazy(() => import('./components/MemoryCore').then(m => ({ default: m.MemoryCore })));
+const EvolutionCore = lazy(() => import('./components/EvolutionCore').then(m => ({ default: m.EvolutionCore })));
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -20,6 +21,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/" element={<Home />} />
               <Route path="/status" element={<StatusCore />} />
               <Route path="/dashboard" element={<MemoryCore />} />
+              <Route path="/evolution" element={<EvolutionCore />} />
             </Routes>
           </Suspense>
           <CustomCursor />

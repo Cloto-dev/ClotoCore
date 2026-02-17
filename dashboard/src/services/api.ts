@@ -1,4 +1,4 @@
-import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage } from '../types';
+import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, EvolutionStatus, GenerationRecord, FitnessLogEntry, EvolutionParams, RollbackRecord } from '../types';
 import { isTauri } from '../lib/tauri';
 
 // In Tauri mode, window.location.origin returns "tauri://localhost" which cannot reach
@@ -227,7 +227,55 @@ export const api = {
     const res = await fetch(`${API_BASE}/history`);
     if (!res.ok) throw new Error(`Failed to fetch history: ${res.statusText}`);
     return res.json();
-  }
+  },
+
+  // Evolution API (E6)
+  async getEvolutionStatus(): Promise<EvolutionStatus> {
+    const res = await fetch(`${API_BASE}/evolution/status`);
+    if (!res.ok) throw new Error(`Failed to fetch evolution status: ${res.statusText}`);
+    return res.json();
+  },
+
+  async getGenerationHistory(limit?: number): Promise<GenerationRecord[]> {
+    const q = limit ? `?limit=${limit}` : '';
+    const res = await fetch(`${API_BASE}/evolution/generations${q}`);
+    if (!res.ok) throw new Error(`Failed to fetch generations: ${res.statusText}`);
+    return res.json();
+  },
+
+  async getGeneration(n: number): Promise<GenerationRecord> {
+    const res = await fetch(`${API_BASE}/evolution/generations/${n}`);
+    if (!res.ok) throw new Error(`Failed to fetch generation: ${res.statusText}`);
+    return res.json();
+  },
+
+  async getFitnessTimeline(limit?: number): Promise<FitnessLogEntry[]> {
+    const q = limit ? `?limit=${limit}` : '';
+    const res = await fetch(`${API_BASE}/evolution/fitness${q}`);
+    if (!res.ok) throw new Error(`Failed to fetch fitness timeline: ${res.statusText}`);
+    return res.json();
+  },
+
+  async getEvolutionParams(): Promise<EvolutionParams> {
+    const res = await fetch(`${API_BASE}/evolution/params`);
+    if (!res.ok) throw new Error(`Failed to fetch evolution params: ${res.statusText}`);
+    return res.json();
+  },
+
+  async updateEvolutionParams(params: Partial<EvolutionParams>, password: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/evolution/params`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...params, password }),
+    });
+    if (!res.ok) throw new Error(`Failed to update evolution params: ${res.statusText}`);
+  },
+
+  async getRollbackHistory(): Promise<RollbackRecord[]> {
+    const res = await fetch(`${API_BASE}/evolution/rollbacks`);
+    if (!res.ok) throw new Error(`Failed to fetch rollback history: ${res.statusText}`);
+    return res.json();
+  },
 };
 
 export interface UpdateInfo {

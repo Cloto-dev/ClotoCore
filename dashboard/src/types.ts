@@ -156,3 +156,89 @@ export interface ChatMessage {
   metadata?: Record<string, unknown>;
   created_at: number;
 }
+
+// Evolution types (E6)
+export interface FitnessScores {
+  cognitive: number;
+  behavioral: number;
+  safety: number;
+  autonomy: number;
+  meta_learning: number;
+}
+
+export interface FitnessWeights {
+  cognitive: number;
+  behavioral: number;
+  safety: number;
+  autonomy: number;
+  meta_learning: number;
+}
+
+export interface EvolutionParams {
+  alpha: number;
+  beta: number;
+  theta_min: number;
+  gamma: number;
+  min_interactions: number;
+  weights: FitnessWeights;
+}
+
+export interface AgentSnapshot {
+  active_plugins: string[];
+  personality_hash: string;
+  strategy_params: Record<string, string>;
+}
+
+export interface GenerationRecord {
+  generation: number;
+  trigger: string;
+  timestamp: string;
+  interactions_since_last: number;
+  scores: FitnessScores;
+  delta: FitnessScores;
+  fitness: number;
+  fitness_delta: number;
+  snapshot: AgentSnapshot | null;
+}
+
+export interface FitnessLogEntry {
+  timestamp: string;
+  interaction_count: number;
+  scores: FitnessScores;
+  fitness: number;
+}
+
+export interface RollbackRecord {
+  timestamp: string;
+  from_generation: number;
+  to_generation: number;
+  reason: string;
+  rollback_count_to_target: number;
+}
+
+export interface GracePeriodState {
+  active: boolean;
+  started_at: string | null;
+  interactions_at_start: number;
+  grace_interactions: number;
+  fitness_at_start: number;
+  affected_axis: string | null;
+}
+
+export interface EvolutionStatus {
+  agent_id: string;
+  current_generation: number;
+  fitness: number;
+  scores: FitnessScores;
+  trend: string;
+  interaction_count: number;
+  grace_period: GracePeriodState | null;
+  autonomy_level: string;
+  top_axes: [string, number][];
+}
+
+export interface EvolutionEvent {
+  type: string;
+  data: Record<string, unknown>;
+  timestamp: number;
+}
