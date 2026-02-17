@@ -39,6 +39,7 @@ chrono = { version = "0.4", features = ["serde"] }
 governor = "0.6"
 dashmap.workspace = true
 sha2 = "0.10"
+argon2 = "0.5"
 clap = { version = "4", features = ["derive"] }
 rand = "0.8"
 subtle = "2"

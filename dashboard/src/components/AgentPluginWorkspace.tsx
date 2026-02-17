@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Puzzle, X, Brain, Database, Zap, Globe, Cpu, CheckCircle2, Save } from 'lucide-react';
+import { Puzzle, X, Brain, Database, Zap, Globe, CheckCircle2, Save } from 'lucide-react';
 import { PluginManifest, AgentMetadata } from '../types';
 import { api } from '../services/api';
+import { AgentIcon, agentColor, isAiAgent } from '../lib/agentIdentity';
 
 interface Props {
   agent: AgentMetadata;
@@ -65,10 +66,14 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
     }
   };
 
-  const libraryPlugins = availablePlugins.filter(p => 
-    !configs.find(c => c.pluginId === p.id) &&
-    (p.category === 'Agent' || p.category === 'Memory')
-  );
+  const isLlmPlugin = (p: PluginManifest) => p.tags.includes('#MIND') || p.tags.includes('#LLM');
+  const ai = isAiAgent(agent);
+  const libraryPlugins = availablePlugins.filter(p => {
+    if (configs.find(c => c.pluginId === p.id)) return false;
+    if (p.category === 'Memory') return ai ? true : !isLlmPlugin(p);
+    if (p.category === 'Agent') return ai ? isLlmPlugin(p) : !isLlmPlugin(p);
+    return false;
+  });
 
   const handleDragStartFromLibrary = (id: string) => {
     setDraggingId(id);
@@ -151,10 +156,13 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
                 key={plugin.id}
                 draggable
                 onDragStart={() => handleDragStartFromLibrary(plugin.id)}
-                className="bg-white border border-slate-100 p-3 rounded-2xl flex flex-col cursor-grab active:cursor-grabbing hover:border-[#2e4de6]/30 hover:shadow-md transition-all group"
+                className="bg-white border border-slate-100 p-3 rounded-2xl flex flex-col cursor-grab active:cursor-grabbing hover:shadow-md transition-all group"
+                style={{ ['--accent' as string]: agentColor(agent) }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = `${agentColor(agent)}4D`)}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = '')}
               >
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-[#2e4de6]/5 text-[#2e4de6] rounded-xl shrink-0">
+                  <div className="p-2 rounded-xl shrink-0" style={{ backgroundColor: `${agentColor(agent)}0D`, color: agentColor(agent) }}>
                     {getIcon(plugin.service_type)}
                   </div>
                   <div className="min-w-0">
@@ -175,8 +183,8 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
       <div className="flex-1 flex flex-col relative overflow-hidden">
         <div className="p-4 border-b border-slate-100 bg-white/40 flex items-center justify-between z-10">
           <div className="flex items-center gap-3">
-            <div className="p-1.5 bg-[#2e4de6] text-white rounded-md shadow-lg shadow-[#2e4de6]/20">
-              <Cpu size={14} />
+            <div className="p-1.5 text-white rounded-md shadow-lg" style={{ backgroundColor: agentColor(agent), boxShadow: `0 10px 15px -3px ${agentColor(agent)}33` }}>
+              <AgentIcon agent={agent} size={14} />
             </div>
             <h2 className="text-sm font-black text-slate-800 tracking-tight uppercase">{agent.name} Core Matrix</h2>
           </div>
@@ -195,7 +203,7 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
           {/* Snap Grid Simulation */}
           <div className="absolute inset-0 pointer-events-none opacity-[0.1]"
             style={{
-              backgroundImage: `linear-gradient(to right, #2e4de6 1px, transparent 1px), linear-gradient(to bottom, #2e4de6 1px, transparent 1px)`,
+              backgroundImage: `linear-gradient(to right, ${agentColor(agent)} 1px, transparent 1px), linear-gradient(to bottom, ${agentColor(agent)} 1px, transparent 1px)`,
               backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`
             }}
           />
@@ -209,18 +217,18 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
                 key={config.pluginId}
                 draggable
                 onDragStart={() => handleDragStartFromCore(config.pluginId)}
-                className="absolute w-12 h-12 bg-white border-2 border-[#2e4de6] rounded-xl shadow-lg flex items-center justify-center cursor-grab active:cursor-grabbing hover:scale-110 transition-transform animate-in zoom-in-90"
+                className="absolute w-12 h-12 bg-white border-2 rounded-xl shadow-lg flex items-center justify-center cursor-grab active:cursor-grabbing hover:scale-110 transition-transform animate-in zoom-in-90"
                 style={{
                   left: config.x * GRID_SIZE + (GRID_SIZE - 48) / 2,
                   top: config.y * GRID_SIZE + (GRID_SIZE - 48) / 2,
+                  borderColor: agentColor(agent),
                 }}
                 title={plugin.name}
               >
-                <div className="text-[#2e4de6] scale-75">
+                <div className="scale-75" style={{ color: agentColor(agent) }}>
                   {getIcon(plugin.service_type)}
                 </div>
-                {/* Connection Lines (Simulated with a small glow) */}
-                <div className="absolute -inset-1 border border-[#2e4de6]/20 rounded-xl animate-pulse" />
+                <div className="absolute -inset-1 border rounded-xl animate-pulse" style={{ borderColor: `${agentColor(agent)}33` }} />
               </div>
             );
           })}
@@ -234,7 +242,8 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
            <button 
              onClick={handleSave}
              disabled={isSaving}
-             className="flex items-center gap-2 px-8 py-2 bg-[#2e4de6] text-white rounded-xl font-bold tracking-widest shadow-lg shadow-[#2e4de6]/20 transition-all active:scale-95 disabled:opacity-50"
+             className="flex items-center gap-2 px-8 py-2 text-white rounded-xl font-bold tracking-widest shadow-lg transition-all active:scale-95 disabled:opacity-50"
+             style={{ backgroundColor: agentColor(agent), boxShadow: `0 10px 15px -3px ${agentColor(agent)}33` }}
            >
              {isSaving ? (
                <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />

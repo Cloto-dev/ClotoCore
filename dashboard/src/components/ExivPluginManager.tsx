@@ -321,7 +321,7 @@ export function ExivPluginManager() {
 
                 {/* Plugin Grid */}
                 {isExpanded && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pl-2 animate-in slide-in-from-top-2 duration-300">
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 pl-2 animate-in slide-in-from-top-2 duration-300">
                     {categoryPlugins.map(plugin => {
                       const isVerified = plugin.magic_seal === 0x56455253;
                       return (

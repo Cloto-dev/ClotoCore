@@ -18,7 +18,9 @@ export interface AgentMetadata {
   description: string;
   default_engine_id?: string;
   required_capabilities: CapabilityType[];
-  status: 'online' | 'offline' | 'busy';
+  enabled: boolean;
+  last_seen: number;
+  status: 'online' | 'offline' | 'degraded';
   metadata: Record<string, string>;
 }
 

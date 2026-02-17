@@ -3,7 +3,6 @@ import { AgentMetadata, PluginManifest } from '../types';
 import { AgentTerminal } from './AgentTerminal';
 import { WindowAgentNavigator } from './WindowAgentNavigator';
 import { KernelMonitor } from './KernelMonitor';
-import { AgentCreator } from './AgentCreator';
 
 import { api } from '../services/api';
 
@@ -12,7 +11,6 @@ export function AgentWorkspace() {
   const [plugins, setPlugins] = useState<PluginManifest[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [systemActive, setSystemActive] = useState(false);
-  const [creatingAgent, setCreatingAgent] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -37,17 +35,15 @@ export function AgentWorkspace() {
   const handleSelectAgent = (id: string) => {
     setSelectedAgentId(id);
     setSystemActive(false);
-    setCreatingAgent(false);
   };
 
   const handleSelectSystem = () => {
     setSystemActive(!systemActive);
     setSelectedAgentId(null);
-    setCreatingAgent(false);
   };
 
   const handleAddAgent = () => {
-    setCreatingAgent(true);
+    // Deselect current agent to show the management view (which includes the creation form)
     setSelectedAgentId(null);
     setSystemActive(false);
   };
@@ -57,7 +53,7 @@ export function AgentWorkspace() {
   return (
     <div className="flex w-full h-full bg-transparent overflow-hidden">
       {/* Sidebar - Window Native Style */}
-      <WindowAgentNavigator 
+      <WindowAgentNavigator
         agents={agents}
         activeAgentId={selectedAgentId || undefined}
         onSelectAgent={handleSelectAgent}
@@ -68,15 +64,14 @@ export function AgentWorkspace() {
 
       {/* Main Content Area */}
       <div className="flex-1 h-full overflow-hidden relative">
-         {creatingAgent ? (
-           <AgentCreator onAgentCreated={() => { setCreatingAgent(false); fetchInitialData(); }} />
-         ) : systemActive ? (
+         {systemActive ? (
            <KernelMonitor onClose={() => setSystemActive(false)} />
          ) : (
-           <AgentTerminal 
+           <AgentTerminal
              agents={agents}
              plugins={plugins}
              selectedAgent={selectedAgent}
+             onRefresh={fetchInitialData}
              onSelectAgent={(agent) => {
                if (agent) {
                  handleSelectAgent(agent.id);

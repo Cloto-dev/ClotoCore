@@ -62,6 +62,13 @@ pub struct CreateAgentRequest {
     pub default_engine: String,
     pub metadata: Option<HashMap<String, String>>,
     pub required_capabilities: Option<Vec<exiv_shared::CapabilityType>>,
+    pub password: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct PowerToggleRequest {
+    pub enabled: bool,
+    pub password: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -174,6 +181,7 @@ pub async fn create_agent(
                 exiv_shared::CapabilityType::Reasoning,
                 exiv_shared::CapabilityType::Memory
             ]),
+            payload.password.as_deref(),
         )
         .await?;
     Ok(Json(serde_json::json!({ "status": "success", "id": agent_id })))
@@ -210,6 +218,70 @@ pub async fn update_agent(
     check_auth(&state, &headers)?;
     state.agent_manager.update_agent_config(&id, payload.default_engine_id, payload.metadata).await?;
     Ok(Json(serde_json::json!({ "status": "success" })))
+}
+
+/// Toggle agent power state (enable/disable).
+///
+/// **Route:** `POST /api/agents/:id/power`
+///
+/// If the agent has a power password set, the `password` field is required.
+pub async fn power_toggle(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(payload): Json<PowerToggleRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    // Check if agent has a password
+    let password_hash = state.agent_manager.get_password_hash(&id).await?;
+    if let Some(ref hash) = password_hash {
+        match &payload.password {
+            Some(pw) => {
+                if !crate::managers::AgentManager::verify_password(pw, hash)? {
+                    return Err(AppError::Vers(exiv_shared::ExivError::PermissionDenied(
+                        exiv_shared::Permission::AdminAccess
+                    )));
+                }
+            }
+            None => {
+                return Err(AppError::Vers(exiv_shared::ExivError::ValidationError(
+                    "Password required for this agent's power control".to_string()
+                )));
+            }
+        }
+    }
+
+    state.agent_manager.set_enabled(&id, payload.enabled).await?;
+
+    // Broadcast power change event via EventBus
+    let envelope = crate::EnvelopedEvent::system(
+        exiv_shared::ExivEventData::AgentPowerChanged {
+            agent_id: id.clone(),
+            enabled: payload.enabled,
+        }
+    );
+    if let Err(e) = state.event_tx.send(envelope).await {
+        error!("Failed to send power change event: {}", e);
+    }
+
+    // Audit log
+    crate::db::spawn_audit_log(state.pool.clone(), crate::db::AuditLogEntry {
+        timestamp: chrono::Utc::now(),
+        event_type: if payload.enabled { "AGENT_POWER_ON" } else { "AGENT_POWER_OFF" }.to_string(),
+        actor_id: Some("admin".to_string()),
+        target_id: Some(id.clone()),
+        permission: None,
+        result: "SUCCESS".to_string(),
+        reason: format!("Agent {} powered {}", id, if payload.enabled { "on" } else { "off" }),
+        metadata: None,
+        trace_id: None,
+    });
+
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "enabled": payload.enabled
+    })))
 }
 
 /// List all registered plugins with their current settings.

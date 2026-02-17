@@ -27,9 +27,9 @@ def think(data):
         if "fetch" in message_content:
             # Note: In the future, we will provide a Python-friendly SDK for this.
             # For now, this is a placeholder to show the intent.
-            return f"🐍 [Python Analyst] I would fetch data now if I had the SDK access to the injected NetworkCapability. (Requesting: {message_content})"
+            return f"🐍 [Python Bridge] I would fetch data now if I had the SDK access to the injected NetworkCapability. (Requesting: {message_content})"
 
-        response = f"🐍 [Python Analyst] Hello! I am {agent_name}. How can I analyze your data today?"
+        response = f"🐍 [Python Bridge] Hello! I am {agent_name}. How can I help you today?"
         return response
     except Exception as e:
         return f"❌ Python Logic Error: {str(e)}"

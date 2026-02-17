@@ -175,8 +175,8 @@ export function Home() {
 
       {/* Main View Overlay */}
       {activeMainView && (
-        <div className="fixed inset-0 z-40 bg-slate-50/95 animate-in fade-in duration-300">
-          <div className="absolute top-0 left-0 right-0 h-16 border-b border-slate-200 flex items-center justify-between px-8 bg-white/50 z-50">
+        <div className="fixed inset-0 z-40 bg-slate-50 animate-in fade-in duration-300">
+          <div className="absolute top-0 left-0 right-0 h-16 border-b border-slate-200 flex items-center justify-between px-8 bg-white z-50">
             <div className="flex items-center gap-6">
                <button 
                  onClick={() => setActiveMainView(null)}
@@ -193,8 +193,8 @@ export function Home() {
             </div>
           </div>
 
-          <div className="absolute inset-0 flex items-center justify-center p-6 md:p-12">
-            <div className="w-full max-w-4xl h-full max-h-[700px] bg-white/40 backdrop-blur-md rounded-2xl border-2 border-[#2e4de6]/50 overflow-hidden flex flex-col scale-in-center animate-in fade-in zoom-in-95 duration-500">
+          <div className="absolute inset-0 top-16 flex flex-col">
+            <div className="flex-1 overflow-hidden animate-in fade-in duration-300">
               <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-slate-400">SYNCHRONIZING...</div>}>
                 {activeMainView === 'sandbox' && <ExivWorkspace />}
                 {activeMainView === 'plugin' && <ExivPluginManager />}

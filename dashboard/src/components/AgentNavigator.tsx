@@ -1,15 +1,15 @@
 import React from 'react';
-import { 
-  Cpu, 
-  User, 
-  Eye, 
-  MousePointer2, 
-  Settings, 
+import {
+  Cpu,
+  Eye,
+  MousePointer2,
+  Settings,
   Plus,
   Zap,
   ShieldCheck
 } from 'lucide-react';
 import { AgentMetadata, Capability } from '../types';
+import { AgentIcon, agentColor } from '../lib/agentIdentity';
 
 interface AgentNavigatorProps {
   agents: AgentMetadata[];
@@ -68,13 +68,14 @@ export const AgentNavigator: React.FC<AgentNavigatorProps> = ({
                 onClick={() => onSelectAgent(agent.id)}
                 className={`relative p-3 rounded-2xl transition-all duration-300 overflow-hidden ${
                   isActive
-                    ? 'bg-pink-500/20 text-pink-400 border border-pink-500/50 shadow-[0_0_15px_rgba(236,72,153,0.3)]'
+                    ? 'border'
                     : 'text-white/60 hover:text-white hover:bg-white/10 border border-transparent'
                 }`}
+                style={isActive ? { backgroundColor: `${agentColor(agent)}33`, color: agentColor(agent), borderColor: `${agentColor(agent)}80`, boxShadow: `0 0 15px ${agentColor(agent)}4D` } : undefined}
                 title={agent.name}
               >
-                <User size={24} />
-                
+                <AgentIcon agent={agent} size={24} />
+
                 {/* Status Indicator */}
                 <div className={`absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full border-2 border-black ${
                   agent.status === 'online' ? 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.8)]' :
@@ -85,7 +86,7 @@ export const AgentNavigator: React.FC<AgentNavigatorProps> = ({
 
               {/* Active Bar */}
               {isActive && (
-                <div className="absolute -left-5 top-1/2 -translate-y-1/2 w-1 h-8 bg-pink-500 rounded-r-full shadow-[0_0_8px_rgba(236,72,153,0.8)]" />
+                <div className="absolute -left-5 top-1/2 -translate-y-1/2 w-1 h-8 rounded-r-full" style={{ backgroundColor: agentColor(agent), boxShadow: `0 0 8px ${agentColor(agent)}CC` }} />
               )}
 
               {/* Capability Badges (Horizontal tiny dots/icons under avatar) */}

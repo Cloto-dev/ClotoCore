@@ -259,6 +259,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let processor = Arc::new(EventProcessor::new(
         registry_arc.clone(),
         plugin_manager.clone(),
+        agent_manager.clone(),
         tx.clone(),
         dynamic_router.clone(),
         event_history,
@@ -269,6 +270,13 @@ pub async fn run_kernel() -> anyhow::Result<()> {
 
     // Start event history cleanup task
     processor.clone().spawn_cleanup_task();
+
+    // 6a. Active Heartbeat task (ping all enabled agents every 30s)
+    let heartbeat_interval = std::env::var("HEARTBEAT_INTERVAL_SECS")
+        .unwrap_or_else(|_| "30".to_string())
+        .parse::<u64>()
+        .unwrap_or(30);
+    EventProcessor::spawn_heartbeat_task(agent_manager.clone(), heartbeat_interval);
 
     let event_tx_clone = event_tx.clone();
     let processor_clone = processor.clone();
@@ -296,6 +304,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/plugins/:id/permissions/grant", post(handlers::grant_permission_handler))
         .route("/agents", post(handlers::create_agent))
         .route("/agents/:id", post(handlers::update_agent))
+        .route("/agents/:id/power", post(handlers::power_toggle))
         .route("/events/publish", post(handlers::post_event_handler))
         .route("/permissions/:id/approve", post(handlers::approve_permission))
         .route("/permissions/:id/deny", post(handlers::deny_permission))

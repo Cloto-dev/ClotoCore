@@ -56,6 +56,18 @@ export const api = {
     if (!res.ok) throw new Error(`Failed to update agent: ${res.statusText}`);
   },
 
+  async toggleAgentPower(agentId: string, enabled: boolean, password?: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/agents/${agentId}/power`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled, password: password || undefined })
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.error?.message || `Failed to toggle agent power: ${res.statusText}`);
+    }
+  },
+
   async grantPermission(pluginId: string, permission: string): Promise<void> {
     const res = await fetch(`${API_BASE}/plugins/${pluginId}/permissions/grant`, {
       method: 'POST',

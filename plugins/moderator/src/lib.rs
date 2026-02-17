@@ -174,6 +174,8 @@ impl Plugin for ModeratorPlugin {
                         id: "agent.synthesizer".to_string(),
                         name: "Synthesizer".to_string(),
                         description: "AI Moderator".to_string(),
+                        enabled: true,
+                        last_seen: 0,
                         status: "online".to_string(),
                         default_engine_id: Some("mind.deepseek".to_string()),
                         required_capabilities: vec![],

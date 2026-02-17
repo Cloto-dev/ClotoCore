@@ -39,6 +39,15 @@ impl SystemHandler {
         // 1. エージェント情報の取得
         let (agent, _engine_id) = self.agent_manager.get_agent_config(&target_agent_id).await?;
 
+        // Block disabled agents from processing messages
+        if !agent.enabled {
+            info!(agent_id = %target_agent_id, "🔌 Agent is powered off. Message dropped.");
+            return Ok(());
+        }
+
+        // Passive heartbeat: update last_seen on message routing
+        self.agent_manager.touch_last_seen(&target_agent_id).await.ok();
+
         // 2. メモリからのコンテキスト取得
         let memory_plugin = if let Some(preferred_id) = agent.metadata.get("preferred_memory") {
             self.registry.get_engine(preferred_id).await

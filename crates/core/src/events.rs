@@ -1,13 +1,14 @@
-use crate::managers::{PluginRegistry, PluginManager};
+use crate::managers::{PluginRegistry, PluginManager, AgentManager};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{error, info};
+use tracing::{error, info, debug};
 use exiv_shared::{Permission, ExivEvent};
 
 pub struct EventProcessor {
     registry: Arc<PluginRegistry>,
     plugin_manager: Arc<PluginManager>,
+    agent_manager: AgentManager,
     tx_internal: broadcast::Sender<Arc<ExivEvent>>,
     refresh_tx: mpsc::Sender<()>, // 🔄 ルート更新用チャンネル
     history: Arc<tokio::sync::RwLock<VecDeque<Arc<ExivEvent>>>>,
@@ -21,6 +22,7 @@ impl EventProcessor {
     pub fn new(
         registry: Arc<PluginRegistry>,
         plugin_manager: Arc<PluginManager>,
+        agent_manager: AgentManager,
         tx_internal: broadcast::Sender<Arc<ExivEvent>>,
         dynamic_router: Arc<crate::DynamicRouter>,
         history: Arc<tokio::sync::RwLock<VecDeque<Arc<ExivEvent>>>>,
@@ -59,6 +61,7 @@ impl EventProcessor {
         Self {
             registry,
             plugin_manager,
+            agent_manager,
             tx_internal,
             refresh_tx,
             history,
@@ -87,6 +90,35 @@ impl EventProcessor {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(300)).await; // 5 minutes
                 processor.cleanup_old_events().await;
+            }
+        });
+    }
+
+    /// Spawn the active heartbeat task.
+    /// Every `interval_secs` seconds, updates last_seen for all enabled agents.
+    pub fn spawn_heartbeat_task(agent_manager: AgentManager, interval_secs: u64) {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(
+                std::time::Duration::from_secs(interval_secs)
+            );
+            loop {
+                interval.tick().await;
+                match agent_manager.list_agents().await {
+                    Ok(agents) => {
+                        let enabled_count = agents.iter().filter(|a| a.enabled).count();
+                        for agent in &agents {
+                            if agent.enabled {
+                                if let Err(e) = agent_manager.touch_last_seen(&agent.id).await {
+                                    error!(agent_id = %agent.id, error = %e, "Heartbeat: failed to update last_seen");
+                                }
+                            }
+                        }
+                        debug!("Heartbeat: pinged {} enabled agents", enabled_count);
+                    }
+                    Err(e) => {
+                        error!("Heartbeat: failed to list agents: {}", e);
+                    }
+                }
             }
         });
     }
@@ -139,6 +171,9 @@ impl EventProcessor {
                     source_message_id: _,
                 } => {
                     info!(trace_id = %trace_id, agent_id = %agent_id, "🧠 Received ThoughtResponse");
+
+                    // Passive heartbeat: agent responded, update last_seen
+                    self.agent_manager.touch_last_seen(agent_id).await.ok();
 
                     // Broadcast ThoughtResponse to SSE subscribers (dashboard needs this)
                     let _ = self.tx_internal.send(event.clone());
@@ -224,6 +259,15 @@ impl EventProcessor {
                 exiv_shared::ExivEventData::ConfigUpdated { .. } => {
                     // 設定変更によってルートが変わる可能性があるため更新をリクエスト
                     self.request_refresh().await;
+                    let _ = self.tx_internal.send(event);
+                }
+                exiv_shared::ExivEventData::AgentPowerChanged { ref agent_id, enabled } => {
+                    info!(
+                        trace_id = %trace_id,
+                        agent_id = %agent_id,
+                        enabled = %enabled,
+                        "🔌 Agent power state changed"
+                    );
                     let _ = self.tx_internal.send(event);
                 }
                 _ => {

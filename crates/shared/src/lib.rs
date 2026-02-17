@@ -443,6 +443,11 @@ pub enum ExivEventData {
         plugin_id: String,
         new_manifest: PluginManifest,
     },
+    /// エージェントの電源状態が変更された通知
+    AgentPowerChanged {
+        agent_id: String,
+        enabled: bool,
+    },
 }
 
 impl ExivEvent {
@@ -468,11 +473,32 @@ pub struct AgentMetadata {
     pub id: String,
     pub name: String,
     pub description: String,
+    pub enabled: bool,
+    pub last_seen: i64,
     pub status: String,
     pub default_engine_id: Option<String>,
     pub required_capabilities: Vec<CapabilityType>,
     pub plugin_bindings: Vec<ExivId>,
     pub metadata: HashMap<String, String>,
+}
+
+impl AgentMetadata {
+    /// Resolve dynamic status from enabled flag and last_seen timestamp.
+    pub fn resolve_status(&mut self, heartbeat_threshold_ms: i64) {
+        self.status = if !self.enabled {
+            "offline".to_string()
+        } else if self.last_seen == 0 {
+            "offline".to_string()
+        } else {
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            let age_ms = now_ms - self.last_seen;
+            if age_ms <= heartbeat_threshold_ms {
+                "online".to_string()
+            } else {
+                "degraded".to_string()
+            }
+        };
+    }
 }
 
 pub struct PluginConfig {
