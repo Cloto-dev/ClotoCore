@@ -168,6 +168,11 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         }
     }
 
+    // 0b. Ensure attachment storage directory exists
+    if let Err(e) = std::fs::create_dir_all("data/attachments") {
+        tracing::warn!("Failed to create data/attachments directory: {}", e);
+    }
+
     // 1. データベースの初期化
     use sqlx::sqlite::SqliteConnectOptions;
     use std::str::FromStr;
@@ -296,6 +301,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/permissions/:id/deny", post(handlers::deny_permission))
         // M-08: chat_handler moved here to apply rate limiting
         .route("/chat", post(handlers::chat_handler))
+        // Chat persistence endpoints
+        .route("/chat/:agent_id/messages", get(handlers::chat::get_messages).post(handlers::chat::post_message).delete(handlers::chat::delete_messages))
+        .route("/chat/attachments/:attachment_id", get(handlers::chat::get_attachment))
         .layer(axum::middleware::from_fn_with_state(
             app_state.clone(),
             middleware::rate_limit_middleware,
@@ -314,7 +322,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/agents", get(handlers::get_agents))
         .route("/permissions/pending", get(handlers::get_pending_permissions))
         .merge(admin_routes)
-        .layer(axum::extract::DefaultBodyLimit::max(2 * 1024 * 1024));
+        .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024)); // 10MB for chat attachments
 
     let app = Router::new()
         .nest("/api", api_routes.with_state(app_state.clone()))
@@ -324,7 +332,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .layer(
             CorsLayer::new()
                 .allow_origin(config.cors_origins)
-                .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
+                .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::DELETE])
                 .allow_headers([axum::http::header::CONTENT_TYPE]),
         );
 

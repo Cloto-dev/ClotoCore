@@ -129,3 +129,25 @@ export interface Pulse {
 export interface ModalState {
   node: Node | null;
 }
+
+// Chat persistence types
+export interface ContentBlock {
+  type: 'text' | 'image' | 'code' | 'tool_result' | 'file';
+  text?: string;
+  url?: string;
+  language?: string;
+  filename?: string;
+  mime_type?: string;
+  attachment_id?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ChatMessage {
+  id: string;
+  agent_id: string;
+  user_id: string;
+  source: 'user' | 'agent' | 'system';
+  content: ContentBlock[];
+  metadata?: Record<string, unknown>;
+  created_at: number;
+}

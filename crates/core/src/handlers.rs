@@ -1,6 +1,7 @@
 pub mod system;
 pub mod assets;
 pub mod update;
+pub mod chat;
 
 use axum::{
     extract::{Path, State},
@@ -16,7 +17,7 @@ use exiv_shared::ExivMessage;
 
 use crate::{AppState, AppResult, AppError};
 
-fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()> {
+pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()> {
     use subtle::ConstantTimeEq;
     match state.config.admin_api_key {
         Some(ref required_key) => {

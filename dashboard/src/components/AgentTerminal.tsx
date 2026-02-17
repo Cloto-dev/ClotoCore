@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Cpu, ChevronRight, Puzzle, Activity, MessageSquare, Send, Zap, User as UserIcon } from 'lucide-react';
-import { AgentMetadata, PluginManifest, ExivMessage } from '../types';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Cpu, ChevronRight, Puzzle, Activity, MessageSquare, Send, Zap, User as UserIcon, RotateCcw } from 'lucide-react';
+import { AgentMetadata, PluginManifest, ExivMessage, ChatMessage, ContentBlock } from '../types';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { useEventStream } from '../hooks/useEventStream';
 
@@ -13,43 +13,238 @@ export interface AgentTerminalProps {
   onSelectAgent?: (agent: AgentMetadata | null) => void;
 }
 
+// Legacy localStorage key prefix for migration
+const LEGACY_SESSION_KEY_PREFIX = 'exiv-chat-';
+
+function LongPressResetButton({ onReset }: { onReset: () => void }) {
+  const [progress, setProgress] = useState(0);
+  const rafRef = useRef<number>(0);
+  const startRef = useRef(0);
+
+  const start = () => {
+    startRef.current = Date.now();
+    const tick = () => {
+      const elapsed = Date.now() - startRef.current;
+      const p = Math.min(elapsed / 2000, 1);
+      setProgress(p);
+      if (p >= 1) {
+        onReset();
+        setProgress(0);
+        return;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  };
+
+  const cancel = () => {
+    cancelAnimationFrame(rafRef.current);
+    setProgress(0);
+  };
+
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  return (
+    <button
+      onMouseDown={start}
+      onMouseUp={cancel}
+      onMouseLeave={cancel}
+      onTouchStart={start}
+      onTouchEnd={cancel}
+      className="relative px-3 py-1.5 rounded-full border border-slate-200 text-[9px] font-bold text-slate-400 hover:text-amber-500 hover:border-amber-400/30 transition-all uppercase tracking-widest flex items-center gap-1.5 overflow-hidden"
+    >
+      {progress > 0 && (
+        <span
+          className="absolute inset-0 bg-amber-400/20 origin-left transition-none"
+          style={{ transform: `scaleX(${progress})` }}
+        />
+      )}
+      <RotateCcw size={10} className={progress > 0 ? 'animate-spin' : ''} />
+      <span className="relative">{progress > 0 ? 'Hold...' : 'Reset'}</span>
+    </button>
+  );
+}
+
+/** Render a single ContentBlock */
+function ContentBlockView({ block }: { block: ContentBlock }) {
+  switch (block.type) {
+    case 'text':
+      return <span>{block.text}</span>;
+    case 'image':
+      return (
+        <img
+          src={block.attachment_id ? api.getAttachmentUrl(block.attachment_id) : block.url}
+          alt={block.filename || 'image'}
+          className="max-w-full rounded-lg mt-1"
+          loading="lazy"
+        />
+      );
+    case 'code':
+      return (
+        <pre className="bg-black/10 rounded-lg p-2 mt-1 overflow-x-auto text-[10px] font-mono">
+          <code>{block.text}</code>
+        </pre>
+      );
+    case 'tool_result':
+      return (
+        <div className="bg-black/10 rounded-lg p-2 mt-1 text-[10px] font-mono border-l-2 border-emerald-400">
+          {block.text}
+        </div>
+      );
+    case 'file':
+      return (
+        <a
+          href={block.attachment_id ? api.getAttachmentUrl(block.attachment_id) : block.url}
+          download={block.filename}
+          className="inline-flex items-center gap-1 underline text-[10px] mt-1"
+        >
+          {block.filename || 'Download'}
+        </a>
+      );
+    default:
+      return <span>{block.text || ''}</span>;
+  }
+}
+
+/** Render message content (supports both string and ContentBlock[]) */
+function MessageContent({ content }: { content: string | ContentBlock[] }) {
+  if (typeof content === 'string') {
+    return <span>{content}</span>;
+  }
+  return (
+    <>
+      {content.map((block, i) => (
+        <ContentBlockView key={i} block={block} />
+      ))}
+    </>
+  );
+}
+
 function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => void }) {
-  const [messages, setMessages] = useState<ExivMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const initialLoadDone = useRef(false);
 
+  // Load initial messages from server
   useEffect(() => {
-    if (scrollRef.current) {
+    if (initialLoadDone.current) return;
+    initialLoadDone.current = true;
+
+    const loadMessages = async () => {
+      try {
+        // First, check for legacy localStorage data and migrate
+        await migrateLegacyData(agent.id);
+
+        const { messages: loaded, has_more } = await api.getChatMessages(agent.id, undefined, 50);
+        // API returns newest-first; reverse for display (oldest at top)
+        setMessages(loaded.reverse());
+        setHasMore(has_more);
+      } catch (err) {
+        console.error('Failed to load chat messages:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadMessages();
+  }, [agent.id]);
+
+  // Scroll to bottom on initial load and new messages
+  useEffect(() => {
+    if (!isLoading && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages.length, isLoading]);
+
+  // Lazy load older messages on scroll to top
+  useEffect(() => {
+    if (!hasMore || isLoading) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
+          loadOlderMessages();
+        }
+      },
+      { root: scrollRef.current, threshold: 0.1 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, isLoading, isLoadingMore, messages]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (isLoadingMore || !hasMore || messages.length === 0) return;
+    setIsLoadingMore(true);
+
+    try {
+      const oldestTs = messages[0]?.created_at;
+      const { messages: older, has_more } = await api.getChatMessages(agent.id, oldestTs, 50);
+
+      if (older.length > 0) {
+        // Preserve scroll position
+        const scrollEl = scrollRef.current;
+        const prevHeight = scrollEl?.scrollHeight || 0;
+
+        setMessages(prev => [...older.reverse(), ...prev]);
+        setHasMore(has_more);
+
+        // Restore scroll position after prepending
+        requestAnimationFrame(() => {
+          if (scrollEl) {
+            scrollEl.scrollTop = scrollEl.scrollHeight - prevHeight;
+          }
+        });
+      } else {
+        setHasMore(false);
+      }
+    } catch (err) {
+      console.error('Failed to load older messages:', err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [agent.id, messages, isLoadingMore, hasMore]);
 
   // Subscribe to system-wide events
   useEventStream(`${API_BASE}/events`, (event) => {
     if (event.type === 'ThoughtResponse' && event.data.agent_id === agent.id) {
       setIsTyping(false);
-      const newMsg: ExivMessage = {
+      const agentMsg: ChatMessage = {
         id: event.data.source_message_id + "-resp",
-        source: { type: 'Agent', id: agent.id },
-        content: event.data.content,
-        timestamp: new Date().toISOString(),
-        metadata: {}
+        agent_id: agent.id,
+        user_id: 'default',
+        source: 'agent',
+        content: [{ type: 'text', text: event.data.content }],
+        created_at: Date.now(),
       };
-      setMessages(prev => [...prev, newMsg]);
+      setMessages(prev => [...prev, agentMsg]);
+
+      // Persist agent response to server (fire-and-forget)
+      api.postChatMessage(agent.id, {
+        id: agentMsg.id,
+        source: 'agent',
+        content: agentMsg.content,
+      }).catch(err => console.error('Failed to persist agent response:', err));
     }
   });
 
   const sendMessage = async () => {
     if (!input.trim() || isTyping) return;
 
-    const userMsg: ExivMessage = {
-      id: Date.now().toString(),
-      source: { type: 'User', id: 'user', name: 'User' },
-      target_agent: agent.id,
-      content: input,
-      timestamp: new Date().toISOString(),
-      metadata: { target_agent_id: agent.id }
+    const msgId = Date.now().toString();
+    const userMsg: ChatMessage = {
+      id: msgId,
+      agent_id: agent.id,
+      user_id: 'default',
+      source: 'user',
+      content: [{ type: 'text', text: input }],
+      created_at: Date.now(),
     };
 
     setMessages(prev => [...prev, userMsg]);
@@ -57,11 +252,27 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
     setIsTyping(true);
 
     try {
-      // H-16: Check response status for errors
+      // Persist user message to server
+      api.postChatMessage(agent.id, {
+        id: userMsg.id,
+        source: 'user',
+        content: userMsg.content,
+      }).catch(err => console.error('Failed to persist user message:', err));
+
+      // Send to event bus for agent processing (existing ExivMessage format)
+      const exivMsg: ExivMessage = {
+        id: msgId,
+        source: { type: 'User', id: 'user', name: 'User' },
+        target_agent: agent.id,
+        content: input,
+        timestamp: new Date().toISOString(),
+        metadata: { target_agent_id: agent.id }
+      };
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userMsg)
+        body: JSON.stringify(exivMsg)
       });
       if (!res.ok) {
         throw new Error(`Chat request failed: ${res.status}`);
@@ -69,6 +280,17 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
     } catch (err) {
       console.error("Failed to send message:", err);
       setIsTyping(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setMessages([]);
+    setIsTyping(false);
+    setHasMore(false);
+    try {
+      await api.deleteChatMessages(agent.id);
+    } catch (err) {
+      console.error('Failed to delete chat messages:', err);
     }
   };
 
@@ -88,41 +310,58 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
             </div>
           </div>
         </div>
-        <button 
-          onClick={onBack}
-          className="px-4 py-1.5 rounded-full border border-slate-200 text-[9px] font-bold text-slate-400 hover:text-[#2e4de6] hover:border-[#2e4de6]/30 transition-all uppercase tracking-widest"
-        >
-          Disconnect
-        </button>
+        <div className="flex items-center gap-2">
+          <LongPressResetButton onReset={handleReset} />
+          <button
+            onClick={onBack}
+            className="px-4 py-1.5 rounded-full border border-slate-200 text-[9px] font-bold text-slate-400 hover:text-[#2e4de6] hover:border-[#2e4de6]/30 transition-all uppercase tracking-widest"
+          >
+            Disconnect
+          </button>
+        </div>
       </div>
 
       {/* Message Stream */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
-        {messages.length === 0 && (
+        {/* Sentinel for lazy loading older messages */}
+        {hasMore && <div ref={sentinelRef} className="h-1" />}
+        {isLoadingMore && (
+          <div className="text-center text-[9px] font-mono text-slate-300 py-2 animate-pulse">
+            Loading older messages...
+          </div>
+        )}
+
+        {isLoading ? (
+          <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-4">
+            <Activity size={24} className="animate-pulse" />
+            <p className="text-[10px] font-mono tracking-[0.2em] uppercase">Loading session...</p>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-4">
             <Zap size={32} strokeWidth={1} className="opacity-20" />
             <p className="text-[10px] font-mono tracking-[0.2em] uppercase">Ready for instructions</p>
           </div>
+        ) : (
+          messages.map((msg) => {
+            const isUser = msg.source === 'user';
+            return (
+              <div key={msg.id} className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${
+                  isUser ? 'bg-white border border-slate-100 text-slate-400' : 'bg-[#2e4de6] text-white'
+                }`}>
+                  {isUser ? <UserIcon size={14} /> : <span className="text-[10px] font-black">AI</span>}
+                </div>
+                <div className={`max-w-[80%] p-4 rounded-2xl text-xs leading-relaxed shadow-sm ${
+                  isUser
+                    ? 'bg-white text-slate-700 rounded-tr-none'
+                    : 'bg-[#2e4de6] text-white rounded-tl-none'
+                }`}>
+                  <MessageContent content={msg.content} />
+                </div>
+              </div>
+            );
+          })
         )}
-        {messages.map((msg) => {
-          const isUser = msg.source.type === 'User';
-          return (
-            <div key={msg.id} className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${
-                isUser ? 'bg-white border border-slate-100 text-slate-400' : 'bg-[#2e4de6] text-white'
-              }`}>
-                {isUser ? <UserIcon size={14} /> : <span className="text-[10px] font-black">AI</span>}
-              </div>
-              <div className={`max-w-[80%] p-4 rounded-2xl text-xs leading-relaxed shadow-sm ${
-                isUser 
-                  ? 'bg-white text-slate-700 rounded-tr-none'
-                  : 'bg-[#2e4de6] text-white rounded-tl-none'
-              }`}>
-                {msg.content}
-              </div>
-            </div>
-          );
-        })}
         {isTyping && (
           <div className="flex items-start gap-3 animate-pulse">
             <div className="w-8 h-8 rounded-lg bg-[#2e4de6] text-white flex items-center justify-center shrink-0">
@@ -138,7 +377,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
       {/* Input Area */}
       <div className="p-4 bg-white/60 border-t border-slate-100">
         <div className="relative flex items-center">
-          <input 
+          <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -147,7 +386,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
             placeholder={isTyping ? "PROCESSING..." : "ENTER COMMAND..."}
             className="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none focus:border-[#2e4de6] transition-colors placeholder:text-slate-300 disabled:opacity-50 shadow-inner"
           />
-          <button 
+          <button
             onClick={sendMessage}
             disabled={isTyping || !input.trim()}
             className="absolute right-2 p-2 bg-[#2e4de6] text-white rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:grayscale disabled:scale-100 shadow-lg shadow-[#2e4de6]/20"
@@ -160,11 +399,41 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
   );
 }
 
-export function AgentTerminal({ 
-  agents: propAgents, 
+/** Migrate legacy localStorage session data to server */
+async function migrateLegacyData(agentId: string) {
+  const key = LEGACY_SESSION_KEY_PREFIX + agentId;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    const legacyMessages: ExivMessage[] = JSON.parse(raw);
+    if (!Array.isArray(legacyMessages) || legacyMessages.length === 0) {
+      localStorage.removeItem(key);
+      return;
+    }
+
+    // Migrate each message to server
+    for (const msg of legacyMessages) {
+      const source = msg.source.type === 'User' ? 'user' : msg.source.type === 'Agent' ? 'agent' : 'system';
+      await api.postChatMessage(agentId, {
+        id: msg.id,
+        source,
+        content: [{ type: 'text', text: msg.content }],
+      }).catch(() => {}); // Ignore duplicate ID errors
+    }
+
+    // Remove legacy data
+    localStorage.removeItem(key);
+    console.log(`Migrated ${legacyMessages.length} legacy messages for agent ${agentId}`);
+  } catch {
+    // Silently ignore migration errors
+  }
+}
+
+export function AgentTerminal({
+  agents: propAgents,
   plugins: propPlugins,
-  selectedAgent: propSelectedAgent, 
-  onSelectAgent: propOnSelectAgent 
+  selectedAgent: propSelectedAgent,
+  onSelectAgent: propOnSelectAgent
 }: AgentTerminalProps = {}) {
   const [internalAgents, setInternalAgents] = useState<AgentMetadata[]>([]);
   const [internalPlugins, setInternalPlugins] = useState<PluginManifest[]>([]);
@@ -209,7 +478,7 @@ export function AgentTerminal({
 
   if (configuringAgent) {
     return (
-      <AgentPluginWorkspace 
+      <AgentPluginWorkspace
         agent={configuringAgent}
         availablePlugins={plugins.filter(p => p.is_active)}
         onBack={() => setConfiguringAgent(null)}
@@ -240,12 +509,12 @@ export function AgentTerminal({
           </div>
         ) : (
           agents.map((agent) => (
-            <div 
+            <div
               key={agent.id}
               className="group flex h-24 bg-white/60 hover:bg-white border border-slate-100 rounded-2xl overflow-hidden transition-all duration-500 shadow-sm"
             >
               {/* Left / Main Info */}
-              <div 
+              <div
                 onClick={() => handleSelectAgent(agent)}
                 className="flex-1 flex items-center px-8 cursor-pointer relative overflow-hidden"
               >
@@ -266,7 +535,7 @@ export function AgentTerminal({
               </div>
 
               {/* Right Small Square (Plugin Connection Port) */}
-              <button 
+              <button
                 title="Manage Container Plugins"
                 className="w-24 h-full border-l border-slate-100 bg-slate-50/50 hover:bg-[#2e4de6]/10 flex flex-col items-center justify-center gap-2 transition-all hover:text-[#2e4de6]"
                 onClick={(e) => {

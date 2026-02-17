@@ -1607,6 +1607,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "chrono",
  "clap",
  "criterion",
@@ -1641,6 +1642,7 @@ dependencies = [
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
+ "uuid",
  "validator",
 ]
 

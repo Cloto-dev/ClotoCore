@@ -1,4 +1,4 @@
-import { AgentMetadata, PluginManifest } from '../types';
+import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage } from '../types';
 
 // Tauri WebView environment detection
 const isTauri = '__TAURI_INTERNALS__' in window;
@@ -127,6 +127,48 @@ export const api = {
     const res = await fetch(`${API_BASE}/system/version`);
     if (!res.ok) throw new Error(`Failed to fetch version: ${res.statusText}`);
     return res.json();
+  },
+
+  // Chat persistence API
+  async getChatMessages(agentId: string, before?: number, limit?: number): Promise<{ messages: ChatMessage[], has_more: boolean }> {
+    const params = new URLSearchParams();
+    if (before) params.set('before', String(before));
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString();
+    const res = await fetch(`${API_BASE}/chat/${agentId}/messages${qs ? '?' + qs : ''}`);
+    if (!res.ok) throw new Error(`Failed to fetch chat messages: ${res.statusText}`);
+    const data = await res.json();
+    // Parse content from JSON string to ContentBlock[]
+    return {
+      messages: data.messages.map((m: any) => ({
+        ...m,
+        content: typeof m.content === 'string' ? JSON.parse(m.content) : m.content,
+        metadata: m.metadata ? (typeof m.metadata === 'string' ? JSON.parse(m.metadata) : m.metadata) : undefined,
+      })),
+      has_more: data.has_more,
+    };
+  },
+
+  async postChatMessage(agentId: string, msg: { id: string; source: string; content: ContentBlock[]; metadata?: Record<string, unknown> }): Promise<{ id: string; created_at: number }> {
+    const res = await fetch(`${API_BASE}/chat/${agentId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(msg),
+    });
+    if (!res.ok) throw new Error(`Failed to post chat message: ${res.statusText}`);
+    return res.json();
+  },
+
+  async deleteChatMessages(agentId: string): Promise<{ deleted_count: number }> {
+    const res = await fetch(`${API_BASE}/chat/${agentId}/messages`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(`Failed to delete chat messages: ${res.statusText}`);
+    return res.json();
+  },
+
+  getAttachmentUrl(attachmentId: string): string {
+    return `${API_BASE}/chat/attachments/${attachmentId}`;
   }
 };
 

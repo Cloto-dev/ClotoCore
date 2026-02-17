@@ -44,6 +44,8 @@ rand = "0.8"
 subtle = "2"
 validator = { version = "0.16", features = ["derive"] }
 semver.workspace = true
+uuid.workspace = true
+base64 = "0.22"
 
 [dev-dependencies]
 http = "1.0"
