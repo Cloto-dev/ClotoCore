@@ -47,37 +47,12 @@ interface ThoughtLine {
 
 // --- Sub-component: ThoughtLineDisplay ---
 function ThoughtLineDisplay({ line }: { line: ThoughtLine }) {
-  const [opacity, setOpacity] = useState(0);
-
-  useEffect(() => {
-    let rafId: number;
-    const update = () => {
-      const age = Date.now() - line.timestamp;
-      const remaining = 30000 - age;
-      
-      let targetOpacity = 1;
-      if (age < 1000) {
-        targetOpacity = age / 1000; // 登場時のフェードイン
-      } else if (remaining < 5000) {
-        targetOpacity = Math.max(0, remaining / 5000); // 退場時のフェードアウト
-      }
-
-      setOpacity(targetOpacity);
-      
-      if (remaining > 0) {
-        rafId = requestAnimationFrame(update);
-      }
-    };
-    update();
-    return () => cancelAnimationFrame(rafId);
-  }, [line]);
-
-  if (opacity <= 0 && Date.now() - line.timestamp > 1000) return null;
-
   return (
-    <div 
+    <div
       className="text-[8vw] font-black leading-none whitespace-nowrap uppercase tracking-tighter text-center max-w-[90vw] overflow-hidden"
-      style={{ opacity }}
+      style={{
+        animation: 'thought-fade 30s linear forwards',
+      }}
     >
       <DecipherText targetText={line.text} />
     </div>

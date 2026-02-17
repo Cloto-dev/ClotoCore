@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { Activity, Database, MessageSquare, Puzzle, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, LucideIcon } from 'lucide-react';
 import { InteractiveGrid } from '../components/InteractiveGrid';
 import { GlassWindow } from '../components/GlassWindow';
-import { CustomCursor } from '../components/CustomCursor';
 import { SecurityGuard } from '../components/SecurityGuard';
 import { PluginManifest } from '../types';
 import { useWindowManager } from '../hooks/useWindowManager';
@@ -23,12 +22,26 @@ const ExivPluginManager = lazy(() => import('../components/ExivPluginManager').t
 function SystemView() {
   const [logs, setLogs] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pendingLogs = useRef<string[]>([]);
+  const rafId = useRef<number>(0);
 
   useEventStream(`${API_BASE}/events`, (event) => {
     const timestamp = new Date().toLocaleTimeString();
     const logLine = `[${timestamp}] ${event.type}: ${JSON.stringify(event.data).slice(0, 100)}...`;
-    setLogs(prev => [...prev, logLine].slice(-50));
+    pendingLogs.current.push(logLine);
+    if (!rafId.current) {
+      rafId.current = requestAnimationFrame(() => {
+        const batch = pendingLogs.current;
+        pendingLogs.current = [];
+        rafId.current = 0;
+        setLogs(prev => [...prev, ...batch].slice(-50));
+      });
+    }
   });
+
+  useEffect(() => {
+    return () => { if (rafId.current) cancelAnimationFrame(rafId.current); };
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -70,7 +83,6 @@ export function Home() {
   const navigate = useNavigate();
 
   const [activeMainView, setActiveMainView] = useState<string | null>(null);
-  const [isCursorActive, setIsCursorActive] = useState(true);
   const [isGazeActive, setIsGazeActive] = useState(false);
   const [plugins, setPlugins] = useState<PluginManifest[]>([]);
 
@@ -105,26 +117,9 @@ export function Home() {
 
   useEffect(() => {
     api.getPlugins()
-      .then((data: PluginManifest[]) => {
-        setPlugins(data);
-        const cursorPlugin = data.find(p => p.name.includes("Neural Cursor"));
-        if (cursorPlugin) {
-          setIsCursorActive(cursorPlugin.is_active);
-        }
-      })
-      .catch(err => console.error("Failed to sync cursor plugin:", err));
+      .then((data: PluginManifest[]) => setPlugins(data))
+      .catch(err => console.error("Failed to sync plugins:", err));
   }, []);
-
-  useEffect(() => {
-    if (isCursorActive) {
-      document.body.classList.add('neural-cursor-active');
-    } else {
-      document.body.classList.remove('neural-cursor-active');
-    }
-    return () => {
-      document.body.classList.remove('neural-cursor-active');
-    };
-  }, [isCursorActive]);
 
   const iconMap: Record<string, LucideIcon> = {
     'Activity': Activity,
@@ -180,7 +175,7 @@ export function Home() {
 
       {/* Main View Overlay */}
       {activeMainView && (
-        <div className="fixed inset-0 z-40 bg-slate-50/80 backdrop-blur-xl animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-40 bg-slate-50/95 animate-in fade-in duration-300">
           <div className="absolute top-0 left-0 right-0 h-16 border-b border-slate-200 flex items-center justify-between px-8 bg-white/50 z-50">
             <div className="flex items-center gap-6">
                <button 
@@ -283,7 +278,6 @@ export function Home() {
           ))}
         </div>
       </div>
-      {isCursorActive && <CustomCursor />}
       {isGazeActive && <GazeTracker />}
     </div>
   );

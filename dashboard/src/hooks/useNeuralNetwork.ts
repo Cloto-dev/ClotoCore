@@ -38,6 +38,7 @@ export function useNeuralNetwork(
   const [viewport, setViewport] = useState({ x: 0, y: 0, k: 1 });
   const isPanning = useRef(false);
   const lastPanPoint = useRef({ x: 0, y: 0 });
+  const isVisible = useRef(true);
 
   useEffect(() => { selectedModalRef.current = selectedModal; }, [selectedModal]);
   useEffect(() => { eventsRef.current = events; }, [events]);
@@ -110,6 +111,13 @@ export function useNeuralNetwork(
     const resizeObserver = new ResizeObserver(() => handleResize());
     if (canvas.parentElement) resizeObserver.observe(canvas.parentElement);
     handleResize();
+
+    // Pause rendering when canvas is not visible (e.g. behind overlay)
+    const intersectionObserver = new IntersectionObserver(
+      ([entry]) => { isVisible.current = entry.isIntersecting; },
+      { threshold: 0.01 }
+    );
+    intersectionObserver.observe(canvas);
 
     const toWorld = (sx: number, sy: number) => {
       const { x, y, k } = viewportRef.current;
@@ -198,7 +206,7 @@ export function useNeuralNetwork(
      */
     const render = () => {
       rafId = requestAnimationFrame(render);
-      if (document.hidden) return;
+      if (document.hidden || !isVisible.current) return;
 
       const { x, y, k } = viewportRef.current;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -277,6 +285,7 @@ export function useNeuralNetwork(
 
     return () => {
       resizeObserver.disconnect();
+      intersectionObserver.disconnect();
       canvas.removeEventListener('mousedown', handleMouseDown);
       canvas.removeEventListener('wheel', handleWheel);
       window.removeEventListener('mousemove', handleMouseMove);

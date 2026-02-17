@@ -17,3 +17,11 @@ body.neural-cursor-active,
 body.neural-cursor-active * {
   cursor: none !important;
 }
+
+/* ThoughtLineDisplay: pure CSS fade-in → hold → fade-out (replaces per-line RAF loop) */
+@keyframes thought-fade {
+  0%   { opacity: 0; }
+  3.3% { opacity: 1; }  /* fade-in over ~1s of 30s */
+  83%  { opacity: 1; }  /* hold until 25s */
+  100% { opacity: 0; }  /* fade-out over last 5s */
+}

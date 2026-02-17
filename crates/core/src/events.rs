@@ -139,16 +139,21 @@ impl EventProcessor {
                     source_message_id: _,
                 } => {
                     info!(trace_id = %trace_id, agent_id = %agent_id, "🧠 Received ThoughtResponse");
+
+                    // Broadcast ThoughtResponse to SSE subscribers (dashboard needs this)
+                    let _ = self.tx_internal.send(event.clone());
+
+                    // Also create a MessageReceived for plugin cascade
                     let msg = exiv_shared::ExivMessage::new(
                         exiv_shared::MessageSource::Agent { id: agent_id.clone() },
                         content.clone(),
                     );
                     let msg_received = Arc::new(exiv_shared::ExivEvent::with_trace(
-                        trace_id, 
+                        trace_id,
                         exiv_shared::ExivEventData::MessageReceived(msg.clone())
                     ));
                     let _ = self.tx_internal.send(msg_received.clone());
-                    
+
                     let system_envelope = crate::EnvelopedEvent {
                         event: msg_received,
                         issuer: None,

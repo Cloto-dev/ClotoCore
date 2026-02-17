@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { Home } from './pages/Home'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { CustomCursor } from './components/CustomCursor'
 import './compiled-tailwind.css'
 
 const StatusCore = lazy(() => import('./components/StatusCore').then(m => ({ default: m.StatusCore })));
@@ -19,6 +20,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/dashboard" element={<MemoryCore />} />
           </Routes>
         </Suspense>
+        <CustomCursor />
       </Router>
     </ErrorBoundary>
   </React.StrictMode>,
