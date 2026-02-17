@@ -3,6 +3,7 @@ members = [
     "crates/core",
     "crates/shared",
     "crates/macros",
+    "crates/cli",
     "plugins/ks22",
     "plugins/deepseek",
     "plugins/cerebras",
@@ -39,7 +40,14 @@ tower-http = { version = "0.5", features = ["fs", "cors"] }
 futures = "0.3"
 tokio-stream = "0.1"
 async-stream = "0.3"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 dashmap = "6.1"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 semver = "1.0"
+clap = { version = "4", features = ["derive"] }
+colored = "3"
+comfy-table = "7"
+indicatif = "0.17"
+toml = "0.8"
+dirs = "6"
+dialoguer = "0.11"
