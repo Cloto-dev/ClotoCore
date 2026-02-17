@@ -5,7 +5,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { LockScreen } from './LockScreen';
 import { SystemHistory } from './SystemHistory';
 import { useEventStream } from '../hooks/useEventStream';
-import { API_BASE } from '../services/api';
+import { api, API_BASE } from '../services/api';
 
 interface Memory {
   user_id: string;
@@ -35,16 +35,14 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false, onClo
 
   const fetchData = useCallback(async () => {
     try {
-      const headers: Record<string, string> = {};
-      const [memRes, epiRes, metRes] = await Promise.all([
-        fetch(`${API_BASE}/memories`, { headers }),
-        fetch(`${API_BASE}/episodes`, { headers }),
-        fetch(`${API_BASE}/metrics`, { headers })
+      const [memories, episodes, metrics] = await Promise.all([
+        api.getMemories(),
+        api.getEpisodes(),
+        api.getMetrics()
       ]);
-
-      if (memRes.ok) setMemories(await memRes.json());
-      if (epiRes.ok) setEpisodes(await epiRes.json());
-      if (metRes.ok) setMetrics(await metRes.json());
+      setMemories(memories);
+      setEpisodes(episodes);
+      setMetrics(metrics);
     } catch (error) {
       console.error('Failed to fetch data', error);
     }

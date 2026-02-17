@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useEventStream } from './useEventStream';
-import { API_BASE } from '../services/api';
+import { api, API_BASE } from '../services/api';
 import type { StrictSystemEvent } from '../types';
 import { isTauri } from '../lib/tauri';
 
@@ -83,34 +83,31 @@ export const useStatusManager = (fetchMetrics: () => void) => {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const res = await fetch(`${API_BASE}/history`);
-        if (res.ok) {
-          const history: StrictSystemEvent[] = await res.json();
-          const now = Date.now();
-          
-          setEventHistory(history.map(e => ({ ...e, timestamp: e.timestamp || now })));
-          
-          const historicalThoughts: ThoughtLine[] = [];
-          history.forEach(e => {
-            const eventTimestamp = e.timestamp || now;
-            // Skip thoughts older than 30 seconds
-            if (now - eventTimestamp > 30000) return;
+        const history: StrictSystemEvent[] = await api.getHistory();
+        const now = Date.now();
 
-            if (e.type === "Thought") {
-              historicalThoughts.push({ id: nextId.current++, text: e.payload.content, timestamp: eventTimestamp });
-            } else if (e.type === "ResponseGenerated") {
-              const text = e.payload.content.replace(/\n/g, ' ');
-              const segments: string[] = text.match(/.{1,100}/g) || [];
-              segments.slice(0, 3).forEach(s => historicalThoughts.push({ id: nextId.current++, text: s, timestamp: eventTimestamp }));
-            }
-          });
-          setThoughtLines(historicalThoughts.slice(-12));
-          
-          // Process pending events
-          setIsHistoryLoaded(true);
-          pendingEvents.current.forEach(handleEvent);
-          pendingEvents.current = [];
-        }
+        setEventHistory(history.map(e => ({ ...e, timestamp: e.timestamp || now })));
+
+        const historicalThoughts: ThoughtLine[] = [];
+        history.forEach(e => {
+          const eventTimestamp = e.timestamp || now;
+          // Skip thoughts older than 30 seconds
+          if (now - eventTimestamp > 30000) return;
+
+          if (e.type === "Thought") {
+            historicalThoughts.push({ id: nextId.current++, text: e.payload.content, timestamp: eventTimestamp });
+          } else if (e.type === "ResponseGenerated") {
+            const text = e.payload.content.replace(/\n/g, ' ');
+            const segments: string[] = text.match(/.{1,100}/g) || [];
+            segments.slice(0, 3).forEach(s => historicalThoughts.push({ id: nextId.current++, text: s, timestamp: eventTimestamp }));
+          }
+        });
+        setThoughtLines(historicalThoughts.slice(-12));
+
+        // Process pending events
+        setIsHistoryLoaded(true);
+        pendingEvents.current.forEach(handleEvent);
+        pendingEvents.current = [];
       } catch (e) {
         console.error("Failed to fetch history", e);
       }

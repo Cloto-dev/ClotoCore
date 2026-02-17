@@ -179,6 +179,54 @@ export const api = {
 
   getAttachmentUrl(attachmentId: string): string {
     return `${API_BASE}/chat/attachments/${attachmentId}`;
+  },
+
+  async postChat(message: ExivMessage): Promise<void> {
+    const res = await fetch(`${API_BASE}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message)
+    });
+    if (!res.ok) throw new Error(`Chat request failed: ${res.status}`);
+  },
+
+  async createAgent(payload: {
+    name: string;
+    description: string;
+    default_engine: string;
+    metadata: Record<string, string>;
+    password?: string;
+  }): Promise<void> {
+    const res = await fetch(`${API_BASE}/agents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Failed to create agent: ${res.statusText}`);
+  },
+
+  async getMetrics(): Promise<any> {
+    const res = await fetch(`${API_BASE}/metrics`);
+    if (!res.ok) throw new Error(`Failed to fetch metrics: ${res.statusText}`);
+    return res.json();
+  },
+
+  async getMemories(): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/memories`);
+    if (!res.ok) throw new Error(`Failed to fetch memories: ${res.statusText}`);
+    return res.json();
+  },
+
+  async getEpisodes(): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/episodes`);
+    if (!res.ok) throw new Error(`Failed to fetch episodes: ${res.statusText}`);
+    return res.json();
+  },
+
+  async getHistory(): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/history`);
+    if (!res.ok) throw new Error(`Failed to fetch history: ${res.statusText}`);
+    return res.json();
   }
 };
 

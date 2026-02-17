@@ -1,0 +1,55 @@
+import { useState } from 'react';
+import { api } from '../services/api';
+import { AgentType } from '../lib/agentIdentity';
+
+interface CreationForm {
+  name: string;
+  desc: string;
+  engine: string;
+  memory: string;
+  type: AgentType;
+  password: string;
+}
+
+const INITIAL_FORM: CreationForm = {
+  name: '',
+  desc: '',
+  engine: '',
+  memory: '',
+  type: 'ai',
+  password: '',
+};
+
+export function useAgentCreation(onCreated: () => void) {
+  const [form, setForm] = useState<CreationForm>(INITIAL_FORM);
+  const [isCreating, setIsCreating] = useState(false);
+
+  const updateField = <K extends keyof CreationForm>(key: K, value: CreationForm[K]) => {
+    setForm(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleTypeChange = (type: AgentType) => {
+    setForm(prev => ({ ...prev, type, engine: '', memory: '' }));
+  };
+
+  const handleCreate = async () => {
+    setIsCreating(true);
+    try {
+      await api.createAgent({
+        name: form.name,
+        description: form.desc,
+        default_engine: form.engine,
+        metadata: { preferred_memory: form.memory, agent_type: form.type },
+        password: form.password || undefined
+      });
+      setForm(INITIAL_FORM);
+      onCreated();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  return { form, updateField, handleTypeChange, handleCreate, isCreating };
+}

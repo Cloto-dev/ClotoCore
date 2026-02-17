@@ -3,9 +3,11 @@ import { ChevronRight, Puzzle, Activity, MessageSquare, Send, Zap, User as UserI
 import { AgentMetadata, PluginManifest, ExivMessage, ChatMessage, ContentBlock } from '../types';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { useEventStream } from '../hooks/useEventStream';
-import { AgentIcon, agentColor, AgentTypeIcon, agentTypeColor, AgentType, isAiAgent, statusBadgeClass, statusDotColor } from '../lib/agentIdentity';
+import { AgentIcon, agentColor, AgentTypeIcon, agentTypeColor, isAiAgent, statusBadgeClass, statusDotColor } from '../lib/agentIdentity';
 import { isLlmPlugin } from '../lib/pluginUtils';
 import { useLongPress } from '../hooks/useLongPress';
+import { useAgentCreation } from '../hooks/useAgentCreation';
+import { PowerToggleModal } from './PowerToggleModal';
 
 import { api, API_BASE } from '../services/api';
 
@@ -276,14 +278,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
         metadata: { target_agent_id: agent.id }
       };
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(exivMsg)
-      });
-      if (!res.ok) {
-        throw new Error(`Chat request failed: ${res.status}`);
-      }
+      await api.postChat(exivMsg);
     } catch (err) {
       console.error("Failed to send message:", err);
       setIsTyping(false);
@@ -573,20 +568,8 @@ export function AgentTerminal({
   const [internalSelectedAgent, setInternalSelectedAgent] = useState<AgentMetadata | null>(null);
   const [configuringAgent, setConfiguringAgent] = useState<AgentMetadata | null>(null);
 
-  // Creation form state (must be before any early returns)
-  const [newName, setNewName] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [newEngine, setNewEngine] = useState('');
-  const [newMemory, setNewMemory] = useState('');
-  const [newType, setNewType] = useState<AgentType>('ai');
-  const [newPassword, setNewPassword] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
-
-  // Power toggle + password modal state
+  // Power toggle modal
   const [powerTarget, setPowerTarget] = useState<AgentMetadata | null>(null);
-  const [powerPassword, setPowerPassword] = useState('');
-  const [powerError, setPowerError] = useState('');
-  const [isPowerLoading, setIsPowerLoading] = useState(false);
 
   const agents = propAgents || internalAgents;
   const plugins = propPlugins || internalPlugins;
@@ -620,6 +603,9 @@ export function AgentTerminal({
     if (!propAgents) fetchInitialData();
   };
 
+  // Creation form
+  const { form: newAgent, updateField, handleTypeChange, handleCreate, isCreating } = useAgentCreation(refreshAgents);
+
   // Listen for AgentPowerChanged events to auto-refresh
   useEventStream(`${API_BASE}/events`, (event) => {
     if (event.type === 'AgentPowerChanged') {
@@ -635,28 +621,16 @@ export function AgentTerminal({
     }
   };
 
-  const handlePowerToggle = (agent: AgentMetadata) => {
+  const handlePowerToggle = async (agent: AgentMetadata) => {
     if (agent.metadata?.has_power_password === 'true') {
       setPowerTarget(agent);
-      setPowerPassword('');
-      setPowerError('');
     } else {
-      executePowerToggle(agent, undefined);
-    }
-  };
-
-  const executePowerToggle = async (agent: AgentMetadata, password?: string) => {
-    setIsPowerLoading(true);
-    setPowerError('');
-    try {
-      await api.toggleAgentPower(agent.id, !agent.enabled, password);
-      setPowerTarget(null);
-      setPowerPassword('');
-      refreshAgents();
-    } catch (err: any) {
-      setPowerError(err.message || 'Failed to toggle power');
-    } finally {
-      setIsPowerLoading(false);
+      try {
+        await api.toggleAgentPower(agent.id, !agent.enabled);
+        refreshAgents();
+      } catch (err) {
+        console.error('Failed to toggle power:', err);
+      }
     }
   };
 
@@ -686,93 +660,19 @@ export function AgentTerminal({
   }
 
   const allEngines = plugins.filter(p => p.service_type === 'Reasoning' && p.is_active && p.category === 'Agent');
-  const filteredEngines = allEngines.filter(p => newType === 'ai' ? isLlmPlugin(p) : !isLlmPlugin(p));
+  const filteredEngines = allEngines.filter(p => newAgent.type === 'ai' ? isLlmPlugin(p) : !isLlmPlugin(p));
   const allMemories = plugins.filter(p => (p.service_type === 'Memory' || p.category === 'Memory') && p.is_active);
-  const memories = allMemories.filter(p => newType === 'ai' ? true : !isLlmPlugin(p));
-
-  const handleTypeChange = (type: AgentType) => {
-    setNewType(type);
-    setNewEngine('');
-    setNewMemory('');
-  };
-
-  const handleCreate = async () => {
-    setIsCreating(true);
-    try {
-      const res = await fetch('/api/agents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newName,
-          description: newDesc,
-          default_engine: newEngine,
-          metadata: { preferred_memory: newMemory, agent_type: newType },
-          password: newPassword || undefined
-        })
-      });
-      if (res.ok) {
-        setNewName(''); setNewDesc(''); setNewEngine(''); setNewMemory(''); setNewType('ai'); setNewPassword('');
-        refreshAgents();
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsCreating(false);
-    }
-  };
+  const memories = allMemories.filter(p => newAgent.type === 'ai' ? true : !isLlmPlugin(p));
 
   return (
     <div className="relative flex h-full bg-white/80 backdrop-blur-sm overflow-hidden">
       {/* Password Modal */}
       {powerTarget && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-80 space-y-4 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${powerTarget.enabled ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-500'}`}>
-                <Power size={18} />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">
-                  {powerTarget.enabled ? 'Power Off' : 'Power On'} {powerTarget.name}
-                </h3>
-                <p className="text-[10px] text-slate-400">Enter power password to continue</p>
-              </div>
-            </div>
-            <div className="relative">
-              <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-              <input
-                type="password"
-                value={powerPassword}
-                onChange={e => setPowerPassword(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && powerPassword && executePowerToggle(powerTarget, powerPassword)}
-                className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-[#2e4de6]"
-                placeholder="Password"
-                autoFocus
-              />
-            </div>
-            {powerError && (
-              <p className="text-[10px] text-red-500 font-medium">{powerError}</p>
-            )}
-            <div className="flex gap-2">
-              <button
-                onClick={() => { setPowerTarget(null); setPowerPassword(''); setPowerError(''); }}
-                className="flex-1 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-500 hover:bg-slate-50 transition-all"
-                disabled={isPowerLoading}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => executePowerToggle(powerTarget, powerPassword)}
-                disabled={!powerPassword || isPowerLoading}
-                className={`flex-1 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-50 ${
-                  powerTarget.enabled ? 'bg-red-500 hover:bg-red-600' : 'bg-emerald-500 hover:bg-emerald-600'
-                }`}
-              >
-                {isPowerLoading ? 'Processing...' : 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <PowerToggleModal
+          agent={powerTarget}
+          onClose={() => setPowerTarget(null)}
+          onSuccess={refreshAgents}
+        />
       )}
 
       {/* Main content */}
@@ -874,7 +774,7 @@ export function AgentTerminal({
               <label className="block text-xs font-bold text-slate-500 mb-2">Agent Type</label>
               <div className="grid grid-cols-2 gap-3">
                 {([['ai', 'AI Agent', 'LLM-powered reasoning'], ['container', 'Container', 'Script / bridge process']] as const).map(([type, label, desc]) => {
-                  const selected = newType === type;
+                  const selected = newAgent.type === type;
                   const color = agentTypeColor(type);
                   return (
                     <button
@@ -903,8 +803,8 @@ export function AgentTerminal({
               <label className="block text-xs font-bold text-slate-500 mb-1">Agent Name</label>
               <input
                 type="text"
-                value={newName}
-                onChange={e => setNewName(e.target.value)}
+                value={newAgent.name}
+                onChange={e => updateField('name', e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-[#2e4de6]"
                 placeholder="e.g. Mike"
               />
@@ -913,8 +813,8 @@ export function AgentTerminal({
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1">Description / System Prompt</label>
               <textarea
-                value={newDesc}
-                onChange={e => setNewDesc(e.target.value)}
+                value={newAgent.desc}
+                onChange={e => updateField('desc', e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-[#2e4de6] h-16 resize-none"
                 placeholder="Briefly describe the agent's role."
               />
@@ -922,12 +822,12 @@ export function AgentTerminal({
 
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1">
-                {newType === 'ai' ? 'LLM Engine' : 'Bridge Engine'}
+                {newAgent.type === 'ai' ? 'LLM Engine' : 'Bridge Engine'}
               </label>
               {filteredEngines.length > 0 ? (
                 <select
-                  value={newEngine}
-                  onChange={e => setNewEngine(e.target.value)}
+                  value={newAgent.engine}
+                  onChange={e => updateField('engine', e.target.value)}
                   className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:border-[#2e4de6] bg-white"
                 >
                   <option value="">Select Engine...</option>
@@ -937,7 +837,7 @@ export function AgentTerminal({
                 </select>
               ) : (
                 <div className="w-full px-2 py-1.5 rounded-lg border border-dashed border-slate-300 text-[10px] text-slate-400 font-mono text-center">
-                  No {newType === 'ai' ? 'LLM' : 'bridge'} engines available
+                  No {newAgent.type === 'ai' ? 'LLM' : 'bridge'} engines available
                 </div>
               )}
             </div>
@@ -945,8 +845,8 @@ export function AgentTerminal({
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1">Memory Engine</label>
               <select
-                value={newMemory}
-                onChange={e => setNewMemory(e.target.value)}
+                value={newAgent.memory}
+                onChange={e => updateField('memory', e.target.value)}
                 className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:border-[#2e4de6] bg-white"
               >
                 <option value="">Select Memory...</option>
@@ -964,8 +864,8 @@ export function AgentTerminal({
                 <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
                 <input
                   type="password"
-                  value={newPassword}
-                  onChange={e => setNewPassword(e.target.value)}
+                  value={newAgent.password}
+                  onChange={e => updateField('password', e.target.value)}
                   className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-[#2e4de6]"
                   placeholder="Leave empty for no password"
                 />
@@ -975,12 +875,12 @@ export function AgentTerminal({
 
             <button
               onClick={handleCreate}
-              disabled={!newName || !newEngine || isCreating}
+              disabled={!newAgent.name || !newAgent.engine || isCreating}
               className="w-full mt-2 text-white py-2.5 rounded-xl text-sm font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              style={{ backgroundColor: agentTypeColor(newType) }}
+              style={{ backgroundColor: agentTypeColor(newAgent.type) }}
             >
               {isCreating ? <Activity size={16} className="animate-spin" /> : <Plus size={16} />}
-              {newType === 'ai' ? 'CREATE AI AGENT' : 'CREATE CONTAINER'}
+              {newAgent.type === 'ai' ? 'CREATE AI AGENT' : 'CREATE CONTAINER'}
             </button>
           </div>
         </div>
