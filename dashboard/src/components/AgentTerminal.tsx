@@ -678,7 +678,7 @@ export function AgentTerminal({
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white/40">
+        <div className="p-6 flex items-center justify-between bg-white/40">
           <div>
             <h2 className="text-xl font-black tracking-tight text-slate-800 uppercase">Agent Management</h2>
             <p className="text-[10px] text-slate-400 font-mono tracking-widest uppercase mt-1">
@@ -691,7 +691,7 @@ export function AgentTerminal({
         </div>
 
         {/* Agent List */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-3 no-scrollbar">
+        <div className="flex-1 overflow-y-auto p-6 space-y-3 no-scrollbar bg-gradient-to-b from-white/40 from-25% via-white/20 via-65% to-[#2e4de6]/[0.05]">
           {isLoading ? (
             <div className="h-full flex items-center justify-center text-slate-300 font-mono text-[10px] tracking-widest uppercase animate-pulse">
               Scanning for containers...
@@ -705,9 +705,7 @@ export function AgentTerminal({
             agents.map((agent) => (
               <div
                 key={agent.id}
-                className="group p-4 bg-white border border-slate-100 rounded-xl shadow-sm flex items-center gap-4 transition-shadow duration-300 cursor-pointer"
-                onMouseEnter={(e) => e.currentTarget.style.boxShadow = `0 8px 25px -5px ${agentColor(agent)}30`}
-                onMouseLeave={(e) => e.currentTarget.style.boxShadow = ''}
+                className="group p-4 bg-white border border-slate-200 rounded-xl shadow-sm flex items-center gap-4 cursor-pointer"
                 onClick={() => handleSelectAgent(agent)}
               >
                 <div className="p-2.5 rounded-xl shrink-0" style={{ backgroundColor: `${agentColor(agent)}12`, color: agentColor(agent) }}>
@@ -763,8 +761,8 @@ export function AgentTerminal({
       </div>
 
       {/* Right Sidebar: Create Form */}
-      <div className="w-[380px] shrink-0 border-l border-slate-100 bg-slate-50/30 overflow-y-auto no-scrollbar hidden lg:flex flex-col">
-        <div className="p-5 border-b border-slate-100 bg-white/40">
+      <div className="w-[380px] shrink-0 border-l border-black/30 bg-slate-50/30 overflow-y-auto no-scrollbar hidden lg:flex flex-col">
+        <div className="p-5 bg-white/40">
           <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.15em]">Initialize New Agent</h3>
         </div>
         <div className="p-5 flex-1">

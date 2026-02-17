@@ -26,7 +26,7 @@ export const WindowAgentNavigator: React.FC<AgentNavigatorProps> = ({
   systemActive
 }) => {
   return (
-    <div className="w-16 h-full flex flex-col items-center py-4 bg-slate-50/50 backdrop-blur-md border-r border-slate-200/60 gap-4">
+    <div className="w-16 h-full flex flex-col items-center py-4 bg-slate-100/60 backdrop-blur-md border-r border-black/30 gap-4">
       {/* System / Kernel Icon */}
       <button
         onClick={onSelectSystem}
@@ -43,7 +43,7 @@ export const WindowAgentNavigator: React.FC<AgentNavigatorProps> = ({
         )}
       </button>
 
-      <div className="w-8 h-[1px] bg-slate-200/80" />
+      <div className="w-8 h-px bg-black" />
 
       {/* Agents List */}
       <div className="flex flex-col gap-3 overflow-y-auto no-scrollbar pb-2 w-full px-2 items-center">

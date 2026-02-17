@@ -175,7 +175,7 @@ export function Home() {
       {/* Main View Overlay */}
       {activeMainView && (
         <div className="fixed inset-0 z-40 bg-slate-50 animate-in fade-in duration-300">
-          <div className="absolute top-0 left-0 right-0 h-16 border-b border-slate-200 flex items-center justify-between px-8 bg-white z-50">
+          <div className="absolute top-0 left-0 right-0 h-16 border-b border-black/30 flex items-center justify-between px-8 bg-white z-50">
             <div className="flex items-center gap-6">
                <button 
                  onClick={() => setActiveMainView(null)}
