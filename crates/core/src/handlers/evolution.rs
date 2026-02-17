@@ -17,6 +17,11 @@ fn get_engine(state: &AppState) -> AppResult<&Arc<crate::evolution::EvolutionEng
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("Evolution engine not initialized")))
 }
 
+fn to_json<T: serde::Serialize>(value: &T) -> AppResult<Json<serde_json::Value>> {
+    Ok(Json(serde_json::to_value(value)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Serialization failed: {}", e)))?))
+}
+
 #[derive(Deserialize)]
 pub struct LimitQuery {
     pub limit: Option<usize>,
@@ -30,7 +35,7 @@ pub async fn get_evolution_status(
     let agent_id = &state.config.default_agent_id;
     let status = evo.get_status(agent_id).await
         .map_err(|e| AppError::Internal(e))?;
-    Ok(Json(serde_json::to_value(status).unwrap_or_default()))
+    to_json(&status)
 }
 
 /// GET /api/evolution/generations — Generation history
@@ -43,7 +48,7 @@ pub async fn get_generation_history(
     let limit = query.limit.unwrap_or(50);
     let history = evo.get_generation_history(agent_id, limit).await
         .map_err(|e| AppError::Internal(e))?;
-    Ok(Json(serde_json::to_value(history).unwrap_or_default()))
+    to_json(&history)
 }
 
 /// GET /api/evolution/generations/:n — Single generation record
@@ -56,7 +61,7 @@ pub async fn get_generation(
     let record = evo.get_generation(agent_id, n).await
         .map_err(|e| AppError::Internal(e))?;
     match record {
-        Some(r) => Ok(Json(serde_json::to_value(r).unwrap_or_default())),
+        Some(r) => to_json(&r),
         None => Err(AppError::NotFound(format!("Generation {} not found", n))),
     }
 }
@@ -71,7 +76,7 @@ pub async fn get_fitness_timeline(
     let limit = query.limit.unwrap_or(100);
     let timeline = evo.get_fitness_timeline(agent_id, limit).await
         .map_err(|e| AppError::Internal(e))?;
-    Ok(Json(serde_json::to_value(timeline).unwrap_or_default()))
+    to_json(&timeline)
 }
 
 /// GET /api/evolution/params — Get evolution parameters (auth required)
@@ -84,7 +89,7 @@ pub async fn get_evolution_params(
     let agent_id = &state.config.default_agent_id;
     let params = evo.get_params(agent_id).await
         .map_err(|e| AppError::Internal(e))?;
-    Ok(Json(serde_json::to_value(params).unwrap_or_default()))
+    to_json(&params)
 }
 
 /// PUT /api/evolution/params — Update evolution parameters (auth required)
@@ -112,7 +117,11 @@ pub async fn update_evolution_params(
         return Err(AppError::Validation("min_interactions must be > 0".to_string()));
     }
     let w = &params.weights;
-    if w.cognitive < 0.0 || w.behavioral < 0.0 || w.safety < 0.0 || w.autonomy < 0.0 || w.meta_learning < 0.0 {
+    let all_weights = [w.cognitive, w.behavioral, w.safety, w.autonomy, w.meta_learning];
+    if all_weights.iter().any(|v| !v.is_finite()) {
+        return Err(AppError::Validation("all weights must be finite numbers".to_string()));
+    }
+    if all_weights.iter().any(|v| *v < 0.0) {
         return Err(AppError::Validation("all weights must be non-negative".to_string()));
     }
     let weight_sum = w.cognitive + w.behavioral + w.safety + w.autonomy + w.meta_learning;
@@ -150,5 +159,5 @@ pub async fn get_rollback_history(
     let agent_id = &state.config.default_agent_id;
     let history = evo.get_rollback_history(agent_id).await
         .map_err(|e| AppError::Internal(e))?;
-    Ok(Json(serde_json::to_value(history).unwrap_or_default()))
+    to_json(&history)
 }

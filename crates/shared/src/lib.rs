@@ -129,6 +129,18 @@ pub trait PluginDataStore: Send + Sync {
     async fn get_json(&self, plugin_id: &str, key: &str) -> anyhow::Result<Option<serde_json::Value>>;
     /// 指定されたプレフィックスを持つ全てのデータを取得
     async fn get_all_json(&self, plugin_id: &str, key_prefix: &str) -> anyhow::Result<Vec<(String, serde_json::Value)>>;
+
+    /// アトミックにカウンタをインクリメントし、更新後の値を返す (TOCTOU防止)
+    async fn increment_counter(&self, plugin_id: &str, key: &str) -> anyhow::Result<i64> {
+        // デフォルト実装: get→increment→set (非アトミック、テスト用フォールバック)
+        let current = match self.get_json(plugin_id, key).await? {
+            Some(val) => serde_json::from_value::<i64>(val).unwrap_or(0),
+            None => 0,
+        };
+        let new_val = current + 1;
+        self.set_json(plugin_id, key, serde_json::to_value(new_val)?).await?;
+        Ok(new_val)
+    }
 }
 
 /// SALを型安全に利用するための拡張トレイト

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft, TrendingUp, TrendingDown, Shield, Brain, Zap,
-  RotateCcw, Settings, Activity, Eye, Minus, Lock,
+  Settings, Activity, Eye, Minus, Lock,
 } from 'lucide-react';
 import { useEvolution } from '../hooks/useEvolution';
 import { api } from '../services/api';
@@ -102,7 +102,7 @@ function ScoreboardPanel({ status }: { status: ReturnType<typeof useEvolution>['
       {status.grace_period?.active && (
         <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[10px] font-mono text-amber-400">
           GRACE PERIOD: {status.grace_period.affected_axis} axis regression detected.
-          {status.grace_period.grace_interactions - (status.interaction_count - status.grace_period.interactions_at_start)} interactions remaining.
+          {Math.max(0, status.grace_period.grace_interactions - (status.interaction_count - status.grace_period.interactions_at_start))} interactions remaining.
         </div>
       )}
     </div>
@@ -114,13 +114,15 @@ function FitnessChart({ timeline }: { timeline: FitnessLogEntry[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const mouseRef = useRef({ x: -1, y: -1 });
-  const rafRef = useRef<number>(0);
+  const timelineRef = useRef(timeline);
+  useEffect(() => { timelineRef.current = timeline; }, [timeline]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    const data = timelineRef.current;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = canvas.width / dpr;
@@ -128,7 +130,7 @@ function FitnessChart({ timeline }: { timeline: FitnessLogEntry[] }) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    if (timeline.length < 2) {
+    if (data.length < 2) {
       ctx.fillStyle = 'rgba(255,255,255,0.2)';
       ctx.font = '11px monospace';
       ctx.textAlign = 'center';
@@ -143,7 +145,8 @@ function FitnessChart({ timeline }: { timeline: FitnessLogEntry[] }) {
     // Y-axis grid lines
     ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.lineWidth = 1;
-    for (let v = 0; v <= 1; v += 0.2) {
+    for (let i = 0; i <= 5; i++) {
+      const v = i / 5;
       const y = pad.top + ch * (1 - v);
       ctx.beginPath();
       ctx.moveTo(pad.left, y);
@@ -158,24 +161,24 @@ function FitnessChart({ timeline }: { timeline: FitnessLogEntry[] }) {
 
     // Draw axis lines
     const axes: (keyof FitnessScores)[] = ['cognitive', 'behavioral', 'safety', 'autonomy', 'meta_learning'];
-    const allLines: { key: string; color: string; data: number[] }[] = axes.map(a => ({
+    const allLines: { key: string; color: string; pts: number[] }[] = axes.map(a => ({
       key: a,
       color: AXIS_COLORS[a],
-      data: timeline.map(e => e.scores[a]),
+      pts: data.map(e => e.scores[a]),
     }));
     allLines.push({
       key: 'fitness',
       color: '#ffffff',
-      data: timeline.map(e => e.fitness),
+      pts: data.map(e => e.fitness),
     });
 
     for (const line of allLines) {
       ctx.strokeStyle = line.key === 'fitness' ? line.color : `${line.color}80`;
       ctx.lineWidth = line.key === 'fitness' ? 2 : 1;
       ctx.beginPath();
-      for (let i = 0; i < line.data.length; i++) {
-        const x = pad.left + (i / (line.data.length - 1)) * cw;
-        const y = pad.top + ch * (1 - Math.min(1, Math.max(0, line.data[i])));
+      for (let i = 0; i < line.pts.length; i++) {
+        const x = pad.left + (i / (line.pts.length - 1)) * cw;
+        const y = pad.top + ch * (1 - Math.min(1, Math.max(0, line.pts[i])));
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
       ctx.stroke();
@@ -185,19 +188,19 @@ function FitnessChart({ timeline }: { timeline: FitnessLogEntry[] }) {
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.font = '8px monospace';
     ctx.textAlign = 'left';
-    const firstTs = new Date(timeline[0].timestamp).toLocaleTimeString();
+    const firstTs = new Date(data[0].timestamp).toLocaleTimeString();
     ctx.fillText(firstTs, pad.left, h - 4);
     ctx.textAlign = 'right';
-    const lastTs = new Date(timeline[timeline.length - 1].timestamp).toLocaleTimeString();
+    const lastTs = new Date(data[data.length - 1].timestamp).toLocaleTimeString();
     ctx.fillText(lastTs, w - pad.right, h - 4);
 
     // Hover crosshair
     const mx = mouseRef.current.x;
     if (mx >= pad.left && mx <= pad.left + cw) {
-      const idx = Math.round(((mx - pad.left) / cw) * (timeline.length - 1));
-      if (idx >= 0 && idx < timeline.length) {
-        const entry = timeline[idx];
-        const x = pad.left + (idx / (timeline.length - 1)) * cw;
+      const idx = Math.round(((mx - pad.left) / cw) * (data.length - 1));
+      if (idx >= 0 && idx < data.length) {
+        const entry = data[idx];
+        const x = pad.left + (idx / (data.length - 1)) * cw;
 
         // Vertical line
         ctx.strokeStyle = 'rgba(255,255,255,0.15)';
@@ -209,24 +212,27 @@ function FitnessChart({ timeline }: { timeline: FitnessLogEntry[] }) {
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Tooltip
+        // H-11: Tooltip with right-edge overflow prevention
+        const tooltipW = 110;
+        const tooltipH = 80;
         const tooltipY = pad.top + 4;
+        const tooltipX = (x + 6 + tooltipW > w - pad.right) ? x - tooltipW - 6 : x + 6;
         ctx.fillStyle = 'rgba(0,0,0,0.8)';
-        ctx.fillRect(x + 6, tooltipY, 110, 80);
+        ctx.fillRect(tooltipX, tooltipY, tooltipW, tooltipH);
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 9px monospace';
         ctx.textAlign = 'left';
-        ctx.fillText(`F: ${entry.fitness.toFixed(4)}`, x + 10, tooltipY + 12);
+        ctx.fillText(`F: ${entry.fitness.toFixed(4)}`, tooltipX + 4, tooltipY + 12);
 
         let ty = tooltipY + 24;
         for (const a of axes) {
           ctx.fillStyle = AXIS_COLORS[a];
-          ctx.fillText(`${AXIS_LABELS[a]}: ${entry.scores[a].toFixed(3)}`, x + 10, ty);
+          ctx.fillText(`${AXIS_LABELS[a]}: ${entry.scores[a].toFixed(3)}`, tooltipX + 4, ty);
           ty += 11;
         }
       }
     }
-  }, [timeline]);
+  }, []);
 
   // Resize observer
   useEffect(() => {
@@ -252,36 +258,28 @@ function FitnessChart({ timeline }: { timeline: FitnessLogEntry[] }) {
     return () => ro.disconnect();
   }, [draw]);
 
-  // RAF render loop for hover
-  useEffect(() => {
-    let running = true;
-    const loop = () => {
-      if (!running) return;
-      draw();
-      rafRef.current = requestAnimationFrame(loop);
-    };
-    rafRef.current = requestAnimationFrame(loop);
-    return () => {
-      running = false;
-      cancelAnimationFrame(rafRef.current);
-    };
-  }, [draw]);
+  // Redraw when timeline data changes
+  useEffect(() => { draw(); }, [timeline, draw]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     mouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  }, []);
+    draw();
+  }, [draw]);
 
   const handleMouseLeave = useCallback(() => {
     mouseRef.current = { x: -1, y: -1 };
-  }, []);
+    draw();
+  }, [draw]);
 
   return (
     <div ref={containerRef} className="w-full h-full relative">
       <canvas
         ref={canvasRef}
         className="w-full h-full"
+        role="img"
+        aria-label="Fitness timeline chart showing 5-axis scores over time"
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
       />
@@ -306,6 +304,7 @@ function FitnessChart({ timeline }: { timeline: FitnessLogEntry[] }) {
 function BottomPanel({ data }: { data: ReturnType<typeof useEvolution> }) {
   const [tab, setTab] = useState<Tab>('generations');
   const [showParamModal, setShowParamModal] = useState(false);
+  const [paramRefreshKey, setParamRefreshKey] = useState(0);
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'generations', label: 'GENERATIONS' },
@@ -317,10 +316,12 @@ function BottomPanel({ data }: { data: ReturnType<typeof useEvolution> }) {
   return (
     <div className="flex flex-col h-full">
       {/* Tab Bar */}
-      <div className="flex gap-1 p-2 border-b border-white/5">
+      <div className="flex gap-1 p-2 border-b border-white/5" role="tablist">
         {tabs.map(t => (
           <button
             key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
             className={`px-3 py-1 rounded text-[9px] font-black uppercase tracking-wider transition-all ${
               tab === t.id
@@ -338,13 +339,13 @@ function BottomPanel({ data }: { data: ReturnType<typeof useEvolution> }) {
         {tab === 'generations' && <GenerationsTab generations={data.generations} />}
         {tab === 'events' && <EventsTab events={data.events} />}
         {tab === 'rollbacks' && <RollbacksTab rollbacks={data.rollbacks} />}
-        {tab === 'params' && <ParamsTab onEdit={() => setShowParamModal(true)} />}
+        {tab === 'params' && <ParamsTab onEdit={() => setShowParamModal(true)} refreshKey={paramRefreshKey} />}
       </div>
 
       {showParamModal && (
         <ParamEditModal
           onClose={() => setShowParamModal(false)}
-          onSuccess={() => { setShowParamModal(false); data.refresh(); }}
+          onSuccess={() => { setShowParamModal(false); setParamRefreshKey(k => k + 1); data.refresh(); }}
         />
       )}
     </div>
@@ -399,7 +400,7 @@ function EventsTab({ events }: { events: ReturnType<typeof useEvolution>['events
   return (
     <div className="flex flex-col gap-1">
       {events.map((evt, i) => (
-        <div key={i} className="flex items-start gap-2 text-[10px] font-mono py-1 border-b border-white/5">
+        <div key={`${evt.timestamp}-${evt.type}-${i}`} className="flex items-start gap-2 text-[10px] font-mono py-1 border-b border-white/5">
           <span className="text-content-tertiary w-16 shrink-0">
             {new Date(evt.timestamp).toLocaleTimeString()}
           </span>
@@ -428,7 +429,7 @@ function RollbacksTab({ rollbacks }: { rollbacks: ReturnType<typeof useEvolution
       </thead>
       <tbody>
         {rollbacks.map((r, i) => (
-          <tr key={i} className="border-t border-white/5">
+          <tr key={`${r.from_generation}-${r.timestamp}-${i}`} className="border-t border-white/5">
             <td className="pr-3 py-1 text-red-400 font-bold">G{r.from_generation}</td>
             <td className="pr-3 py-1 text-green-400 font-bold">G{r.to_generation}</td>
             <td className="pr-3 py-1">{r.reason}</td>
@@ -441,13 +442,17 @@ function RollbacksTab({ rollbacks }: { rollbacks: ReturnType<typeof useEvolution
   );
 }
 
-function ParamsTab({ onEdit }: { onEdit: () => void }) {
+function ParamsTab({ onEdit, refreshKey }: { onEdit: () => void; refreshKey: number }) {
   const [params, setParams] = useState<EvolutionParams | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getEvolutionParams().then(setParams).catch(() => {});
-  }, []);
+    api.getEvolutionParams().then(setParams).catch(e => setError(e.message));
+  }, [refreshKey]);
 
+  if (error) {
+    return <div className="text-red-400 text-xs font-mono">Failed to load params: {error}</div>;
+  }
   if (!params) {
     return <div className="text-content-tertiary text-xs font-mono">Loading parameters...</div>;
   }
@@ -494,7 +499,7 @@ function ParamsTab({ onEdit }: { onEdit: () => void }) {
 }
 
 function ParamEditModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
-  const [password, setPassword] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [params, setParams] = useState<EvolutionParams | null>(null);
@@ -512,25 +517,30 @@ function ParamEditModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
         gamma: String(p.gamma),
         min_interactions: String(p.min_interactions),
       });
-    }).catch(() => {});
+    }).catch(e => setError(e.message));
   }, []);
 
   const handleSave = async () => {
-    if (!password) return;
+    if (!apiKey) return;
     setIsLoading(true);
     setError('');
     try {
-      const update: Partial<EvolutionParams> = {
-        alpha: parseFloat(form.alpha),
-        beta: parseFloat(form.beta),
-        theta_min: parseFloat(form.theta_min),
-        gamma: parseFloat(form.gamma),
-        min_interactions: parseInt(form.min_interactions),
-      };
-      await api.updateEvolutionParams(update, password);
+      const alpha = parseFloat(form.alpha);
+      const beta = parseFloat(form.beta);
+      const theta_min = parseFloat(form.theta_min);
+      const gamma = parseFloat(form.gamma);
+      const min_interactions = parseInt(form.min_interactions);
+      const values = [alpha, beta, theta_min, gamma, min_interactions];
+      if (values.some(v => isNaN(v) || !isFinite(v))) {
+        setError('All fields must be valid numbers');
+        setIsLoading(false);
+        return;
+      }
+      const update: Partial<EvolutionParams> = { alpha, beta, theta_min, gamma, min_interactions };
+      await api.updateEvolutionParams(update, apiKey);
       onSuccess();
-    } catch (err: any) {
-      setError(err.message || 'Failed to update params');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to update params');
     } finally {
       setIsLoading(false);
     }
@@ -547,7 +557,13 @@ function ParamEditModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
   ];
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div
+      className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Edit Evolution Params"
+      onKeyDown={e => e.key === 'Escape' && onClose()}
+    >
       <div className="bg-[#1a1a2e] rounded-2xl shadow-2xl p-6 w-80 space-y-3 border border-white/10">
         <div className="flex items-center gap-2">
           <Settings size={16} className="text-content-secondary" />
@@ -568,14 +584,14 @@ function ParamEditModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
         ))}
 
         <div className="relative pt-2 border-t border-white/10">
-          <label className="text-[9px] font-mono text-content-tertiary uppercase">Password</label>
+          <label className="text-[9px] font-mono text-content-tertiary uppercase">API Key</label>
           <div className="relative">
             <Lock size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-content-muted" />
             <input
               type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && password && handleSave()}
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && apiKey && handleSave()}
               className="w-full pl-7 pr-2 py-1.5 rounded-lg border border-white/10 bg-white/5 text-xs font-mono focus:outline-none focus:border-purple-400"
               placeholder="Required"
               autoFocus
@@ -595,7 +611,7 @@ function ParamEditModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
           </button>
           <button
             onClick={handleSave}
-            disabled={!password || isLoading}
+            disabled={!apiKey || isLoading}
             className="flex-1 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all disabled:opacity-50"
           >
             {isLoading ? 'Saving...' : 'Save'}
@@ -623,6 +639,12 @@ export const EvolutionCore = memo(function EvolutionCore({ isWindowMode = false 
       <div className={`${isWindowMode ? 'h-full' : 'min-h-screen'} flex flex-col items-center justify-center bg-surface-base gap-4`}>
         <div className="text-content-tertiary font-mono text-xs">EVOLUTION ENGINE OFFLINE</div>
         <div className="text-[10px] text-red-400 font-mono max-w-md text-center">{evo.error}</div>
+        <button
+          onClick={evo.refresh}
+          className="px-4 py-2 rounded-full bg-white/5 border border-white/10 text-xs font-bold text-content-secondary hover:text-content-primary transition-all"
+        >
+          RETRY
+        </button>
         {!isWindowMode && (
           <Link to="/" className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-xs font-bold text-content-secondary hover:text-content-primary transition-all">
             <ArrowLeft size={14} /> BACK

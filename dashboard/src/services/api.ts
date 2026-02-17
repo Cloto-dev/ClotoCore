@@ -262,11 +262,14 @@ export const api = {
     return res.json();
   },
 
-  async updateEvolutionParams(params: Partial<EvolutionParams>, password: string): Promise<void> {
+  async updateEvolutionParams(params: Partial<EvolutionParams>, apiKey: string): Promise<void> {
     const res = await fetch(`${API_BASE}/evolution/params`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...params, password }),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey,
+      },
+      body: JSON.stringify(params),
     });
     if (!res.ok) throw new Error(`Failed to update evolution params: ${res.statusText}`);
   },

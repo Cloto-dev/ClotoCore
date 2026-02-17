@@ -22,7 +22,7 @@ export function useEvolution() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const debounceRef = useRef<number | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -37,8 +37,8 @@ export function useEvolution() {
       setGenerations(g);
       setRollbacks(r);
       setError(null);
-    } catch (e: any) {
-      setError(e.message || 'Failed to load evolution data');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load evolution data');
     } finally {
       setLoading(false);
     }

@@ -191,11 +191,11 @@ export interface AgentSnapshot {
 
 export interface GenerationRecord {
   generation: number;
-  trigger: string;
+  trigger: 'Evolution' | 'Regression' | 'SafetyBreach' | 'Rebalance' | 'AutonomyUpgrade' | 'CapabilityGain' | string;
   timestamp: string;
   interactions_since_last: number;
   scores: FitnessScores;
-  delta: FitnessScores;
+  delta: Record<string, number>;
   fitness: number;
   fitness_delta: number;
   snapshot: AgentSnapshot | null;
@@ -230,10 +230,10 @@ export interface EvolutionStatus {
   current_generation: number;
   fitness: number;
   scores: FitnessScores;
-  trend: string;
+  trend: 'improving' | 'declining' | 'stable';
   interaction_count: number;
   grace_period: GracePeriodState | null;
-  autonomy_level: string;
+  autonomy_level: string; // e.g. "L0"-"L5"
   top_axes: [string, number][];
 }
 

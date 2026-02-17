@@ -111,6 +111,34 @@ impl PluginDataStore for SqliteDataStore {
         }
         Ok(results)
     }
+
+    async fn increment_counter(&self, plugin_id: &str, key: &str) -> anyhow::Result<i64> {
+        if key.contains('\0') {
+            return Err(anyhow::anyhow!("Key must not contain null bytes"));
+        }
+        if key.len() > 255 {
+            return Err(anyhow::anyhow!("Key exceeds maximum length (255 characters)"));
+        }
+
+        // Atomic UPSERT: INSERT or UPDATE in a single SQL statement
+        // The RETURNING clause gives us the new value without a second query
+        let query_future = sqlx::query_as::<_, (String,)>(
+            "INSERT INTO plugin_data (plugin_id, key, value) VALUES (?, ?, '1') \
+             ON CONFLICT(plugin_id, key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) \
+             RETURNING value"
+        )
+            .bind(plugin_id)
+            .bind(key)
+            .fetch_one(&self.pool);
+
+        let (val_str,) = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
+            .await
+            .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
+            .map_err(|e| anyhow::anyhow!("Database increment failed: {}", e))?;
+
+        val_str.parse::<i64>()
+            .map_err(|e| anyhow::anyhow!("Failed to parse counter value '{}': {}", val_str, e))
+    }
 }
 
 /// Proxy that restricts operations to a specific plugin ID (Security Guardrail)
@@ -138,6 +166,10 @@ impl PluginDataStore for ScopedDataStore {
 
     async fn get_all_json(&self, _plugin_id: &str, key_prefix: &str) -> anyhow::Result<Vec<(String, serde_json::Value)>> {
         self.inner.get_all_json(&self.plugin_id, key_prefix).await
+    }
+
+    async fn increment_counter(&self, _plugin_id: &str, key: &str) -> anyhow::Result<i64> {
+        self.inner.increment_counter(&self.plugin_id, key).await
     }
 }
 
