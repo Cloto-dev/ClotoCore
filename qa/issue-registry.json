@@ -122,6 +122,126 @@
       "pattern": "# H-11: Pre-build version validation",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-024",
+      "summary": "TUI terminal corruption on panic/error - no cleanup guard",
+      "severity": "CRITICAL",
+      "discovered": "2026-02-17T10:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcc5d54",
+      "file": "crates/cli/src/tui/mod.rs",
+      "pattern": "fn restore_terminal",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-025",
+      "summary": "CLI SSE URL path mismatch: /api/events/stream vs kernel /api/events",
+      "severity": "HIGH",
+      "discovered": "2026-02-17T10:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcc5d54",
+      "file": "crates/cli/src/client.rs",
+      "pattern": "/api/events/stream",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-026",
+      "summary": "UTF-8 panic in logs.rs: byte-index slice on multi-byte characters",
+      "severity": "HIGH",
+      "discovered": "2026-02-17T10:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcc5d54",
+      "file": "crates/cli/src/commands/logs.rs",
+      "pattern": "&content\\[\\.\\.57\\]",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-027",
+      "summary": "config set writes env-var API key to disk file",
+      "severity": "HIGH",
+      "discovered": "2026-02-17T10:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcc5d54",
+      "file": "crates/cli/src/config.rs",
+      "pattern": "pub fn set\\(&mut self",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-028",
+      "summary": "TUI scroll position not clamped when agent list shrinks",
+      "severity": "HIGH",
+      "discovered": "2026-02-17T10:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcc5d54",
+      "file": "crates/cli/src/tui/app.rs",
+      "pattern": "agent_scroll\\.min\\(agents\\.len\\(\\)",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-029",
+      "summary": "TUI event scroll direction inverted for reversed events list",
+      "severity": "HIGH",
+      "discovered": "2026-02-17T10:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcc5d54",
+      "file": "crates/cli/src/tui/widgets/events.rs",
+      "pattern": "state\\.select\\(Some\\(app\\.event_scroll\\)\\)",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-030",
+      "summary": "Chat SSE timeout only checked between chunks, not during blocking wait",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-17T10:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcc5d54",
+      "file": "crates/cli/src/commands/chat.rs",
+      "pattern": "while let Some\\(chunk\\) = stream\\.next\\(\\)\\.await",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-031",
+      "summary": "TUI startup deadlock when history exceeds channel capacity",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-17T10:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcc5d54",
+      "file": "crates/cli/src/tui/mod.rs",
+      "pattern": "tx\\.try_send\\(AppAction::NewEvent",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-032",
+      "summary": "Logs JSON and text modes output opposite chronological orders",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-17T10:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcc5d54",
+      "file": "crates/cli/src/commands/logs.rs",
+      "pattern": "into_iter\\(\\)\\.rev\\(\\)\\.collect",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-033",
+      "summary": "Status offline count inconsistent between JSON and text modes",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-17T10:00:00Z",
+      "version": "0.1.0",
+      "commit": "fcc5d54",
+      "file": "crates/cli/src/commands/status.rs",
+      "pattern": "agents\\.len\\(\\) - online - degraded",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

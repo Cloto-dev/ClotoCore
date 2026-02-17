@@ -70,13 +70,30 @@ impl CliConfig {
         Ok(())
     }
 
+    /// Load config from file only (without env var overrides).
+    /// Used by `set()` to avoid writing env-var values back to disk.
+    fn load_file_only() -> Result<Self> {
+        let path = Self::path()?;
+        if path.exists() {
+            let content = std::fs::read_to_string(&path)
+                .with_context(|| format!("Failed to read {}", path.display()))?;
+            toml::from_str(&content)
+                .with_context(|| format!("Failed to parse {}", path.display()))
+        } else {
+            Ok(Self::default())
+        }
+    }
+
     /// Set a single config key and save.
-    pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
+    /// bug-027: Loads from file only (not env vars) to prevent writing
+    /// environment credentials to disk.
+    pub fn set(key: &str, value: &str) -> Result<()> {
+        let mut config = Self::load_file_only()?;
         match key {
-            "url" => self.url = value.to_string(),
-            "api_key" => self.api_key = Some(value.to_string()),
+            "url" => config.url = value.to_string(),
+            "api_key" => config.api_key = Some(value.to_string()),
             _ => anyhow::bail!("Unknown config key: {key}. Valid keys: url, api_key"),
         }
-        self.save()
+        config.save()
     }
 }

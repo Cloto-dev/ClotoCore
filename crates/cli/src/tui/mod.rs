@@ -17,6 +17,14 @@ use crate::client::ExivClient;
 use crate::config::CliConfig;
 use app::{App, AppAction};
 
+/// Restore terminal state (raw mode, alternate screen, cursor).
+/// Called on both normal exit and panic to prevent terminal corruption.
+fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) {
+    let _ = disable_raw_mode();
+    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    let _ = terminal.show_cursor();
+}
+
 /// Launch the TUI dashboard.
 pub async fn run() -> Result<()> {
     let config = CliConfig::load()?;
@@ -30,8 +38,16 @@ pub async fn run() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).context("Failed to create terminal")?;
 
-    // Channel for background tasks to send updates
-    let (tx, mut rx) = mpsc::channel::<AppAction>(64);
+    // bug-024: Install panic hook to restore terminal on panic
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen);
+        original_hook(info);
+    }));
+
+    // bug-031: Larger channel to prevent startup deadlock with large history
+    let (tx, mut rx) = mpsc::channel::<AppAction>(512);
 
     // Spawn background polling task (agents, plugins, metrics)
     let poll_client = ExivClient::new(&config);
@@ -59,67 +75,72 @@ pub async fn run() -> Result<()> {
     let sse_tx = tx.clone();
     tokio::spawn(async move {
         loop {
-            match sse_client.sse_stream().await {
-                Ok(response) => {
-                    let mut stream = response.bytes_stream();
-                    let mut buffer = String::new();
+            if let Ok(response) = sse_client.sse_stream().await {
+                let mut stream = response.bytes_stream();
+                let mut buffer = String::new();
 
-                    while let Some(chunk) = stream.next().await {
-                        let chunk = match chunk {
-                            Ok(c) => c,
-                            Err(_) => break,
-                        };
-                        buffer.push_str(&String::from_utf8_lossy(&chunk));
+                while let Some(chunk) = stream.next().await {
+                    let Ok(chunk) = chunk else { break };
+                    buffer.push_str(&String::from_utf8_lossy(&chunk));
 
-                        while let Some(pos) = buffer.find("\n\n") {
-                            let event_block = buffer[..pos].to_string();
-                            buffer = buffer[pos + 2..].to_string();
+                    while let Some(pos) = buffer.find("\n\n") {
+                        let event_block = buffer[..pos].to_string();
+                        buffer = buffer[pos + 2..].to_string();
 
-                            for line in event_block.lines() {
-                                if let Some(data) = line.strip_prefix("data:") {
-                                    let data = data.trim();
-                                    if data == "connected" || data == "keep-alive" || data.is_empty() {
-                                        continue;
-                                    }
-                                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(data) {
-                                        let _ = sse_tx.send(AppAction::NewEvent(event)).await;
-                                    }
+                        for line in event_block.lines() {
+                            if let Some(data) = line.strip_prefix("data:") {
+                                let data = data.trim();
+                                if data == "connected" || data == "keep-alive" || data.is_empty() {
+                                    continue;
+                                }
+                                if let Ok(event) = serde_json::from_str::<serde_json::Value>(data) {
+                                    let _ = sse_tx.send(AppAction::NewEvent(event)).await;
                                 }
                             }
                         }
                     }
                 }
-                Err(_) => {}
             }
             // Reconnect after a delay
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         }
     });
 
-    // Initial fetch
+    // Initial fetch — use try_send to avoid blocking if channel fills (bug-031)
     if let Ok(agents) = client.get_agents().await {
-        let _ = tx.send(AppAction::AgentsUpdated(agents)).await;
+        let _ = tx.try_send(AppAction::AgentsUpdated(agents));
     }
     if let Ok(history) = client.get_history().await {
         for event in history {
-            let _ = tx.send(AppAction::NewEvent(event)).await;
+            let _ = tx.try_send(AppAction::NewEvent(event));
         }
     }
 
     let mut app = App::new(endpoint);
 
-    // Main loop
-    loop {
-        // Draw
-        terminal.draw(|f| ui::draw(f, &app))?;
+    // bug-024: Main loop with guaranteed cleanup on error
+    let result = run_main_loop(&mut terminal, &mut app, &mut rx).await;
 
-        // Process pending actions (non-blocking drain)
+    // Restore terminal — always runs regardless of error
+    restore_terminal(&mut terminal);
+
+    result
+}
+
+/// Inner main loop, separated to guarantee cleanup runs even on `?` errors.
+async fn run_main_loop(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    rx: &mut mpsc::Receiver<AppAction>,
+) -> Result<()> {
+    loop {
+        terminal.draw(|f| ui::draw(f, app))?;
+
         while let Ok(action) = rx.try_recv() {
             app.apply(action);
         }
 
-        // Handle keyboard events
-        if !event::handle_events(&mut app)? {
+        if !event::handle_events(app)? {
             break;
         }
 
@@ -127,12 +148,5 @@ pub async fn run() -> Result<()> {
             break;
         }
     }
-
-    // Restore terminal
-    disable_raw_mode().context("Failed to disable raw mode")?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)
-        .context("Failed to leave alternate screen")?;
-    terminal.show_cursor().context("Failed to show cursor")?;
-
     Ok(())
 }

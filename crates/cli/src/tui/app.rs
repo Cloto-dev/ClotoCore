@@ -63,6 +63,12 @@ impl App {
     pub fn apply(&mut self, action: AppAction) {
         match action {
             AppAction::AgentsUpdated(agents) => {
+                // bug-028: Clamp scroll position when list shrinks
+                if !agents.is_empty() {
+                    self.agent_scroll = self.agent_scroll.min(agents.len() - 1);
+                } else {
+                    self.agent_scroll = 0;
+                }
                 self.agents = agents;
                 self.connected = true;
                 self.last_refresh = std::time::Instant::now();
@@ -78,6 +84,12 @@ impl App {
                 // Keep a rolling window
                 if self.events.len() > 200 {
                     self.events.drain(..self.events.len() - 200);
+                }
+                // bug-028: Clamp event scroll after drain
+                if !self.events.is_empty() {
+                    self.event_scroll = self.event_scroll.min(self.events.len() - 1);
+                } else {
+                    self.event_scroll = 0;
                 }
             }
             AppAction::Tick => {}

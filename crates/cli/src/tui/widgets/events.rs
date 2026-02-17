@@ -93,7 +93,10 @@ pub fn render(f: &mut Frame, area: Rect, app: &App, is_active: bool) {
 
     let mut state = ListState::default();
     if !app.events.is_empty() {
-        state.select(Some(app.event_scroll));
+        // bug-029: Convert logical index to display index.
+        // The list is rendered in reverse order, so display_index = len - 1 - logical_index.
+        let display_index = app.events.len() - 1 - app.event_scroll.min(app.events.len() - 1);
+        state.select(Some(display_index));
     }
 
     let list = List::new(items)

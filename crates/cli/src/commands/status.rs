@@ -34,7 +34,8 @@ pub async fn run(client: &ExivClient, json_mode: bool) -> Result<()> {
 
     let online = agents.iter().filter(|a| a.status == "online").count();
     let degraded = agents.iter().filter(|a| a.status == "degraded").count();
-    let offline = agents.len() - online - degraded;
+    // bug-033: Use explicit filter (same as JSON mode) instead of subtraction
+    let offline = agents.iter().filter(|a| a.status != "online" && a.status != "degraded").count();
 
     let active_plugins = plugins.iter().filter(|p| p.is_active).count();
 

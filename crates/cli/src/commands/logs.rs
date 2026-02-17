@@ -5,6 +5,18 @@ use futures::StreamExt;
 use crate::client::ExivClient;
 use crate::output;
 
+/// Truncate a string to at most `max_chars` characters, appending "..." if truncated.
+/// Safe for multi-byte UTF-8 (uses char boundaries, not byte indices).
+fn truncate_preview(content: &str, max_chars: usize) -> String {
+    let char_count = content.chars().count();
+    if char_count > max_chars {
+        let truncated: String = content.chars().take(max_chars - 3).collect();
+        format!("\"{truncated}...\"")
+    } else {
+        format!("\"{content}\"")
+    }
+}
+
 pub async fn run(client: &ExivClient, follow: bool, limit: usize, json_mode: bool) -> Result<()> {
     if follow {
         follow_stream(client, json_mode).await
@@ -20,7 +32,9 @@ async fn show_history(client: &ExivClient, limit: usize, json_mode: bool) -> Res
     if let Some(sp) = sp { sp.finish_and_clear(); }
 
     if json_mode {
-        let limited: Vec<_> = history.iter().rev().take(limit).collect();
+        // bug-032: Match text mode order (oldest-first within the limit window)
+        let limited: Vec<_> = history.iter().rev().take(limit).collect::<Vec<_>>()
+            .into_iter().rev().collect::<Vec<_>>();
         println!("{}", serde_json::to_string_pretty(&limited)?);
         return Ok(());
     }
@@ -123,11 +137,7 @@ fn print_event(event: &serde_json::Value) {
             let content = data.get("content")
                 .and_then(|c| c.as_str())
                 .unwrap_or("");
-            let preview = if content.len() > 60 {
-                format!("\"{}...\"", &content[..57])
-            } else {
-                format!("\"{content}\"")
-            };
+            let preview = truncate_preview(content, 60);
             (
                 format!("[{}]", "MessageReceived".cyan()),
                 format!("{source} → {target}: {preview}"),
@@ -153,11 +163,7 @@ fn print_event(event: &serde_json::Value) {
             let content = data.get("content")
                 .and_then(|c| c.as_str())
                 .unwrap_or("");
-            let preview = if content.len() > 60 {
-                format!("\"{}...\"", &content[..57])
-            } else {
-                format!("\"{content}\"")
-            };
+            let preview = truncate_preview(content, 60);
             (
                 format!("[{}]", "ThoughtResponse".green().bold()),
                 format!("{agent}: {preview}"),

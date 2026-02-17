@@ -41,8 +41,7 @@ fn show(config: &CliConfig) -> Result<()> {
 }
 
 fn set(key: &str, value: &str) -> Result<()> {
-    let mut config = CliConfig::load()?;
-    config.set(key, value)?;
+    CliConfig::set(key, value)?;
 
     println!("  {} {key} = {}", "✓".green().bold(),
         if key == "api_key" { "***".to_string() } else { value.to_string() }

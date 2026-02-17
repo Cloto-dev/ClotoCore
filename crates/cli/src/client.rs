@@ -135,7 +135,7 @@ impl ExivClient {
     /// GET SSE stream (raw response for line-by-line parsing).
     #[allow(dead_code)]
     pub async fn sse_stream(&self) -> Result<reqwest::Response> {
-        let req = self.client.get(self.url("/api/events/stream"));
+        let req = self.client.get(self.url("/api/events"));
         let resp = self.add_auth(req)
             .send()
             .await
