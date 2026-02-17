@@ -4,6 +4,8 @@ import { AgentMetadata, PluginManifest, ExivMessage, ChatMessage, ContentBlock }
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor, AgentTypeIcon, agentTypeColor, AgentType, isAiAgent, statusBadgeClass, statusDotColor } from '../lib/agentIdentity';
+import { isLlmPlugin } from '../lib/pluginUtils';
+import { useLongPress } from '../hooks/useLongPress';
 
 import { api, API_BASE } from '../services/api';
 
@@ -19,40 +21,11 @@ export interface AgentTerminalProps {
 const LEGACY_SESSION_KEY_PREFIX = 'exiv-chat-';
 
 function LongPressResetButton({ onReset }: { onReset: () => void }) {
-  const [progress, setProgress] = useState(0);
-  const rafRef = useRef<number>(0);
-  const startRef = useRef(0);
-
-  const start = () => {
-    startRef.current = Date.now();
-    const tick = () => {
-      const elapsed = Date.now() - startRef.current;
-      const p = Math.min(elapsed / 2000, 1);
-      setProgress(p);
-      if (p >= 1) {
-        onReset();
-        setProgress(0);
-        return;
-      }
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-  };
-
-  const cancel = () => {
-    cancelAnimationFrame(rafRef.current);
-    setProgress(0);
-  };
-
-  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+  const { progress, handlers } = useLongPress(2000, onReset);
 
   return (
     <button
-      onMouseDown={start}
-      onMouseUp={cancel}
-      onMouseLeave={cancel}
-      onTouchStart={start}
-      onTouchEnd={cancel}
+      {...handlers}
       className="relative px-3 py-1.5 rounded-full border border-slate-200 text-[9px] font-bold text-slate-400 hover:text-amber-500 hover:border-amber-400/30 transition-all uppercase tracking-widest flex items-center gap-1.5 overflow-hidden"
     >
       {progress > 0 && (
@@ -68,34 +41,8 @@ function LongPressResetButton({ onReset }: { onReset: () => void }) {
 }
 
 function LongPressPowerButton({ agent, onComplete }: { agent: AgentMetadata; onComplete: (agent: AgentMetadata) => void }) {
-  const [progress, setProgress] = useState(0);
-  const rafRef = useRef<number>(0);
-  const startRef = useRef(0);
   const durationMs = agent.enabled ? 2000 : 1000;
-
-  const start = (e: React.MouseEvent | React.TouchEvent) => {
-    e.stopPropagation();
-    startRef.current = Date.now();
-    const tick = () => {
-      const elapsed = Date.now() - startRef.current;
-      const p = Math.min(elapsed / durationMs, 1);
-      setProgress(p);
-      if (p >= 1) {
-        onComplete(agent);
-        setProgress(0);
-        return;
-      }
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-  };
-
-  const cancel = () => {
-    cancelAnimationFrame(rafRef.current);
-    setProgress(0);
-  };
-
-  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+  const { progress, handlers } = useLongPress(durationMs, () => onComplete(agent));
 
   const isOn = agent.enabled;
   const progressColor = isOn ? 'bg-red-400/25' : 'bg-emerald-400/25';
@@ -105,11 +52,9 @@ function LongPressPowerButton({ agent, onComplete }: { agent: AgentMetadata; onC
 
   return (
     <button
-      onMouseDown={start}
-      onMouseUp={cancel}
-      onMouseLeave={cancel}
-      onTouchStart={start}
-      onTouchEnd={cancel}
+      {...handlers}
+      onMouseDown={(e) => { e.stopPropagation(); handlers.onMouseDown(); }}
+      onTouchStart={(e) => { e.stopPropagation(); handlers.onTouchStart(); }}
       onClick={(e) => e.stopPropagation()}
       className={`relative p-2 rounded-lg border transition-all overflow-hidden ${ringColor} ${
         isOn ? 'hover:bg-emerald-50' : 'hover:bg-slate-50'
@@ -740,7 +685,6 @@ export function AgentTerminal({
     );
   }
 
-  const isLlmPlugin = (p: PluginManifest) => p.tags.includes('#MIND') || p.tags.includes('#LLM');
   const allEngines = plugins.filter(p => p.service_type === 'Reasoning' && p.is_active && p.category === 'Agent');
   const filteredEngines = allEngines.filter(p => newType === 'ai' ? isLlmPlugin(p) : !isLlmPlugin(p));
   const allMemories = plugins.filter(p => (p.service_type === 'Memory' || p.category === 'Memory') && p.is_active);
@@ -861,7 +805,9 @@ export function AgentTerminal({
             agents.map((agent) => (
               <div
                 key={agent.id}
-                className="group p-4 bg-white border border-slate-100 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition-all cursor-pointer"
+                className="group p-4 bg-white border border-slate-100 rounded-xl shadow-sm flex items-center gap-4 transition-shadow duration-300 cursor-pointer"
+                onMouseEnter={(e) => e.currentTarget.style.boxShadow = `0 8px 25px -5px ${agentColor(agent)}30`}
+                onMouseLeave={(e) => e.currentTarget.style.boxShadow = ''}
                 onClick={() => handleSelectAgent(agent)}
               >
                 <div className="p-2.5 rounded-xl shrink-0" style={{ backgroundColor: `${agentColor(agent)}12`, color: agentColor(agent) }}>

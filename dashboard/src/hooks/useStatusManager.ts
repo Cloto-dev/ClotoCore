@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useEventStream } from './useEventStream';
 import { API_BASE } from '../services/api';
 import type { StrictSystemEvent } from '../types';
-
-const isTauri = '__TAURI_INTERNALS__' in window;
+import { isTauri } from '../lib/tauri';
 
 /** Send an OS notification in Tauri mode (no-op in browser). */
 async function sendNativeNotification(title: string, body: string) {

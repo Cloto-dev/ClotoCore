@@ -1,7 +1,5 @@
 import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage } from '../types';
-
-// Tauri WebView environment detection
-const isTauri = '__TAURI_INTERNALS__' in window;
+import { isTauri } from '../lib/tauri';
 
 // In Tauri mode, window.location.origin returns "tauri://localhost" which cannot reach
 // the HTTP kernel. We must use the actual loopback address with the kernel port.

@@ -129,7 +129,10 @@ export interface Pulse {
 }
 
 export interface ModalState {
-  node: Node | null;
+  nodeId: string;
+  offsetX: number;
+  offsetY: number;
+  isDragging: boolean;
 }
 
 // Chat persistence types

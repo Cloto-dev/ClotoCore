@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { RefreshCw, Download, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { api, UpdateInfo } from '../services/api';
-
-const isTauri = '__TAURI_INTERNALS__' in window;
+import { isTauri } from '../lib/tauri';
 
 type UpdateState = 'idle' | 'checking' | 'available' | 'up-to-date' | 'applying' | 'done' | 'error';
 

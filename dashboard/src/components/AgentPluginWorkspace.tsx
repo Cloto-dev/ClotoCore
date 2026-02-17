@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Puzzle, X, Brain, Database, Zap, Globe, CheckCircle2, Save } from 'lucide-react';
+import { Puzzle, X, CheckCircle2, Save } from 'lucide-react';
 import { PluginManifest, AgentMetadata } from '../types';
 import { api } from '../services/api';
 import { AgentIcon, agentColor, isAiAgent } from '../lib/agentIdentity';
+import { isLlmPlugin, ServiceTypeIcon } from '../lib/pluginUtils';
 
 interface Props {
   agent: AgentMetadata;
@@ -66,7 +67,6 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
     }
   };
 
-  const isLlmPlugin = (p: PluginManifest) => p.tags.includes('#MIND') || p.tags.includes('#LLM');
   const ai = isAiAgent(agent);
   const libraryPlugins = availablePlugins.filter(p => {
     if (configs.find(c => c.pluginId === p.id)) return false;
@@ -121,16 +121,6 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
 
   const getPluginById = (id: string) => availablePlugins.find(p => p.id === id);
 
-  const getIcon = (type: string) => {
-    switch(type) {
-      case 'Reasoning': return <Brain size={24} />;
-      case 'Memory': return <Database size={24} />;
-      case 'Skill': return <Zap size={24} />;
-      case 'Communication': return <Globe size={24} />;
-      default: return <Puzzle size={24} />;
-    }
-  };
-
   const MANDATORY_TAGS = ['#CORE', '#MIND', '#MEMORY', '#LLM', '#TOOL', '#ADAPTER', '#HAL'];
 
   return (
@@ -163,7 +153,7 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
               >
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-xl shrink-0" style={{ backgroundColor: `${agentColor(agent)}0D`, color: agentColor(agent) }}>
-                    {getIcon(plugin.service_type)}
+                    <ServiceTypeIcon type={plugin.service_type} size={24} />
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
@@ -226,7 +216,7 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
                 title={plugin.name}
               >
                 <div className="scale-75" style={{ color: agentColor(agent) }}>
-                  {getIcon(plugin.service_type)}
+                  <ServiceTypeIcon type={plugin.service_type} size={24} />
                 </div>
                 <div className="absolute -inset-1 border rounded-xl animate-pulse" style={{ borderColor: `${agentColor(agent)}33` }} />
               </div>

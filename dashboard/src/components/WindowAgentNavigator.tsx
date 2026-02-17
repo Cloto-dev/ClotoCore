@@ -1,14 +1,11 @@
 import React from 'react';
 import {
   Cpu,
-  Eye,
-  MousePointer2,
   Settings,
   Plus,
-  Zap,
   ShieldCheck
 } from 'lucide-react';
-import { AgentMetadata, Capability } from '../types';
+import { AgentMetadata } from '../types';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
 
 interface AgentNavigatorProps {
@@ -19,16 +16,6 @@ interface AgentNavigatorProps {
   onAddAgent: () => void;
   systemActive: boolean;
 }
-
-const CapabilityIcon = ({ capability }: { capability: Capability }) => {
-  switch (capability) {
-    case 'VisionRead': return <Eye size={10} className="text-blue-500" />;
-    case 'InputControl': return <MousePointer2 size={10} className="text-red-500" />;
-    case 'MemoryRead':
-    case 'MemoryWrite': return <Zap size={10} className="text-amber-500" />;
-    default: return null;
-  }
-};
 
 export const WindowAgentNavigator: React.FC<AgentNavigatorProps> = ({
   agents,

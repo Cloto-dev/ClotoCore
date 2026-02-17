@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Puzzle, Shield, CheckCircle2, AlertTriangle, Save, Filter, Brain, Database, Zap, Globe, Settings, MousePointer2, ExternalLink, Terminal, ChevronDown, ChevronRight, Hash, Box, FolderOpen } from 'lucide-react';
+import { Puzzle, Shield, CheckCircle2, AlertTriangle, Save, Filter, Settings, ExternalLink, Terminal, ChevronDown, ChevronRight, Hash, FolderOpen } from 'lucide-react';
 import { PluginManifest, PluginCategory } from '../types';
-
 import { api } from '../services/api';
+import { ServiceTypeIcon } from '../lib/pluginUtils';
 import { isTauri, openFileDialog } from '../lib/tauri';
 
 function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () => void }) {
@@ -227,16 +227,6 @@ export function ExivPluginManager() {
     }
   };
 
-  const getIcon = (type: string) => {
-    switch(type) {
-      case 'Reasoning': return <Brain size={20} />;
-      case 'Memory': return <Database size={20} />;
-      case 'Skill': return <Zap size={20} />;
-      case 'Communication': return <Globe size={20} />;
-      case 'HAL': return <MousePointer2 size={20} />;
-      default: return <Puzzle size={20} />;
-    }
-  };
 
   // Order of categories
   const categoryOrder: PluginCategory[] = ['Agent', 'Tool', 'Memory', 'System', 'Other'];
@@ -335,7 +325,7 @@ export function ExivPluginManager() {
                         >
                           <div className="flex items-start justify-between mb-4">
                             <div className={`p-2.5 rounded-xl ${plugin.is_active ? 'bg-[#2e4de6]/10 text-[#2e4de6]' : 'bg-slate-200 text-slate-400'}`}>
-                              {getIcon(plugin.service_type)}
+                              <ServiceTypeIcon type={plugin.service_type} size={20} />
                             </div>
                             <button
                               onClick={() => togglePlugin(plugin.id)}

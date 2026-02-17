@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, Shield, Terminal, Cpu, Database, Zap, Globe, MousePointer2 } from 'lucide-react';
+import { Cpu, Database, MousePointer2, Globe } from 'lucide-react';
 import { api } from '../services/api';
 import { PluginManifest, AgentMetadata } from '../types';
+import { ServiceTypeIcon } from '../lib/pluginUtils';
 
 interface KernelMonitorProps {
   onClose: () => void;
@@ -30,15 +31,6 @@ export const KernelMonitor: React.FC<KernelMonitorProps> = ({ onClose }) => {
     comms: activePlugins.filter(p => p.provided_capabilities.includes('Communication')).length,
   };
 
-  const getIcon = (type: string) => {
-    switch(type) {
-      case 'Reasoning': return <Cpu size={12} />;
-      case 'Memory': return <Database size={12} />;
-      case 'Action': case 'HAL': return <MousePointer2 size={12} />;
-      case 'Communication': return <Globe size={12} />;
-      default: return <Zap size={12} />;
-    }
-  };
 
   return (
     <div className="flex flex-col h-full bg-white/20 backdrop-blur-3xl p-6 overflow-hidden animate-in fade-in duration-300">
@@ -81,7 +73,7 @@ export const KernelMonitor: React.FC<KernelMonitorProps> = ({ onClose }) => {
               <div key={plugin.id} className="p-3 bg-white/40 border border-white/60 rounded-xl flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="p-1.5 bg-white rounded-lg text-slate-400">
-                    {getIcon(plugin.service_type)}
+                    <ServiceTypeIcon type={plugin.service_type} size={12} />
                   </div>
                   <div>
                     <div className="text-xs font-bold text-slate-700">{plugin.name}</div>
