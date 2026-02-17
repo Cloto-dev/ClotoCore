@@ -448,6 +448,48 @@ pub enum ExivEventData {
         agent_id: String,
         enabled: bool,
     },
+    // ── Self-Evolution Engine Events ──
+    /// 新世代の確定
+    EvolutionGeneration {
+        agent_id: String,
+        generation: u64,
+        trigger: String,
+        fitness: f64,
+    },
+    /// 退行警告（猶予期間開始）
+    EvolutionWarning {
+        agent_id: String,
+        severity: String,
+        affected_area: String,
+        direction: String,
+        grace_remaining: u64,
+        suggestion: String,
+    },
+    /// ロールバック実行
+    EvolutionRollback {
+        agent_id: String,
+        from_generation: u64,
+        to_generation: u64,
+        reason: String,
+    },
+    /// 安全性違反（即座にエージェント停止）
+    EvolutionBreach {
+        agent_id: String,
+        violation_type: String,
+        detail: String,
+    },
+    /// 能力獲得
+    EvolutionCapability {
+        agent_id: String,
+        capability: String,
+        generation: u64,
+    },
+    /// 軸間順位変動
+    EvolutionRebalance {
+        agent_id: String,
+        shifted_axes: Vec<String>,
+        generation: u64,
+    },
 }
 
 impl ExivEvent {

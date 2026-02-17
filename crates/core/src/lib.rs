@@ -1,6 +1,7 @@
 pub mod config;
 pub mod db;
 pub mod events;
+pub mod evolution;
 pub mod handlers;
 pub mod managers;
 pub mod capabilities;
@@ -71,6 +72,7 @@ pub struct AppState {
     pub metrics: Arc<managers::SystemMetrics>,
     pub rate_limiter: Arc<middleware::RateLimiter>,
     pub shutdown: Arc<Notify>,
+    pub evolution_engine: Option<Arc<evolution::EvolutionEngine>>,
 }
 
 pub enum AppError {
@@ -236,9 +238,13 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         plugins.insert("core.system".to_string(), system_handler);
     }
 
-    // 5. Rate Limiter & App State
+    // 5. Rate Limiter & Evolution Engine & App State
     let rate_limiter = Arc::new(middleware::RateLimiter::new(10, 20));
     let shutdown = Arc::new(Notify::new());
+
+    // Self-Evolution Engine (E1-E5)
+    let data_store: Arc<dyn exiv_shared::PluginDataStore> = Arc::new(db::SqliteDataStore::new(pool.clone()));
+    let evolution_engine = Arc::new(evolution::EvolutionEngine::new(data_store, pool.clone()));
 
     let app_state = Arc::new(AppState {
         tx: tx.clone(),
@@ -253,6 +259,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         metrics: metrics.clone(),
         rate_limiter: rate_limiter.clone(),
         shutdown,
+        evolution_engine: Some(evolution_engine.clone()),
     });
 
     // 6. Event Loop
@@ -266,6 +273,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         metrics,
         config.event_history_size,
         config.event_retention_hours,
+        Some(evolution_engine),
     ));
 
     // Start event history cleanup task
@@ -313,6 +321,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         // Chat persistence endpoints
         .route("/chat/:agent_id/messages", get(handlers::chat::get_messages).post(handlers::chat::post_message).delete(handlers::chat::delete_messages))
         .route("/chat/attachments/:attachment_id", get(handlers::chat::get_attachment))
+        // Evolution Engine endpoints (auth required for write)
+        .route("/evolution/params", get(handlers::evolution::get_evolution_params).put(handlers::evolution::update_evolution_params))
         .layer(axum::middleware::from_fn_with_state(
             app_state.clone(),
             middleware::rate_limit_middleware,
@@ -330,6 +340,12 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/plugins/:id/config", get(handlers::get_plugin_config))
         .route("/agents", get(handlers::get_agents))
         .route("/permissions/pending", get(handlers::get_pending_permissions))
+        // Evolution Engine public endpoints (read-only)
+        .route("/evolution/status", get(handlers::evolution::get_evolution_status))
+        .route("/evolution/generations", get(handlers::evolution::get_generation_history))
+        .route("/evolution/generations/:n", get(handlers::evolution::get_generation))
+        .route("/evolution/fitness", get(handlers::evolution::get_fitness_timeline))
+        .route("/evolution/rollbacks", get(handlers::evolution::get_rollback_history))
         .merge(admin_routes)
         .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024)); // 10MB for chat attachments
 

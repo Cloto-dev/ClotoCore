@@ -2,7 +2,7 @@ use crate::managers::{PluginRegistry, PluginManager, AgentManager};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{error, info, debug};
+use tracing::{error, info, warn, debug};
 use exiv_shared::{Permission, ExivEvent};
 
 pub struct EventProcessor {
@@ -15,6 +15,7 @@ pub struct EventProcessor {
     metrics: Arc<crate::managers::SystemMetrics>,
     max_history_size: usize,
     event_retention_hours: u64, // M-10: Configurable retention period
+    evolution_engine: Option<Arc<crate::evolution::EvolutionEngine>>,
 }
 
 impl EventProcessor {
@@ -29,6 +30,7 @@ impl EventProcessor {
         metrics: Arc<crate::managers::SystemMetrics>,
         max_history_size: usize,
         event_retention_hours: u64, // M-10: Configurable retention period
+        evolution_engine: Option<Arc<crate::evolution::EvolutionEngine>>,
     ) -> Self {
         let (refresh_tx, mut refresh_rx) = mpsc::channel(1);
         let registry_clone = registry.clone();
@@ -68,6 +70,7 @@ impl EventProcessor {
             metrics,
             max_history_size,
             event_retention_hours,
+            evolution_engine,
         }
     }
 
@@ -196,6 +199,32 @@ impl EventProcessor {
                         depth: envelope.depth + 1,
                     };
                     let _ = event_tx.send(system_envelope).await;
+
+                    // Self-Evolution: track interaction
+                    if let Some(ref evo) = self.evolution_engine {
+                        let evo = evo.clone();
+                        let agent_id = agent_id.clone();
+                        let tx = event_tx.clone();
+                        tokio::spawn(async move {
+                            match evo.on_interaction(&agent_id).await {
+                                Ok(events) => {
+                                    for event_data in events {
+                                        let evo_event = Arc::new(ExivEvent::new(event_data));
+                                        let envelope = crate::EnvelopedEvent {
+                                            event: evo_event,
+                                            issuer: None,
+                                            correlation_id: None,
+                                            depth: 0,
+                                        };
+                                        let _ = tx.send(envelope).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(agent_id = %agent_id, error = %e, "Evolution interaction tracking failed");
+                                }
+                            }
+                        });
+                    }
                 }
                 exiv_shared::ExivEventData::ActionRequested { requester, action: _action } => {
                     // Security Check: Verify that the issuer matches the requester
@@ -270,8 +299,44 @@ impl EventProcessor {
                     );
                     let _ = self.tx_internal.send(event);
                 }
+                // Self-Evolution events
+                exiv_shared::ExivEventData::EvolutionBreach { ref agent_id, ref violation_type, ref detail } => {
+                    error!(
+                        trace_id = %trace_id,
+                        agent_id = %agent_id,
+                        violation = %violation_type,
+                        detail = %detail,
+                        "🚨 EVOLUTION SAFETY BREACH — Agent stopped immediately"
+                    );
+                    // Stop the agent
+                    if let Err(e) = self.agent_manager.set_enabled(agent_id, false).await {
+                        error!(agent_id = %agent_id, error = %e, "Failed to stop agent after safety breach");
+                    }
+                    let _ = self.tx_internal.send(event);
+                }
+                exiv_shared::ExivEventData::EvolutionGeneration { ref agent_id, generation, ref trigger, fitness } => {
+                    info!(
+                        trace_id = %trace_id,
+                        agent_id = %agent_id,
+                        generation = generation,
+                        trigger = %trigger,
+                        fitness = fitness,
+                        "📈 Evolution: new generation"
+                    );
+                    let _ = self.tx_internal.send(event);
+                }
+                exiv_shared::ExivEventData::EvolutionRollback { ref agent_id, from_generation, to_generation, .. } => {
+                    warn!(
+                        trace_id = %trace_id,
+                        agent_id = %agent_id,
+                        from = from_generation,
+                        to = to_generation,
+                        "🔄 Evolution: rollback executed"
+                    );
+                    let _ = self.tx_internal.send(event);
+                }
                 _ => {
-                    // SSE等への通知
+                    // SSE等への通知 (EvolutionWarning, EvolutionCapability, EvolutionRebalance, etc.)
                     let _ = self.tx_internal.send(event);
                 }
             }

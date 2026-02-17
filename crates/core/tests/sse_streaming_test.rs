@@ -55,6 +55,7 @@ async fn create_test_app_state() -> Arc<AppState> {
         metrics,
         rate_limiter,
         shutdown: Arc::new(Notify::new()),
+        evolution_engine: None,
     })
 }
 

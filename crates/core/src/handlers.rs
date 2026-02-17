@@ -2,6 +2,7 @@ pub mod system;
 pub mod assets;
 pub mod update;
 pub mod chat;
+pub mod evolution;
 
 use axum::{
     extract::{Path, State},
@@ -918,6 +919,7 @@ mod tests {
             metrics,
             rate_limiter,
             shutdown: Arc::new(Notify::new()),
+            evolution_engine: None,
         })
     }
 
