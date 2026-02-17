@@ -25,3 +25,5 @@ dirs.workspace = true
 chrono.workspace = true
 dialoguer.workspace = true
 futures.workspace = true
+ratatui.workspace = true
+crossterm = "0.28"

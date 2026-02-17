@@ -50,6 +50,9 @@ pub enum Commands {
     /// Manage CLI configuration
     #[command(subcommand)]
     Config(ConfigCommand),
+
+    /// Launch interactive TUI dashboard
+    Tui,
 }
 
 #[derive(Subcommand)]

@@ -26,5 +26,6 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             logs::run(&client, follow, limit, cli.json).await
         }
         Commands::Config(cmd) => config_cmd::run(cmd, &config),
+        Commands::Tui => crate::tui::run().await,
     }
 }
