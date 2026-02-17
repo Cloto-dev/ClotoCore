@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Node, Edge, Pulse, ModalState, StrictSystemEvent } from '../types';
+import { useTheme } from './useTheme';
 
 const INITIAL_NODES: Node[] = [
   { id: 'karin', label: 'KARIN CORE', x: 0, y: 0, vx: 0, vy: 0, type: 'core', color: '#2e4de6', data: { status: 'OPTIMIZING', lastActive: 'NOW', log: 'Core processing stable...' } },
@@ -22,6 +23,10 @@ export function useNeuralNetwork(
   onEventProcessed: (timestamp: number) => void,
   seekTime: number | null = null
 ) {
+  const { colors } = useTheme();
+  const colorsRef = useRef(colors);
+  colorsRef.current = colors;
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const nodes = useRef<Node[]>(INITIAL_NODES);
   const edges = useRef<Edge[]>(INITIAL_EDGES);
@@ -43,19 +48,29 @@ export function useNeuralNetwork(
   useEffect(() => { selectedModalRef.current = selectedModal; }, [selectedModal]);
   useEffect(() => { eventsRef.current = events; }, [events]);
 
+  // Update brand-colored nodes/edges when theme changes
+  useEffect(() => {
+    nodes.current.forEach(n => {
+      if (n.id === 'karin' || n.id === 'user') n.color = colors.brandHex;
+    });
+    edges.current.forEach(e => {
+      if (e.source === 'karin' && e.target === 'user') e.color = colors.brandHex;
+    });
+  }, [colors.brandHex]);
+
   const processEvent = (event: StrictSystemEvent, isHistorical = false) => {
     switch (event.type) {
       case "MessageReceived":
         pulses.current.push({
-          edge: { source: 'user', target: 'karin', color: '#2e4de6' },
-          progress: 0, speed: 0.04, color: '#2e4de6'
+          edge: { source: 'user', target: 'karin', color: colorsRef.current.brandHex },
+          progress: 0, speed: 0.04, color: colorsRef.current.brandHex
         });
         break;
       case "RawMessage":
         if (event.payload.message && event.payload.message.role === "user") {
           pulses.current.push({
-            edge: { source: 'user', target: 'karin', color: '#2e4de6' },
-            progress: 0, speed: 0.04, color: '#2e4de6'
+            edge: { source: 'user', target: 'karin', color: colorsRef.current.brandHex },
+            progress: 0, speed: 0.04, color: colorsRef.current.brandHex
           });
         }
         break;
@@ -266,15 +281,15 @@ export function useNeuralNetwork(
       nodes.current.forEach(node => {
         const distSq = (node.x - worldMouse.x) ** 2 + (node.y - worldMouse.y) ** 2;
         const isHovered = distSq < 900; // 30^2
-        ctx.fillStyle = 'white'; 
-        ctx.beginPath(); 
-        ctx.arc(node.x, node.y, isHovered ? 8 : 6, 0, Math.PI * 2); 
+        ctx.fillStyle = colorsRef.current.canvasNodeFill;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, isHovered ? 8 : 6, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = node.color; 
-        ctx.lineWidth = 2; 
+        ctx.strokeStyle = node.color;
+        ctx.lineWidth = 2;
         ctx.stroke();
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.8)'; 
-        ctx.font = 'bold 10px monospace'; 
+        ctx.fillStyle = colorsRef.current.canvasText;
+        ctx.font = 'bold 10px monospace';
         ctx.textAlign = 'center';
         ctx.fillText(node.label, node.x, node.y + 20);
       });

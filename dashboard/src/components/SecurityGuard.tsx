@@ -97,13 +97,13 @@ export function SecurityGuard() {
         return (
           <div
             key={req.request_id}
-            className={`bg-white/90 backdrop-blur-2xl border rounded-[2rem] shadow-2xl overflow-hidden shadow-[#2e4de6]/20 flex flex-col transition-all duration-500 ${
+            className={`bg-white/90 backdrop-blur-2xl border rounded-[2rem] shadow-2xl overflow-hidden shadow-brand/20 flex flex-col transition-all duration-500 ${
               isGranted ? 'border-emerald-500 scale-95 opacity-50' : 'border-white'
             }`}
           >
             {/* Header */}
             <div className={`p-4 flex items-center justify-between text-white transition-colors duration-500 ${
-              isGranted ? 'bg-emerald-500' : 'bg-[#2e4de6]'
+              isGranted ? 'bg-emerald-500' : 'bg-brand'
             }`}>
               <div className="flex items-center gap-2">
                 {isGranted ? <Check size={18} /> : <ShieldAlert size={18} />}
@@ -121,28 +121,28 @@ export function SecurityGuard() {
             <div className="p-6">
               <div className="flex items-start gap-4 mb-4">
                 <div className={`p-3 rounded-2xl transition-colors ${
-                  isGranted ? 'bg-emerald-50 text-emerald-500' : 'bg-[#2e4de6]/10 text-[#2e4de6]'
+                  isGranted ? 'bg-emerald-50 text-emerald-500' : 'bg-brand/10 text-brand'
                 }`}>
                   {isGranted ? <Unlock size={20} /> : <Lock size={20} />}
                 </div>
                 <div>
-                  <h4 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                  <h4 className="text-sm font-black text-content-primary uppercase tracking-tight">
                     {isGranted ? 'Access Granted' : 'Access Request'}
                   </h4>
-                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">{req.plugin_id}</p>
+                  <p className="text-[10px] text-content-tertiary font-mono mt-0.5">{req.plugin_id}</p>
                 </div>
               </div>
 
-              <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 mb-6">
+              <div className="bg-surface-base border border-edge-subtle rounded-xl p-3 mb-6">
                  <div className="flex items-center gap-2 mb-2">
                    <div className={`w-1.5 h-1.5 rounded-full ${isGranted ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                   <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Capability Status</span>
+                   <span className="text-[9px] font-black text-content-secondary uppercase tracking-widest">Capability Status</span>
                  </div>
-                 <p className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">{req.permission_type}</p>
+                 <p className="text-xs font-bold text-content-primary uppercase tracking-wide mb-2">{req.permission_type}</p>
                  {req.target_resource && (
-                   <p className="text-[9px] text-slate-400 font-mono mb-1">{req.target_resource}</p>
+                   <p className="text-[9px] text-content-tertiary font-mono mb-1">{req.target_resource}</p>
                  )}
-                 <p className="text-[10px] text-slate-500 leading-relaxed italic">
+                 <p className="text-[10px] text-content-secondary leading-relaxed italic">
                    {isGranted ? "Resource has been successfully injected into container." : `"${req.justification}"`}
                  </p>
               </div>
@@ -152,14 +152,14 @@ export function SecurityGuard() {
                   <button 
                     disabled={isAuthorizing}
                     onClick={() => handleDeny(req)}
-                    className="flex-1 py-2.5 rounded-xl border border-slate-200 text-[10px] font-bold text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all uppercase tracking-widest disabled:opacity-30"
+                    className="flex-1 py-2.5 rounded-xl border border-edge text-[10px] font-bold text-content-tertiary hover:text-content-secondary hover:bg-surface-base transition-all uppercase tracking-widest disabled:opacity-30"
                   >
                     Deny
                   </button>
                   <button 
                     disabled={isAuthorizing}
                     onClick={() => handleGrant(req)}
-                    className="flex-1 py-2.5 rounded-xl bg-[#2e4de6] text-white text-[10px] font-bold shadow-lg shadow-[#2e4de6]/30 hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="flex-1 py-2.5 rounded-xl bg-brand text-white text-[10px] font-bold shadow-lg shadow-brand/30 hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     {isAuthorizing ? (
                       <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />

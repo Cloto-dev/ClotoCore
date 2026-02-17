@@ -29,27 +29,27 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
   };
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl p-6 w-80 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm">
+      <div className="bg-surface-primary rounded-2xl shadow-2xl p-6 w-80 space-y-4 animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center gap-3">
           <div className={`p-2 rounded-lg ${agent.enabled ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-500'}`}>
             <Power size={18} />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-800">
+            <h3 className="text-sm font-bold text-content-primary">
               {agent.enabled ? 'Power Off' : 'Power On'} {agent.name}
             </h3>
-            <p className="text-[10px] text-slate-400">Enter power password to continue</p>
+            <p className="text-[10px] text-content-tertiary">Enter power password to continue</p>
           </div>
         </div>
         <div className="relative">
-          <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+          <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
           <input
             type="password"
             value={password}
             onChange={e => setPassword(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && password && handleConfirm()}
-            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-[#2e4de6]"
+            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-edge text-sm focus:outline-none focus:border-brand"
             placeholder="Password"
             autoFocus
           />
@@ -60,7 +60,7 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
         <div className="flex gap-2">
           <button
             onClick={onClose}
-            className="flex-1 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-500 hover:bg-slate-50 transition-all"
+            className="flex-1 py-2 rounded-xl border border-edge text-xs font-bold text-content-secondary hover:bg-surface-base transition-all"
             disabled={isLoading}
           >
             Cancel

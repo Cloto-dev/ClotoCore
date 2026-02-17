@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useTheme } from '../hooks/useTheme';
 
 interface Point { x: number; y: number; r: number }
 
@@ -10,6 +11,9 @@ export function CustomCursor() {
   const gazeTarget = useRef({ x: -1000, y: -1000 });
   const isGazeActiveRef = useRef(false);
   const gazeTimeoutRef = useRef<number>(0);
+  const { colors } = useTheme();
+  const brandHexRef = useRef(colors.brandHex);
+  brandHexRef.current = colors.brandHex;
 
   // Hide native cursor globally while this component is mounted
   useEffect(() => {
@@ -144,7 +148,7 @@ export function CustomCursor() {
           octx.clearRect(0, 0, 400, 400);
           octx.save();
           octx.translate(200 - mx, 200 - my);
-          octx.fillStyle = isGazeActiveRef.current ? '#ec4899' : '#2e4de6';
+          octx.fillStyle = isGazeActiveRef.current ? '#ec4899' : brandHexRef.current;
           octx.globalAlpha = 1;
           octx.beginPath();
           octx.arc(mx, my, isGazeActiveRef.current ? 6 : 4, 0, Math.PI * 2);
@@ -233,7 +237,7 @@ export function CustomCursor() {
 
       octx.save();
       octx.translate(200 - mx, 200 - my);
-      octx.fillStyle = isGazeActiveRef.current ? '#ec4899' : '#2e4de6';
+      octx.fillStyle = isGazeActiveRef.current ? '#ec4899' : brandHexRef.current;
 
       for (let i = 0; i < points.current.length; i++) {
         const p = points.current[i];

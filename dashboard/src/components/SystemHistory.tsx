@@ -15,42 +15,42 @@ const HISTORY_DATA: HistoryItem[] = [
 
 export const SystemHistory = memo(function SystemHistory() {
   return (
-    <footer className="mt-20 pt-8 border-t border-slate-200 flex flex-col items-end">
+    <footer className="mt-20 pt-8 border-t border-edge flex flex-col items-end">
       <div className="max-w-xs w-full space-y-6">
-        <div className="flex items-center justify-end gap-2 text-slate-400 mb-4">
+        <div className="flex items-center justify-end gap-2 text-content-tertiary mb-4">
           <span className="text-[10px] font-black uppercase tracking-[0.3em]">System Evolution History</span>
-          <div className="h-[1px] w-8 bg-slate-200" />
+          <div className="h-[1px] w-8 bg-surface-secondary" />
         </div>
         
         <div className="relative space-y-8 pr-6">
           {/* Connection Line */}
-          <div className="absolute right-[5px] top-2 bottom-2 w-[1px] bg-slate-200" />
+          <div className="absolute right-[5px] top-2 bottom-2 w-[1px] bg-surface-secondary" />
 
           {HISTORY_DATA.map((item) => (
             <div key={item.v} className="relative text-right group">
               <div className="flex flex-col items-end">
                 <div className="flex items-center gap-3 mb-1">
-                  <span className={`text-[10px] font-mono font-bold ${item.active ? 'text-[#2e4de6]' : 'text-slate-400'}`}>
+                  <span className={`text-[10px] font-mono font-bold ${item.active ? 'text-brand' : 'text-content-tertiary'}`}>
                     {item.v}
                   </span>
-                  <span className={`text-xs font-black ${item.active ? 'text-slate-800' : 'text-slate-500'}`}>
+                  <span className={`text-xs font-black ${item.active ? 'text-content-primary' : 'text-content-secondary'}`}>
                     {item.t}
                   </span>
                 </div>
-                <p className="text-[10px] leading-relaxed text-slate-400 font-medium max-w-[200px]">
+                <p className="text-[10px] leading-relaxed text-content-tertiary font-medium max-w-[200px]">
                   {item.d}
                 </p>
               </div>
               {/* Timeline Dot */}
               <div 
-                className={`absolute -right-[27px] top-1.5 w-3 h-3 rounded-full border-2 bg-white transition-all duration-500 ${
-                  item.active 
-                    ? 'border-[#2e4de6] shadow-[0_0_10px_rgba(46,77,230,0.4)] scale-110' 
-                    : 'border-slate-300 group-hover:border-slate-400'
+                className={`absolute -right-[27px] top-1.5 w-3 h-3 rounded-full border-2 bg-surface-primary transition-all duration-500 ${
+                  item.active
+                    ? 'border-brand shadow-[0_0_10px_rgba(46,77,230,0.4)] scale-110'
+                    : 'border-content-muted group-hover:border-content-tertiary'
                 }`}
               >
                 {item.active && (
-                  <span className="absolute inset-0 rounded-full bg-[#2e4de6] animate-ping opacity-20" />
+                  <span className="absolute inset-0 rounded-full bg-brand animate-ping opacity-20" />
                 )}
               </div>
             </div>
@@ -58,7 +58,7 @@ export const SystemHistory = memo(function SystemHistory() {
         </div>
       </div>
       
-      <div className="mt-12 text-[9px] font-mono text-slate-300 uppercase tracking-widest">
+      <div className="mt-12 text-[9px] font-mono text-content-muted uppercase tracking-widest">
         &copy; 2026 Karin Strategic Systems / KS2.1
       </div>
     </footer>

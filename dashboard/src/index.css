@@ -2,6 +2,66 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    /* Surfaces */
+    --surface-base: 248 250 252;
+    --surface-primary: 255 255 255;
+    --surface-secondary: 241 245 249;
+    --surface-glass: rgba(255, 255, 255, 0.4);
+    --surface-glass-strong: rgba(255, 255, 255, 0.6);
+    --surface-glass-subtle: rgba(255, 255, 255, 0.8);
+    --surface-overlay: rgba(0, 0, 0, 0.5);
+    /* Text */
+    --text-primary: 30 41 59;
+    --text-secondary: 100 116 139;
+    --text-tertiary: 148 163 184;
+    --text-muted: 203 213 225;
+    /* Borders */
+    --border-default: 226 232 240;
+    --border-subtle: 241 245 249;
+    --border-strong: rgba(0, 0, 0, 0.3);
+    /* Brand */
+    --brand-primary: 46 77 230;
+    --brand-hex: #2e4de6;
+    --brand-hover: #1e3bb3;
+    /* Canvas */
+    --canvas-bg: #f8fafc;
+    --canvas-grid: #cbd5e1;
+    --canvas-node-fill: #ffffff;
+    --canvas-text: rgba(15, 23, 42, 0.8);
+  }
+
+  .dark {
+    /* Surfaces */
+    --surface-base: 15 23 42;
+    --surface-primary: 30 41 59;
+    --surface-secondary: 30 41 59;
+    --surface-glass: rgba(15, 23, 42, 0.6);
+    --surface-glass-strong: rgba(15, 23, 42, 0.8);
+    --surface-glass-subtle: rgba(30, 41, 59, 0.8);
+    --surface-overlay: rgba(0, 0, 0, 0.7);
+    /* Text */
+    --text-primary: 241 245 249;
+    --text-secondary: 148 163 184;
+    --text-tertiary: 100 116 139;
+    --text-muted: 71 85 105;
+    /* Borders */
+    --border-default: 51 65 85;
+    --border-subtle: 30 41 59;
+    --border-strong: rgba(255, 255, 255, 0.1);
+    /* Brand */
+    --brand-primary: 91 122 255;
+    --brand-hex: #5b7aff;
+    --brand-hover: #7b93ff;
+    /* Canvas */
+    --canvas-bg: #0f172a;
+    --canvas-grid: #334155;
+    --canvas-node-fill: #1e293b;
+    --canvas-text: rgba(226, 232, 240, 0.8);
+  }
+}
+
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar {
     display: none;

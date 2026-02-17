@@ -28,7 +28,7 @@ function LongPressResetButton({ onReset }: { onReset: () => void }) {
   return (
     <button
       {...handlers}
-      className="relative px-3 py-1.5 rounded-full border border-slate-200 text-[9px] font-bold text-slate-400 hover:text-amber-500 hover:border-amber-400/30 transition-all uppercase tracking-widest flex items-center gap-1.5 overflow-hidden"
+      className="relative px-3 py-1.5 rounded-full border border-edge text-[9px] font-bold text-content-tertiary hover:text-amber-500 hover:border-amber-400/30 transition-all uppercase tracking-widest flex items-center gap-1.5 overflow-hidden"
     >
       {progress > 0 && (
         <span
@@ -50,7 +50,7 @@ function LongPressPowerButton({ agent, onComplete }: { agent: AgentMetadata; onC
   const progressColor = isOn ? 'bg-red-400/25' : 'bg-emerald-400/25';
   const ringColor = isOn
     ? (progress > 0 ? 'border-red-300 text-red-500' : 'border-emerald-200 text-emerald-500')
-    : (progress > 0 ? 'border-emerald-300 text-emerald-500' : 'border-slate-200 text-slate-400');
+    : (progress > 0 ? 'border-emerald-300 text-emerald-500' : 'border-edge text-content-tertiary');
 
   return (
     <button
@@ -59,7 +59,7 @@ function LongPressPowerButton({ agent, onComplete }: { agent: AgentMetadata; onC
       onTouchStart={(e) => { e.stopPropagation(); handlers.onTouchStart(); }}
       onClick={(e) => e.stopPropagation()}
       className={`relative p-2 rounded-lg border transition-all overflow-hidden ${ringColor} ${
-        isOn ? 'hover:bg-emerald-50' : 'hover:bg-slate-50'
+        isOn ? 'hover:bg-emerald-50' : 'hover:bg-surface-base'
       }`}
       title={isOn ? `Power Off (hold ${durationMs / 1000}s)` : `Power On (hold ${durationMs / 1000}s)`}
     >
@@ -297,18 +297,18 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
   };
 
   return (
-    <div className="flex flex-col h-full bg-white/40 backdrop-blur-3xl animate-in fade-in duration-500">
+    <div className="flex flex-col h-full bg-glass backdrop-blur-3xl animate-in fade-in duration-500">
       {/* Console Header */}
-      <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-white/60">
+      <div className="p-4 border-b border-edge-subtle flex items-center justify-between bg-glass-strong">
         <div className="flex items-center gap-3">
           <div className="p-2 text-white rounded-lg shadow-lg" style={{ backgroundColor: agentColor(agent), boxShadow: `0 10px 15px -3px ${agentColor(agent)}33` }}>
             <AgentIcon agent={agent} size={18} />
           </div>
           <div>
-            <h2 className="text-sm font-black text-slate-800 tracking-tight uppercase">{agent.name} Console</h2>
+            <h2 className="text-sm font-black text-content-primary tracking-tight uppercase">{agent.name} Console</h2>
             <div className="flex items-center gap-2">
               <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-              <span className="text-[8px] font-mono text-slate-400 uppercase tracking-widest">Neural Link Active</span>
+              <span className="text-[8px] font-mono text-content-tertiary uppercase tracking-widest">Neural Link Active</span>
             </div>
           </div>
         </div>
@@ -316,7 +316,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
           <LongPressResetButton onReset={handleReset} />
           <button
             onClick={onBack}
-            className="px-4 py-1.5 rounded-full border border-slate-200 text-[9px] font-bold text-slate-400 hover:text-[#2e4de6] hover:border-[#2e4de6]/30 transition-all uppercase tracking-widest"
+            className="px-4 py-1.5 rounded-full border border-edge text-[9px] font-bold text-content-tertiary hover:text-brand hover:border-brand/30 transition-all uppercase tracking-widest"
           >
             Disconnect
           </button>
@@ -328,18 +328,18 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
         {/* Sentinel for lazy loading older messages */}
         {hasMore && <div ref={sentinelRef} className="h-1" />}
         {isLoadingMore && (
-          <div className="text-center text-[9px] font-mono text-slate-300 py-2 animate-pulse">
+          <div className="text-center text-[9px] font-mono text-content-muted py-2 animate-pulse">
             Loading older messages...
           </div>
         )}
 
         {isLoading ? (
-          <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-4">
+          <div className="h-full flex flex-col items-center justify-center text-content-muted space-y-4">
             <Activity size={24} className="animate-pulse" />
             <p className="text-[10px] font-mono tracking-[0.2em] uppercase">Loading session...</p>
           </div>
         ) : messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-4">
+          <div className="h-full flex flex-col items-center justify-center text-content-muted space-y-4">
             <Zap size={32} strokeWidth={1} className="opacity-20" />
             <p className="text-[10px] font-mono tracking-[0.2em] uppercase">Ready for instructions</p>
           </div>
@@ -349,13 +349,13 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
             return (
               <div key={msg.id} className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${
-                  isUser ? 'bg-white border border-slate-100 text-slate-400' : 'text-white'
+                  isUser ? 'bg-surface-primary border border-edge-subtle text-content-tertiary' : 'text-white'
                 }`} style={!isUser ? { backgroundColor: agentColor(agent) } : undefined}>
                   {isUser ? <UserIcon size={14} /> : <AgentIcon agent={agent} size={14} />}
                 </div>
                 <div className={`max-w-[80%] p-4 rounded-2xl text-xs leading-relaxed shadow-sm ${
                   isUser
-                    ? 'bg-white text-slate-700 rounded-tr-none'
+                    ? 'bg-surface-primary text-content-primary rounded-tr-none'
                     : 'text-white rounded-tl-none'
                 }`} style={!isUser ? { backgroundColor: agentColor(agent) } : undefined}>
                   <MessageContent content={msg.content} />
@@ -369,7 +369,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
             <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0" style={{ backgroundColor: agentColor(agent) }}>
               <Activity size={14} />
             </div>
-            <div className="bg-slate-100 text-slate-400 p-3 rounded-2xl rounded-tl-none text-[10px] font-mono">
+            <div className="bg-surface-secondary text-content-tertiary p-3 rounded-2xl rounded-tl-none text-[10px] font-mono">
               THINKING...
             </div>
           </div>
@@ -377,7 +377,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
       </div>
 
       {/* Input Area */}
-      <div className="p-4 bg-white/60 border-t border-slate-100">
+      <div className="p-4 bg-glass-strong border-t border-edge-subtle">
         <div className="relative flex items-center">
           <input
             type="text"
@@ -386,12 +386,12 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
             onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
             disabled={isTyping}
             placeholder={isTyping ? "PROCESSING..." : "ENTER COMMAND..."}
-            className="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none focus:border-[#2e4de6] transition-colors placeholder:text-slate-300 disabled:opacity-50 shadow-inner"
+            className="w-full bg-surface-primary border border-edge rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none focus:border-brand transition-colors placeholder:text-content-muted disabled:opacity-50 shadow-inner"
           />
           <button
             onClick={sendMessage}
             disabled={isTyping || !input.trim()}
-            className="absolute right-2 p-2 bg-[#2e4de6] text-white rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:grayscale disabled:scale-100 shadow-lg shadow-[#2e4de6]/20"
+            className="absolute right-2 p-2 bg-brand text-white rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:grayscale disabled:scale-100 shadow-lg shadow-brand/20"
           >
             <Send size={16} />
           </button>
@@ -413,18 +413,18 @@ function ContainerDashboard({ agent, plugins, onBack, onConfigure, onPowerToggle
   const memoryPlugin = plugins.find(p => p.id === agent.metadata?.preferred_memory);
 
   return (
-    <div className="flex flex-col h-full bg-white/40 backdrop-blur-3xl animate-in fade-in duration-500">
+    <div className="flex flex-col h-full bg-glass backdrop-blur-3xl animate-in fade-in duration-500">
       {/* Header */}
-      <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-white/60">
+      <div className="p-4 border-b border-edge-subtle flex items-center justify-between bg-glass-strong">
         <div className="flex items-center gap-3">
           <div className="p-2 text-white rounded-lg shadow-lg" style={{ backgroundColor: color, boxShadow: `0 10px 15px -3px ${color}33` }}>
             <AgentIcon agent={agent} size={18} />
           </div>
           <div>
-            <h2 className="text-sm font-black text-slate-800 tracking-tight uppercase">{agent.name}</h2>
+            <h2 className="text-sm font-black text-content-primary tracking-tight uppercase">{agent.name}</h2>
             <div className="flex items-center gap-2">
               <span className={`w-1.5 h-1.5 rounded-full ${statusDotColor(agent.status)}`} />
-              <span className="text-[8px] font-mono text-slate-400 uppercase tracking-widest">
+              <span className="text-[8px] font-mono text-content-tertiary uppercase tracking-widest">
                 Container Process {agent.enabled ? '· Running' : '· Stopped'}
               </span>
             </div>
@@ -436,7 +436,7 @@ function ContainerDashboard({ agent, plugins, onBack, onConfigure, onPowerToggle
               className={`p-2 rounded-lg border transition-all ${
                 agent.enabled
                   ? 'border-emerald-200 text-emerald-500 hover:bg-emerald-50'
-                  : 'border-slate-200 text-slate-400 hover:bg-slate-50'
+                  : 'border-edge text-content-tertiary hover:bg-surface-base'
               }`}
               title={agent.enabled ? 'Power Off' : 'Power On'}
               onClick={() => onPowerToggle(agent)}
@@ -448,7 +448,7 @@ function ContainerDashboard({ agent, plugins, onBack, onConfigure, onPowerToggle
           )}
           <button
             onClick={onBack}
-            className="px-4 py-1.5 rounded-full border border-slate-200 text-[9px] font-bold text-slate-400 hover:text-slate-600 hover:border-slate-300 transition-all uppercase tracking-widest"
+            className="px-4 py-1.5 rounded-full border border-edge text-[9px] font-bold text-content-tertiary hover:text-content-secondary hover:border-edge transition-all uppercase tracking-widest"
           >
             Back
           </button>
@@ -459,38 +459,38 @@ function ContainerDashboard({ agent, plugins, onBack, onConfigure, onPowerToggle
       <div className="flex-1 overflow-y-auto p-8 no-scrollbar">
         <div className="max-w-lg mx-auto space-y-6">
           {/* Description */}
-          <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-3">Description</h3>
-            <p className="text-sm text-slate-600 leading-relaxed">
+          <div className="bg-surface-primary border border-edge-subtle rounded-2xl p-6 shadow-sm">
+            <h3 className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.15em] mb-3">Description</h3>
+            <p className="text-sm text-content-secondary leading-relaxed">
               {agent.description || 'No description provided.'}
             </p>
           </div>
 
           {/* Configuration */}
-          <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-4">Configuration</h3>
+          <div className="bg-surface-primary border border-edge-subtle rounded-2xl p-6 shadow-sm">
+            <h3 className="text-[10px] font-black text-content-tertiary uppercase tracking-[0.15em] mb-4">Configuration</h3>
             <div className="space-y-3">
-              <div className="flex items-center justify-between py-2 border-b border-slate-50">
-                <span className="text-[11px] font-bold text-slate-500">Agent ID</span>
-                <span className="text-[11px] font-mono text-slate-400">{agent.id}</span>
+              <div className="flex items-center justify-between py-2 border-b border-edge-subtle">
+                <span className="text-[11px] font-bold text-content-secondary">Agent ID</span>
+                <span className="text-[11px] font-mono text-content-tertiary">{agent.id}</span>
               </div>
-              <div className="flex items-center justify-between py-2 border-b border-slate-50">
-                <span className="text-[11px] font-bold text-slate-500">Bridge Engine</span>
-                <span className="text-[11px] font-mono text-slate-400">{enginePlugin?.name || agent.default_engine_id || 'None'}</span>
+              <div className="flex items-center justify-between py-2 border-b border-edge-subtle">
+                <span className="text-[11px] font-bold text-content-secondary">Bridge Engine</span>
+                <span className="text-[11px] font-mono text-content-tertiary">{enginePlugin?.name || agent.default_engine_id || 'None'}</span>
               </div>
-              <div className="flex items-center justify-between py-2 border-b border-slate-50">
-                <span className="text-[11px] font-bold text-slate-500">Memory</span>
-                <span className="text-[11px] font-mono text-slate-400">{memoryPlugin?.name || agent.metadata?.preferred_memory || 'None'}</span>
+              <div className="flex items-center justify-between py-2 border-b border-edge-subtle">
+                <span className="text-[11px] font-bold text-content-secondary">Memory</span>
+                <span className="text-[11px] font-mono text-content-tertiary">{memoryPlugin?.name || agent.metadata?.preferred_memory || 'None'}</span>
               </div>
-              <div className="flex items-center justify-between py-2 border-b border-slate-50">
-                <span className="text-[11px] font-bold text-slate-500">Type</span>
+              <div className="flex items-center justify-between py-2 border-b border-edge-subtle">
+                <span className="text-[11px] font-bold text-content-secondary">Type</span>
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-mono px-2 py-0.5 rounded-full" style={{ backgroundColor: `${color}12`, color }}>
                   <Cpu size={10} />
                   Container
                 </span>
               </div>
               <div className="flex items-center justify-between py-2">
-                <span className="text-[11px] font-bold text-slate-500">Power</span>
+                <span className="text-[11px] font-bold text-content-secondary">Power</span>
                 <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold ${statusBadgeClass(agent.status)}`}>
                   {agent.metadata?.has_power_password === 'true' && <Lock size={8} />}
                   {agent.status.toUpperCase()}
@@ -512,9 +512,9 @@ function ContainerDashboard({ agent, plugins, onBack, onConfigure, onPowerToggle
           </div>
 
           {/* Info Notice */}
-          <div className="flex items-start gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100">
-            <Terminal size={14} className="text-slate-400 shrink-0 mt-0.5" />
-            <p className="text-[10px] text-slate-400 leading-relaxed">
+          <div className="flex items-start gap-3 p-4 bg-surface-base rounded-xl border border-edge-subtle">
+            <Terminal size={14} className="text-content-tertiary shrink-0 mt-0.5" />
+            <p className="text-[10px] text-content-tertiary leading-relaxed">
               This is a non-AI container agent. It operates through bridge scripts and does not support interactive chat.
               Use the plugin workspace to configure its engine and memory modules.
             </p>
@@ -665,7 +665,7 @@ export function AgentTerminal({
   const memories = allMemories.filter(p => newAgent.type === 'ai' ? true : !isLlmPlugin(p));
 
   return (
-    <div className="relative flex h-full bg-white/80 backdrop-blur-sm overflow-hidden">
+    <div className="relative flex h-full bg-glass-subtle backdrop-blur-sm overflow-hidden">
       {/* Password Modal */}
       {powerTarget && (
         <PowerToggleModal
@@ -678,26 +678,26 @@ export function AgentTerminal({
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="p-6 flex items-center justify-between bg-white/40">
+        <div className="p-6 flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-black tracking-tight text-slate-800 uppercase">Agent Management</h2>
-            <p className="text-[10px] text-slate-400 font-mono tracking-widest uppercase mt-1">
+            <h2 className="text-xl font-black tracking-tight text-content-primary uppercase">Agent Management</h2>
+            <p className="text-[10px] text-content-tertiary font-mono tracking-widest uppercase mt-1">
               EXIV-SYSTEM / Registered Instances
             </p>
           </div>
-          <div className="px-3 py-1 rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">
+          <div className="px-3 py-1 rounded-full bg-surface-secondary text-[10px] font-bold text-content-secondary">
             {agents.filter(a => a.enabled).length} / {agents.length} ACTIVE
           </div>
         </div>
 
         {/* Agent List */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-3 no-scrollbar bg-gradient-to-b from-white/40 from-25% via-white/20 via-65% to-[#2e4de6]/[0.05]">
+        <div className="flex-1 overflow-y-auto p-6 space-y-3 no-scrollbar bg-gradient-to-b from-surface-primary/40 from-25% via-surface-primary/20 via-65% to-brand/[0.05]">
           {isLoading ? (
-            <div className="h-full flex items-center justify-center text-slate-300 font-mono text-[10px] tracking-widest uppercase animate-pulse">
+            <div className="h-full flex items-center justify-center text-content-muted font-mono text-[10px] tracking-widest uppercase animate-pulse">
               Scanning for containers...
             </div>
           ) : agents.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-4">
+            <div className="h-full flex flex-col items-center justify-center text-content-muted space-y-4">
               <Zap size={32} strokeWidth={1} className="opacity-20" />
               <p className="text-[10px] font-mono tracking-[0.2em] uppercase">No agents registered</p>
             </div>
@@ -705,7 +705,7 @@ export function AgentTerminal({
             agents.map((agent) => (
               <div
                 key={agent.id}
-                className="group p-4 bg-white border border-slate-200 rounded-xl shadow-sm flex items-center gap-4 cursor-pointer"
+                className="group p-4 bg-surface-primary border border-edge rounded-xl shadow-sm flex items-center gap-4 cursor-pointer"
                 onClick={() => handleSelectAgent(agent)}
               >
                 <div className="p-2.5 rounded-xl shrink-0" style={{ backgroundColor: `${agentColor(agent)}12`, color: agentColor(agent) }}>
@@ -713,18 +713,18 @@ export function AgentTerminal({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-slate-700 text-sm truncate">{agent.name}</h3>
+                    <h3 className="font-bold text-content-primary text-sm truncate">{agent.name}</h3>
                     <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold ${statusBadgeClass(agent.status)}`}>
                       {agent.metadata?.has_power_password === 'true' && <Lock size={7} />}
                       {agent.status.toUpperCase()}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5 truncate">{agent.description}</p>
+                  <p className="text-[11px] text-content-secondary mt-0.5 truncate">{agent.description}</p>
                   <div className="flex gap-2 mt-2">
-                    <span className="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-400 font-mono">
+                    <span className="text-[9px] bg-surface-secondary px-1.5 py-0.5 rounded text-content-tertiary font-mono">
                       ENGINE: {agent.default_engine_id || 'DEFAULT'}
                     </span>
-                    <span className="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-400 font-mono">
+                    <span className="text-[9px] bg-surface-secondary px-1.5 py-0.5 rounded text-content-tertiary font-mono">
                       MEM: {agent.metadata?.preferred_memory || 'DEFAULT'}
                     </span>
                   </div>
@@ -735,7 +735,7 @@ export function AgentTerminal({
                       className={`p-2 rounded-lg border transition-all ${
                         agent.enabled
                           ? 'border-emerald-200 text-emerald-500 hover:bg-emerald-50'
-                          : 'border-slate-200 text-slate-400 hover:bg-slate-50'
+                          : 'border-edge text-content-tertiary hover:bg-surface-base'
                       }`}
                       title={agent.enabled ? 'Power Off' : 'Power On'}
                       onClick={(e) => { e.stopPropagation(); handlePowerToggle(agent); }}
@@ -747,12 +747,12 @@ export function AgentTerminal({
                   )}
                   <button
                     title="Manage Plugins"
-                    className="p-2 rounded-lg border border-slate-100 text-slate-400 hover:text-[#2e4de6] hover:border-[#2e4de6]/30 hover:bg-[#2e4de6]/5 transition-all"
+                    className="p-2 rounded-lg border border-edge-subtle text-content-tertiary hover:text-brand hover:border-brand/30 hover:bg-brand/5 transition-all"
                     onClick={(e) => { e.stopPropagation(); setConfiguringAgent(agent); }}
                   >
                     <Puzzle size={16} />
                   </button>
-                  <ChevronRight size={18} className="text-slate-300 group-hover:text-slate-500 transition-colors" />
+                  <ChevronRight size={18} className="text-content-muted group-hover:text-content-secondary transition-colors" />
                 </div>
               </div>
             ))
@@ -761,15 +761,15 @@ export function AgentTerminal({
       </div>
 
       {/* Right Sidebar: Create Form */}
-      <div className="w-[380px] shrink-0 border-l border-black/30 bg-slate-50/30 overflow-y-auto no-scrollbar hidden lg:flex flex-col">
-        <div className="p-5 bg-white/40">
-          <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.15em]">Initialize New Agent</h3>
+      <div className="w-[380px] shrink-0 border-l border-[var(--border-strong)] bg-surface-base/30 overflow-y-auto no-scrollbar hidden lg:flex flex-col">
+        <div className="p-5">
+          <h3 className="text-[11px] font-black text-content-secondary uppercase tracking-[0.15em]">Initialize New Agent</h3>
         </div>
         <div className="p-5 flex-1">
           <div className="space-y-4">
             {/* Agent Type Selector */}
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-2">Agent Type</label>
+              <label className="block text-xs font-bold text-content-secondary mb-2">Agent Type</label>
               <div className="grid grid-cols-2 gap-3">
                 {([['ai', 'AI Agent', 'LLM-powered reasoning'], ['container', 'Container', 'Script / bridge process']] as const).map(([type, label, desc]) => {
                   const selected = newAgent.type === type;
@@ -780,7 +780,7 @@ export function AgentTerminal({
                       type="button"
                       onClick={() => handleTypeChange(type)}
                       className={`flex items-center gap-2.5 p-3 rounded-xl border-2 transition-all text-left ${
-                        selected ? 'bg-white shadow-md' : 'bg-white/50 border-slate-200 hover:border-slate-300'
+                        selected ? 'bg-surface-primary shadow-md' : 'bg-surface-primary/50 border-edge hover:border-edge'
                       }`}
                       style={selected ? { borderColor: color } : undefined}
                     >
@@ -788,8 +788,8 @@ export function AgentTerminal({
                         <AgentTypeIcon type={type} size={16} />
                       </div>
                       <div>
-                        <div className="text-[11px] font-bold text-slate-700">{label}</div>
-                        <div className="text-[8px] text-slate-400">{desc}</div>
+                        <div className="text-[11px] font-bold text-content-primary">{label}</div>
+                        <div className="text-[8px] text-content-tertiary">{desc}</div>
                       </div>
                     </button>
                   );
@@ -798,35 +798,35 @@ export function AgentTerminal({
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">Agent Name</label>
+              <label className="block text-xs font-bold text-content-secondary mb-1">Agent Name</label>
               <input
                 type="text"
                 value={newAgent.name}
                 onChange={e => updateField('name', e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-[#2e4de6]"
+                className="w-full px-3 py-2 rounded-lg border border-edge text-sm focus:outline-none focus:border-brand bg-surface-primary"
                 placeholder="e.g. Mike"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">Description / System Prompt</label>
+              <label className="block text-xs font-bold text-content-secondary mb-1">Description / System Prompt</label>
               <textarea
                 value={newAgent.desc}
                 onChange={e => updateField('desc', e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-[#2e4de6] h-16 resize-none"
+                className="w-full px-3 py-2 rounded-lg border border-edge text-sm focus:outline-none focus:border-brand bg-surface-primary h-16 resize-none"
                 placeholder="Briefly describe the agent's role."
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">
+              <label className="block text-xs font-bold text-content-secondary mb-1">
                 {newAgent.type === 'ai' ? 'LLM Engine' : 'Bridge Engine'}
               </label>
               {filteredEngines.length > 0 ? (
                 <select
                   value={newAgent.engine}
                   onChange={e => updateField('engine', e.target.value)}
-                  className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:border-[#2e4de6] bg-white"
+                  className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
                 >
                   <option value="">Select Engine...</option>
                   {filteredEngines.map(p => (
@@ -834,18 +834,18 @@ export function AgentTerminal({
                   ))}
                 </select>
               ) : (
-                <div className="w-full px-2 py-1.5 rounded-lg border border-dashed border-slate-300 text-[10px] text-slate-400 font-mono text-center">
+                <div className="w-full px-2 py-1.5 rounded-lg border border-dashed border-content-muted text-[10px] text-content-tertiary font-mono text-center">
                   No {newAgent.type === 'ai' ? 'LLM' : 'bridge'} engines available
                 </div>
               )}
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">Memory Engine</label>
+              <label className="block text-xs font-bold text-content-secondary mb-1">Memory Engine</label>
               <select
                 value={newAgent.memory}
                 onChange={e => updateField('memory', e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:border-[#2e4de6] bg-white"
+                className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
               >
                 <option value="">Select Memory...</option>
                 {memories.map(p => (
@@ -855,20 +855,20 @@ export function AgentTerminal({
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">
-                Power Password <span className="text-slate-300 font-normal">(optional)</span>
+              <label className="block text-xs font-bold text-content-secondary mb-1">
+                Power Password <span className="text-content-muted font-normal">(optional)</span>
               </label>
               <div className="relative">
-                <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
                 <input
                   type="password"
                   value={newAgent.password}
                   onChange={e => updateField('password', e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-[#2e4de6]"
+                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-edge text-sm focus:outline-none focus:border-brand bg-surface-primary"
                   placeholder="Leave empty for no password"
                 />
               </div>
-              <p className="text-[9px] text-slate-400 mt-1">Require password to toggle power on/off</p>
+              <p className="text-[9px] text-content-tertiary mt-1">Require password to toggle power on/off</p>
             </div>
 
             <button

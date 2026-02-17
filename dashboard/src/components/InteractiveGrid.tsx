@@ -1,7 +1,11 @@
 import { useEffect, useRef } from 'react';
+import { useTheme } from '../hooks/useTheme';
 
 export function InteractiveGrid() {
   const gridCanvasRef = useRef<HTMLCanvasElement>(null);
+  const { colors } = useTheme();
+  const colorsRef = useRef(colors);
+  colorsRef.current = colors;
 
   useEffect(() => {
     const gridCanvas = gridCanvasRef.current;
@@ -23,11 +27,11 @@ export function InteractiveGrid() {
       gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       // Background color
-      gctx.fillStyle = '#f8fafc';
+      gctx.fillStyle = colorsRef.current.canvasBg;
       gctx.fillRect(0, 0, width, height);
 
       // Grid lines
-      gctx.strokeStyle = '#cbd5e1';
+      gctx.strokeStyle = colorsRef.current.canvasGrid;
       gctx.lineWidth = 1;
       gctx.globalAlpha = 0.4;
 
@@ -55,7 +59,7 @@ export function InteractiveGrid() {
     return () => {
       window.removeEventListener('resize', draw);
     };
-  }, []);
+  }, [colors]);
 
   return (
     <canvas 

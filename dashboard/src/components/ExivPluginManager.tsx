@@ -25,15 +25,15 @@ function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-800">
-          <Settings size={18} className="text-[#2e4de6]" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-surface-primary rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-content-primary">
+          <Settings size={18} className="text-brand" />
           Configure {plugin.name}
         </h3>
         
         {loading ? (
-          <div className="p-8 text-center text-slate-400 font-mono text-xs">Loading config...</div>
+          <div className="p-8 text-center text-content-tertiary font-mono text-xs">Loading config...</div>
         ) : (
           <div className="space-y-4">
             {plugin.required_config_keys.length > 0 ? plugin.required_config_keys.map(key => {
@@ -41,14 +41,14 @@ function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () 
               const isSecretKey = key.includes('key') || key.includes('password');
               return (
                 <div key={key}>
-                  <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">{key}</label>
+                  <label className="block text-xs font-bold text-content-secondary mb-1 uppercase tracking-wider">{key}</label>
                   <div className="flex gap-2">
                     <input
                       type={isSecretKey ? 'password' : 'text'}
                       value={config[key] || ''}
                       onChange={e => setConfig(prev => ({ ...prev, [key]: e.target.value }))}
                       onBlur={e => save(key, e.target.value)}
-                      className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm font-mono focus:outline-none focus:border-[#2e4de6] focus:ring-1 focus:ring-[#2e4de6]"
+                      className="flex-1 px-3 py-2 rounded-lg border border-edge text-sm font-mono focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand"
                       placeholder={`Enter ${key}...`}
                     />
                     {isPathKey && isTauri && (
@@ -67,7 +67,7 @@ function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () 
                             save(key, selected);
                           }
                         }}
-                        className="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 hover:bg-[#2e4de6]/10 hover:border-[#2e4de6]/50 text-slate-500 hover:text-[#2e4de6] transition-colors"
+                        className="px-3 py-2 rounded-lg border border-edge bg-surface-base hover:bg-brand/10 hover:border-brand/50 text-content-secondary hover:text-brand transition-colors"
                         title="Browse files"
                       >
                         <FolderOpen size={16} />
@@ -77,7 +77,7 @@ function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () 
                 </div>
               );
             }) : (
-              <div className="p-4 bg-slate-50 text-slate-400 text-xs rounded-lg text-center font-mono border border-slate-100 border-dashed">
+              <div className="p-4 bg-surface-base text-content-tertiary text-xs rounded-lg text-center font-mono border border-edge-subtle border-dashed">
                 No configuration required for this plugin.
               </div>
             )}
@@ -85,7 +85,7 @@ function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () 
         )}
 
         <div className="mt-6 flex justify-end gap-3">
-          <button onClick={onClose} className="px-6 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-200 transition-colors tracking-wide">
+          <button onClick={onClose} className="px-6 py-2 bg-surface-secondary text-content-secondary rounded-lg text-xs font-bold hover:bg-surface-secondary transition-colors tracking-wide">
             CANCEL
           </button>
           <button
@@ -108,7 +108,7 @@ function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () 
               }
             }}
             disabled={saveState === 'saving'}
-            className="px-6 py-2 bg-[#2e4de6] text-white rounded-lg text-xs font-bold hover:bg-[#1e3bb3] transition-all shadow-md shadow-[#2e4de6]/20 tracking-wide disabled:opacity-50"
+            className="px-6 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:bg-[#1e3bb3] transition-all shadow-md shadow-brand/20 tracking-wide disabled:opacity-50"
           >
             {saveState === 'saving' ? 'SAVING...' : saveState === 'error' ? 'SAVE ERROR (TRY AGAIN)' : 'SAVE & CLOSE'}
           </button>
@@ -232,17 +232,17 @@ export function ExivPluginManager() {
   const categoryOrder: PluginCategory[] = ['Agent', 'Tool', 'Memory', 'System', 'Other'];
 
   return (
-    <div className="flex flex-col h-full bg-white/40 backdrop-blur-3xl overflow-hidden">
+    <div className="flex flex-col h-full bg-glass backdrop-blur-3xl overflow-hidden">
       {/* Header */}
-      <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white/40">
+      <div className="p-6 border-b border-edge-subtle flex items-center justify-between bg-glass">
         <div>
-          <h2 className="text-xl font-black tracking-tight text-slate-800 uppercase">System Plugins</h2>
-          <p className="text-[10px] text-slate-400 font-mono tracking-widest uppercase mt-1">
+          <h2 className="text-xl font-black tracking-tight text-content-primary uppercase">System Plugins</h2>
+          <p className="text-[10px] text-content-tertiary font-mono tracking-widest uppercase mt-1">
             EXIV-SYSTEM Kernel v{__APP_VERSION__} / Configuration Panel
           </p>
         </div>
         <div className="flex items-center gap-3">
-           <div className="px-3 py-1 rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">
+           <div className="px-3 py-1 rounded-full bg-surface-secondary text-[10px] font-bold text-content-secondary">
              {plugins.filter(p => p.is_active).length} / {plugins.length} ACTIVE
            </div>
         </div>
@@ -250,9 +250,9 @@ export function ExivPluginManager() {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar - Tags */}
-        <div className="w-64 border-r border-slate-100 bg-slate-50/30 p-6 flex flex-col gap-6 hidden md:flex">
+        <div className="w-64 border-r border-edge-subtle bg-surface-base/30 p-6 flex flex-col gap-6 hidden md:flex">
           <div>
-            <div className="flex items-center gap-2 text-slate-400 mb-4">
+            <div className="flex items-center gap-2 text-content-tertiary mb-4">
               <Filter size={14} />
               <span className="text-[10px] font-black uppercase tracking-widest">Tag Filters</span>
             </div>
@@ -265,8 +265,8 @@ export function ExivPluginManager() {
                   )}
                   className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
                     selectedTags.includes(tag)
-                      ? 'bg-[#2e4de6] text-white shadow-md'
-                      : 'bg-white text-slate-500 border border-slate-200 hover:border-[#2e4de6]/50'
+                      ? 'bg-brand text-white shadow-md'
+                      : 'bg-surface-primary text-content-secondary border border-edge hover:border-brand/50'
                   }`}
                 >
                   {tag}
@@ -276,7 +276,7 @@ export function ExivPluginManager() {
           </div>
 
           <div className="mt-auto">
-             <div className="p-4 rounded-2xl bg-[#2e4de6]/5 border border-[#2e4de6]/10 text-[#2e4de6]">
+             <div className="p-4 rounded-2xl bg-brand/5 border border-brand/10 text-brand">
                <div className="flex items-center gap-2 mb-2">
                  <Shield size={16} />
                  <span className="text-[10px] font-black uppercase tracking-widest">Security</span>
@@ -301,12 +301,12 @@ export function ExivPluginManager() {
                 {/* Category Header */}
                 <button 
                   onClick={() => toggleCategory(category)}
-                  className="flex items-center gap-2 text-slate-400 hover:text-slate-600 transition-colors w-full text-left"
+                  className="flex items-center gap-2 text-content-tertiary hover:text-content-secondary transition-colors w-full text-left"
                 >
                   {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   <span className="text-[11px] font-black uppercase tracking-widest">{category}s</span>
-                  <div className="h-px bg-slate-100 flex-1 ml-2" />
-                  <span className="text-[10px] font-mono text-slate-300">{categoryPlugins.length}</span>
+                  <div className="h-px bg-surface-secondary flex-1 ml-2" />
+                  <span className="text-[10px] font-mono text-content-muted">{categoryPlugins.length}</span>
                 </button>
 
                 {/* Plugin Grid */}
@@ -318,19 +318,19 @@ export function ExivPluginManager() {
                         <div 
                           key={plugin.id}
                           className={`group relative p-5 rounded-2xl border transition-all duration-300 ${
-                            plugin.is_active 
-                              ? 'bg-white border-slate-200 shadow-sm hover:shadow-md' 
-                              : 'bg-slate-50/50 border-slate-100 opacity-60'
+                            plugin.is_active
+                              ? 'bg-surface-primary border-edge shadow-sm hover:shadow-md'
+                              : 'bg-surface-base/50 border-edge-subtle opacity-60'
                           }`}
                         >
                           <div className="flex items-start justify-between mb-4">
-                            <div className={`p-2.5 rounded-xl ${plugin.is_active ? 'bg-[#2e4de6]/10 text-[#2e4de6]' : 'bg-slate-200 text-slate-400'}`}>
+                            <div className={`p-2.5 rounded-xl ${plugin.is_active ? 'bg-brand/10 text-brand' : 'bg-surface-secondary text-content-tertiary'}`}>
                               <ServiceTypeIcon type={plugin.service_type} size={20} />
                             </div>
                             <button
                               onClick={() => togglePlugin(plugin.id)}
                               className={`w-12 h-6 rounded-full relative transition-colors duration-300 ${
-                                plugin.is_active ? 'bg-[#2e4de6]' : 'bg-slate-300'
+                                plugin.is_active ? 'bg-brand' : 'bg-content-muted'
                               }`}
                             >
                               <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all duration-300 ${
@@ -341,21 +341,21 @@ export function ExivPluginManager() {
 
                           <div className="mb-4">
                             <div className="flex items-center gap-2">
-                              <h3 className="font-bold text-slate-800 text-sm">{plugin.name}</h3>
+                              <h3 className="font-bold text-content-primary text-sm">{plugin.name}</h3>
                               {isVerified ? (
                                 <CheckCircle2 size={14} className="text-emerald-500" title={`Verified (SDK v${plugin.sdk_version})`} />
                               ) : (
                                 <AlertTriangle size={14} className="text-amber-500" title="Unverified Plugin" />
                               )}
                             </div>
-                            <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 leading-relaxed h-8">
+                            <p className="text-[11px] text-content-secondary mt-1 line-clamp-2 leading-relaxed h-8">
                               {plugin.description}
                             </p>
                           </div>
 
                           <div className="flex flex-wrap gap-1.5 mt-auto">
                             {plugin.tags.map(tag => (
-                              <span key={tag} className="flex items-center gap-0.5 px-2 py-0.5 bg-slate-100 rounded text-[9px] font-mono text-slate-400">
+                              <span key={tag} className="flex items-center gap-0.5 px-2 py-0.5 bg-surface-secondary rounded text-[9px] font-mono text-content-tertiary">
                                 <Hash size={8} className="opacity-50" />
                                 {tag.replace('#', '')}
                               </span>
@@ -374,8 +374,8 @@ export function ExivPluginManager() {
                               onClick={() => setConfigTarget(plugin)}
                               className={`absolute bottom-4 right-4 p-2 rounded-lg transition-all ${
                                 plugin.is_active && !isPluginPending(plugin.id)
-                                  ? 'bg-[#2e4de6]/10 text-[#2e4de6] hover:bg-[#2e4de6] hover:text-white shadow-sm'
-                                  : 'bg-slate-100 text-slate-300 cursor-not-allowed opacity-50'
+                                  ? 'bg-brand/10 text-brand hover:bg-brand hover:text-white shadow-sm'
+                                  : 'bg-surface-secondary text-content-muted cursor-not-allowed opacity-50'
                               }`}
                               title={!plugin.is_active ? "Activate plugin to configure" : isPluginPending(plugin.id) ? "Apply changes to configure" : "Plugin Settings"}
                             >
@@ -395,7 +395,7 @@ export function ExivPluginManager() {
 
       {/* Footer - Apply Bar */}
       {hasChanges && (
-        <div className="p-4 bg-white border-t border-slate-100 flex items-center justify-between animate-in slide-in-from-bottom-full duration-500 z-50">
+        <div className="p-4 bg-surface-primary border-t border-edge-subtle flex items-center justify-between animate-in slide-in-from-bottom-full duration-500 z-50">
           <div className="flex items-center gap-2 text-amber-600 px-4">
             <AlertTriangle size={16} />
             <span className="text-[10px] font-bold uppercase tracking-widest">Pending changes exist</span>
@@ -403,7 +403,7 @@ export function ExivPluginManager() {
           <button
             onClick={applyChanges}
             disabled={isSaving}
-            className="flex items-center gap-2 px-6 py-2.5 bg-[#2e4de6] text-white rounded-xl text-xs font-bold shadow-lg shadow-[#2e4de6]/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+            className="flex items-center gap-2 px-6 py-2.5 bg-brand text-white rounded-xl text-xs font-bold shadow-lg shadow-brand/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
           >
             {isSaving ? (
               <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />

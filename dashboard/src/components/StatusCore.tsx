@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react';
 import { NeuralNetwork } from '../components/NeuralNetwork';
 import { useMetrics } from '../hooks/useMetrics';
 import { useStatusManager } from '../hooks/useStatusManager';
+import { useTheme } from '../hooks/useTheme';
 import type { StrictSystemEvent } from '../types';
 
 // --- Sub-component: DecipherText ---
@@ -66,6 +67,7 @@ function TimelinePins({ events, startTime, endTime, onPinClick }: {
   endTime: number,
   onPinClick: (t: number) => void 
 }) {
+  const { colors } = useTheme();
   const pinEvents = events.filter(e => e.type === "MessageReceived" || e.type === "ToolStart");
   const duration = endTime - startTime;
 
@@ -75,7 +77,7 @@ function TimelinePins({ events, startTime, endTime, onPinClick }: {
     <div className="absolute inset-x-0 -top-2 h-4 pointer-events-none">
       {pinEvents.map((e, i) => {
         const pos = ((e.timestamp - startTime) / duration) * 100;
-        const color = e.type === "MessageReceived" ? "#2e4de6" : (e.type === "ToolStart" ? (e.payload?.color || "#2ea8e6") : "#2ea8e6");
+        const color = e.type === "MessageReceived" ? colors.brandHex : (e.type === "ToolStart" ? (e.payload?.color || "#2ea8e6") : "#2ea8e6");
         return (
           <div 
             key={i}
@@ -98,6 +100,7 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
   const [now, setNow] = useState(Date.now());
   const { metrics, fetchMetrics } = useMetrics();
   const { eventHistory, thoughtLines } = useStatusManager(fetchMetrics);
+  const { colors } = useTheme();
   
   const realMouse = useRef({ x: -1000, y: -1000 });
 
@@ -163,7 +166,7 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
       onMouseEnter={(e) => {
         realMouse.current = { x: e.clientX, y: e.clientY };
       }}
-      className={`${isWindowMode ? 'bg-transparent h-full w-full rounded-md' : 'bg-slate-50 min-h-screen'} flex flex-col items-center justify-center overflow-hidden relative font-sans text-slate-800`} 
+      className={`${isWindowMode ? 'bg-transparent h-full w-full rounded-md' : 'bg-surface-base min-h-screen'} flex flex-col items-center justify-center overflow-hidden relative font-sans text-content-primary`}
     >
       {/* Archive Indicator */}
       {seekTime !== null && (
@@ -176,7 +179,7 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
       <div 
         className="absolute inset-0 z-0 opacity-[0.04] select-none flex flex-col justify-center items-center pointer-events-none"
         style={{
-          color: '#2e4de6',
+          color: colors.brandHex,
           maskImage: 'radial-gradient(circle 40vw at center, black 30%, transparent 100%)',
           WebkitMaskImage: 'radial-gradient(circle 40vw at center, black 30%, transparent 100%)'
         }}
@@ -212,21 +215,21 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
       {/* UI Overlays */}
       {!isWindowMode && (
         <div className="absolute top-8 left-8 right-8 flex justify-between items-start z-20">
-          <Link to="/" className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/80 backdrop-blur-sm border border-slate-200 shadow-sm text-xs font-bold text-slate-600 hover:text-[#2e4de6] transition-colors">
+          <Link to="/" className="flex items-center gap-2 px-4 py-2 rounded-full bg-glass-subtle backdrop-blur-sm border border-edge shadow-sm text-xs font-bold text-content-secondary hover:text-brand transition-colors">
             <ArrowLeft size={16} /> BACK TO INTERFACE
           </Link>
           <div className="text-right">
-            <h2 className="text-2xl font-black tracking-tighter text-slate-800 uppercase">Status: Connected</h2>
-            <p className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Real-time Telemetry Active</p>
+            <h2 className="text-2xl font-black tracking-tighter text-content-primary uppercase">Status: Connected</h2>
+            <p className="text-[10px] font-mono text-content-tertiary uppercase tracking-widest">Real-time Telemetry Active</p>
           </div>
         </div>
       )}
 
       {/* Time Seek Bar */}
-      <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 bg-white/60 backdrop-blur-md border border-white/40 p-2 px-4 rounded-full shadow-lg transition-all ${isWindowMode ? 'scale-75 origin-bottom' : ''}`}>
+      <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 bg-glass-strong backdrop-blur-md border border-glass p-2 px-4 rounded-full shadow-lg transition-all ${isWindowMode ? 'scale-75 origin-bottom' : ''}`}>
         <button 
           onClick={() => setSeekTime(null)}
-          className={`px-3 py-1 rounded-full text-[9px] font-black transition-all ${seekTime === null ? 'bg-[#2e4de6] text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+          className={`px-3 py-1 rounded-full text-[9px] font-black transition-all ${seekTime === null ? 'bg-brand text-white' : 'bg-surface-secondary text-content-tertiary hover:bg-surface-secondary'}`}
         >
           LIVE
         </button>
@@ -245,18 +248,18 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
             onInput={(e) => setSeekTime(parseInt((e.target as HTMLInputElement).value) || 0)}
             onMouseUp={handleSeekChange}
             onTouchEnd={handleSeekChange}
-            className="w-48 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#2e4de6] relative z-10"
+            className="w-48 h-1 bg-edge rounded-lg appearance-none cursor-pointer accent-brand relative z-10"
           />
         </div>
-        <div className="text-[9px] font-mono text-slate-400 w-12 text-center">
+        <div className="text-[9px] font-mono text-content-tertiary w-12 text-center">
           {seekTime === null ? 'NOW' : '- ' + Math.floor((endTime - seekTime) / 1000) + 's'}
         </div>
       </div>
 
       {!isWindowMode && (
         <div className="absolute bottom-8 left-8 flex flex-col gap-1 z-20">
-          <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400">
-            <span className="w-2 h-2 rounded-full bg-[#2e4de6] animate-pulse"></span> SYSTEM SYNCHRONIZED
+          <div className="flex items-center gap-2 text-[10px] font-mono text-content-tertiary">
+            <span className="w-2 h-2 rounded-full bg-brand animate-pulse"></span> SYSTEM SYNCHRONIZED
           </div>
         </div>
       )}
@@ -264,12 +267,12 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
       {/* Metrics Overlay */}
       {metrics && (
         <div className={`absolute z-20 flex flex-col gap-2 pointer-events-none ${isWindowMode ? 'bottom-2 right-2 items-end' : 'bottom-8 right-8 text-right'}`}>
-           <div className={`${isWindowMode ? 'bg-white/95 p-2' : 'bg-white/80 backdrop-blur-sm p-3'} border border-slate-200 rounded-lg shadow-sm transition-all`}>
-              <div className="text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1">System Load</div>
+           <div className={`${isWindowMode ? 'bg-glass-subtle p-2' : 'bg-glass-subtle backdrop-blur-sm p-3'} border border-edge rounded-lg shadow-sm transition-all`}>
+              <div className="text-[10px] font-mono text-content-tertiary uppercase tracking-widest mb-1">System Load</div>
               <div className={`${isWindowMode ? 'text-xs' : 'text-sm'} font-bold font-mono`}>{metrics.ram_usage} / {metrics.total_requests} REQS</div>
            </div>
-           <div className={`${isWindowMode ? 'bg-white/95 p-2' : 'bg-white/80 backdrop-blur-sm p-3'} border border-slate-200 rounded-lg shadow-sm transition-all`}>
-              <div className="text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1">Memory Banks (KS2)</div>
+           <div className={`${isWindowMode ? 'bg-glass-subtle p-2' : 'bg-glass-subtle backdrop-blur-sm p-3'} border border-edge rounded-lg shadow-sm transition-all`}>
+              <div className="text-[10px] font-mono text-content-tertiary uppercase tracking-widest mb-1">Memory Banks (KS2)</div>
               <div className={`${isWindowMode ? 'text-xs' : 'text-sm'} font-bold font-mono`}>{metrics.total_memories} PROFILES / {metrics.total_episodes} EPISODES</div>
            </div>
         </div>

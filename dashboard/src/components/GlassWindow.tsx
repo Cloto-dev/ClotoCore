@@ -85,16 +85,16 @@ export const GlassWindow = memo(function GlassWindow({ title, initialPosition, c
     >
       {/* Title Bar */}
       <div 
-        className="h-8 bg-gradient-to-r from-slate-100/50 to-white/50 border-b border-white/20 flex items-center justify-between px-3 select-none"
+        className="h-8 bg-gradient-to-r from-surface-secondary/50 to-surface-primary/50 border-b border-surface-primary/20 flex items-center justify-between px-3 select-none"
         onMouseDown={handleMouseDown}
       >
         <div className="flex items-center gap-2">
-           <span className="w-2 h-2 rounded-full bg-slate-300"></span>
-           <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{title}</span>
+           <span className="w-2 h-2 rounded-full bg-content-muted"></span>
+           <span className="text-[10px] font-black text-content-secondary uppercase tracking-widest">{title}</span>
         </div>
         <button 
           onClick={(e) => { e.stopPropagation(); onClose(); }} 
-          className="p-1 hover:bg-red-500 hover:text-white rounded-full transition-colors text-slate-400"
+          className="p-1 hover:bg-red-500 hover:text-white rounded-full transition-colors text-content-tertiary"
         >
           <X size={12} />
         </button>

@@ -127,14 +127,14 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
     <div className="flex h-full bg-white/20 backdrop-blur-3xl overflow-hidden animate-in fade-in duration-500">
       {/* Sidebar: Plugin Library */}
       <div 
-        className="w-80 border-r border-slate-100 bg-slate-50/50 flex flex-col"
+        className="w-80 border-r border-edge-subtle bg-surface-base/50 flex flex-col"
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDropToLibrary}
       >
-        <div className="p-4 border-b border-slate-100 bg-white/40 flex justify-between items-center">
+        <div className="p-4 border-b border-edge-subtle bg-glass flex justify-between items-center">
           <div>
-            <h3 className="text-[10px] font-black tracking-[0.2em] text-slate-400 uppercase">Library</h3>
-            <p className="text-[8px] text-slate-300 mt-0.5 uppercase font-mono">Drag to Core Matrix</p>
+            <h3 className="text-[10px] font-black tracking-[0.2em] text-content-tertiary uppercase">Library</h3>
+            <p className="text-[8px] text-content-muted mt-0.5 uppercase font-mono">Drag to Core Matrix</p>
           </div>
         </div>
         
@@ -146,7 +146,7 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
                 key={plugin.id}
                 draggable
                 onDragStart={() => handleDragStartFromLibrary(plugin.id)}
-                className="bg-white border border-slate-100 p-3 rounded-2xl flex flex-col cursor-grab active:cursor-grabbing hover:shadow-md transition-all group"
+                className="bg-surface-primary border border-edge-subtle p-3 rounded-2xl flex flex-col cursor-grab active:cursor-grabbing hover:shadow-md transition-all group"
                 style={{ ['--accent' as string]: agentColor(agent) }}
                 onMouseEnter={e => (e.currentTarget.style.borderColor = `${agentColor(agent)}4D`)}
                 onMouseLeave={e => (e.currentTarget.style.borderColor = '')}
@@ -157,10 +157,10 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <h4 className="font-bold text-slate-800 text-[11px] truncate">{plugin.name}</h4>
+                      <h4 className="font-bold text-content-primary text-[11px] truncate">{plugin.name}</h4>
                       {isVerified && <CheckCircle2 size={10} className="text-emerald-500" />}
                     </div>
-                    <p className="text-[8px] text-slate-400 line-clamp-1">{plugin.description}</p>
+                    <p className="text-[8px] text-content-tertiary line-clamp-1">{plugin.description}</p>
                   </div>
                 </div>
               </div>
@@ -171,18 +171,18 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
 
       {/* Main Workspace: Grid Board */}
       <div className="flex-1 flex flex-col relative overflow-hidden">
-        <div className="p-4 border-b border-slate-100 bg-white/40 flex items-center justify-between z-10">
+        <div className="p-4 border-b border-edge-subtle bg-glass flex items-center justify-between z-10">
           <div className="flex items-center gap-3">
             <div className="p-1.5 text-white rounded-md shadow-lg" style={{ backgroundColor: agentColor(agent), boxShadow: `0 10px 15px -3px ${agentColor(agent)}33` }}>
               <AgentIcon agent={agent} size={14} />
             </div>
-            <h2 className="text-sm font-black text-slate-800 tracking-tight uppercase">{agent.name} Core Matrix</h2>
+            <h2 className="text-sm font-black text-content-primary tracking-tight uppercase">{agent.name} Core Matrix</h2>
           </div>
-          <button onClick={onBack} className="p-1 text-slate-300 hover:text-slate-800 transition-colors"><X size={20} /></button>
+          <button onClick={onBack} className="p-1 text-content-muted hover:text-content-primary transition-colors"><X size={20} /></button>
         </div>
 
         <div 
-          className="flex-1 relative bg-slate-50/20 overflow-auto"
+          className="flex-1 relative bg-surface-base/20 overflow-auto"
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDropToCore}
           style={{
@@ -207,7 +207,7 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
                 key={config.pluginId}
                 draggable
                 onDragStart={() => handleDragStartFromCore(config.pluginId)}
-                className="absolute w-12 h-12 bg-white border-2 rounded-xl shadow-lg flex items-center justify-center cursor-grab active:cursor-grabbing hover:scale-110 transition-transform animate-in zoom-in-90"
+                className="absolute w-12 h-12 bg-surface-primary border-2 rounded-xl shadow-lg flex items-center justify-center cursor-grab active:cursor-grabbing hover:scale-110 transition-transform animate-in zoom-in-90"
                 style={{
                   left: config.x * GRID_SIZE + (GRID_SIZE - 48) / 2,
                   top: config.y * GRID_SIZE + (GRID_SIZE - 48) / 2,
@@ -224,7 +224,7 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
           })}
         </div>
 
-        <div className="p-4 bg-white/80 border-t border-slate-100 flex items-center justify-between px-8 text-[9px] font-mono text-slate-400">
+        <div className="p-4 bg-glass-subtle border-t border-edge-subtle flex items-center justify-between px-8 text-[9px] font-mono text-content-tertiary">
            <div className="flex gap-4">
              <span>COORDINATE_SYSTEM: ACTIVE</span>
              <span>MATRIX_STABILITY: 100%</span>

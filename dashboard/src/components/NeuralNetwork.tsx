@@ -40,11 +40,11 @@ export function NeuralNetwork({ mouseRef, events, onEventProcessed, seekTime }: 
         >
           <div className="flex justify-between items-start mb-2">
             <span className="text-[10px] font-black uppercase tracking-tighter" style={{ color: activeNode.color }}>{activeNode.label}</span>
-            <span className="text-[8px] font-mono text-slate-400 bg-slate-100 px-1 rounded">{activeNode.data?.status}</span>
+            <span className="text-[8px] font-mono text-content-tertiary bg-surface-secondary px-1 rounded">{activeNode.data?.status}</span>
           </div>
           <div className="space-y-2">
-            <div className="text-[9px] leading-tight text-slate-600 font-mono italic">"{activeNode.data?.log}"</div>
-            <div className="text-[8px] text-slate-400 flex justify-between border-t pt-1">
+            <div className="text-[9px] leading-tight text-content-secondary font-mono italic">"{activeNode.data?.log}"</div>
+            <div className="text-[8px] text-content-tertiary flex justify-between border-t pt-1">
               <span>LATENCY: 42ms</span>
               <span>{activeNode.data?.lastActive}</span>
             </div>

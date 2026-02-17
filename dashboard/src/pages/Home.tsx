@@ -11,6 +11,7 @@ import { useDraggable } from '../hooks/useDraggable';
 import { useEventStream } from '../hooks/useEventStream';
 import { api, API_BASE } from '../services/api';
 import { SystemUpdate } from '../components/SystemUpdate';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 const StatusCore = lazy(() => import('../components/StatusCore').then(m => ({ default: m.StatusCore })));
 const MemoryCore = lazy(() => import('../components/MemoryCore').then(m => ({ default: m.MemoryCore })));
@@ -166,35 +167,36 @@ export function Home() {
       onMouseEnter={(e) => {
         realMouse.current = { x: e.clientX, y: e.clientY };
       }}
-      className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 overflow-hidden relative font-sans text-slate-800 select-none"
+      className="min-h-screen bg-surface-base flex flex-col items-center justify-center p-8 overflow-hidden relative font-sans text-content-primary select-none"
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white via-slate-100 to-slate-200 opacity-90 pointer-events-none" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-surface-primary via-surface-secondary to-edge opacity-90 pointer-events-none" />
       
       <InteractiveGrid />
 
       {/* Main View Overlay */}
       {activeMainView && (
-        <div className="fixed inset-0 z-40 bg-slate-50 animate-in fade-in duration-300">
-          <div className="absolute top-0 left-0 right-0 h-16 border-b border-black/30 flex items-center justify-between px-8 bg-white z-50">
+        <div className="fixed inset-0 z-40 bg-surface-base animate-in fade-in duration-300">
+          <div className="absolute top-0 left-0 right-0 h-16 border-b border-[var(--border-strong)] flex items-center justify-between px-8 bg-surface-primary z-50">
             <div className="flex items-center gap-6">
                <button 
                  onClick={() => setActiveMainView(null)}
-                 className="flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-slate-200 shadow-sm text-[10px] font-bold text-slate-600 hover:text-[#2e4de6] transition-all hover:shadow-md active:scale-95"
+                 className="flex items-center gap-2 px-4 py-2 rounded-full bg-surface-primary border border-edge shadow-sm text-[10px] font-bold text-content-secondary hover:text-brand transition-all hover:shadow-md active:scale-95"
                >
                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
                  <span className="tracking-widest">BACK</span>
                </button>
-               <div className="h-4 w-[1px] bg-slate-200 mx-2" />
+               <div className="h-4 w-[1px] bg-edge mx-2" />
                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-[#2e4de6] animate-pulse" />
-                  <h2 className="text-[11px] font-black tracking-[0.4em] text-slate-800 uppercase">{activeMainView}</h2>
+                  <div className="w-2 h-2 rounded-full bg-brand animate-pulse" />
+                  <h2 className="text-[11px] font-black tracking-[0.4em] text-content-primary uppercase">{activeMainView}</h2>
                </div>
             </div>
+            <ThemeToggle />
           </div>
 
           <div className="absolute inset-0 top-16 flex flex-col">
             <div className="flex-1 overflow-hidden animate-in fade-in duration-300">
-              <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-slate-400">SYNCHRONIZING...</div>}>
+              <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">SYNCHRONIZING...</div>}>
                 {activeMainView === 'sandbox' && <ExivWorkspace />}
                 {activeMainView === 'plugin' && <ExivPluginManager />}
                 {activeMainView === 'system' && <SystemView />}
@@ -219,7 +221,7 @@ export function Home() {
               onClose={() => closeWindow(win.id)}
               onFocus={() => focusWindow(win.id)}
             >
-              <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-slate-400">LOADING MODULE...</div>}>
+              <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">LOADING MODULE...</div>}>
                 {win.type === 'status' && <StatusCore isWindowMode={true} />}
                 {win.type === 'memory' && <MemoryCore isWindowMode={true} onClose={() => closeWindow(win.id)} />}
                 {win.type === 'sandbox' && <ExivWorkspace />}
@@ -234,7 +236,7 @@ export function Home() {
       {/* Ghost Dragging Icon */}
       {ghostPos && dragItem && (
         <div 
-          className="fixed z-50 pointer-events-none p-4 bg-white/50 backdrop-blur-md rounded-lg border border-[#2e4de6] text-[#2e4de6] shadow-xl animate-pulse"
+          className="fixed z-50 pointer-events-none p-4 bg-glass backdrop-blur-md rounded-lg border border-brand text-brand shadow-xl animate-pulse"
           style={{ left: ghostPos.x, top: ghostPos.y, transform: 'translate(-50%, -50%)' }}
         >
           <dragItem.icon size={32} />
@@ -244,10 +246,10 @@ export function Home() {
       {/* Main Menu */}
       <div className="relative z-20 w-full max-w-5xl flex flex-col items-center">
         <div className="mb-16 text-center">
-          <h1 className="text-4xl font-black tracking-[0.2em] text-slate-800">
-            EXIV SYSTEM <span className="text-xl font-black tracking-widest text-[#2e4de6] ml-1">v{__APP_VERSION__}</span>
+          <h1 className="text-4xl font-black tracking-[0.2em] text-content-primary">
+            EXIV SYSTEM <span className="text-xl font-black tracking-widest text-brand ml-1">v{__APP_VERSION__}</span>
           </h1>
-          <p className="text-[10px] text-slate-400 mt-3 font-mono uppercase tracking-[0.4em]">
+          <p className="text-[10px] text-content-tertiary mt-3 font-mono uppercase tracking-[0.4em]">
             Neural Interface / Central Archive
           </p>
         </div>
@@ -258,19 +260,19 @@ export function Home() {
               key={item.id}
               onMouseDown={(e) => handleMouseDown(e, item)}
               className={`
-                group relative w-[96px] h-[224px] border-2 bg-white/60 backdrop-blur-sm
+                group relative w-[96px] h-[224px] border-2 bg-glass-strong backdrop-blur-sm
                 flex flex-col items-center py-6 shadow-sm rounded-md
                 transition-all duration-300 ease-out
-                ${item.disabled 
-                  ? 'border-slate-300 opacity-40 cursor-not-allowed grayscale bg-slate-100' 
-                  : 'border-[#2e4de6] hover:bg-white hover:shadow-[0_10px_30px_-10px_rgba(46,77,230,0.5)] cursor-pointer active:scale-95'
+                ${item.disabled
+                  ? 'border-content-muted opacity-40 cursor-not-allowed grayscale bg-surface-secondary'
+                  : 'border-brand hover:bg-surface-primary hover:shadow-[0_10px_30px_-10px_rgba(46,77,230,0.5)] cursor-pointer active:scale-95'
                 }
               `}
             >
-              <div className={`flex-1 flex items-center justify-center transition-all ${item.disabled ? 'text-slate-300' : 'text-[#2e4de6]'}`}>
+              <div className={`flex-1 flex items-center justify-center transition-all ${item.disabled ? 'text-content-muted' : 'text-brand'}`}>
                 <item.icon size={32} strokeWidth={2} />
               </div>
-              <div className={`text-[10px] font-bold tracking-[0.1em] uppercase mb-2 ${item.disabled ? 'text-slate-400' : 'text-[#2e4de6]'}`}>
+              <div className={`text-[10px] font-bold tracking-[0.1em] uppercase mb-2 ${item.disabled ? 'text-content-tertiary' : 'text-brand'}`}>
                 {item.label}
               </div>
             </div>

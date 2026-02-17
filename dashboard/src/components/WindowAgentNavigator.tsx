@@ -26,24 +26,24 @@ export const WindowAgentNavigator: React.FC<AgentNavigatorProps> = ({
   systemActive
 }) => {
   return (
-    <div className="w-16 h-full flex flex-col items-center py-4 bg-slate-100/60 backdrop-blur-md border-r border-black/30 gap-4">
+    <div className="w-16 h-full flex flex-col items-center py-4 bg-surface-secondary/60 backdrop-blur-md border-r border-[var(--border-strong)] gap-4">
       {/* System / Kernel Icon */}
       <button
         onClick={onSelectSystem}
         className={`relative group p-2.5 rounded-xl transition-all duration-300 ${
           systemActive 
-            ? 'bg-white shadow-md text-[#2e4de6] ring-1 ring-[#2e4de6]/20' 
-            : 'text-slate-400 hover:text-slate-600 hover:bg-white/60'
+            ? 'bg-surface-primary shadow-md text-brand ring-1 ring-brand/20'
+            : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
         }`}
         title="Exiv Kernel"
       >
         <Cpu size={20} />
         {systemActive && (
-          <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-1 h-5 bg-[#2e4de6] rounded-r-full" />
+          <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-1 h-5 bg-brand rounded-r-full" />
         )}
       </button>
 
-      <div className="w-8 h-px bg-black" />
+      <div className="w-8 h-px bg-content-tertiary" />
 
       {/* Agents List */}
       <div className="flex flex-col gap-3 overflow-y-auto no-scrollbar pb-2 w-full px-2 items-center">
@@ -56,8 +56,8 @@ export const WindowAgentNavigator: React.FC<AgentNavigatorProps> = ({
                 onClick={() => onSelectAgent(agent.id)}
                 className={`relative p-2.5 rounded-xl transition-all duration-300 overflow-hidden w-full flex justify-center ${
                   isActive
-                    ? 'bg-white shadow-md'
-                    : 'text-slate-400 hover:text-slate-600 hover:bg-white/60'
+                    ? 'bg-surface-primary shadow-md'
+                    : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
                 }`}
                 style={isActive ? { color: accentColor, boxShadow: `0 4px 6px -1px ${accentColor}20`, outline: `1px solid ${accentColor}20` } : undefined}
                 title={agent.name}
@@ -65,10 +65,10 @@ export const WindowAgentNavigator: React.FC<AgentNavigatorProps> = ({
                 <AgentIcon agent={agent} size={20} />
 
                 {/* Status Indicator */}
-                <div className={`absolute bottom-1.5 right-1.5 w-2 h-2 rounded-full border border-white ${
+                <div className={`absolute bottom-1.5 right-1.5 w-2 h-2 rounded-full border border-surface-primary ${
                   agent.status === 'online' ? 'bg-emerald-500' :
                   agent.status === 'degraded' ? 'bg-amber-500 animate-pulse' :
-                  'bg-slate-300'
+                  'bg-content-muted'
                 }`} />
               </button>
 
@@ -83,7 +83,7 @@ export const WindowAgentNavigator: React.FC<AgentNavigatorProps> = ({
         {/* Add Agent Button */}
         <button 
           onClick={onAddAgent}
-          className="p-2.5 rounded-xl text-slate-300 hover:text-[#2e4de6] hover:bg-white/60 border border-slate-200 border-dashed transition-all duration-300 mt-2"
+          className="p-2.5 rounded-xl text-content-muted hover:text-brand hover:bg-glass-strong border border-edge border-dashed transition-all duration-300 mt-2"
           title="Initialize New Agent"
         >
           <Plus size={20} />
@@ -91,10 +91,10 @@ export const WindowAgentNavigator: React.FC<AgentNavigatorProps> = ({
       </div>
 
       <div className="mt-auto flex flex-col gap-3">
-        <button className="p-2.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-white/60 transition-all">
+        <button className="p-2.5 rounded-xl text-content-tertiary hover:text-content-secondary hover:bg-glass-strong transition-all">
           <ShieldCheck size={18} />
         </button>
-        <button className="p-2.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-white/60 transition-all">
+        <button className="p-2.5 rounded-xl text-content-tertiary hover:text-content-secondary hover:bg-glass-strong transition-all">
           <Settings size={18} />
         </button>
       </div>
