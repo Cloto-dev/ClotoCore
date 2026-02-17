@@ -109,6 +109,29 @@ impl ExivClient {
         self.post("/api/chat", msg).await
     }
 
+    /// GET pending permission requests.
+    pub async fn get_pending_permissions(&self) -> Result<Vec<serde_json::Value>> {
+        self.get("/api/permissions/pending").await
+    }
+
+    /// POST approve a permission request.
+    pub async fn approve_permission(&self, request_id: &str) -> Result<serde_json::Value> {
+        let body = serde_json::json!({ "approved_by": "cli-admin" });
+        self.post(&format!("/api/permissions/{request_id}/approve"), &body).await
+    }
+
+    /// POST deny a permission request.
+    pub async fn deny_permission(&self, request_id: &str) -> Result<serde_json::Value> {
+        let body = serde_json::json!({ "approved_by": "cli-admin" });
+        self.post(&format!("/api/permissions/{request_id}/deny"), &body).await
+    }
+
+    /// POST grant a permission to a plugin.
+    pub async fn grant_plugin_permission(&self, plugin_id: &str, permission: &str) -> Result<serde_json::Value> {
+        let body = serde_json::json!({ "permission": permission });
+        self.post(&format!("/api/plugins/{plugin_id}/permissions/grant"), &body).await
+    }
+
     /// GET SSE stream (raw response for line-by-line parsing).
     #[allow(dead_code)]
     pub async fn sse_stream(&self) -> Result<reqwest::Response> {

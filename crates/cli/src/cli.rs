@@ -51,6 +51,10 @@ pub enum Commands {
     #[command(subcommand)]
     Config(ConfigCommand),
 
+    /// Manage plugin permissions (Human-in-the-loop)
+    #[command(subcommand)]
+    Permissions(PermissionsCommand),
+
     /// Launch interactive TUI dashboard
     Tui,
 }
@@ -97,6 +101,29 @@ pub enum AgentsCommand {
 pub enum PluginsCommand {
     /// List all plugins
     List,
+}
+
+#[derive(Subcommand)]
+pub enum PermissionsCommand {
+    /// List pending permission requests
+    Pending,
+    /// Approve a permission request
+    Approve {
+        /// Request ID to approve
+        request_id: String,
+    },
+    /// Deny a permission request
+    Deny {
+        /// Request ID to deny
+        request_id: String,
+    },
+    /// Grant a permission directly to a plugin
+    Grant {
+        /// Plugin ID
+        plugin: String,
+        /// Permission to grant (NetworkAccess, FileRead, FileWrite, ProcessExecution, VisionRead, AdminAccess, MemoryRead, MemoryWrite, InputControl)
+        permission: String,
+    },
 }
 
 #[derive(Subcommand)]

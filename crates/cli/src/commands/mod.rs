@@ -4,6 +4,7 @@ pub mod plugins;
 pub mod chat;
 pub mod logs;
 pub mod config_cmd;
+pub mod permissions;
 
 use anyhow::Result;
 use crate::cli::*;
@@ -26,6 +27,7 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             logs::run(&client, follow, limit, cli.json).await
         }
         Commands::Config(cmd) => config_cmd::run(cmd, &config),
+        Commands::Permissions(cmd) => permissions::run(&client, cmd, cli.json).await,
         Commands::Tui => crate::tui::run().await,
     }
 }
