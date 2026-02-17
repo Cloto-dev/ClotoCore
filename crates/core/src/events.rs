@@ -311,16 +311,24 @@ impl EventProcessor {
                     // Stop the agent
                     if let Err(e) = self.agent_manager.set_enabled(agent_id, false).await {
                         error!(agent_id = %agent_id, error = %e, "Failed to stop agent after safety breach");
+                    } else {
+                        // Notify subscribers that agent power state changed
+                        let power_event = Arc::new(ExivEvent::new(
+                            exiv_shared::ExivEventData::AgentPowerChanged {
+                                agent_id: agent_id.clone(),
+                                enabled: false,
+                            }
+                        ));
+                        let _ = self.tx_internal.send(power_event);
                     }
                     let _ = self.tx_internal.send(event);
                 }
-                exiv_shared::ExivEventData::EvolutionGeneration { ref agent_id, generation, ref trigger, fitness } => {
+                exiv_shared::ExivEventData::EvolutionGeneration { ref agent_id, generation, ref trigger } => {
                     info!(
                         trace_id = %trace_id,
                         agent_id = %agent_id,
                         generation = generation,
                         trigger = %trigger,
-                        fitness = fitness,
                         "📈 Evolution: new generation"
                     );
                     let _ = self.tx_internal.send(event);

@@ -69,7 +69,11 @@ impl FitnessScores {
             ("autonomy", self.autonomy.normalized()),
             ("meta_learning", self.meta_learning),
         ];
-        axes.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        axes.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0)) // alphabetical tiebreaker for determinism
+        });
         axes
     }
 }
@@ -603,6 +607,12 @@ impl EvolutionEngine {
     async fn append_rollback_record(&self, agent_id: &str, record: RollbackRecord) -> anyhow::Result<()> {
         let mut history = self.get_rollback_history(agent_id).await?;
         history.push(record);
+
+        // Keep last 100 entries to prevent unbounded growth
+        if history.len() > 100 {
+            history = history.split_off(history.len() - 100);
+        }
+
         let key = Self::key_rollback_history(agent_id);
         self.store.set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(&history)?).await
     }
@@ -652,7 +662,16 @@ impl EvolutionEngine {
         let target_record = match self.get_generation(agent_id, to_generation).await? {
             Some(r) => r,
             None => {
-                error!(agent_id = %agent_id, target_gen = to_generation, "Target generation not found");
+                error!(agent_id = %agent_id, target_gen = to_generation, "Target generation not found, cascading to earlier");
+                if to_generation > 1 {
+                    return self.execute_rollback(agent_id, to_generation - 1, reason).await;
+                }
+                // No generations available at all
+                events.push(ExivEventData::EvolutionBreach {
+                    agent_id: agent_id.to_string(),
+                    violation_type: "rollback_target_missing".to_string(),
+                    detail: format!("No valid generation found for rollback (tried down to gen {})", to_generation),
+                });
                 return Ok(events);
             }
         };
@@ -813,7 +832,6 @@ impl EvolutionEngine {
                     agent_id: agent_id.to_string(),
                     generation: record.generation,
                     trigger: record.trigger.to_string(),
-                    fitness: record.fitness,
                 });
             }
             return Ok(events);
@@ -884,14 +902,17 @@ impl EvolutionEngine {
                         violation_type: "safety_gate_zero".to_string(),
                         detail: "SafetyGate triggered: safety score dropped below 1.0".to_string(),
                     });
-                    // Rollback to last safe generation
-                    if latest_gen > 0 {
+                    // Rollback to PREVIOUS generation (current gen's config caused the breach)
+                    if latest_gen > 1 {
                         let rollback_events = self.execute_rollback(
                             agent_id,
-                            latest_gen,
+                            latest_gen - 1,
                             "Safety breach detected",
                         ).await?;
                         events.extend(rollback_events);
+                    } else if latest_gen == 1 {
+                        // Only gen 1 exists — no earlier generation to roll back to
+                        warn!(agent_id = %agent_id, "Safety breach on generation 1, no earlier generation available");
                     }
                 }
                 GenerationTrigger::Regression => {
@@ -900,15 +921,17 @@ impl EvolutionEngine {
 
                     match severity {
                         RegressionSeverity::Severe => {
-                            // Immediate rollback
+                            // Immediate rollback to PREVIOUS generation
                             warn!(agent_id = %agent_id, delta = delta_f, "Severe regression, immediate rollback");
-                            if latest_gen > 0 {
+                            if latest_gen > 1 {
                                 let rollback_events = self.execute_rollback(
                                     agent_id,
-                                    latest_gen,
+                                    latest_gen - 1,
                                     "Severe regression detected",
                                 ).await?;
                                 events.extend(rollback_events);
+                            } else if latest_gen == 1 {
+                                warn!(agent_id = %agent_id, "Severe regression on generation 1, no earlier generation available");
                             }
                         }
                         RegressionSeverity::Mild => {
@@ -952,7 +975,6 @@ impl EvolutionEngine {
                                 agent_id: agent_id.to_string(),
                                 generation: record.generation,
                                 trigger: record.trigger.to_string(),
-                                fitness: record.fitness,
                             });
                         }
                         RegressionSeverity::None => {}
@@ -961,6 +983,8 @@ impl EvolutionEngine {
                 GenerationTrigger::Evolution
                 | GenerationTrigger::AutonomyUpgrade
                 | GenerationTrigger::CapabilityGain => {
+                    // Positive trigger: cancel any active grace period (agent recovered)
+                    self.cancel_grace_period(agent_id).await?;
                     let delta = compute_delta(&scores, previous_scores);
                     let record = self.create_generation(
                         agent_id,
@@ -976,7 +1000,6 @@ impl EvolutionEngine {
                         agent_id: agent_id.to_string(),
                         generation: record.generation,
                         trigger: record.trigger.to_string(),
-                        fitness: record.fitness,
                     });
                 }
                 GenerationTrigger::Rebalance => {
@@ -1001,7 +1024,6 @@ impl EvolutionEngine {
                         agent_id: agent_id.to_string(),
                         generation: record.generation,
                         trigger: record.trigger.to_string(),
-                        fitness: record.fitness,
                     });
                 }
             }
@@ -1010,10 +1032,11 @@ impl EvolutionEngine {
         Ok(events)
     }
 
-    /// Simplified interaction hook — increments counter and checks grace period only.
-    /// Full evaluation requires explicit score submission via `evaluate()`.
+    /// Simplified interaction hook — checks grace period only.
+    /// Does NOT increment the interaction counter (that's done by `evaluate()`)
+    /// to prevent double-counting when both hooks fire.
     pub async fn on_interaction(&self, agent_id: &str) -> anyhow::Result<Vec<ExivEventData>> {
-        let interaction_count = self.increment_interaction(agent_id).await?;
+        let interaction_count = self.get_interaction_count(agent_id).await?;
         let mut events = Vec::new();
 
         // Check grace period expiry
@@ -1218,11 +1241,12 @@ mod tests {
     #[test]
     fn test_no_trigger_on_small_change() {
         let params = default_params();
-        let prev_scores = sample_scores(0.5, 0.5, 1.0, AutonomyLevel::L2, 0.3);
+        // Use non-tied scores to avoid rebalance from ranking instability
+        let prev_scores = sample_scores(0.6, 0.5, 1.0, AutonomyLevel::L2, 0.3);
         let prev_fitness = calculate_fitness(&prev_scores, &params.weights);
 
-        // Very small change
-        let curr_scores = sample_scores(0.51, 0.5, 1.0, AutonomyLevel::L2, 0.3);
+        // Very small change (cognitive 0.6 → 0.61)
+        let curr_scores = sample_scores(0.61, 0.5, 1.0, AutonomyLevel::L2, 0.3);
         let curr_fitness = calculate_fitness(&curr_scores, &params.weights);
 
         let trigger = check_triggers(curr_fitness, prev_fitness, &curr_scores, &prev_scores, &params, 15);

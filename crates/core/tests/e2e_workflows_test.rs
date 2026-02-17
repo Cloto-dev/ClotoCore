@@ -63,6 +63,7 @@ async fn test_user_message_to_response_flow() {
         "mind.deepseek",
         std::collections::HashMap::new(),
         vec![exiv_shared::CapabilityType::Reasoning],
+        None,
     ).await.unwrap();
 
     // Subscribe to broadcast events
@@ -246,6 +247,7 @@ async fn test_agent_creation_with_memory_context() {
             exiv_shared::CapabilityType::Reasoning,
             exiv_shared::CapabilityType::Memory,
         ],
+        None,
     ).await.unwrap();
 
     // Get the created agent (there may be default agents from init_db)

@@ -79,6 +79,7 @@ pub enum AppError {
     Vers(exiv_shared::ExivError),
     Internal(anyhow::Error),
     NotFound(String),
+    Validation(String),
 }
 
 impl axum::response::IntoResponse for AppError {
@@ -91,6 +92,7 @@ impl axum::response::IntoResponse for AppError {
                 (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "InternalError".to_string(), "An internal error occurred".to_string())
             },
             AppError::NotFound(m) => (axum::http::StatusCode::NOT_FOUND, "NotFound".to_string(), m),
+            AppError::Validation(m) => (axum::http::StatusCode::BAD_REQUEST, "ValidationError".to_string(), m),
         };
 
         let body = axum::Json(serde_json::json!({
@@ -357,7 +359,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .layer(
             CorsLayer::new()
                 .allow_origin(config.cors_origins)
-                .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::DELETE])
+                .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::DELETE, axum::http::Method::PUT])
                 .allow_headers([axum::http::header::CONTENT_TYPE]),
         );
 

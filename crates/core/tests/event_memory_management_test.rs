@@ -3,16 +3,18 @@ use std::sync::Arc;
 use std::collections::VecDeque;
 use tokio::sync::{broadcast, RwLock};
 use exiv_core::events::EventProcessor;
-use exiv_core::managers::{PluginRegistry, PluginManager, SystemMetrics};
+use exiv_core::managers::{PluginRegistry, PluginManager, AgentManager, SystemMetrics};
 use exiv_core::DynamicRouter;
 use exiv_shared::{ExivEvent, ExivEventData};
 
 /// Helper to create EventProcessor for testing
 async fn create_test_processor(max_history_size: usize) -> (Arc<EventProcessor>, Arc<RwLock<VecDeque<Arc<ExivEvent>>>>) {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    exiv_core::db::init_db(&pool, "sqlite::memory:").await.unwrap();
 
     let registry = Arc::new(PluginRegistry::new(5, 10));
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10).unwrap());
+    let agent_manager = AgentManager::new(pool.clone());
     let (tx, _rx) = broadcast::channel(100);
     let dynamic_router = Arc::new(DynamicRouter {
         router: RwLock::new(axum::Router::new()),
@@ -23,12 +25,14 @@ async fn create_test_processor(max_history_size: usize) -> (Arc<EventProcessor>,
     let processor = Arc::new(EventProcessor::new(
         registry,
         plugin_manager,
+        agent_manager,
         tx,
         dynamic_router,
         event_history.clone(),
         metrics,
         max_history_size,
         24, // event_retention_hours
+        None, // evolution_engine
     ));
 
     (processor, event_history)

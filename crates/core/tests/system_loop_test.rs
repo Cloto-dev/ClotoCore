@@ -8,11 +8,10 @@ use sqlx::SqlitePool;
 #[tokio::test]
 async fn test_system_handler_loop_prevention() {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    // Setup minimal DB for AgentManager
-    sqlx::query("CREATE TABLE agents (id TEXT PRIMARY KEY, name TEXT, description TEXT, status TEXT, default_engine_id TEXT, required_capabilities TEXT, metadata TEXT)").execute(&pool).await.unwrap();
-    
+    exiv_core::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+
     let agent_id = "agent.test";
-    sqlx::query("INSERT INTO agents (id, name, description, status, default_engine_id, required_capabilities, metadata) VALUES (?, 'Test Agent', 'Desc', 'online', 'engine.test', '[\"Reasoning\", \"Memory\"]', '{}')")
+    sqlx::query("INSERT INTO agents (id, name, description, status, default_engine_id, required_capabilities, metadata, enabled) VALUES (?, 'Test Agent', 'Desc', 'online', 'engine.test', '[\"Reasoning\", \"Memory\"]', '{}', 1)")
         .bind(agent_id)
         .execute(&pool).await.unwrap();
 

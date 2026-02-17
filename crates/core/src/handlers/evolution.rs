@@ -97,16 +97,27 @@ pub async fn update_evolution_params(
 
     // Validate params
     if params.alpha <= 0.0 || params.alpha > 1.0 {
-        return Err(AppError::Internal(anyhow::anyhow!("alpha must be in (0.0, 1.0]")));
+        return Err(AppError::Validation("alpha must be in (0.0, 1.0]".to_string()));
     }
     if params.beta <= 0.0 || params.beta > 1.0 {
-        return Err(AppError::Internal(anyhow::anyhow!("beta must be in (0.0, 1.0]")));
+        return Err(AppError::Validation("beta must be in (0.0, 1.0]".to_string()));
     }
     if params.theta_min < 0.0 || params.theta_min > 1.0 {
-        return Err(AppError::Internal(anyhow::anyhow!("theta_min must be in [0.0, 1.0]")));
+        return Err(AppError::Validation("theta_min must be in [0.0, 1.0]".to_string()));
     }
     if params.gamma < 0.0 || params.gamma > 1.0 {
-        return Err(AppError::Internal(anyhow::anyhow!("gamma must be in [0.0, 1.0]")));
+        return Err(AppError::Validation("gamma must be in [0.0, 1.0]".to_string()));
+    }
+    if params.min_interactions == 0 {
+        return Err(AppError::Validation("min_interactions must be > 0".to_string()));
+    }
+    let w = &params.weights;
+    if w.cognitive < 0.0 || w.behavioral < 0.0 || w.safety < 0.0 || w.autonomy < 0.0 || w.meta_learning < 0.0 {
+        return Err(AppError::Validation("all weights must be non-negative".to_string()));
+    }
+    let weight_sum = w.cognitive + w.behavioral + w.safety + w.autonomy + w.meta_learning;
+    if (weight_sum - 1.0).abs() > 0.01 {
+        return Err(AppError::Validation(format!("weights must sum to ~1.0 (got {:.4})", weight_sum)));
     }
 
     let evo = get_engine(&state)?;

@@ -5,7 +5,7 @@ use exiv_shared::{
     Plugin, PluginManifest, ServiceType, ExivId, ExivEvent, Permission, 
     PluginCapability, PluginCast
 };
-use exiv_core::managers::{PluginRegistry, PluginManager};
+use exiv_core::managers::{PluginRegistry, PluginManager, AgentManager};
 use exiv_core::events::EventProcessor;
 use sqlx::SqlitePool;
 
@@ -68,8 +68,10 @@ impl Plugin for MockPlugin {
 async fn test_dynamic_permission_elevation_flow() {
     // 1. Setup Kernel Components
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    exiv_core::db::init_db(&pool, "sqlite::memory:").await.unwrap();
     let registry_raw = PluginRegistry::new(5, 10);
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 5, 10).unwrap());
+    let agent_manager = AgentManager::new(pool.clone());
     let (tx_internal, _rx_internal) = tokio::sync::broadcast::channel(10);
 
     // 2. Register Mock Plugin
@@ -93,12 +95,14 @@ async fn test_dynamic_permission_elevation_flow() {
     let processor = EventProcessor::new(
         registry.clone(),
         plugin_manager.clone(),
+        agent_manager,
         tx_internal,
         dynamic_router,
         event_history,
         metrics,
         1000, // max_history_size
         24,   // event_retention_hours
+        None, // evolution_engine
     );
     let (event_tx, event_rx) = mpsc::channel(10);
 

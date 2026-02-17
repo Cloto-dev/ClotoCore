@@ -454,7 +454,8 @@ pub enum ExivEventData {
         agent_id: String,
         generation: u64,
         trigger: String,
-        fitness: f64,
+        // Note: fitness intentionally excluded (Goodhart countermeasure).
+        // Dashboard fetches detailed data via /api/evolution/status.
     },
     /// 退行警告（猶予期間開始）
     EvolutionWarning {

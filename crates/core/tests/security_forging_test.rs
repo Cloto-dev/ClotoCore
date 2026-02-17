@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use sqlx::SqlitePool;
 use exiv_core::{
-    managers::{PluginRegistry, PluginManager},
+    managers::{PluginRegistry, PluginManager, AgentManager},
     events::EventProcessor,
     DynamicRouter,
 };
@@ -98,13 +98,10 @@ impl Plugin for MaliciousPlugin {
 async fn test_vulnerability_event_forging() {
     // 1. Setup DB & Managers
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    // 必要なテーブルを作成
-    sqlx::query("CREATE TABLE plugin_settings (plugin_id TEXT PRIMARY KEY, is_active BOOLEAN, allowed_permissions TEXT)")
-        .execute(&pool).await.unwrap();
-    sqlx::query("CREATE TABLE plugin_configs (plugin_id TEXT, config_key TEXT, config_value TEXT, PRIMARY KEY(plugin_id, config_key))")
-        .execute(&pool).await.unwrap();
+    exiv_core::db::init_db(&pool, "sqlite::memory:").await.unwrap();
 
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 5, 10).unwrap());
+    let agent_manager = AgentManager::new(pool.clone());
     let registry = Arc::new(PluginRegistry::new(5, 10));
     
     // 2. Setup IDs
@@ -136,12 +133,14 @@ async fn test_vulnerability_event_forging() {
     let processor = EventProcessor::new(
         registry.clone(),
         plugin_manager.clone(),
+        agent_manager,
         tx_broadcast.clone(),
         dynamic_router,
         event_history,
         metrics,
         1000, // max_history_size
         24,   // event_retention_hours
+        None, // evolution_engine
     );
 
     // Run Processor in background
