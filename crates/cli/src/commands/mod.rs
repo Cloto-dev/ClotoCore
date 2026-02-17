@@ -2,6 +2,7 @@ pub mod status;
 pub mod agents;
 pub mod plugins;
 pub mod chat;
+pub mod logs;
 pub mod config_cmd;
 
 use anyhow::Result;
@@ -21,8 +22,8 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             let msg = message.join(" ");
             chat::run(&client, &agent, &msg, cli.json).await
         }
-        Commands::Logs { .. } => {
-            anyhow::bail!("Logs command will be available in Phase 3")
+        Commands::Logs { follow, limit } => {
+            logs::run(&client, follow, limit, cli.json).await
         }
         Commands::Config(cmd) => config_cmd::run(cmd, &config),
     }
