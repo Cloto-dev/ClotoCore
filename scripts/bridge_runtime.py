@@ -126,9 +126,12 @@ def main():
     FORBIDDEN_MODULES = {
         'os', 'subprocess', 'shutil', 'ctypes', 'importlib', 'pathlib', 'socket',
         'pickle', 'multiprocessing', 'marshal', 'signal', 'tempfile',
+        'sys', 'builtins', 'types',
     }
 
-    FORBIDDEN_BUILTINS = {'__import__', 'exec', 'eval', 'compile'}
+    FORBIDDEN_BUILTINS = {'__import__', 'exec', 'eval', 'compile', 'getattr', 'setattr', 'delattr'}
+
+    FORBIDDEN_ATTRS = {'__import__', '__builtins__', '__subclasses__', '__globals__', '__loader__'}
 
     def check_script_security(source_path):
         """Inspect script AST for forbidden imports and dangerous builtins before execution."""
@@ -158,6 +161,12 @@ def main():
                     raise SecurityError(
                         f"Forbidden builtin '{func.id}' at line {node.lineno}. "
                         f"Dynamic code execution is not allowed in bridge scripts."
+                    )
+            elif isinstance(node, ast.Attribute):
+                if node.attr in FORBIDDEN_ATTRS:
+                    raise SecurityError(
+                        f"Forbidden attribute access '{node.attr}' at line {node.lineno}. "
+                        f"Accessing '{node.attr}' is not allowed in bridge scripts."
                     )
 
     class SecurityError(Exception):

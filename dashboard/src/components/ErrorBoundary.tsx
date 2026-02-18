@@ -36,7 +36,7 @@ export class ErrorBoundary extends Component<Props, State> {
               System Error
             </div>
             <p className="text-[10px] font-mono text-content-tertiary px-4 break-all">
-              {this.state.error?.message || 'An unexpected error occurred'}
+              {import.meta.env.DEV ? (this.state.error?.message || 'An unexpected error occurred') : 'An unexpected error occurred'}
             </p>
             <button
               onClick={() => {

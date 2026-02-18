@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use unicode_normalization::UnicodeNormalization;
 
 /// Dangerous commands/patterns that should always be blocked.
 const BLOCKED_PATTERNS: &[&str] = &[
@@ -58,9 +59,14 @@ pub fn validate_command(command: &str, allowlist: &Option<Vec<String>>) -> Resul
         bail!("Empty command is not allowed");
     }
 
-    // C-02: Block embedded newlines/carriage returns (newline injection)
-    if command.contains('\n') || command.contains('\r') {
-        bail!("Command contains embedded newline (potential injection)");
+    // Security: NFKC normalization to prevent Unicode homoglyph bypass
+    let command = command.nfkc().collect::<String>();
+
+    // C-02: Block embedded newlines/carriage returns and Unicode line separators
+    if command.contains('\n') || command.contains('\r')
+        || command.contains('\u{2028}') || command.contains('\u{2029}')
+    {
+        bail!("Command contains embedded newline or line separator (potential injection)");
     }
 
     let lower = command.to_lowercase();
@@ -80,9 +86,16 @@ pub fn validate_command(command: &str, allowlist: &Option<Vec<String>>) -> Resul
     }
 
     // Block rm with both -r and -f flags (any order, split or combined)
-    if lower.starts_with("rm ") || lower.contains("/rm ") {
-        let has_recursive = lower.contains(" -r") || lower.contains(" -R");
-        let has_force = lower.contains(" -f");
+    // Token-based detection: normalizes whitespace and checks each flag token
+    let normalized = lower.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.starts_with("rm ") || normalized.contains("/rm ") {
+        let tokens: Vec<&str> = normalized.split_whitespace().collect();
+        let has_recursive = tokens.iter().any(|t| {
+            t.starts_with('-') && !t.starts_with("--") && (t.contains('r') || t.contains('R'))
+        });
+        let has_force = tokens.iter().any(|t| {
+            t.starts_with('-') && !t.starts_with("--") && t.contains('f')
+        });
         if has_recursive && has_force {
             bail!("Command contains dangerous rm flags (-r and -f)");
         }
@@ -187,10 +200,24 @@ mod tests {
         assert!(validate_command("rm -r -f /tmp/stuff", &None).is_err());
         assert!(validate_command("rm -f -r /tmp/stuff", &None).is_err());
         assert!(validate_command("rm -R -f /tmp/stuff", &None).is_err());
+        // Combined flags must also be caught
+        assert!(validate_command("rm -rf /tmp/stuff", &None).is_err());
+        assert!(validate_command("rm -fr /tmp/stuff", &None).is_err());
+        // Tab-separated flags must be caught
+        assert!(validate_command("rm\t-rf\t/tmp/stuff", &None).is_err());
+        // Multiple spaces must be caught
+        assert!(validate_command("rm   -r   -f   /tmp/stuff", &None).is_err());
         // rm with only one flag is OK
         assert!(validate_command("rm -r /tmp/safe", &None).is_ok());
         assert!(validate_command("rm -f file.txt", &None).is_ok());
         assert!(validate_command("rm file.txt", &None).is_ok());
+    }
+
+    #[test]
+    fn test_unicode_line_separator_blocked() {
+        // U+2028 (Line Separator) and U+2029 (Paragraph Separator)
+        assert!(validate_command("echo ok\u{2028}rm -rf /", &None).is_err());
+        assert!(validate_command("cmd\u{2029}dangerous", &None).is_err());
     }
 
     #[test]

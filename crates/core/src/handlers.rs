@@ -538,7 +538,8 @@ pub async fn shutdown_handler(
 
         // 🚧 Signal maintenance mode (atomic write to prevent symlink attacks)
         let maint = crate::config::exe_dir().join(".maintenance");
-        let maint_tmp = crate::config::exe_dir().join(".maintenance.tmp");
+        let suffix: u64 = rand::random();
+        let maint_tmp = crate::config::exe_dir().join(format!(".maintenance_{:016x}.tmp", suffix));
         match std::fs::write(&maint_tmp, "active")
             .and_then(|_| std::fs::rename(&maint_tmp, &maint))
         {

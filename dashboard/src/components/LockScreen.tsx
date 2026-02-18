@@ -23,7 +23,7 @@ export function LockScreen({ onUnlock, onBack }: LockScreenProps) {
 
   useEffect(() => {
     if (val.length === 4) {
-      const PASSCODE = import.meta.env.VITE_LOCK_PASSCODE || '1518';
+      const PASSCODE = import.meta.env.VITE_LOCK_PASSCODE || '';
       if (val === PASSCODE) {
         onUnlock();
       } else {

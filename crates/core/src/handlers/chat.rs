@@ -81,6 +81,14 @@ pub async fn post_message(
         )));
     }
 
+    // M-3: Limit content array length to prevent abuse
+    const MAX_CONTENT_ITEMS: usize = 20;
+    if payload.content.as_array().map_or(false, |a| a.len() > MAX_CONTENT_ITEMS) {
+        return Err(AppError::Vers(exiv_shared::ExivError::ValidationError(
+            format!("content array exceeds maximum of {} items", MAX_CONTENT_ITEMS),
+        )));
+    }
+
     let now = chrono::Utc::now().timestamp_millis();
     let content_str = serde_json::to_string(&payload.content)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to serialize content: {}", e)))?;
@@ -107,7 +115,23 @@ pub async fn post_message(
                     if let Some(data_part) = url.strip_prefix("data:") {
                         if let Some((mime_info, base64_data)) = data_part.split_once(',') {
                             let mime_type = mime_info.trim_end_matches(";base64").to_string();
-                            if let Ok(decoded) = base64_decode(base64_data) {
+                            // M-2: Only allow known-safe MIME types
+                            const ALLOWED_MIME_TYPES: &[&str] = &[
+                                "image/png", "image/jpeg", "image/jpg", "image/gif",
+                                "image/webp", "image/svg+xml",
+                            ];
+                            if !ALLOWED_MIME_TYPES.contains(&mime_type.as_str()) {
+                                tracing::warn!("Rejected attachment with disallowed MIME type: {}", mime_type);
+                                continue;
+                            }
+                            let decoded = match base64_decode(base64_data) {
+                                Ok(d) => d,
+                                Err(()) => {
+                                    tracing::warn!("Invalid base64 data in attachment, skipping");
+                                    continue;
+                                }
+                            };
+                            {
                                 let att_id = uuid::Uuid::new_v4().to_string();
                                 let size = decoded.len() as i64;
                                 let filename = format!("image_{}.{}", &att_id[..8], mime_to_ext(&mime_type));
@@ -210,8 +234,9 @@ pub async fn get_attachment(
     };
 
     let headers = [
-        (axum::http::header::CONTENT_TYPE, att.mime_type),
+        (axum::http::header::CONTENT_TYPE, att.mime_type.clone()),
         (axum::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable".to_string()),
+        (axum::http::header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", att.filename)),
     ];
 
     Ok((headers, Bytes::from(data)))

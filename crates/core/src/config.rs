@@ -42,6 +42,12 @@ impl AppConfig {
 
         let admin_api_key = env::var("EXIV_API_KEY").ok();
 
+        if let Some(ref key) = admin_api_key {
+            if key.len() < 32 {
+                tracing::warn!("EXIV_API_KEY is shorter than recommended minimum (32 chars)");
+            }
+        }
+
         let default_agent_id =
             env::var("DEFAULT_AGENT_ID").unwrap_or_else(|_| "agent.exiv_default".to_string());
 

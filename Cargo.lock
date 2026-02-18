@@ -4654,6 +4654,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "unicode-normalization",
 ]
 
 [[package]]

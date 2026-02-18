@@ -14,8 +14,9 @@ fn binary_name() -> &'static str {
 
 /// Generate a cryptographically random API key (64 hex chars)
 fn generate_api_key() -> String {
+    use rand::rngs::OsRng;
     use rand::Rng;
-    let bytes: [u8; 32] = rand::thread_rng().gen();
+    let bytes: [u8; 32] = OsRng.gen();
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 

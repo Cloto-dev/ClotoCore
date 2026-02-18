@@ -352,8 +352,7 @@ impl PluginManager {
                 .await?;
 
         let config_rows: Vec<(String, String, String)> =
-            // H-07: Removed arbitrary LIMIT to ensure all plugin configs are loaded
-            sqlx::query_as("SELECT plugin_id, config_key, config_value FROM plugin_configs")
+            sqlx::query_as("SELECT plugin_id, config_key, config_value FROM plugin_configs LIMIT 10000")
                 .fetch_all(&self.pool)
                 .await?;
 

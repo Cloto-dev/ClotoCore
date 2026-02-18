@@ -54,7 +54,7 @@ impl SafeHttpClient {
     /// ホスト名ベースでのホワイトリストチェック (O(1) HashSet lookup)
     fn is_whitelisted_host(&self, host: &str) -> bool {
         let hosts = self.allowed_hosts.read()
-            .expect("SafeHttpClient whitelist lock poisoned");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         hosts.contains(&host.to_lowercase())
     }
 
@@ -63,7 +63,7 @@ impl SafeHttpClient {
     pub fn add_host(&self, host: &str) -> bool {
         let normalized = host.to_lowercase();
         let mut hosts = self.allowed_hosts.write()
-            .expect("SafeHttpClient whitelist lock poisoned");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         hosts.insert(normalized)
     }
 }
