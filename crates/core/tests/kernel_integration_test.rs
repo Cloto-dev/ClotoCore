@@ -1,3 +1,5 @@
+mod common;
+
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -87,73 +89,18 @@ async fn test_capability_injection_logic() {
 #[tokio::test]
 async fn test_panic_isolation() {
     use exiv_core::managers::PluginRegistry;
-    use exiv_shared::{Plugin, PluginManifest, ServiceType, ExivId};
-
-    struct PanicPlugin(ExivId);
-
-    impl PluginCast for PanicPlugin {
-        fn as_any(&self) -> &dyn std::any::Any { self }
-    }
-
-    #[async_trait::async_trait]
-    impl Plugin for PanicPlugin {
-        fn manifest(&self) -> PluginManifest {
-            PluginManifest {
-                id: self.0.to_string(),
-                name: "Panic".to_string(),
-                description: "".to_string(),
-                version: "".to_string(),
-                category: exiv_shared::PluginCategory::Tool,
-                service_type: ServiceType::Reasoning,
-                tags: vec![],
-                is_active: true,
-                is_configured: true,
-                required_config_keys: vec![],
-                action_icon: None,
-                action_target: None,
-                icon_data: None,
-                magic_seal: 0x56455253,
-                sdk_version: "1.0.0".to_string(),
-                required_permissions: vec![],
-                provided_capabilities: vec![],
-                provided_tools: vec![],
-            }
-        }
-        async fn on_event(&self, _e: &exiv_shared::ExivEvent) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
-            panic!("Boom!");
-        }
-    }
-
-    struct NormalPlugin(Arc<tokio::sync::mpsc::Sender<bool>>, ExivId);
-
-    impl PluginCast for NormalPlugin {
-        fn as_any(&self) -> &dyn std::any::Any { self }
-    }
-
-    #[async_trait::async_trait]
-    impl Plugin for NormalPlugin {
-        fn manifest(&self) -> PluginManifest {
-            let mut m = PanicPlugin(self.1).manifest();
-            m.name = "Normal".to_string();
-            m.id = self.1.to_string();
-            m
-        }
-        async fn on_event(&self, _e: &exiv_shared::ExivEvent) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
-            let _ = self.0.send(true).await;
-            Ok(None)
-        }
-    }
+    use exiv_shared::ExivId;
+    use common::{create_mock_plugin, create_panicking_plugin};
 
     let registry = PluginRegistry::new(5, 10);
-    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-    
     let id_panic = ExivId::new();
     let id_normal = ExivId::new();
-    
+    let (normal_plugin, received_events) = create_mock_plugin(id_normal);
+
     {
         let mut plugins = registry.plugins.write().await;
-        plugins.insert("panic".into(), Arc::new(PanicPlugin(id_panic)));
-        plugins.insert("normal".into(), Arc::new(NormalPlugin(Arc::new(tx), id_normal)));
+        plugins.insert("panic".into(), create_panicking_plugin(id_panic) as Arc<dyn exiv_shared::Plugin>);
+        plugins.insert("normal".into(), normal_plugin as Arc<dyn exiv_shared::Plugin>);
     }
 
     let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<exiv_core::EnvelopedEvent>(10);
@@ -167,6 +114,7 @@ async fn test_panic_isolation() {
     };
     registry.dispatch_event(envelope, &event_tx).await;
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv()).await;
-    assert!(result.is_ok());
+    // Normal plugin should have received the event despite panic plugin
+    let events = received_events.lock().await;
+    assert_eq!(events.len(), 1);
 }
