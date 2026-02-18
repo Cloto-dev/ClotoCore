@@ -16,6 +16,7 @@ target/
 *.dSYM/
 
 # Exiv Specific
+data/
 *.db
 *.db-shm
 *.db-wal
