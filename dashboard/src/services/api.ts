@@ -1,4 +1,4 @@
-import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, EvolutionStatus, GenerationRecord, FitnessLogEntry, EvolutionParams, RollbackRecord } from '../types';
+import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, ExivMessage, EvolutionStatus, GenerationRecord, FitnessLogEntry, EvolutionParams, RollbackRecord } from '../types';
 import { isTauri } from '../lib/tauri';
 
 // In Tauri mode, window.location.origin returns "tauri://localhost" which cannot reach
@@ -262,7 +262,7 @@ export const api = {
     return res.json();
   },
 
-  async updateEvolutionParams(params: Partial<EvolutionParams>, apiKey: string): Promise<void> {
+  async updateEvolutionParams(params: EvolutionParams, apiKey: string): Promise<void> {
     const res = await fetch(`${API_BASE}/evolution/params`, {
       method: 'PUT',
       headers: {

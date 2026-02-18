@@ -18,7 +18,7 @@ async fn setup() -> EvolutionEngine {
         "CREATE TABLE plugin_data (plugin_id TEXT, key TEXT, value TEXT, PRIMARY KEY(plugin_id, key))"
     ).execute(&pool).await.unwrap();
     sqlx::query(
-        "CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, event_type TEXT, actor_id TEXT, target_id TEXT, permission TEXT, result TEXT, reason TEXT, metadata TEXT, trace_id TEXT)"
+        "CREATE TABLE audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, event_type TEXT, actor_id TEXT, target_id TEXT, permission TEXT, result TEXT, reason TEXT, metadata TEXT, trace_id TEXT)"
     ).execute(&pool).await.unwrap();
     let store = Arc::new(SqliteDataStore::new(pool.clone()));
     EvolutionEngine::new(store, pool)
@@ -400,4 +400,63 @@ async fn test_capability_gain_standalone_no_metric_trigger() {
 
     let record = engine.get_generation(TEST_AGENT, 2).await.unwrap().unwrap();
     assert_eq!(record.trigger, exiv_core::evolution::GenerationTrigger::CapabilityGain);
+}
+
+// ── Validation tests ──
+
+#[tokio::test]
+async fn test_set_params_rejects_nan() {
+    let engine = setup().await;
+    let mut params = engine.get_params(TEST_AGENT).await.unwrap();
+    params.alpha = f64::NAN;
+    let result = engine.set_params(TEST_AGENT, &params).await;
+    assert!(result.is_err(), "set_params should reject NaN alpha");
+}
+
+#[tokio::test]
+async fn test_set_params_rejects_invalid_weights_sum() {
+    let engine = setup().await;
+    let mut params = engine.get_params(TEST_AGENT).await.unwrap();
+    params.weights.cognitive = 0.9; // sum would be ~1.65
+    let result = engine.set_params(TEST_AGENT, &params).await;
+    assert!(result.is_err(), "set_params should reject weights that don't sum to ~1.0");
+}
+
+#[test]
+fn test_from_normalized_nan_returns_l0() {
+    assert_eq!(AutonomyLevel::from_normalized(f64::NAN), AutonomyLevel::L0);
+    assert_eq!(AutonomyLevel::from_normalized(f64::INFINITY), AutonomyLevel::L0);
+    assert_eq!(AutonomyLevel::from_normalized(-0.1), AutonomyLevel::L0);
+    assert_eq!(AutonomyLevel::from_normalized(1.1), AutonomyLevel::L0);
+}
+
+// ── Concurrent increment_counter test ──
+
+#[tokio::test]
+async fn test_increment_counter_concurrent() {
+    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    sqlx::query(
+        "CREATE TABLE plugin_data (plugin_id TEXT, key TEXT, value TEXT, PRIMARY KEY(plugin_id, key))"
+    ).execute(&pool).await.unwrap();
+    let store = Arc::new(SqliteDataStore::new(pool.clone()));
+
+    // Run 10 concurrent increments
+    let mut handles = vec![];
+    for _ in 0..10 {
+        let store = store.clone();
+        handles.push(tokio::spawn(async move {
+            use exiv_shared::PluginDataStore;
+            store.increment_counter("test", "counter").await.unwrap()
+        }));
+    }
+
+    let mut results = vec![];
+    for h in handles {
+        results.push(h.await.unwrap());
+    }
+
+    // All values should be unique (1..=10)
+    results.sort();
+    let expected: Vec<i64> = (1..=10).collect();
+    assert_eq!(results, expected, "Concurrent increments should produce unique sequential values");
 }

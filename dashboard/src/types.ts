@@ -24,15 +24,16 @@ export interface AgentMetadata {
   metadata: Record<string, string>;
 }
 
-export type Permission = 
-  | 'VisionRead' 
-  | 'InputControl' 
-  | 'FileRead' 
-  | 'FileWrite' 
-  | 'NetworkAccess' 
-  | 'ProcessExecution' 
-  | 'MemoryRead' 
-  | 'MemoryWrite';
+export type Permission =
+  | 'VisionRead'
+  | 'InputControl'
+  | 'FileRead'
+  | 'FileWrite'
+  | 'NetworkAccess'
+  | 'ProcessExecution'
+  | 'MemoryRead'
+  | 'MemoryWrite'
+  | 'AdminAccess';
 
 export type CapabilityType =
   | 'Reasoning'
@@ -40,7 +41,8 @@ export type CapabilityType =
   | 'Communication'
   | 'Tool'
   | 'Vision'
-  | 'HAL';
+  | 'HAL'
+  | 'Web';
 
 export type PluginCategory = 'Agent' | 'Tool' | 'Memory' | 'System' | 'Other';
 
@@ -187,7 +189,7 @@ export interface AgentSnapshot {
   active_plugins: string[];
   plugin_capabilities?: Record<string, string[]>;
   personality_hash: string;
-  strategy_params: Record<string, string>;
+  strategy_params: Record<string, unknown>;
 }
 
 export interface GenerationRecord {
@@ -199,7 +201,7 @@ export interface GenerationRecord {
   delta: Record<string, number>;
   fitness: number;
   fitness_delta: number;
-  snapshot: AgentSnapshot | null;
+  snapshot: AgentSnapshot;
 }
 
 export interface FitnessLogEntry {
@@ -219,11 +221,11 @@ export interface RollbackRecord {
 
 export interface GracePeriodState {
   active: boolean;
-  started_at: string | null;
+  started_at: string;
   interactions_at_start: number;
   grace_interactions: number;
   fitness_at_start: number;
-  affected_axis: string | null;
+  affected_axis: string;
 }
 
 export interface EvolutionStatus {
@@ -233,6 +235,7 @@ export interface EvolutionStatus {
   scores: FitnessScores;
   trend: 'improving' | 'declining' | 'stable';
   interaction_count: number;
+  interactions_since_last_gen: number;
   grace_period: GracePeriodState | null;
   autonomy_level: string; // e.g. "L0"-"L5"
   top_axes: [string, number][];

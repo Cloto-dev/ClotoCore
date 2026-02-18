@@ -77,7 +77,8 @@ fundamentally different kinds of analysis:
 fn detect_capability_gain(
     prev_snapshot: &AgentSnapshot,
     curr_snapshot: &AgentSnapshot,
-    plugin_registry: &PluginRegistry,  // to resolve plugin_id → capabilities
+    // Capabilities are resolved from AgentSnapshot.plugin_capabilities
+    // (no PluginRegistry parameter needed at detection time)
 ) -> Vec<CapabilityChange>
 ```
 

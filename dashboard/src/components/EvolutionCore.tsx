@@ -134,7 +134,10 @@ function FitnessChart({ timeline }: { timeline: FitnessLogEntry[] }) {
       ctx.fillStyle = 'rgba(255,255,255,0.2)';
       ctx.font = '11px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('Awaiting fitness data...', w / 2, h / 2);
+      const msg = data.length === 1
+        ? 'One data point collected, need at least 2 to plot...'
+        : 'Awaiting fitness data...';
+      ctx.fillText(msg, w / 2, h / 2);
       return;
     }
 
@@ -261,11 +264,13 @@ function FitnessChart({ timeline }: { timeline: FitnessLogEntry[] }) {
   // Redraw when timeline data changes
   useEffect(() => { draw(); }, [timeline, draw]);
 
+  const rafRef = useRef(0);
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     mouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    draw();
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(draw);
   }, [draw]);
 
   const handleMouseLeave = useCallback(() => {
@@ -320,8 +325,10 @@ function BottomPanel({ data }: { data: ReturnType<typeof useEvolution> }) {
         {tabs.map(t => (
           <button
             key={t.id}
+            id={`evo-tab-${t.id}`}
             role="tab"
             aria-selected={tab === t.id}
+            aria-controls={`evo-panel-${t.id}`}
             onClick={() => setTab(t.id)}
             className={`px-3 py-1 rounded text-[9px] font-black uppercase tracking-wider transition-all ${
               tab === t.id
@@ -335,7 +342,7 @@ function BottomPanel({ data }: { data: ReturnType<typeof useEvolution> }) {
       </div>
 
       {/* Tab Content */}
-      <div className="flex-1 overflow-auto p-3">
+      <div className="flex-1 overflow-auto p-3" role="tabpanel" id={`evo-panel-${tab}`} aria-labelledby={`evo-tab-${tab}`}>
         {tab === 'generations' && <GenerationsTab generations={data.generations} />}
         {tab === 'events' && <EventsTab events={data.events} />}
         {tab === 'rollbacks' && <RollbacksTab rollbacks={data.rollbacks} />}
@@ -447,7 +454,9 @@ function ParamsTab({ onEdit, refreshKey }: { onEdit: () => void; refreshKey: num
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getEvolutionParams().then(setParams).catch(e => setError(e.message));
+    let cancelled = false;
+    api.getEvolutionParams().then(p => { if (!cancelled) setParams(p); }).catch(e => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
   }, [refreshKey]);
 
   if (error) {
@@ -508,7 +517,9 @@ function ParamEditModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
   });
 
   useEffect(() => {
+    let cancelled = false;
     api.getEvolutionParams().then(p => {
+      if (cancelled) return;
       setParams(p);
       setForm({
         alpha: String(p.alpha),
@@ -517,7 +528,8 @@ function ParamEditModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
         gamma: String(p.gamma),
         min_interactions: String(p.min_interactions),
       });
-    }).catch(e => setError(e.message));
+    }).catch(e => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
   }, []);
 
   const handleSave = async () => {
@@ -536,7 +548,7 @@ function ParamEditModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
         setIsLoading(false);
         return;
       }
-      const update: Partial<EvolutionParams> = { alpha, beta, theta_min, gamma, min_interactions };
+      const update: EvolutionParams = { alpha, beta, theta_min, gamma, min_interactions, weights: params!.weights };
       await api.updateEvolutionParams(update, apiKey);
       onSuccess();
     } catch (err: unknown) {

@@ -133,6 +133,9 @@ pub trait PluginDataStore: Send + Sync {
     /// アトミックにカウンタをインクリメントし、更新後の値を返す (TOCTOU防止)
     async fn increment_counter(&self, plugin_id: &str, key: &str) -> anyhow::Result<i64> {
         // デフォルト実装: get→increment→set (非アトミック、テスト用フォールバック)
+        // SqliteDataStore overrides this with an atomic UPSERT.
+        tracing::warn!(plugin_id = %plugin_id, key = %key,
+            "Using non-atomic default increment_counter; override with atomic implementation for production use");
         let current = match self.get_json(plugin_id, key).await? {
             Some(val) => serde_json::from_value::<i64>(val).unwrap_or(0),
             None => 0,
@@ -492,6 +495,9 @@ pub enum ExivEventData {
         detail: String,
     },
     /// 能力獲得
+    /// `capability` format: "major:<capability_name>" or "minor:<capability_name>"
+    /// where major = new CapabilityType category, minor = existing category.
+    /// See docs/e7-capability-gain.md for detection rules.
     EvolutionCapability {
         agent_id: String,
         capability: String,

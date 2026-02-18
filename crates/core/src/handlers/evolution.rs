@@ -45,7 +45,7 @@ pub async fn get_generation_history(
 ) -> AppResult<Json<serde_json::Value>> {
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
-    let limit = query.limit.unwrap_or(50);
+    let limit = query.limit.unwrap_or(50).min(500);
     let history = evo.get_generation_history(agent_id, limit).await
         .map_err(|e| AppError::Internal(e))?;
     to_json(&history)
@@ -73,18 +73,16 @@ pub async fn get_fitness_timeline(
 ) -> AppResult<Json<serde_json::Value>> {
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
-    let limit = query.limit.unwrap_or(100);
+    let limit = query.limit.unwrap_or(100).min(1000);
     let timeline = evo.get_fitness_timeline(agent_id, limit).await
         .map_err(|e| AppError::Internal(e))?;
     to_json(&timeline)
 }
 
-/// GET /api/evolution/params — Get evolution parameters (auth required)
+/// GET /api/evolution/params — Get evolution parameters (read-only, no auth required)
 pub async fn get_evolution_params(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
-    super::check_auth(&state, &headers)?;
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
     let params = evo.get_params(agent_id).await
@@ -100,18 +98,18 @@ pub async fn update_evolution_params(
 ) -> AppResult<Json<serde_json::Value>> {
     super::check_auth(&state, &headers)?;
 
-    // Validate params
-    if params.alpha <= 0.0 || params.alpha > 1.0 {
-        return Err(AppError::Validation("alpha must be in (0.0, 1.0]".to_string()));
+    // Validate params (NaN/Inf are rejected by is_finite checks)
+    if !params.alpha.is_finite() || params.alpha <= 0.0 || params.alpha > 1.0 {
+        return Err(AppError::Validation("alpha must be in (0.0, 1.0] and finite".to_string()));
     }
-    if params.beta <= 0.0 || params.beta > 1.0 {
-        return Err(AppError::Validation("beta must be in (0.0, 1.0]".to_string()));
+    if !params.beta.is_finite() || params.beta <= 0.0 || params.beta > 1.0 {
+        return Err(AppError::Validation("beta must be in (0.0, 1.0] and finite".to_string()));
     }
-    if params.theta_min < 0.0 || params.theta_min > 1.0 {
-        return Err(AppError::Validation("theta_min must be in [0.0, 1.0]".to_string()));
+    if !params.theta_min.is_finite() || params.theta_min < 0.0 || params.theta_min > 1.0 {
+        return Err(AppError::Validation("theta_min must be in [0.0, 1.0] and finite".to_string()));
     }
-    if params.gamma < 0.0 || params.gamma > 1.0 {
-        return Err(AppError::Validation("gamma must be in [0.0, 1.0]".to_string()));
+    if !params.gamma.is_finite() || params.gamma < 0.0 || params.gamma > 1.0 {
+        return Err(AppError::Validation("gamma must be in [0.0, 1.0] and finite".to_string()));
     }
     if params.min_interactions == 0 {
         return Err(AppError::Validation("min_interactions must be > 0".to_string()));
@@ -139,7 +137,7 @@ pub async fn update_evolution_params(
     crate::db::spawn_audit_log(state.pool.clone(), crate::db::AuditLogEntry {
         timestamp: chrono::Utc::now(),
         event_type: "EVOLUTION_PARAMS_UPDATED".to_string(),
-        actor_id: Some("admin".to_string()),
+        actor_id: Some("admin".to_string()), // TODO: extract from auth token when auth system supports user identification
         target_id: Some(agent_id.to_string()),
         permission: None,
         result: "SUCCESS".to_string(),

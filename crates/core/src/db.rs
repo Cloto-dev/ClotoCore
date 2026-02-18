@@ -24,6 +24,9 @@ impl SqliteDataStore {
 impl PluginDataStore for SqliteDataStore {
     async fn set_json(&self, plugin_id: &str, key: &str, value: serde_json::Value) -> anyhow::Result<()> {
         // Input validation
+        if plugin_id.contains('\0') || plugin_id.len() > 255 {
+            return Err(anyhow::anyhow!("plugin_id must not contain null bytes and must be <= 255 chars"));
+        }
         if key.contains('\0') {
             return Err(anyhow::anyhow!("Key must not contain null bytes"));
         }
@@ -51,6 +54,9 @@ impl PluginDataStore for SqliteDataStore {
 
     async fn get_json(&self, plugin_id: &str, key: &str) -> anyhow::Result<Option<serde_json::Value>> {
         // Input validation
+        if plugin_id.contains('\0') || plugin_id.len() > 255 {
+            return Err(anyhow::anyhow!("plugin_id must not contain null bytes and must be <= 255 chars"));
+        }
         if key.contains('\0') {
             return Err(anyhow::anyhow!("Key must not contain null bytes"));
         }
@@ -112,6 +118,12 @@ impl PluginDataStore for SqliteDataStore {
         Ok(results)
     }
 
+    /// Atomically increment a counter stored in `plugin_data`.
+    ///
+    /// Values are stored as TEXT (e.g., "1", "2") in the `value` column, matching
+    /// the schema of `set_json` (which stores `serde_json::to_string` output).
+    /// Both representations are compatible: `serde_json::from_str("1")` produces
+    /// `Number(1)`, which `get_json` and `get_latest_generation` can parse as u64.
     async fn increment_counter(&self, plugin_id: &str, key: &str) -> anyhow::Result<i64> {
         if key.contains('\0') {
             return Err(anyhow::anyhow!("Key must not contain null bytes"));

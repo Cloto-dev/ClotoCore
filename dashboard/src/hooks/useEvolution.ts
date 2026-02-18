@@ -59,7 +59,7 @@ export function useEvolution() {
     const evt: EvolutionEvent = {
       type,
       data: data?.data || data,
-      timestamp: Date.now(),
+      timestamp: data?.timestamp || Date.now(),
     };
     setEvents(prev => [evt, ...prev].slice(0, MAX_EVENTS));
     debouncedRefresh();

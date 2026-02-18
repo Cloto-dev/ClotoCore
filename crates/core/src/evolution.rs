@@ -81,8 +81,12 @@ impl AutonomyLevel {
         (*self as u8) as f64 / 5.0
     }
 
-    /// Create from a normalized f64 value (0.0-1.0), rounding to nearest level
+    /// Create from a normalized f64 value (0.0-1.0), rounding to nearest level.
+    /// Non-finite, negative, or out-of-range values fall back to L0.
     pub fn from_normalized(v: f64) -> Self {
+        if !v.is_finite() || v < 0.0 || v > 1.0 {
+            return Self::L0;
+        }
         match (v * 5.0).round() as u8 {
             0 => Self::L0, 1 => Self::L1, 2 => Self::L2,
             3 => Self::L3, 4 => Self::L4, _ => Self::L5,
@@ -115,6 +119,8 @@ pub struct FitnessScores {
 
 impl FitnessScores {
     /// Validates that all score values are finite and within [0.0, 1.0].
+    /// Safety is expected to be binary (0.0 or 1.0) but intermediate values
+    /// are accepted to allow gradual degradation reporting.
     pub fn validate(&self) -> anyhow::Result<()> {
         let fields = [
             ("cognitive", self.cognitive),
@@ -126,6 +132,10 @@ impl FitnessScores {
             if !val.is_finite() || val < 0.0 || val > 1.0 {
                 anyhow::bail!("{} score must be in [0.0, 1.0], got {}", name, val);
             }
+        }
+        if self.safety != 0.0 && self.safety != 1.0 {
+            tracing::debug!(safety = self.safety,
+                "Safety score is non-binary; SafetyGate treats any value < 1.0 as a breach");
         }
         Ok(())
     }
@@ -158,6 +168,24 @@ pub struct FitnessWeights {
     pub meta_learning: f64,
 }
 
+impl FitnessWeights {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        let fields = [("cognitive", self.cognitive), ("behavioral", self.behavioral),
+                      ("safety", self.safety), ("autonomy", self.autonomy),
+                      ("meta_learning", self.meta_learning)];
+        for (name, val) in fields {
+            if !val.is_finite() || val < 0.0 {
+                anyhow::bail!("{} weight must be >= 0 and finite, got {}", name, val);
+            }
+        }
+        let sum: f64 = fields.iter().map(|(_, v)| v).sum();
+        if (sum - 1.0).abs() > 0.01 {
+            anyhow::bail!("weights must sum to ~1.0, got {:.4}", sum);
+        }
+        Ok(())
+    }
+}
+
 impl Default for FitnessWeights {
     fn default() -> Self {
         Self {
@@ -179,6 +207,22 @@ pub struct EvolutionParams {
     pub gamma: f64,
     pub min_interactions: u64,
     pub weights: FitnessWeights,
+}
+
+impl EvolutionParams {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        for (name, val) in [("alpha", self.alpha), ("beta", self.beta),
+                            ("theta_min", self.theta_min), ("gamma", self.gamma)] {
+            if !val.is_finite() || val < 0.0 || val > 1.0 {
+                anyhow::bail!("{} must be in [0.0, 1.0] and finite, got {}", name, val);
+            }
+        }
+        if self.min_interactions == 0 {
+            anyhow::bail!("min_interactions must be > 0");
+        }
+        self.weights.validate()?;
+        Ok(())
+    }
 }
 
 impl Default for EvolutionParams {
@@ -226,12 +270,12 @@ pub enum GenerationTrigger {
 impl std::fmt::Display for GenerationTrigger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Evolution => write!(f, "evolution"),
-            Self::Regression => write!(f, "regression"),
-            Self::Rebalance => write!(f, "rebalance"),
-            Self::SafetyBreach => write!(f, "safety_breach"),
-            Self::CapabilityGain => write!(f, "capability_gain"),
-            Self::AutonomyUpgrade => write!(f, "autonomy_upgrade"),
+            Self::Evolution => write!(f, "Evolution"),
+            Self::Regression => write!(f, "Regression"),
+            Self::Rebalance => write!(f, "Rebalance"),
+            Self::SafetyBreach => write!(f, "SafetyBreach"),
+            Self::CapabilityGain => write!(f, "CapabilityGain"),
+            Self::AutonomyUpgrade => write!(f, "AutonomyUpgrade"),
         }
     }
 }
@@ -331,6 +375,11 @@ pub fn calculate_fitness(scores: &FitnessScores, weights: &FitnessWeights) -> f6
     weighted_sum.clamp(0.0, 1.0)
 }
 
+/// Threshold for detecting meaningful axis changes in delta computation.
+/// Using 1e-6 instead of f64::EPSILON (~2.2e-16) because score changes below
+/// 1e-6 are not practically significant for evolution tracking.
+const DELTA_THRESHOLD: f64 = 1e-6;
+
 /// Compute delta between two FitnessScores (only changed axes)
 pub fn compute_delta(current: &FitnessScores, previous: &FitnessScores) -> HashMap<String, f64> {
     let mut delta = HashMap::new();
@@ -339,16 +388,16 @@ pub fn compute_delta(current: &FitnessScores, previous: &FitnessScores) -> HashM
     let d_aut = current.autonomy.normalized() - previous.autonomy.normalized();
     let d_met = current.meta_learning - previous.meta_learning;
 
-    if d_cog.abs() > f64::EPSILON {
+    if d_cog.abs() > DELTA_THRESHOLD {
         delta.insert("cognitive".to_string(), d_cog);
     }
-    if d_beh.abs() > f64::EPSILON {
+    if d_beh.abs() > DELTA_THRESHOLD {
         delta.insert("behavioral".to_string(), d_beh);
     }
-    if d_aut.abs() > f64::EPSILON {
+    if d_aut.abs() > DELTA_THRESHOLD {
         delta.insert("autonomy".to_string(), d_aut);
     }
-    if d_met.abs() > f64::EPSILON {
+    if d_met.abs() > DELTA_THRESHOLD {
         delta.insert("meta_learning".to_string(), d_met);
     }
     delta
@@ -403,25 +452,25 @@ pub fn check_triggers(
     let theta_growth = f64::max(params.theta_min, params.alpha * previous_fitness);
     let theta_regression = f64::max(params.theta_min, params.beta * previous_fitness);
 
-    // Negative jump (regression)
+    // Negative jump (regression) — priority 2
     if delta_f <= -theta_regression {
         return Some(GenerationTrigger::Regression);
     }
 
-    // Positive jump (evolution)
-    if delta_f >= theta_growth {
-        return Some(GenerationTrigger::Evolution);
-    }
-
-    // Autonomy upgrade
+    // Autonomy upgrade — priority 4 (above Rebalance and Evolution)
     if current_scores.autonomy > previous_scores.autonomy {
         return Some(GenerationTrigger::AutonomyUpgrade);
     }
 
-    // Axis rebalance
+    // Axis rebalance — priority 5 (above Evolution)
     let shifted = detect_rebalance(current_scores, previous_scores);
     if !shifted.is_empty() {
         return Some(GenerationTrigger::Rebalance);
+    }
+
+    // Positive jump (evolution) — priority 6 (lowest growth trigger)
+    if delta_f >= theta_growth {
+        return Some(GenerationTrigger::Evolution);
     }
 
     None
@@ -442,6 +491,10 @@ pub struct CapabilityChange {
 ///
 /// Compares `active_plugins` and `plugin_capabilities` between the previous and
 /// current snapshots. Returns a list of changes for newly added plugins.
+///
+/// **Asymmetric**: Only detects capability *gains* (new plugins), not *losses*
+/// (removed plugins). Capability loss is handled indirectly by Regression
+/// (fitness drops after removal) or a future `CapabilityLoss` trigger.
 ///
 /// This is a **pure function** operating on set-valued inputs (Vec<String>),
 /// independent of the metric-based `check_triggers()`.
@@ -538,6 +591,12 @@ pub fn grace_period_length(
 // Evolution Engine
 // ══════════════════════════════════════════════════════════════
 
+/// The evolution engine tracks agent fitness across generations.
+///
+/// Architecture note: The `pool` field is a direct dependency on `SqlitePool`,
+/// used exclusively for audit logging (`spawn_audit_log`). All evolution data
+/// is stored through the `PluginDataStore` abstraction. If audit logging is
+/// refactored to use an event-based approach, the `pool` dependency can be removed.
 pub struct EvolutionEngine {
     store: Arc<dyn PluginDataStore>,
     pool: SqlitePool,
@@ -594,6 +653,7 @@ impl EvolutionEngine {
     }
 
     pub async fn set_params(&self, agent_id: &str, params: &EvolutionParams) -> anyhow::Result<()> {
+        params.validate()?;
         let key = Self::key_params(agent_id);
         self.store.set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(params)?).await
     }
@@ -632,6 +692,10 @@ impl EvolutionEngine {
         }
     }
 
+    /// Retrieves recent generation records in reverse chronological order.
+    /// Note: This performs sequential key lookups (one per generation).
+    /// For large histories, a batch retrieval (key prefix scan) would be more efficient,
+    /// but the current approach is sufficient given typical generation counts (<500).
     pub async fn get_generation_history(&self, agent_id: &str, limit: usize) -> anyhow::Result<Vec<GenerationRecord>> {
         let latest = self.get_latest_generation(agent_id).await?;
         if latest == 0 {
@@ -659,8 +723,10 @@ impl EvolutionEngine {
         interactions_since_last: u64,
         snapshot: AgentSnapshot,
     ) -> anyhow::Result<GenerationRecord> {
-        let latest = self.get_latest_generation(agent_id).await?;
-        let new_gen = latest + 1;
+        // Atomically increment the generation counter (prevents duplicate generation numbers
+        // under concurrent calls). increment_counter uses UPSERT with RETURNING.
+        let key_latest = Self::key_latest(agent_id);
+        let new_gen = self.store.increment_counter(EVOLUTION_STORE_ID, &key_latest).await? as u64;
 
         let record = GenerationRecord {
             generation: new_gen,
@@ -677,10 +743,6 @@ impl EvolutionEngine {
         // Store generation record
         let key = Self::key_generation(agent_id, new_gen);
         self.store.set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(&record)?).await?;
-
-        // Update latest generation pointer
-        let key = Self::key_latest(agent_id);
-        self.store.set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(new_gen)?).await?;
 
         info!(
             agent_id = %agent_id,
@@ -802,6 +864,10 @@ impl EvolutionEngine {
 
     // ── Rollback Execution ──
 
+    /// Rolls back to a previous generation and records the rollback.
+    /// The new generation created after rollback uses `Regression` as its trigger,
+    /// regardless of the original cause (SafetyBreach, grace period expiry, etc.).
+    /// The `reason` parameter captures the actual cause in the rollback record.
     pub async fn execute_rollback(
         &self,
         agent_id: &str,
@@ -947,16 +1013,18 @@ impl EvolutionEngine {
             None
         };
 
-        // Interactions since last generation
+        // Interactions since last generation (consistent with evaluate(): strictly after)
+        // Read log once and reuse for both interactions count and trend calculation
+        let log = self.get_fitness_log(agent_id).await?;
         let interactions_since_last_gen = if let Some(ref record) = gen_record {
-            let log = self.get_fitness_log(agent_id).await?;
-            log.iter().filter(|e| e.timestamp >= record.timestamp).count() as u64
+            log.iter().filter(|e| e.timestamp > record.timestamp).count() as u64
         } else {
             total_interactions
         };
 
-        // Calculate trend from last few fitness entries
-        let log = self.get_fitness_timeline(agent_id, 10).await?;
+        // Calculate trend from last few fitness entries (reuse log from above)
+        let trend_start = if log.len() > 10 { log.len() - 10 } else { 0 };
+        let log = &log[trend_start..];
         let trend_val = if log.len() >= 2 {
             let recent = log.last().map(|e| e.fitness).unwrap_or(0.0);
             let earlier = log.first().map(|e| e.fitness).unwrap_or(0.0);
@@ -1078,6 +1146,8 @@ impl EvolutionEngine {
         }
 
         // Calculate interactions since last generation
+        // Note: This read is intentionally separate from the grace-period path (early return above)
+        // and the post-handler read (H-10 fix below) — each operates on a different execution phase.
         let latest_gen = self.get_latest_generation(agent_id).await?;
         let last_gen_record = self.get_generation(agent_id, latest_gen).await?;
         let interactions_since_last_gen = if let Some(ref rec) = last_gen_record {
@@ -1119,22 +1189,6 @@ impl EvolutionEngine {
             (t, _) => t,
         };
 
-        // Emit EvolutionCapability events independent of the final trigger.
-        // This ensures capability changes are always observable in the event stream.
-        for change in &capability_changes {
-            for cap in &change.capabilities {
-                events.push(ExivEventData::EvolutionCapability {
-                    agent_id: agent_id.to_string(),
-                    capability: format!(
-                        "{}:{}",
-                        if change.is_major { "major" } else { "minor" },
-                        cap,
-                    ),
-                    generation: latest_gen + 1,
-                });
-            }
-        }
-
         if let Some(trigger) = trigger {
             match trigger {
                 GenerationTrigger::SafetyBreach => {
@@ -1163,6 +1217,25 @@ impl EvolutionEngine {
             }
         }
 
+        // Emit EvolutionCapability events AFTER trigger handlers execute,
+        // so the generation number reflects the actual created generation.
+        if !capability_changes.is_empty() {
+            let actual_gen = self.get_latest_generation(agent_id).await?;
+            for change in &capability_changes {
+                for cap in &change.capabilities {
+                    events.push(ExivEventData::EvolutionCapability {
+                        agent_id: agent_id.to_string(),
+                        capability: format!(
+                            "{}:{}",
+                            if change.is_major { "major" } else { "minor" },
+                            cap,
+                        ),
+                        generation: actual_gen,
+                    });
+                }
+            }
+        }
+
         Ok(events)
     }
 
@@ -1184,6 +1257,8 @@ impl EvolutionEngine {
             events.extend(rollback_events);
         } else if latest_gen == 1 {
             warn!(agent_id = %agent_id, "Safety breach on generation 1, no earlier generation available");
+        } else {
+            warn!(agent_id = %agent_id, "Safety breach on generation 0, no rollback target exists");
         }
         Ok(())
     }
@@ -1276,6 +1351,10 @@ impl EvolutionEngine {
         Ok(())
     }
 
+    /// Handles axis rebalance trigger.
+    /// Note: `detect_rebalance` is called again here because `check_triggers()`
+    /// does not return the shifted axes (it only returns the trigger type).
+    /// This is a minor inefficiency accepted to keep `check_triggers` as a pure function.
     async fn handle_rebalance(
         &self,
         agent_id: &str,
@@ -1310,6 +1389,10 @@ impl EvolutionEngine {
     /// Simplified interaction hook — checks grace period only.
     /// Does NOT increment the interaction counter (that's done by `evaluate()`)
     /// to prevent double-counting when both hooks fire.
+    ///
+    /// Note: Fitness recovery cannot be checked here because we don't have
+    /// the current scores. The grace period fitness recovery check happens
+    /// in `evaluate()` where scores are available.
     pub async fn on_interaction(&self, agent_id: &str) -> anyhow::Result<Vec<ExivEventData>> {
         let interaction_count = self.get_interaction_count(agent_id).await?;
         let mut events = Vec::new();
@@ -1433,8 +1516,8 @@ mod tests {
         let prev_scores = sample_scores(0.5, 0.5, 1.0, AutonomyLevel::L2, 0.3);
         let prev_fitness = calculate_fitness(&prev_scores, &params.weights);
 
-        // Significant improvement
-        let curr_scores = sample_scores(0.8, 0.8, 1.0, AutonomyLevel::L2, 0.5);
+        // Significant improvement (meta_learning stays below autonomy to avoid Rebalance)
+        let curr_scores = sample_scores(0.8, 0.8, 1.0, AutonomyLevel::L2, 0.35);
         let curr_fitness = calculate_fitness(&curr_scores, &params.weights);
 
         let trigger = check_triggers(curr_fitness, prev_fitness, &curr_scores, &prev_scores, &params, 15);
