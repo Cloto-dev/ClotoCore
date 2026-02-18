@@ -1,10 +1,12 @@
 use std::sync::Arc;
-use tracing::{info, error};
+use std::time::Duration;
+use tracing::{info, warn, error};
 use async_trait::async_trait;
 
 use exiv_shared::{
     Plugin, PluginCast, PluginManifest,
-    ExivEvent, ExivMessage
+    ExivEvent, ExivEventData, ExivMessage, ExivId,
+    AgentMetadata, ThinkResult,
 };
 use crate::managers::{AgentManager, PluginRegistry};
 
@@ -16,6 +18,8 @@ pub struct SystemHandler {
     memory_context_limit: usize,
     metrics: Arc<crate::managers::SystemMetrics>,
     consensus_engines: Vec<String>,
+    max_agentic_iterations: u8,
+    tool_execution_timeout_secs: u64,
 }
 
 impl SystemHandler {
@@ -27,8 +31,10 @@ impl SystemHandler {
         memory_context_limit: usize,
         metrics: Arc<crate::managers::SystemMetrics>,
         consensus_engines: Vec<String>,
+        max_agentic_iterations: u8,
+        tool_execution_timeout_secs: u64,
     ) -> Self {
-        Self { registry, agent_manager, default_agent_id, sender, memory_context_limit, metrics, consensus_engines }
+        Self { registry, agent_manager, default_agent_id, sender, memory_context_limit, metrics, consensus_engines, max_agentic_iterations, tool_execution_timeout_secs }
     }
 
     pub async fn handle_message(&self, msg: ExivMessage) -> anyhow::Result<()> {
@@ -125,31 +131,56 @@ impl SystemHandler {
                 }
             }
         } else {
-            // 通常モード
-            let thought_event_data = exiv_shared::ExivEventData::ThoughtRequested {
-                agent: agent.clone(),
-                engine_id: _engine_id,
-                message: msg.clone(),
-                context,
-            };
-            
-            let envelope = crate::EnvelopedEvent {
-                event: Arc::new(exiv_shared::ExivEvent::with_trace(trace_id, thought_event_data)),
-                issuer: None,
-                correlation_id: None,
-                depth: 0,
-            };
-
-            if let Err(e) = self.sender.send(envelope).await {
-                error!(
-                    target_agent_id = %target_agent_id,
-                    error = %e,
-                    "❌ Failed to dispatch ThoughtRequested"
-                );
+            // 通常モード: エージェントループで処理
+            let engine_id = _engine_id;
+            match self.run_agentic_loop(&agent, &engine_id, &msg, context, trace_id).await {
+                Ok(content) => {
+                    let thought_response = ExivEventData::ThoughtResponse {
+                        agent_id: agent.id.clone(),
+                        engine_id: engine_id.clone(),
+                        content,
+                        source_message_id: msg.id.clone(),
+                    };
+                    let envelope = crate::EnvelopedEvent {
+                        event: Arc::new(ExivEvent::with_trace(trace_id, thought_response)),
+                        issuer: None,
+                        correlation_id: None,
+                        depth: 0,
+                    };
+                    if let Err(e) = self.sender.send(envelope).await {
+                        error!(
+                            target_agent_id = %target_agent_id,
+                            error = %e,
+                            "❌ Failed to send ThoughtResponse"
+                        );
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        agent_id = %agent.id,
+                        engine_id = %engine_id,
+                        error = %e,
+                        "❌ Agentic loop failed"
+                    );
+                    // H-04: Send error response so the user's message doesn't vanish
+                    let error_response = ExivEventData::ThoughtResponse {
+                        agent_id: agent.id.clone(),
+                        engine_id: engine_id.clone(),
+                        content: format!("[Error] Processing failed: {}", e),
+                        source_message_id: msg.id.clone(),
+                    };
+                    let envelope = crate::EnvelopedEvent {
+                        event: Arc::new(ExivEvent::with_trace(trace_id, error_response)),
+                        issuer: None,
+                        correlation_id: None,
+                        depth: 0,
+                    };
+                    let _ = self.sender.send(envelope).await;
+                }
             }
         }
 
-        // メモリへの保存
+        // メモリへの保存 (below agentic loop / consensus dispatch)
         if let Some(plugin) = memory_plugin {
             if let Some(_mem) = plugin.as_memory() {
                 let agent_id = agent.id.clone();
@@ -178,6 +209,195 @@ impl SystemHandler {
         }
 
         Ok(())
+    }
+
+    // ── Agentic Loop ──
+
+    async fn run_agentic_loop(
+        &self,
+        agent: &AgentMetadata,
+        engine_id: &str,
+        message: &ExivMessage,
+        context: Vec<ExivMessage>,
+        trace_id: ExivId,
+    ) -> anyhow::Result<String> {
+        let engine_plugin = self.registry.get_engine(engine_id).await
+            .ok_or_else(|| anyhow::anyhow!("Engine '{}' not found", engine_id))?;
+        let engine = engine_plugin.as_reasoning()
+            .ok_or_else(|| anyhow::anyhow!("Plugin '{}' is not a ReasoningEngine", engine_id))?;
+
+        // Fallback: engine does not support tools → plain think()
+        if !engine.supports_tools() {
+            return engine.think(agent, message, context).await;
+        }
+
+        let tools = self.registry.collect_tool_schemas().await;
+        if tools.is_empty() {
+            return engine.think(agent, message, context).await;
+        }
+
+        // M-04: Build tool name set for pre-validation (avoid timeout waiting for non-existent tools)
+        let tool_names: std::collections::HashSet<String> = tools.iter()
+            .filter_map(|t| t.get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(|n| n.as_str())
+                .map(|s| s.to_string()))
+            .collect();
+
+        info!(
+            agent_id = %agent.id,
+            engine_id = %engine_id,
+            tool_count = tools.len(),
+            "🔄 Starting agentic loop"
+        );
+
+        let mut tool_history: Vec<serde_json::Value> = Vec::new();
+        let mut iteration: u8 = 0;
+        let mut total_tool_calls: u32 = 0;
+        const MAX_TOOL_HISTORY: usize = 100;
+
+        loop {
+            iteration += 1;
+            if iteration > self.max_agentic_iterations {
+                warn!(
+                    agent_id = %agent.id,
+                    "⚠️ Agentic loop hit max iterations ({}), forcing text response",
+                    self.max_agentic_iterations
+                );
+                return engine.think(agent, message, context.clone()).await;
+            }
+
+            let result = engine.think_with_tools(
+                agent, message, context.clone(), &tools, &tool_history
+            ).await?;
+
+            match result {
+                ThinkResult::Final(content) => {
+                    // Emit loop completion event
+                    self.emit_event(trace_id, ExivEventData::AgenticLoopCompleted {
+                        agent_id: agent.id.clone(),
+                        engine_id: engine_id.to_string(),
+                        total_iterations: iteration,
+                        total_tool_calls,
+                        source_message_id: message.id.clone(),
+                    }).await;
+
+                    info!(
+                        agent_id = %agent.id,
+                        iterations = iteration,
+                        tool_calls = total_tool_calls,
+                        "✅ Agentic loop completed"
+                    );
+                    return Ok(content);
+                }
+                ThinkResult::ToolCalls { assistant_content, calls } => {
+                    info!(
+                        agent_id = %agent.id,
+                        iteration = iteration,
+                        num_calls = calls.len(),
+                        "🔧 LLM requested tool calls"
+                    );
+
+                    // Build assistant message with tool_calls for history
+                    let tool_calls_json: Vec<serde_json::Value> = calls.iter().map(|tc| {
+                        serde_json::json!({
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": tc.arguments.to_string()
+                            }
+                        })
+                    }).collect();
+
+                    let mut assistant_msg = serde_json::json!({
+                        "role": "assistant",
+                        "tool_calls": tool_calls_json
+                    });
+                    if let Some(ref content) = assistant_content {
+                        assistant_msg["content"] = serde_json::json!(content);
+                    }
+                    tool_history.push(assistant_msg);
+
+                    // Execute each tool call
+                    for call in &calls {
+                        total_tool_calls += 1;
+
+                        // M-04: Pre-validate tool name before execution
+                        if !tool_names.contains(&call.name) {
+                            warn!(
+                                tool = %call.name,
+                                "⚠️ LLM requested non-existent tool, skipping"
+                            );
+                            tool_history.push(serde_json::json!({
+                                "role": "tool",
+                                "tool_call_id": call.id,
+                                "content": format!("Error: tool '{}' not found", call.name)
+                            }));
+                            continue;
+                        }
+
+                        let start = std::time::Instant::now();
+
+                        let tool_result = tokio::time::timeout(
+                            Duration::from_secs(self.tool_execution_timeout_secs),
+                            self.registry.execute_tool(&call.name, call.arguments.clone())
+                        ).await;
+
+                        let duration_ms = start.elapsed().as_millis() as u64;
+
+                        let (success, content) = match tool_result {
+                            Ok(Ok(v)) => (true, v.to_string()),
+                            Ok(Err(e)) => (false, format!("Error: {}", e)),
+                            Err(_) => (false, "Error: tool execution timed out".to_string()),
+                        };
+
+                        info!(
+                            tool = %call.name,
+                            success = success,
+                            duration_ms = duration_ms,
+                            "  🔧 Tool executed"
+                        );
+
+                        // Emit observability event
+                        self.emit_event(trace_id, ExivEventData::ToolInvoked {
+                            agent_id: agent.id.clone(),
+                            engine_id: engine_id.to_string(),
+                            tool_name: call.name.clone(),
+                            call_id: call.id.clone(),
+                            success,
+                            duration_ms,
+                            iteration,
+                        }).await;
+
+                        // Add tool result to history (OpenAI format)
+                        tool_history.push(serde_json::json!({
+                            "role": "tool",
+                            "tool_call_id": call.id,
+                            "content": content
+                        }));
+                    }
+
+                    // M-03: Prevent unbounded tool_history growth
+                    if tool_history.len() > MAX_TOOL_HISTORY {
+                        let excess = tool_history.len() - MAX_TOOL_HISTORY;
+                        tool_history.drain(..excess);
+                    }
+                }
+            }
+        }
+    }
+
+    async fn emit_event(&self, trace_id: ExivId, data: ExivEventData) {
+        let envelope = crate::EnvelopedEvent {
+            event: Arc::new(ExivEvent::with_trace(trace_id, data)),
+            issuer: None,
+            correlation_id: Some(trace_id),
+            depth: 0,
+        };
+        if let Err(e) = self.sender.send(envelope).await {
+            warn!("⚠️ Failed to emit observability event: {}", e);
+        }
     }
 }
 

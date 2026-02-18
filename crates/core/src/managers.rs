@@ -88,6 +88,43 @@ impl PluginRegistry {
         None
     }
 
+    /// Collect tool schemas from all active Tool plugins (OpenAI function calling format).
+    pub async fn collect_tool_schemas(&self) -> Vec<serde_json::Value> {
+        let plugins = self.plugins.read().await;
+        plugins.values().filter_map(|p| {
+            let tool = p.as_tool()?;
+            Some(serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": tool.name(),
+                    "description": tool.description(),
+                    "parameters": tool.parameters_schema(),
+                }
+            }))
+        }).collect()
+    }
+
+    /// Execute a tool by name with the given arguments.
+    /// H-01: Drops the read lock before calling tool.execute() to avoid blocking
+    /// plugin registration during long-running tool execution.
+    pub async fn execute_tool(&self, tool_name: &str, args: serde_json::Value)
+        -> anyhow::Result<serde_json::Value>
+    {
+        let tool_plugin = {
+            let plugins = self.plugins.read().await;
+            plugins.values().find_map(|p| {
+                let tool = p.as_tool()?;
+                if tool.name() == tool_name { Some(p.clone()) } else { None }
+            })
+        }; // read lock dropped here
+        if let Some(plugin) = tool_plugin {
+            if let Some(tool) = plugin.as_tool() {
+                return tool.execute(args).await;
+            }
+        }
+        Err(anyhow::anyhow!("Tool '{}' not found", tool_name))
+    }
+
     /// 全てのアクティブなプラグインにイベントを配信する
     pub async fn dispatch_event(
         &self,
@@ -430,6 +467,11 @@ impl PluginManager {
         Ok(())
     }
 
+    /// L5: Get a clone of the shared SafeHttpClient Arc for runtime host addition.
+    pub fn http_client(&self) -> Arc<SafeHttpClient> {
+        self.http_client.clone()
+    }
+
     pub fn get_capability_for_permission(&self, permission: &Permission) -> Option<exiv_shared::PluginCapability> {
         match permission {
             Permission::NetworkAccess => Some(exiv_shared::PluginCapability::Network(self.http_client.clone())),
@@ -512,6 +554,108 @@ impl PluginManager {
         .bind(plugin_id)
         .bind(&perm_json)
         .execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// L5: Register a Python Bridge plugin at runtime into a live PluginRegistry.
+    /// Runtime plugins are ephemeral (not persisted to DB) and use the `python.runtime.*` namespace.
+    pub async fn register_runtime_plugin(
+        &self,
+        plugin_id: &str,
+        config_values: HashMap<String, String>,
+        permissions: Vec<Permission>,
+        registry: &PluginRegistry,
+    ) -> anyhow::Result<()> {
+        // 1. Namespace validation
+        if !plugin_id.starts_with("python.runtime.") {
+            return Err(anyhow::anyhow!(
+                "Runtime plugin ID must start with 'python.runtime.', got: {}", plugin_id
+            ));
+        }
+
+        // 2. Duplicate check
+        {
+            let plugins = registry.plugins.read().await;
+            if plugins.contains_key(plugin_id) {
+                return Err(anyhow::anyhow!(
+                    "Plugin '{}' is already registered", plugin_id
+                ));
+            }
+        }
+
+        // 3. Use bridge.python factory
+        let factory = self.factories.get("bridge.python")
+            .ok_or_else(|| anyhow::anyhow!("bridge.python factory not found"))?;
+
+        let config = PluginConfig {
+            id: plugin_id.to_string(),
+            config_values,
+        };
+
+        info!(plugin_id = %plugin_id, "🔌 L5: Runtime plugin registration");
+        let plugin = factory.create(config).await?;
+        let manifest = plugin.manifest();
+
+        // 4. Magic Seal validation
+        if manifest.magic_seal != OFFICIAL_SDK_MAGIC {
+            return Err(anyhow::anyhow!(
+                "Access Denied: Runtime plugin '{}' is not compiled with official SDK", plugin_id
+            ));
+        }
+
+        // 5. Per-plugin event bridge (same pattern as bootstrap_plugin)
+        let (p_tx, mut p_rx) = tokio::sync::mpsc::channel::<exiv_shared::ExivEventData>(100);
+        if let Some(main_tx) = &self.event_tx {
+            let main_tx = main_tx.clone();
+            let pid = ExivId::from_name(plugin_id);
+            let semaphore = self.bridge_semaphore.clone();
+            tokio::spawn(async move {
+                while let Some(data) = p_rx.recv().await {
+                    let _permit = match semaphore.acquire().await {
+                        Ok(p) => p,
+                        Err(_) => break,
+                    };
+                    let envelope = crate::EnvelopedEvent {
+                        event: Arc::new(exiv_shared::ExivEvent::new(data)),
+                        issuer: Some(pid),
+                        correlation_id: None,
+                        depth: 0,
+                    };
+                    let _ = main_tx.send(envelope).await;
+                }
+            });
+        }
+
+        // 6. PluginRuntimeContext with scoped data store
+        let context = PluginRuntimeContext {
+            effective_permissions: permissions.clone(),
+            store: Arc::new(crate::db::ScopedDataStore::new(self.store.clone(), plugin_id.to_string())),
+            event_tx: p_tx,
+        };
+
+        // 7. Capability injection
+        let network_capability = if permissions.contains(&Permission::NetworkAccess) {
+            self.get_capability_for_permission(&Permission::NetworkAccess)
+                .map(|c| {
+                    let exiv_shared::PluginCapability::Network(net) = c;
+                    net
+                })
+        } else {
+            None
+        };
+
+        // 8. Initialize (triggers Python subprocess handshake)
+        plugin.on_plugin_init(context, network_capability).await?;
+
+        // 9. Atomic registration
+        {
+            let mut plugins = registry.plugins.write().await;
+            let mut perms_lock = registry.effective_permissions.write().await;
+            plugins.insert(plugin_id.to_string(), plugin);
+            perms_lock.insert(ExivId::from_name(plugin_id), permissions);
+        }
+
+        info!(plugin_id = %plugin_id, "✅ L5: Runtime plugin registered successfully");
         Ok(())
     }
 }

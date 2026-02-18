@@ -361,15 +361,64 @@ pub trait CommunicationAdapter: Plugin {
     async fn send(&self, target_user_id: &str, content: &str) -> anyhow::Result<()>;
 }
 
+// ── Agentic Loop Types ──
+
+/// Result of a reasoning step: either final text or tool call requests.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ThinkResult {
+    /// Final text response — the agent is done thinking.
+    Final(String),
+    /// The LLM wants to call tools before continuing.
+    ToolCalls {
+        assistant_content: Option<String>,
+        calls: Vec<ToolCall>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCall {
+    /// Tool call ID from the LLM (e.g., "call_abc123").
+    pub id: String,
+    /// Tool name (must match a registered Tool::name()).
+    pub name: String,
+    /// JSON arguments to pass to the tool.
+    pub arguments: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolResult {
+    pub call_id: String,
+    pub tool_name: String,
+    pub success: bool,
+    pub content: String,
+}
+
 #[async_trait]
 pub trait ReasoningEngine: Plugin {
     fn name(&self) -> &str;
+
     async fn think(
         &self,
         agent: &AgentMetadata,
         message: &ExivMessage,
         context: Vec<ExivMessage>,
     ) -> anyhow::Result<String>;
+
+    /// Whether this engine supports tool use (agentic loop). Default: false.
+    fn supports_tools(&self) -> bool { false }
+
+    /// Think with tool support. Default delegates to think() as Final.
+    async fn think_with_tools(
+        &self,
+        agent: &AgentMetadata,
+        message: &ExivMessage,
+        context: Vec<ExivMessage>,
+        _tools: &[serde_json::Value],
+        _tool_history: &[serde_json::Value],
+    ) -> anyhow::Result<ThinkResult> {
+        let content = self.think(agent, message, context).await?;
+        Ok(ThinkResult::Final(content))
+    }
 }
 
 #[async_trait]
@@ -508,6 +557,36 @@ pub enum ExivEventData {
         agent_id: String,
         shifted_axes: Vec<String>,
         generation: u64,
+    },
+    /// プラグインからのフィットネス寄与 (Principle 1.1: content analysis by plugins only)
+    /// Plugins post this event to contribute scores for axes that require LLM output analysis.
+    FitnessContribution {
+        agent_id: String,
+        /// Axis name: "cognitive" or "meta_learning"
+        axis: String,
+        /// Score in [0.0, 1.0]
+        score: f64,
+        /// Source plugin ID
+        source_plugin: String,
+    },
+    // ── Agentic Loop Events ──
+    /// A tool was invoked during an agentic loop iteration (observability).
+    ToolInvoked {
+        agent_id: String,
+        engine_id: String,
+        tool_name: String,
+        call_id: String,
+        success: bool,
+        duration_ms: u64,
+        iteration: u8,
+    },
+    /// An agentic loop completed (all tool calls resolved).
+    AgenticLoopCompleted {
+        agent_id: String,
+        engine_id: String,
+        total_iterations: u8,
+        total_tool_calls: u32,
+        source_message_id: String,
     },
 }
 

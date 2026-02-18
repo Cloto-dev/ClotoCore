@@ -5,7 +5,7 @@ use tokio::sync::RwLock;
 use exiv_shared::{
     AgentMetadata, Plugin, PluginConfig,
     ReasoningEngine, ExivMessage, Permission, PluginRuntimeContext,
-    NetworkCapability, HttpRequest, exiv_plugin
+    NetworkCapability, HttpRequest, ThinkResult, ToolCall, exiv_plugin
 };
 
 #[exiv_plugin(
@@ -154,6 +154,8 @@ impl ReasoningEngine for DeepSeekPlugin {
         "DeepSeek"
     }
 
+    fn supports_tools(&self) -> bool { true }
+
     async fn think(
         &self,
         agent: &AgentMetadata,
@@ -204,6 +206,13 @@ impl ReasoningEngine for DeepSeekPlugin {
 
         let resp = client.send_http_request(req).await?;
         let json: serde_json::Value = serde_json::from_str(&resp.body)?;
+
+        // C-04: Check for API error response before parsing choices
+        if let Some(error) = json.get("error") {
+            let msg = error.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
+            return Err(anyhow::anyhow!("DeepSeek API Error: {}", msg));
+        }
+
         // H-02: Safe JSON path access with descriptive error
         let content = json.get("choices")
             .and_then(|c| c.get(0))
@@ -214,5 +223,114 @@ impl ReasoningEngine for DeepSeekPlugin {
             .to_string();
 
         Ok(content)
+    }
+
+    async fn think_with_tools(
+        &self,
+        agent: &AgentMetadata,
+        message: &ExivMessage,
+        context: Vec<ExivMessage>,
+        tools: &[serde_json::Value],
+        tool_history: &[serde_json::Value],
+    ) -> anyhow::Result<ThinkResult> {
+        let (api_key, model_id, api_url, client) = {
+            let state = self.state.read().await;
+            if state.api_key.is_empty() {
+                return Err(anyhow::anyhow!("DeepSeek API Key not configured."));
+            }
+            let client = state.http_client.clone()
+                .ok_or_else(|| anyhow::anyhow!("NetworkCapability not injected."))?;
+            (state.api_key.clone(), state.model_id.clone(), state.api_url.clone(), client)
+        };
+
+        let mut messages = Vec::new();
+        messages.push(serde_json::json!({
+            "role": "system",
+            "content": format!("You are {}. {}.", agent.name, agent.description)
+        }));
+
+        for msg in &context {
+            let role = match msg.source {
+                exiv_shared::MessageSource::User { .. } => "user",
+                exiv_shared::MessageSource::Agent { .. } => "assistant",
+                exiv_shared::MessageSource::System => "system",
+            };
+            messages.push(serde_json::json!({ "role": role, "content": msg.content }));
+        }
+
+        messages.push(serde_json::json!({ "role": "user", "content": message.content }));
+
+        // Append tool conversation history from previous iterations
+        for msg in tool_history {
+            messages.push(msg.clone());
+        }
+
+        let mut body = serde_json::json!({
+            "model": model_id,
+            "messages": messages,
+            "stream": false
+        });
+        if !tools.is_empty() {
+            body["tools"] = serde_json::json!(tools);
+        }
+
+        let req = HttpRequest {
+            method: "POST".to_string(),
+            url: api_url,
+            headers: [
+                ("Authorization".to_string(), format!("Bearer {}", api_key)),
+                ("Content-Type".to_string(), "application/json".to_string())
+            ].into_iter().collect(),
+            body: Some(body.to_string()),
+        };
+
+        let resp = client.send_http_request(req).await?;
+        let json: serde_json::Value = serde_json::from_str(&resp.body)?;
+
+        // C-04: Check for API error response before parsing choices
+        if let Some(error) = json.get("error") {
+            let msg = error.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
+            return Err(anyhow::anyhow!("DeepSeek API Error: {}", msg));
+        }
+
+        let choice = json.get("choices")
+            .and_then(|c| c.get(0))
+            .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing choices[0]"))?;
+        let message_obj = choice.get("message")
+            .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing message"))?;
+        let finish_reason = choice.get("finish_reason")
+            .and_then(|v| v.as_str()).unwrap_or("stop");
+
+        // Check if the LLM wants to call tools
+        if finish_reason == "tool_calls" || message_obj.get("tool_calls").is_some() {
+            if let Some(tool_calls_arr) = message_obj.get("tool_calls").and_then(|v| v.as_array()) {
+                let calls: Vec<ToolCall> = tool_calls_arr.iter().filter_map(|tc| {
+                    let id = tc.get("id")?.as_str()?.to_string();
+                    let function = tc.get("function")?;
+                    let name = function.get("name")?.as_str()?.to_string();
+                    let arguments_str = function.get("arguments")?.as_str()?;
+                    let arguments = match serde_json::from_str(arguments_str) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::warn!(tool = %name, error = %e, "⚠️ Malformed tool_call arguments, using empty object");
+                            serde_json::json!({})
+                        }
+                    };
+                    Some(ToolCall { id, name, arguments })
+                }).collect();
+
+                if !calls.is_empty() {
+                    let assistant_content = message_obj.get("content")
+                        .and_then(|v| v.as_str()).map(|s| s.to_string());
+                    return Ok(ThinkResult::ToolCalls { assistant_content, calls });
+                }
+            }
+        }
+
+        let content = message_obj.get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing content"))?
+            .to_string();
+        Ok(ThinkResult::Final(content))
     }
 }

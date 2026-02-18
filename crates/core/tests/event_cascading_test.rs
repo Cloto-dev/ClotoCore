@@ -98,6 +98,7 @@ async fn test_event_cascading_protection() {
         1000, // max_history_size
         24,   // event_retention_hours
         None, // evolution_engine
+        None, // fitness_collector
     );
 
     let tx_internal_for_loop = tx_internal.clone();

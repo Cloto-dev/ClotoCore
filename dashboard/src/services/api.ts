@@ -279,6 +279,16 @@ export const api = {
     if (!res.ok) throw new Error(`Failed to fetch rollback history: ${res.statusText}`);
     return res.json();
   },
+
+  async evaluateAgent(scores: { cognitive: number; behavioral: number; safety: number; autonomy: number; meta_learning: number }, apiKey: string): Promise<{ status: string; events: unknown[] }> {
+    const res = await fetch(`${API_BASE}/evolution/evaluate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify({ scores }),
+    });
+    if (!res.ok) throw new Error(`Evaluate failed: ${res.statusText}`);
+    return res.json();
+  },
 };
 
 export interface UpdateInfo {

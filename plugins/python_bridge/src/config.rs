@@ -23,7 +23,7 @@ impl PythonBridgePlugin {
     pub async fn new_plugin(config: PluginConfig) -> anyhow::Result<Self> {
         let script_path = config.config_values.get("script_path")
             .cloned()
-            .unwrap_or_else(|| "scripts/bridge_main.py".to_string());
+            .unwrap_or_else(|| "bridge_main.py".to_string());
 
         // Security: prevent path traversal attacks using canonical path validation
         // This prevents attacks like "scripts/../../../etc/passwd" or Windows "scripts\..\..\"
@@ -62,6 +62,9 @@ impl PythonBridgePlugin {
             instance_id: config.id,
             script_path,
             state: Arc::new(RwLock::new(PythonBridgeState::new())),
+            tool_name: Arc::new(std::sync::OnceLock::new()),
+            tool_description: Arc::new(std::sync::OnceLock::new()),
+            tool_schema: Arc::new(std::sync::OnceLock::new()),
         })
     }
 }

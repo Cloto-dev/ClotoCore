@@ -9,8 +9,8 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tracing::info;
 
-use crate::{AppState, AppResult, AppError};
-use crate::evolution::EvolutionParams;
+use crate::{AppState, AppResult, AppError, EnvelopedEvent};
+use crate::evolution::{EvolutionParams, FitnessScores, AgentSnapshot, AutonomyLevel};
 
 fn get_engine(state: &AppState) -> AppResult<&Arc<crate::evolution::EvolutionEngine>> {
     state.evolution_engine.as_ref()
@@ -158,4 +158,86 @@ pub async fn get_rollback_history(
     let history = evo.get_rollback_history(agent_id).await
         .map_err(|e| AppError::Internal(e))?;
     to_json(&history)
+}
+
+// ── Evaluate endpoint ──
+
+#[derive(Deserialize)]
+pub struct EvaluateScores {
+    pub cognitive: f64,
+    pub behavioral: f64,
+    pub safety: f64,
+    pub autonomy: f64,
+    pub meta_learning: f64,
+}
+
+#[derive(Deserialize)]
+pub struct EvaluateRequest {
+    pub scores: EvaluateScores,
+    pub snapshot: Option<AgentSnapshot>,
+}
+
+/// Build an AgentSnapshot from the current PluginRegistry state.
+async fn build_snapshot_from_registry(state: &AppState) -> AgentSnapshot {
+    crate::events::build_snapshot_from_registry_inner(&state.registry).await
+}
+
+/// POST /api/evolution/evaluate — Submit fitness scores and trigger evaluation (auth required)
+pub async fn evaluate_agent(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<EvaluateRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+
+    // Validate score ranges
+    for (name, val) in [
+        ("cognitive", req.scores.cognitive),
+        ("behavioral", req.scores.behavioral),
+        ("safety", req.scores.safety),
+        ("autonomy", req.scores.autonomy),
+        ("meta_learning", req.scores.meta_learning),
+    ] {
+        if !val.is_finite() || val < 0.0 || val > 1.0 {
+            return Err(AppError::Validation(
+                format!("{} must be in [0.0, 1.0] and finite, got {}", name, val),
+            ));
+        }
+    }
+
+    let scores = FitnessScores {
+        cognitive: req.scores.cognitive,
+        behavioral: req.scores.behavioral,
+        safety: req.scores.safety,
+        autonomy: AutonomyLevel::from_normalized(req.scores.autonomy),
+        meta_learning: req.scores.meta_learning,
+    };
+
+    let snapshot = match req.snapshot {
+        Some(s) => s,
+        None => build_snapshot_from_registry(&state).await,
+    };
+
+    let evo = get_engine(&state)?;
+    let agent_id = &state.config.default_agent_id;
+
+    let events = evo.evaluate(agent_id, scores, snapshot).await
+        .map_err(|e| AppError::Internal(e))?;
+
+    // Dispatch events to the event bus for SSE subscribers
+    let event_summaries: Vec<serde_json::Value> = events.iter().map(|e| {
+        serde_json::to_value(e).unwrap_or_default()
+    }).collect();
+
+    for event_data in events {
+        let envelope = EnvelopedEvent::system(event_data);
+        let _ = state.event_tx.send(envelope).await;
+    }
+
+    info!(agent_id = %agent_id, event_count = event_summaries.len(), "Evolution evaluate called via API");
+
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "events": event_summaries,
+    })))
 }

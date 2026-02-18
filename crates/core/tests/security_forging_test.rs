@@ -141,6 +141,7 @@ async fn test_vulnerability_event_forging() {
         1000, // max_history_size
         24,   // event_retention_hours
         None, // evolution_engine
+        None, // fitness_collector
     );
 
     // Run Processor in background

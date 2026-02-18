@@ -1428,6 +1428,201 @@ impl EvolutionEngine {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Automatic Fitness Scoring (Principle 1.1: event counting only)
+// ══════════════════════════════════════════════════════════════
+
+use tokio::sync::RwLock;
+
+/// Per-agent event counters for the current evaluation window.
+/// All fields are kernel-observable (no content analysis).
+/// Reset on generation transition (EvolutionGeneration event).
+#[derive(Debug, Clone, Default)]
+pub struct InteractionMetrics {
+    pub thought_requests: u64,
+    pub thought_responses: u64,
+    pub permissions_requested: u64,
+    pub permissions_approved: u64,
+    pub errors: u64,
+    pub total_interactions: u64,
+    pub safety_violation: bool,
+    pub human_interventions: u64,
+    pub autonomous_actions: u64,
+}
+
+/// Scores contributed by plugins for axes that require content analysis.
+#[derive(Debug, Clone, Default)]
+pub struct PluginContributions {
+    pub cognitive: Option<f64>,
+    pub meta_learning: Option<f64>,
+}
+
+/// Observes events, accumulates per-agent metrics, and computes fitness scores.
+///
+/// Principle 1.1: Only counts events, measures rates, tracks success/failure.
+/// Does NOT interpret LLM output content.
+/// Principle 1.3: Plugin contributions arrive via FitnessContribution events.
+pub struct FitnessCollector {
+    metrics: RwLock<HashMap<String, InteractionMetrics>>,
+    contributions: RwLock<HashMap<String, PluginContributions>>,
+    enabled: bool,
+}
+
+impl FitnessCollector {
+    pub fn new(enabled: bool) -> Self {
+        Self {
+            metrics: RwLock::new(HashMap::new()),
+            contributions: RwLock::new(HashMap::new()),
+            enabled,
+        }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Observe an event and update the appropriate agent's metrics.
+    /// Returns the agent_id if this event should trigger auto-evaluation
+    /// (i.e., it was a ThoughtResponse).
+    pub async fn observe(&self, event_data: &ExivEventData) -> Option<String> {
+        if !self.enabled {
+            return None;
+        }
+
+        match event_data {
+            ExivEventData::ThoughtRequested { agent, .. } => {
+                let mut metrics = self.metrics.write().await;
+                let m = metrics.entry(agent.id.clone()).or_default();
+                m.thought_requests += 1;
+                m.total_interactions += 1;
+                None
+            }
+            ExivEventData::ThoughtResponse { agent_id, .. } => {
+                let mut metrics = self.metrics.write().await;
+                let m = metrics.entry(agent_id.clone()).or_default();
+                m.thought_responses += 1;
+                m.total_interactions += 1;
+                Some(agent_id.clone())
+            }
+            ExivEventData::PermissionRequested { .. } => {
+                // PermissionRequested lacks agent_id; tracked as system-level metric.
+                // Future enhancement: correlate with recent ThoughtResponse agent_id.
+                None
+            }
+            ExivEventData::PermissionGranted { .. } => {
+                None
+            }
+            ExivEventData::ActionRequested { .. } => {
+                None
+            }
+            ExivEventData::EvolutionBreach { agent_id, .. } => {
+                let mut metrics = self.metrics.write().await;
+                let m = metrics.entry(agent_id.clone()).or_default();
+                m.safety_violation = true;
+                m.errors += 1;
+                None
+            }
+            ExivEventData::ToolInvoked { agent_id, success, .. } => {
+                let mut metrics = self.metrics.write().await;
+                let m = metrics.entry(agent_id.clone()).or_default();
+                m.autonomous_actions += 1;
+                m.total_interactions += 1;
+                if !*success {
+                    m.errors += 1;
+                }
+                None
+            }
+            ExivEventData::AgenticLoopCompleted { .. } => {
+                // L-03: Don't increment total_interactions here; ToolInvoked already counts each call
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Record a plugin fitness contribution for an agent.
+    pub async fn record_contribution(&self, agent_id: &str, axis: &str, score: f64) {
+        let score = score.clamp(0.0, 1.0);
+        let mut contributions = self.contributions.write().await;
+        let c = contributions.entry(agent_id.to_string()).or_default();
+        match axis {
+            "cognitive" => c.cognitive = Some(score),
+            "meta_learning" => c.meta_learning = Some(score),
+            _ => {
+                warn!(agent_id = %agent_id, axis = %axis, "Unknown fitness contribution axis");
+            }
+        }
+    }
+
+    /// Compute FitnessScores from accumulated metrics for the given agent.
+    pub async fn compute_scores(&self, agent_id: &str) -> FitnessScores {
+        let metrics = self.metrics.read().await;
+        let m = metrics.get(agent_id).cloned().unwrap_or_default();
+        let contributions = self.contributions.read().await;
+        let c = contributions.get(agent_id).cloned().unwrap_or_default();
+
+        let behavioral = compute_behavioral_score(&m);
+        let safety = compute_safety_score(&m);
+        let autonomy = compute_autonomy_level(&m);
+        let cognitive = c.cognitive.unwrap_or(0.5);
+        let meta_learning = c.meta_learning.unwrap_or(0.5);
+
+        FitnessScores {
+            cognitive: cognitive.clamp(0.0, 1.0),
+            behavioral: behavioral.clamp(0.0, 1.0),
+            safety,
+            autonomy,
+            meta_learning: meta_learning.clamp(0.0, 1.0),
+        }
+    }
+
+    /// Reset metrics for an agent (called on generation transition).
+    pub async fn reset(&self, agent_id: &str) {
+        let mut metrics = self.metrics.write().await;
+        metrics.remove(agent_id);
+    }
+}
+
+/// Compute behavioral score from interaction metrics.
+/// Formula: 0.4 × response_rate + 0.3 × permission_precision + 0.3 × error_avoidance
+pub fn compute_behavioral_score(m: &InteractionMetrics) -> f64 {
+    let total = m.total_interactions.max(1) as f64;
+    let response_rate = m.thought_responses as f64 / total;
+    let permission_precision = if m.permissions_requested > 0 {
+        m.permissions_approved as f64 / m.permissions_requested as f64
+    } else {
+        1.0 // No permissions requested = no errors in permission handling
+    };
+    let error_avoidance = 1.0 - (m.errors as f64 / total);
+
+    0.4 * response_rate + 0.3 * permission_precision + 0.3 * error_avoidance
+}
+
+/// Compute safety score from interaction metrics. Binary: 1.0 or 0.0.
+pub fn compute_safety_score(m: &InteractionMetrics) -> f64 {
+    if m.safety_violation { 0.0 } else { 1.0 }
+}
+
+/// Compute autonomy level from intervention ratio.
+pub fn compute_autonomy_level(m: &InteractionMetrics) -> AutonomyLevel {
+    let total = m.total_interactions.max(1) as f64;
+    let intervention_ratio = m.human_interventions as f64 / total;
+
+    if intervention_ratio >= 0.8 {
+        AutonomyLevel::L0
+    } else if intervention_ratio >= 0.6 {
+        AutonomyLevel::L1
+    } else if intervention_ratio >= 0.4 {
+        AutonomyLevel::L2
+    } else if intervention_ratio >= 0.2 {
+        AutonomyLevel::L3
+    } else if intervention_ratio >= 0.05 {
+        AutonomyLevel::L4
+    } else {
+        AutonomyLevel::L5
+    }
+}
+
+// ══════════════════════════════════════════════════════════════
 // Tests
 // ══════════════════════════════════════════════════════════════
 

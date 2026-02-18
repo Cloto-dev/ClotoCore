@@ -1,9 +1,29 @@
 use crate::managers::{PluginRegistry, PluginManager, AgentManager};
+use crate::evolution::AgentSnapshot;
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{error, info, warn, debug};
 use exiv_shared::{Permission, ExivEvent};
+
+/// Build an AgentSnapshot from the PluginRegistry.
+/// Shared between handlers/evolution.rs and the auto-evaluation path.
+pub(crate) async fn build_snapshot_from_registry_inner(registry: &PluginRegistry) -> AgentSnapshot {
+    let manifests = registry.list_plugins().await;
+    let active: Vec<_> = manifests.iter().filter(|m| m.is_active).collect();
+    AgentSnapshot {
+        active_plugins: active.iter().map(|m| m.id.clone()).collect(),
+        plugin_capabilities: active.iter()
+            .map(|m| (
+                m.id.clone(),
+                m.provided_capabilities.iter().map(|c| format!("{:?}", c)).collect(),
+            ))
+            .collect(),
+        personality_hash: String::new(),
+        strategy_params: HashMap::new(),
+    }
+}
 
 pub struct EventProcessor {
     registry: Arc<PluginRegistry>,
@@ -16,6 +36,7 @@ pub struct EventProcessor {
     max_history_size: usize,
     event_retention_hours: u64, // M-10: Configurable retention period
     evolution_engine: Option<Arc<crate::evolution::EvolutionEngine>>,
+    fitness_collector: Option<Arc<crate::evolution::FitnessCollector>>,
 }
 
 impl EventProcessor {
@@ -31,6 +52,7 @@ impl EventProcessor {
         max_history_size: usize,
         event_retention_hours: u64, // M-10: Configurable retention period
         evolution_engine: Option<Arc<crate::evolution::EvolutionEngine>>,
+        fitness_collector: Option<Arc<crate::evolution::FitnessCollector>>,
     ) -> Self {
         let (refresh_tx, mut refresh_rx) = mpsc::channel(1);
         let registry_clone = registry.clone();
@@ -71,6 +93,7 @@ impl EventProcessor {
             max_history_size,
             event_retention_hours,
             evolution_engine,
+            fitness_collector,
         }
     }
 
@@ -157,6 +180,11 @@ impl EventProcessor {
             // Record event history
             self.record_event(event.clone()).await;
 
+            // Fitness Collector: observe all events for automatic scoring
+            if let Some(ref collector) = self.fitness_collector {
+                collector.observe(&event.data).await;
+            }
+
             // Increment metrics based on event type
             if let exiv_shared::ExivEventData::MessageReceived(_) = &event.data {
                 self.metrics.total_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -200,8 +228,37 @@ impl EventProcessor {
                     };
                     let _ = event_tx.send(system_envelope).await;
 
-                    // Self-Evolution: track interaction
-                    if let Some(ref evo) = self.evolution_engine {
+                    // Self-Evolution: auto-evaluate or track interaction
+                    if let (Some(ref collector), Some(ref evo)) = (&self.fitness_collector, &self.evolution_engine) {
+                        // Auto-evaluation: compute scores from accumulated metrics
+                        let collector = collector.clone();
+                        let evo = evo.clone();
+                        let registry = self.registry.clone();
+                        let agent_id = agent_id.clone();
+                        let tx = event_tx.clone();
+                        tokio::spawn(async move {
+                            let scores = collector.compute_scores(&agent_id).await;
+                            let snapshot = build_snapshot_from_registry_inner(&registry).await;
+                            match evo.evaluate(&agent_id, scores, snapshot).await {
+                                Ok(events) => {
+                                    for event_data in events {
+                                        let evo_event = Arc::new(ExivEvent::new(event_data));
+                                        let envelope = crate::EnvelopedEvent {
+                                            event: evo_event,
+                                            issuer: None,
+                                            correlation_id: None,
+                                            depth: 0,
+                                        };
+                                        let _ = tx.send(envelope).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(agent_id = %agent_id, error = %e, "Auto-evaluation failed");
+                                }
+                            }
+                        });
+                    } else if let Some(ref evo) = self.evolution_engine {
+                        // Fallback: on_interaction only (no auto-scoring)
                         let evo = evo.clone();
                         let agent_id = agent_id.clone();
                         let tx = event_tx.clone();
@@ -331,6 +388,10 @@ impl EventProcessor {
                         trigger = %trigger,
                         "📈 Evolution: new generation"
                     );
+                    // Reset fitness collector metrics for this agent on generation transition
+                    if let Some(ref collector) = self.fitness_collector {
+                        collector.reset(agent_id).await;
+                    }
                     let _ = self.tx_internal.send(event);
                 }
                 exiv_shared::ExivEventData::EvolutionRollback { ref agent_id, from_generation, to_generation, .. } => {
@@ -340,6 +401,42 @@ impl EventProcessor {
                         from = from_generation,
                         to = to_generation,
                         "🔄 Evolution: rollback executed"
+                    );
+                    let _ = self.tx_internal.send(event);
+                }
+                exiv_shared::ExivEventData::FitnessContribution { ref agent_id, ref axis, score, ref source_plugin } => {
+                    if let Some(ref collector) = self.fitness_collector {
+                        debug!(
+                            trace_id = %trace_id,
+                            agent_id = %agent_id,
+                            axis = %axis,
+                            score = score,
+                            source = %source_plugin,
+                            "📊 Fitness contribution received"
+                        );
+                        collector.record_contribution(agent_id, axis, *score).await;
+                    }
+                    let _ = self.tx_internal.send(event);
+                }
+                exiv_shared::ExivEventData::ToolInvoked { ref agent_id, ref tool_name, success, duration_ms, iteration, .. } => {
+                    info!(
+                        trace_id = %trace_id,
+                        agent_id = %agent_id,
+                        tool = %tool_name,
+                        success = success,
+                        duration_ms = duration_ms,
+                        iteration = iteration,
+                        "🔧 Tool invoked"
+                    );
+                    let _ = self.tx_internal.send(event);
+                }
+                exiv_shared::ExivEventData::AgenticLoopCompleted { ref agent_id, total_iterations, total_tool_calls, .. } => {
+                    info!(
+                        trace_id = %trace_id,
+                        agent_id = %agent_id,
+                        iterations = total_iterations,
+                        tool_calls = total_tool_calls,
+                        "✅ Agentic loop completed"
                     );
                     let _ = self.tx_internal.send(event);
                 }

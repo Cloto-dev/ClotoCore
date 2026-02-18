@@ -33,6 +33,7 @@ async fn create_test_processor(max_history_size: usize) -> (Arc<EventProcessor>,
         max_history_size,
         24, // event_retention_hours
         None, // evolution_engine
+        None, // fitness_collector
     ));
 
     (processor, event_history)

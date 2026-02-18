@@ -2,13 +2,26 @@ use plugin_python_bridge::PythonBridgePlugin;
 use exiv_shared::{Plugin, PluginConfig};
 use std::collections::HashMap;
 
+/// Ensure a test `scripts/` directory with a dummy `bridge_main.py` exists.
+/// Required because `new_plugin()` calls `canonicalize("scripts/")` which needs
+/// the directory to physically exist. Safe for parallel test execution.
+fn ensure_test_scripts_dir() {
+    let scripts = std::path::Path::new("scripts");
+    std::fs::create_dir_all(scripts).ok();
+    let main_py = scripts.join("bridge_main.py");
+    if !main_py.exists() {
+        std::fs::write(&main_py, "# test dummy\n").ok();
+    }
+}
+
 #[tokio::test]
 async fn test_python_bridge_initialization() {
-    // Test basic plugin initialization
+    ensure_test_scripts_dir();
+
     let config = PluginConfig {
         id: "bridge.python".to_string(),
         config_values: [
-            ("script_path".to_string(), "scripts/bridge_main.py".to_string()),
+            ("script_path".to_string(), "bridge_main.py".to_string()),
         ].into_iter().collect(),
     };
 
@@ -25,7 +38,8 @@ async fn test_python_bridge_initialization() {
 
 #[tokio::test]
 async fn test_python_bridge_path_validation_prevents_traversal() {
-    // Test that path traversal is prevented
+    ensure_test_scripts_dir();
+
     let config = PluginConfig {
         id: "bridge.python".to_string(),
         config_values: [
@@ -37,12 +51,19 @@ async fn test_python_bridge_path_validation_prevents_traversal() {
     assert!(result.is_err(), "Should reject path with '..'");
 
     if let Err(e) = result {
-        assert!(e.to_string().contains(".."), "Error should mention '..'");
+        let err_msg = e.to_string();
+        // Either "Security violation: ... escapes allowed directory" or path-related error
+        assert!(
+            err_msg.contains("escapes") || err_msg.contains(".."),
+            "Error should indicate path traversal rejection, got: {}", err_msg
+        );
     }
 }
 
 #[tokio::test]
 async fn test_python_bridge_path_validation_requires_scripts_dir() {
+    ensure_test_scripts_dir();
+
     // Test that absolute paths are rejected
     let config = PluginConfig {
         id: "bridge.python".to_string(),
@@ -68,7 +89,8 @@ async fn test_python_bridge_path_validation_requires_scripts_dir() {
 
 #[tokio::test]
 async fn test_python_bridge_default_script_path() {
-    // Test that default script path is used when not specified
+    ensure_test_scripts_dir();
+
     let config = PluginConfig {
         id: "bridge.python".to_string(),
         config_values: HashMap::new(),

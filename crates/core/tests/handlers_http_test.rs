@@ -57,6 +57,7 @@ async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<AppState> {
         rate_limiter,
         shutdown: Arc::new(Notify::new()),
         evolution_engine: None,
+        fitness_collector: None,
     })
 }
 

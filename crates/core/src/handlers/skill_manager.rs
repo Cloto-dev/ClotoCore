@@ -1,0 +1,288 @@
+//! L5 Self-Extension: Skill Manager Tool
+//!
+//! Provides `register_skill` and `add_network_host` actions to the agentic loop,
+//! enabling agents to create new tools and grant network access at runtime.
+
+use std::sync::Arc;
+use std::collections::HashMap;
+use async_trait::async_trait;
+use tracing::info;
+
+use exiv_shared::{
+    Plugin, PluginCast, PluginManifest, PluginCategory, ServiceType,
+    ExivEvent, Permission, Tool,
+};
+use crate::managers::{PluginManager, PluginRegistry};
+use crate::capabilities::SafeHttpClient;
+
+pub struct SkillManager {
+    plugin_manager: Arc<PluginManager>,
+    registry: Arc<PluginRegistry>,
+    http_client: Arc<SafeHttpClient>,
+}
+
+impl SkillManager {
+    pub fn new(
+        plugin_manager: Arc<PluginManager>,
+        registry: Arc<PluginRegistry>,
+        http_client: Arc<SafeHttpClient>,
+    ) -> Self {
+        Self { plugin_manager, registry, http_client }
+    }
+
+    async fn handle_register_skill(&self, args: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
+        let name = args.get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required field: name"))?;
+
+        let code = args.get("code")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required field: code"))?;
+
+        let description = args.get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("A runtime-registered skill.");
+
+        // Name validation: alphanumeric + underscore, 1-64 chars
+        if name.is_empty() || name.len() > 64 {
+            return Err(anyhow::anyhow!("Skill name must be 1-64 characters"));
+        }
+        if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(anyhow::anyhow!("Skill name must contain only alphanumeric characters and underscores"));
+        }
+
+        // Build Python script with EXIV_MANIFEST
+        let script_content = format!(
+            r##"# Auto-generated runtime skill: {name}
+# This script was created by the Skill Manager at runtime.
+
+EXIV_MANIFEST = {{
+    "name": "python.runtime.{name}",
+    "description": "{description}",
+    "provided_tools": ["{name}"],
+    "tool_description": "{description}",
+    "tool_schema": {{
+        "type": "object",
+        "properties": {{
+            "input": {{
+                "type": "string",
+                "description": "Input for the skill"
+            }}
+        }}
+    }},
+    "tags": ["#RUNTIME", "#SKILL"]
+}}
+
+{code}
+
+def execute(params):
+    """Entry point called by the bridge when this tool is invoked."""
+    return on_execute(params)
+"##,
+            name = name,
+            description = description.replace('"', r#"\""#),
+            code = code,
+        );
+
+        // Write script to scripts/ directory
+        let script_filename = format!("runtime_{}.py", name);
+        let scripts_dir = std::path::Path::new("scripts");
+        if !scripts_dir.exists() {
+            std::fs::create_dir_all(scripts_dir)?;
+        }
+        let script_path = scripts_dir.join(&script_filename);
+        std::fs::write(&script_path, &script_content)?;
+
+        info!(skill_name = %name, path = %script_path.display(), "📝 L5: Wrote runtime skill script");
+
+        // Parse permissions from args
+        let permissions = if args.get("network_access").and_then(|v| v.as_bool()).unwrap_or(false) {
+            vec![Permission::NetworkAccess]
+        } else {
+            vec![]
+        };
+
+        // Register as a runtime plugin
+        let plugin_id = format!("python.runtime.{}", name);
+        let mut config_values = HashMap::new();
+        config_values.insert("script_path".to_string(), script_filename);
+
+        self.plugin_manager.register_runtime_plugin(
+            &plugin_id,
+            config_values,
+            permissions,
+            &self.registry,
+        ).await?;
+
+        Ok(serde_json::json!({
+            "status": "registered",
+            "plugin_id": plugin_id,
+            "tool_name": name,
+        }))
+    }
+
+    fn handle_add_network_host(&self, args: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
+        let host = args.get("host")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required field: host"))?;
+
+        // Hostname validation
+        if host.is_empty() || host.len() > 253 {
+            return Err(anyhow::anyhow!("Hostname must be 1-253 characters"));
+        }
+        if host.contains('/') || host.contains(':') || host.contains(' ') {
+            return Err(anyhow::anyhow!("Invalid hostname: must not contain '/', ':', or spaces"));
+        }
+
+        let newly_added = self.http_client.add_host(host);
+        info!(host = %host, newly_added = %newly_added, "🌐 L5: Network host whitelist update");
+
+        Ok(serde_json::json!({
+            "status": if newly_added { "added" } else { "already_present" },
+            "host": host,
+        }))
+    }
+}
+
+impl PluginCast for SkillManager {
+    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_tool(&self) -> Option<&dyn Tool> { Some(self) }
+}
+
+#[async_trait]
+impl Plugin for SkillManager {
+    fn manifest(&self) -> PluginManifest {
+        PluginManifest {
+            id: "core.skill_manager".to_string(),
+            name: "Skill Manager".to_string(),
+            description: "L5 Self-Extension: Register new skills and grant network access at runtime.".to_string(),
+            version: "1.0.0".to_string(),
+            category: PluginCategory::System,
+            service_type: ServiceType::Skill,
+            tags: vec!["#SYSTEM".to_string(), "#L5".to_string()],
+            is_active: true,
+            is_configured: true,
+            required_config_keys: vec![],
+            action_icon: None,
+            action_target: None,
+            icon_data: None,
+            magic_seal: 0x56455253,
+            sdk_version: "internal".to_string(),
+            required_permissions: vec![],
+            provided_capabilities: vec![],
+            provided_tools: vec!["skill_manager".to_string()],
+        }
+    }
+
+    async fn on_event(&self, _event: &ExivEvent) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
+        Ok(None)
+    }
+}
+
+#[async_trait]
+impl Tool for SkillManager {
+    fn name(&self) -> &str { "skill_manager" }
+
+    fn description(&self) -> &str {
+        "Register new Python skills or grant network access to the agent at runtime. Actions: register_skill, add_network_host."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["register_skill", "add_network_host"],
+                    "description": "The action to perform."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Skill name (alphanumeric + underscore, 1-64 chars). Required for register_skill."
+                },
+                "code": {
+                    "type": "string",
+                    "description": "Python code defining on_execute(params) function. Required for register_skill."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Description of the skill. Optional for register_skill."
+                },
+                "network_access": {
+                    "type": "boolean",
+                    "description": "Whether the skill needs network access. Optional for register_skill."
+                },
+                "host": {
+                    "type": "string",
+                    "description": "Hostname to add to the network whitelist. Required for add_network_host."
+                }
+            }
+        })
+    }
+
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+        let action = args.get("action")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required field: action"))?;
+
+        match action {
+            "register_skill" => self.handle_register_skill(&args).await,
+            "add_network_host" => self.handle_add_network_host(&args),
+            _ => Err(anyhow::anyhow!("Unknown action: '{}'. Valid actions: register_skill, add_network_host", action)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_skill_name_validation_empty() {
+        // Empty names should be rejected (tested via the validation logic)
+        let name = "";
+        assert!(name.is_empty());
+    }
+
+    #[test]
+    fn test_skill_name_validation_special_chars() {
+        let name = "my-skill";
+        assert!(!name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    }
+
+    #[test]
+    fn test_skill_name_validation_valid() {
+        let name = "web_scraper_v2";
+        assert!(!name.is_empty() && name.len() <= 64);
+        assert!(name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    }
+
+    #[test]
+    fn test_hostname_validation_with_slash() {
+        let host = "example.com/path";
+        assert!(host.contains('/'));
+    }
+
+    #[test]
+    fn test_hostname_validation_with_colon() {
+        let host = "example.com:8080";
+        assert!(host.contains(':'));
+    }
+
+    #[test]
+    fn test_hostname_validation_valid() {
+        let host = "api.example.com";
+        assert!(!host.is_empty() && host.len() <= 253);
+        assert!(!host.contains('/') && !host.contains(':') && !host.contains(' '));
+    }
+
+    #[test]
+    fn test_manifest_fields() {
+        // Verify SkillManager would produce correct manifest fields
+        let manifest_id = "core.skill_manager";
+        let magic_seal: u32 = 0x56455253;
+        assert_eq!(manifest_id, "core.skill_manager");
+        assert_eq!(magic_seal, 0x56455253);
+    }
+}

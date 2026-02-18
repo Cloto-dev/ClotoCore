@@ -224,6 +224,22 @@ impl PythonBridgePlugin {
             }
 
             state.dynamic_manifest = Some(manifest);
+
+            // L5: Populate cached tool metadata from Python manifest for Tool trait
+            if let Some(first_tool) = manifest_json.get("provided_tools")
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.first())
+                .and_then(|v| v.as_str())
+            {
+                let _ = self.tool_name.set(first_tool.to_string());
+            }
+            if let Some(desc) = manifest_json.get("tool_description").and_then(|v| v.as_str()) {
+                let _ = self.tool_description.set(desc.to_string());
+            }
+            if let Some(schema) = manifest_json.get("tool_schema") {
+                let _ = self.tool_schema.set(schema.clone());
+            }
+
             state.process = Some(PythonProcessHandle { child, stdin, reader_handle });
             // Reset restart counter after successful handshake to prevent permanent lockout
             state.restart_count = 0;

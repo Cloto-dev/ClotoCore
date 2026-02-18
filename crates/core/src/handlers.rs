@@ -3,6 +3,7 @@ pub mod assets;
 pub mod update;
 pub mod chat;
 pub mod evolution;
+pub mod skill_manager;
 
 use axum::{
     extract::{Path, State},
@@ -920,6 +921,7 @@ mod tests {
             rate_limiter,
             shutdown: Arc::new(Notify::new()),
             evolution_engine: None,
+            fitness_collector: None,
         })
     }
 

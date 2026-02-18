@@ -3,12 +3,14 @@ use tracing::warn;
 use exiv_shared::{HttpRequest, HttpResponse, NetworkCapability};
 use std::collections::HashSet;
 use std::net::IpAddr;
+use std::sync::{Arc, RwLock};
 use tokio::net::lookup_host;
 
 #[derive(Clone)]
 pub struct SafeHttpClient {
     client: reqwest::Client,
-    allowed_hosts: HashSet<String>,
+    /// L5: Dynamic whitelist wrapped in Arc<RwLock> for runtime host addition
+    allowed_hosts: Arc<RwLock<HashSet<String>>>,
 }
 
 impl SafeHttpClient {
@@ -33,7 +35,7 @@ impl SafeHttpClient {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()?,
-            allowed_hosts: hosts,
+            allowed_hosts: Arc::new(RwLock::new(hosts)),
         })
     }
 
@@ -51,7 +53,18 @@ impl SafeHttpClient {
 
     /// ホスト名ベースでのホワイトリストチェック (O(1) HashSet lookup)
     fn is_whitelisted_host(&self, host: &str) -> bool {
-        self.allowed_hosts.contains(&host.to_lowercase())
+        let hosts = self.allowed_hosts.read()
+            .expect("SafeHttpClient whitelist lock poisoned");
+        hosts.contains(&host.to_lowercase())
+    }
+
+    /// L5: Add a host to the whitelist at runtime.
+    /// Returns true if newly inserted, false if already present.
+    pub fn add_host(&self, host: &str) -> bool {
+        let normalized = host.to_lowercase();
+        let mut hosts = self.allowed_hosts.write()
+            .expect("SafeHttpClient whitelist lock poisoned");
+        hosts.insert(normalized)
     }
 }
 
@@ -240,6 +253,20 @@ mod tests {
 
         // Public IPv6 should NOT be restricted
         assert!(!client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888)))); // Google DNS
+    }
+
+    #[test]
+    fn test_add_host_runtime() {
+        let client = SafeHttpClient::new(vec![]).unwrap();
+        assert!(!client.is_whitelisted_host("new.example.com"));
+        // First insert returns true
+        assert!(client.add_host("new.example.com"));
+        assert!(client.is_whitelisted_host("new.example.com"));
+        // Duplicate returns false
+        assert!(!client.add_host("new.example.com"));
+        // Case insensitive
+        assert!(client.add_host("API.Custom.IO"));
+        assert!(client.is_whitelisted_host("api.custom.io"));
     }
 
     #[test]

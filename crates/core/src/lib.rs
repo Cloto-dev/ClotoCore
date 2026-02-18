@@ -27,6 +27,7 @@ extern crate plugin_ks22;
 extern crate plugin_mcp;
 extern crate plugin_moderator;
 extern crate plugin_python_bridge;
+extern crate plugin_terminal;
 extern crate plugin_vision;
 
 use exiv_shared::ExivEvent;
@@ -73,6 +74,7 @@ pub struct AppState {
     pub rate_limiter: Arc<middleware::RateLimiter>,
     pub shutdown: Arc<Notify>,
     pub evolution_engine: Option<Arc<evolution::EvolutionEngine>>,
+    pub fitness_collector: Option<Arc<evolution::FitnessCollector>>,
 }
 
 pub enum AppError {
@@ -233,11 +235,23 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         config.memory_context_limit,
         metrics.clone(),
         config.consensus_engines.clone(),
+        config.max_agentic_iterations,
+        config.tool_execution_timeout_secs,
     ));
     
+    // L5: Skill Manager (register_skill + add_network_host tools)
+    let skill_manager: Arc<dyn exiv_shared::Plugin> = Arc::new(
+        handlers::skill_manager::SkillManager::new(
+            plugin_manager.clone(),
+            registry_arc.clone(),
+            plugin_manager.http_client(),
+        )
+    );
+
     {
         let mut plugins = registry_arc.plugins.write().await;
         plugins.insert("core.system".to_string(), system_handler);
+        plugins.insert("core.skill_manager".to_string(), skill_manager);
     }
 
     // 5. Rate Limiter & Evolution Engine & App State
@@ -247,6 +261,15 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // Self-Evolution Engine (E1-E5)
     let data_store: Arc<dyn exiv_shared::PluginDataStore> = Arc::new(db::SqliteDataStore::new(pool.clone()));
     let evolution_engine = Arc::new(evolution::EvolutionEngine::new(data_store, pool.clone()));
+
+    // Automatic Fitness Scoring (Principle 1.1 compliant)
+    let fitness_collector = if config.auto_eval_enabled {
+        info!("📊 Auto-evaluation enabled (EXIV_AUTO_EVAL=true)");
+        Some(Arc::new(evolution::FitnessCollector::new(true)))
+    } else {
+        info!("📊 Auto-evaluation disabled (EXIV_AUTO_EVAL=false), using on_interaction fallback");
+        None
+    };
 
     let app_state = Arc::new(AppState {
         tx: tx.clone(),
@@ -262,6 +285,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         rate_limiter: rate_limiter.clone(),
         shutdown,
         evolution_engine: Some(evolution_engine.clone()),
+        fitness_collector: fitness_collector.clone(),
     });
 
     // 6. Event Loop
@@ -276,6 +300,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         config.event_history_size,
         config.event_retention_hours,
         Some(evolution_engine),
+        fitness_collector,
     ));
 
     // Start event history cleanup task
@@ -324,6 +349,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/chat/:agent_id/messages", get(handlers::chat::get_messages).post(handlers::chat::post_message).delete(handlers::chat::delete_messages))
         .route("/chat/attachments/:attachment_id", get(handlers::chat::get_attachment))
         // Evolution Engine endpoints (auth required for write)
+        .route("/evolution/evaluate", post(handlers::evolution::evaluate_agent))
         .route("/evolution/params", get(handlers::evolution::get_evolution_params).put(handlers::evolution::update_evolution_params))
         .layer(axum::middleware::from_fn_with_state(
             app_state.clone(),

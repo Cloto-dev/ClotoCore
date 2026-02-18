@@ -12,6 +12,7 @@ members = [
     "plugins/vision",
     "plugins/cursor",
     "plugins/python_bridge",
+    "plugins/terminal",
     "dashboard/src-tauri",
 ]
 resolver = "2"

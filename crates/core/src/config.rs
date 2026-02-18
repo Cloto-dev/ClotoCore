@@ -28,6 +28,9 @@ pub struct AppConfig {
     pub update_repo: String,
     pub event_history_size: usize,
     pub event_retention_hours: u64,
+    pub auto_eval_enabled: bool,
+    pub max_agentic_iterations: u8,
+    pub tool_execution_timeout_secs: u64,
 }
 
 impl AppConfig {
@@ -145,6 +148,29 @@ impl AppConfig {
             anyhow::bail!("EVENT_RETENTION_HOURS must be between 1 and 720 (got {})", event_retention_hours);
         }
 
+        let auto_eval_enabled = env::var("EXIV_AUTO_EVAL")
+            .unwrap_or_else(|_| "true".to_string())
+            .parse::<bool>()
+            .context("Failed to parse EXIV_AUTO_EVAL (expected 'true' or 'false')")?;
+
+        let max_agentic_iterations = env::var("EXIV_MAX_AGENTIC_ITERATIONS")
+            .unwrap_or_else(|_| "16".to_string())
+            .parse::<u8>()
+            .context("Failed to parse EXIV_MAX_AGENTIC_ITERATIONS")?;
+
+        if max_agentic_iterations == 0 || max_agentic_iterations > 64 {
+            anyhow::bail!("EXIV_MAX_AGENTIC_ITERATIONS must be between 1 and 64 (got {})", max_agentic_iterations);
+        }
+
+        let tool_execution_timeout_secs = env::var("EXIV_TOOL_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "30".to_string())
+            .parse::<u64>()
+            .context("Failed to parse EXIV_TOOL_TIMEOUT_SECS")?;
+
+        if tool_execution_timeout_secs == 0 || tool_execution_timeout_secs > 300 {
+            anyhow::bail!("EXIV_TOOL_TIMEOUT_SECS must be between 1 and 300 (got {})", tool_execution_timeout_secs);
+        }
+
         Ok(Self {
             database_url,
             port,
@@ -160,6 +186,9 @@ impl AppConfig {
             update_repo,
             event_history_size,
             event_retention_hours,
+            auto_eval_enabled,
+            max_agentic_iterations,
+            tool_execution_timeout_secs,
         })
     }
 }

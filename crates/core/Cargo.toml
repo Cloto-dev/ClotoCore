@@ -17,6 +17,7 @@ plugin_mcp = { path = "../../plugins/mcp" }
 plugin_vision = { path = "../../plugins/vision" }
 plugin_cursor = { path = "../../plugins/cursor" }
 plugin_python_bridge = { path = "../../plugins/python_bridge" }
+plugin_terminal = { path = "../../plugins/terminal" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

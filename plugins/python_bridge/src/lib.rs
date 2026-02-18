@@ -30,6 +30,12 @@ pub struct PythonBridgePlugin {
     pub(crate) instance_id: String,
     pub(crate) script_path: String,
     pub(crate) state: Arc<RwLock<PythonBridgeState>>,
+    /// L5: Dynamic tool name from Python EXIV_MANIFEST (set once after handshake)
+    pub(crate) tool_name: Arc<std::sync::OnceLock<String>>,
+    /// L5: Dynamic tool description from Python EXIV_MANIFEST
+    pub(crate) tool_description: Arc<std::sync::OnceLock<String>>,
+    /// L5: Dynamic tool parameter schema from Python EXIV_MANIFEST
+    pub(crate) tool_schema: Arc<std::sync::OnceLock<serde_json::Value>>,
 }
 
 #[async_trait]
@@ -135,8 +141,16 @@ impl ReasoningEngine for PythonBridgePlugin {
 
 #[async_trait]
 impl Tool for PythonBridgePlugin {
-    fn name(&self) -> &str { "PythonBridgeTool" }
-    fn description(&self) -> &str { "Delegates tool execution to Python script." }
+    fn name(&self) -> &str {
+        self.tool_name.get().map(|s| s.as_str()).unwrap_or("PythonBridgeTool")
+    }
+    fn description(&self) -> &str {
+        self.tool_description.get().map(|s| s.as_str())
+            .unwrap_or("Delegates tool execution to Python script.")
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        self.tool_schema.get().cloned().unwrap_or_else(|| serde_json::json!({}))
+    }
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         self.call_python("execute", args).await
     }
@@ -145,22 +159,24 @@ impl Tool for PythonBridgePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use exiv_shared::PluginConfig;
+    use state::PythonBridgeState;
+
+    /// Create a test plugin instance without filesystem validation.
+    /// This bypasses config.rs path traversal checks that require a real scripts/ directory.
+    fn test_plugin(id: &str) -> PythonBridgePlugin {
+        PythonBridgePlugin {
+            instance_id: id.to_string(),
+            script_path: "dummy/test.py".to_string(),
+            state: Arc::new(RwLock::new(PythonBridgeState::new())),
+            tool_name: Arc::new(std::sync::OnceLock::new()),
+            tool_description: Arc::new(std::sync::OnceLock::new()),
+            tool_schema: Arc::new(std::sync::OnceLock::new()),
+        }
+    }
 
     #[tokio::test]
     async fn test_restart_rate_limiting() {
-        let mut config_values = HashMap::new();
-        config_values.insert("script_path".to_string(), "scripts/test.py".to_string());
-
-        let config = PluginConfig {
-            id: "test.bridge".to_string(),
-            config_values,
-        };
-
-        // Bug #3: Use expect() with descriptive message for better test error reporting
-        let plugin = PythonBridgePlugin::new_plugin(config).await
-            .expect("Failed to create test Python bridge plugin for restart rate limiting test");
+        let plugin = test_plugin("test.bridge");
 
         // Simulate max restart attempts reached (must also set last_restart to indicate this is a restart)
         {
@@ -177,17 +193,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_restart_cooldown() {
-        let mut config_values = HashMap::new();
-        config_values.insert("script_path".to_string(), "scripts/test.py".to_string());
-
-        let config = PluginConfig {
-            id: "test.bridge2".to_string(),
-            config_values,
-        };
-
-        // Bug #3: Use expect() with descriptive message for better test error reporting
-        let plugin = PythonBridgePlugin::new_plugin(config).await
-            .expect("Failed to create test Python bridge plugin for restart cooldown test");
+        let plugin = test_plugin("test.bridge2");
 
         // Simulate recent restart
         {
@@ -202,19 +208,25 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("cooldown"));
     }
 
+    #[test]
+    fn test_tool_name_from_oncelock() {
+        let plugin = test_plugin("test.tool");
+        // Default when OnceLock is unset
+        assert_eq!(Tool::name(&plugin), "PythonBridgeTool");
+        assert_eq!(Tool::description(&plugin), "Delegates tool execution to Python script.");
+        assert_eq!(plugin.parameters_schema(), serde_json::json!({}));
+        // After setting OnceLock
+        let _ = plugin.tool_name.set("custom_tool".to_string());
+        let _ = plugin.tool_description.set("A custom tool".to_string());
+        let _ = plugin.tool_schema.set(serde_json::json!({"type": "object"}));
+        assert_eq!(Tool::name(&plugin), "custom_tool");
+        assert_eq!(Tool::description(&plugin), "A custom tool");
+        assert_eq!(plugin.parameters_schema(), serde_json::json!({"type": "object"}));
+    }
+
     #[tokio::test]
     async fn test_initial_startup_allowed() {
-        let mut config_values = HashMap::new();
-        config_values.insert("script_path".to_string(), "scripts/test.py".to_string());
-
-        let config = PluginConfig {
-            id: "test.bridge3".to_string(),
-            config_values,
-        };
-
-        // Bug #3: Use expect() with descriptive message for better test error reporting
-        let plugin = PythonBridgePlugin::new_plugin(config).await
-            .expect("Failed to create test Python bridge plugin for initial startup test");
+        let plugin = test_plugin("test.bridge3");
 
         // Initial startup (restart_count = 0) should not be blocked
         let state = plugin.state.read().await;
