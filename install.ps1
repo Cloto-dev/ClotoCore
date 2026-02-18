@@ -3,7 +3,7 @@
 # Downloads a pre-built binary from GitHub Releases and installs it.
 #
 # Usage:
-#   irm https://raw.githubusercontent.com/Exiv-ai/Exiv/master/install.ps1 | iex
+#   .\install.ps1
 #
 # Environment variables:
 #   EXIV_PREFIX   Install directory (default: C:\ProgramData\Exiv)

@@ -358,15 +358,8 @@ jobs:
           **Windows (GUI installer — recommended):**
           Download **exiv-setup-VERSION.exe** from the assets below and run it.
 
-          **Windows (PowerShell):**
-          ```powershell
-          irm https://raw.githubusercontent.com/Exiv-ai/Exiv/master/install.ps1 | iex
-          ```
-
-          **macOS / Linux:**
-          ```bash
-          curl -fsSL https://raw.githubusercontent.com/Exiv-ai/Exiv/master/install.sh | bash
-          ```
+          **Command-line install (PowerShell / Bash):**
+          Download `install.ps1` (Windows) or `install.sh` (macOS/Linux) from the assets below, review, then run locally.
 
           ---
           HEADER
