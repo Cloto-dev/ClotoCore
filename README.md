@@ -85,13 +85,7 @@ graph TB
 
 ## Download
 
-| Platform | Installer | CLI |
-|----------|-----------|-----|
-| **Windows** | [**exiv-setup.exe**](https://github.com/Exiv-ai/Exiv/releases/latest) (GUI installer) | `irm https://raw.githubusercontent.com/Exiv-ai/Exiv/master/install.ps1 \| iex` |
-| **macOS** | — | `curl -fsSL https://raw.githubusercontent.com/Exiv-ai/Exiv/master/install.sh \| bash` |
-| **Linux** | — | `curl -fsSL https://raw.githubusercontent.com/Exiv-ai/Exiv/master/install.sh \| bash` |
-
-> Browse all assets on the [**Releases**](https://github.com/Exiv-ai/Exiv/releases/latest) page.
+Pre-built binaries for Windows, macOS, and Linux are available on the [**Releases**](https://github.com/Exiv-ai/Exiv/releases/latest) page.
 
 ## Quick Start
 
