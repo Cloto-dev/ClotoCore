@@ -49,7 +49,7 @@
       "file": ".github/workflows/ci.yml",
       "pattern": "cargo audit",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-018",
