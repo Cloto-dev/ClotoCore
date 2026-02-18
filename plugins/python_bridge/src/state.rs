@@ -17,10 +17,10 @@ pub(crate) struct PythonBridgeState {
 }
 
 pub(crate) struct PythonProcessHandle {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Held to keep subprocess alive; dropping would kill it
     pub(crate) child: Child,
     pub(crate) stdin: tokio::process::ChildStdin,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Held to keep stdout reader task alive
     pub(crate) reader_handle: tokio::task::JoinHandle<()>,
 }
 

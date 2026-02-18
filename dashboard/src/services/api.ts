@@ -8,52 +8,79 @@ const API_URL = import.meta.env.VITE_API_URL
   || (isTauri ? `http://127.0.0.1:${KERNEL_PORT}/api` : `${window.location.origin}/api`);
 export const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
 
+async function fetchJson<T>(path: string, ctx: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`);
+  if (!res.ok) throw new Error(`Failed to ${ctx}: ${res.statusText}`);
+  return res.json();
+}
+
+async function mutate(
+  path: string, method: string, ctx: string,
+  body?: unknown, extraHeaders?: Record<string, string>,
+): Promise<Response> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    ...(body !== undefined && { body: JSON.stringify(body) }),
+  });
+  if (!res.ok) throw new Error(`Failed to ${ctx}: ${res.statusText}`);
+  return res;
+}
+
 export const api = {
-  async getAgents(): Promise<AgentMetadata[]> {
-    const res = await fetch(`${API_BASE}/agents`);
-    if (!res.ok) throw new Error(`Failed to fetch agents: ${res.statusText}`);
-    return res.json();
-  },
+  getAgents: () => fetchJson<AgentMetadata[]>('/agents', 'fetch agents'),
+  getPlugins: () => fetchJson<PluginManifest[]>('/plugins', 'fetch plugins'),
+  getPluginConfig: (id: string) => fetchJson<Record<string, string>>(`/plugins/${id}/config`, 'get plugin config'),
+  getPendingPermissions: () => fetchJson<any[]>('/permissions/pending', 'fetch pending permissions'),
+  checkForUpdate: () => fetchJson<UpdateInfo>('/system/update/check', 'check for updates'),
+  getVersion: () => fetchJson<{ version: string; build_target: string }>('/system/version', 'fetch version'),
+  getMetrics: () => fetchJson<any>('/metrics', 'fetch metrics'),
+  getMemories: () => fetchJson<any[]>('/memories', 'fetch memories'),
+  getEpisodes: () => fetchJson<any[]>('/episodes', 'fetch episodes'),
+  getHistory: () => fetchJson<any[]>('/history', 'fetch history'),
+  getEvolutionStatus: () => fetchJson<EvolutionStatus>('/evolution/status', 'fetch evolution status'),
+  getGeneration: (n: number) => fetchJson<GenerationRecord>(`/evolution/generations/${n}`, 'fetch generation'),
+  getEvolutionParams: () => fetchJson<EvolutionParams>('/evolution/params', 'fetch evolution params'),
+  getRollbackHistory: () => fetchJson<RollbackRecord[]>('/evolution/rollbacks', 'fetch rollback history'),
 
-  async getPlugins(): Promise<PluginManifest[]> {
-    const res = await fetch(`${API_BASE}/plugins`);
-    if (!res.ok) throw new Error(`Failed to fetch plugins: ${res.statusText}`);
-    return res.json();
-  },
+  getGenerationHistory: (limit?: number) =>
+    fetchJson<GenerationRecord[]>(`/evolution/generations${limit ? `?limit=${limit}` : ''}`, 'fetch generations'),
+  getFitnessTimeline: (limit?: number) =>
+    fetchJson<FitnessLogEntry[]>(`/evolution/fitness${limit ? `?limit=${limit}` : ''}`, 'fetch fitness timeline'),
 
-  async applyPluginSettings(settings: { id: string, is_active: boolean }[]): Promise<void> {
-    const res = await fetch(`${API_BASE}/plugins/apply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings)
-    });
-    if (!res.ok) throw new Error(`Failed to apply plugin settings: ${res.statusText}`);
-  },
+  applyPluginSettings: (settings: { id: string, is_active: boolean }[]) =>
+    mutate('/plugins/apply', 'POST', 'apply plugin settings', settings).then(() => {}),
+  updatePluginConfig: (id: string, payload: { key: string, value: string }) =>
+    mutate(`/plugins/${id}/config`, 'POST', 'update plugin config', payload).then(() => {}),
+  updateAgent: (id: string, payload: { default_engine_id?: string, metadata: Record<string, string> }) =>
+    mutate(`/agents/${id}`, 'POST', 'update agent', payload).then(() => {}),
+  grantPermission: (pluginId: string, permission: string) =>
+    mutate(`/plugins/${pluginId}/permissions/grant`, 'POST', 'grant permission', { permission }).then(() => {}),
+  postEvent: (eventData: any) =>
+    mutate('/events/publish', 'POST', 'post event', eventData).then(() => {}),
+  post: (path: string, payload: any) =>
+    mutate(path, 'POST', `post to ${path}`, payload).then(() => {}),
+  approvePermission: (requestId: string, approvedBy: string) =>
+    mutate(`/permissions/${requestId}/approve`, 'POST', 'approve permission', { approved_by: approvedBy }).then(() => {}),
+  denyPermission: (requestId: string, approvedBy: string) =>
+    mutate(`/permissions/${requestId}/deny`, 'POST', 'deny permission', { approved_by: approvedBy }).then(() => {}),
+  createAgent: (payload: { name: string; description: string; default_engine: string; metadata: Record<string, string>; password?: string }) =>
+    mutate('/agents', 'POST', 'create agent', payload).then(() => {}),
+  postChat: (message: ExivMessage) =>
+    mutate('/chat', 'POST', 'send chat', message).then(() => {}),
+  updateEvolutionParams: (params: EvolutionParams, apiKey: string) =>
+    mutate('/evolution/params', 'PUT', 'update evolution params', params, { 'X-API-Key': apiKey }).then(() => {}),
 
-  async getPluginConfig(id: string): Promise<Record<string, string>> {
-    const res = await fetch(`${API_BASE}/plugins/${id}/config`);
-    if (!res.ok) throw new Error(`Failed to get plugin config: ${res.statusText}`);
-    return res.json();
-  },
+  applyUpdate: (version: string): Promise<UpdateResult> =>
+    mutate('/system/update/apply', 'POST', 'apply update', { version }).then(r => r.json()),
+  postChatMessage: (agentId: string, msg: { id: string; source: string; content: ContentBlock[]; metadata?: Record<string, unknown> }): Promise<{ id: string; created_at: number }> =>
+    mutate(`/chat/${agentId}/messages`, 'POST', 'post chat message', msg).then(r => r.json()),
+  evaluateAgent: (scores: { cognitive: number; behavioral: number; safety: number; autonomy: number; meta_learning: number }, apiKey: string): Promise<{ status: string; events: unknown[] }> =>
+    mutate('/evolution/evaluate', 'POST', 'evaluate', { scores }, { 'X-API-Key': apiKey }).then(r => r.json()),
+  deleteChatMessages: (agentId: string): Promise<{ deleted_count: number }> =>
+    mutate(`/chat/${agentId}/messages`, 'DELETE', 'delete chat messages').then(r => r.json()),
 
-  async updatePluginConfig(id: string, payload: { key: string, value: string }): Promise<void> {
-    const res = await fetch(`${API_BASE}/plugins/${id}/config`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (!res.ok) throw new Error(`Failed to update plugin config: ${res.statusText}`);
-  },
-
-  async updateAgent(id: string, payload: { default_engine_id?: string, metadata: Record<string, string> }): Promise<void> {
-    const res = await fetch(`${API_BASE}/agents/${id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (!res.ok) throw new Error(`Failed to update agent: ${res.statusText}`);
-  },
-
+  // Custom error handling: reads error body for detailed message
   async toggleAgentPower(agentId: string, enabled: boolean, password?: string): Promise<void> {
     const res = await fetch(`${API_BASE}/agents/${agentId}/power`, {
       method: 'POST',
@@ -66,80 +93,7 @@ export const api = {
     }
   },
 
-  async grantPermission(pluginId: string, permission: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/plugins/${pluginId}/permissions/grant`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ permission })
-    });
-    if (!res.ok) throw new Error(`Failed to grant permission: ${res.statusText}`);
-  },
-
-  async postEvent(eventData: any): Promise<void> {
-    const res = await fetch(`${API_BASE}/events/publish`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(eventData)
-    });
-    if (!res.ok) throw new Error(`Failed to post event: ${res.statusText}`);
-  },
-
-  async post(path: string, payload: any): Promise<void> {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (!res.ok) throw new Error(`Failed to post to ${path}: ${res.statusText}`);
-  },
-
-  async getPendingPermissions(): Promise<any[]> {
-    const res = await fetch(`${API_BASE}/permissions/pending`);
-    if (!res.ok) throw new Error(`Failed to fetch pending permissions: ${res.statusText}`);
-    return res.json();
-  },
-
-  async approvePermission(requestId: string, approvedBy: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/permissions/${requestId}/approve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ approved_by: approvedBy })
-    });
-    if (!res.ok) throw new Error(`Failed to approve permission: ${res.statusText}`);
-  },
-
-  async denyPermission(requestId: string, approvedBy: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/permissions/${requestId}/deny`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ approved_by: approvedBy })
-    });
-    if (!res.ok) throw new Error(`Failed to deny permission: ${res.statusText}`);
-  },
-
-  async checkForUpdate(): Promise<UpdateInfo> {
-    const res = await fetch(`${API_BASE}/system/update/check`);
-    if (!res.ok) throw new Error(`Failed to check for updates: ${res.statusText}`);
-    return res.json();
-  },
-
-  async applyUpdate(version: string): Promise<UpdateResult> {
-    const res = await fetch(`${API_BASE}/system/update/apply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ version })
-    });
-    if (!res.ok) throw new Error(`Failed to apply update: ${res.statusText}`);
-    return res.json();
-  },
-
-  async getVersion(): Promise<{ version: string; build_target: string }> {
-    const res = await fetch(`${API_BASE}/system/version`);
-    if (!res.ok) throw new Error(`Failed to fetch version: ${res.statusText}`);
-    return res.json();
-  },
-
-  // Chat persistence API
+  // Custom response transformation: parses JSON string fields
   async getChatMessages(agentId: string, before?: number, limit?: number): Promise<{ messages: ChatMessage[], has_more: boolean }> {
     const params = new URLSearchParams();
     if (before) params.set('before', String(before));
@@ -148,7 +102,6 @@ export const api = {
     const res = await fetch(`${API_BASE}/chat/${agentId}/messages${qs ? '?' + qs : ''}`);
     if (!res.ok) throw new Error(`Failed to fetch chat messages: ${res.statusText}`);
     const data = await res.json();
-    // Parse content from JSON string to ContentBlock[]
     return {
       messages: data.messages.map((m: any) => ({
         ...m,
@@ -159,135 +112,8 @@ export const api = {
     };
   },
 
-  async postChatMessage(agentId: string, msg: { id: string; source: string; content: ContentBlock[]; metadata?: Record<string, unknown> }): Promise<{ id: string; created_at: number }> {
-    const res = await fetch(`${API_BASE}/chat/${agentId}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(msg),
-    });
-    if (!res.ok) throw new Error(`Failed to post chat message: ${res.statusText}`);
-    return res.json();
-  },
-
-  async deleteChatMessages(agentId: string): Promise<{ deleted_count: number }> {
-    const res = await fetch(`${API_BASE}/chat/${agentId}/messages`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) throw new Error(`Failed to delete chat messages: ${res.statusText}`);
-    return res.json();
-  },
-
   getAttachmentUrl(attachmentId: string): string {
     return `${API_BASE}/chat/attachments/${attachmentId}`;
-  },
-
-  async postChat(message: ExivMessage): Promise<void> {
-    const res = await fetch(`${API_BASE}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(message)
-    });
-    if (!res.ok) throw new Error(`Chat request failed: ${res.status}`);
-  },
-
-  async createAgent(payload: {
-    name: string;
-    description: string;
-    default_engine: string;
-    metadata: Record<string, string>;
-    password?: string;
-  }): Promise<void> {
-    const res = await fetch(`${API_BASE}/agents`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (!res.ok) throw new Error(`Failed to create agent: ${res.statusText}`);
-  },
-
-  async getMetrics(): Promise<any> {
-    const res = await fetch(`${API_BASE}/metrics`);
-    if (!res.ok) throw new Error(`Failed to fetch metrics: ${res.statusText}`);
-    return res.json();
-  },
-
-  async getMemories(): Promise<any[]> {
-    const res = await fetch(`${API_BASE}/memories`);
-    if (!res.ok) throw new Error(`Failed to fetch memories: ${res.statusText}`);
-    return res.json();
-  },
-
-  async getEpisodes(): Promise<any[]> {
-    const res = await fetch(`${API_BASE}/episodes`);
-    if (!res.ok) throw new Error(`Failed to fetch episodes: ${res.statusText}`);
-    return res.json();
-  },
-
-  async getHistory(): Promise<any[]> {
-    const res = await fetch(`${API_BASE}/history`);
-    if (!res.ok) throw new Error(`Failed to fetch history: ${res.statusText}`);
-    return res.json();
-  },
-
-  // Evolution API (E6)
-  async getEvolutionStatus(): Promise<EvolutionStatus> {
-    const res = await fetch(`${API_BASE}/evolution/status`);
-    if (!res.ok) throw new Error(`Failed to fetch evolution status: ${res.statusText}`);
-    return res.json();
-  },
-
-  async getGenerationHistory(limit?: number): Promise<GenerationRecord[]> {
-    const q = limit ? `?limit=${limit}` : '';
-    const res = await fetch(`${API_BASE}/evolution/generations${q}`);
-    if (!res.ok) throw new Error(`Failed to fetch generations: ${res.statusText}`);
-    return res.json();
-  },
-
-  async getGeneration(n: number): Promise<GenerationRecord> {
-    const res = await fetch(`${API_BASE}/evolution/generations/${n}`);
-    if (!res.ok) throw new Error(`Failed to fetch generation: ${res.statusText}`);
-    return res.json();
-  },
-
-  async getFitnessTimeline(limit?: number): Promise<FitnessLogEntry[]> {
-    const q = limit ? `?limit=${limit}` : '';
-    const res = await fetch(`${API_BASE}/evolution/fitness${q}`);
-    if (!res.ok) throw new Error(`Failed to fetch fitness timeline: ${res.statusText}`);
-    return res.json();
-  },
-
-  async getEvolutionParams(): Promise<EvolutionParams> {
-    const res = await fetch(`${API_BASE}/evolution/params`);
-    if (!res.ok) throw new Error(`Failed to fetch evolution params: ${res.statusText}`);
-    return res.json();
-  },
-
-  async updateEvolutionParams(params: EvolutionParams, apiKey: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/evolution/params`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': apiKey,
-      },
-      body: JSON.stringify(params),
-    });
-    if (!res.ok) throw new Error(`Failed to update evolution params: ${res.statusText}`);
-  },
-
-  async getRollbackHistory(): Promise<RollbackRecord[]> {
-    const res = await fetch(`${API_BASE}/evolution/rollbacks`);
-    if (!res.ok) throw new Error(`Failed to fetch rollback history: ${res.statusText}`);
-    return res.json();
-  },
-
-  async evaluateAgent(scores: { cognitive: number; behavioral: number; safety: number; autonomy: number; meta_learning: number }, apiKey: string): Promise<{ status: string; events: unknown[] }> {
-    const res = await fetch(`${API_BASE}/evolution/evaluate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-      body: JSON.stringify({ scores }),
-    });
-    if (!res.ok) throw new Error(`Evaluate failed: ${res.statusText}`);
-    return res.json();
   },
 };
 

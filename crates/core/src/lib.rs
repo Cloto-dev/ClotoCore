@@ -10,6 +10,7 @@ pub mod cli;
 pub mod installer;
 pub mod platform;
 pub mod validation;
+pub mod test_utils;
 
 // Re-export audit log and permission request types for external use
 pub use db::{

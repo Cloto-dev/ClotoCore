@@ -31,7 +31,7 @@ const SESSION_TIMEOUT_SECS: u64 = 60;
 const SYSTEM_CONSENSUS_AGENT: &str = "system.consensus";
 
 struct Proposal {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Reserved for future consensus attribution UI
     engine_id: String,
     content: String,
 }

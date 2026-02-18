@@ -29,6 +29,23 @@ interface ThoughtLine {
   timestamp: number;
 }
 
+function eventToThoughtLines(
+  e: StrictSystemEvent,
+  eventTimestamp: number,
+  nextIdRef: React.MutableRefObject<number>,
+): ThoughtLine[] {
+  if (e.type === "Thought") {
+    const text = e.payload?.content || JSON.stringify(e.data) || "Unknown Thought";
+    return [{ id: nextIdRef.current++, text, timestamp: eventTimestamp }];
+  }
+  if (e.type === "ResponseGenerated") {
+    const text = (e.payload?.content || "").replace(/\n/g, ' ');
+    const segments: string[] = text.match(/.{1,100}/g) || [];
+    return segments.slice(0, 3).map(s => ({ id: nextIdRef.current++, text: s, timestamp: eventTimestamp }));
+  }
+  return [];
+}
+
 export const useStatusManager = (fetchMetrics: () => void) => {
   const [eventHistory, setEventHistory] = useState<StrictSystemEvent[]>([]);
   const [thoughtLines, setThoughtLines] = useState<ThoughtLine[]>([]);
@@ -52,19 +69,9 @@ export const useStatusManager = (fetchMetrics: () => void) => {
 
     const eventTimestamp = data.timestamp || Date.now();
 
-    if (data.type === "Thought") {
-      setThoughtLines(prev => {
-        const text = data.payload?.content || JSON.stringify(data.data) || "Unknown Thought";
-        const next = [...prev, { id: nextId.current++, text, timestamp: eventTimestamp }];
-        return next.slice(-12);
-      });
-    } else if (data.type === "ResponseGenerated") {
-      const text = (data.payload?.content || "").replace(/\n/g, ' ');
-      const segments: string[] = text.match(/.{1,100}/g) || [];
-      setThoughtLines(prev => {
-        const next = [...prev, ...segments.slice(0, 3).map((s: string) => ({ id: nextId.current++, text: s, timestamp: eventTimestamp }))];
-        return next.slice(-12);
-      });
+    const lines = eventToThoughtLines(data, eventTimestamp, nextId);
+    if (lines.length > 0) {
+      setThoughtLines(prev => [...prev, ...lines].slice(-12));
     } else {
       // H-17: Cap event history to prevent unbounded memory growth
       setEventHistory(prev => [...prev, { ...data, timestamp: eventTimestamp }].slice(-500));
@@ -91,16 +98,8 @@ export const useStatusManager = (fetchMetrics: () => void) => {
         const historicalThoughts: ThoughtLine[] = [];
         history.forEach(e => {
           const eventTimestamp = e.timestamp || now;
-          // Skip thoughts older than 30 seconds
           if (now - eventTimestamp > 30000) return;
-
-          if (e.type === "Thought") {
-            historicalThoughts.push({ id: nextId.current++, text: e.payload.content, timestamp: eventTimestamp });
-          } else if (e.type === "ResponseGenerated") {
-            const text = e.payload.content.replace(/\n/g, ' ');
-            const segments: string[] = text.match(/.{1,100}/g) || [];
-            segments.slice(0, 3).forEach(s => historicalThoughts.push({ id: nextId.current++, text: s, timestamp: eventTimestamp }));
-          }
+          historicalThoughts.push(...eventToThoughtLines(e, eventTimestamp, nextId));
         });
         setThoughtLines(historicalThoughts.slice(-12));
 

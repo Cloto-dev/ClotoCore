@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
+pub mod llm;
+
 pub use exiv_macros::exiv_plugin;
 pub use inventory;
 

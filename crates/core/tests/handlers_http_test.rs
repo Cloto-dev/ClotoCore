@@ -3,63 +3,11 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use serde_json::json;
-use sqlx::SqlitePool;
 use std::sync::Arc;
 use tower::ServiceExt;
 use exiv_core::AppState;
-use exiv_core::config::AppConfig;
 use exiv_core::handlers;
-use exiv_core::managers::{PluginRegistry, AgentManager, PluginManager, SystemMetrics};
-use exiv_core::DynamicRouter;
-use std::collections::VecDeque;
-use tokio::sync::{broadcast, mpsc, Notify, RwLock};
-
-/// Helper function to create test app state
-async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<AppState> {
-    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    exiv_core::db::init_db(&pool, "sqlite::memory:").await.unwrap();
-
-    let (event_tx, _event_rx) = mpsc::channel(100);
-    let (tx, _rx) = broadcast::channel(100);
-
-    let registry = Arc::new(PluginRegistry::new(5, 10));
-    let agent_manager = AgentManager::new(pool.clone());
-    let plugin_manager = Arc::new(PluginManager::new(
-        pool.clone(),
-        vec![],
-        30,
-        10,
-    ).unwrap());
-
-    let dynamic_router = Arc::new(DynamicRouter {
-        router: RwLock::new(axum::Router::new()),
-    });
-
-    let metrics = Arc::new(SystemMetrics::new());
-    let event_history = Arc::new(RwLock::new(VecDeque::new()));
-
-    let mut config = AppConfig::load().unwrap();
-    config.admin_api_key = admin_api_key;
-
-    let rate_limiter = Arc::new(exiv_core::middleware::RateLimiter::new(10, 20));
-
-    Arc::new(AppState {
-        tx,
-        registry,
-        event_tx,
-        pool,
-        agent_manager,
-        plugin_manager,
-        dynamic_router,
-        config,
-        event_history,
-        metrics,
-        rate_limiter,
-        shutdown: Arc::new(Notify::new()),
-        evolution_engine: None,
-        fitness_collector: None,
-    })
-}
+use exiv_core::test_utils::create_test_app_state;
 
 /// Helper function to create a test router with app state
 fn create_test_router(state: Arc<AppState>) -> axum::Router {

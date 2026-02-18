@@ -51,6 +51,28 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()>
     Ok(())
 }
 
+fn spawn_admin_audit(
+    pool: sqlx::SqlitePool,
+    event_type: &str,
+    target_id: String,
+    reason: String,
+    permission: Option<String>,
+    metadata: Option<serde_json::Value>,
+    trace_id: Option<String>,
+) {
+    crate::db::spawn_audit_log(pool, crate::db::AuditLogEntry {
+        timestamp: chrono::Utc::now(),
+        event_type: event_type.to_string(),
+        actor_id: Some("admin".to_string()),
+        target_id: Some(target_id),
+        permission,
+        result: "SUCCESS".to_string(),
+        reason,
+        metadata,
+        trace_id,
+    });
+}
+
 #[derive(Debug, Deserialize)]
 pub struct PluginToggleRequest {
     pub id: String,
@@ -267,18 +289,13 @@ pub async fn power_toggle(
         error!("Failed to send power change event: {}", e);
     }
 
-    // Audit log
-    crate::db::spawn_audit_log(state.pool.clone(), crate::db::AuditLogEntry {
-        timestamp: chrono::Utc::now(),
-        event_type: if payload.enabled { "AGENT_POWER_ON" } else { "AGENT_POWER_OFF" }.to_string(),
-        actor_id: Some("admin".to_string()),
-        target_id: Some(id.clone()),
-        permission: None,
-        result: "SUCCESS".to_string(),
-        reason: format!("Agent {} powered {}", id, if payload.enabled { "on" } else { "off" }),
-        metadata: None,
-        trace_id: None,
-    });
+    spawn_admin_audit(
+        state.pool.clone(),
+        if payload.enabled { "AGENT_POWER_ON" } else { "AGENT_POWER_OFF" },
+        id.clone(),
+        format!("Agent {} powered {}", id, if payload.enabled { "on" } else { "off" }),
+        None, None, None,
+    );
 
     Ok(Json(serde_json::json!({
         "status": "success",
@@ -370,21 +387,13 @@ pub async fn update_plugin_config(
             error!("Failed to send config update event: {}", e);
         }
 
-        // 監査ログに記録
-        crate::db::spawn_audit_log(state.pool.clone(), crate::db::AuditLogEntry {
-            timestamp: chrono::Utc::now(),
-            event_type: "CONFIG_UPDATED".to_string(),
-            actor_id: Some("admin".to_string()),
-            target_id: Some(id.clone()),
-            permission: None,
-            result: "SUCCESS".to_string(),
-            reason: format!("Configuration key '{}' updated", payload.key),
-            metadata: Some(serde_json::json!({
-                "key": payload.key,
-                "value_length": payload.value.len()
-            })),
-            trace_id: Some(event.trace_id.to_string()),
-        });
+        spawn_admin_audit(
+            state.pool.clone(), "CONFIG_UPDATED", id.clone(),
+            format!("Configuration key '{}' updated", payload.key),
+            None,
+            Some(serde_json::json!({ "key": payload.key, "value_length": payload.value.len() })),
+            Some(event.trace_id.to_string()),
+        );
     }
 
     Ok(Json(serde_json::json!({ "status": "success" })))
@@ -478,18 +487,12 @@ pub async fn grant_permission_handler(
         error!("Failed to send permission grant event: {}", e);
     }
 
-    // 監査ログに記録
-    crate::db::spawn_audit_log(state.pool.clone(), crate::db::AuditLogEntry {
-        timestamp: chrono::Utc::now(),
-        event_type: "PERMISSION_GRANTED".to_string(),
-        actor_id: Some("admin".to_string()),
-        target_id: Some(id.clone()),
-        permission: Some(format!("{:?}", payload.permission)),
-        result: "SUCCESS".to_string(),
-        reason: "Administrator approved permission request".to_string(),
-        metadata: None,
-        trace_id: Some(event.trace_id.to_string()),
-    });
+    spawn_admin_audit(
+        state.pool.clone(), "PERMISSION_GRANTED", id.clone(),
+        "Administrator approved permission request".to_string(),
+        Some(format!("{:?}", payload.permission)),
+        None, Some(event.trace_id.to_string()),
+    );
 
     Ok(Json(serde_json::json!({ "status": "success" })))
 }
@@ -805,18 +808,11 @@ pub async fn approve_permission(
     let actor_id = "admin".to_string();
     crate::update_permission_request(&state.pool, &request_id, "approved", &actor_id).await?;
 
-    // Write audit log
-    crate::db::spawn_audit_log(state.pool.clone(), crate::AuditLogEntry {
-        timestamp: chrono::Utc::now(),
-        event_type: "PERMISSION_REQUEST_APPROVED".to_string(),
-        actor_id: Some(actor_id),
-        target_id: Some(request_id.clone()),
-        permission: None,
-        result: "SUCCESS".to_string(),
-        reason: "Human administrator approved permission request".to_string(),
-        metadata: None,
-        trace_id: None,
-    });
+    spawn_admin_audit(
+        state.pool.clone(), "PERMISSION_REQUEST_APPROVED", request_id.clone(),
+        "Human administrator approved permission request".to_string(),
+        None, None, None,
+    );
 
     Ok(Json(serde_json::json!({
         "status": "success",
@@ -849,18 +845,11 @@ pub async fn deny_permission(
     let actor_id = "admin".to_string();
     crate::update_permission_request(&state.pool, &request_id, "denied", &actor_id).await?;
 
-    // Write audit log
-    crate::db::spawn_audit_log(state.pool.clone(), crate::AuditLogEntry {
-        timestamp: chrono::Utc::now(),
-        event_type: "PERMISSION_REQUEST_DENIED".to_string(),
-        actor_id: Some(actor_id),
-        target_id: Some(request_id.clone()),
-        permission: None,
-        result: "SUCCESS".to_string(),
-        reason: "Human administrator denied permission request".to_string(),
-        metadata: None,
-        trace_id: None,
-    });
+    spawn_admin_audit(
+        state.pool.clone(), "PERMISSION_REQUEST_DENIED", request_id.clone(),
+        "Human administrator denied permission request".to_string(),
+        None, None, None,
+    );
 
     Ok(Json(serde_json::json!({
         "status": "success",
@@ -872,58 +861,7 @@ pub async fn deny_permission(
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
-    use crate::config::AppConfig;
-    use crate::managers::{PluginRegistry, AgentManager, PluginManager, SystemMetrics};
-    use crate::DynamicRouter;
-    use std::collections::VecDeque;
-    use tokio::sync::{broadcast, mpsc, Notify, RwLock};
-    use sqlx::SqlitePool;
-
-    async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<AppState> {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
-
-        let (event_tx, _event_rx) = mpsc::channel(100);
-        let (tx, _rx) = broadcast::channel(100);
-
-        let registry = Arc::new(PluginRegistry::new(5, 10));
-        let agent_manager = AgentManager::new(pool.clone());
-        let plugin_manager = Arc::new(PluginManager::new(
-            pool.clone(),
-            vec![],
-            30,
-            10,
-        ).unwrap());
-
-        let dynamic_router = Arc::new(DynamicRouter {
-            router: RwLock::new(axum::Router::new()),
-        });
-
-        let metrics = Arc::new(SystemMetrics::new());
-        let event_history = Arc::new(RwLock::new(VecDeque::new()));
-
-        let mut config = AppConfig::load().unwrap();
-        config.admin_api_key = admin_api_key;
-
-        let rate_limiter = Arc::new(crate::middleware::RateLimiter::new(10, 20));
-
-        Arc::new(AppState {
-            tx,
-            registry,
-            event_tx,
-            pool,
-            agent_manager,
-            plugin_manager,
-            dynamic_router,
-            config,
-            event_history,
-            metrics,
-            rate_limiter,
-            shutdown: Arc::new(Notify::new()),
-            evolution_engine: None,
-            fitness_collector: None,
-        })
-    }
+    use crate::test_utils::create_test_app_state;
 
     #[tokio::test]
     async fn test_check_auth_with_valid_api_key() {
