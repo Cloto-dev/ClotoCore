@@ -21,6 +21,17 @@ plugin development, API changes — must conform to the architectural constraint
 
 If a proposed change violates an architectural principle, flag it to the user before proceeding.
 
+## Development Guardrails (MANDATORY)
+
+**You MUST read `docs/DEVELOPMENT.md` before making any code changes.**
+
+This document defines 8 critical guardrails (security, cascading, state management,
+storage, UI/UX, physical safety, external processes, privacy/biometrics) that constrain
+what code changes are safe to make. Violating a guardrail can cause security vulnerabilities,
+infinite loops, data corruption, or physical safety issues.
+
+If a proposed change touches a guardrail-protected area, flag it to the user before proceeding.
+
 ## Bug Verification Workflow (MANDATORY)
 
 All bug investigation and fixing work MUST follow this verification workflow.

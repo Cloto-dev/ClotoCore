@@ -237,7 +237,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | POST | `/api/plugins/:id/config` | Update plugin config |
 | POST | `/api/plugins/:id/permissions/grant` | Grant permission to plugin |
 | POST | `/api/agents` | Create agent |
-| POST | `/api/agents/:id` | Update agent |
+| PUT | `/api/agents/:id` | Update agent |
 | POST | `/api/events/publish` | Publish event to bus |
 | POST | `/api/permissions/:id/approve` | Approve a request |
 | POST | `/api/permissions/:id/deny` | Deny a request |
@@ -246,7 +246,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 
 ## Testing
 
-78 tests (45 unit, 33 integration).
+165+ tests.
 
 ```bash
 cargo test                              # all tests

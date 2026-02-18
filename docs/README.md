@@ -5,35 +5,26 @@ Documentation for Exiv design, development, and quality management.
 ## Quick Links
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Design principles (Manifesto), security framework, plugin communication, Project Oculi
+- **[PROJECT_VISION.md](PROJECT_VISION.md)** - Project identity, competitive positioning, target users, AI Container concept
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** - Development guardrails (DO NOT list) and refactoring status
-- **[CHANGELOG.md](CHANGELOG.md)** - Project change history (Phase 1 → Phase 6)
-- **[CODE_QUALITY_AUDIT.md](CODE_QUALITY_AUDIT.md)** - Code quality audit report (Score: 82/100 → 90+/100)
+- **[CHANGELOG.md](CHANGELOG.md)** - Project change history (Phase 1 → Phase 6 + Bug Fixes)
 
-## Current Status (2026-02-14)
+## Current Status (2026-02-18)
 
 **Version:** 0.1.0
 **Phase:** 6 Complete
 **Code Quality:** 90+/100 (A)
 **Design Principles Compliance:** 95+/100 (A)
-**Test Coverage:** 78 tests (45 unit + 33 integration)
-
-### Recent Achievements (Phase 6)
-
-1. **Human-in-the-Loop Permissions** - Admin approval workflow for sensitive operations
-2. **Rate Limiting** - DoS protection (10 req/s per IP, burst 20)
-3. **Audit Logging** - Complete security event trail
-4. **Self-Healing Python Bridge** - Auto-restart on crash (max 3 attempts)
-5. **Build Optimization** - `EXIV_SKIP_ICON_EMBED=1` for faster development
-6. **International Accessibility** - All comments translated to English
+**Test Coverage:** 165+ tests
 
 ## Document Index
 
 | File | Description | Last Updated |
 |------|-------------|--------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Design principles, security framework, plugin architecture | 2026-02-14 |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Development guidelines, guardrails, coding standards | 2026-02-14 |
-| [CODE_QUALITY_AUDIT.md](CODE_QUALITY_AUDIT.md) | Quality audit report and improvement tracking | 2026-02-14 |
-| [CHANGELOG.md](CHANGELOG.md) | Comprehensive change history across all phases | 2026-02-14 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Design principles, security framework, plugin architecture | 2026-02-18 |
+| [PROJECT_VISION.md](PROJECT_VISION.md) | Project vision, competitive positioning, roadmap | 2026-02-18 |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Development guidelines, guardrails, coding standards | 2026-02-18 |
+| [CHANGELOG.md](CHANGELOG.md) | Comprehensive change history across all phases | 2026-02-18 |
 
 ## Plugin Documentation
 

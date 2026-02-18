@@ -137,8 +137,8 @@
 | Feature | GitHub Pages ランディングページ (OS自動検出) | Done |
 | Infra | GitHub Actions リリースワークフロー (5プラットフォーム + インストーラー) | Done |
 
-**Test Count:** 78 tests (45 unit + 33 integration)
-**Audit Score:** 88/100
+**Test Count:** 165+ tests
+**Audit Score:** 90+/100
 
 ### Remaining Items (Next Phase)
 

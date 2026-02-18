@@ -310,8 +310,11 @@ EXIV_MANIFEST = {
 
 ## 5. Self-Evolution Engine
 
-自己進化の基準は `SELF_EVOLUTION_PROTOCOL.md` で定義される。
-本セクションはその基準を実現するための**設計と実装仕様**を定義する。
+> **Note:** This section describes the **planned** Self-Evolution Engine design.
+> Implementation is in progress (see Section 5.9 roadmap).
+> Detailed evolution standards: see `.dev-notes/self-evolution-protocol.md`.
+
+本セクションは自己進化エンジンの**設計と実装仕様**を定義する。
 
 ### 5.1 進化イベント体系
 
