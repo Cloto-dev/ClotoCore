@@ -94,7 +94,7 @@ pub fn spinner(msg: &str) -> indicatif::ProgressBar {
         indicatif::ProgressStyle::default_spinner()
             .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
             .template("  {spinner} {msg}")
-            .unwrap(),
+            .expect("hardcoded spinner template is always valid"),
     );
     pb.set_message(msg.to_string());
     pb.enable_steady_tick(std::time::Duration::from_millis(80));
