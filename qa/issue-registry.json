@@ -242,6 +242,30 @@
       "pattern": "agents\\.len\\(\\) - online - degraded",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-034",
+      "summary": "RUSTSEC-2024-0421: idna 0.4.0 accepts invalid Punycode labels (via validator 0.16.1)",
+      "severity": "HIGH",
+      "discovered": "2026-02-18T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "6cdb226",
+      "file": "Cargo.lock",
+      "pattern": "\"idna 0\\.4\\.",
+      "expected": "absent",
+      "status": "open"
+    },
+    {
+      "id": "bug-035",
+      "summary": "RUSTSEC-2026-0002: lru 0.12.5 IterMut unsoundness (via ratatui 0.29.0)",
+      "severity": "HIGH",
+      "discovered": "2026-02-18T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "6cdb226",
+      "file": "Cargo.lock",
+      "pattern": "name = \"lru\"\\nversion = \"0\\.12\\.",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }
