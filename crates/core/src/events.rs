@@ -110,39 +110,54 @@ impl EventProcessor {
         }
     }
 
-    pub fn spawn_cleanup_task(self: Arc<Self>) {
+    pub fn spawn_cleanup_task(self: Arc<Self>, shutdown: Arc<tokio::sync::Notify>) {
         let processor = self.clone();
         tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(300)).await; // 5 minutes
-                processor.cleanup_old_events().await;
+                tokio::select! {
+                    _ = shutdown.notified() => {
+                        tracing::info!("Event history cleanup shutting down");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        processor.cleanup_old_events().await;
+                    }
+                }
             }
         });
     }
 
     /// Spawn the active heartbeat task.
     /// Every `interval_secs` seconds, updates last_seen for all enabled agents.
-    pub fn spawn_heartbeat_task(agent_manager: AgentManager, interval_secs: u64) {
+    pub fn spawn_heartbeat_task(agent_manager: AgentManager, interval_secs: u64, shutdown: Arc<tokio::sync::Notify>) {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(
                 std::time::Duration::from_secs(interval_secs)
             );
             loop {
-                interval.tick().await;
-                match agent_manager.list_agents().await {
-                    Ok(agents) => {
-                        let enabled_count = agents.iter().filter(|a| a.enabled).count();
-                        for agent in &agents {
-                            if agent.enabled {
-                                if let Err(e) = agent_manager.touch_last_seen(&agent.id).await {
-                                    error!(agent_id = %agent.id, error = %e, "Heartbeat: failed to update last_seen");
+                tokio::select! {
+                    _ = shutdown.notified() => {
+                        tracing::info!("Active heartbeat task shutting down");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        match agent_manager.list_agents().await {
+                            Ok(agents) => {
+                                let enabled_count = agents.iter().filter(|a| a.enabled).count();
+                                for agent in &agents {
+                                    if agent.enabled {
+                                        if let Err(e) = agent_manager.touch_last_seen(&agent.id).await {
+                                            error!(agent_id = %agent.id, error = %e, "Heartbeat: failed to update last_seen");
+                                        }
+                                    }
                                 }
+                                debug!("Heartbeat: pinged {} enabled agents", enabled_count);
+                            }
+                            Err(e) => {
+                                error!("Heartbeat: failed to list agents: {}", e);
                             }
                         }
-                        debug!("Heartbeat: pinged {} enabled agents", enabled_count);
-                    }
-                    Err(e) => {
-                        error!("Heartbeat: failed to list agents: {}", e);
                     }
                 }
             }

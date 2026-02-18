@@ -189,12 +189,14 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     db::init_db(&pool, &config.database_url).await?;
 
     // 2. Plugin Manager Setup
+    let shutdown = Arc::new(Notify::new());
     let mut plugin_manager_obj = PluginManager::new(
         pool.clone(),
         config.allowed_hosts.clone(),
         config.plugin_event_timeout_secs,
         config.max_event_depth,
     )?;
+    plugin_manager_obj.shutdown = shutdown.clone();
     plugin_manager_obj.register_builtins();
 
     // 3. Channel Setup
@@ -257,7 +259,6 @@ pub async fn run_kernel() -> anyhow::Result<()> {
 
     // 5. Rate Limiter & Evolution Engine & App State
     let rate_limiter = Arc::new(middleware::RateLimiter::new(10, 20));
-    let shutdown = Arc::new(Notify::new());
 
     // Self-Evolution Engine (E1-E5)
     let data_store: Arc<dyn exiv_shared::PluginDataStore> = Arc::new(db::SqliteDataStore::new(pool.clone()));
@@ -305,27 +306,42 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     ));
 
     // Start event history cleanup task
-    processor.clone().spawn_cleanup_task();
+    processor.clone().spawn_cleanup_task(app_state.shutdown.clone());
 
     // 6a. Active Heartbeat task (ping all enabled agents every 30s)
     let heartbeat_interval = std::env::var("HEARTBEAT_INTERVAL_SECS")
         .unwrap_or_else(|_| "30".to_string())
         .parse::<u64>()
         .unwrap_or(30);
-    EventProcessor::spawn_heartbeat_task(agent_manager.clone(), heartbeat_interval);
+    EventProcessor::spawn_heartbeat_task(agent_manager.clone(), heartbeat_interval, app_state.shutdown.clone());
 
     let event_tx_clone = event_tx.clone();
     let processor_clone = processor.clone();
+    let shutdown_clone = app_state.shutdown.clone();
     tokio::spawn(async move {
-        processor_clone.process_loop(event_rx, event_tx_clone).await;
+        tokio::select! {
+            _ = shutdown_clone.notified() => {
+                tracing::info!("Event processor shutting down");
+            }
+            _ = processor_clone.process_loop(event_rx, event_tx_clone) => {}
+        }
     });
 
     // 6b. Rate limiter cleanup task (every 10 minutes)
     let rl = rate_limiter.clone();
+    let shutdown_clone = app_state.shutdown.clone();
     tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(600)).await;
-            rl.cleanup();
+            tokio::select! {
+                _ = shutdown_clone.notified() => {
+                    tracing::info!("Rate limiter cleanup shutting down");
+                    break;
+                }
+                _ = interval.tick() => {
+                    rl.cleanup();
+                }
+            }
         }
     });
 

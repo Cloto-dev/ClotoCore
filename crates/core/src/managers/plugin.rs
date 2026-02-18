@@ -21,6 +21,7 @@ pub struct PluginManager {
     max_event_depth: u8,
     pub event_tx: Option<tokio::sync::mpsc::Sender<crate::EnvelopedEvent>>,
     pub bridge_semaphore: Arc<tokio::sync::Semaphore>,
+    pub shutdown: Arc<tokio::sync::Notify>,
 }
 
 impl PluginManager {
@@ -34,6 +35,7 @@ impl PluginManager {
             max_event_depth,
             event_tx: None,
             bridge_semaphore: Arc::new(tokio::sync::Semaphore::new(20)),
+            shutdown: Arc::new(tokio::sync::Notify::new()),
         })
     }
 
@@ -174,23 +176,36 @@ impl PluginManager {
             let main_tx = main_tx.clone();
             let pid = ExivId::from_name(plugin_id_str);
             let semaphore = self.bridge_semaphore.clone();
+            let shutdown = self.shutdown.clone();
             tokio::spawn(async move {
-                while let Some(data) = p_rx.recv().await {
-                    let _permit = match semaphore.acquire().await {
-                        Ok(p) => p,
-                        Err(_) => {
-                            tracing::warn!("Semaphore closed during shutdown, stopping event bridge");
+                loop {
+                    tokio::select! {
+                        _ = shutdown.notified() => {
+                            tracing::info!("Plugin event bridge shutting down for {}", pid);
                             break;
                         }
-                    };
-                    let envelope = crate::EnvelopedEvent {
-                        event: Arc::new(exiv_shared::ExivEvent::new(data)),
-                        issuer: Some(pid),
-                        correlation_id: None,
-                        depth: 0,
-                    };
-                    if let Err(e) = main_tx.send(envelope).await {
-                        error!("🔌 Failed to forward async plugin event from {}: {}", pid, e);
+                        maybe_data = p_rx.recv() => {
+                            let data = match maybe_data {
+                                Some(d) => d,
+                                None => break,
+                            };
+                            let _permit = match semaphore.acquire().await {
+                                Ok(p) => p,
+                                Err(_) => {
+                                    tracing::warn!("Semaphore closed during shutdown, stopping event bridge");
+                                    break;
+                                }
+                            };
+                            let envelope = crate::EnvelopedEvent {
+                                event: Arc::new(exiv_shared::ExivEvent::new(data)),
+                                issuer: Some(pid),
+                                correlation_id: None,
+                                depth: 0,
+                            };
+                            if let Err(e) = main_tx.send(envelope).await {
+                                error!("🔌 Failed to forward async plugin event from {}: {}", pid, e);
+                            }
+                        }
                     }
                 }
             });
@@ -368,19 +383,32 @@ impl PluginManager {
             let main_tx = main_tx.clone();
             let pid = ExivId::from_name(plugin_id);
             let semaphore = self.bridge_semaphore.clone();
+            let shutdown = self.shutdown.clone();
             tokio::spawn(async move {
-                while let Some(data) = p_rx.recv().await {
-                    let _permit = match semaphore.acquire().await {
-                        Ok(p) => p,
-                        Err(_) => break,
-                    };
-                    let envelope = crate::EnvelopedEvent {
-                        event: Arc::new(exiv_shared::ExivEvent::new(data)),
-                        issuer: Some(pid),
-                        correlation_id: None,
-                        depth: 0,
-                    };
-                    let _ = main_tx.send(envelope).await;
+                loop {
+                    tokio::select! {
+                        _ = shutdown.notified() => {
+                            tracing::info!("Runtime plugin event bridge shutting down for {}", pid);
+                            break;
+                        }
+                        maybe_data = p_rx.recv() => {
+                            let data = match maybe_data {
+                                Some(d) => d,
+                                None => break,
+                            };
+                            let _permit = match semaphore.acquire().await {
+                                Ok(p) => p,
+                                Err(_) => break,
+                            };
+                            let envelope = crate::EnvelopedEvent {
+                                event: Arc::new(exiv_shared::ExivEvent::new(data)),
+                                issuer: Some(pid),
+                                correlation_id: None,
+                                depth: 0,
+                            };
+                            let _ = main_tx.send(envelope).await;
+                        }
+                    }
                 }
             });
         }

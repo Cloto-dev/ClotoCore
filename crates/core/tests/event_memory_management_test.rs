@@ -153,7 +153,7 @@ async fn test_cleanup_task_integration() {
     let (processor, history) = create_test_processor(1000).await;
 
     // Spawn cleanup task
-    processor.clone().spawn_cleanup_task();
+    processor.clone().spawn_cleanup_task(std::sync::Arc::new(tokio::sync::Notify::new()));
 
     // Add some old events
     {
