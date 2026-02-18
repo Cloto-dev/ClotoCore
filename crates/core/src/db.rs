@@ -97,17 +97,35 @@ impl PluginDataStore for SqliteDataStore {
         let escaped_prefix = key_prefix.replace('%', "\\%").replace('_', "\\_");
         let pattern = format!("{}%", escaped_prefix);
 
+        const DEFAULT_MAX_RESULTS: i64 = 1_000;
+
         // Bug #7: Add timeout to prevent indefinite hangs on database locks
-        let query_future = sqlx::query_as::<_, (String, String)>("SELECT key, value FROM plugin_data WHERE plugin_id = ? AND key LIKE ? ESCAPE '\\' ORDER BY key DESC")
+        // Fetch DEFAULT_MAX_RESULTS + 1 to detect overflow without fetching all rows.
+        let query_future = sqlx::query_as::<_, (String, String)>(
+            "SELECT key, value FROM plugin_data WHERE plugin_id = ? AND key LIKE ? ESCAPE '\\' \
+             ORDER BY key DESC LIMIT ?"
+        )
             .bind(plugin_id)
             .bind(pattern)
+            .bind(DEFAULT_MAX_RESULTS + 1)
             .fetch_all(&self.pool);
 
         // Bug A: Fixed error handling pattern - single ? operator after each map_err
-        let rows: Vec<(String, String)> = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
+        let mut rows: Vec<(String, String)> = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
             .await
             .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
             .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
+
+        if rows.len() > DEFAULT_MAX_RESULTS as usize {
+            rows.truncate(DEFAULT_MAX_RESULTS as usize);
+            tracing::warn!(
+                plugin_id = %plugin_id,
+                key_prefix = %key_prefix,
+                limit = DEFAULT_MAX_RESULTS,
+                "get_all_json: result set truncated to {} entries to prevent memory exhaustion",
+                DEFAULT_MAX_RESULTS
+            );
+        }
 
         let mut results = Vec::new();
         for (key, val_str) in rows {
