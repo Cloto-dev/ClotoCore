@@ -1,11 +1,13 @@
 //! Integration tests for the Self-Evolution Benchmark Engine.
 //! Tests the EvolutionEngine through SqliteDataStore with an in-memory DB.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use sqlx::SqlitePool;
 use exiv_core::db::SqliteDataStore;
 use exiv_core::evolution::{
     EvolutionEngine, FitnessScores, AutonomyLevel, AgentSnapshot,
+    detect_capability_gain,
 };
 
 const TEST_AGENT: &str = "agent.test";
@@ -35,6 +37,22 @@ fn test_scores(c: f64, b: f64, s: f64, a: AutonomyLevel, m: f64) -> FitnessScore
 fn test_snapshot() -> AgentSnapshot {
     AgentSnapshot {
         active_plugins: vec!["test_plugin".to_string()],
+        plugin_capabilities: HashMap::from([
+            ("test_plugin".to_string(), vec!["Reasoning".to_string()]),
+        ]),
+        personality_hash: "abc123".to_string(),
+        strategy_params: Default::default(),
+    }
+}
+
+fn snapshot_with_plugins(plugins: Vec<(&str, Vec<&str>)>) -> AgentSnapshot {
+    let active_plugins = plugins.iter().map(|(id, _)| id.to_string()).collect();
+    let plugin_capabilities = plugins.iter()
+        .map(|(id, caps)| (id.to_string(), caps.iter().map(|c| c.to_string()).collect()))
+        .collect();
+    AgentSnapshot {
+        active_plugins,
+        plugin_capabilities,
         personality_hash: "abc123".to_string(),
         strategy_params: Default::default(),
     }
@@ -206,4 +224,180 @@ async fn test_params_get_set() {
 
     let updated = engine.get_params(TEST_AGENT).await.unwrap();
     assert_eq!(updated.min_interactions, 20);
+}
+
+// ── E7: detect_capability_gain unit tests ──
+
+#[test]
+fn test_detect_capability_gain_no_change() {
+    let snap_a = snapshot_with_plugins(vec![("plugA", vec!["Reasoning"])]);
+    let snap_b = snapshot_with_plugins(vec![("plugA", vec!["Reasoning"])]);
+    let changes = detect_capability_gain(&snap_a, &snap_b);
+    assert!(changes.is_empty());
+}
+
+#[test]
+fn test_detect_capability_gain_minor() {
+    // New plugin provides Reasoning (already present) → minor
+    let prev = snapshot_with_plugins(vec![("plugA", vec!["Reasoning"])]);
+    let curr = snapshot_with_plugins(vec![
+        ("plugA", vec!["Reasoning"]),
+        ("plugB", vec!["Reasoning"]),
+    ]);
+    let changes = detect_capability_gain(&prev, &curr);
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].plugin_id, "plugB");
+    assert!(!changes[0].is_major);
+}
+
+#[test]
+fn test_detect_capability_gain_major() {
+    // New plugin provides Vision (not present before) → major
+    let prev = snapshot_with_plugins(vec![("plugA", vec!["Reasoning"])]);
+    let curr = snapshot_with_plugins(vec![
+        ("plugA", vec!["Reasoning"]),
+        ("plugC", vec!["Vision"]),
+    ]);
+    let changes = detect_capability_gain(&prev, &curr);
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].plugin_id, "plugC");
+    assert!(changes[0].is_major);
+    assert_eq!(changes[0].capabilities, vec!["Vision"]);
+}
+
+#[test]
+fn test_detect_capability_gain_mixed() {
+    // Two new plugins: one minor, one major
+    let prev = snapshot_with_plugins(vec![("plugA", vec!["Reasoning", "Memory"])]);
+    let curr = snapshot_with_plugins(vec![
+        ("plugA", vec!["Reasoning", "Memory"]),
+        ("plugB", vec!["Reasoning"]),   // minor: Reasoning already exists
+        ("plugC", vec!["Vision", "HAL"]), // major: Vision and HAL are new
+    ]);
+    let changes = detect_capability_gain(&prev, &curr);
+    assert_eq!(changes.len(), 2);
+
+    let minor = changes.iter().find(|c| c.plugin_id == "plugB").unwrap();
+    assert!(!minor.is_major);
+
+    let major = changes.iter().find(|c| c.plugin_id == "plugC").unwrap();
+    assert!(major.is_major);
+}
+
+#[test]
+fn test_detect_capability_gain_empty_prev_capabilities() {
+    // Pre-E7 snapshot: no plugin_capabilities data → no detection
+    let prev = AgentSnapshot {
+        active_plugins: vec!["plugA".to_string()],
+        plugin_capabilities: HashMap::new(),
+        personality_hash: "abc".to_string(),
+        strategy_params: Default::default(),
+    };
+    let curr = AgentSnapshot {
+        active_plugins: vec!["plugA".to_string(), "plugB".to_string()],
+        plugin_capabilities: HashMap::new(),
+        personality_hash: "abc".to_string(),
+        strategy_params: Default::default(),
+    };
+    let changes = detect_capability_gain(&prev, &curr);
+    assert!(changes.is_empty(), "Should skip detection when both snapshots lack capability data");
+}
+
+// ── E7: evaluate() integration with CapabilityGain ──
+
+#[tokio::test]
+async fn test_capability_gain_overrides_evolution() {
+    let engine = setup().await;
+
+    // Lower min_interactions for easier testing
+    let mut params = engine.get_params(TEST_AGENT).await.unwrap();
+    params.min_interactions = 1;
+    engine.set_params(TEST_AGENT, &params).await.unwrap();
+
+    // Gen 1: plugin A with Reasoning
+    let scores1 = test_scores(0.3, 0.3, 1.0, AutonomyLevel::L1, 0.2);
+    let snap1 = snapshot_with_plugins(vec![("plugA", vec!["Reasoning"])]);
+    engine.evaluate(TEST_AGENT, scores1, snap1).await.unwrap();
+    assert_eq!(engine.get_latest_generation(TEST_AGENT).await.unwrap(), 1);
+
+    // Gen 2: add plugin B (Vision) + big fitness jump → should be CapabilityGain, not Evolution
+    let scores2 = test_scores(0.9, 0.9, 1.0, AutonomyLevel::L1, 0.8);
+    let snap2 = snapshot_with_plugins(vec![
+        ("plugA", vec!["Reasoning"]),
+        ("plugB", vec!["Vision"]),
+    ]);
+    let events = engine.evaluate(TEST_AGENT, scores2, snap2).await.unwrap();
+
+    let gen = engine.get_latest_generation(TEST_AGENT).await.unwrap();
+    assert_eq!(gen, 2, "Should create gen 2");
+
+    // Verify the generation was recorded with CapabilityGain trigger
+    let record = engine.get_generation(TEST_AGENT, 2).await.unwrap().unwrap();
+    assert_eq!(record.trigger, exiv_core::evolution::GenerationTrigger::CapabilityGain);
+
+    // Verify EvolutionCapability event was emitted
+    let cap_events: Vec<_> = events.iter().filter(|e| {
+        matches!(e, exiv_shared::ExivEventData::EvolutionCapability { .. })
+    }).collect();
+    assert!(!cap_events.is_empty(), "Should emit EvolutionCapability events");
+}
+
+#[tokio::test]
+async fn test_safety_breach_overrides_capability_gain() {
+    let engine = setup().await;
+
+    // Gen 1: plugin A
+    let scores1 = test_scores(0.5, 0.5, 1.0, AutonomyLevel::L1, 0.3);
+    let snap1 = snapshot_with_plugins(vec![("plugA", vec!["Reasoning"])]);
+    engine.evaluate(TEST_AGENT, scores1, snap1).await.unwrap();
+
+    // Gen 2: add plugin B + safety breach → SafetyBreach should win
+    let scores2 = test_scores(0.5, 0.5, 0.0, AutonomyLevel::L1, 0.3);
+    let snap2 = snapshot_with_plugins(vec![
+        ("plugA", vec!["Reasoning"]),
+        ("plugB", vec!["Vision"]),
+    ]);
+    let events = engine.evaluate(TEST_AGENT, scores2, snap2).await.unwrap();
+
+    // SafetyBreach should trigger rollback, not CapabilityGain
+    let breach_events: Vec<_> = events.iter().filter(|e| {
+        matches!(e, exiv_shared::ExivEventData::EvolutionBreach { .. })
+    }).collect();
+    assert!(!breach_events.is_empty(), "SafetyBreach should override CapabilityGain");
+
+    // But EvolutionCapability events should STILL be emitted (independent of trigger)
+    let cap_events: Vec<_> = events.iter().filter(|e| {
+        matches!(e, exiv_shared::ExivEventData::EvolutionCapability { .. })
+    }).collect();
+    assert!(!cap_events.is_empty(), "EvolutionCapability events should be emitted even with SafetyBreach");
+}
+
+#[tokio::test]
+async fn test_capability_gain_standalone_no_metric_trigger() {
+    let engine = setup().await;
+
+    // Lower min_interactions
+    let mut params = engine.get_params(TEST_AGENT).await.unwrap();
+    params.min_interactions = 1;
+    engine.set_params(TEST_AGENT, &params).await.unwrap();
+
+    // Gen 1: plugin A
+    let scores1 = test_scores(0.5, 0.5, 1.0, AutonomyLevel::L1, 0.3);
+    let snap1 = snapshot_with_plugins(vec![("plugA", vec!["Reasoning"])]);
+    engine.evaluate(TEST_AGENT, scores1, snap1).await.unwrap();
+
+    // Gen 2: add plugin B but identical scores → no metric trigger, only capability change
+    let scores2 = test_scores(0.5, 0.5, 1.0, AutonomyLevel::L1, 0.3);
+    let snap2 = snapshot_with_plugins(vec![
+        ("plugA", vec!["Reasoning"]),
+        ("plugB", vec!["Memory"]),
+    ]);
+    engine.evaluate(TEST_AGENT, scores2, snap2).await.unwrap();
+
+    // Should still create a new generation with CapabilityGain
+    let gen = engine.get_latest_generation(TEST_AGENT).await.unwrap();
+    assert_eq!(gen, 2, "CapabilityGain should trigger generation even without metric change");
+
+    let record = engine.get_generation(TEST_AGENT, 2).await.unwrap().unwrap();
+    assert_eq!(record.trigger, exiv_core::evolution::GenerationTrigger::CapabilityGain);
 }

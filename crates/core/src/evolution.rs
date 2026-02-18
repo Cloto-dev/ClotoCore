@@ -6,7 +6,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{info, error, warn};
 
@@ -194,13 +194,32 @@ impl Default for EvolutionParams {
     }
 }
 
+/// Trigger type for generation transitions.
+///
+/// Priority order (highest first):
+///   1. SafetyBreach    — safety invariant violated (defensive, unconditional)
+///   2. Regression       — fitness decline (defensive)
+///   3. CapabilityGain   — structural change: new plugin/capability (growth)
+///   4. AutonomyUpgrade  — autonomy level increase (growth)
+///   5. Rebalance        — axis balance shift (growth)
+///   6. Evolution        — default positive growth (growth)
+///
+/// Defensive triggers always override growth triggers.
+/// Among growth triggers, structural change (CapabilityGain) overrides
+/// metric-based triggers because it carries higher explanatory value.
+///
+/// See `docs/e7-capability-gain.md` for full design rationale.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum GenerationTrigger {
     Evolution,
     Regression,
     Rebalance,
     SafetyBreach,
-    CapabilityGain, // TODO: E7で実装予定
+    /// Structural change: new plugin activated or new CapabilityType acquired.
+    /// Detected by comparing AgentSnapshot.active_plugins across generations,
+    /// independently of metric-based check_triggers().
+    /// See `docs/e7-capability-gain.md` for detection algorithm and priority rules.
+    CapabilityGain,
     AutonomyUpgrade,
 }
 
@@ -217,10 +236,16 @@ impl std::fmt::Display for GenerationTrigger {
     }
 }
 
-/// Agent state snapshot for rollback
+/// Agent state snapshot for rollback.
+/// Captures the full agent configuration at each generation boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSnapshot {
     pub active_plugins: Vec<String>,
+    /// Mapping of plugin_id → capability names (e.g. "Reasoning", "Vision").
+    /// Used by `detect_capability_gain()` to identify structural changes.
+    /// Defaults to empty for backward compatibility with pre-E7 snapshots.
+    #[serde(default)]
+    pub plugin_capabilities: HashMap<String, Vec<String>>,
     pub personality_hash: String,
     pub strategy_params: HashMap<String, serde_json::Value>,
 }
@@ -345,8 +370,15 @@ pub fn detect_rebalance(current: &FitnessScores, previous: &FitnessScores) -> Ve
     shifted
 }
 
-/// Check if a generation transition should occur.
-/// Returns the trigger type, or None if no transition.
+/// Check if a generation transition should occur (metric-based).
+///
+/// This is a **pure function** operating on numerical inputs only.
+/// It does NOT detect structural changes (plugin/capability additions);
+/// that is handled separately by `detect_capability_gain()` in `evaluate()`.
+///
+/// Returns the metric-based trigger type, or None if no transition threshold is met.
+/// The caller (`evaluate()`) integrates this with capability detection results
+/// using the priority rules defined in `docs/e7-capability-gain.md`.
 pub fn check_triggers(
     current_fitness: f64,
     previous_fitness: f64,
@@ -393,6 +425,71 @@ pub fn check_triggers(
     }
 
     None
+}
+
+/// Result of structural capability change detection.
+#[derive(Debug, Clone)]
+pub struct CapabilityChange {
+    /// The plugin that was newly activated.
+    pub plugin_id: String,
+    /// Capability names provided by this plugin.
+    pub capabilities: Vec<String>,
+    /// True if this plugin brings a CapabilityType category not present in the previous generation.
+    pub is_major: bool,
+}
+
+/// Detect structural capability changes between two generation snapshots.
+///
+/// Compares `active_plugins` and `plugin_capabilities` between the previous and
+/// current snapshots. Returns a list of changes for newly added plugins.
+///
+/// This is a **pure function** operating on set-valued inputs (Vec<String>),
+/// independent of the metric-based `check_triggers()`.
+/// See `docs/e7-capability-gain.md` for design rationale.
+pub fn detect_capability_gain(
+    prev_snapshot: &AgentSnapshot,
+    curr_snapshot: &AgentSnapshot,
+) -> Vec<CapabilityChange> {
+    // If previous snapshot has no capability data (pre-E7), skip detection
+    if prev_snapshot.plugin_capabilities.is_empty() && curr_snapshot.plugin_capabilities.is_empty() {
+        return vec![];
+    }
+
+    // Step 1: new_plugins = curr.active_plugins ∖ prev.active_plugins
+    let prev_plugins: HashSet<&str> = prev_snapshot.active_plugins.iter()
+        .map(|s| s.as_str()).collect();
+    let new_plugins: Vec<&str> = curr_snapshot.active_plugins.iter()
+        .filter(|p| !prev_plugins.contains(p.as_str()))
+        .map(|s| s.as_str())
+        .collect();
+
+    if new_plugins.is_empty() {
+        return vec![];
+    }
+
+    // Step 2: prev_caps = ∪ { capabilities(p) | p ∈ prev.active_plugins }
+    let prev_caps: HashSet<&str> = prev_snapshot.plugin_capabilities.values()
+        .flat_map(|caps| caps.iter().map(|c| c.as_str()))
+        .collect();
+
+    // Step 3: For each new plugin, classify as major or minor
+    let mut changes = Vec::new();
+    for plugin_id in new_plugins {
+        let caps = curr_snapshot.plugin_capabilities
+            .get(plugin_id)
+            .cloned()
+            .unwrap_or_default();
+
+        let is_major = caps.iter().any(|c| !prev_caps.contains(c.as_str()));
+
+        changes.push(CapabilityChange {
+            plugin_id: plugin_id.to_string(),
+            capabilities: caps,
+            is_major,
+        });
+    }
+
+    changes
 }
 
 /// Determine regression severity.
@@ -989,8 +1086,8 @@ impl EvolutionEngine {
             interaction_count
         };
 
-        // Check triggers
-        let trigger = check_triggers(
+        // Phase 1: Metric-based trigger detection (pure function).
+        let metric_trigger = check_triggers(
             current_fitness,
             previous_fitness,
             &scores,
@@ -998,6 +1095,45 @@ impl EvolutionEngine {
             &params,
             interactions_since_last_gen,
         );
+
+        // Phase 2: Structure-based capability detection.
+        // Compare previous generation's snapshot with current to find new plugins/capabilities.
+        let capability_changes = match last_gen_record.as_ref() {
+            Some(prev_gen) => detect_capability_gain(&prev_gen.snapshot, &snapshot),
+            None => vec![],
+        };
+
+        // Phase 3: Resolve final trigger using priority rules.
+        // SafetyBreach > Regression > CapabilityGain > AutonomyUpgrade > Rebalance > Evolution
+        // See docs/e7-capability-gain.md for rationale.
+        let trigger = match (metric_trigger, capability_changes.is_empty()) {
+            // Defensive triggers always win (safety-first principle)
+            (Some(t @ (GenerationTrigger::SafetyBreach | GenerationTrigger::Regression)), _) => Some(t),
+            // Growth trigger + capability changes → CapabilityGain (higher explanatory value)
+            (Some(_), false) => Some(GenerationTrigger::CapabilityGain),
+            // No metric trigger + capability changes → CapabilityGain (if debounce satisfied)
+            (None, false) if interactions_since_last_gen >= params.min_interactions => {
+                Some(GenerationTrigger::CapabilityGain)
+            }
+            // Otherwise keep metric trigger as-is
+            (t, _) => t,
+        };
+
+        // Emit EvolutionCapability events independent of the final trigger.
+        // This ensures capability changes are always observable in the event stream.
+        for change in &capability_changes {
+            for cap in &change.capabilities {
+                events.push(ExivEventData::EvolutionCapability {
+                    agent_id: agent_id.to_string(),
+                    capability: format!(
+                        "{}:{}",
+                        if change.is_major { "major" } else { "minor" },
+                        cap,
+                    ),
+                    generation: latest_gen + 1,
+                });
+            }
+        }
 
         if let Some(trigger) = trigger {
             match trigger {

@@ -185,6 +185,7 @@ export interface EvolutionParams {
 
 export interface AgentSnapshot {
   active_plugins: string[];
+  plugin_capabilities?: Record<string, string[]>;
   personality_hash: string;
   strategy_params: Record<string, string>;
 }
