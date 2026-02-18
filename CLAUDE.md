@@ -115,6 +115,12 @@ This script is the mechanical verification engine that prevents hallucination an
 - **Scripts**: `scripts/` - build, verification, and utility scripts
 - **QA**: `qa/` - issue registry and quality assurance data
 
+## GitHub Policy
+
+- **NEVER link to binary/executable files directly from README.md or other documentation files.** This includes `.exe`, `.msi`, `.dmg`, `.AppImage`, installer scripts (`curl | bash`, `irm | iex`), and any other downloadable executables.
+- Binary and executable files MUST be distributed exclusively through the [GitHub Releases](https://github.com/Exiv-ai/Exiv/releases) page.
+- README.md may link to the Releases page itself (e.g., `[Releases](https://github.com/Exiv-ai/Exiv/releases/latest)`), but MUST NOT contain direct download URLs for binaries or piped install commands.
+
 ## Git Rules
 
 - Commit messages in English
