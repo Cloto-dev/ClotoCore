@@ -102,10 +102,9 @@ The dashboard opens at **http://localhost:8081**.
 
 ### Pre-built Binary
 
-```bash
-# Install
-curl -fsSL https://raw.githubusercontent.com/Exiv-ai/Exiv/master/install.sh | bash
+Download the latest release from the [**Releases**](https://github.com/Exiv-ai/Exiv/releases/latest) page, then:
 
+```bash
 # Manage
 exiv_system service start
 exiv_system service stop
