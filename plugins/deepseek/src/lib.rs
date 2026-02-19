@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use std::any::Any;
-use std::sync::Arc;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use tokio::sync::RwLock;
 use exiv_shared::{
     AgentMetadata, Plugin, PluginConfig,
@@ -23,6 +23,8 @@ use exiv_shared::{
 )]
 pub struct DeepSeekPlugin {
     state: Arc<RwLock<DeepSeekState>>,
+    // Sync flag: some models (e.g. deepseek-reasoner) reject tool schemas.
+    tool_support: Arc<AtomicBool>,
 }
 
 struct DeepSeekState {
@@ -34,6 +36,12 @@ struct DeepSeekState {
 }
 
 impl DeepSeekPlugin {
+    /// Returns true if the given model supports OpenAI-compatible function calling.
+    /// deepseek-reasoner (R1) explicitly does not support tool schemas.
+    fn model_supports_tools(model_id: &str) -> bool {
+        !model_id.contains("reasoner")
+    }
+
     pub async fn new_plugin(config: PluginConfig) -> anyhow::Result<Self> {
         let api_key = config.config_values.get("api_key").cloned().unwrap_or_default();
         if api_key.is_empty() {
@@ -41,7 +49,8 @@ impl DeepSeekPlugin {
         }
         let model_id = config.config_values.get("model_id").cloned().unwrap_or_else(|| "deepseek-chat".to_string());
         let api_url = config.config_values.get("api_url").cloned().unwrap_or_else(|| "https://api.deepseek.com/chat/completions".to_string());
-        
+        let supports = Self::model_supports_tools(&model_id);
+
         Ok(Self {
             state: Arc::new(RwLock::new(DeepSeekState {
                 api_key,
@@ -50,6 +59,7 @@ impl DeepSeekPlugin {
                 allowed_permissions: vec![],
                 http_client: None,
             })),
+            tool_support: Arc::new(AtomicBool::new(supports)),
         })
     }
 }
@@ -105,6 +115,7 @@ impl Plugin for DeepSeekPlugin {
                     }
                     if let Some(model) = config.get("model_id") {
                         state.model_id = model.clone();
+                        self.tool_support.store(Self::model_supports_tools(model), Ordering::Relaxed);
                     }
                     if let Some(url) = config.get("api_url") {
                         state.api_url = url.clone();
@@ -155,7 +166,8 @@ impl ReasoningEngine for DeepSeekPlugin {
         "DeepSeek"
     }
 
-    fn supports_tools(&self) -> bool { true }
+    // deepseek-reasoner (R1) rejects tool schemas; flag is set per-model at init/hot-reload.
+    fn supports_tools(&self) -> bool { self.tool_support.load(Ordering::Relaxed) }
 
     async fn think(
         &self,

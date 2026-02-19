@@ -362,6 +362,18 @@
       "pattern": "mutate\\('/agents'",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-044",
+      "summary": "DeepSeek plugin supports_tools=true but deepseek-reasoner model rejects tool schemas",
+      "severity": "HIGH",
+      "discovered": "2026-02-19T18:30:00Z",
+      "version": "0.1.0",
+      "commit": "06edbf6",
+      "file": "plugins/deepseek/src/lib.rs",
+      "pattern": "fn supports_tools.*true",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }
