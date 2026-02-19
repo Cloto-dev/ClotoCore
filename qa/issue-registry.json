@@ -290,6 +290,18 @@
       "pattern": "onBack=\\{\\(\\) => setConfiguringAgent\\(null\\)\\}",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-038",
+      "summary": "getChatMessages missing X-API-Key header (GET /chat/:agent_id/messages returns 403)",
+      "severity": "HIGH",
+      "discovered": "2026-02-19T17:00:00Z",
+      "version": "0.1.0",
+      "commit": "43c7476",
+      "file": "dashboard/src/services/api.ts",
+      "pattern": "getChatMessages\\(agentId: string, before",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }
