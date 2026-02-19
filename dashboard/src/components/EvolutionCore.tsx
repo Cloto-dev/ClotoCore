@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
+import { useApiKey } from '../contexts/ApiKeyContext';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft, TrendingUp, TrendingDown, Shield, Brain, Zap,
@@ -508,7 +509,7 @@ function ParamsTab({ onEdit, refreshKey }: { onEdit: () => void; refreshKey: num
 }
 
 function ParamEditModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
-  const [apiKey, setApiKey] = useState('');
+  const { apiKey } = useApiKey();
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [params, setParams] = useState<EvolutionParams | null>(null);
@@ -595,21 +596,11 @@ function ParamEditModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
           </div>
         ))}
 
-        <div className="relative pt-2 border-t border-white/10">
-          <label className="text-[9px] font-mono text-content-tertiary uppercase">API Key</label>
-          <div className="relative">
-            <Lock size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-content-muted" />
-            <input
-              type="password"
-              value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && apiKey && handleSave()}
-              className="w-full pl-7 pr-2 py-1.5 rounded-lg border border-white/10 bg-white/5 text-xs font-mono focus:outline-none focus:border-purple-400"
-              placeholder="Required"
-              autoFocus
-            />
-          </div>
-        </div>
+        {!apiKey && (
+          <p className="text-[10px] text-amber-400 font-mono pt-2 border-t border-white/10">
+            API Key が未設定です。画面上部の 🔒 から設定してください。
+          </p>
+        )}
 
         {error && <p className="text-[10px] text-red-400 font-medium">{error}</p>}
 

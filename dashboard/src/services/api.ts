@@ -84,6 +84,8 @@ export const api = {
     mutate('/evolution/evaluate', 'POST', 'evaluate', { scores }, { 'X-API-Key': apiKey }).then(r => r.json()),
   deleteChatMessages: (agentId: string): Promise<{ deleted_count: number }> =>
     mutate(`/chat/${agentId}/messages`, 'DELETE', 'delete chat messages').then(r => r.json()),
+  invalidateApiKey: (apiKey: string): Promise<{ status: string; message: string }> =>
+    mutate('/system/invalidate-key', 'POST', 'invalidate API key', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
 
   // Custom error handling: reads error body for detailed message
   async toggleAgentPower(agentId: string, enabled: boolean, password?: string): Promise<void> {

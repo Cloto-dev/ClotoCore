@@ -1,30 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { Puzzle, Shield, CheckCircle2, AlertTriangle, Save, Filter, Settings, ExternalLink, Terminal, ChevronDown, ChevronRight, Hash, FolderOpen, Database, MousePointer2, Lock } from 'lucide-react';
+import { Puzzle, Shield, CheckCircle2, AlertTriangle, Save, Filter, Settings, ExternalLink, Terminal, ChevronDown, ChevronRight, Hash, FolderOpen, Database, MousePointer2 } from 'lucide-react';
 import { PluginManifest, PluginCategory } from '../types';
 import { api } from '../services/api';
 import { ServiceTypeIcon } from '../lib/pluginUtils';
 import { isTauri, openFileDialog } from '../lib/tauri';
+import { useApiKey } from '../contexts/ApiKeyContext';
+import { ApiKeyGate } from './ApiKeyGate';
 
 function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () => void }) {
-  const [apiKey, setApiKey] = useState('');
+  const { apiKey } = useApiKey();
   const [config, setConfig] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
   // H-19: Use React state instead of direct DOM manipulation for save button
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle');
 
-  const loadConfig = async (key: string) => {
+  useEffect(() => {
+    if (!apiKey) return;
     setLoading(true);
     setFetchError('');
-    try {
-      const data = await api.getPluginConfig(plugin.id, key);
-      setConfig(data);
-    } catch (e: any) {
-      setFetchError(e?.message || 'Failed to load config');
-    } finally {
-      setLoading(false);
-    }
-  };
+    api.getPluginConfig(plugin.id, apiKey)
+      .then(setConfig)
+      .catch((e: any) => setFetchError(e?.message || 'Failed to load config'))
+      .finally(() => setLoading(false));
+  }, [plugin.id, apiKey]);
 
   const save = async (key: string, value: string) => {
     const newConfig = { ...config, [key]: value };
@@ -40,33 +39,13 @@ function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () 
           Configure {plugin.name}
         </h3>
         
-        {/* API Key input — always shown; load is triggered manually */}
-        <div className="flex gap-2 mb-4">
-          <div className="relative flex-1">
-            <Lock size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-content-muted" />
-            <input
-              type="password"
-              value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && apiKey && loadConfig(apiKey)}
-              placeholder="API Key (required)"
-              className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-edge text-xs font-mono text-content-primary bg-surface-base placeholder:text-content-muted focus:outline-none focus:border-brand"
-            />
+        {!apiKey ? (
+          <div className="p-4 bg-amber-500/10 text-amber-400 text-xs rounded-lg font-mono border border-amber-500/20">
+            API Key が設定されていません。画面右上の 🔒 から設定してください。
           </div>
-          <button
-            onClick={() => loadConfig(apiKey)}
-            disabled={!apiKey || loading}
-            className="px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-bold disabled:opacity-40 hover:bg-brand/90 transition-colors"
-          >
-            {loading ? '...' : 'Load'}
-          </button>
-        </div>
-
-        {fetchError && (
+        ) : fetchError ? (
           <div className="mb-3 p-3 bg-red-500/10 text-red-400 text-xs rounded-lg font-mono">{fetchError}</div>
-        )}
-
-        {loading ? (
+        ) : loading ? (
           <div className="p-8 text-center text-content-tertiary font-mono text-xs">Loading config...</div>
         ) : Object.keys(config).length > 0 || plugin.required_config_keys.length > 0 ? (
           <div className="space-y-4">
@@ -153,12 +132,12 @@ function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () 
 }
 
 export function ExivPluginManager() {
+  const { apiKey } = useApiKey();
   const [plugins, setPlugins] = useState<PluginManifest[]>([]);
   const [editingPlugins, setEditingPlugins] = useState<PluginManifest[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [apiKey, setApiKey] = useState('');
   const [applyError, setApplyError] = useState('');
   const [configTarget, setConfigTarget] = useState<PluginManifest | null>(null);
   
@@ -287,6 +266,7 @@ export function ExivPluginManager() {
            <div className="px-3 py-1 rounded-full bg-surface-secondary text-[10px] font-bold text-content-secondary">
              {plugins.filter(p => p.is_active).length} / {plugins.length} ACTIVE
            </div>
+           <ApiKeyGate />
         </div>
       </div>
 
@@ -437,29 +417,21 @@ export function ExivPluginManager() {
 
       {/* Footer - Apply Bar */}
       {hasChanges && (
-        <div className="p-4 bg-surface-primary border-t border-edge-subtle flex items-center gap-4 animate-in slide-in-from-bottom-full duration-500 z-50">
-          <div className="flex items-center gap-2 text-amber-600 px-4 flex-shrink-0">
+        <div className="p-4 bg-surface-primary border-t border-edge-subtle flex items-center justify-between gap-4 animate-in slide-in-from-bottom-full duration-500 z-50">
+          <div className="flex items-center gap-2 text-amber-600 px-4">
             <AlertTriangle size={16} />
             <span className="text-[10px] font-bold uppercase tracking-widest">Pending changes</span>
           </div>
-          <div className="flex items-center gap-2 flex-1">
-            <Lock size={12} className="text-content-muted flex-shrink-0" />
-            <input
-              type="password"
-              value={apiKey}
-              onChange={e => { setApiKey(e.target.value); setApplyError(''); }}
-              onKeyDown={e => e.key === 'Enter' && apiKey && applyChanges()}
-              placeholder="API Key"
-              className="flex-1 min-w-0 px-3 py-1.5 rounded-lg border border-white/10 bg-surface-base text-xs font-mono text-content-primary placeholder:text-content-muted focus:outline-none focus:border-brand"
-            />
-          </div>
           {applyError && (
-            <span className="text-[10px] text-red-400 font-medium flex-shrink-0">{applyError}</span>
+            <span className="text-[10px] text-red-400 font-medium">{applyError}</span>
+          )}
+          {!apiKey && (
+            <span className="text-[10px] text-amber-400 font-mono">API Key を設定してください (右上 🔒)</span>
           )}
           <button
             onClick={applyChanges}
             disabled={isSaving || !apiKey}
-            className="flex items-center gap-2 px-6 py-2.5 bg-brand text-white rounded-xl text-xs font-bold shadow-lg shadow-brand/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 flex-shrink-0"
+            className="flex items-center gap-2 px-6 py-2.5 bg-brand text-white rounded-xl text-xs font-bold shadow-lg shadow-brand/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
           >
             {isSaving ? (
               <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
