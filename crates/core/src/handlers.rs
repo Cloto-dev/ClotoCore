@@ -34,6 +34,18 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()>
                 exiv_shared::Permission::AdminAccess
             )));
         }
+        // Check revocation: reject key even if it matches, if it has been invalidated
+        if let Some(provided) = auth_header {
+            let hash = crate::db::hash_api_key(provided);
+            if let Ok(revoked) = state.revoked_keys.read() {
+                if revoked.contains(&hash) {
+                    tracing::warn!("🚫 Rejected revoked API key");
+                    return Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(
+                        exiv_shared::Permission::AdminAccess
+                    )));
+                }
+            }
+        }
     } else {
         // In release builds, require API key to be configured
         if !cfg!(debug_assertions) {
@@ -856,6 +868,38 @@ pub async fn deny_permission(
     Ok(Json(serde_json::json!({
         "status": "success",
         "message": "Permission request denied"
+    })))
+}
+
+// ============================================================
+// API Key Invalidation
+// ============================================================
+
+pub async fn invalidate_api_key(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let provided_key = headers.get("X-API-Key")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| AppError::Validation("X-API-Key header required".to_string()))?;
+
+    // Persist to DB
+    crate::db::revoke_api_key(&state.pool, provided_key).await
+        .map_err(AppError::Internal)?;
+
+    // Update in-memory cache
+    let hash = crate::db::hash_api_key(provided_key);
+    if let Ok(mut revoked) = state.revoked_keys.write() {
+        revoked.insert(hash);
+    }
+
+    tracing::warn!("🔑 API key invalidated — system-wide access revoked for this key");
+
+    Ok(Json(serde_json::json!({
+        "status": "invalidated",
+        "message": "API key has been revoked. All future requests with this key will be rejected. Restart with a new EXIV_API_KEY to restore access."
     })))
 }
 

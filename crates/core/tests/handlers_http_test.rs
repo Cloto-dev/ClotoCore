@@ -217,9 +217,9 @@ async fn test_grant_permission_requires_auth() {
         .await
         .unwrap();
 
-    // axum deserializes body before auth check, so we get 400 instead of 401
-    // This is acceptable behavior - the handler requires valid JSON
+    // PermissionDenied maps to 403 Forbidden
     assert!(
+        response.status() == StatusCode::FORBIDDEN ||
         response.status() == StatusCode::UNAUTHORIZED ||
         response.status() == StatusCode::BAD_REQUEST
     );

@@ -77,6 +77,9 @@ pub struct AppState {
     pub shutdown: Arc<Notify>,
     pub evolution_engine: Option<Arc<evolution::EvolutionEngine>>,
     pub fitness_collector: Option<Arc<evolution::FitnessCollector>>,
+    /// In-memory cache of revoked API key hashes (SHA-256 fingerprints).
+    /// Loaded from DB at startup; updated on POST /api/system/invalidate-key.
+    pub revoked_keys: Arc<std::sync::RwLock<std::collections::HashSet<String>>>,
 }
 
 pub enum AppError {
@@ -328,6 +331,20 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         None
     };
 
+    // Load revoked key hashes into memory
+    let revoked_keys = {
+        let mut set = std::collections::HashSet::new();
+        match db::load_revoked_key_hashes(&pool).await {
+            Ok(hashes) => {
+                let count = hashes.len();
+                set.extend(hashes);
+                if count > 0 { info!(count = count, "🔑 Loaded revoked API key hashes"); }
+            }
+            Err(e) => tracing::warn!(error = %e, "Failed to load revoked key hashes"),
+        }
+        Arc::new(std::sync::RwLock::new(set))
+    };
+
     let app_state = Arc::new(AppState {
         tx: tx.clone(),
         registry: registry_arc.clone(),
@@ -343,6 +360,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         shutdown,
         evolution_engine: Some(evolution_engine.clone()),
         fitness_collector: fitness_collector.clone(),
+        revoked_keys,
     });
 
     // 6. Event Loop
@@ -422,6 +440,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/chat/attachments/:attachment_id", get(handlers::chat::get_attachment))
         // Runtime plugin management
         .route("/plugins/runtime/:id", delete(handlers::delete_runtime_plugin))
+        // API key invalidation
+        .route("/system/invalidate-key", post(handlers::invalidate_api_key))
         // Evolution Engine endpoints (auth required for write)
         .route("/evolution/evaluate", post(handlers::evolution::evaluate_agent))
         .route("/evolution/params", get(handlers::evolution::get_evolution_params).put(handlers::evolution::update_evolution_params))
