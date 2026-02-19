@@ -51,7 +51,7 @@ function ConfigModal({ plugin, apiKey, onClose }: { plugin: PluginManifest, apiK
                       value={config[key] || ''}
                       onChange={e => setConfig(prev => ({ ...prev, [key]: e.target.value }))}
                       onBlur={e => save(key, e.target.value)}
-                      className="flex-1 px-3 py-2 rounded-lg border border-edge text-sm font-mono focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+                      className="flex-1 px-3 py-2 rounded-lg border border-edge text-sm font-mono text-content-primary bg-surface-base placeholder:text-content-muted focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand"
                       placeholder={`Enter ${key}...`}
                     />
                     {isPathKey && isTauri && (
@@ -419,7 +419,7 @@ export function ExivPluginManager() {
               onChange={e => { setApiKey(e.target.value); setApplyError(''); }}
               onKeyDown={e => e.key === 'Enter' && apiKey && applyChanges()}
               placeholder="API Key"
-              className="flex-1 min-w-0 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-xs font-mono focus:outline-none focus:border-brand"
+              className="flex-1 min-w-0 px-3 py-1.5 rounded-lg border border-white/10 bg-surface-base text-xs font-mono text-content-primary placeholder:text-content-muted focus:outline-none focus:border-brand"
             />
           </div>
           {applyError && (
