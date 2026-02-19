@@ -5,22 +5,23 @@ import { api } from '../services/api';
 import { ServiceTypeIcon } from '../lib/pluginUtils';
 import { isTauri, openFileDialog } from '../lib/tauri';
 
-function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () => void }) {
+function ConfigModal({ plugin, apiKey, onClose }: { plugin: PluginManifest, apiKey: string, onClose: () => void }) {
   const [config, setConfig] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState('');
   // H-19: Use React state instead of direct DOM manipulation for save button
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle');
 
   useEffect(() => {
-    api.getPluginConfig(plugin.id)
+    api.getPluginConfig(plugin.id, apiKey)
       .then(setConfig)
-      .catch(console.error)
+      .catch((e: any) => setFetchError(e?.message || 'Failed to load config'))
       .finally(() => setLoading(false));
-  }, [plugin.id]);
+  }, [plugin.id, apiKey]);
 
   const save = async (key: string, value: string) => {
     const newConfig = { ...config, [key]: value };
-    await api.updatePluginConfig(plugin.id, { key, value });
+    await api.updatePluginConfig(plugin.id, { key, value }, apiKey);
     setConfig(newConfig);
   };
 
@@ -34,6 +35,8 @@ function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () 
         
         {loading ? (
           <div className="p-8 text-center text-content-tertiary font-mono text-xs">Loading config...</div>
+        ) : fetchError ? (
+          <div className="p-4 bg-red-500/10 text-red-400 text-xs rounded-lg font-mono">{fetchError}</div>
         ) : (
           <div className="space-y-4">
             {plugin.required_config_keys.length > 0 ? plugin.required_config_keys.map(key => {
@@ -98,7 +101,7 @@ function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () 
                 // Save all keys in parallel with correct format { key, value }
                 await Promise.all(
                   Object.entries(config).map(([key, value]) =>
-                    api.updatePluginConfig(plugin.id, { key, value })
+                    api.updatePluginConfig(plugin.id, { key, value }, apiKey)
                   )
                 );
                 onClose();
@@ -437,7 +440,7 @@ export function ExivPluginManager() {
 
       {/* Config Modal */}
       {configTarget && (
-        <ConfigModal plugin={configTarget} onClose={() => setConfigTarget(null)} />
+        <ConfigModal plugin={configTarget} apiKey={apiKey} onClose={() => setConfigTarget(null)} />
       )}
     </div>
   );

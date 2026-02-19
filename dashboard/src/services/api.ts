@@ -30,7 +30,12 @@ async function mutate(
 export const api = {
   getAgents: () => fetchJson<AgentMetadata[]>('/agents', 'fetch agents'),
   getPlugins: () => fetchJson<PluginManifest[]>('/plugins', 'fetch plugins'),
-  getPluginConfig: (id: string) => fetchJson<Record<string, string>>(`/plugins/${id}/config`, 'get plugin config'),
+  getPluginConfig: (id: string, apiKey: string) => {
+    const res = fetch(`${API_BASE}/plugins/${id}/config`, {
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    });
+    return res.then(r => { if (!r.ok) throw new Error(`Failed to get plugin config: ${r.statusText}`); return r.json() as Promise<Record<string, string>>; });
+  },
   getPendingPermissions: () => fetchJson<any[]>('/permissions/pending', 'fetch pending permissions'),
   checkForUpdate: () => fetchJson<UpdateInfo>('/system/update/check', 'check for updates'),
   getVersion: () => fetchJson<{ version: string; build_target: string }>('/system/version', 'fetch version'),
@@ -50,8 +55,8 @@ export const api = {
 
   applyPluginSettings: (settings: { id: string, is_active: boolean }[], apiKey: string) =>
     mutate('/plugins/apply', 'POST', 'apply plugin settings', settings, { 'X-API-Key': apiKey }).then(() => {}),
-  updatePluginConfig: (id: string, payload: { key: string, value: string }) =>
-    mutate(`/plugins/${id}/config`, 'POST', 'update plugin config', payload).then(() => {}),
+  updatePluginConfig: (id: string, payload: { key: string, value: string }, apiKey: string) =>
+    mutate(`/plugins/${id}/config`, 'POST', 'update plugin config', payload, { 'X-API-Key': apiKey }).then(() => {}),
   updateAgent: (id: string, payload: { default_engine_id?: string, metadata: Record<string, string> }) =>
     mutate(`/agents/${id}`, 'POST', 'update agent', payload).then(() => {}),
   grantPermission: (pluginId: string, permission: string) =>
