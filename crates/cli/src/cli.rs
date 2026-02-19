@@ -115,6 +115,11 @@ pub enum PluginsCommand {
 pub enum PermissionsCommand {
     /// List pending permission requests
     Pending,
+    /// Show current permissions for a plugin
+    List {
+        /// Plugin ID
+        plugin: String,
+    },
     /// Approve a permission request
     Approve {
         /// Request ID to approve
@@ -130,6 +135,13 @@ pub enum PermissionsCommand {
         /// Plugin ID
         plugin: String,
         /// Permission to grant (NetworkAccess, FileRead, FileWrite, ProcessExecution, VisionRead, AdminAccess, MemoryRead, MemoryWrite, InputControl)
+        permission: String,
+    },
+    /// Revoke a permission from a plugin
+    Revoke {
+        /// Plugin ID
+        plugin: String,
+        /// Permission to revoke
         permission: String,
     },
 }

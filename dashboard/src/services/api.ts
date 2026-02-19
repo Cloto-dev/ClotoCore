@@ -80,6 +80,27 @@ export const api = {
       throw new Error(body?.error?.message || `Failed to set agent plugins: ${res.statusText}`);
     }
   },
+  getPluginPermissions: async (pluginId: string, apiKey: string): Promise<string[]> => {
+    const res = await fetch(`${API_BASE}/plugins/${pluginId}/permissions`, {
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    });
+    if (!res.ok) throw new Error(`Failed to get permissions: ${res.statusText}`);
+    const data = await res.json();
+    return data.permissions ?? [];
+  },
+
+  revokePermission: async (pluginId: string, permission: string, apiKey: string): Promise<void> => {
+    const res = await fetch(`${API_BASE}/plugins/${pluginId}/permissions`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify({ permission }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.error?.message || `Failed to revoke permission: ${res.statusText}`);
+    }
+  },
+
   grantPermission: (pluginId: string, permission: string, apiKey: string) =>
     mutate(`/plugins/${pluginId}/permissions/grant`, 'POST', 'grant permission', { permission }, { 'X-API-Key': apiKey }).then(() => {}),
   postEvent: (eventData: any, apiKey: string) =>

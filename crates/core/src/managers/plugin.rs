@@ -309,6 +309,47 @@ impl PluginManager {
         Ok(())
     }
 
+    /// Return the current effective permissions for a plugin from the DB.
+    pub async fn get_permissions(&self, plugin_id: &str) -> anyhow::Result<Vec<exiv_shared::Permission>> {
+        let row: Option<(sqlx::types::Json<Vec<exiv_shared::Permission>>,)> = sqlx::query_as(
+            "SELECT allowed_permissions FROM plugin_settings WHERE plugin_id = ?"
+        )
+        .bind(plugin_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(j,)| j.0).unwrap_or_default())
+    }
+
+    /// Remove a single permission from a plugin's allowed_permissions in the DB and in-memory.
+    pub async fn revoke_permission(
+        &self,
+        plugin_id: &str,
+        permission: &exiv_shared::Permission,
+        registry: &PluginRegistry,
+    ) -> anyhow::Result<()> {
+        // Reload current list, remove the target, write back atomically
+        let mut perms = self.get_permissions(plugin_id).await?;
+        let before = perms.len();
+        perms.retain(|p| p != permission);
+        if perms.len() == before {
+            return Err(anyhow::anyhow!("Permission '{:?}' is not granted to plugin '{}'", permission, plugin_id));
+        }
+        let updated = serde_json::to_string(&perms)?;
+        sqlx::query("UPDATE plugin_settings SET allowed_permissions = ? WHERE plugin_id = ?")
+            .bind(&updated)
+            .bind(plugin_id)
+            .execute(&self.pool)
+            .await?;
+
+        // Update in-memory effective permissions
+        let plugin_exiv_id = exiv_shared::ExivId::from_name(plugin_id);
+        let mut perms_lock = registry.effective_permissions.write().await;
+        if let Some(p) = perms_lock.get_mut(&plugin_exiv_id) {
+            p.retain(|x| x != permission);
+        }
+        Ok(())
+    }
+
     pub async fn grant_permission(&self, plugin_id: &str, permission: exiv_shared::Permission) -> anyhow::Result<()> {
         // H-08: Single atomic SQL statement to prevent TOCTOU race in permission grant
         let perm_json = serde_json::to_string(&permission)?;

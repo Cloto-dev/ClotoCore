@@ -593,6 +593,57 @@ pub async fn grant_permission_handler(
     Ok(Json(serde_json::json!({ "status": "success" })))
 }
 
+/// Get the current effective permissions for a plugin.
+///
+/// **Route:** `GET /api/plugins/:id/permissions`
+pub async fn get_plugin_permissions(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    let perms = state.plugin_manager.get_permissions(&id).await?;
+    let list: Vec<String> = perms.iter().map(|p| format!("{:?}", p)).collect();
+    Ok(Json(serde_json::json!({ "plugin_id": id, "permissions": list })))
+}
+
+#[derive(Deserialize)]
+pub struct RevokePermissionRequest {
+    pub permission: exiv_shared::Permission,
+}
+
+/// Revoke a permission from a plugin.
+///
+/// **Route:** `DELETE /api/plugins/:id/permissions`
+///
+/// # Authentication
+/// Requires valid API key in `X-API-Key` header.
+///
+/// # Request Body
+/// ```json
+/// { "permission": "NetworkAccess" }
+/// ```
+pub async fn revoke_permission_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(payload): Json<RevokePermissionRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    info!(plugin_id = %id, permission = ?payload.permission, "🔓 Revoking permission from plugin");
+
+    state.plugin_manager.revoke_permission(&id, &payload.permission, &state.registry).await?;
+
+    spawn_admin_audit(
+        state.pool.clone(), "PERMISSION_REVOKED", id.clone(),
+        "Administrator revoked permission".to_string(),
+        Some(format!("{:?}", payload.permission)),
+        None, None,
+    );
+
+    Ok(Json(serde_json::json!({ "status": "success" })))
+}
+
 /// Initiate graceful system shutdown.
 ///
 /// **Route:** `POST /api/system/shutdown`

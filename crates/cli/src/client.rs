@@ -151,6 +151,23 @@ impl ExivClient {
         self.post(&format!("/api/plugins/{plugin_id}/permissions/grant"), &body).await
     }
 
+    pub async fn get_plugin_permissions(&self, plugin_id: &str) -> Result<serde_json::Value> {
+        self.get(&format!("/api/plugins/{plugin_id}/permissions")).await
+    }
+
+    pub async fn revoke_plugin_permission(&self, plugin_id: &str, permission: &str) -> Result<serde_json::Value> {
+        let body = serde_json::json!({ "permission": permission });
+        let req = self.client.delete(self.url(&format!("/api/plugins/{plugin_id}/permissions"))).json(&body);
+        let resp = self.add_auth(req).send().await.context("Failed to connect to Exiv kernel")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            let msg = body.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str()).unwrap_or("Unknown error");
+            anyhow::bail!("{status}: {msg}");
+        }
+        resp.json::<serde_json::Value>().await.context("Failed to parse response")
+    }
+
     /// GET SSE stream (raw response for line-by-line parsing).
     #[allow(dead_code)]
     pub async fn sse_stream(&self) -> Result<reqwest::Response> {

@@ -14,10 +14,14 @@ const VALID_PERMISSIONS: &[&str] = &[
 pub async fn run(client: &ExivClient, cmd: PermissionsCommand, json: bool) -> Result<()> {
     match cmd {
         PermissionsCommand::Pending => pending(client, json).await,
+        PermissionsCommand::List { plugin } => list(client, &plugin, json).await,
         PermissionsCommand::Approve { request_id } => approve(client, &request_id, json).await,
         PermissionsCommand::Deny { request_id } => deny(client, &request_id, json).await,
         PermissionsCommand::Grant { plugin, permission } => {
             grant(client, &plugin, &permission, json).await
+        }
+        PermissionsCommand::Revoke { plugin, permission } => {
+            revoke(client, &plugin, &permission, json).await
         }
     }
 }
@@ -136,6 +140,74 @@ async fn deny(client: &ExivClient, request_id: &str, json: bool) -> Result<()> {
             "✗".red().bold(), request_id.bold());
     }
 
+    Ok(())
+}
+
+async fn list(client: &ExivClient, plugin_id: &str, json: bool) -> Result<()> {
+    let sp = if !json { Some(output::spinner("Fetching permissions...")) } else { None };
+    let result = client.get_plugin_permissions(plugin_id).await?;
+    if let Some(sp) = sp { sp.finish_and_clear(); }
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(());
+    }
+
+    let perms = result.get("permissions").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+
+    output::print_header(&format!("Permissions: {plugin_id}"));
+
+    // Enforcement legend
+    let enforced = ["NetworkAccess", "InputControl"];
+
+    if perms.is_empty() {
+        println!("  {}", "No permissions granted.".dimmed());
+    } else {
+        for p in &perms {
+            let name = p.as_str().unwrap_or("-");
+            let is_enforced = enforced.contains(&name);
+            let badge = if is_enforced { "✅ enforced".green() } else { "⚠  declared only".yellow() };
+            println!("  {} {}", name.bold(), badge);
+        }
+    }
+
+    println!();
+    println!("  {}", "All 9 permissions:".dimmed());
+    for p in VALID_PERMISSIONS {
+        let granted = perms.iter().any(|v| v.as_str() == Some(p));
+        let is_enforced = enforced.contains(p);
+        let marker = if granted { "●".green().to_string() } else { "○".dimmed().to_string() };
+        let badge = if is_enforced { "enforced".green() } else { "declared".dimmed() };
+        println!("  {} {:<20} {}", marker, p, badge);
+    }
+    println!();
+    Ok(())
+}
+
+async fn revoke(client: &ExivClient, plugin_id: &str, permission: &str, json: bool) -> Result<()> {
+    if !VALID_PERMISSIONS.contains(&permission) {
+        anyhow::bail!(
+            "Invalid permission '{}'. Valid values:\n  {}",
+            permission,
+            VALID_PERMISSIONS.join(", ")
+        );
+    }
+
+    let sp = if !json {
+        Some(output::spinner(&format!("Revoking {permission} from {plugin_id}...")))
+    } else {
+        None
+    };
+
+    let result = client.revoke_plugin_permission(plugin_id, permission).await?;
+    if let Some(sp) = sp { sp.finish_and_clear(); }
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("  {} {} revoked from {}",
+            "🔓".to_string(), permission.yellow().bold(), plugin_id.bold());
+    }
     Ok(())
 }
 
