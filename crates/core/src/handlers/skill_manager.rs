@@ -146,6 +146,24 @@ def execute(params):
         }))
     }
 
+    async fn handle_get_runtime_skills(&self) -> anyhow::Result<serde_json::Value> {
+        let records = crate::db::load_active_runtime_plugins(&self.pool).await?;
+        let skills: Vec<serde_json::Value> = records.iter().map(|r| serde_json::json!({
+            "plugin_id": r.plugin_id,
+            "description": r.description,
+            "created_at": r.created_at,
+        })).collect();
+        Ok(serde_json::json!({
+            "runtime_skills": skills,
+            "count": skills.len(),
+            "note": if skills.is_empty() {
+                "No runtime skills created yet. Use register_skill to create one."
+            } else {
+                "These are skills you have previously created. Avoid creating duplicates."
+            }
+        }))
+    }
+
     fn handle_add_network_host(&self, args: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
         let host = args.get("host")
             .and_then(|v| v.as_str())
@@ -209,7 +227,7 @@ impl Tool for SkillManager {
     fn name(&self) -> &'static str { "skill_manager" }
 
     fn description(&self) -> &'static str {
-        "Register new Python skills or grant network access to the agent at runtime. Actions: register_skill, add_network_host."
+        "Extend your own capabilities at runtime. Use get_runtime_skills to see skills you have already created (avoids duplicates). Use register_skill to write and register a new Python skill. Use add_network_host to grant yourself network access to a specific host."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -219,8 +237,8 @@ impl Tool for SkillManager {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["register_skill", "add_network_host"],
-                    "description": "The action to perform."
+                    "enum": ["get_runtime_skills", "register_skill", "add_network_host"],
+                    "description": "The action to perform. Use get_runtime_skills first to check what skills you have already created."
                 },
                 "name": {
                     "type": "string",
@@ -252,9 +270,10 @@ impl Tool for SkillManager {
             .ok_or_else(|| anyhow::anyhow!("Missing required field: action"))?;
 
         match action {
+            "get_runtime_skills" => self.handle_get_runtime_skills().await,
             "register_skill" => self.handle_register_skill(&args).await,
             "add_network_host" => self.handle_add_network_host(&args),
-            _ => Err(anyhow::anyhow!("Unknown action: '{}'. Valid actions: register_skill, add_network_host", action)),
+            _ => Err(anyhow::anyhow!("Unknown action: '{}'. Valid actions: get_runtime_skills, register_skill, add_network_host", action)),
         }
     }
 }
