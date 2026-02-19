@@ -116,7 +116,7 @@ impl SystemHandler {
             for engine in &self.consensus_engines {
                 let inner_thought = exiv_shared::ExivEventData::ThoughtRequested {
                     agent: agent.clone(),
-                    engine_id: engine.to_string(),
+                    engine_id: engine.clone(),
                     message: msg.clone(),
                     context: context.clone(),
                 };
@@ -241,7 +241,7 @@ impl SystemHandler {
             .filter_map(|t| t.get("function")
                 .and_then(|f| f.get("name"))
                 .and_then(|n| n.as_str())
-                .map(|s| s.to_string()))
+                .map(std::string::ToString::to_string))
             .collect();
 
         info!(

@@ -34,7 +34,7 @@ pub async fn get_evolution_status(
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
     let status = evo.get_status(agent_id).await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
     to_json(&status)
 }
 
@@ -47,7 +47,7 @@ pub async fn get_generation_history(
     let agent_id = &state.config.default_agent_id;
     let limit = query.limit.unwrap_or(50).min(500);
     let history = evo.get_generation_history(agent_id, limit).await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
     to_json(&history)
 }
 
@@ -59,7 +59,7 @@ pub async fn get_generation(
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
     let record = evo.get_generation(agent_id, n).await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
     match record {
         Some(r) => to_json(&r),
         None => Err(AppError::NotFound(format!("Generation {} not found", n))),
@@ -75,7 +75,7 @@ pub async fn get_fitness_timeline(
     let agent_id = &state.config.default_agent_id;
     let limit = query.limit.unwrap_or(100).min(1000);
     let timeline = evo.get_fitness_timeline(agent_id, limit).await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
     to_json(&timeline)
 }
 
@@ -86,7 +86,7 @@ pub async fn get_evolution_params(
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
     let params = evo.get_params(agent_id).await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
     to_json(&params)
 }
 
@@ -130,7 +130,7 @@ pub async fn update_evolution_params(
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
     evo.set_params(agent_id, &params).await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
 
     info!(agent_id = %agent_id, "Evolution parameters updated via API");
 
@@ -138,7 +138,7 @@ pub async fn update_evolution_params(
         timestamp: chrono::Utc::now(),
         event_type: "EVOLUTION_PARAMS_UPDATED".to_string(),
         actor_id: Some("admin".to_string()), // TODO: extract from auth token when auth system supports user identification
-        target_id: Some(agent_id.to_string()),
+        target_id: Some(agent_id.clone()),
         permission: None,
         result: "SUCCESS".to_string(),
         reason: "Evolution parameters updated via dashboard".to_string(),
@@ -156,7 +156,7 @@ pub async fn get_rollback_history(
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
     let history = evo.get_rollback_history(agent_id).await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
     to_json(&history)
 }
 
@@ -198,7 +198,7 @@ pub async fn evaluate_agent(
         ("autonomy", req.scores.autonomy),
         ("meta_learning", req.scores.meta_learning),
     ] {
-        if !val.is_finite() || val < 0.0 || val > 1.0 {
+        if !val.is_finite() || !(0.0..=1.0).contains(&val) {
             return Err(AppError::Validation(
                 format!("{} must be in [0.0, 1.0] and finite, got {}", name, val),
             ));
@@ -222,7 +222,7 @@ pub async fn evaluate_agent(
     let agent_id = &state.config.default_agent_id;
 
     let events = evo.evaluate(agent_id, scores, snapshot).await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
 
     // Dispatch events to the event bus for SSE subscribers
     let event_summaries: Vec<serde_json::Value> = events.iter().map(|e| {

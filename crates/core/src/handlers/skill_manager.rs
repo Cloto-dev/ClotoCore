@@ -96,7 +96,7 @@ def execute(params):
         info!(skill_name = %name, path = %script_path.display(), "📝 L5: Wrote runtime skill script");
 
         // Parse permissions from args
-        let permissions = if args.get("network_access").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let permissions = if args.get("network_access").and_then(serde_json::Value::as_bool).unwrap_or(false) {
             vec![Permission::NetworkAccess]
         } else {
             vec![]
@@ -181,9 +181,9 @@ impl Plugin for SkillManager {
 
 #[async_trait]
 impl Tool for SkillManager {
-    fn name(&self) -> &str { "skill_manager" }
+    fn name(&self) -> &'static str { "skill_manager" }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Register new Python skills or grant network access to the agent at runtime. Actions: register_skill, add_network_host."
     }
 
@@ -236,7 +236,7 @@ impl Tool for SkillManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_skill_name_validation_empty() {

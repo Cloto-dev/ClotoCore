@@ -7,7 +7,7 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-165%2B%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-190%2B%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
@@ -106,6 +106,7 @@ The dashboard opens at **http://localhost:8081**.
 | `hal.cursor` | HAL | High-precision cursor with fluid motion trails |
 | `bridge.python` | Bridge | Universal Python Bridge with async event streaming |
 | `adapter.mcp` | Skill | Model Context Protocol (MCP) client adapter |
+| `tool.terminal` | Skill | Sandboxed shell command execution |
 | `vision.screen` | Vision | Screen capture and analysis module |
 
 **Python plugins** (loaded through `bridge.python`):

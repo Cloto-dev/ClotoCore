@@ -116,7 +116,7 @@ impl EventProcessor {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
             loop {
                 tokio::select! {
-                    _ = shutdown.notified() => {
+                    () = shutdown.notified() => {
                         tracing::info!("Event history cleanup shutting down");
                         break;
                     }
@@ -137,7 +137,7 @@ impl EventProcessor {
             );
             loop {
                 tokio::select! {
-                    _ = shutdown.notified() => {
+                    () = shutdown.notified() => {
                         tracing::info!("Active heartbeat task shutting down");
                         break;
                     }

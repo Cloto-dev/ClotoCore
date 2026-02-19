@@ -69,22 +69,22 @@ pub async fn post_message(
 
     // Validate source
     if !["user", "agent", "system"].contains(&payload.source.as_str()) {
-        return Err(AppError::Vers(exiv_shared::ExivError::ValidationError(
+        return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
             "source must be 'user', 'agent', or 'system'".to_string(),
         )));
     }
 
     // Validate content is a JSON array
     if !payload.content.is_array() {
-        return Err(AppError::Vers(exiv_shared::ExivError::ValidationError(
+        return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
             "content must be a JSON array of ContentBlock".to_string(),
         )));
     }
 
     // M-3: Limit content array length to prevent abuse
     const MAX_CONTENT_ITEMS: usize = 20;
-    if payload.content.as_array().map_or(false, |a| a.len() > MAX_CONTENT_ITEMS) {
-        return Err(AppError::Vers(exiv_shared::ExivError::ValidationError(
+    if payload.content.as_array().is_some_and(|a| a.len() > MAX_CONTENT_ITEMS) {
+        return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
             format!("content array exceeds maximum of {} items", MAX_CONTENT_ITEMS),
         )));
     }
@@ -124,12 +124,9 @@ pub async fn post_message(
                                 tracing::warn!("Rejected attachment with disallowed MIME type: {}", mime_type);
                                 continue;
                             }
-                            let decoded = match base64_decode(base64_data) {
-                                Ok(d) => d,
-                                Err(()) => {
-                                    tracing::warn!("Invalid base64 data in attachment, skipping");
-                                    continue;
-                                }
+                            let decoded = if let Ok(d) = base64_decode(base64_data) { d } else {
+                                tracing::warn!("Invalid base64 data in attachment, skipping");
+                                continue;
                             };
                             {
                                 let att_id = uuid::Uuid::new_v4().to_string();

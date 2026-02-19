@@ -47,6 +47,7 @@ pub struct EnvelopedEvent {
 
 impl EnvelopedEvent {
     /// Create a system-originated event (no issuer, no correlation, depth 0)
+    #[must_use] 
     pub fn system(data: exiv_shared::ExivEventData) -> Self {
         Self {
             event: Arc::new(ExivEvent::new(data)),
@@ -79,7 +80,7 @@ pub struct AppState {
 }
 
 pub enum AppError {
-    Vers(exiv_shared::ExivError),
+    Exiv(exiv_shared::ExivError),
     Internal(anyhow::Error),
     NotFound(String),
     Validation(String),
@@ -88,7 +89,7 @@ pub enum AppError {
 impl axum::response::IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         let (status, err_type, message) = match self {
-            AppError::Vers(e) => (axum::http::StatusCode::BAD_REQUEST, format!("{:?}", e), e.to_string()),
+            AppError::Exiv(e) => (axum::http::StatusCode::BAD_REQUEST, format!("{:?}", e), e.to_string()),
             AppError::Internal(e) => {
                 // Log full error server-side only; return generic message to client
                 tracing::error!("Internal error: {}", e);
@@ -118,7 +119,7 @@ impl From<anyhow::Error> for AppError {
 
 impl From<exiv_shared::ExivError> for AppError {
     fn from(err: exiv_shared::ExivError) -> Self {
-        AppError::Vers(err)
+        AppError::Exiv(err)
     }
 }
 
@@ -320,10 +321,10 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let shutdown_clone = app_state.shutdown.clone();
     tokio::spawn(async move {
         tokio::select! {
-            _ = shutdown_clone.notified() => {
+            () = shutdown_clone.notified() => {
                 tracing::info!("Event processor shutting down");
             }
-            _ = processor_clone.process_loop(event_rx, event_tx_clone) => {}
+            () = processor_clone.process_loop(event_rx, event_tx_clone) => {}
         }
     });
 
@@ -334,7 +335,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
         loop {
             tokio::select! {
-                _ = shutdown_clone.notified() => {
+                () = shutdown_clone.notified() => {
                     tracing::info!("Rate limiter cleanup shutting down");
                     break;
                 }

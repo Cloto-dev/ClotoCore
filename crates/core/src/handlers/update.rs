@@ -84,47 +84,44 @@ pub async fn check_handler(
     let latest_version = release.tag_name.trim_start_matches('v');
 
     // Bug #2: Use semver library for robust version comparison
-    let (update_available, is_downgrade) = match (
+    let (update_available, is_downgrade) = if let (Ok(cur), Ok(tgt)) = (
         semver::Version::parse(current_version),
         semver::Version::parse(latest_version)
     ) {
-        (Ok(cur), Ok(tgt)) => {
-            let update_available = tgt != cur;
-            let is_downgrade = tgt < cur;
-            (update_available, is_downgrade)
-        }
-        _ => {
-            // Bug E: Use numeric component comparison instead of lexicographic
-            // Lexicographic comparison fails for "2.0.0" vs "10.0.0" (2 > 1 lexically)
-            tracing::warn!(
-                current = current_version,
-                latest = latest_version,
-                "Invalid semver format, attempting numeric component comparison"
-            );
+        let update_available = tgt != cur;
+        let is_downgrade = tgt < cur;
+        (update_available, is_downgrade)
+    } else {
+        // Bug E: Use numeric component comparison instead of lexicographic
+        // Lexicographic comparison fails for "2.0.0" vs "10.0.0" (2 > 1 lexically)
+        tracing::warn!(
+            current = current_version,
+            latest = latest_version,
+            "Invalid semver format, attempting numeric component comparison"
+        );
 
-            // Try to parse as numeric components (e.g., "1.2.3" -> [1, 2, 3])
-            let parse_components = |v: &str| -> Option<Vec<u32>> {
-                v.split('.')
-                    .map(|part| part.trim().parse::<u32>().ok())
-                    .collect()
-            };
+        // Try to parse as numeric components (e.g., "1.2.3" -> [1, 2, 3])
+        let parse_components = |v: &str| -> Option<Vec<u32>> {
+            v.split('.')
+                .map(|part| part.trim().parse::<u32>().ok())
+                .collect()
+        };
 
-            match (parse_components(current_version), parse_components(latest_version)) {
-                (Some(cur), Some(tgt)) if !cur.is_empty() && !tgt.is_empty() => {
-                    use std::cmp::Ordering;
-                    let is_downgrade = matches!(cur.cmp(&tgt), Ordering::Greater);
-                    let update_available = cur != tgt;
-                    (update_available, is_downgrade)
-                }
-                _ => {
-                    // Ultimate fallback: string equality only, can't determine downgrade
-                    tracing::error!(
-                        current = current_version,
-                        latest = latest_version,
-                        "Cannot parse version numbers, using string equality check only"
-                    );
-                    (latest_version != current_version, false)
-                }
+        match (parse_components(current_version), parse_components(latest_version)) {
+            (Some(cur), Some(tgt)) if !cur.is_empty() && !tgt.is_empty() => {
+                use std::cmp::Ordering;
+                let is_downgrade = matches!(cur.cmp(&tgt), Ordering::Greater);
+                let update_available = cur != tgt;
+                (update_available, is_downgrade)
+            }
+            _ => {
+                // Ultimate fallback: string equality only, can't determine downgrade
+                tracing::error!(
+                    current = current_version,
+                    latest = latest_version,
+                    "Cannot parse version numbers, using string equality check only"
+                );
+                (latest_version != current_version, false)
             }
         }
     };
@@ -403,9 +400,9 @@ pub async fn apply_handler(
         let maint = crate::config::exe_dir().join(".maintenance");
         let maint_tmp = crate::config::exe_dir().join(".maintenance.tmp");
         match std::fs::write(&maint_tmp, "updating")
-            .and_then(|_| std::fs::rename(&maint_tmp, &maint))
+            .and_then(|()| std::fs::rename(&maint_tmp, &maint))
         {
-            Ok(_) => info!("🚧 Maintenance mode engaged for update."),
+            Ok(()) => info!("🚧 Maintenance mode engaged for update."),
             Err(e) => error!("❌ Failed to create .maintenance file: {}", e),
         }
 

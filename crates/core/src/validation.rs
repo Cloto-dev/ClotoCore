@@ -93,7 +93,7 @@ mod tests {
     fn test_create_agent_validation_empty_name() {
         let req = CreateAgentRequest {
             id: Some("agent.test".to_string()),
-            name: "".to_string(),
+            name: String::new(),
             description: None,
             default_engine: None,
             capabilities: None,
@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn test_update_config_validation_empty_key() {
         let req = UpdatePluginConfigRequest {
-            key: "".to_string(),
+            key: String::new(),
             value: "value".to_string(),
         };
 

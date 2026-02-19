@@ -15,6 +15,7 @@ pub struct SqliteDataStore {
 }
 
 impl SqliteDataStore {
+    #[must_use] 
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
@@ -288,7 +289,7 @@ pub fn spawn_audit_log(pool: SqlitePool, entry: AuditLogEntry) {
                     );
                     if attempt < 2 {
                         tokio::time::sleep(std::time::Duration::from_millis(
-                            100 * (attempt as u64 + 1),
+                            100 * (u64::from(attempt) + 1),
                         ))
                         .await;
                     }

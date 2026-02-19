@@ -5,10 +5,11 @@ use std::path::PathBuf;
 
 /// Returns the directory containing the running executable.
 /// Falls back to CWD if the exe path cannot be determined.
+#[must_use] 
 pub fn exe_dir() -> PathBuf {
     std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
@@ -126,7 +127,7 @@ impl AppConfig {
         let allowed_hosts = if allowed_hosts_str.is_empty() {
             vec![]
         } else {
-            allowed_hosts_str.split(',').map(|s| s.to_string()).collect()
+            allowed_hosts_str.split(',').map(std::string::ToString::to_string).collect()
         };
 
         let update_repo = env::var("EXIV_UPDATE_REPO")

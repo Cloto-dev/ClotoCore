@@ -27,6 +27,7 @@ impl RateLimiter {
     /// Create a new rate limiter.
     /// - `per_second`: token replenish rate per second
     /// - `burst`: maximum burst capacity
+    #[must_use] 
     pub fn new(per_second: u32, burst: u32) -> Self {
         // M-03: Prevent panic on zero values by falling back to 1
         let per_second = NonZeroU32::new(per_second).unwrap_or(NonZeroU32::MIN);
@@ -42,6 +43,7 @@ impl RateLimiter {
 
     /// Check if the given IP is allowed to proceed.
     /// Returns `true` if allowed, `false` if rate-limited.
+    #[must_use] 
     pub fn check(&self, ip: IpAddr) -> bool {
         let mut entry = self
             .limiters
@@ -62,6 +64,7 @@ impl RateLimiter {
     }
 
     /// Number of tracked IPs (useful for metrics)
+    #[must_use] 
     pub fn tracked_ips(&self) -> usize {
         self.limiters.len()
     }

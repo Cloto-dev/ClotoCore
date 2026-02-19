@@ -110,13 +110,13 @@ pub async fn install(
     let src_exe = std::env::current_exe()
         .context("Cannot determine current executable path")?;
     let dst_exe = prefix.join(binary_name());
-    if src_exe != dst_exe {
+    if src_exe == dst_exe {
+        info!("📦 Binary already in place");
+    } else {
         std::fs::copy(&src_exe, &dst_exe)
             .with_context(|| format!("Failed to copy binary to {}", dst_exe.display()))?;
         crate::platform::set_executable_permission(&dst_exe)?;
         info!("📦 Installed binary: {}", dst_exe.display());
-    } else {
-        info!("📦 Binary already in place");
     }
 
     // 3. Extract embedded Python scripts
@@ -130,7 +130,9 @@ pub async fn install(
 
     // 4. Generate .env (skip if exists)
     let env_path = prefix.join(".env");
-    if !env_path.exists() {
+    if env_path.exists() {
+        info!("ℹ️  .env already exists, skipping");
+    } else {
         let api_key = generate_api_key();
         let env_content = env_template(&prefix, &api_key);
         std::fs::write(&env_path, env_content)
@@ -145,8 +147,6 @@ pub async fn install(
         info!("🔑 Generated .env with EXIV_API_KEY");
         println!("  EXIV_API_KEY has been auto-generated. Save it securely:");
         println!("  {}", api_key);
-    } else {
-        info!("ℹ️  .env already exists, skipping");
     }
 
     // 5. Python venv setup (optional)
@@ -168,7 +168,7 @@ pub async fn install(
         if cfg!(windows) {
             println!("  As service:       sc.exe start Exiv");
         } else {
-            println!("  As service:       sudo systemctl start vers");
+            println!("  As service:       sudo systemctl start exiv");
         }
     }
     println!("  Dashboard:        http://localhost:8081");

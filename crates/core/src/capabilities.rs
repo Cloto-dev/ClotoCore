@@ -54,16 +54,17 @@ impl SafeHttpClient {
     /// ホスト名ベースでのホワイトリストチェック (O(1) HashSet lookup)
     fn is_whitelisted_host(&self, host: &str) -> bool {
         let hosts = self.allowed_hosts.read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         hosts.contains(&host.to_lowercase())
     }
 
     /// L5: Add a host to the whitelist at runtime.
     /// Returns true if newly inserted, false if already present.
+    #[must_use] 
     pub fn add_host(&self, host: &str) -> bool {
         let normalized = host.to_lowercase();
         let mut hosts = self.allowed_hosts.write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         hosts.insert(normalized)
     }
 }
@@ -180,7 +181,7 @@ mod tests {
     fn test_is_restricted_addr_ipv4_loopback() {
         let client = SafeHttpClient::new(vec![]).unwrap();
 
-        assert!(client.is_restricted_addr(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+        assert!(client.is_restricted_addr(IpAddr::V4(Ipv4Addr::LOCALHOST)));
         assert!(client.is_restricted_addr(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2))));
     }
 
@@ -196,14 +197,14 @@ mod tests {
     fn test_is_restricted_addr_ipv4_broadcast() {
         let client = SafeHttpClient::new(vec![]).unwrap();
 
-        assert!(client.is_restricted_addr(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))));
+        assert!(client.is_restricted_addr(IpAddr::V4(Ipv4Addr::BROADCAST)));
     }
 
     #[test]
     fn test_is_restricted_addr_ipv4_unspecified() {
         let client = SafeHttpClient::new(vec![]).unwrap();
 
-        assert!(client.is_restricted_addr(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))));
+        assert!(client.is_restricted_addr(IpAddr::V4(Ipv4Addr::UNSPECIFIED)));
     }
 
     #[test]
@@ -220,14 +221,14 @@ mod tests {
     fn test_is_restricted_addr_ipv6_loopback() {
         let client = SafeHttpClient::new(vec![]).unwrap();
 
-        assert!(client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))));
+        assert!(client.is_restricted_addr(IpAddr::V6(Ipv6Addr::LOCALHOST)));
     }
 
     #[test]
     fn test_is_restricted_addr_ipv6_unspecified() {
         let client = SafeHttpClient::new(vec![]).unwrap();
 
-        assert!(client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0))));
+        assert!(client.is_restricted_addr(IpAddr::V6(Ipv6Addr::UNSPECIFIED)));
     }
 
     #[test]
