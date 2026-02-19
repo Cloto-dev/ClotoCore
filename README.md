@@ -7,11 +7,10 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/Exiv-ai/Exiv/releases/latest)
-[![Tests](https://img.shields.io/badge/tests-78%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-165%2B%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
-[Download](#download) · [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
+[Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
 
 </div>
 
@@ -83,13 +82,7 @@ graph TB
 - **Capability Injection** — Plugins cannot instantiate network clients. The kernel injects pre-authorized, sandboxed capabilities.
 - **Human-in-the-Loop** — Sensitive operations require explicit admin approval at runtime.
 
-## Download
-
-Pre-built binaries for Windows, macOS, and Linux are available on the [**Releases**](https://github.com/Exiv-ai/Exiv/releases/latest) page.
-
 ## Quick Start
-
-### From Source
 
 ```bash
 git clone https://github.com/Exiv-ai/Exiv.git
@@ -99,20 +92,6 @@ cargo run --package exiv_core
 ```
 
 The dashboard opens at **http://localhost:8081**.
-
-### Pre-built Binary
-
-Download the latest release from the [**Releases**](https://github.com/Exiv-ai/Exiv/releases/latest) page, then:
-
-```bash
-# Manage
-exiv_system service start
-exiv_system service stop
-exiv_system service status
-
-# Update
-exiv_system update
-```
 
 ## Plugins
 
