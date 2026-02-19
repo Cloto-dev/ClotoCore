@@ -429,6 +429,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/plugins/:id/permissions/grant", post(handlers::grant_permission_handler))
         .route("/agents", post(handlers::create_agent))
         .route("/agents/:id", post(handlers::update_agent).delete(handlers::delete_agent))
+        .route("/agents/:id/plugins", get(handlers::get_agent_plugins).put(handlers::set_agent_plugins))
         .route("/agents/:id/power", post(handlers::power_toggle))
         .route("/events/publish", post(handlers::post_event_handler))
         .route("/permissions/:id/approve", post(handlers::approve_permission))

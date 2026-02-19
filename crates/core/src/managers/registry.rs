@@ -98,6 +98,23 @@ impl PluginRegistry {
         }).collect()
     }
 
+    /// Collect tool schemas filtered to a specific agent's allowed plugin set.
+    pub async fn collect_tool_schemas_for(&self, allowed_plugin_ids: &[String]) -> Vec<serde_json::Value> {
+        let plugins = self.plugins.read().await;
+        plugins.iter().filter_map(|(id, p)| {
+            if !allowed_plugin_ids.contains(id) { return None; }
+            let tool = p.as_tool()?;
+            Some(serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": tool.name(),
+                    "description": tool.description(),
+                    "parameters": tool.parameters_schema(),
+                }
+            }))
+        }).collect()
+    }
+
     /// Execute a tool by name with the given arguments.
     /// H-01: Drops the read lock before calling tool.execute() to avoid blocking
     /// plugin registration during long-running tool execution.
@@ -117,6 +134,29 @@ impl PluginRegistry {
             }
         }
         Err(anyhow::anyhow!("Tool '{}' not found", tool_name))
+    }
+
+    /// Execute a tool by name, only if it belongs to the agent's allowed plugin set.
+    pub async fn execute_tool_for(
+        &self,
+        allowed_plugin_ids: &[String],
+        tool_name: &str,
+        args: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        let tool_plugin = {
+            let plugins = self.plugins.read().await;
+            plugins.iter().find_map(|(id, p)| {
+                if !allowed_plugin_ids.contains(id) { return None; }
+                let tool = p.as_tool()?;
+                if tool.name() == tool_name { Some(p.clone()) } else { None }
+            })
+        }; // read lock dropped here
+        if let Some(plugin) = tool_plugin {
+            if let Some(tool) = plugin.as_tool() {
+                return tool.execute(args).await;
+            }
+        }
+        Err(anyhow::anyhow!("Tool '{}' not found or not available for this agent", tool_name))
     }
 
     /// 全てのアクティブなプラグインにイベントを配信する

@@ -263,14 +263,14 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
     setIsTyping(true);
 
     try {
-      // Persist user message to server
-      api.postChatMessage(agent.id, {
+      // Persist user message first — cancel send if this fails
+      await api.postChatMessage(agent.id, {
         id: userMsg.id,
         source: 'user',
         content: userMsg.content,
-      }, apiKey).catch(err => console.error('Failed to persist user message:', err));
+      }, apiKey);
 
-      // Send to event bus for agent processing (existing ExivMessage format)
+      // Send to event bus for agent processing
       const exivMsg: ExivMessage = {
         id: msgId,
         source: { type: 'User', id: 'user', name: 'User' },
@@ -282,8 +282,24 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
 
       await api.postChat(exivMsg, apiKey);
     } catch (err) {
-      console.error("Failed to send message:", err);
+      // Rollback: remove the user message from UI and show error
+      setMessages(prev => prev.filter(m => m.id !== msgId));
+      setInput(input); // Restore input so user can retry
       setIsTyping(false);
+      const errMsg = err instanceof Error ? err.message : 'Failed to send message';
+      console.error("Failed to send message:", errMsg);
+      // Show transient error in UI
+      const errId = `err-${msgId}`;
+      const errBubble: ChatMessage = {
+        id: errId,
+        agent_id: agent.id,
+        user_id: 'default',
+        source: 'system',
+        content: [{ type: 'text', text: `⚠ ${errMsg}` }],
+        created_at: Date.now(),
+      };
+      setMessages(prev => [...prev, errBubble]);
+      setTimeout(() => setMessages(prev => prev.filter(m => m.id !== errId)), 5000);
     }
   };
 

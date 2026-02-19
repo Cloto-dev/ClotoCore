@@ -59,6 +59,27 @@ export const api = {
     mutate(`/plugins/${id}/config`, 'POST', 'update plugin config', payload, { 'X-API-Key': apiKey }).then(() => {}),
   updateAgent: (id: string, payload: { default_engine_id?: string, metadata: Record<string, string> }, apiKey: string) =>
     mutate(`/agents/${id}`, 'POST', 'update agent', payload, { 'X-API-Key': apiKey }).then(() => {}),
+
+  getAgentPlugins: async (agentId: string, apiKey: string): Promise<{ plugin_id: string; pos_x: number; pos_y: number }[]> => {
+    const res = await fetch(`${API_BASE}/agents/${agentId}/plugins`, {
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    });
+    if (!res.ok) throw new Error(`Failed to get agent plugins: ${res.statusText}`);
+    const data = await res.json();
+    return data.plugins ?? [];
+  },
+
+  setAgentPlugins: async (agentId: string, plugins: { plugin_id: string; pos_x: number; pos_y: number }[], apiKey: string): Promise<void> => {
+    const res = await fetch(`${API_BASE}/agents/${agentId}/plugins`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify({ plugins }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.error?.message || `Failed to set agent plugins: ${res.statusText}`);
+    }
+  },
   grantPermission: (pluginId: string, permission: string, apiKey: string) =>
     mutate(`/plugins/${pluginId}/permissions/grant`, 'POST', 'grant permission', { permission }, { 'X-API-Key': apiKey }).then(() => {}),
   postEvent: (eventData: any, apiKey: string) =>

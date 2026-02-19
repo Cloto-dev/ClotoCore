@@ -183,6 +183,46 @@ impl AgentManager {
             .is_ok())
     }
 
+    /// Return the plugin list for an agent from the agent_plugins table.
+    pub async fn get_agent_plugins(&self, agent_id: &str) -> anyhow::Result<Vec<crate::db::AgentPluginRow>> {
+        crate::db::get_agent_plugins(&self.pool, agent_id).await
+    }
+
+    /// Replace an agent's plugin list. Also updates default_engine_id and preferred_memory
+    /// by inspecting the plugin manifests via the provided registry.
+    pub async fn set_agent_plugins(
+        &self,
+        agent_id: &str,
+        plugins: &[(String, i32, i32)],
+        registry: &crate::managers::PluginRegistry,
+    ) -> anyhow::Result<()> {
+        crate::db::set_agent_plugins(&self.pool, agent_id, plugins).await?;
+
+        // Derive default_engine_id and preferred_memory from the new plugin list
+        let manifests = registry.list_plugins().await;
+        let mut engine_id: Option<String> = None;
+        let mut memory_id: Option<String> = None;
+        for (plugin_id, _, _) in plugins {
+            if let Some(m) = manifests.iter().find(|m| &m.id == plugin_id) {
+                if engine_id.is_none() && m.service_type == exiv_shared::ServiceType::Reasoning {
+                    engine_id = Some(plugin_id.clone());
+                }
+                if memory_id.is_none() && m.service_type == exiv_shared::ServiceType::Memory {
+                    memory_id = Some(plugin_id.clone());
+                }
+            }
+        }
+
+        // Update agents table
+        let (meta, _) = self.get_agent_config(agent_id).await?;
+        let mut metadata = meta.metadata.clone();
+        if let Some(ref mid) = memory_id {
+            metadata.insert("preferred_memory".to_string(), mid.clone());
+        }
+        self.update_agent_config(agent_id, engine_id, metadata).await?;
+        Ok(())
+    }
+
     /// Delete an agent and all associated data (chat messages, attachments via cascade).
     pub async fn delete_agent(&self, agent_id: &str) -> anyhow::Result<()> {
         // chat_attachments cascade from chat_messages (ON DELETE CASCADE in schema)

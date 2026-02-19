@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn, error};
+use chrono::Utc;
 use async_trait::async_trait;
 
 use exiv_shared::{
@@ -53,6 +54,12 @@ impl SystemHandler {
 
         // Passive heartbeat: update last_seen on message routing
         self.agent_manager.touch_last_seen(&target_agent_id).await.ok();
+
+        // 1b. エージェントに割り当てられたプラグインIDを取得
+        let agent_plugin_ids: Vec<String> = self.agent_manager
+            .get_agent_plugins(&target_agent_id).await
+            .unwrap_or_default()
+            .into_iter().map(|r| r.plugin_id).collect();
 
         // 2. メモリからのコンテキスト取得
         let memory_plugin = if let Some(preferred_id) = agent.metadata.get("preferred_memory") {
@@ -133,8 +140,30 @@ impl SystemHandler {
         } else {
             // 通常モード: エージェントループで処理
             let engine_id = _engine_id;
-            match self.run_agentic_loop(&agent, &engine_id, &msg, context, trace_id).await {
+            match self.run_agentic_loop(&agent, &engine_id, &msg, context, &agent_plugin_ids, trace_id).await {
                 Ok(content) => {
+                    // エージェント返答もメモリに保存 (user messageと対で保存)
+                    if let Some(plugin) = &memory_plugin {
+                        let plugin_clone = plugin.clone();
+                        let agent_resp_msg = ExivMessage {
+                            id: format!("{}-resp", msg.id),
+                            source: exiv_shared::MessageSource::Agent { id: agent.id.clone() },
+                            target_agent: Some(agent.id.clone()),
+                            content: content.clone(),
+                            timestamp: Utc::now(),
+                            metadata: std::collections::HashMap::new(),
+                        };
+                        let agent_id_clone = agent.id.clone();
+                        tokio::spawn(async move {
+                            if let Some(mem) = plugin_clone.as_memory() {
+                                let _ = tokio::time::timeout(
+                                    std::time::Duration::from_secs(5),
+                                    mem.store(agent_id_clone, agent_resp_msg)
+                                ).await;
+                            }
+                        });
+                    }
+
                     let thought_response = ExivEventData::ThoughtResponse {
                         agent_id: agent.id.clone(),
                         engine_id: engine_id.clone(),
@@ -219,6 +248,7 @@ impl SystemHandler {
         engine_id: &str,
         message: &ExivMessage,
         context: Vec<ExivMessage>,
+        agent_plugin_ids: &[String],
         trace_id: ExivId,
     ) -> anyhow::Result<String> {
         let engine_plugin = self.registry.get_engine(engine_id).await
@@ -231,7 +261,12 @@ impl SystemHandler {
             return engine.think(agent, message, context).await;
         }
 
-        let tools = self.registry.collect_tool_schemas().await;
+        // エージェントに割り当てられたプラグインのみからツールを収集
+        let tools = if agent_plugin_ids.is_empty() {
+            self.registry.collect_tool_schemas().await
+        } else {
+            self.registry.collect_tool_schemas_for(agent_plugin_ids).await
+        };
         if tools.is_empty() {
             return engine.think(agent, message, context).await;
         }
@@ -341,7 +376,13 @@ impl SystemHandler {
 
                         let tool_result = tokio::time::timeout(
                             Duration::from_secs(self.tool_execution_timeout_secs),
-                            self.registry.execute_tool(&call.name, call.arguments.clone())
+                            async {
+                                if agent_plugin_ids.is_empty() {
+                                    self.registry.execute_tool(&call.name, call.arguments.clone()).await
+                                } else {
+                                    self.registry.execute_tool_for(agent_plugin_ids, &call.name, call.arguments.clone()).await
+                                }
+                            }
                         ).await;
 
                         let duration_ms = start.elapsed().as_millis() as u64;
