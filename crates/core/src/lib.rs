@@ -89,7 +89,14 @@ pub enum AppError {
 impl axum::response::IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         let (status, err_type, message) = match self {
-            AppError::Exiv(e) => (axum::http::StatusCode::BAD_REQUEST, format!("{:?}", e), e.to_string()),
+            AppError::Exiv(e) => {
+                let status = match &e {
+                    exiv_shared::ExivError::PermissionDenied(_) => axum::http::StatusCode::FORBIDDEN,
+                    exiv_shared::ExivError::PluginNotFound(_) | exiv_shared::ExivError::AgentNotFound(_) => axum::http::StatusCode::NOT_FOUND,
+                    _ => axum::http::StatusCode::BAD_REQUEST,
+                };
+                (status, format!("{:?}", e), e.to_string())
+            },
             AppError::Internal(e) => {
                 // Log full error server-side only; return generic message to client
                 tracing::error!("Internal error: {}", e);
