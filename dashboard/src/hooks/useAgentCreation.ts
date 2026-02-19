@@ -25,17 +25,21 @@ export function useAgentCreation(onCreated: () => void) {
   const { apiKey } = useApiKey();
   const [form, setForm] = useState<CreationForm>(INITIAL_FORM);
   const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const updateField = <K extends keyof CreationForm>(key: K, value: CreationForm[K]) => {
+    setCreateError(null);
     setForm(prev => ({ ...prev, [key]: value }));
   };
 
   const handleTypeChange = (type: AgentType) => {
+    setCreateError(null);
     setForm(prev => ({ ...prev, type, engine: '', memory: '' }));
   };
 
   const handleCreate = async () => {
     setIsCreating(true);
+    setCreateError(null);
     try {
       await api.createAgent({
         name: form.name,
@@ -47,11 +51,13 @@ export function useAgentCreation(onCreated: () => void) {
       setForm(INITIAL_FORM);
       onCreated();
     } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      setCreateError(msg);
       console.error(e);
     } finally {
       setIsCreating(false);
     }
   };
 
-  return { form, updateField, handleTypeChange, handleCreate, isCreating };
+  return { form, updateField, handleTypeChange, handleCreate, isCreating, createError };
 }

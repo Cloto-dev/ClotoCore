@@ -69,8 +69,17 @@ export const api = {
     mutate(`/permissions/${requestId}/approve`, 'POST', 'approve permission', { approved_by: approvedBy }, { 'X-API-Key': apiKey }).then(() => {}),
   denyPermission: (requestId: string, approvedBy: string, apiKey: string) =>
     mutate(`/permissions/${requestId}/deny`, 'POST', 'deny permission', { approved_by: approvedBy }, { 'X-API-Key': apiKey }).then(() => {}),
-  createAgent: (payload: { name: string; description: string; default_engine: string; metadata: Record<string, string>; password?: string }, apiKey: string) =>
-    mutate('/agents', 'POST', 'create agent', payload, { 'X-API-Key': apiKey }).then(() => {}),
+  async createAgent(payload: { name: string; description: string; default_engine: string; metadata: Record<string, string>; password?: string }, apiKey: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/agents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.error?.message || `Failed to create agent: ${res.statusText}`);
+    }
+  },
   postChat: (message: ExivMessage, apiKey: string) =>
     mutate('/chat', 'POST', 'send chat', message, { 'X-API-Key': apiKey }).then(() => {}),
   updateEvolutionParams: (params: EvolutionParams, apiKey: string) =>

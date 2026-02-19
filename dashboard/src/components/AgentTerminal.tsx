@@ -607,7 +607,7 @@ export function AgentTerminal({
   };
 
   // Creation form
-  const { form: newAgent, updateField, handleTypeChange, handleCreate, isCreating } = useAgentCreation(refreshAgents);
+  const { form: newAgent, updateField, handleTypeChange, handleCreate, isCreating, createError } = useAgentCreation(refreshAgents);
 
   // Listen for AgentPowerChanged events to auto-refresh
   useEventStream(`${API_BASE}/events`, (event) => {
@@ -874,9 +874,12 @@ export function AgentTerminal({
               <p className="text-[9px] text-content-tertiary mt-1">Require password to toggle power on/off</p>
             </div>
 
+            {createError && (
+              <p className="text-xs text-red-400 text-center px-1">{createError}</p>
+            )}
             <button
               onClick={handleCreate}
-              disabled={!newAgent.name || !newAgent.engine || isCreating}
+              disabled={!newAgent.name || !newAgent.desc || !newAgent.engine || isCreating}
               className="w-full mt-2 text-white py-2.5 rounded-xl text-sm font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               style={{ backgroundColor: agentTypeColor(newAgent.type) }}
             >
