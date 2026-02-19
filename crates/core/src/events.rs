@@ -12,14 +12,20 @@ use exiv_shared::{Permission, ExivEvent};
 pub(crate) async fn build_snapshot_from_registry_inner(registry: &PluginRegistry) -> AgentSnapshot {
     let manifests = registry.list_plugins().await;
     let active: Vec<_> = manifests.iter().filter(|m| m.is_active).collect();
+    let all_plugin_ids: Vec<String> = active.iter().map(|m| m.id.clone()).collect();
+    let runtime_plugins: Vec<String> = all_plugin_ids.iter()
+        .filter(|id| id.starts_with("python.runtime."))
+        .cloned()
+        .collect();
     AgentSnapshot {
-        active_plugins: active.iter().map(|m| m.id.clone()).collect(),
+        active_plugins: all_plugin_ids,
         plugin_capabilities: active.iter()
             .map(|m| (
                 m.id.clone(),
                 m.provided_capabilities.iter().map(|c| format!("{:?}", c)).collect(),
             ))
             .collect(),
+        runtime_plugins,
         personality_hash: String::new(),
         strategy_params: HashMap::new(),
     }

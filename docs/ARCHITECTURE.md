@@ -306,6 +306,36 @@ EXIV_MANIFEST = {
 
 ---
 
+## 3.5 Three-Tier Plugin Model
+
+Exiv supports three tiers of plugins with increasing dynamism:
+
+```
+┌──────────────────────────────────────────────────┐
+│ Tier 1: Compiled Plugins (Rust, inventory)        │
+│   #[exiv_plugin] macro, Magic Seal validation     │
+│   9 official plugins, maximum performance         │
+├──────────────────────────────────────────────────┤
+│ Tier 2: Script Plugins (Python Bridge)            │
+│   Runtime generation via Skill Manager (L5)       │
+│   AST security inspection, DB persistence         │
+├──────────────────────────────────────────────────┤
+│ Tier 3: Sandboxed Plugins (WASM) [Planned]        │
+│   wasmtime Component Model, capability-based I/O  │
+│   Third-party distribution, near-native perf      │
+└──────────────────────────────────────────────────┘
+```
+
+| Tier | Language | Loading | Security | Performance | Use Case |
+|------|----------|---------|----------|-------------|----------|
+| 1 | Rust | Compile-time | Magic Seal + type system | Native | Core/official plugins |
+| 2 | Python | Runtime | AST inspection + process isolation | Subprocess IPC | Agent-generated tools (L5) |
+| 3 | Any (WASM) | Runtime | Sandboxed + capability imports | Near-native (-5~25%) | Third-party plugins |
+
+See [`WASM_PLUGIN_DESIGN.md`](WASM_PLUGIN_DESIGN.md) for Tier 3 design details.
+
+---
+
 ## 4. Project Oculi: Eye-Tracking & Visual Symbiosis
 
 人間の視線（Gaze）を AI とリアルタイムに共有し、Foveated Vision による低レイテンシ・低コスト推論を実現するサブプロジェクト。

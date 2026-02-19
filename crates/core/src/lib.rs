@@ -138,7 +138,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     use crate::events::EventProcessor;
     use crate::handlers::{self, system::SystemHandler};
     use crate::managers::{AgentManager, PluginManager};
-    use axum::{routing::{get, post, any}, Router};
+    use axum::{routing::{get, post, delete, any}, Router};
     use tower_http::cors::CorsLayer;
     use tracing::info;
 
@@ -249,6 +249,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             plugin_manager.clone(),
             registry_arc.clone(),
             plugin_manager.http_client(),
+            pool.clone(),
         )
     );
 
@@ -256,6 +257,52 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         let mut plugins = registry_arc.plugins.write().await;
         plugins.insert("core.system".to_string(), system_handler);
         plugins.insert("core.skill_manager".to_string(), skill_manager);
+    }
+
+    // L5: Restore persisted runtime plugins from database
+    match db::load_active_runtime_plugins(&pool).await {
+        Ok(runtime_plugins) => {
+            let count = runtime_plugins.len();
+            for record in runtime_plugins {
+                // Ensure script file exists (regenerate from DB if missing)
+                let scripts_dir = std::path::Path::new("scripts");
+                let script_path = scripts_dir.join(&record.script_name);
+                if !script_path.exists() {
+                    if let Err(e) = std::fs::create_dir_all(scripts_dir) {
+                        tracing::warn!(error = %e, "Failed to create scripts directory for runtime plugin restore");
+                        continue;
+                    }
+                    if let Err(e) = std::fs::write(&script_path, &record.code_content) {
+                        tracing::warn!(error = %e, plugin_id = %record.plugin_id, "Failed to regenerate script file");
+                        continue;
+                    }
+                    info!(plugin_id = %record.plugin_id, "📄 Regenerated script from DB");
+                }
+
+                let mut config_values = std::collections::HashMap::new();
+                config_values.insert("script_path".to_string(), record.script_name.clone());
+
+                let permissions: Vec<exiv_shared::Permission> = if record.permissions.contains("NetworkAccess") {
+                    vec![exiv_shared::Permission::NetworkAccess]
+                } else {
+                    vec![]
+                };
+
+                match plugin_manager.register_runtime_plugin(
+                    &record.plugin_id,
+                    config_values,
+                    permissions,
+                    &registry_arc,
+                ).await {
+                    Ok(_) => info!(plugin_id = %record.plugin_id, "🔄 Restored runtime plugin from DB"),
+                    Err(e) => tracing::warn!(error = %e, plugin_id = %record.plugin_id, "Failed to restore runtime plugin"),
+                }
+            }
+            if count > 0 {
+                info!(count = count, "✅ Runtime plugin restoration complete");
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "Failed to load runtime plugins from database"),
     }
 
     // 5. Rate Limiter & Evolution Engine & App State
@@ -366,6 +413,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         // Chat persistence endpoints
         .route("/chat/:agent_id/messages", get(handlers::chat::get_messages).post(handlers::chat::post_message).delete(handlers::chat::delete_messages))
         .route("/chat/attachments/:attachment_id", get(handlers::chat::get_attachment))
+        // Runtime plugin management
+        .route("/plugins/runtime/:id", delete(handlers::delete_runtime_plugin))
         // Evolution Engine endpoints (auth required for write)
         .route("/evolution/evaluate", post(handlers::evolution::evaluate_agent))
         .route("/evolution/params", get(handlers::evolution::get_evolution_params).put(handlers::evolution::update_evolution_params))

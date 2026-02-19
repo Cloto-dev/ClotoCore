@@ -12,13 +12,16 @@ use exiv_shared::{
     Plugin, PluginCast, PluginManifest, PluginCategory, ServiceType,
     ExivEvent, Permission, Tool,
 };
+use sqlx::SqlitePool;
 use crate::managers::{PluginManager, PluginRegistry};
 use crate::capabilities::SafeHttpClient;
+use crate::db;
 
 pub struct SkillManager {
     plugin_manager: Arc<PluginManager>,
     registry: Arc<PluginRegistry>,
     http_client: Arc<SafeHttpClient>,
+    pool: SqlitePool,
 }
 
 impl SkillManager {
@@ -26,8 +29,9 @@ impl SkillManager {
         plugin_manager: Arc<PluginManager>,
         registry: Arc<PluginRegistry>,
         http_client: Arc<SafeHttpClient>,
+        pool: SqlitePool,
     ) -> Self {
-        Self { plugin_manager, registry, http_client }
+        Self { plugin_manager, registry, http_client, pool }
     }
 
     async fn handle_register_skill(&self, args: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
@@ -105,7 +109,10 @@ def execute(params):
         // Register as a runtime plugin
         let plugin_id = format!("python.runtime.{}", name);
         let mut config_values = HashMap::new();
-        config_values.insert("script_path".to_string(), script_filename);
+        config_values.insert("script_path".to_string(), script_filename.clone());
+
+        let permissions_json = serde_json::to_string(&permissions.iter().map(|p| format!("{:?}", p)).collect::<Vec<_>>())
+            .unwrap_or_else(|_| "[]".to_string());
 
         self.plugin_manager.register_runtime_plugin(
             &plugin_id,
@@ -113,6 +120,24 @@ def execute(params):
             permissions,
             &self.registry,
         ).await?;
+
+        // Persist to database for survival across restarts
+        let record = db::RuntimePluginRecord {
+            plugin_id: plugin_id.clone(),
+            script_name: script_filename,
+            description: Some(description.to_string()),
+            code_content: script_content,
+            permissions: permissions_json,
+            created_at: chrono::Utc::now().timestamp_millis(),
+            created_by: None,
+            generation_number: None,
+            is_active: true,
+        };
+        if let Err(e) = db::save_runtime_plugin(&self.pool, &record).await {
+            tracing::warn!(error = %e, plugin_id = %plugin_id, "Failed to persist runtime plugin to DB (plugin is active but ephemeral)");
+        } else {
+            info!(plugin_id = %plugin_id, "💾 L5: Runtime plugin persisted to database");
+        }
 
         Ok(serde_json::json!({
             "status": "registered",

@@ -274,6 +274,10 @@ pub struct AgentSnapshot {
     /// Defaults to empty for backward compatibility with pre-E7 snapshots.
     #[serde(default)]
     pub plugin_capabilities: HashMap<String, Vec<String>>,
+    /// Runtime-generated Python plugins (python.runtime.*) active at snapshot time.
+    /// Used by rollback to restore/deactivate runtime plugins.
+    #[serde(default)]
+    pub runtime_plugins: Vec<String>,
     pub personality_hash: String,
     pub strategy_params: HashMap<String, serde_json::Value>,
 }

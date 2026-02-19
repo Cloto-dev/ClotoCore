@@ -727,6 +727,102 @@ async fn get_disk_attachment_paths(
     Ok(rows.into_iter().map(|(path,)| path).collect())
 }
 
+// ============================================================
+// Runtime Plugin Persistence (L5 Self-Extension)
+// ============================================================
+
+#[derive(Debug, Clone)]
+pub struct RuntimePluginRecord {
+    pub plugin_id: String,
+    pub script_name: String,
+    pub description: Option<String>,
+    pub code_content: String,
+    pub permissions: String,
+    pub created_at: i64,
+    pub created_by: Option<String>,
+    pub generation_number: Option<i64>,
+    pub is_active: bool,
+}
+
+pub async fn save_runtime_plugin(pool: &SqlitePool, record: &RuntimePluginRecord) -> anyhow::Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query(
+            "INSERT OR REPLACE INTO runtime_plugins \
+             (plugin_id, script_name, description, code_content, permissions, created_at, created_by, generation_number, is_active) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        .bind(&record.plugin_id)
+        .bind(&record.script_name)
+        .bind(&record.description)
+        .bind(&record.code_content)
+        .bind(&record.permissions)
+        .bind(record.created_at)
+        .bind(&record.created_by)
+        .bind(record.generation_number)
+        .bind(record.is_active)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to save runtime plugin: {}", e))?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout saving runtime plugin"))?
+}
+
+pub async fn load_active_runtime_plugins(pool: &SqlitePool) -> anyhow::Result<Vec<RuntimePluginRecord>> {
+    tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
+        let rows = sqlx::query_as::<_, (String, String, Option<String>, String, String, i64, Option<String>, Option<i64>, bool)>(
+            "SELECT plugin_id, script_name, description, code_content, permissions, created_at, created_by, generation_number, is_active \
+             FROM runtime_plugins WHERE is_active = 1 ORDER BY created_at ASC"
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to load runtime plugins: {}", e))?;
+
+        Ok(rows.into_iter().map(|(plugin_id, script_name, description, code_content, permissions, created_at, created_by, generation_number, is_active)| {
+            RuntimePluginRecord {
+                plugin_id,
+                script_name,
+                description,
+                code_content,
+                permissions,
+                created_at,
+                created_by,
+                generation_number,
+                is_active,
+            }
+        }).collect())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout loading runtime plugins"))?
+}
+
+pub async fn deactivate_runtime_plugin(pool: &SqlitePool, plugin_id: &str) -> anyhow::Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query("UPDATE runtime_plugins SET is_active = 0 WHERE plugin_id = ?")
+            .bind(plugin_id)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to deactivate runtime plugin: {}", e))?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout deactivating runtime plugin"))?
+}
+
+pub async fn delete_runtime_plugin(pool: &SqlitePool, plugin_id: &str) -> anyhow::Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query("DELETE FROM runtime_plugins WHERE plugin_id = ?")
+            .bind(plugin_id)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to delete runtime plugin: {}", e))?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout deleting runtime plugin"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

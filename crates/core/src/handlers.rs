@@ -859,6 +859,49 @@ pub async fn deny_permission(
     })))
 }
 
+// ============================================================
+// Runtime Plugin Management
+// ============================================================
+
+pub async fn delete_runtime_plugin(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let plugin_id = if id.starts_with("python.runtime.") {
+        id.clone()
+    } else {
+        format!("python.runtime.{}", id)
+    };
+
+    // Deactivate in DB
+    if let Err(e) = crate::db::deactivate_runtime_plugin(&state.pool, &plugin_id).await {
+        tracing::warn!(error = %e, plugin_id = %plugin_id, "Failed to deactivate runtime plugin in DB");
+    }
+
+    // Remove from registry
+    {
+        let mut plugins = state.registry.plugins.write().await;
+        plugins.remove(&plugin_id);
+    }
+
+    // Remove script file
+    let script_name = format!("runtime_{}.py", id.strip_prefix("python.runtime.").unwrap_or(&id));
+    let script_path = std::path::Path::new("scripts").join(&script_name);
+    if script_path.exists() {
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    tracing::info!(plugin_id = %plugin_id, "🗑️ Runtime plugin deleted");
+
+    Ok(Json(serde_json::json!({
+        "status": "deleted",
+        "plugin_id": plugin_id,
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
