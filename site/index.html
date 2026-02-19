@@ -113,54 +113,6 @@
       font-weight: 400;
     }
 
-    .platform-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 12px;
-    }
-
-    .platform-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 20px;
-      text-align: center;
-      text-decoration: none;
-      color: var(--text);
-      transition: border-color 0.15s;
-    }
-
-    .platform-card:hover { border-color: var(--accent); }
-
-    .platform-card.detected {
-      border-color: var(--green);
-      position: relative;
-    }
-
-    .platform-card.detected::after {
-      content: "Your OS";
-      position: absolute;
-      top: -10px;
-      right: 12px;
-      background: var(--green);
-      color: #000;
-      font-size: 0.7rem;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 10px;
-    }
-
-    .platform-card .os-name {
-      font-weight: 600;
-      font-size: 1rem;
-      margin-bottom: 4px;
-    }
-
-    .platform-card .os-arch {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-    }
-
     .cli-section {
       max-width: 640px;
       width: 100%;
@@ -210,7 +162,6 @@
     footer a { color: var(--accent); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
 
-    .loading { opacity: 0.5; }
 
     @media (max-width: 480px) {
       .hero h1 { font-size: 2rem; }
@@ -225,11 +176,11 @@
     <p>Extensible AI agent orchestration platform.<br>Plugin-based kernel with async event bus, written in Rust.</p>
 
     <div class="download-section">
-      <a id="main-download" class="btn-primary loading" href="https://github.com/Exiv-ai/Exiv/releases/latest">
+      <a class="btn-primary" href="https://github.com/Exiv-ai/Exiv/releases/latest">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
         </svg>
-        <span id="main-download-text">Download</span>
+        <span>View Releases</span>
       </a>
       <span id="version-info" class="version-badge"></span>
     </div>
@@ -237,15 +188,16 @@
 
   <div class="platforms">
     <h2>All platforms</h2>
-    <div class="platform-grid" id="platform-grid"></div>
+    <p style="text-align:center;color:var(--text-muted);font-size:.95rem;">
+      Windows · macOS · Linux — pre-built binaries available on the
+      <a href="https://github.com/Exiv-ai/Exiv/releases/latest">Releases page</a>.
+    </p>
   </div>
 
   <div class="cli-section">
-    <h2>Or install via command line</h2>
-    <p style="color:var(--muted);font-size:.95rem;">
-      Download <code>install.sh</code> or <code>install.ps1</code> from the
-      <a href="https://github.com/Exiv-ai/Exiv/releases/latest">Releases page</a>,
-      review the script, then run it locally.
+    <h2>Build from source</h2>
+    <p style="color:var(--text-muted);font-size:.95rem;">
+      See the <a href="https://github.com/Exiv-ai/Exiv">repository</a> for build instructions.
     </p>
   </div>
 
@@ -258,81 +210,19 @@
   <script>
     const REPO = 'Exiv-ai/Exiv';
 
-    const PLATFORMS = [
-      { name: 'Windows', arch: 'x64', file: 'exiv-setup-{v}.exe', detect: /Win/ },
-      { name: 'macOS', arch: 'Apple Silicon', file: 'exiv-{v}-macos-arm64.tar.gz', detect: /Mac.*ARM|Macintosh/ },
-      { name: 'macOS', arch: 'Intel', file: 'exiv-{v}-macos-x64.tar.gz', detect: /Mac/ },
-      { name: 'Linux', arch: 'x64', file: 'exiv-{v}-linux-x64.tar.gz', detect: /Linux.*x86_64|Linux.*x64/ },
-      { name: 'Linux', arch: 'ARM64', file: 'exiv-{v}-linux-arm64.tar.gz', detect: /Linux.*aarch64|Linux.*arm64/ },
-    ];
-
-    function detectOS() {
-      const ua = navigator.userAgent;
-      const platform = navigator.platform || '';
-      const combined = ua + ' ' + platform;
-
-      if (/Win/.test(combined)) return 0;
-      if (/Mac/.test(combined)) {
-        // Heuristic: recent Macs are likely Apple Silicon
-        try {
-          const canvas = document.createElement('canvas');
-          const gl = canvas.getContext('webgl');
-          const renderer = gl ? gl.getParameter(gl.RENDERER) : '';
-          if (/Apple/.test(renderer)) return 1; // Apple GPU = Apple Silicon
-        } catch(e) {}
-        return 2; // Default to Intel Mac
-      }
-      if (/Linux/.test(combined)) return 3;
-      return 0; // Default to Windows
-    }
-
     async function init() {
-      const btn = document.getElementById('main-download');
-      const btnText = document.getElementById('main-download-text');
       const versionInfo = document.getElementById('version-info');
-      const grid = document.getElementById('platform-grid');
-      const detectedIdx = detectOS();
-
-      let version = 'latest';
-      let assets = [];
 
       try {
         const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`);
         if (res.ok) {
           const data = await res.json();
-          version = data.tag_name.replace(/^v/, '');
-          assets = data.assets || [];
+          const version = data.tag_name.replace(/^v/, '');
           versionInfo.innerHTML = `Latest: <a href="${data.html_url}">v${version}</a>`;
         }
       } catch(e) {
         versionInfo.textContent = '';
       }
-
-      // Find asset URL by filename pattern
-      function findAsset(pattern) {
-        const filename = pattern.replace('{v}', version);
-        const asset = assets.find(a => a.name === filename);
-        return asset ? asset.browser_download_url : `https://github.com/${REPO}/releases/latest`;
-      }
-
-      // Main button
-      const detected = PLATFORMS[detectedIdx];
-      const mainUrl = findAsset(detected.file);
-      btn.href = mainUrl;
-      btnText.textContent = `Download for ${detected.name} (${detected.arch})`;
-      btn.classList.remove('loading');
-
-      // Platform grid
-      PLATFORMS.forEach((p, i) => {
-        const card = document.createElement('a');
-        card.className = 'platform-card' + (i === detectedIdx ? ' detected' : '');
-        card.href = findAsset(p.file);
-        card.innerHTML = `
-          <div class="os-name">${p.name}</div>
-          <div class="os-arch">${p.arch}</div>
-        `;
-        grid.appendChild(card);
-      });
     }
 
     init();

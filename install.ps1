@@ -51,15 +51,11 @@ function Assert-Administrator {
         Write-Log "Not running as admin, attempting elevation"
         try {
             $ScriptPath = $MyInvocation.ScriptName
-            if ($ScriptPath) {
-                Start-Process powershell.exe -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$ScriptPath`""
-            } else {
-                # Piped execution (irm | iex) - download and re-run elevated
-                $TempScript = Join-Path $env:TEMP "exiv-install-elevated.ps1"
-                Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Exiv-ai/Exiv/master/install.ps1" `
-                    -OutFile $TempScript -UseBasicParsing
-                Start-Process powershell.exe -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$TempScript`""
+            if (-not $ScriptPath) {
+                Write-Err "Please save install.ps1 to a file and run it with: powershell -ExecutionPolicy Bypass -File install.ps1"
+                exit 1
             }
+            Start-Process powershell.exe -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$ScriptPath`""
             exit 0
         } catch {
             Write-Err "Administrator privileges are required. Please run as Administrator."
