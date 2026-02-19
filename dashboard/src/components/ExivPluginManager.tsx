@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Puzzle, Shield, CheckCircle2, AlertTriangle, Save, Filter, Settings, ExternalLink, Terminal, ChevronDown, ChevronRight, Hash, FolderOpen } from 'lucide-react';
+import { Puzzle, Shield, CheckCircle2, AlertTriangle, Save, Filter, Settings, ExternalLink, Terminal, ChevronDown, ChevronRight, Hash, FolderOpen, Database, MousePointer2, Lock } from 'lucide-react';
 import { PluginManifest, PluginCategory } from '../types';
 import { api } from '../services/api';
 import { ServiceTypeIcon } from '../lib/pluginUtils';
@@ -124,6 +124,8 @@ export function ExivPluginManager() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [applyError, setApplyError] = useState('');
   const [configTarget, setConfigTarget] = useState<PluginManifest | null>(null);
   
   // Category expanded state (Discord-style)
@@ -171,7 +173,12 @@ export function ExivPluginManager() {
   };
 
   const applyChanges = async () => {
+    if (!apiKey) {
+      setApplyError('API Key is required to apply changes.');
+      return;
+    }
     setIsSaving(true);
+    setApplyError('');
     try {
       const changes = editingPlugins
         .filter(p => {
@@ -181,10 +188,11 @@ export function ExivPluginManager() {
         .map(p => ({ id: p.id, is_active: p.is_active }));
 
       if (changes.length > 0) {
-        await api.applyPluginSettings(changes);
+        await api.applyPluginSettings(changes, apiKey);
       }
       setPlugins(JSON.parse(JSON.stringify(editingPlugins)));
-    } catch (err) {
+    } catch (err: any) {
+      setApplyError(err?.message || 'Failed to apply plugin changes.');
       console.error('Failed to apply plugin changes:', err);
     } finally {
       setIsSaving(false);
@@ -395,15 +403,29 @@ export function ExivPluginManager() {
 
       {/* Footer - Apply Bar */}
       {hasChanges && (
-        <div className="p-4 bg-surface-primary border-t border-edge-subtle flex items-center justify-between animate-in slide-in-from-bottom-full duration-500 z-50">
-          <div className="flex items-center gap-2 text-amber-600 px-4">
+        <div className="p-4 bg-surface-primary border-t border-edge-subtle flex items-center gap-4 animate-in slide-in-from-bottom-full duration-500 z-50">
+          <div className="flex items-center gap-2 text-amber-600 px-4 flex-shrink-0">
             <AlertTriangle size={16} />
-            <span className="text-[10px] font-bold uppercase tracking-widest">Pending changes exist</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest">Pending changes</span>
           </div>
+          <div className="flex items-center gap-2 flex-1">
+            <Lock size={12} className="text-content-muted flex-shrink-0" />
+            <input
+              type="password"
+              value={apiKey}
+              onChange={e => { setApiKey(e.target.value); setApplyError(''); }}
+              onKeyDown={e => e.key === 'Enter' && apiKey && applyChanges()}
+              placeholder="API Key"
+              className="flex-1 min-w-0 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-xs font-mono focus:outline-none focus:border-brand"
+            />
+          </div>
+          {applyError && (
+            <span className="text-[10px] text-red-400 font-medium flex-shrink-0">{applyError}</span>
+          )}
           <button
             onClick={applyChanges}
-            disabled={isSaving}
-            className="flex items-center gap-2 px-6 py-2.5 bg-brand text-white rounded-xl text-xs font-bold shadow-lg shadow-brand/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+            disabled={isSaving || !apiKey}
+            className="flex items-center gap-2 px-6 py-2.5 bg-brand text-white rounded-xl text-xs font-bold shadow-lg shadow-brand/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 flex-shrink-0"
           >
             {isSaving ? (
               <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />

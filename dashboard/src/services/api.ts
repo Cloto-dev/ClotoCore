@@ -48,8 +48,8 @@ export const api = {
   getFitnessTimeline: (limit?: number) =>
     fetchJson<FitnessLogEntry[]>(`/evolution/fitness${limit ? `?limit=${limit}` : ''}`, 'fetch fitness timeline'),
 
-  applyPluginSettings: (settings: { id: string, is_active: boolean }[]) =>
-    mutate('/plugins/apply', 'POST', 'apply plugin settings', settings).then(() => {}),
+  applyPluginSettings: (settings: { id: string, is_active: boolean }[], apiKey: string) =>
+    mutate('/plugins/apply', 'POST', 'apply plugin settings', settings, { 'X-API-Key': apiKey }).then(() => {}),
   updatePluginConfig: (id: string, payload: { key: string, value: string }) =>
     mutate(`/plugins/${id}/config`, 'POST', 'update plugin config', payload).then(() => {}),
   updateAgent: (id: string, payload: { default_engine_id?: string, metadata: Record<string, string> }) =>
