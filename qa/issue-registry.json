@@ -266,6 +266,30 @@
       "pattern": "name = \"lru\"\\nversion = \"0\\.12\\.",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-036",
+      "summary": "Dashboard admin API calls missing X-API-Key header (grantPermission, postEvent, approvePermission, denyPermission, createAgent, postChat, postChatMessage, deleteChatMessages, toggleAgentPower)",
+      "severity": "HIGH",
+      "discovered": "2026-02-19T16:00:00Z",
+      "version": "0.1.0",
+      "commit": "d1c4dcd",
+      "file": "dashboard/src/services/api.ts",
+      "pattern": "grantPermission: \\(pluginId: string, permission: string\\) =>",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-037",
+      "summary": "AgentPluginWorkspace: plugin layout not refreshed after save (onBack closes without re-fetching agent)",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-19T16:00:00Z",
+      "version": "0.1.0",
+      "commit": "d1c4dcd",
+      "file": "dashboard/src/components/AgentTerminal.tsx",
+      "pattern": "onBack=\\{\\(\\) => setConfiguringAgent\\(null\\)\\}",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }
