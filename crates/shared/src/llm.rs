@@ -76,10 +76,12 @@ pub fn parse_chat_content(
     response_body: &str,
     provider_name: &str,
 ) -> anyhow::Result<String> {
-    let json: serde_json::Value = serde_json::from_str(response_body)?;
+    let json: serde_json::Value = serde_json::from_str(response_body)
+        .map_err(|e| anyhow::anyhow!("{} API response is not valid JSON: {} | body: {}", provider_name, e, &response_body[..response_body.len().min(500)]))?;
 
     if let Some(error) = json.get("error") {
-        let msg = error.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
+        let msg = error.get("message").and_then(|m| m.as_str())
+            .unwrap_or_else(|| error.as_str().unwrap_or("Unknown error"));
         return Err(anyhow::anyhow!("{} API Error: {}", provider_name, msg));
     }
 
@@ -89,10 +91,14 @@ pub fn parse_chat_content(
         .and_then(|m| m.get("content"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!(
-            "Invalid {} API response: missing choices[0].message.content",
-            provider_name
-        ))
+        .ok_or_else(|| {
+            tracing::error!(provider = %provider_name, body = %response_body, "Unexpected API response structure");
+            anyhow::anyhow!(
+                "Invalid {} API response: missing choices[0].message.content | body: {}",
+                provider_name,
+                &response_body[..response_body.len().min(500)]
+            )
+        })
 }
 
 /// Parse a chat completions response body, returning either final text or tool calls.
@@ -103,16 +109,25 @@ pub fn parse_chat_think_result(
     response_body: &str,
     provider_name: &str,
 ) -> anyhow::Result<ThinkResult> {
-    let json: serde_json::Value = serde_json::from_str(response_body)?;
+    let json: serde_json::Value = serde_json::from_str(response_body)
+        .map_err(|e| anyhow::anyhow!("{} API response is not valid JSON: {} | body: {}", provider_name, e, &response_body[..response_body.len().min(500)]))?;
 
     if let Some(error) = json.get("error") {
-        let msg = error.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
+        let msg = error.get("message").and_then(|m| m.as_str())
+            .unwrap_or_else(|| error.as_str().unwrap_or("Unknown error"));
         return Err(anyhow::anyhow!("{} API Error: {}", provider_name, msg));
     }
 
     let choice = json.get("choices")
         .and_then(|c| c.get(0))
-        .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing choices[0]"))?;
+        .ok_or_else(|| {
+            tracing::error!(provider = %provider_name, body = %response_body, "Unexpected API response structure");
+            anyhow::anyhow!(
+                "Invalid {} API response: missing choices[0] | body: {}",
+                provider_name,
+                &response_body[..response_body.len().min(500)]
+            )
+        })?;
     let message_obj = choice.get("message")
         .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing message"))?;
     let finish_reason = choice.get("finish_reason")
