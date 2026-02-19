@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Lock, Key, X, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { Lock, Key, X, Eye, EyeOff, AlertTriangle, CheckCircle2, Loader } from 'lucide-react';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { api } from '../services/api';
 
@@ -8,6 +8,8 @@ export function ApiKeyGate() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [show, setShow] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [validationError, setValidationError] = useState('');
   const [confirmInvalidate, setConfirmInvalidate] = useState(false);
   const [invalidating, setInvalidating] = useState(false);
   const [invalidateError, setInvalidateError] = useState('');
@@ -33,14 +35,25 @@ export function ApiKeyGate() {
     setShow(false);
     setConfirmInvalidate(false);
     setInvalidateError('');
+    setValidationError('');
     setOpen(true);
   };
 
-  const handleSave = () => {
-    if (draft.trim()) {
-      setApiKey(draft.trim());
+  const handleSave = async () => {
+    const key = draft.trim();
+    if (!key) return;
+    setValidating(true);
+    setValidationError('');
+    try {
+      // Validate by calling an admin endpoint with this key
+      await api.applyPluginSettings([], key);
+      setApiKey(key);
+      setOpen(false);
+    } catch {
+      setValidationError('キーがサーバーと一致しません。EXIV_API_KEY の値を確認してください。');
+    } finally {
+      setValidating(false);
     }
-    setOpen(false);
   };
 
   const handleForget = () => {
@@ -125,14 +138,23 @@ export function ApiKeyGate() {
             <span className="text-[10px] text-content-secondary">この端末で記憶する (localStorage)</span>
           </label>
 
+          {/* Validation error */}
+          {validationError && (
+            <div className="flex items-start gap-1.5 p-2 bg-red-500/10 rounded-lg border border-red-500/20">
+              <AlertTriangle size={11} className="text-red-400 flex-shrink-0 mt-0.5" />
+              <span className="text-[10px] text-red-400">{validationError}</span>
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex gap-2">
             <button
               onClick={handleSave}
-              disabled={!draft.trim()}
-              className="flex-1 py-1.5 rounded-lg bg-brand text-white text-xs font-bold disabled:opacity-40 hover:bg-brand/90 transition-colors"
+              disabled={!draft.trim() || validating}
+              className="flex-1 py-1.5 rounded-lg bg-brand text-white text-xs font-bold disabled:opacity-40 hover:bg-brand/90 transition-colors flex items-center justify-center gap-1"
             >
-              保存
+              {validating ? <Loader size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
+              {validating ? '確認中...' : '確認して保存'}
             </button>
             {isSet && (
               <button
