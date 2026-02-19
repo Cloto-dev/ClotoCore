@@ -19,7 +19,13 @@ pub fn build_chat_messages(
 
     messages.push(serde_json::json!({
         "role": "system",
-        "content": format!("You are {}. {}.", agent.name, agent.description)
+        "content": format!(
+            "You are {name}, an AI agent on the Exiv platform \
+             (a local, self-hosted AI container system).\n\
+             Your role: {description}",
+            name = agent.name,
+            description = agent.description,
+        )
     }));
 
     for msg in context {

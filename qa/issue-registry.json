@@ -374,6 +374,18 @@
       "pattern": "fn supports_tools.*true",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-045",
+      "summary": "build_chat_messages system prompt has no Exiv platform context; agents cannot identify themselves as Exiv agents",
+      "severity": "HIGH",
+      "discovered": "2026-02-19T18:45:00Z",
+      "version": "0.1.0",
+      "commit": "5b6cd4c",
+      "file": "crates/shared/src/llm.rs",
+      "pattern": "You are \\{\\}\\. \\{\\}\\.",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }
