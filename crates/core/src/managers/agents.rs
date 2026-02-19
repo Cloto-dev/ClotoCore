@@ -183,6 +183,25 @@ impl AgentManager {
             .is_ok())
     }
 
+    /// Delete an agent and all associated data (chat messages, attachments via cascade).
+    pub async fn delete_agent(&self, agent_id: &str) -> anyhow::Result<()> {
+        // chat_attachments cascade from chat_messages (ON DELETE CASCADE in schema)
+        sqlx::query("DELETE FROM chat_messages WHERE agent_id = ?")
+            .bind(agent_id)
+            .execute(&self.pool)
+            .await?;
+
+        let result = sqlx::query("DELETE FROM agents WHERE id = ?")
+            .bind(agent_id)
+            .execute(&self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(exiv_shared::ExivError::AgentNotFound(agent_id.to_string()).into());
+        }
+        Ok(())
+    }
+
     pub async fn update_agent_config(
         &self,
         agent_id: &str,

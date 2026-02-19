@@ -257,6 +257,37 @@ pub async fn update_agent(
     Ok(Json(serde_json::json!({ "status": "success" })))
 }
 
+/// Delete an agent and all its data.
+///
+/// **Route:** `DELETE /api/agents/:id`
+///
+/// # Authentication
+/// Requires valid API key in `X-API-Key` header.
+///
+/// # Protection
+/// The default agent (configured via `DEFAULT_AGENT_ID`) cannot be deleted.
+///
+/// # Response
+/// - **200 OK:** `{ "status": "success" }`
+/// - **403 Forbidden:** Attempt to delete the default agent, or invalid API key
+/// - **404 Not Found:** Agent ID does not exist
+pub async fn delete_agent(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    if id == state.config.default_agent_id {
+        return Err(AppError::Validation(
+            format!("Cannot delete the default agent '{}'", id),
+        ));
+    }
+
+    state.agent_manager.delete_agent(&id).await?;
+    Ok(Json(serde_json::json!({ "status": "success" })))
+}
+
 /// Toggle agent power state (enable/disable).
 ///
 /// **Route:** `POST /api/agents/:id/power`

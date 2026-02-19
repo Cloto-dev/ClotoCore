@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronRight, Puzzle, Activity, MessageSquare, Send, Zap, User as UserIcon, RotateCcw, Plus, Cpu, Settings, Terminal, Power, Lock } from 'lucide-react';
+import { ChevronRight, Puzzle, Activity, MessageSquare, Send, Zap, User as UserIcon, RotateCcw, Plus, Cpu, Settings, Terminal, Power, Lock, Trash2 } from 'lucide-react';
 import { AgentMetadata, PluginManifest, ExivMessage, ChatMessage, ContentBlock } from '../types';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { useEventStream } from '../hooks/useEventStream';
@@ -574,6 +574,28 @@ export function AgentTerminal({
   // Power toggle modal
   const [powerTarget, setPowerTarget] = useState<AgentMetadata | null>(null);
 
+  // Delete confirmation
+  const [deleteTarget, setDeleteTarget] = useState<AgentMetadata | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const DEFAULT_AGENT_ID = 'agent.exiv_default';
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.deleteAgent(deleteTarget.id, apiKey);
+      setDeleteTarget(null);
+      refreshAgents();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const agents = propAgents || internalAgents;
   const plugins = propPlugins || internalPlugins;
   const selectedAgent = propSelectedAgent !== undefined ? propSelectedAgent : internalSelectedAgent;
@@ -678,6 +700,48 @@ export function AgentTerminal({
         />
       )}
 
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-surface-primary border border-edge rounded-2xl shadow-xl p-6 w-80 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-red-500/10 text-red-500"><Trash2 size={18} /></div>
+              <div>
+                <h3 className="font-bold text-content-primary text-sm">Delete Agent</h3>
+                <p className="text-[10px] text-content-tertiary font-mono mt-0.5">Irreversible operation</p>
+              </div>
+            </div>
+            <div className="bg-surface-secondary rounded-xl p-3 space-y-1">
+              <p className="text-xs font-bold text-content-primary">{deleteTarget.name}</p>
+              <p className="text-[10px] text-content-tertiary font-mono">{deleteTarget.id}</p>
+            </div>
+            <p className="text-xs text-content-secondary">
+              All chat history for this agent will be permanently deleted. This cannot be undone.
+            </p>
+            {deleteError && (
+              <p className="text-xs text-red-400">{deleteError}</p>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => { setDeleteTarget(null); setDeleteError(null); }}
+                disabled={isDeleting}
+                className="flex-1 py-2 rounded-xl border border-edge text-xs font-bold text-content-secondary hover:bg-surface-secondary transition-all disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={isDeleting}
+                className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
+              >
+                {isDeleting ? <Activity size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
@@ -755,6 +819,19 @@ export function AgentTerminal({
                   >
                     <Puzzle size={16} />
                   </button>
+                  {agent.id === DEFAULT_AGENT_ID ? (
+                    <div title="Default agent is protected" className="p-2 text-content-muted opacity-30">
+                      <Lock size={15} />
+                    </div>
+                  ) : (
+                    <button
+                      title="Delete agent"
+                      className="p-2 rounded-lg border border-edge-subtle text-content-tertiary hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-all"
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(agent); setDeleteError(null); }}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
                   <ChevronRight size={18} className="text-content-muted group-hover:text-content-secondary transition-colors" />
                 </div>
               </div>

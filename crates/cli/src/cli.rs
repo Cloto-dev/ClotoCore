@@ -95,6 +95,14 @@ pub enum AgentsCommand {
         #[arg(long)]
         password: Option<String>,
     },
+    /// Delete an agent and all its data (irreversible)
+    Delete {
+        /// Agent ID to delete
+        agent: String,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]

@@ -94,6 +94,25 @@ impl ExivClient {
         self.post("/api/agents", req).await
     }
 
+    /// DELETE agent by ID.
+    pub async fn delete_agent(&self, agent_id: &str) -> Result<serde_json::Value> {
+        let req = self.client.delete(self.url(&format!("/api/agents/{agent_id}")));
+        let resp = self.add_auth(req)
+            .send()
+            .await
+            .context("Failed to connect to Exiv kernel")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            let msg = body.get("error").and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown error");
+            anyhow::bail!("{status}: {msg}");
+        }
+        resp.json::<serde_json::Value>().await.context("Failed to parse response")
+    }
+
     /// POST power toggle.
     pub async fn power_toggle(&self, agent_id: &str, enabled: bool, password: Option<&str>) -> Result<serde_json::Value> {
         let body = serde_json::json!({

@@ -69,6 +69,17 @@ export const api = {
     mutate(`/permissions/${requestId}/approve`, 'POST', 'approve permission', { approved_by: approvedBy }, { 'X-API-Key': apiKey }).then(() => {}),
   denyPermission: (requestId: string, approvedBy: string, apiKey: string) =>
     mutate(`/permissions/${requestId}/deny`, 'POST', 'deny permission', { approved_by: approvedBy }, { 'X-API-Key': apiKey }).then(() => {}),
+  async deleteAgent(agentId: string, apiKey: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/agents/${agentId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.error?.message || `Failed to delete agent: ${res.statusText}`);
+    }
+  },
+
   async createAgent(payload: { name: string; description: string; default_engine: string; metadata: Record<string, string>; password?: string }, apiKey: string): Promise<void> {
     const res = await fetch(`${API_BASE}/agents`, {
       method: 'POST',

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use colored::Colorize;
-use dialoguer::{Select, Input, Password, theme::ColorfulTheme};
+use dialoguer::{Select, Input, Password, Confirm, theme::ColorfulTheme};
 
 use crate::cli::AgentsCommand;
 use crate::client::ExivClient;
@@ -17,6 +17,9 @@ pub async fn run(client: &ExivClient, cmd: AgentsCommand, json_mode: bool) -> Re
                 anyhow::bail!("Specify --on or --off");
             };
             power(client, &agent, enabled, password, json_mode).await
+        }
+        AgentsCommand::Delete { agent, force } => {
+            delete(client, &agent, force, json_mode).await
         }
     }
 }
@@ -249,5 +252,49 @@ async fn power(
             Ok(())
         }
         Err(e) => Err(e),
+    }
+}
+
+async fn delete(
+    client: &ExivClient,
+    agent_id: &str,
+    force: bool,
+    json_mode: bool,
+) -> Result<()> {
+    if !force && !json_mode {
+        output::print_header("Delete Agent");
+        println!("  Agent:   {}", agent_id.bold());
+        println!("  {}", "⚠  This action is irreversible.".yellow().bold());
+        println!("  All chat history for this agent will be permanently deleted.");
+        println!();
+        let confirmed = Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("  Confirm deletion?")
+            .default(false)
+            .interact()?;
+        if !confirmed {
+            println!("  Cancelled.");
+            return Ok(());
+        }
+    }
+
+    let sp = if !json_mode { Some(output::spinner("Deleting agent...")) } else { None };
+    let result = client.delete_agent(agent_id).await;
+    if let Some(sp) = sp { sp.finish_and_clear(); }
+
+    match result {
+        Ok(body) => {
+            if json_mode {
+                println!("{}", serde_json::to_string_pretty(&body)?);
+                return Ok(());
+            }
+            println!("  {} Agent deleted: {}", "✓".green().bold(), agent_id.bold());
+            println!();
+            Ok(())
+        }
+        Err(e) => {
+            if json_mode { return Err(e); }
+            eprintln!("  {} {}", "✗".red().bold(), e);
+            std::process::exit(1);
+        }
     }
 }
