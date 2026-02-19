@@ -165,17 +165,33 @@ impl EventProcessor {
     }
 
     pub async fn cleanup_old_events(&self) {
+        const MAX_EVENT_HISTORY: usize = 10_000;
+
         // M-10: Use configurable retention period instead of hardcoded 24h
         let cutoff = chrono::Utc::now() - chrono::Duration::hours(self.event_retention_hours as i64);
         let mut history = self.history.write().await;
 
-        // Remove old events
+        // Remove old events by timestamp
         while let Some(oldest) = history.front() {
             if oldest.timestamp < cutoff {
                 history.pop_front();
             } else {
                 break;
             }
+        }
+
+        // Apply count-based cap to prevent unbounded growth
+        if history.len() > MAX_EVENT_HISTORY {
+            let excess = history.len() - MAX_EVENT_HISTORY;
+            for _ in 0..excess {
+                history.pop_front();
+            }
+            tracing::warn!(
+                trimmed = excess,
+                retained = MAX_EVENT_HISTORY,
+                "Event history trimmed to {} entries to prevent memory growth",
+                MAX_EVENT_HISTORY
+            );
         }
 
         info!("Event history cleanup: {} events retained", history.len());
