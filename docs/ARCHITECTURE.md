@@ -87,7 +87,7 @@ Exiv/
 │   ├── core/          # Kernel: HTTP server, handlers, event loop, database
 │   │   └── src/
 │   │       ├── handlers.rs      # HTTP API handlers (agents, plugins, events, auth)
-│   │       ├── handlers/        # Sub-handlers (system, assets, update)
+│   │       ├── handlers/        # Sub-handlers (system, assets, update, chat, evolution, skill_manager)
 │   │       ├── config.rs        # AppConfig from environment variables
 │   │       ├── db.rs            # SQLite schema, queries, audit logging
 │   │       ├── managers.rs      # PluginManager, AgentManager, PluginRegistry
@@ -121,26 +121,47 @@ Exiv/
 
 ### 0.5 API Endpoint Summary
 
-| Method | Route | Auth | Description |
-|--------|-------|------|-------------|
-| GET | `/api/agents` | No | List all agents |
-| POST | `/api/agents` | Yes | Create agent |
-| PUT | `/api/agents/:id` | Yes | Update agent |
-| GET | `/api/plugins` | No | List plugins with settings |
-| GET | `/api/plugins/:id/config` | Yes | Get plugin config |
-| PUT | `/api/plugins/:id/config` | Yes | Update plugin config |
-| POST | `/api/plugins/settings` | Yes | Batch toggle plugins |
-| POST | `/api/plugins/:id/permissions` | Yes | Grant permission |
-| POST | `/api/chat` | Yes | Send chat message |
-| POST | `/api/events` | Yes | Inject event (restricted types) |
-| GET | `/api/events/stream` | No | SSE event stream |
-| GET | `/api/history` | No | Recent event history |
-| GET | `/api/metrics` | No | System metrics |
-| GET | `/api/memories` | No | Stored memories |
-| GET | `/api/permissions/pending` | No | Pending permission requests |
-| POST | `/api/permissions/:id/approve` | Yes | Approve permission |
-| POST | `/api/permissions/:id/deny` | Yes | Deny permission |
-| POST | `/api/system/shutdown` | Yes | Graceful shutdown |
+**Admin Endpoints** (requires `X-API-Key` header, rate-limited):
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/api/system/shutdown` | Graceful shutdown |
+| POST | `/api/system/update/apply` | Apply pending update |
+| POST | `/api/plugins/apply` | Bulk enable/disable plugins |
+| POST | `/api/plugins/:id/config` | Update plugin config |
+| POST | `/api/plugins/:id/permissions/grant` | Grant permission to plugin |
+| POST | `/api/agents` | Create agent |
+| POST | `/api/agents/:id` | Update agent |
+| POST | `/api/agents/:id/power` | Toggle agent power state |
+| POST | `/api/events/publish` | Publish event to bus |
+| POST | `/api/permissions/:id/approve` | Approve permission request |
+| POST | `/api/permissions/:id/deny` | Deny permission request |
+| POST | `/api/chat` | Send message to agent |
+| GET/POST/DELETE | `/api/chat/:agent_id/messages` | Chat message persistence |
+| GET | `/api/chat/attachments/:attachment_id` | Retrieve chat attachment |
+| POST | `/api/evolution/evaluate` | Evaluate agent fitness |
+| GET/PUT | `/api/evolution/params` | Get/update evolution parameters |
+
+**Public Endpoints** (no authentication required):
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/system/version` | Current version info |
+| GET | `/api/system/update/check` | Check for updates |
+| GET | `/api/events` | SSE event stream |
+| GET | `/api/history` | Recent event history |
+| GET | `/api/metrics` | System metrics |
+| GET | `/api/memories` | Memory entries |
+| GET | `/api/plugins` | Plugin list with manifests |
+| GET | `/api/plugins/:id/config` | Plugin configuration |
+| GET | `/api/agents` | Agent configurations |
+| GET | `/api/permissions/pending` | Pending permission requests |
+| GET | `/api/evolution/status` | Evolution engine status |
+| GET | `/api/evolution/generations` | Generation history |
+| GET | `/api/evolution/generations/:n` | Specific generation details |
+| GET | `/api/evolution/fitness` | Fitness timeline |
+| GET | `/api/evolution/rollbacks` | Rollback history |
+| ANY | `/api/plugin/*path` | Dynamic plugin route proxy |
 
 ---
 
@@ -310,8 +331,8 @@ EXIV_MANIFEST = {
 
 ## 5. Self-Evolution Engine
 
-> **Note:** This section describes the **planned** Self-Evolution Engine design.
-> Implementation is in progress (see Section 5.9 roadmap).
+> **Note:** The Self-Evolution Engine is **implemented** and active.
+> Core API endpoints are available (see Section 0.5).
 > Detailed evolution standards: see `.dev-notes/self-evolution-protocol.md`.
 
 本セクションは自己進化エンジンの**設計と実装仕様**を定義する。

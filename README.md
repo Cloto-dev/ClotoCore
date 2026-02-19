@@ -7,7 +7,7 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-190%2B%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-180%2B%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
@@ -182,6 +182,10 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `MEMORY_CONTEXT_LIMIT` | `10` | Maximum memory entries returned per recall |
 | `EVENT_HISTORY_SIZE` | `1000` | Maximum events kept in memory |
 | `EVENT_RETENTION_HOURS` | `24` | Hours to retain events before cleanup (1-720) |
+| `EXIV_AUTO_EVAL` | `true` | Enable automatic fitness evaluation |
+| `EXIV_MAX_AGENTIC_ITERATIONS` | `16` | Maximum tool-use loop iterations (1-64) |
+| `EXIV_TOOL_TIMEOUT_SECS` | `30` | Tool execution timeout in seconds (1-300) |
+| `HEARTBEAT_INTERVAL_SECS` | `30` | Agent heartbeat ping interval |
 
 </details>
 
@@ -192,17 +196,21 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/api/system/version` | Current version info |
+| GET | `/api/system/update/check` | Check for updates |
+| GET | `/api/events` | SSE event stream |
+| GET | `/api/history` | Event history |
 | GET | `/api/metrics` | System metrics |
+| GET | `/api/memories` | Memory entries |
 | GET | `/api/plugins` | Plugin list with manifests |
 | GET | `/api/plugins/:id/config` | Plugin configuration |
 | GET | `/api/agents` | Agent configurations |
-| GET | `/api/history` | Event history |
-| GET | `/api/memories` | Memory entries |
-| GET | `/api/events` | SSE event stream |
 | GET | `/api/permissions/pending` | Pending permission requests |
-| GET | `/api/system/version` | Current version info |
-| GET | `/api/system/update/check` | Check for updates |
-| POST | `/api/chat` | Send message to an agent |
+| GET | `/api/evolution/status` | Evolution engine status |
+| GET | `/api/evolution/generations` | Generation history |
+| GET | `/api/evolution/generations/:n` | Specific generation details |
+| GET | `/api/evolution/fitness` | Fitness timeline |
+| GET | `/api/evolution/rollbacks` | Rollback history |
 
 </details>
 
@@ -217,16 +225,22 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | POST | `/api/plugins/:id/config` | Update plugin config |
 | POST | `/api/plugins/:id/permissions/grant` | Grant permission to plugin |
 | POST | `/api/agents` | Create agent |
-| PUT | `/api/agents/:id` | Update agent |
+| POST | `/api/agents/:id` | Update agent |
+| POST | `/api/agents/:id/power` | Toggle agent power state |
 | POST | `/api/events/publish` | Publish event to bus |
 | POST | `/api/permissions/:id/approve` | Approve a request |
 | POST | `/api/permissions/:id/deny` | Deny a request |
+| POST | `/api/chat` | Send message to agent |
+| GET/POST/DELETE | `/api/chat/:agent_id/messages` | Chat message persistence |
+| GET | `/api/chat/attachments/:attachment_id` | Retrieve chat attachment |
+| POST | `/api/evolution/evaluate` | Evaluate agent fitness |
+| GET/PUT | `/api/evolution/params` | Get/update evolution parameters |
 
 </details>
 
 ## Testing
 
-165+ tests.
+180+ tests.
 
 ```bash
 cargo test                              # all tests

@@ -15,7 +15,7 @@ Documentation for Exiv design, development, and quality management.
 **Phase:** 6 Complete
 **Code Quality:** 90+/100 (A)
 **Design Principles Compliance:** 95+/100 (A)
-**Test Coverage:** 165+ tests
+**Test Coverage:** 180+ tests
 
 ## Document Index
 
@@ -25,6 +25,7 @@ Documentation for Exiv design, development, and quality management.
 | [PROJECT_VISION.md](PROJECT_VISION.md) | Project vision, competitive positioning, roadmap | 2026-02-18 |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Development guidelines, guardrails, coding standards | 2026-02-18 |
 | [CHANGELOG.md](CHANGELOG.md) | Comprehensive change history across all phases | 2026-02-18 |
+| [SCHEMA.md](SCHEMA.md) | Database schema reference (8 tables, migration history) | 2026-02-19 |
 
 ## Plugin Documentation
 
