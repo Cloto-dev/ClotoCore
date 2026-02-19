@@ -4,6 +4,7 @@ import { PluginManifest, AgentMetadata } from '../types';
 import { api } from '../services/api';
 import { AgentIcon, agentColor, isAiAgent } from '../lib/agentIdentity';
 import { isLlmPlugin, ServiceTypeIcon } from '../lib/pluginUtils';
+import { useApiKey } from '../contexts/ApiKeyContext';
 
 interface Props {
   agent: AgentMetadata;
@@ -20,10 +21,12 @@ interface InstalledConfig {
 const GRID_SIZE = 64; // マス目のサイズ
 
 export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props) {
+  const { apiKey } = useApiKey();
   const [configs, setConfigs] = useState<InstalledConfig[]>([]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [isDraggingFromLibrary, setIsDraggingFromLibrary] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     if (agent.metadata.plugin_layout) {
@@ -37,7 +40,12 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
   }, [agent]);
 
   const handleSave = async () => {
+    if (!apiKey) {
+      setSaveError('API Key が設定されていません。右上の 🔒 から設定してください。');
+      return;
+    }
     setIsSaving(true);
+    setSaveError('');
     try {
       // Find the first Reasoning engine and first Memory engine in the matrix
       const reasoningPlugin = configs.find(c => {
@@ -49,18 +57,19 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
         return p?.service_type === 'Memory';
       });
 
-      const metadata = { 
-        ...agent.metadata, 
+      const metadata = {
+        ...agent.metadata,
         plugin_layout: JSON.stringify(configs),
         preferred_memory: memoryPlugin?.pluginId || agent.metadata.preferred_memory
       };
 
-      await api.updateAgent(agent.id, { 
+      await api.updateAgent(agent.id, {
         default_engine_id: reasoningPlugin?.pluginId,
-        metadata 
-      });
+        metadata
+      }, apiKey);
       onBack(); // Close the workspace after saving
-    } catch (err) {
+    } catch (err: any) {
+      setSaveError(err?.message || 'Failed to save neural matrix');
       console.error("Failed to save neural matrix:", err);
     } finally {
       setIsSaving(false);
@@ -225,11 +234,16 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
         </div>
 
         <div className="p-4 bg-glass-subtle border-t border-edge-subtle flex items-center justify-between px-8 text-[9px] font-mono text-content-tertiary">
-           <div className="flex gap-4">
-             <span>COORDINATE_SYSTEM: ACTIVE</span>
-             <span>MATRIX_STABILITY: 100%</span>
+           <div className="flex flex-col gap-1">
+             <div className="flex gap-4">
+               <span>COORDINATE_SYSTEM: ACTIVE</span>
+               <span>MATRIX_STABILITY: 100%</span>
+             </div>
+             {saveError && (
+               <span className="text-red-400 text-[10px]">{saveError}</span>
+             )}
            </div>
-           <button 
+           <button
              onClick={handleSave}
              disabled={isSaving}
              className="flex items-center gap-2 px-8 py-2 text-white rounded-xl font-bold tracking-widest shadow-lg transition-all active:scale-95 disabled:opacity-50"
