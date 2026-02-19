@@ -1,0 +1,36 @@
+[target.'cfg(all())']
+rustflags = [
+    "-W", "clippy::pedantic",
+    # Suppressed: requires doc changes across all public async functions
+    "-A", "clippy::missing_errors_doc",
+    "-A", "clippy::missing_panics_doc",
+    # Suppressed: cosmetic format string style (205 occurrences)
+    "-A", "clippy::uninlined_format_args",
+    # Suppressed: cosmetic doc style
+    "-A", "clippy::doc_markdown",
+    # Suppressed: naming convention, already allowed globally
+    "-A", "clippy::module_name_repetitions",
+    # Suppressed: items_after_statements is a style preference
+    "-A", "clippy::items_after_statements",
+    # Suppressed: cast_precision_loss for u64→f64 in fitness calculations (acceptable)
+    "-A", "clippy::cast_precision_loss",
+    # Suppressed: cast_possible_truncation for timestamp conversions (bounds checked)
+    "-A", "clippy::cast_possible_truncation",
+    # Suppressed: cast_sign_loss for counter values (always positive)
+    "-A", "clippy::cast_sign_loss",
+    # Suppressed: lifetime annotation cosmetics
+    "-A", "clippy::needless_lifetimes",
+    "-A", "clippy::return_self_not_must_use",
+    # Suppressed: too_many_arguments in existing complex constructors
+    "-A", "clippy::too_many_arguments",
+    # Suppressed: similar_names (variable naming style)
+    "-A", "clippy::similar_names",
+    # Suppressed: needless_pass_by_value (existing API shape)
+    "-A", "clippy::needless_pass_by_value",
+    # Suppressed: assigning clone() (existing code pattern)
+    "-A", "clippy::assigning_clones",
+    # Suppressed: async fn with no await (trait-required signatures)
+    "-A", "clippy::unused_async",
+    # Suppressed: lifetime tied to str return (existing API)
+    "-A", "clippy::needless_pass_by_ref_mut",
+]

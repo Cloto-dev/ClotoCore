@@ -7,8 +7,8 @@ use tracing::{info, error, warn};
 
 use exiv_shared::{ExivEventData, PluginDataStore};
 
-use super::types::*;
-use super::calc::*;
+use super::types::{EvolutionParams, EVOLUTION_STORE_ID, GenerationRecord, GenerationTrigger, FitnessScores, AgentSnapshot, FitnessLogEntry, GracePeriodState, RollbackRecord, EvolutionStatus, AutonomyLevel, RegressionSeverity, InteractionMetrics, PluginContributions};
+use super::calc::{calculate_fitness, check_triggers, detect_capability_gain, regression_severity, grace_period_length, compute_delta, detect_rebalance, compute_behavioral_score, compute_safety_score, compute_autonomy_level};
 
 /// Maximum number of rollbacks to the same target generation before skipping it.
 const MAX_ROLLBACKS_PER_TARGET: u32 = 3;
@@ -334,22 +334,18 @@ impl EvolutionEngine {
                 return Ok(events);
             }
 
-            match self.get_generation(agent_id, target_gen).await? {
-                Some(record) => break (record, count),
-                None => {
-                    error!(agent_id = %agent_id, target_gen = target_gen, "Target generation not found, cascading to earlier");
-                    if target_gen > 1 {
-                        target_gen -= 1;
-                        continue;
-                    }
-                    events.push(ExivEventData::EvolutionBreach {
-                        agent_id: agent_id.to_string(),
-                        violation_type: "rollback_target_missing".to_string(),
-                        detail: format!("No valid generation found for rollback (tried down to gen {})", target_gen),
-                    });
-                    return Ok(events);
-                }
+            if let Some(record) = self.get_generation(agent_id, target_gen).await? { break (record, count) }
+            error!(agent_id = %agent_id, target_gen = target_gen, "Target generation not found, cascading to earlier");
+            if target_gen > 1 {
+                target_gen -= 1;
+                continue;
             }
+            events.push(ExivEventData::EvolutionBreach {
+                agent_id: agent_id.to_string(),
+                violation_type: "rollback_target_missing".to_string(),
+                detail: format!("No valid generation found for rollback (tried down to gen {})", target_gen),
+            });
+            return Ok(events);
         };
 
         info!(
@@ -422,7 +418,7 @@ impl EvolutionEngine {
             }
         }
         let log = self.get_fitness_log(agent_id).await?;
-        Ok(log.last().map(|e| e.fitness).unwrap_or(0.0))
+        Ok(log.last().map_or(0.0, |e| e.fitness))
     }
 
     pub async fn get_status(&self, agent_id: &str) -> anyhow::Result<EvolutionStatus> {
@@ -458,8 +454,8 @@ impl EvolutionEngine {
         let trend_start = if log.len() > 10 { log.len() - 10 } else { 0 };
         let log = &log[trend_start..];
         let trend_val = if log.len() >= 2 {
-            let recent = log.last().map(|e| e.fitness).unwrap_or(0.0);
-            let earlier = log.first().map(|e| e.fitness).unwrap_or(0.0);
+            let recent = log.last().map_or(0.0, |e| e.fitness);
+            let earlier = log.first().map_or(0.0, |e| e.fitness);
             recent - earlier
         } else {
             0.0
@@ -469,13 +465,13 @@ impl EvolutionEngine {
                     else { "stable".to_string() };
 
         // Default scores when no generation exists
-        let scores = gen_record.map(|r| r.scores).unwrap_or(FitnessScores {
+        let scores = gen_record.map_or(FitnessScores {
             cognitive: 0.0,
             behavioral: 0.0,
             safety: 1.0,
             autonomy: AutonomyLevel::L0,
             meta_learning: 0.0,
-        });
+        }, |r| r.scores);
 
         let autonomy_level = scores.autonomy.to_string();
         let top_axes = scores.axis_ranking().into_iter()
@@ -725,9 +721,7 @@ impl EvolutionEngine {
                 let grace_len = grace_period_length(interactions_since_last_gen, params.gamma, params.min_interactions);
                 let affected_axis = compute_delta(&scores, previous_scores)
                     .into_iter()
-                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-                    .map(|(k, _)| k)
-                    .unwrap_or_else(|| "unknown".to_string());
+                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)).map_or_else(|| "unknown".to_string(), |(k, _)| k);
 
                 self.start_grace_period(agent_id, grace_len, current_fitness, &affected_axis).await?;
                 events.push(ExivEventData::EvolutionWarning {
@@ -875,6 +869,7 @@ pub struct FitnessCollector {
 }
 
 impl FitnessCollector {
+    #[must_use] 
     pub fn new(enabled: bool) -> Self {
         Self {
             metrics: RwLock::new(HashMap::new()),

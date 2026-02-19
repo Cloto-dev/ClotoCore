@@ -26,6 +26,7 @@ impl AgentManager {
     /// Heartbeat threshold: 90 seconds. Agents not heard from in this window are "degraded".
     pub const HEARTBEAT_THRESHOLD_MS: i64 = 90_000;
 
+    #[must_use] 
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }

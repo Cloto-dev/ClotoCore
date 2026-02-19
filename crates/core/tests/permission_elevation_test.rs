@@ -33,7 +33,7 @@ impl Plugin for MockPlugin {
         PluginManifest {
             id: self.id.clone(),
             name: "Mock".to_string(),
-            description: "".to_string(),
+            description: String::new(),
             version: "1.0.0".to_string(),
             category: exiv_shared::PluginCategory::Tool,
             service_type: ServiceType::Skill,

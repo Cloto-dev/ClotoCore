@@ -180,7 +180,7 @@ impl PluginManager {
             tokio::spawn(async move {
                 loop {
                     tokio::select! {
-                        _ = shutdown.notified() => {
+                        () = shutdown.notified() => {
                             tracing::info!("Plugin event bridge shutting down for {}", pid);
                             break;
                         }
@@ -189,12 +189,9 @@ impl PluginManager {
                                 Some(d) => d,
                                 None => break,
                             };
-                            let _permit = match semaphore.acquire().await {
-                                Ok(p) => p,
-                                Err(_) => {
-                                    tracing::warn!("Semaphore closed during shutdown, stopping event bridge");
-                                    break;
-                                }
+                            let _permit = if let Ok(p) = semaphore.acquire().await { p } else {
+                                tracing::warn!("Semaphore closed during shutdown, stopping event bridge");
+                                break;
                             };
                             let envelope = crate::EnvelopedEvent {
                                 event: Arc::new(exiv_shared::ExivEvent::new(data)),
@@ -242,10 +239,12 @@ impl PluginManager {
     }
 
     /// L5: Get a clone of the shared SafeHttpClient Arc for runtime host addition.
+    #[must_use] 
     pub fn http_client(&self) -> Arc<SafeHttpClient> {
         self.http_client.clone()
     }
 
+    #[must_use] 
     pub fn get_capability_for_permission(&self, permission: &Permission) -> Option<exiv_shared::PluginCapability> {
         match permission {
             Permission::NetworkAccess => Some(exiv_shared::PluginCapability::Network(self.http_client.clone())),
@@ -387,7 +386,7 @@ impl PluginManager {
             tokio::spawn(async move {
                 loop {
                     tokio::select! {
-                        _ = shutdown.notified() => {
+                        () = shutdown.notified() => {
                             tracing::info!("Runtime plugin event bridge shutting down for {}", pid);
                             break;
                         }

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use super::types::*;
+use super::types::{FitnessScores, FitnessWeights, EvolutionParams, GenerationTrigger, AgentSnapshot, CapabilityChange, RegressionSeverity, InteractionMetrics, AutonomyLevel};
 
 // ══════════════════════════════════════════════════════════════
 // Pure Functions
@@ -8,6 +8,7 @@ use super::types::*;
 
 /// Calculate total fitness: Σ(w_i × Score_i) × SafetyGate
 /// SafetyGate is multiplicative: safety violation = fitness 0
+#[must_use] 
 pub fn calculate_fitness(scores: &FitnessScores, weights: &FitnessWeights) -> f64 {
     // SafetyGate: if safety != 1.0, everything is 0
     if scores.safety < 1.0 {
@@ -30,6 +31,7 @@ pub fn calculate_fitness(scores: &FitnessScores, weights: &FitnessWeights) -> f6
 const DELTA_THRESHOLD: f64 = 1e-6;
 
 /// Compute delta between two FitnessScores (only changed axes)
+#[must_use] 
 pub fn compute_delta(current: &FitnessScores, previous: &FitnessScores) -> HashMap<String, f64> {
     let mut delta = HashMap::new();
     let d_cog = current.cognitive - previous.cognitive;
@@ -53,6 +55,7 @@ pub fn compute_delta(current: &FitnessScores, previous: &FitnessScores) -> HashM
 }
 
 /// Detect axis ranking shift between two score sets
+#[must_use] 
 pub fn detect_rebalance(current: &FitnessScores, previous: &FitnessScores) -> Vec<String> {
     let curr_rank = current.axis_ranking();
     let prev_rank = previous.axis_ranking();
@@ -77,6 +80,7 @@ pub fn detect_rebalance(current: &FitnessScores, previous: &FitnessScores) -> Ve
 /// Returns the metric-based trigger type, or None if no transition threshold is met.
 /// The caller (`evaluate()`) integrates this with capability detection results
 /// using the priority rules defined in `docs/e7-capability-gain.md`.
+#[must_use] 
 pub fn check_triggers(
     current_fitness: f64,
     previous_fitness: f64,
@@ -137,6 +141,7 @@ pub fn check_triggers(
 /// This is a **pure function** operating on set-valued inputs (Vec<String>),
 /// independent of the metric-based `check_triggers()`.
 /// See `docs/e7-capability-gain.md` for design rationale.
+#[must_use] 
 pub fn detect_capability_gain(
     prev_snapshot: &AgentSnapshot,
     curr_snapshot: &AgentSnapshot,
@@ -148,10 +153,10 @@ pub fn detect_capability_gain(
 
     // Step 1: new_plugins = curr.active_plugins ∖ prev.active_plugins
     let prev_plugins: HashSet<&str> = prev_snapshot.active_plugins.iter()
-        .map(|s| s.as_str()).collect();
+        .map(std::string::String::as_str).collect();
     let new_plugins: Vec<&str> = curr_snapshot.active_plugins.iter()
         .filter(|p| !prev_plugins.contains(p.as_str()))
-        .map(|s| s.as_str())
+        .map(std::string::String::as_str)
         .collect();
 
     if new_plugins.is_empty() {
@@ -160,7 +165,7 @@ pub fn detect_capability_gain(
 
     // Step 2: prev_caps = ∪ { capabilities(p) | p ∈ prev.active_plugins }
     let prev_caps: HashSet<&str> = prev_snapshot.plugin_capabilities.values()
-        .flat_map(|caps| caps.iter().map(|c| c.as_str()))
+        .flat_map(|caps| caps.iter().map(std::string::String::as_str))
         .collect();
 
     // Step 3: For each new plugin, classify as major or minor
@@ -187,6 +192,7 @@ pub fn detect_capability_gain(
 /// Returns (is_severe, threshold).
 /// Mild: beta <= |ΔF| < 2*beta
 /// Severe: |ΔF| >= 2*beta
+#[must_use] 
 pub fn regression_severity(
     delta_f: f64,
     previous_fitness: f64,
@@ -205,6 +211,7 @@ pub fn regression_severity(
 }
 
 /// Calculate grace period length
+#[must_use] 
 pub fn grace_period_length(
     interactions_in_last_gen: u64,
     gamma: f64,
@@ -220,6 +227,7 @@ pub fn grace_period_length(
 
 /// Compute behavioral score from interaction metrics.
 /// Formula: 0.4 × response_rate + 0.3 × permission_precision + 0.3 × error_avoidance
+#[must_use] 
 pub fn compute_behavioral_score(m: &InteractionMetrics) -> f64 {
     let total = m.total_interactions.max(1) as f64;
     let response_rate = m.thought_responses as f64 / total;
@@ -234,11 +242,13 @@ pub fn compute_behavioral_score(m: &InteractionMetrics) -> f64 {
 }
 
 /// Compute safety score from interaction metrics. Binary: 1.0 or 0.0.
+#[must_use] 
 pub fn compute_safety_score(m: &InteractionMetrics) -> f64 {
     if m.safety_violation { 0.0 } else { 1.0 }
 }
 
 /// Compute autonomy level from intervention ratio.
+#[must_use] 
 pub fn compute_autonomy_level(m: &InteractionMetrics) -> AutonomyLevel {
     let total = m.total_interactions.max(1) as f64;
     let intervention_ratio = m.human_interventions as f64 / total;

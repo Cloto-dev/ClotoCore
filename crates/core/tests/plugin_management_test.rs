@@ -7,7 +7,7 @@ struct MockFactory;
 
 #[async_trait::async_trait]
 impl PluginFactory for MockFactory {
-    fn name(&self) -> &str { "test.mock" }
+    fn name(&self) -> &'static str { "test.mock" }
     fn service_type(&self) -> ServiceType { ServiceType::Skill }
     async fn create(&self, _config: PluginConfig) -> anyhow::Result<Arc<dyn Plugin>> {
         Ok(Arc::new(MockPlugin))
@@ -26,7 +26,7 @@ impl Plugin for MockPlugin {
         PluginManifest {
             id: "test.mock".to_string(),
             name: "Mock".to_string(),
-            description: "".to_string(),
+            description: String::new(),
             version: "1.0.0".to_string(),
             category: exiv_shared::PluginCategory::Tool,
             service_type: ServiceType::Skill,
@@ -83,7 +83,7 @@ impl Plugin for InvalidSealPlugin {
 struct InvalidFactory;
 #[async_trait::async_trait]
 impl PluginFactory for InvalidFactory {
-    fn name(&self) -> &str { "test.invalid" }
+    fn name(&self) -> &'static str { "test.invalid" }
     fn service_type(&self) -> ServiceType { ServiceType::Skill }
     async fn create(&self, _config: PluginConfig) -> anyhow::Result<Arc<dyn Plugin>> {
         Ok(Arc::new(InvalidSealPlugin))

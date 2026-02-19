@@ -27,9 +27,7 @@ impl Plugin for MockPlugin {
     }
     async fn on_event(&self, event: &ExivEvent) -> Result<Option<ExivEventData>> {
         self.received_events.lock().await.push(event.clone());
-        if self.should_panic {
-            panic!("Intentional test panic");
-        }
+        assert!(!self.should_panic, "Intentional test panic");
         tokio::time::sleep(self.response_delay).await;
         Ok(self.response.clone())
     }

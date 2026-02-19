@@ -26,7 +26,7 @@ impl Plugin for PingPlugin {
         PluginManifest {
             id: self.id.clone(),
             name: "Ping".to_string(),
-            description: "".to_string(),
+            description: String::new(),
             version: "1.0".to_string(),
             category: exiv_shared::PluginCategory::Tool,
             service_type: ServiceType::Reasoning,
@@ -124,7 +124,7 @@ async fn test_event_cascading_protection() {
 
     loop {
         tokio::select! {
-            _ = &mut timeout => break,
+            () = &mut timeout => break,
             msg = rx_broadcast.recv() => {
                 if msg.is_ok() {
                     count += 1;

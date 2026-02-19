@@ -32,7 +32,7 @@ impl<'de> Deserialize<'de> for AutonomyLevel {
         use serde::de;
 
         struct AutonomyVisitor;
-        impl<'de> de::Visitor<'de> for AutonomyVisitor {
+        impl de::Visitor<'_> for AutonomyVisitor {
             type Value = AutonomyLevel;
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("a float 0.0-1.0 or a string like \"L3\"")
@@ -58,14 +58,16 @@ impl<'de> Deserialize<'de> for AutonomyLevel {
 
 impl AutonomyLevel {
     /// Normalized value in [0.0, 1.0] for fitness calculation
+    #[must_use] 
     pub fn normalized(&self) -> f64 {
-        (*self as u8) as f64 / 5.0
+        f64::from(*self as u8) / 5.0
     }
 
     /// Create from a normalized f64 value (0.0-1.0), rounding to nearest level.
     /// Non-finite, negative, or out-of-range values fall back to L0.
+    #[must_use] 
     pub fn from_normalized(v: f64) -> Self {
-        if !v.is_finite() || v < 0.0 || v > 1.0 {
+        if !v.is_finite() || !(0.0..=1.0).contains(&v) {
             return Self::L0;
         }
         match (v * 5.0).round() as u8 {
@@ -110,7 +112,7 @@ impl FitnessScores {
             ("meta_learning", self.meta_learning),
         ];
         for (name, val) in fields {
-            if !val.is_finite() || val < 0.0 || val > 1.0 {
+            if !val.is_finite() || !(0.0..=1.0).contains(&val) {
                 anyhow::bail!("{} score must be in [0.0, 1.0], got {}", name, val);
             }
         }
@@ -123,6 +125,7 @@ impl FitnessScores {
 
     /// Returns the axis ranking (sorted by normalized score, descending).
     /// Safety is excluded because it's a binary gate (0.0 or 1.0), not a gradient score.
+    #[must_use] 
     pub fn axis_ranking(&self) -> Vec<(&str, f64)> {
         let mut axes = vec![
             ("cognitive", self.cognitive),
@@ -133,7 +136,7 @@ impl FitnessScores {
         axes.sort_by(|a, b| {
             b.1.partial_cmp(&a.1)
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(&b.0)) // alphabetical tiebreaker for determinism
+                .then_with(|| a.0.cmp(b.0)) // alphabetical tiebreaker for determinism
         });
         axes
     }
@@ -194,7 +197,7 @@ impl EvolutionParams {
     pub fn validate(&self) -> anyhow::Result<()> {
         for (name, val) in [("alpha", self.alpha), ("beta", self.beta),
                             ("theta_min", self.theta_min), ("gamma", self.gamma)] {
-            if !val.is_finite() || val < 0.0 || val > 1.0 {
+            if !val.is_finite() || !(0.0..=1.0).contains(&val) {
                 anyhow::bail!("{} must be in [0.0, 1.0] and finite, got {}", name, val);
             }
         }

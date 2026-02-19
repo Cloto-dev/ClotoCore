@@ -36,12 +36,14 @@ impl Default for SystemMetrics {
 }
 
 impl SystemMetrics {
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
 }
 
 impl PluginRegistry {
+    #[must_use] 
     pub fn new(event_timeout_secs: u64, max_event_depth: u8) -> Self {
         Self {
             plugins: tokio::sync::RwLock::new(HashMap::new()),
@@ -151,12 +153,9 @@ impl PluginRegistry {
             let semaphore = self.event_semaphore.clone();
 
             futures.push(tokio::spawn(async move {
-                let _permit = match semaphore.acquire().await {
-                    Ok(p) => p,
-                    Err(_) => {
-                        tracing::warn!("Semaphore closed during shutdown, skipping plugin {}", id);
-                        return (id, Ok(Ok(None)));
-                    }
+                let _permit = if let Ok(p) = semaphore.acquire().await { p } else {
+                    tracing::warn!("Semaphore closed during shutdown, skipping plugin {}", id);
+                    return (id, Ok(Ok(None)));
                 };
                 // Catch panics to prevent semaphore permit leaks
                 let result = tokio::time::timeout(
@@ -225,12 +224,9 @@ async fn redispatch_plugin_event(
     current_depth: u8,
     semaphore: Arc<tokio::sync::Semaphore>,
 ) {
-    let _permit = match semaphore.acquire().await {
-        Ok(p) => p,
-        Err(_) => {
-            tracing::warn!("Semaphore closed during shutdown, skipping redispatch for {}", plugin_id);
-            return;
-        }
+    let _permit = if let Ok(p) = semaphore.acquire().await { p } else {
+        tracing::warn!("Semaphore closed during shutdown, skipping redispatch for {}", plugin_id);
+        return;
     };
     let issuer_id = ExivId::from_name(&plugin_id);
     let envelope = crate::EnvelopedEvent {
