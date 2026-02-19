@@ -59,39 +59,39 @@ export const api = {
     mutate(`/plugins/${id}/config`, 'POST', 'update plugin config', payload, { 'X-API-Key': apiKey }).then(() => {}),
   updateAgent: (id: string, payload: { default_engine_id?: string, metadata: Record<string, string> }, apiKey: string) =>
     mutate(`/agents/${id}`, 'POST', 'update agent', payload, { 'X-API-Key': apiKey }).then(() => {}),
-  grantPermission: (pluginId: string, permission: string) =>
-    mutate(`/plugins/${pluginId}/permissions/grant`, 'POST', 'grant permission', { permission }).then(() => {}),
-  postEvent: (eventData: any) =>
-    mutate('/events/publish', 'POST', 'post event', eventData).then(() => {}),
-  post: (path: string, payload: any) =>
-    mutate(path, 'POST', `post to ${path}`, payload).then(() => {}),
-  approvePermission: (requestId: string, approvedBy: string) =>
-    mutate(`/permissions/${requestId}/approve`, 'POST', 'approve permission', { approved_by: approvedBy }).then(() => {}),
-  denyPermission: (requestId: string, approvedBy: string) =>
-    mutate(`/permissions/${requestId}/deny`, 'POST', 'deny permission', { approved_by: approvedBy }).then(() => {}),
-  createAgent: (payload: { name: string; description: string; default_engine: string; metadata: Record<string, string>; password?: string }) =>
-    mutate('/agents', 'POST', 'create agent', payload).then(() => {}),
-  postChat: (message: ExivMessage) =>
-    mutate('/chat', 'POST', 'send chat', message).then(() => {}),
+  grantPermission: (pluginId: string, permission: string, apiKey: string) =>
+    mutate(`/plugins/${pluginId}/permissions/grant`, 'POST', 'grant permission', { permission }, { 'X-API-Key': apiKey }).then(() => {}),
+  postEvent: (eventData: any, apiKey: string) =>
+    mutate('/events/publish', 'POST', 'post event', eventData, { 'X-API-Key': apiKey }).then(() => {}),
+  post: (path: string, payload: any, apiKey: string) =>
+    mutate(path, 'POST', `post to ${path}`, payload, { 'X-API-Key': apiKey }).then(() => {}),
+  approvePermission: (requestId: string, approvedBy: string, apiKey: string) =>
+    mutate(`/permissions/${requestId}/approve`, 'POST', 'approve permission', { approved_by: approvedBy }, { 'X-API-Key': apiKey }).then(() => {}),
+  denyPermission: (requestId: string, approvedBy: string, apiKey: string) =>
+    mutate(`/permissions/${requestId}/deny`, 'POST', 'deny permission', { approved_by: approvedBy }, { 'X-API-Key': apiKey }).then(() => {}),
+  createAgent: (payload: { name: string; description: string; default_engine: string; metadata: Record<string, string>; password?: string }, apiKey: string) =>
+    mutate('/agents', 'POST', 'create agent', payload, { 'X-API-Key': apiKey }).then(() => {}),
+  postChat: (message: ExivMessage, apiKey: string) =>
+    mutate('/chat', 'POST', 'send chat', message, { 'X-API-Key': apiKey }).then(() => {}),
   updateEvolutionParams: (params: EvolutionParams, apiKey: string) =>
     mutate('/evolution/params', 'PUT', 'update evolution params', params, { 'X-API-Key': apiKey }).then(() => {}),
 
-  applyUpdate: (version: string): Promise<UpdateResult> =>
-    mutate('/system/update/apply', 'POST', 'apply update', { version }).then(r => r.json()),
-  postChatMessage: (agentId: string, msg: { id: string; source: string; content: ContentBlock[]; metadata?: Record<string, unknown> }): Promise<{ id: string; created_at: number }> =>
-    mutate(`/chat/${agentId}/messages`, 'POST', 'post chat message', msg).then(r => r.json()),
+  applyUpdate: (version: string, apiKey: string): Promise<UpdateResult> =>
+    mutate('/system/update/apply', 'POST', 'apply update', { version }, { 'X-API-Key': apiKey }).then(r => r.json()),
+  postChatMessage: (agentId: string, msg: { id: string; source: string; content: ContentBlock[]; metadata?: Record<string, unknown> }, apiKey: string): Promise<{ id: string; created_at: number }> =>
+    mutate(`/chat/${agentId}/messages`, 'POST', 'post chat message', msg, { 'X-API-Key': apiKey }).then(r => r.json()),
   evaluateAgent: (scores: { cognitive: number; behavioral: number; safety: number; autonomy: number; meta_learning: number }, apiKey: string): Promise<{ status: string; events: unknown[] }> =>
     mutate('/evolution/evaluate', 'POST', 'evaluate', { scores }, { 'X-API-Key': apiKey }).then(r => r.json()),
-  deleteChatMessages: (agentId: string): Promise<{ deleted_count: number }> =>
-    mutate(`/chat/${agentId}/messages`, 'DELETE', 'delete chat messages').then(r => r.json()),
+  deleteChatMessages: (agentId: string, apiKey: string): Promise<{ deleted_count: number }> =>
+    mutate(`/chat/${agentId}/messages`, 'DELETE', 'delete chat messages', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
   invalidateApiKey: (apiKey: string): Promise<{ status: string; message: string }> =>
     mutate('/system/invalidate-key', 'POST', 'invalidate API key', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
 
   // Custom error handling: reads error body for detailed message
-  async toggleAgentPower(agentId: string, enabled: boolean, password?: string): Promise<void> {
+  async toggleAgentPower(agentId: string, enabled: boolean, apiKey: string, password?: string): Promise<void> {
     const res = await fetch(`${API_BASE}/agents/${agentId}/power`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
       body: JSON.stringify({ enabled, password: password || undefined })
     });
     if (!res.ok) {

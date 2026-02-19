@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Power, Lock } from 'lucide-react';
 import { AgentMetadata } from '../types';
 import { api } from '../services/api';
+import { useApiKey } from '../contexts/ApiKeyContext';
 
 interface Props {
   agent: AgentMetadata;
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
+  const { apiKey } = useApiKey();
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -18,7 +20,7 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
     setIsLoading(true);
     setError('');
     try {
-      await api.toggleAgentPower(agent.id, !agent.enabled, password);
+      await api.toggleAgentPower(agent.id, !agent.enabled, apiKey, password);
       onClose();
       onSuccess();
     } catch (err: any) {

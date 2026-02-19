@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { RefreshCw, Download, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { api, UpdateInfo } from '../services/api';
 import { isTauri } from '../lib/tauri';
+import { useApiKey } from '../contexts/ApiKeyContext';
 
 type UpdateState = 'idle' | 'checking' | 'available' | 'up-to-date' | 'applying' | 'done' | 'error';
 
@@ -9,6 +10,7 @@ type UpdateState = 'idle' | 'checking' | 'available' | 'up-to-date' | 'applying'
 const UPDATE_TIMEOUT_MS = 30000;
 
 export function SystemUpdate() {
+  const { apiKey } = useApiKey();
   const [state, setState] = useState<UpdateState>('idle');
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -96,7 +98,7 @@ export function SystemUpdate() {
     setState('applying');
     setError(null);
     try {
-      await api.applyUpdate(info.latest_version);
+      await api.applyUpdate(info.latest_version, apiKey);
       if (!abortRef.current.signal.aborted) {
         setState('done');
       }

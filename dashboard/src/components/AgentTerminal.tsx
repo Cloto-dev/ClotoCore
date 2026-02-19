@@ -10,6 +10,7 @@ import { useAgentCreation } from '../hooks/useAgentCreation';
 import { PowerToggleModal } from './PowerToggleModal';
 
 import { api, API_BASE } from '../services/api';
+import { useApiKey } from '../contexts/ApiKeyContext';
 
 export interface AgentTerminalProps {
   agents?: AgentMetadata[];
@@ -130,6 +131,7 @@ function MessageContent({ content }: { content: string | ContentBlock[] }) {
 }
 
 function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => void }) {
+  const { apiKey } = useApiKey();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -148,7 +150,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
     const loadMessages = async () => {
       try {
         // First, check for legacy localStorage data and migrate
-        await migrateLegacyData(agent.id);
+        await migrateLegacyData(agent.id, apiKey);
 
         const { messages: loaded, has_more } = await api.getChatMessages(agent.id, undefined, 50);
         // API returns newest-first; reverse for display (oldest at top)
@@ -239,7 +241,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
         id: agentMsg.id,
         source: 'agent',
         content: agentMsg.content,
-      }).catch(err => console.error('Failed to persist agent response:', err));
+      }, apiKey).catch(err => console.error('Failed to persist agent response:', err));
     }
   });
 
@@ -266,7 +268,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
         id: userMsg.id,
         source: 'user',
         content: userMsg.content,
-      }).catch(err => console.error('Failed to persist user message:', err));
+      }, apiKey).catch(err => console.error('Failed to persist user message:', err));
 
       // Send to event bus for agent processing (existing ExivMessage format)
       const exivMsg: ExivMessage = {
@@ -278,7 +280,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
         metadata: { target_agent_id: agent.id }
       };
 
-      await api.postChat(exivMsg);
+      await api.postChat(exivMsg, apiKey);
     } catch (err) {
       console.error("Failed to send message:", err);
       setIsTyping(false);
@@ -290,7 +292,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
     setIsTyping(false);
     setHasMore(false);
     try {
-      await api.deleteChatMessages(agent.id);
+      await api.deleteChatMessages(agent.id, apiKey);
     } catch (err) {
       console.error('Failed to delete chat messages:', err);
     }
@@ -526,7 +528,7 @@ function ContainerDashboard({ agent, plugins, onBack, onConfigure, onPowerToggle
 }
 
 /** Migrate legacy localStorage session data to server */
-async function migrateLegacyData(agentId: string) {
+async function migrateLegacyData(agentId: string, apiKey: string) {
   const key = LEGACY_SESSION_KEY_PREFIX + agentId;
   try {
     const raw = localStorage.getItem(key);
@@ -544,7 +546,7 @@ async function migrateLegacyData(agentId: string) {
         id: msg.id,
         source,
         content: [{ type: 'text', text: msg.content }],
-      }).catch(() => {}); // Ignore duplicate ID errors
+      }, apiKey).catch(() => {}); // Ignore duplicate ID errors
     }
 
     // Remove legacy data
@@ -562,6 +564,7 @@ export function AgentTerminal({
   onSelectAgent: propOnSelectAgent,
   onRefresh: propOnRefresh
 }: AgentTerminalProps = {}) {
+  const { apiKey } = useApiKey();
   const [internalAgents, setInternalAgents] = useState<AgentMetadata[]>([]);
   const [internalPlugins, setInternalPlugins] = useState<PluginManifest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -626,7 +629,7 @@ export function AgentTerminal({
       setPowerTarget(agent);
     } else {
       try {
-        await api.toggleAgentPower(agent.id, !agent.enabled);
+        await api.toggleAgentPower(agent.id, !agent.enabled, apiKey);
         refreshAgents();
       } catch (err) {
         console.error('Failed to toggle power:', err);
@@ -639,7 +642,7 @@ export function AgentTerminal({
       <AgentPluginWorkspace
         agent={configuringAgent}
         availablePlugins={plugins.filter(p => p.is_active)}
-        onBack={() => setConfiguringAgent(null)}
+        onBack={() => { setConfiguringAgent(null); refreshAgents(); }}
       />
     );
   }

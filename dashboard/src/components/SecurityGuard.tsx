@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Lock, Unlock, AlertTriangle, X, Check, ShieldAlert } from 'lucide-react';
 import { api } from '../services/api';
+import { useApiKey } from '../contexts/ApiKeyContext';
 
 interface PermissionRequest {
   request_id: string;
@@ -13,6 +14,7 @@ interface PermissionRequest {
 }
 
 export function SecurityGuard() {
+  const { apiKey } = useApiKey();
   const [requests, setRequests] = useState<PermissionRequest[]>([]);
   const [authorizingIds, setAuthorizingIds] = useState<string[]>([]);
   const [grantedIds, setGrantedIds] = useState<string[]>([]);
@@ -50,7 +52,7 @@ export function SecurityGuard() {
     setError(null);
 
     try {
-      await api.approvePermission(req.request_id, 'admin');
+      await api.approvePermission(req.request_id, 'admin', apiKey);
       setAuthorizingIds(prev => prev.filter(id => id !== reqId));
       setGrantedIds(prev => [...prev, reqId]);
 
@@ -68,7 +70,7 @@ export function SecurityGuard() {
 
   const handleDeny = async (req: PermissionRequest) => {
     try {
-      await api.denyPermission(req.request_id, 'admin');
+      await api.denyPermission(req.request_id, 'admin', apiKey);
       setRequests(prev => prev.filter(r => r.request_id !== req.request_id));
       setError(null);
     } catch (err) {

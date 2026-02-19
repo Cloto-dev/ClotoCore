@@ -11,6 +11,7 @@ import { useDraggable } from '../hooks/useDraggable';
 import { useEventStream } from '../hooks/useEventStream';
 import { api, API_BASE } from '../services/api';
 import { SystemUpdate } from '../components/SystemUpdate';
+import { useApiKey } from '../contexts/ApiKeyContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 
 const StatusCore = lazy(() => import('../components/StatusCore').then(m => ({ default: m.StatusCore })));
@@ -79,6 +80,7 @@ function SystemView() {
 }
 
 export function Home() {
+  const { apiKey } = useApiKey();
   const containerRef = useRef<HTMLDivElement>(null);
   const realMouse = useRef({ x: -1000, y: -1000 });
   const navigate = useNavigate();
@@ -94,7 +96,7 @@ export function Home() {
     if (item.path.startsWith('api:')) {
       const command = item.path.split(':')[1];
       try {
-        await api.post(`/plugin/${item.pluginId}/action/${command}`, {});
+        await api.post(`/plugin/${item.pluginId}/action/${command}`, {}, apiKey);
         console.log(`Action ${command} executed for ${item.pluginId}`);
         // 🆕 Handle gaze tracking toggle (flexible ID check)
         if ((item.pluginId === 'python.gaze' || item.pluginId === 'vision.gaze_webcam') && command === 'toggle') {
