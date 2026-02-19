@@ -169,13 +169,15 @@ pub async fn create_agent(
     // M-07: Input validation
     if payload.name.is_empty() || payload.name.len() > 200 {
         return Err(AppError::Vers(exiv_shared::ExivError::ValidationError(
-            "Agent name must be 1-200 characters".to_string(),
+            format!("Agent name must be 1-200 characters (got {} chars); example: \"my-agent\"",
+                payload.name.len()),
         )));
     }
     // Bug #1: Add empty check for description to match name validation pattern
     if payload.description.is_empty() || payload.description.len() > 1000 {
         return Err(AppError::Vers(exiv_shared::ExivError::ValidationError(
-            "Description must be 1-1000 characters (UTF-8 bytes)".to_string(),
+            format!("Agent description must be 1-1000 characters (got {} chars); example: \"A helpful assistant\"",
+                payload.description.len()),
         )));
     }
 
@@ -183,13 +185,15 @@ pub async fn create_agent(
     let metadata = payload.metadata.unwrap_or_default();
     if metadata.len() > 50 {
         return Err(AppError::Vers(exiv_shared::ExivError::ValidationError(
-            "Metadata must have at most 50 key-value pairs".to_string(),
+            format!("Metadata must have at most 50 key-value pairs (got {})",
+                metadata.len()),
         )));
     }
     for (k, v) in &metadata {
         if k.len() > 200 || v.len() > 5000 {
             return Err(AppError::Vers(exiv_shared::ExivError::ValidationError(
-                "Metadata key max 200 chars, value max 5000 chars".to_string(),
+                format!("Metadata key '{}' exceeds limits (key: {} chars max 200, value: {} chars max 5000)",
+                    k, k.len(), v.len()),
             )));
         }
     }

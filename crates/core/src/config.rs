@@ -75,13 +75,14 @@ impl AppConfig {
             .parse::<usize>()
             .context("Failed to parse MEMORY_CONTEXT_LIMIT")?;
 
-        let port = env::var("PORT")
-            .unwrap_or_else(|_| "8081".to_string())
-            .parse::<u16>()
-            .context("Failed to parse PORT environment variable")?;
+        let port_str = env::var("PORT").unwrap_or_else(|_| "8081".to_string());
+        let port = port_str.parse::<u16>()
+            .map_err(|_| anyhow::anyhow!(
+                "Invalid PORT value '{}': must be an integer between 1 and 65535", port_str
+            ))?;
 
         if port == 0 {
-            anyhow::bail!("PORT must be between 1 and 65535");
+            anyhow::bail!("Invalid PORT value '0': must be between 1 and 65535");
         }
 
         // BIND_ADDRESS: defaults to 127.0.0.1 (loopback only) for safety.

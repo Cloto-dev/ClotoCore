@@ -47,7 +47,7 @@ impl PluginDataStore for SqliteDataStore {
         timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
             .await
             .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-            .map_err(|e| anyhow::anyhow!("Database operation failed: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to save key '{}' for plugin '{}': {}", key, plugin_id, e))?;
 
         Ok(())
     }
@@ -74,7 +74,7 @@ impl PluginDataStore for SqliteDataStore {
         let row: Option<(String,)> = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
             .await
             .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-            .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to get key '{}' for plugin '{}': {}", key, plugin_id, e))?;
 
         if let Some((val_str,)) = row {
             let val = serde_json::from_str(&val_str)?;
@@ -114,7 +114,7 @@ impl PluginDataStore for SqliteDataStore {
         let mut rows: Vec<(String, String)> = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
             .await
             .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-            .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to list keys with prefix '{}' for plugin '{}': {}", key_prefix, plugin_id, e))?;
 
         if rows.len() > DEFAULT_MAX_RESULTS as usize {
             rows.truncate(DEFAULT_MAX_RESULTS as usize);
@@ -164,7 +164,7 @@ impl PluginDataStore for SqliteDataStore {
         let (val_str,) = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
             .await
             .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-            .map_err(|e| anyhow::anyhow!("Database increment failed: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to increment counter '{}' for plugin '{}': {}", key, plugin_id, e))?;
 
         val_str.parse::<i64>()
             .map_err(|e| anyhow::anyhow!("Failed to parse counter value '{}': {}", val_str, e))
