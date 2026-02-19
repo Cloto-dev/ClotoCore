@@ -371,7 +371,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
                 }`} style={!isUser ? { backgroundColor: agentColor(agent) } : undefined}>
                   {isUser ? <UserIcon size={14} /> : <AgentIcon agent={agent} size={14} />}
                 </div>
-                <div className={`max-w-[80%] p-4 rounded-2xl text-xs leading-relaxed shadow-sm ${
+                <div className={`max-w-[80%] p-4 rounded-2xl text-xs leading-relaxed shadow-sm select-text ${
                   isUser
                     ? 'bg-surface-primary text-content-primary rounded-tr-none'
                     : 'text-white rounded-tl-none'
