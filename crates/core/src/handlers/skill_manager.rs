@@ -55,7 +55,25 @@ impl SkillManager {
             return Err(anyhow::anyhow!("Skill name must contain only alphanumeric characters and underscores"));
         }
 
-        // Build Python script with EXIV_MANIFEST
+        // Allow caller to provide a custom JSON Schema for the tool's parameters.
+        // Defaults to {input: string} for backward compatibility.
+        let default_schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "description": "Input for the skill"
+                }
+            }
+        });
+        let tool_schema = args.get("tool_schema")
+            .filter(|v| v.is_object())
+            .cloned()
+            .unwrap_or(default_schema);
+        let tool_schema_str = tool_schema.to_string();
+
+        // Build Python script with EXIV_MANIFEST.
+        // tool_schema_str is inserted as a raw JSON literal (valid Python dict syntax).
         let script_content = format!(
             r##"# Auto-generated runtime skill: {name}
 # This script was created by the Skill Manager at runtime.
@@ -65,26 +83,21 @@ EXIV_MANIFEST = {{
     "description": "{description}",
     "provided_tools": ["{name}"],
     "tool_description": "{description}",
-    "tool_schema": {{
-        "type": "object",
-        "properties": {{
-            "input": {{
-                "type": "string",
-                "description": "Input for the skill"
-            }}
-        }}
-    }},
+    "tool_schema": {tool_schema},
     "tags": ["#RUNTIME", "#SKILL"]
 }}
 
 {code}
 
 def execute(params):
-    """Entry point called by the bridge when this tool is invoked."""
+    """Entry point called by the bridge when this tool is invoked.
+    params is a dict whose keys match the tool_schema properties.
+    """
     return on_execute(params)
 "##,
             name = name,
             description = description.replace('"', r#"\""#),
+            tool_schema = tool_schema_str,
             code = code,
         );
 
@@ -227,7 +240,7 @@ impl Tool for SkillManager {
     fn name(&self) -> &'static str { "skill_manager" }
 
     fn description(&self) -> &'static str {
-        "Extend your own capabilities at runtime. Use get_runtime_skills to see skills you have already created (avoids duplicates). Use register_skill to write and register a new Python skill. Use add_network_host to grant yourself network access to a specific host."
+        "Extend your own capabilities at runtime. Use get_runtime_skills to see skills you have already created (avoids duplicates). Use register_skill to write and register a new Python skill with custom input parameters. Use add_network_host to grant yourself network access to a specific host."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -246,19 +259,23 @@ impl Tool for SkillManager {
                 },
                 "code": {
                     "type": "string",
-                    "description": "Python code defining on_execute(params) function. Required for register_skill."
+                    "description": "Python code defining on_execute(params) function. Required for register_skill. params is a dict whose keys match tool_schema properties. Example: def on_execute(params): city = params.get('city', 'Tokyo'); return {'result': city}"
                 },
                 "description": {
                     "type": "string",
-                    "description": "Description of the skill. Optional for register_skill."
+                    "description": "Human-readable description of what the skill does. Optional for register_skill."
+                },
+                "tool_schema": {
+                    "type": "object",
+                    "description": "JSON Schema object defining the input parameters for the skill. Optional — if omitted, defaults to {input: string}. Use this to define precise, named parameters. Example: {\"type\":\"object\",\"required\":[\"city\"],\"properties\":{\"city\":{\"type\":\"string\",\"description\":\"City name\"},\"unit\":{\"type\":\"string\",\"enum\":[\"celsius\",\"fahrenheit\"]}}}"
                 },
                 "network_access": {
                     "type": "boolean",
-                    "description": "Whether the skill needs network access. Optional for register_skill."
+                    "description": "Whether the skill needs to make HTTP requests. Set true to enable requests library. Optional for register_skill."
                 },
                 "host": {
                     "type": "string",
-                    "description": "Hostname to add to the network whitelist. Required for add_network_host."
+                    "description": "Hostname to add to the network whitelist (e.g. 'api.example.com'). Required for add_network_host."
                 }
             }
         })
