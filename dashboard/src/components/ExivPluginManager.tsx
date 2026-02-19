@@ -5,19 +5,26 @@ import { api } from '../services/api';
 import { ServiceTypeIcon } from '../lib/pluginUtils';
 import { isTauri, openFileDialog } from '../lib/tauri';
 
-function ConfigModal({ plugin, apiKey, onClose }: { plugin: PluginManifest, apiKey: string, onClose: () => void }) {
+function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () => void }) {
+  const [apiKey, setApiKey] = useState('');
   const [config, setConfig] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
   // H-19: Use React state instead of direct DOM manipulation for save button
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle');
 
-  useEffect(() => {
-    api.getPluginConfig(plugin.id, apiKey)
-      .then(setConfig)
-      .catch((e: any) => setFetchError(e?.message || 'Failed to load config'))
-      .finally(() => setLoading(false));
-  }, [plugin.id, apiKey]);
+  const loadConfig = async (key: string) => {
+    setLoading(true);
+    setFetchError('');
+    try {
+      const data = await api.getPluginConfig(plugin.id, key);
+      setConfig(data);
+    } catch (e: any) {
+      setFetchError(e?.message || 'Failed to load config');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const save = async (key: string, value: string) => {
     const newConfig = { ...config, [key]: value };
@@ -33,11 +40,35 @@ function ConfigModal({ plugin, apiKey, onClose }: { plugin: PluginManifest, apiK
           Configure {plugin.name}
         </h3>
         
+        {/* API Key input — always shown; load is triggered manually */}
+        <div className="flex gap-2 mb-4">
+          <div className="relative flex-1">
+            <Lock size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-content-muted" />
+            <input
+              type="password"
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && apiKey && loadConfig(apiKey)}
+              placeholder="API Key (required)"
+              className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-edge text-xs font-mono text-content-primary bg-surface-base placeholder:text-content-muted focus:outline-none focus:border-brand"
+            />
+          </div>
+          <button
+            onClick={() => loadConfig(apiKey)}
+            disabled={!apiKey || loading}
+            className="px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-bold disabled:opacity-40 hover:bg-brand/90 transition-colors"
+          >
+            {loading ? '...' : 'Load'}
+          </button>
+        </div>
+
+        {fetchError && (
+          <div className="mb-3 p-3 bg-red-500/10 text-red-400 text-xs rounded-lg font-mono">{fetchError}</div>
+        )}
+
         {loading ? (
           <div className="p-8 text-center text-content-tertiary font-mono text-xs">Loading config...</div>
-        ) : fetchError ? (
-          <div className="p-4 bg-red-500/10 text-red-400 text-xs rounded-lg font-mono">{fetchError}</div>
-        ) : (
+        ) : Object.keys(config).length > 0 || plugin.required_config_keys.length > 0 ? (
           <div className="space-y-4">
             {plugin.required_config_keys.length > 0 ? plugin.required_config_keys.map(key => {
               const isPathKey = /path|script|file|dir/i.test(key);
@@ -85,7 +116,7 @@ function ConfigModal({ plugin, apiKey, onClose }: { plugin: PluginManifest, apiK
               </div>
             )}
           </div>
-        )}
+        ) : null}
 
         <div className="mt-6 flex justify-end gap-3">
           <button onClick={onClose} className="px-6 py-2 bg-surface-secondary text-content-secondary rounded-lg text-xs font-bold hover:bg-surface-secondary transition-colors tracking-wide">
@@ -440,7 +471,7 @@ export function ExivPluginManager() {
 
       {/* Config Modal */}
       {configTarget && (
-        <ConfigModal plugin={configTarget} apiKey={apiKey} onClose={() => setConfigTarget(null)} />
+        <ConfigModal plugin={configTarget} onClose={() => setConfigTarget(null)} />
       )}
     </div>
   );
