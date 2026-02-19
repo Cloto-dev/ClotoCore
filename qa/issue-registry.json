@@ -314,6 +314,30 @@
       "pattern": "Invalid API response: missing choices\\[0\\]\"\\)",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-040",
+      "summary": "Cerebras non-standard error format (top-level type+message) not detected; causes misleading 'missing choices[0]' error",
+      "severity": "HIGH",
+      "discovered": "2026-02-19T17:32:00Z",
+      "version": "0.1.0",
+      "commit": "1050f34",
+      "file": "crates/shared/src/llm.rs",
+      "pattern": "Cerebras non-standard error format",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-041",
+      "summary": "Cerebras plugin claims supports_tools=true but Cerebras API rejects JSON schema in tools",
+      "severity": "HIGH",
+      "discovered": "2026-02-19T17:32:00Z",
+      "version": "0.1.0",
+      "commit": "1050f34",
+      "file": "plugins/cerebras/src/lib.rs",
+      "pattern": "fn supports_tools.*true",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

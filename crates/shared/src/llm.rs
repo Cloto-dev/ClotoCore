@@ -79,9 +79,15 @@ pub fn parse_chat_content(
     let json: serde_json::Value = serde_json::from_str(response_body)
         .map_err(|e| anyhow::anyhow!("{} API response is not valid JSON: {} | body: {}", provider_name, e, &response_body[..response_body.len().min(500)]))?;
 
+    // Standard OpenAI error format: {"error": {"message": "..."}}
     if let Some(error) = json.get("error") {
         let msg = error.get("message").and_then(|m| m.as_str())
             .unwrap_or_else(|| error.as_str().unwrap_or("Unknown error"));
+        return Err(anyhow::anyhow!("{} API Error: {}", provider_name, msg));
+    }
+    // Cerebras non-standard error format: {"type": "invalid_request_error", "message": "..."}
+    if json.get("type").and_then(|t| t.as_str()).map(|t| t.contains("error")).unwrap_or(false) {
+        let msg = json.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
         return Err(anyhow::anyhow!("{} API Error: {}", provider_name, msg));
     }
 
@@ -112,9 +118,15 @@ pub fn parse_chat_think_result(
     let json: serde_json::Value = serde_json::from_str(response_body)
         .map_err(|e| anyhow::anyhow!("{} API response is not valid JSON: {} | body: {}", provider_name, e, &response_body[..response_body.len().min(500)]))?;
 
+    // Standard OpenAI error format
     if let Some(error) = json.get("error") {
         let msg = error.get("message").and_then(|m| m.as_str())
             .unwrap_or_else(|| error.as_str().unwrap_or("Unknown error"));
+        return Err(anyhow::anyhow!("{} API Error: {}", provider_name, msg));
+    }
+    // Cerebras non-standard error format
+    if json.get("type").and_then(|t| t.as_str()).map(|t| t.contains("error")).unwrap_or(false) {
+        let msg = json.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
         return Err(anyhow::anyhow!("{} API Error: {}", provider_name, msg));
     }
 

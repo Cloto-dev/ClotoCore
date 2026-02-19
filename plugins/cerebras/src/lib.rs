@@ -126,7 +126,9 @@ impl ReasoningEngine for CerebrasPlugin {
         "Cerebras"
     }
 
-    fn supports_tools(&self) -> bool { true }
+    // Cerebras API rejects JSON schema grammar in tool definitions (wrong_api_format).
+    // Disable tool-calling until Cerebras supports our schema format.
+    fn supports_tools(&self) -> bool { false }
 
     async fn think(
         &self,
