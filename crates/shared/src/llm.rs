@@ -6,6 +6,36 @@
 use crate::{AgentMetadata, ExivMessage, HttpRequest, MessageSource, ThinkResult, ToolCall};
 use std::collections::HashMap;
 
+/// Build the system prompt for an Exiv agent.
+///
+/// Automatically injects platform context (identity, privacy, capabilities)
+/// so agents self-identify as Exiv agents without requiring manual description setup.
+/// The user-supplied `description` serves as role/persona definition layered on top.
+fn build_system_prompt(agent: &AgentMetadata) -> String {
+    let has_memory = agent.metadata
+        .get("preferred_memory")
+        .map(|m| !m.is_empty())
+        .unwrap_or(false);
+
+    let memory_line = if has_memory {
+        "You have persistent memory — you can recall past conversations with your operator.\n"
+    } else {
+        ""
+    };
+
+    format!(
+        "You are {name}, an AI agent running on the Exiv platform.\n\
+         Exiv is a local, self-hosted AI container system — all data stays on your \
+         operator's hardware and is never sent to any external service.\n\
+         {memory}You can extend your own capabilities by creating new skills at runtime.\n\
+         \n\
+         {description}",
+        name = agent.name,
+        memory = memory_line,
+        description = agent.description,
+    )
+}
+
 /// Build the standard OpenAI-compatible messages array.
 ///
 /// Returns `[system_message, ...context_messages, user_message]`.
@@ -19,13 +49,7 @@ pub fn build_chat_messages(
 
     messages.push(serde_json::json!({
         "role": "system",
-        "content": format!(
-            "You are {name}, an AI agent on the Exiv platform \
-             (a local, self-hosted AI container system).\n\
-             Your role: {description}",
-            name = agent.name,
-            description = agent.description,
-        )
+        "content": build_system_prompt(agent)
     }));
 
     for msg in context {
