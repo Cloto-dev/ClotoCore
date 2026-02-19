@@ -152,7 +152,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
         // First, check for legacy localStorage data and migrate
         await migrateLegacyData(agent.id, apiKey);
 
-        const { messages: loaded, has_more } = await api.getChatMessages(agent.id, undefined, 50);
+        const { messages: loaded, has_more } = await api.getChatMessages(agent.id, apiKey, undefined, 50);
         // API returns newest-first; reverse for display (oldest at top)
         setMessages(loaded.reverse());
         setHasMore(has_more);
@@ -196,7 +196,7 @@ function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => v
 
     try {
       const oldestTs = messages[0]?.created_at;
-      const { messages: older, has_more } = await api.getChatMessages(agent.id, oldestTs, 50);
+      const { messages: older, has_more } = await api.getChatMessages(agent.id, apiKey, oldestTs, 50);
 
       if (older.length > 0) {
         // Preserve scroll position

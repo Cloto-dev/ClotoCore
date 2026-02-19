@@ -101,12 +101,14 @@ export const api = {
   },
 
   // Custom response transformation: parses JSON string fields
-  async getChatMessages(agentId: string, before?: number, limit?: number): Promise<{ messages: ChatMessage[], has_more: boolean }> {
+  async getChatMessages(agentId: string, apiKey: string, before?: number, limit?: number): Promise<{ messages: ChatMessage[], has_more: boolean }> {
     const params = new URLSearchParams();
     if (before) params.set('before', String(before));
     if (limit) params.set('limit', String(limit));
     const qs = params.toString();
-    const res = await fetch(`${API_BASE}/chat/${agentId}/messages${qs ? '?' + qs : ''}`);
+    const res = await fetch(`${API_BASE}/chat/${agentId}/messages${qs ? '?' + qs : ''}`, {
+      headers: { 'X-API-Key': apiKey },
+    });
     if (!res.ok) throw new Error(`Failed to fetch chat messages: ${res.statusText}`);
     const data = await res.json();
     return {
