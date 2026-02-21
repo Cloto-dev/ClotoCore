@@ -1,7 +1,9 @@
 use async_trait::async_trait;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use exiv_shared::{
-    Plugin, PluginConfig, exiv_plugin, ExivEvent, ExivEventData, 
-    HandAction, ColorVisionData, DetectedElement
+    Plugin, PluginConfig, PluginRuntimeContext, exiv_plugin, ExivEvent, ExivEventData,
+    HandAction, ColorVisionData, DetectedElement, Permission, NetworkCapability,
 };
 use chrono::Utc;
 
@@ -15,11 +17,19 @@ use chrono::Utc;
     tags = ["#TOOL", "#VISION"],
     capabilities = ["Vision"]
 )]
-pub struct VisionPlugin {}
+pub struct VisionPlugin {
+    state: Arc<RwLock<VisionState>>,
+}
+
+struct VisionState {
+    vision_read_granted: bool,
+}
 
 impl VisionPlugin {
     pub async fn new_plugin(_config: PluginConfig) -> anyhow::Result<Self> {
-        Ok(Self {})
+        Ok(Self {
+            state: Arc::new(RwLock::new(VisionState { vision_read_granted: false })),
+        })
     }
 }
 
@@ -29,8 +39,35 @@ impl Plugin for VisionPlugin {
         self.auto_manifest()
     }
 
+    async fn on_plugin_init(
+        &self,
+        context: PluginRuntimeContext,
+        _network: Option<Arc<dyn NetworkCapability>>,
+    ) -> anyhow::Result<()> {
+        let granted = context.effective_permissions.contains(&Permission::VisionRead);
+        let mut state = self.state.write().await;
+        state.vision_read_granted = granted;
+        if !granted {
+            tracing::warn!(
+                "📷 vision.screen: VisionRead permission not granted — screen capture will be blocked"
+            );
+        }
+        Ok(())
+    }
+
     async fn on_event(&self, event: &ExivEvent) -> anyhow::Result<Option<ExivEventData>> {
         if let ExivEventData::ActionRequested { requester: _, action: HandAction::CaptureScreen } = &event.data {
+            // 🔐 Enforce VisionRead: block capture if permission not granted
+            let state = self.state.read().await;
+            if !state.vision_read_granted {
+                tracing::error!(
+                    "🚫 SECURITY: vision.screen attempted screen capture without VisionRead permission"
+                );
+                return Err(anyhow::anyhow!(
+                    "VisionRead permission required for screen capture"
+                ));
+            }
+
             // L-07: This is mock data - real implementation requires platform-specific screen capture
             tracing::warn!("📷 Vision Plugin: Returning MOCK screen capture data (not yet implemented)");
 

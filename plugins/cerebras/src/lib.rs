@@ -115,6 +115,7 @@ impl Plugin for CerebrasPlugin {
                 state.http_client = Some(net);
                 tracing::info!("💉 Cerebras Plugin: NetworkCapability injected live.");
             }
+            _ => {} // File/Process capabilities not used by this plugin
         }
         Ok(())
     }

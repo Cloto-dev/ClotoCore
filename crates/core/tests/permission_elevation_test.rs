@@ -57,9 +57,10 @@ impl Plugin for MockPlugin {
     }
 
     async fn on_capability_injected(&self, capability: PluginCapability) -> anyhow::Result<()> {
-        let PluginCapability::Network(_) = capability;
-        let mut lock = self.injected.write().await;
-        *lock = true;
+        if let PluginCapability::Network(_) = capability {
+            let mut lock = self.injected.write().await;
+            *lock = true;
+        }
         Ok(())
     }
 }

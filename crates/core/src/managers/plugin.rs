@@ -214,11 +214,24 @@ impl PluginManager {
             event_tx: p_tx,
         };
 
-        // 💉 Capability Injection
+        // 🔐 Bootstrap validation: warn if required_permissions exceed allowed_permissions
+        for req_perm in &manifest.required_permissions {
+            if !permissions.contains(req_perm) {
+                tracing::warn!(
+                    plugin_id = %plugin_id_str,
+                    missing_permission = ?req_perm,
+                    "⚠️  Plugin requires {:?} but permission is NOT granted. \
+                     Plugin will start with reduced capabilities.",
+                    req_perm
+                );
+            }
+        }
+
+        // 💉 Capability Injection: inject all granted capabilities
         let network_capability = if permissions.contains(&Permission::NetworkAccess) {
             self.get_capability_for_permission(&Permission::NetworkAccess)
                 .map(|c| {
-                    let exiv_shared::PluginCapability::Network(net) = c;
+                    let exiv_shared::PluginCapability::Network(net) = c else { unreachable!() };
                     net
                 })
         } else {
@@ -226,6 +239,23 @@ impl PluginManager {
         };
 
         plugin.on_plugin_init(context, network_capability).await?;
+
+        // Inject additional capabilities for granted permissions
+        for cap_perm in &[Permission::FileRead, Permission::FileWrite, Permission::ProcessExecution] {
+            if permissions.contains(cap_perm) {
+                if let Some(cap) = self.get_capability_for_permission(cap_perm) {
+                    if let Err(e) = plugin.on_capability_injected(cap).await {
+                        tracing::warn!(
+                            plugin_id = %plugin_id_str,
+                            permission = ?cap_perm,
+                            error = %e,
+                            "Failed to inject capability for {:?}",
+                            cap_perm
+                        );
+                    }
+                }
+            }
+        }
 
         // H-05: Atomic plugin registration - acquire both locks before inserting
         {
@@ -244,10 +274,30 @@ impl PluginManager {
         self.http_client.clone()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_capability_for_permission(&self, permission: &Permission) -> Option<exiv_shared::PluginCapability> {
         match permission {
             Permission::NetworkAccess => Some(exiv_shared::PluginCapability::Network(self.http_client.clone())),
+            Permission::FileRead => {
+                // Read-only sandbox: plugins can read from the data/ directory
+                let base = std::path::PathBuf::from("data/plugin_sandbox");
+                Some(exiv_shared::PluginCapability::File(
+                    std::sync::Arc::new(crate::capabilities::SandboxedFileCapability::read_only(base))
+                ))
+            }
+            Permission::FileWrite => {
+                // Read+write sandbox
+                let base = std::path::PathBuf::from("data/plugin_sandbox");
+                Some(exiv_shared::PluginCapability::File(
+                    std::sync::Arc::new(crate::capabilities::SandboxedFileCapability::read_write(base))
+                ))
+            }
+            Permission::ProcessExecution => {
+                // Empty allowlist by default — callers must configure permitted commands
+                Some(exiv_shared::PluginCapability::Process(
+                    std::sync::Arc::new(crate::capabilities::AllowedProcessCapability::new(vec![]))
+                ))
+            }
             _ => None,
         }
     }
@@ -464,7 +514,7 @@ impl PluginManager {
         let network_capability = if permissions.contains(&Permission::NetworkAccess) {
             self.get_capability_for_permission(&Permission::NetworkAccess)
                 .map(|c| {
-                    let exiv_shared::PluginCapability::Network(net) = c;
+                    let exiv_shared::PluginCapability::Network(net) = c else { unreachable!() };
                     net
                 })
         } else {

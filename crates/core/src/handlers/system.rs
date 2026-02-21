@@ -70,6 +70,22 @@ impl SystemHandler {
 
         let context = if let Some(ref plugin) = memory_plugin {
             if let Some(mem) = plugin.as_memory() {
+                // 🔐 Check MemoryRead permission before recall
+                let manifest = plugin.manifest();
+                let perms_lock = self.registry.effective_permissions.read().await;
+                let plugin_exiv_id = exiv_shared::ExivId::from_name(&manifest.id);
+                let has_memory_read = perms_lock
+                    .get(&plugin_exiv_id)
+                    .map(|p| p.contains(&exiv_shared::Permission::MemoryRead))
+                    .unwrap_or(false);
+                drop(perms_lock);
+                if !has_memory_read {
+                    tracing::warn!(
+                        plugin_id = %manifest.id,
+                        "⚠️  Memory plugin lacks MemoryRead permission — context recall skipped"
+                    );
+                    vec![]
+                } else {
                 // 🛑 停滞対策: メモリの呼び出しにタイムアウトを設定
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(5),
@@ -85,6 +101,7 @@ impl SystemHandler {
                         vec![]
                     }
                 }
+                } // end has_memory_read else branch
             } else {
                 vec![]
             }
@@ -212,6 +229,21 @@ impl SystemHandler {
         // メモリへの保存 (below agentic loop / consensus dispatch)
         if let Some(plugin) = memory_plugin {
             if let Some(_mem) = plugin.as_memory() {
+                // 🔐 Check MemoryWrite permission before store
+                let manifest = plugin.manifest();
+                let has_memory_write = {
+                    let perms_lock = self.registry.effective_permissions.read().await;
+                    let pid = exiv_shared::ExivId::from_name(&manifest.id);
+                    perms_lock.get(&pid)
+                        .map(|p| p.contains(&exiv_shared::Permission::MemoryWrite))
+                        .unwrap_or(false)
+                };
+                if !has_memory_write {
+                    tracing::warn!(
+                        plugin_id = %manifest.id,
+                        "⚠️  Memory plugin lacks MemoryWrite permission — store skipped"
+                    );
+                } else {
                 let agent_id = agent.id.clone();
                 let plugin_clone = plugin.clone();
                 let metrics = self.metrics.clone();
@@ -234,6 +266,7 @@ impl SystemHandler {
                         }
                     }
                 });
+                } // end has_memory_write branch
             }
         }
 

@@ -138,6 +138,7 @@ impl Plugin for DeepSeekPlugin {
                 state.http_client = Some(net);
                 tracing::info!("💉 DeepSeek Plugin: NetworkCapability injected live.");
             }
+            _ => {} // File/Process capabilities not used by this plugin
         }
         Ok(())
     }

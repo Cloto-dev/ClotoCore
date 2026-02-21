@@ -192,10 +192,33 @@ pub trait NetworkCapability: Send + Sync {
     async fn send_http_request(&self, request: HttpRequest) -> anyhow::Result<HttpResponse>;
 }
 
+/// Sandboxed file I/O capability.
+/// Only injected when FileRead and/or FileWrite permissions are granted.
+/// Implementations MUST restrict access to a designated sandbox directory.
+#[async_trait::async_trait]
+pub trait FileCapability: Send + Sync {
+    /// Read file contents. Path must be within the allowed sandbox directory.
+    async fn read(&self, path: &str) -> anyhow::Result<Vec<u8>>;
+    /// Write file contents. Only available when FileWrite is granted.
+    async fn write(&self, path: &str, data: &[u8]) -> anyhow::Result<()>;
+    /// Returns true if write operations are permitted.
+    fn can_write(&self) -> bool;
+}
+
+/// Process execution capability.
+/// Only injected when ProcessExecution permission is granted.
+#[async_trait::async_trait]
+pub trait ProcessCapability: Send + Sync {
+    /// Execute a command. Returns (stdout, stderr, exit_code).
+    async fn execute(&self, cmd: &str, args: &[String]) -> anyhow::Result<(String, String, i32)>;
+}
+
 /// 実行時に注入される具体的な能力のラッパー
 #[derive(Clone)]
 pub enum PluginCapability {
     Network(Arc<dyn NetworkCapability>),
+    File(Arc<dyn FileCapability>),
+    Process(Arc<dyn ProcessCapability>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use tracing::warn;
-use exiv_shared::{HttpRequest, HttpResponse, NetworkCapability};
+use exiv_shared::{HttpRequest, HttpResponse, NetworkCapability, FileCapability, ProcessCapability};
 use std::collections::HashSet;
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tokio::net::lookup_host;
 
@@ -116,6 +117,121 @@ impl NetworkCapability for SafeHttpClient {
         let body = resp.text().await?;
 
         Ok(HttpResponse { status, body })
+    }
+}
+
+// ── FileCapability ─────────────────────────────────────────────────────────
+
+/// Sandboxed file I/O implementation.
+/// All paths are resolved relative to `base_dir` and validated against path
+/// traversal attacks before any I/O is performed.
+#[derive(Clone)]
+pub struct SandboxedFileCapability {
+    base_dir: PathBuf,
+    write_enabled: bool,
+}
+
+impl SandboxedFileCapability {
+    /// Create a read-only capability sandboxed to `base_dir`.
+    pub fn read_only(base_dir: PathBuf) -> Self {
+        Self { base_dir, write_enabled: false }
+    }
+
+    /// Create a read+write capability sandboxed to `base_dir`.
+    pub fn read_write(base_dir: PathBuf) -> Self {
+        Self { base_dir, write_enabled: true }
+    }
+
+    fn resolve(&self, path: &str) -> anyhow::Result<PathBuf> {
+        let base = self.base_dir.canonicalize()
+            .map_err(|e| anyhow::anyhow!("Sandbox base dir inaccessible: {}", e))?;
+        let candidate = base.join(path);
+        // Canonicalize to resolve symlinks and ".." components
+        // For new files (write), canonicalize the parent directory instead
+        let resolved = if candidate.exists() {
+            candidate.canonicalize()?
+        } else {
+            let parent = candidate.parent()
+                .ok_or_else(|| anyhow::anyhow!("Invalid path: no parent directory"))?
+                .canonicalize()
+                .map_err(|_| anyhow::anyhow!("Parent directory does not exist"))?;
+            parent.join(candidate.file_name().ok_or_else(|| anyhow::anyhow!("Invalid file name"))?)
+        };
+        if !resolved.starts_with(&base) {
+            return Err(anyhow::anyhow!(
+                "Security violation: path '{}' escapes sandbox directory", path
+            ));
+        }
+        Ok(resolved)
+    }
+}
+
+#[async_trait]
+impl FileCapability for SandboxedFileCapability {
+    async fn read(&self, path: &str) -> anyhow::Result<Vec<u8>> {
+        let resolved = self.resolve(path)?;
+        tokio::fs::read(&resolved).await
+            .map_err(|e| anyhow::anyhow!("FileRead failed for '{}': {}", path, e))
+    }
+
+    async fn write(&self, path: &str, data: &[u8]) -> anyhow::Result<()> {
+        if !self.write_enabled {
+            return Err(anyhow::anyhow!(
+                "FileWrite permission not granted — operation denied"
+            ));
+        }
+        let resolved = self.resolve(path)?;
+        tokio::fs::write(&resolved, data).await
+            .map_err(|e| anyhow::anyhow!("FileWrite failed for '{}': {}", path, e))
+    }
+
+    fn can_write(&self) -> bool { self.write_enabled }
+}
+
+// ── ProcessCapability ───────────────────────────────────────────────────────
+
+/// Process execution capability.
+/// This implementation enforces an allowlist of permitted commands.
+/// An empty allowlist means NO commands are permitted.
+#[derive(Clone)]
+pub struct AllowedProcessCapability {
+    /// Permitted command names (basename only, e.g. "python3", "ffmpeg").
+    /// If empty, all execution is blocked.
+    allowed_commands: Arc<HashSet<String>>,
+}
+
+impl AllowedProcessCapability {
+    /// Create a capability that permits the given command names.
+    pub fn new(commands: Vec<String>) -> Self {
+        Self { allowed_commands: Arc::new(commands.into_iter().collect()) }
+    }
+}
+
+#[async_trait]
+impl ProcessCapability for AllowedProcessCapability {
+    async fn execute(&self, cmd: &str, args: &[String]) -> anyhow::Result<(String, String, i32)> {
+        let basename = std::path::Path::new(cmd)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(cmd);
+
+        if self.allowed_commands.is_empty() || !self.allowed_commands.contains(basename) {
+            warn!("🚫 ProcessExecution denied: command '{}' is not in the allowlist", cmd);
+            return Err(anyhow::anyhow!(
+                "ProcessExecution denied: '{}' is not in the permitted command list", cmd
+            ));
+        }
+
+        let output = tokio::process::Command::new(cmd)
+            .args(args)
+            .output()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to execute '{}': {}", cmd, e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let code = output.status.code().unwrap_or(-1);
+        Ok((stdout, stderr, code))
     }
 }
 
