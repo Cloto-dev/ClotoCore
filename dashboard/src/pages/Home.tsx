@@ -3,23 +3,17 @@ import { Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Activity, Database, MessageSquare, Puzzle, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, TrendingUp, LucideIcon } from 'lucide-react';
 import { InteractiveGrid } from '../components/InteractiveGrid';
-import { GlassWindow } from '../components/GlassWindow';
 import { SecurityGuard } from '../components/SecurityGuard';
 import { PluginManifest } from '../types';
-import { useWindowManager } from '../hooks/useWindowManager';
-import { useDraggable } from '../hooks/useDraggable';
 import { useEventStream } from '../hooks/useEventStream';
 import { api, API_BASE } from '../services/api';
 import { SystemUpdate } from '../components/SystemUpdate';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 
-const StatusCore = lazy(() => import('../components/StatusCore').then(m => ({ default: m.StatusCore })));
-const MemoryCore = lazy(() => import('../components/MemoryCore').then(m => ({ default: m.MemoryCore })));
 const ExivWorkspace = lazy(() => import('../components/AgentWorkspace').then(m => ({ default: m.AgentWorkspace })));
 const ExivPluginManager = lazy(() => import('../components/ExivPluginManager').then(m => ({ default: m.ExivPluginManager })));
 const GazeTracker = lazy(() => import('../components/GazeTracker').then(m => ({ default: m.GazeTracker })));
-const EvolutionCore = lazy(() => import('../components/EvolutionCore').then(m => ({ default: m.EvolutionCore })));
 
 function SystemView() {
   const [logs, setLogs] = useState<string[]>([]);
@@ -82,16 +76,12 @@ function SystemView() {
 export function Home() {
   const { apiKey } = useApiKey();
   const containerRef = useRef<HTMLDivElement>(null);
-  const realMouse = useRef({ x: -1000, y: -1000 });
   const navigate = useNavigate();
 
   const [activeMainView, setActiveMainView] = useState<string | null>(null);
   const [isGazeActive, setIsGazeActive] = useState(false);
   const [plugins, setPlugins] = useState<PluginManifest[]>([]);
 
-  // Phase 1 Refactor: Use Custom Hooks
-  const { windows, openWindow, closeWindow, focusWindow } = useWindowManager();
-  
   const handleItemClick = async (item: any) => {
     if (item.path.startsWith('api:')) {
       const command = item.path.split(':')[1];
@@ -115,8 +105,6 @@ export function Home() {
       navigate(item.path);
     }
   };
-
-  const { ghostPos, handleMouseDown, dragItem } = useDraggable(openWindow, handleItemClick);
 
   useEffect(() => {
     api.getPlugins()
@@ -166,11 +154,8 @@ export function Home() {
   }, [plugins]);
 
   return (
-    <div 
+    <div
       ref={containerRef}
-      onMouseEnter={(e) => {
-        realMouse.current = { x: e.clientX, y: e.clientY };
-      }}
       className="min-h-screen bg-surface-base flex flex-col items-center justify-center p-8 overflow-hidden relative font-sans text-content-primary select-none"
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-surface-primary via-surface-secondary to-edge opacity-90 pointer-events-none" />
@@ -213,41 +198,6 @@ export function Home() {
       {/* Security Layer */}
       <SecurityGuard />
 
-      {/* Windows Layer */}
-      <div className="absolute inset-0 z-30 pointer-events-none">
-        {windows.map(win => (
-          <div key={win.id} className="pointer-events-auto">
-            <GlassWindow
-              id={win.id}
-              title={win.title}
-              initialPosition={{ x: win.x, y: win.y }}
-              zIndex={win.zIndex}
-              onClose={() => closeWindow(win.id)}
-              onFocus={() => focusWindow(win.id)}
-            >
-              <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">LOADING MODULE...</div>}>
-                {win.type === 'status' && <StatusCore isWindowMode={true} />}
-                {win.type === 'memory' && <MemoryCore isWindowMode={true} onClose={() => closeWindow(win.id)} />}
-                {win.type === 'sandbox' && <ExivWorkspace />}
-                {win.type === 'plugin' && <ExivPluginManager />}
-                {win.type === 'system' && <SystemView />}
-                {win.type === 'evolve' && <EvolutionCore isWindowMode={true} />}
-              </Suspense>
-            </GlassWindow>
-          </div>
-        ))}
-      </div>
-
-      {/* Ghost Dragging Icon */}
-      {ghostPos && dragItem && (
-        <div 
-          className="fixed z-50 pointer-events-none p-4 bg-glass backdrop-blur-md rounded-lg border border-brand text-brand shadow-xl animate-pulse"
-          style={{ left: ghostPos.x, top: ghostPos.y, transform: 'translate(-50%, -50%)' }}
-        >
-          <dragItem.icon size={32} />
-        </div>
-      )}
-
       {/* Main Menu */}
       <div className="relative z-20 w-full max-w-5xl flex flex-col items-center">
         <div className="mb-16 text-center">
@@ -263,7 +213,7 @@ export function Home() {
           {menuItems.map((item) => (
             <div
               key={item.id}
-              onMouseDown={(e) => handleMouseDown(e, item)}
+              onClick={() => handleItemClick(item)}
               className={`
                 group relative w-[96px] h-[224px] border-2 bg-glass-strong backdrop-blur-sm
                 flex flex-col items-center py-6 shadow-sm rounded-md
