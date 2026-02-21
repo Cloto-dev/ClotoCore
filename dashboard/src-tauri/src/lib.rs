@@ -58,7 +58,7 @@ pub fn run() {
     let existing_cors = std::env::var("CORS_ORIGINS").unwrap_or_default();
     let tauri_origins = "tauri://localhost,http://tauri.localhost";
     let combined = if existing_cors.is_empty() {
-        format!("http://localhost:5173,http://127.0.0.1:5173,{}", tauri_origins)
+        format!("http://localhost:1420,http://127.0.0.1:1420,{}", tauri_origins)
     } else {
         format!("{},{}", existing_cors, tauri_origins)
     };
