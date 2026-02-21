@@ -2,12 +2,14 @@
 // Critical path: exiv_core/src/managers.rs:80-162 (PluginRegistry::dispatch_event)
 // Measures: FuturesUnordered concurrency, semaphore contention, plugin execution
 
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+use async_trait::async_trait;
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use exiv_shared::{
+    ExivEvent, ExivEventData, Plugin, PluginCast, PluginCategory, PluginManifest, ServiceType,
+};
+use std::any::Any;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use exiv_shared::{Plugin, ExivEvent, ExivEventData, PluginManifest, PluginCategory, ServiceType, PluginCast};
-use std::any::Any;
-use async_trait::async_trait;
 
 mod helpers;
 

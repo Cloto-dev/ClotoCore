@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
-use tokio::sync::{Mutex, oneshot};
+use std::sync::Arc;
+use tokio::sync::{oneshot, Mutex};
 use tracing::{debug, error, info};
 
 use crate::protocol::{
     CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, InitializeParams,
-    JsonRpcRequest, JsonRpcResponse, ListToolsResult
+    JsonRpcRequest, JsonRpcResponse, ListToolsResult,
 };
 use crate::stdio::StdioTransport;
 
@@ -58,9 +58,14 @@ impl McpClient {
                                     let mut map = pending.lock().await;
                                     if let Some(tx) = map.remove(&id) {
                                         if let Some(error) = response.error {
-                                            let _ = tx.send(Err(anyhow::anyhow!("RPC Error {}: {}", error.code, error.message)));
+                                            let _ = tx.send(Err(anyhow::anyhow!(
+                                                "RPC Error {}: {}",
+                                                error.code,
+                                                error.message
+                                            )));
                                         } else {
-                                            let _ = tx.send(Ok(response.result.unwrap_or(Value::Null)));
+                                            let _ =
+                                                tx.send(Ok(response.result.unwrap_or(Value::Null)));
                                         }
                                     }
                                 }
@@ -79,7 +84,10 @@ impl McpClient {
                             let _ = tx.send(Err(anyhow::anyhow!("MCP server process terminated")));
                         }
                         if count > 0 {
-                            error!("🔌 Failed {} pending MCP requests due to process termination", count);
+                            error!(
+                                "🔌 Failed {} pending MCP requests due to process termination",
+                                count
+                            );
                         }
                         break;
                     }
@@ -137,7 +145,9 @@ impl McpClient {
             },
         };
 
-        let result = self.call("initialize", Some(serde_json::to_value(params)?)).await?;
+        let result = self
+            .call("initialize", Some(serde_json::to_value(params)?))
+            .await?;
         info!("✅ MCP Initialized: {:?}", result);
 
         // Send initialized notification
@@ -162,7 +172,9 @@ impl McpClient {
             name: name.to_string(),
             arguments: args,
         };
-        let val = self.call("tools/call", Some(serde_json::to_value(params)?)).await?;
+        let val = self
+            .call("tools/call", Some(serde_json::to_value(params)?))
+            .await?;
         let result: CallToolResult = serde_json::from_value(val)?;
         Ok(result)
     }

@@ -3,19 +3,18 @@
 //! Provides `register_skill` and `add_network_host` actions to the agentic loop,
 //! enabling agents to create new tools and grant network access at runtime.
 
-use std::sync::Arc;
-use std::collections::HashMap;
 use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::info;
 
-use exiv_shared::{
-    Plugin, PluginCast, PluginManifest, PluginCategory, ServiceType,
-    ExivEvent, Permission, Tool,
-};
-use sqlx::SqlitePool;
-use crate::managers::{PluginManager, PluginRegistry};
 use crate::capabilities::SafeHttpClient;
 use crate::db;
+use crate::managers::{PluginManager, PluginRegistry};
+use exiv_shared::{
+    ExivEvent, Permission, Plugin, PluginCast, PluginCategory, PluginManifest, ServiceType, Tool,
+};
+use sqlx::SqlitePool;
 
 pub struct SkillManager {
     plugin_manager: Arc<PluginManager>,
@@ -31,19 +30,30 @@ impl SkillManager {
         http_client: Arc<SafeHttpClient>,
         pool: SqlitePool,
     ) -> Self {
-        Self { plugin_manager, registry, http_client, pool }
+        Self {
+            plugin_manager,
+            registry,
+            http_client,
+            pool,
+        }
     }
 
-    async fn handle_register_skill(&self, args: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
-        let name = args.get("name")
+    async fn handle_register_skill(
+        &self,
+        args: &serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        let name = args
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required field: name"))?;
 
-        let code = args.get("code")
+        let code = args
+            .get("code")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required field: code"))?;
 
-        let description = args.get("description")
+        let description = args
+            .get("description")
             .and_then(|v| v.as_str())
             .unwrap_or("A runtime-registered skill.");
 
@@ -52,7 +62,9 @@ impl SkillManager {
             return Err(anyhow::anyhow!("Skill name must be 1-64 characters"));
         }
         if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err(anyhow::anyhow!("Skill name must contain only alphanumeric characters and underscores"));
+            return Err(anyhow::anyhow!(
+                "Skill name must contain only alphanumeric characters and underscores"
+            ));
         }
 
         // Allow caller to provide a custom JSON Schema for the tool's parameters.
@@ -66,7 +78,8 @@ impl SkillManager {
                 }
             }
         });
-        let tool_schema = args.get("tool_schema")
+        let tool_schema = args
+            .get("tool_schema")
             .filter(|v| v.is_object())
             .cloned()
             .unwrap_or(default_schema);
@@ -113,7 +126,11 @@ def execute(params):
         info!(skill_name = %name, path = %script_path.display(), "📝 L5: Wrote runtime skill script");
 
         // Parse permissions from args
-        let permissions = if args.get("network_access").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+        let permissions = if args
+            .get("network_access")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
             vec![Permission::NetworkAccess]
         } else {
             vec![]
@@ -124,15 +141,17 @@ def execute(params):
         let mut config_values = HashMap::new();
         config_values.insert("script_path".to_string(), script_filename.clone());
 
-        let permissions_json = serde_json::to_string(&permissions.iter().map(|p| format!("{:?}", p)).collect::<Vec<_>>())
-            .unwrap_or_else(|_| "[]".to_string());
+        let permissions_json = serde_json::to_string(
+            &permissions
+                .iter()
+                .map(|p| format!("{:?}", p))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_else(|_| "[]".to_string());
 
-        self.plugin_manager.register_runtime_plugin(
-            &plugin_id,
-            config_values,
-            permissions,
-            &self.registry,
-        ).await?;
+        self.plugin_manager
+            .register_runtime_plugin(&plugin_id, config_values, permissions, &self.registry)
+            .await?;
 
         // Persist to database for survival across restarts
         let record = db::RuntimePluginRecord {
@@ -161,11 +180,16 @@ def execute(params):
 
     async fn handle_get_runtime_skills(&self) -> anyhow::Result<serde_json::Value> {
         let records = crate::db::load_active_runtime_plugins(&self.pool).await?;
-        let skills: Vec<serde_json::Value> = records.iter().map(|r| serde_json::json!({
-            "plugin_id": r.plugin_id,
-            "description": r.description,
-            "created_at": r.created_at,
-        })).collect();
+        let skills: Vec<serde_json::Value> = records
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "plugin_id": r.plugin_id,
+                    "description": r.description,
+                    "created_at": r.created_at,
+                })
+            })
+            .collect();
         Ok(serde_json::json!({
             "runtime_skills": skills,
             "count": skills.len(),
@@ -177,8 +201,12 @@ def execute(params):
         }))
     }
 
-    fn handle_add_network_host(&self, args: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
-        let host = args.get("host")
+    fn handle_add_network_host(
+        &self,
+        args: &serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        let host = args
+            .get("host")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required field: host"))?;
 
@@ -187,7 +215,9 @@ def execute(params):
             return Err(anyhow::anyhow!("Hostname must be 1-253 characters"));
         }
         if host.contains('/') || host.contains(':') || host.contains(' ') {
-            return Err(anyhow::anyhow!("Invalid hostname: must not contain '/', ':', or spaces"));
+            return Err(anyhow::anyhow!(
+                "Invalid hostname: must not contain '/', ':', or spaces"
+            ));
         }
 
         let newly_added = self.http_client.add_host(host);
@@ -201,8 +231,12 @@ def execute(params):
 }
 
 impl PluginCast for SkillManager {
-    fn as_any(&self) -> &dyn std::any::Any { self }
-    fn as_tool(&self) -> Option<&dyn Tool> { Some(self) }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_tool(&self) -> Option<&dyn Tool> {
+        Some(self)
+    }
 }
 
 #[async_trait]
@@ -211,7 +245,9 @@ impl Plugin for SkillManager {
         PluginManifest {
             id: "core.skill_manager".to_string(),
             name: "Skill Manager".to_string(),
-            description: "L5 Self-Extension: Register new skills and grant network access at runtime.".to_string(),
+            description:
+                "L5 Self-Extension: Register new skills and grant network access at runtime."
+                    .to_string(),
             version: "1.0.0".to_string(),
             category: PluginCategory::System,
             service_type: ServiceType::Skill,
@@ -230,14 +266,19 @@ impl Plugin for SkillManager {
         }
     }
 
-    async fn on_event(&self, _event: &ExivEvent) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
+    async fn on_event(
+        &self,
+        _event: &ExivEvent,
+    ) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
         Ok(None)
     }
 }
 
 #[async_trait]
 impl Tool for SkillManager {
-    fn name(&self) -> &'static str { "skill_manager" }
+    fn name(&self) -> &'static str {
+        "skill_manager"
+    }
 
     fn description(&self) -> &'static str {
         "Extend your own capabilities at runtime. Use get_runtime_skills to see skills you have already created (avoids duplicates). Use register_skill to write and register a new Python skill with custom input parameters. Use add_network_host to grant yourself network access to a specific host."
@@ -282,7 +323,8 @@ impl Tool for SkillManager {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
-        let action = args.get("action")
+        let action = args
+            .get("action")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required field: action"))?;
 
@@ -297,7 +339,6 @@ impl Tool for SkillManager {
 
 #[cfg(test)]
 mod tests {
-    
 
     #[test]
     fn test_skill_name_validation_empty() {

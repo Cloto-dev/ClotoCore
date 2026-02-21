@@ -1,11 +1,11 @@
 use async_trait::async_trait;
+use chrono::Utc;
+use exiv_shared::{
+    exiv_plugin, ColorVisionData, DetectedElement, ExivEvent, ExivEventData, HandAction,
+    NetworkCapability, Permission, Plugin, PluginConfig, PluginRuntimeContext,
+};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use exiv_shared::{
-    Plugin, PluginConfig, PluginRuntimeContext, exiv_plugin, ExivEvent, ExivEventData,
-    HandAction, ColorVisionData, DetectedElement, Permission, NetworkCapability,
-};
-use chrono::Utc;
 
 #[exiv_plugin(
     name = "vision.screen",
@@ -28,7 +28,9 @@ struct VisionState {
 impl VisionPlugin {
     pub async fn new_plugin(_config: PluginConfig) -> anyhow::Result<Self> {
         Ok(Self {
-            state: Arc::new(RwLock::new(VisionState { vision_read_granted: false })),
+            state: Arc::new(RwLock::new(VisionState {
+                vision_read_granted: false,
+            })),
         })
     }
 }
@@ -44,7 +46,9 @@ impl Plugin for VisionPlugin {
         context: PluginRuntimeContext,
         _network: Option<Arc<dyn NetworkCapability>>,
     ) -> anyhow::Result<()> {
-        let granted = context.effective_permissions.contains(&Permission::VisionRead);
+        let granted = context
+            .effective_permissions
+            .contains(&Permission::VisionRead);
         let mut state = self.state.write().await;
         state.vision_read_granted = granted;
         if !granted {
@@ -56,7 +60,11 @@ impl Plugin for VisionPlugin {
     }
 
     async fn on_event(&self, event: &ExivEvent) -> anyhow::Result<Option<ExivEventData>> {
-        if let ExivEventData::ActionRequested { requester: _, action: HandAction::CaptureScreen } = &event.data {
+        if let ExivEventData::ActionRequested {
+            requester: _,
+            action: HandAction::CaptureScreen,
+        } = &event.data
+        {
             // 🔐 Enforce VisionRead: block capture if permission not granted
             let state = self.state.read().await;
             if !state.vision_read_granted {
@@ -69,25 +77,25 @@ impl Plugin for VisionPlugin {
             }
 
             // L-07: This is mock data - real implementation requires platform-specific screen capture
-            tracing::warn!("📷 Vision Plugin: Returning MOCK screen capture data (not yet implemented)");
+            tracing::warn!(
+                "📷 Vision Plugin: Returning MOCK screen capture data (not yet implemented)"
+            );
 
             let vision_data = ColorVisionData {
                 captured_at: Utc::now(),
-                detected_elements: vec![
-                    DetectedElement {
-                        label: "Submit Button".to_string(),
-                        bounds: (100, 200, 50, 20),
-                        confidence: 0.99,
-                        attributes: std::collections::HashMap::new(),
-                    }
-                ],
+                detected_elements: vec![DetectedElement {
+                    label: "Submit Button".to_string(),
+                    bounds: (100, 200, 50, 20),
+                    confidence: 0.99,
+                    attributes: std::collections::HashMap::new(),
+                }],
                 image_ref: Some("memory://mock-image-id".to_string()),
             };
 
-            return Ok(Some(ExivEvent::with_trace(
-                event.trace_id,
-                ExivEventData::VisionUpdated(vision_data)
-            ).data));
+            return Ok(Some(
+                ExivEvent::with_trace(event.trace_id, ExivEventData::VisionUpdated(vision_data))
+                    .data,
+            ));
         }
 
         Ok(None)

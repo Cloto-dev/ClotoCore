@@ -2,16 +2,15 @@ mod client;
 mod protocol;
 mod stdio;
 
+use crate::client::McpClient;
 use async_trait::async_trait;
+use exiv_shared::{
+    exiv_plugin, ExivEvent, ExivEventData, Permission, Plugin, PluginConfig, PluginRuntimeContext,
+};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::collections::HashMap;
-use exiv_shared::{
-    Plugin, PluginConfig, exiv_plugin, ExivEvent, ExivEventData, 
-    PluginRuntimeContext, Permission
-};
-use tracing::{info, error};
-use crate::client::McpClient;
+use tracing::{error, info};
 
 #[exiv_plugin(
     name = "adapter.mcp",
@@ -38,7 +37,7 @@ struct McpServerInstance {
     _name: String,
     command: String,
     args: Vec<String>,
-    client: Option<Arc<McpClient>>, 
+    client: Option<Arc<McpClient>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -57,12 +56,15 @@ impl McpAdapterPlugin {
             match serde_json::from_str::<Vec<ServerConfig>>(json_str) {
                 Ok(configs) => {
                     for cfg in configs {
-                        servers.insert(cfg.name.clone(), McpServerInstance {
-                            _name: cfg.name,
-                            command: cfg.command,
-                            args: cfg.args,
-                            client: None,
-                        });
+                        servers.insert(
+                            cfg.name.clone(),
+                            McpServerInstance {
+                                _name: cfg.name,
+                                command: cfg.command,
+                                args: cfg.args,
+                                client: None,
+                            },
+                        );
                     }
                     configured = true;
                 }
@@ -93,18 +95,27 @@ impl Plugin for McpAdapterPlugin {
         _network: Option<Arc<dyn exiv_shared::NetworkCapability>>,
     ) -> anyhow::Result<()> {
         // 権限チェック
-        if !context.effective_permissions.contains(&Permission::ProcessExecution) {
+        if !context
+            .effective_permissions
+            .contains(&Permission::ProcessExecution)
+        {
             error!("🚫 adapter.mcp requires ProcessExecution permission to spawn MCP servers.");
             return Ok(());
         }
 
         let mut state = self.state.write().await;
         if state.configured {
-            info!("🔌 MCP Adapter initializing {} servers...", state.servers.len());
-            
+            info!(
+                "🔌 MCP Adapter initializing {} servers...",
+                state.servers.len()
+            );
+
             // Connect to all configured servers
             for (name, instance) in state.servers.iter_mut() {
-                info!("   - Connecting to [MCP] {}: {} {:?}", name, instance.command, instance.args);
+                info!(
+                    "   - Connecting to [MCP] {}: {} {:?}",
+                    name, instance.command, instance.args
+                );
 
                 // H-12: Retry with exponential backoff (3 attempts)
                 let mut connected = false;
@@ -117,7 +128,11 @@ impl Plugin for McpAdapterPlugin {
                                 Ok(tools) => {
                                     info!("      🛠️ Found {} tools on {}", tools.tools.len(), name);
                                     for tool in tools.tools {
-                                        info!("         - {}: {}", tool.name, tool.description.unwrap_or_default());
+                                        info!(
+                                            "         - {}: {}",
+                                            tool.name,
+                                            tool.description.unwrap_or_default()
+                                        );
                                     }
                                 }
                                 Err(e) => error!("      ❌ Failed to list tools: {}", e),
@@ -133,13 +148,19 @@ impl Plugin for McpAdapterPlugin {
                                 error!("   ⚠️ Connection attempt {}/3 failed for [MCP] {}: {}. Retrying in {:?}...", attempt, name, e, delay);
                                 tokio::time::sleep(delay).await;
                             } else {
-                                error!("   ❌ Failed to connect to [MCP] {} after 3 attempts: {}", name, e);
+                                error!(
+                                    "   ❌ Failed to connect to [MCP] {} after 3 attempts: {}",
+                                    name, e
+                                );
                             }
                         }
                     }
                 }
                 if !connected {
-                    error!("   ⚠️ MCP Server '{}' is unavailable. Tool calls will fail.", name);
+                    error!(
+                        "   ⚠️ MCP Server '{}' is unavailable. Tool calls will fail.",
+                        name
+                    );
                 }
             }
         } else {
@@ -166,8 +187,14 @@ impl exiv_shared::Tool for McpAdapterPlugin {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         // args: { "server": "filesystem", "tool": "read_file", "args": { ... } }
-        let server_name = args.get("server").and_then(|v| v.as_str()).ok_or_else(|| anyhow::anyhow!("Missing 'server' argument"))?;
-        let tool_name = args.get("tool").and_then(|v| v.as_str()).ok_or_else(|| anyhow::anyhow!("Missing 'tool' argument"))?;
+        let server_name = args
+            .get("server")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing 'server' argument"))?;
+        let tool_name = args
+            .get("tool")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing 'tool' argument"))?;
         let tool_args = args.get("args").cloned().unwrap_or(serde_json::json!({}));
 
         let state = self.state.read().await;
@@ -177,7 +204,10 @@ impl exiv_shared::Tool for McpAdapterPlugin {
                 return Ok(serde_json::to_value(result)?);
             }
         }
-        
-        Err(anyhow::anyhow!("MCP Server '{}' not found or not connected.", server_name))
+
+        Err(anyhow::anyhow!(
+            "MCP Server '{}' not found or not connected.",
+            server_name
+        ))
     }
 }

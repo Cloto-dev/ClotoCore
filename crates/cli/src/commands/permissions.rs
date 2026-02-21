@@ -1,14 +1,21 @@
 use anyhow::Result;
 use colored::Colorize;
-use comfy_table::{Table, ContentArrangement, presets::NOTHING};
+use comfy_table::{presets::NOTHING, ContentArrangement, Table};
 
 use crate::cli::PermissionsCommand;
 use crate::client::ExivClient;
 use crate::output;
 
 const VALID_PERMISSIONS: &[&str] = &[
-    "NetworkAccess", "FileRead", "FileWrite", "ProcessExecution",
-    "VisionRead", "InputControl", "MemoryRead", "MemoryWrite", "AdminAccess",
+    "NetworkAccess",
+    "FileRead",
+    "FileWrite",
+    "ProcessExecution",
+    "VisionRead",
+    "InputControl",
+    "MemoryRead",
+    "MemoryWrite",
+    "AdminAccess",
 ];
 
 pub async fn run(client: &ExivClient, cmd: PermissionsCommand, json: bool) -> Result<()> {
@@ -48,19 +55,21 @@ async fn pending(client: &ExivClient, json: bool) -> Result<()> {
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     for req in &requests {
-        let id = req.get("request_id")
+        let id = req
+            .get("request_id")
             .and_then(|v| v.as_str())
             .unwrap_or("-");
-        let plugin_id = req.get("plugin_id")
+        let plugin_id = req.get("plugin_id").and_then(|v| v.as_str()).unwrap_or("-");
+        let perm_type = req
+            .get("permission_type")
             .and_then(|v| v.as_str())
             .unwrap_or("-");
-        let perm_type = req.get("permission_type")
+        let justification = req
+            .get("justification")
             .and_then(|v| v.as_str())
             .unwrap_or("-");
-        let justification = req.get("justification")
-            .and_then(|v| v.as_str())
-            .unwrap_or("-");
-        let target = req.get("target_resource")
+        let target = req
+            .get("target_resource")
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
@@ -113,8 +122,11 @@ async fn approve(client: &ExivClient, request_id: &str, json: bool) -> Result<()
     if json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        println!("  {} Permission request {} approved",
-            "✓".green().bold(), request_id.bold());
+        println!(
+            "  {} Permission request {} approved",
+            "✓".green().bold(),
+            request_id.bold()
+        );
     }
 
     Ok(())
@@ -136,24 +148,37 @@ async fn deny(client: &ExivClient, request_id: &str, json: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        println!("  {} Permission request {} denied",
-            "✗".red().bold(), request_id.bold());
+        println!(
+            "  {} Permission request {} denied",
+            "✗".red().bold(),
+            request_id.bold()
+        );
     }
 
     Ok(())
 }
 
 async fn list(client: &ExivClient, plugin_id: &str, json: bool) -> Result<()> {
-    let sp = if !json { Some(output::spinner("Fetching permissions...")) } else { None };
+    let sp = if !json {
+        Some(output::spinner("Fetching permissions..."))
+    } else {
+        None
+    };
     let result = client.get_plugin_permissions(plugin_id).await?;
-    if let Some(sp) = sp { sp.finish_and_clear(); }
+    if let Some(sp) = sp {
+        sp.finish_and_clear();
+    }
 
     if json {
         println!("{}", serde_json::to_string_pretty(&result)?);
         return Ok(());
     }
 
-    let perms = result.get("permissions").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let perms = result
+        .get("permissions")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
 
     output::print_header(&format!("Permissions: {plugin_id}"));
 
@@ -166,7 +191,11 @@ async fn list(client: &ExivClient, plugin_id: &str, json: bool) -> Result<()> {
         for p in &perms {
             let name = p.as_str().unwrap_or("-");
             let is_enforced = enforced.contains(&name);
-            let badge = if is_enforced { "✅ enforced".green() } else { "⚠  declared only".yellow() };
+            let badge = if is_enforced {
+                "✅ enforced".green()
+            } else {
+                "⚠  declared only".yellow()
+            };
             println!("  {} {}", name.bold(), badge);
         }
     }
@@ -176,8 +205,16 @@ async fn list(client: &ExivClient, plugin_id: &str, json: bool) -> Result<()> {
     for p in VALID_PERMISSIONS {
         let granted = perms.iter().any(|v| v.as_str() == Some(p));
         let is_enforced = enforced.contains(p);
-        let marker = if granted { "●".green().to_string() } else { "○".dimmed().to_string() };
-        let badge = if is_enforced { "enforced".green() } else { "declared".dimmed() };
+        let marker = if granted {
+            "●".green().to_string()
+        } else {
+            "○".dimmed().to_string()
+        };
+        let badge = if is_enforced {
+            "enforced".green()
+        } else {
+            "declared".dimmed()
+        };
         println!("  {} {:<20} {}", marker, p, badge);
     }
     println!();
@@ -194,19 +231,29 @@ async fn revoke(client: &ExivClient, plugin_id: &str, permission: &str, json: bo
     }
 
     let sp = if !json {
-        Some(output::spinner(&format!("Revoking {permission} from {plugin_id}...")))
+        Some(output::spinner(&format!(
+            "Revoking {permission} from {plugin_id}..."
+        )))
     } else {
         None
     };
 
-    let result = client.revoke_plugin_permission(plugin_id, permission).await?;
-    if let Some(sp) = sp { sp.finish_and_clear(); }
+    let result = client
+        .revoke_plugin_permission(plugin_id, permission)
+        .await?;
+    if let Some(sp) = sp {
+        sp.finish_and_clear();
+    }
 
     if json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        println!("  {} {} revoked from {}",
-            "🔓".to_string(), permission.yellow().bold(), plugin_id.bold());
+        println!(
+            "  {} {} revoked from {}",
+            "🔓".to_string(),
+            permission.yellow().bold(),
+            plugin_id.bold()
+        );
     }
     Ok(())
 }
@@ -222,12 +269,16 @@ async fn grant(client: &ExivClient, plugin_id: &str, permission: &str, json: boo
     }
 
     let sp = if !json {
-        Some(output::spinner(&format!("Granting {permission} to {plugin_id}...")))
+        Some(output::spinner(&format!(
+            "Granting {permission} to {plugin_id}..."
+        )))
     } else {
         None
     };
 
-    let result = client.grant_plugin_permission(plugin_id, permission).await?;
+    let result = client
+        .grant_plugin_permission(plugin_id, permission)
+        .await?;
 
     if let Some(sp) = sp {
         sp.finish_and_clear();
@@ -236,8 +287,12 @@ async fn grant(client: &ExivClient, plugin_id: &str, permission: &str, json: boo
     if json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        println!("  {} {} granted to {}",
-            "🔐".to_string(), permission.yellow().bold(), plugin_id.bold());
+        println!(
+            "  {} {} granted to {}",
+            "🔐".to_string(),
+            permission.yellow().bold(),
+            plugin_id.bold()
+        );
     }
 
     Ok(())

@@ -12,7 +12,8 @@ use std::collections::HashMap;
 /// so agents self-identify as Exiv agents without requiring manual description setup.
 /// The user-supplied `description` serves as role/persona definition layered on top.
 fn build_system_prompt(agent: &AgentMetadata) -> String {
-    let has_memory = agent.metadata
+    let has_memory = agent
+        .metadata
         .get("preferred_memory")
         .map(|m| !m.is_empty())
         .unwrap_or(false);
@@ -102,22 +103,35 @@ pub fn build_chat_request(
 /// Parse a chat completions response body, extracting the text content.
 ///
 /// Returns an error if the API returned an error object or the response is malformed.
-pub fn parse_chat_content(
-    response_body: &str,
-    provider_name: &str,
-) -> anyhow::Result<String> {
-    let json: serde_json::Value = serde_json::from_str(response_body)
-        .map_err(|e| anyhow::anyhow!("{} API response is not valid JSON: {} | body: {}", provider_name, e, &response_body[..response_body.len().min(500)]))?;
+pub fn parse_chat_content(response_body: &str, provider_name: &str) -> anyhow::Result<String> {
+    let json: serde_json::Value = serde_json::from_str(response_body).map_err(|e| {
+        anyhow::anyhow!(
+            "{} API response is not valid JSON: {} | body: {}",
+            provider_name,
+            e,
+            &response_body[..response_body.len().min(500)]
+        )
+    })?;
 
     // Standard OpenAI error format: {"error": {"message": "..."}}
     if let Some(error) = json.get("error") {
-        let msg = error.get("message").and_then(|m| m.as_str())
+        let msg = error
+            .get("message")
+            .and_then(|m| m.as_str())
             .unwrap_or_else(|| error.as_str().unwrap_or("Unknown error"));
         return Err(anyhow::anyhow!("{} API Error: {}", provider_name, msg));
     }
     // Cerebras non-standard error format: {"type": "invalid_request_error", "message": "..."}
-    if json.get("type").and_then(|t| t.as_str()).map(|t| t.contains("error")).unwrap_or(false) {
-        let msg = json.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
+    if json
+        .get("type")
+        .and_then(|t| t.as_str())
+        .map(|t| t.contains("error"))
+        .unwrap_or(false)
+    {
+        let msg = json
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("Unknown error");
         return Err(anyhow::anyhow!("{} API Error: {}", provider_name, msg));
     }
 
@@ -145,18 +159,34 @@ pub fn parse_chat_think_result(
     response_body: &str,
     provider_name: &str,
 ) -> anyhow::Result<ThinkResult> {
-    let json: serde_json::Value = serde_json::from_str(response_body)
-        .map_err(|e| anyhow::anyhow!("{} API response is not valid JSON: {} | body: {}", provider_name, e, &response_body[..response_body.len().min(500)]))?;
+    let json: serde_json::Value = serde_json::from_str(response_body).map_err(|e| {
+        anyhow::anyhow!(
+            "{} API response is not valid JSON: {} | body: {}",
+            provider_name,
+            e,
+            &response_body[..response_body.len().min(500)]
+        )
+    })?;
 
     // Standard OpenAI error format
     if let Some(error) = json.get("error") {
-        let msg = error.get("message").and_then(|m| m.as_str())
+        let msg = error
+            .get("message")
+            .and_then(|m| m.as_str())
             .unwrap_or_else(|| error.as_str().unwrap_or("Unknown error"));
         return Err(anyhow::anyhow!("{} API Error: {}", provider_name, msg));
     }
     // Cerebras non-standard error format
-    if json.get("type").and_then(|t| t.as_str()).map(|t| t.contains("error")).unwrap_or(false) {
-        let msg = json.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
+    if json
+        .get("type")
+        .and_then(|t| t.as_str())
+        .map(|t| t.contains("error"))
+        .unwrap_or(false)
+    {
+        let msg = json
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("Unknown error");
         return Err(anyhow::anyhow!("{} API Error: {}", provider_name, msg));
     }
 
@@ -170,10 +200,13 @@ pub fn parse_chat_think_result(
                 &response_body[..response_body.len().min(500)]
             )
         })?;
-    let message_obj = choice.get("message")
+    let message_obj = choice
+        .get("message")
         .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing message"))?;
-    let finish_reason = choice.get("finish_reason")
-        .and_then(|v| v.as_str()).unwrap_or("stop");
+    let finish_reason = choice
+        .get("finish_reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("stop");
 
     if finish_reason == "tool_calls" || message_obj.get("tool_calls").is_some() {
         if let Some(tool_calls_arr) = message_obj.get("tool_calls").and_then(|v| v.as_array()) {
@@ -193,14 +226,20 @@ pub fn parse_chat_think_result(
             }).collect();
 
             if !calls.is_empty() {
-                let assistant_content = message_obj.get("content")
-                    .and_then(|v| v.as_str()).map(|s| s.to_string());
-                return Ok(ThinkResult::ToolCalls { assistant_content, calls });
+                let assistant_content = message_obj
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                return Ok(ThinkResult::ToolCalls {
+                    assistant_content,
+                    calls,
+                });
             }
         }
     }
 
-    let content = message_obj.get("content")
+    let content = message_obj
+        .get("content")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing content"))?
         .to_string();

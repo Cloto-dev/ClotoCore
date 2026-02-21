@@ -1,10 +1,10 @@
 use async_trait::async_trait;
+use exiv_shared::{
+    exiv_plugin, ExivMessage, MemoryProvider, Plugin, PluginConfig, PluginDataStore,
+    PluginRuntimeContext, ReasoningEngine, SALExt,
+};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use exiv_shared::{
-    MemoryProvider, Plugin, PluginConfig, ReasoningEngine, ExivMessage,
-    exiv_plugin, PluginRuntimeContext, PluginDataStore, SALExt
-};
 
 #[exiv_plugin(
     name = "core.ks22", 
@@ -25,8 +25,8 @@ struct Ks22State {
 
 impl Ks22Plugin {
     pub async fn new_plugin(_config: PluginConfig) -> anyhow::Result<Self> {
-        Ok(Self { 
-            state: Arc::new(RwLock::new(Ks22State { store: None })) 
+        Ok(Self {
+            state: Arc::new(RwLock::new(Ks22State { store: None })),
         })
     }
 }
@@ -47,8 +47,17 @@ impl Plugin for Ks22Plugin {
         Ok(())
     }
 
-    async fn on_event(&self, event: &exiv_shared::ExivEvent) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
-        if let exiv_shared::ExivEventData::ThoughtRequested { agent, engine_id, message, context } = &event.data {
+    async fn on_event(
+        &self,
+        event: &exiv_shared::ExivEvent,
+    ) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
+        if let exiv_shared::ExivEventData::ThoughtRequested {
+            agent,
+            engine_id,
+            message,
+            context,
+        } = &event.data
+        {
             if engine_id == "core.ks22" {
                 let content = self.think(agent, message, context.clone()).await?;
                 return Ok(Some(exiv_shared::ExivEventData::ThoughtResponse {
@@ -65,7 +74,9 @@ impl Plugin for Ks22Plugin {
 
 #[async_trait]
 impl ReasoningEngine for Ks22Plugin {
-    fn name(&self) -> &str { "KS2.2-Mind" }
+    fn name(&self) -> &str {
+        "KS2.2-Mind"
+    }
 
     async fn think(
         &self,
@@ -79,12 +90,17 @@ impl ReasoningEngine for Ks22Plugin {
 
 #[async_trait]
 impl MemoryProvider for Ks22Plugin {
-    fn name(&self) -> &str { "KS2.2-Storage" }
+    fn name(&self) -> &str {
+        "KS2.2-Storage"
+    }
 
     async fn store(&self, agent_id: String, message: ExivMessage) -> anyhow::Result<()> {
         let state = self.state.read().await;
-        let store = state.store.as_ref().ok_or_else(|| anyhow::anyhow!("Store not initialized"))?;
-        
+        let store = state
+            .store
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Store not initialized"))?;
+
         let key = store.generate_mem_key(&agent_id, &message);
         store.save("core.ks22", &key, &message).await?;
         Ok(())
@@ -97,8 +113,11 @@ impl MemoryProvider for Ks22Plugin {
         limit: usize,
     ) -> anyhow::Result<Vec<ExivMessage>> {
         let state = self.state.read().await;
-        let store = state.store.as_ref().ok_or_else(|| anyhow::anyhow!("Store not initialized"))?;
-        
+        let store = state
+            .store
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Store not initialized"))?;
+
         let prefix = format!("mem:{}:", agent_id);
         // Kernel 側で DESC ソートされているため、最新のものが最初に来る
         let mut items = store.get_all_json("core.ks22", &prefix).await?;
@@ -125,7 +144,7 @@ impl MemoryProvider for Ks22Plugin {
                 break;
             }
         }
-        
+
         // 🔄 LLM に渡すために時系列順（昇順）に戻す
         messages.reverse();
         Ok(messages)

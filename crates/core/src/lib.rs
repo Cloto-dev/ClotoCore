@@ -1,21 +1,21 @@
+pub mod capabilities;
+pub mod cli;
 pub mod config;
 pub mod db;
 pub mod events;
 pub mod evolution;
 pub mod handlers;
-pub mod managers;
-pub mod capabilities;
-pub mod middleware;
-pub mod cli;
 pub mod installer;
+pub mod managers;
+pub mod middleware;
 pub mod platform;
-pub mod validation;
 pub mod test_utils;
+pub mod validation;
 
 // Re-export audit log and permission request types for external use
 pub use db::{
-    AuditLogEntry, write_audit_log, query_audit_logs,
-    PermissionRequest, create_permission_request, get_pending_permission_requests, update_permission_request,
+    create_permission_request, get_pending_permission_requests, query_audit_logs,
+    update_permission_request, write_audit_log, AuditLogEntry, PermissionRequest,
 };
 
 // Static Linker: Force plugin crates to be linked for inventory discovery
@@ -47,7 +47,7 @@ pub struct EnvelopedEvent {
 
 impl EnvelopedEvent {
     /// Create a system-originated event (no issuer, no correlation, depth 0)
-    #[must_use] 
+    #[must_use]
     pub fn system(data: exiv_shared::ExivEventData) -> Self {
         Self {
             event: Arc::new(ExivEvent::new(data)),
@@ -94,19 +94,30 @@ impl axum::response::IntoResponse for AppError {
         let (status, err_type, message) = match self {
             AppError::Exiv(e) => {
                 let status = match &e {
-                    exiv_shared::ExivError::PermissionDenied(_) => axum::http::StatusCode::FORBIDDEN,
-                    exiv_shared::ExivError::PluginNotFound(_) | exiv_shared::ExivError::AgentNotFound(_) => axum::http::StatusCode::NOT_FOUND,
+                    exiv_shared::ExivError::PermissionDenied(_) => {
+                        axum::http::StatusCode::FORBIDDEN
+                    }
+                    exiv_shared::ExivError::PluginNotFound(_)
+                    | exiv_shared::ExivError::AgentNotFound(_) => axum::http::StatusCode::NOT_FOUND,
                     _ => axum::http::StatusCode::BAD_REQUEST,
                 };
                 (status, format!("{:?}", e), e.to_string())
-            },
+            }
             AppError::Internal(e) => {
                 // Log full error server-side only; return generic message to client
                 tracing::error!("Internal error: {}", e);
-                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "InternalError".to_string(), "An internal error occurred".to_string())
-            },
+                (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    "InternalError".to_string(),
+                    "An internal error occurred".to_string(),
+                )
+            }
             AppError::NotFound(m) => (axum::http::StatusCode::NOT_FOUND, "NotFound".to_string(), m),
-            AppError::Validation(m) => (axum::http::StatusCode::BAD_REQUEST, "ValidationError".to_string(), m),
+            AppError::Validation(m) => (
+                axum::http::StatusCode::BAD_REQUEST,
+                "ValidationError".to_string(),
+                m,
+            ),
         };
 
         let body = axum::Json(serde_json::json!({
@@ -148,13 +159,19 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     use crate::events::EventProcessor;
     use crate::handlers::{self, system::SystemHandler};
     use crate::managers::{AgentManager, PluginManager};
-    use axum::{routing::{get, post, delete, any}, Router};
+    use axum::{
+        routing::{any, delete, get, post},
+        Router,
+    };
     use tower_http::cors::CorsLayer;
     use tracing::info;
 
     info!("+---------------------------------------+");
     info!("|            Exiv System Kernel         |");
-    info!("|             Version {:<10}      |", env!("CARGO_PKG_VERSION"));
+    info!(
+        "|             Version {:<10}      |",
+        env!("CARGO_PKG_VERSION")
+    );
     info!("+---------------------------------------+");
 
     let config = AppConfig::load()?;
@@ -179,7 +196,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+                    let _ =
+                        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
                 }
                 info!("📁 Data directory: {}", parent.display());
             }
@@ -194,8 +212,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // 1. データベースの初期化
     use sqlx::sqlite::SqliteConnectOptions;
     use std::str::FromStr;
-    let opts = SqliteConnectOptions::from_str(&config.database_url)?
-        .create_if_missing(true);
+    let opts = SqliteConnectOptions::from_str(&config.database_url)?.create_if_missing(true);
     let pool = sqlx::SqlitePool::connect_with(opts).await?;
     db::init_db(&pool, &config.database_url).await?;
 
@@ -228,7 +245,10 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     for (id, plugin) in plugins_snapshot.iter() {
         if let Some(web) = plugin.as_web() {
             dynamic_routes = web.register_routes(dynamic_routes);
-            info!("🔌 Registered dynamic routes for web-enabled plugin: {}", id);
+            info!(
+                "🔌 Registered dynamic routes for web-enabled plugin: {}",
+                id
+            );
         }
     }
     drop(plugins_snapshot);
@@ -252,16 +272,15 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         config.max_agentic_iterations,
         config.tool_execution_timeout_secs,
     ));
-    
+
     // L5: Skill Manager (register_skill + add_network_host tools)
-    let skill_manager: Arc<dyn exiv_shared::Plugin> = Arc::new(
-        handlers::skill_manager::SkillManager::new(
+    let skill_manager: Arc<dyn exiv_shared::Plugin> =
+        Arc::new(handlers::skill_manager::SkillManager::new(
             plugin_manager.clone(),
             registry_arc.clone(),
             plugin_manager.http_client(),
             pool.clone(),
-        )
-    );
+        ));
 
     {
         let mut plugins = registry_arc.plugins.write().await;
@@ -292,20 +311,28 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 let mut config_values = std::collections::HashMap::new();
                 config_values.insert("script_path".to_string(), record.script_name.clone());
 
-                let permissions: Vec<exiv_shared::Permission> = if record.permissions.contains("NetworkAccess") {
-                    vec![exiv_shared::Permission::NetworkAccess]
-                } else {
-                    vec![]
-                };
+                let permissions: Vec<exiv_shared::Permission> =
+                    if record.permissions.contains("NetworkAccess") {
+                        vec![exiv_shared::Permission::NetworkAccess]
+                    } else {
+                        vec![]
+                    };
 
-                match plugin_manager.register_runtime_plugin(
-                    &record.plugin_id,
-                    config_values,
-                    permissions,
-                    &registry_arc,
-                ).await {
-                    Ok(_) => info!(plugin_id = %record.plugin_id, "🔄 Restored runtime plugin from DB"),
-                    Err(e) => tracing::warn!(error = %e, plugin_id = %record.plugin_id, "Failed to restore runtime plugin"),
+                match plugin_manager
+                    .register_runtime_plugin(
+                        &record.plugin_id,
+                        config_values,
+                        permissions,
+                        &registry_arc,
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        info!(plugin_id = %record.plugin_id, "🔄 Restored runtime plugin from DB")
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, plugin_id = %record.plugin_id, "Failed to restore runtime plugin")
+                    }
                 }
             }
             if count > 0 {
@@ -319,7 +346,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let rate_limiter = Arc::new(middleware::RateLimiter::new(10, 20));
 
     // Self-Evolution Engine (E1-E5)
-    let data_store: Arc<dyn exiv_shared::PluginDataStore> = Arc::new(db::SqliteDataStore::new(pool.clone()));
+    let data_store: Arc<dyn exiv_shared::PluginDataStore> =
+        Arc::new(db::SqliteDataStore::new(pool.clone()));
     let evolution_engine = Arc::new(evolution::EvolutionEngine::new(data_store, pool.clone()));
 
     // Automatic Fitness Scoring (Principle 1.1 compliant)
@@ -338,7 +366,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             Ok(hashes) => {
                 let count = hashes.len();
                 set.extend(hashes);
-                if count > 0 { info!(count = count, "🔑 Loaded revoked API key hashes"); }
+                if count > 0 {
+                    info!(count = count, "🔑 Loaded revoked API key hashes");
+                }
             }
             Err(e) => tracing::warn!(error = %e, "Failed to load revoked key hashes"),
         }
@@ -379,14 +409,20 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     ));
 
     // Start event history cleanup task
-    processor.clone().spawn_cleanup_task(app_state.shutdown.clone());
+    processor
+        .clone()
+        .spawn_cleanup_task(app_state.shutdown.clone());
 
     // 6a. Active Heartbeat task (ping all enabled agents every 30s)
     let heartbeat_interval = std::env::var("HEARTBEAT_INTERVAL_SECS")
         .unwrap_or_else(|_| "30".to_string())
         .parse::<u64>()
         .unwrap_or(30);
-    EventProcessor::spawn_heartbeat_task(agent_manager.clone(), heartbeat_interval, app_state.shutdown.clone());
+    EventProcessor::spawn_heartbeat_task(
+        agent_manager.clone(),
+        heartbeat_interval,
+        app_state.shutdown.clone(),
+    );
 
     let event_tx_clone = event_tx.clone();
     let processor_clone = processor.clone();
@@ -423,30 +459,66 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // Admin endpoints: rate-limited (10 req/s, burst 20)
     let admin_routes = Router::new()
         .route("/system/shutdown", post(handlers::shutdown_handler))
-        .route("/system/update/apply", post(handlers::update::apply_handler))
+        .route(
+            "/system/update/apply",
+            post(handlers::update::apply_handler),
+        )
         .route("/plugins/apply", post(handlers::apply_plugin_settings))
         .route("/plugins/:id/config", post(handlers::update_plugin_config))
-        .route("/plugins/:id/permissions", get(handlers::get_plugin_permissions).delete(handlers::revoke_permission_handler))
-        .route("/plugins/:id/permissions/grant", post(handlers::grant_permission_handler))
+        .route(
+            "/plugins/:id/permissions",
+            get(handlers::get_plugin_permissions).delete(handlers::revoke_permission_handler),
+        )
+        .route(
+            "/plugins/:id/permissions/grant",
+            post(handlers::grant_permission_handler),
+        )
         .route("/agents", post(handlers::create_agent))
-        .route("/agents/:id", post(handlers::update_agent).delete(handlers::delete_agent))
-        .route("/agents/:id/plugins", get(handlers::get_agent_plugins).put(handlers::set_agent_plugins))
+        .route(
+            "/agents/:id",
+            post(handlers::update_agent).delete(handlers::delete_agent),
+        )
+        .route(
+            "/agents/:id/plugins",
+            get(handlers::get_agent_plugins).put(handlers::set_agent_plugins),
+        )
         .route("/agents/:id/power", post(handlers::power_toggle))
         .route("/events/publish", post(handlers::post_event_handler))
-        .route("/permissions/:id/approve", post(handlers::approve_permission))
+        .route(
+            "/permissions/:id/approve",
+            post(handlers::approve_permission),
+        )
         .route("/permissions/:id/deny", post(handlers::deny_permission))
         // M-08: chat_handler moved here to apply rate limiting
         .route("/chat", post(handlers::chat_handler))
         // Chat persistence endpoints
-        .route("/chat/:agent_id/messages", get(handlers::chat::get_messages).post(handlers::chat::post_message).delete(handlers::chat::delete_messages))
-        .route("/chat/attachments/:attachment_id", get(handlers::chat::get_attachment))
+        .route(
+            "/chat/:agent_id/messages",
+            get(handlers::chat::get_messages)
+                .post(handlers::chat::post_message)
+                .delete(handlers::chat::delete_messages),
+        )
+        .route(
+            "/chat/attachments/:attachment_id",
+            get(handlers::chat::get_attachment),
+        )
         // Runtime plugin management
-        .route("/plugins/runtime/:id", delete(handlers::delete_runtime_plugin))
+        .route(
+            "/plugins/runtime/:id",
+            delete(handlers::delete_runtime_plugin),
+        )
         // API key invalidation
         .route("/system/invalidate-key", post(handlers::invalidate_api_key))
         // Evolution Engine endpoints (auth required for write)
-        .route("/evolution/evaluate", post(handlers::evolution::evaluate_agent))
-        .route("/evolution/params", get(handlers::evolution::get_evolution_params).put(handlers::evolution::update_evolution_params))
+        .route(
+            "/evolution/evaluate",
+            post(handlers::evolution::evaluate_agent),
+        )
+        .route(
+            "/evolution/params",
+            get(handlers::evolution::get_evolution_params)
+                .put(handlers::evolution::update_evolution_params),
+        )
         .layer(axum::middleware::from_fn_with_state(
             app_state.clone(),
             middleware::rate_limit_middleware,
@@ -463,13 +535,31 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/plugins", get(handlers::get_plugins))
         .route("/plugins/:id/config", get(handlers::get_plugin_config))
         .route("/agents", get(handlers::get_agents))
-        .route("/permissions/pending", get(handlers::get_pending_permissions))
+        .route(
+            "/permissions/pending",
+            get(handlers::get_pending_permissions),
+        )
         // Evolution Engine public endpoints (read-only)
-        .route("/evolution/status", get(handlers::evolution::get_evolution_status))
-        .route("/evolution/generations", get(handlers::evolution::get_generation_history))
-        .route("/evolution/generations/:n", get(handlers::evolution::get_generation))
-        .route("/evolution/fitness", get(handlers::evolution::get_fitness_timeline))
-        .route("/evolution/rollbacks", get(handlers::evolution::get_rollback_history))
+        .route(
+            "/evolution/status",
+            get(handlers::evolution::get_evolution_status),
+        )
+        .route(
+            "/evolution/generations",
+            get(handlers::evolution::get_generation_history),
+        )
+        .route(
+            "/evolution/generations/:n",
+            get(handlers::evolution::get_generation),
+        )
+        .route(
+            "/evolution/fitness",
+            get(handlers::evolution::get_fitness_timeline),
+        )
+        .route(
+            "/evolution/rollbacks",
+            get(handlers::evolution::get_rollback_history),
+        )
         .merge(admin_routes)
         .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024)); // 10MB for chat attachments
 
@@ -481,23 +571,32 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .layer(
             CorsLayer::new()
                 .allow_origin(config.cors_origins)
-                .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::DELETE, axum::http::Method::PUT])
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::PUT,
+                ])
                 .allow_headers([axum::http::header::CONTENT_TYPE]),
         );
 
-    let listener = tokio::net::TcpListener::bind(format!("{}:{}", config.bind_address, config.port)).await?;
+    let listener =
+        tokio::net::TcpListener::bind(format!("{}:{}", config.bind_address, config.port)).await?;
     info!(
         "🚀 Exiv System Kernel is listening on http://{}:{}",
         config.bind_address, config.port
     );
 
     let shutdown_signal = app_state.shutdown.clone();
-    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
-        .with_graceful_shutdown(async move {
-            shutdown_signal.notified().await;
-            info!("🛑 Graceful shutdown signal received. Stopping server...");
-        })
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        shutdown_signal.notified().await;
+        info!("🛑 Graceful shutdown signal received. Stopping server...");
+    })
+    .await?;
     Ok(())
 }
 

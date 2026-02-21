@@ -9,7 +9,11 @@ const REQUIREMENTS_TXT: &str = include_str!("../../../scripts/requirements.txt")
 
 /// Binary name for the current platform
 fn binary_name() -> &'static str {
-    if cfg!(windows) { "exiv_system.exe" } else { "exiv_system" }
+    if cfg!(windows) {
+        "exiv_system.exe"
+    } else {
+        "exiv_system"
+    }
 }
 
 /// Generate a cryptographically random API key (64 hex chars)
@@ -107,8 +111,7 @@ pub async fn install(
     info!("📁 Created directories");
 
     // 2. Copy self (binary) to prefix
-    let src_exe = std::env::current_exe()
-        .context("Cannot determine current executable path")?;
+    let src_exe = std::env::current_exe().context("Cannot determine current executable path")?;
     let dst_exe = prefix.join(binary_name());
     if src_exe == dst_exe {
         info!("📦 Binary already in place");
@@ -135,8 +138,7 @@ pub async fn install(
     } else {
         let api_key = generate_api_key();
         let env_content = env_template(&prefix, &api_key);
-        std::fs::write(&env_path, env_content)
-            .context("Failed to write .env")?;
+        std::fs::write(&env_path, env_content).context("Failed to write .env")?;
         // Restrict .env permissions (contains EXIV_API_KEY)
         #[cfg(unix)]
         {
@@ -163,7 +165,11 @@ pub async fn install(
     println!();
     println!("=== Installation complete ===");
     println!();
-    println!("  To run manually:  cd {} && ./{}", prefix.display(), binary_name());
+    println!(
+        "  To run manually:  cd {} && ./{}",
+        prefix.display(),
+        binary_name()
+    );
     if service {
         if cfg!(windows) {
             println!("  As service:       sc.exe start Exiv");
@@ -199,7 +205,11 @@ fn setup_python_venv(prefix: &Path) -> anyhow::Result<()> {
     let python = if cfg!(windows) { "python" } else { "python3" };
 
     // Check if python is available
-    if std::process::Command::new(python).arg("--version").output().is_err() {
+    if std::process::Command::new(python)
+        .arg("--version")
+        .output()
+        .is_err()
+    {
         println!("  ⚠️  {} not found, skipping venv setup", python);
         return Ok(());
     }

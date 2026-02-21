@@ -25,46 +25,64 @@ pub fn render(f: &mut Frame, area: Rect, app: &App, is_active: bool) {
         return;
     }
 
-    let items: Vec<ListItem> = app.agents.iter().map(|agent| {
-        let dot = match agent.status.as_str() {
-            "online" => Span::styled("● ", Style::default().fg(Color::Green)),
-            "degraded" => Span::styled("◐ ", Style::default().fg(Color::Yellow)),
-            _ => Span::styled("○ ", Style::default().fg(Color::DarkGray)),
-        };
+    let items: Vec<ListItem> = app
+        .agents
+        .iter()
+        .map(|agent| {
+            let dot = match agent.status.as_str() {
+                "online" => Span::styled("● ", Style::default().fg(Color::Green)),
+                "degraded" => Span::styled("◐ ", Style::default().fg(Color::Yellow)),
+                _ => Span::styled("○ ", Style::default().fg(Color::DarkGray)),
+            };
 
-        let name = Span::styled(
-            format!("{:<20}", agent.id),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-        );
+            let name = Span::styled(
+                format!("{:<20}", agent.id),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            );
 
-        let agent_type = if agent.default_engine_id.as_deref().map(|e| e.starts_with("mind.")).unwrap_or(false)
-            || agent.metadata.get("agent_type").map(|t| t == "ai").unwrap_or(false)
-        {
-            Span::styled("AI     ", Style::default().fg(Color::Cyan))
-        } else {
-            Span::styled("Ctnr   ", Style::default().fg(Color::Magenta))
-        };
+            let agent_type = if agent
+                .default_engine_id
+                .as_deref()
+                .map(|e| e.starts_with("mind."))
+                .unwrap_or(false)
+                || agent
+                    .metadata
+                    .get("agent_type")
+                    .map(|t| t == "ai")
+                    .unwrap_or(false)
+            {
+                Span::styled("AI     ", Style::default().fg(Color::Cyan))
+            } else {
+                Span::styled("Ctnr   ", Style::default().fg(Color::Magenta))
+            };
 
-        let status = Span::styled(
-            format!("{:<10}", agent.status),
-            Style::default().fg(Color::DarkGray),
-        );
+            let status = Span::styled(
+                format!("{:<10}", agent.status),
+                Style::default().fg(Color::DarkGray),
+            );
 
-        ListItem::new(Line::from(vec![
-            Span::raw("  "),
-            dot,
-            name,
-            agent_type,
-            status,
-        ]))
-    }).collect();
+            ListItem::new(Line::from(vec![
+                Span::raw("  "),
+                dot,
+                name,
+                agent_type,
+                status,
+            ]))
+        })
+        .collect();
 
     let mut state = ListState::default();
     state.select(Some(app.agent_scroll));
 
     let list = List::new(items)
         .block(block)
-        .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
         .highlight_symbol("▸ ");
 
     f.render_stateful_widget(list, area, &mut state);

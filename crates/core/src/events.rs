@@ -1,11 +1,11 @@
-use crate::managers::{PluginRegistry, PluginManager, AgentManager};
 use crate::evolution::AgentSnapshot;
+use crate::managers::{AgentManager, PluginManager, PluginRegistry};
+use exiv_shared::{ExivEvent, Permission};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{error, info, warn, debug};
-use exiv_shared::{Permission, ExivEvent};
+use tracing::{debug, error, info, warn};
 
 /// Build an AgentSnapshot from the PluginRegistry.
 /// Shared between handlers/evolution.rs and the auto-evaluation path.
@@ -13,17 +13,24 @@ pub(crate) async fn build_snapshot_from_registry_inner(registry: &PluginRegistry
     let manifests = registry.list_plugins().await;
     let active: Vec<_> = manifests.iter().filter(|m| m.is_active).collect();
     let all_plugin_ids: Vec<String> = active.iter().map(|m| m.id.clone()).collect();
-    let runtime_plugins: Vec<String> = all_plugin_ids.iter()
+    let runtime_plugins: Vec<String> = all_plugin_ids
+        .iter()
         .filter(|id| id.starts_with("python.runtime."))
         .cloned()
         .collect();
     AgentSnapshot {
         active_plugins: all_plugin_ids,
-        plugin_capabilities: active.iter()
-            .map(|m| (
-                m.id.clone(),
-                m.provided_capabilities.iter().map(|c| format!("{:?}", c)).collect(),
-            ))
+        plugin_capabilities: active
+            .iter()
+            .map(|m| {
+                (
+                    m.id.clone(),
+                    m.provided_capabilities
+                        .iter()
+                        .map(|c| format!("{:?}", c))
+                        .collect(),
+                )
+            })
             .collect(),
         runtime_plugins,
         personality_hash: String::new(),
@@ -136,11 +143,13 @@ impl EventProcessor {
 
     /// Spawn the active heartbeat task.
     /// Every `interval_secs` seconds, updates last_seen for all enabled agents.
-    pub fn spawn_heartbeat_task(agent_manager: AgentManager, interval_secs: u64, shutdown: Arc<tokio::sync::Notify>) {
+    pub fn spawn_heartbeat_task(
+        agent_manager: AgentManager,
+        interval_secs: u64,
+        shutdown: Arc<tokio::sync::Notify>,
+    ) {
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(
-                std::time::Duration::from_secs(interval_secs)
-            );
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
             loop {
                 tokio::select! {
                     () = shutdown.notified() => {
@@ -174,7 +183,8 @@ impl EventProcessor {
         const MAX_EVENT_HISTORY: usize = 10_000;
 
         // M-10: Use configurable retention period instead of hardcoded 24h
-        let cutoff = chrono::Utc::now() - chrono::Duration::hours(self.event_retention_hours as i64);
+        let cutoff =
+            chrono::Utc::now() - chrono::Duration::hours(self.event_retention_hours as i64);
         let mut history = self.history.write().await;
 
         // Remove old events by timestamp
@@ -213,7 +223,7 @@ impl EventProcessor {
         while let Some(envelope) = event_rx.recv().await {
             let event = envelope.event.clone();
             let trace_id = event.trace_id;
-            
+
             // Record event history
             self.record_event(event.clone()).await;
 
@@ -224,11 +234,15 @@ impl EventProcessor {
 
             // Increment metrics based on event type
             if let exiv_shared::ExivEventData::MessageReceived(_) = &event.data {
-                self.metrics.total_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.metrics
+                    .total_requests
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
 
             // 1. 全プラグイン（および内部システムハンドラ）に配信
-            self.registry.dispatch_event(envelope.clone(), &event_tx).await;
+            self.registry
+                .dispatch_event(envelope.clone(), &event_tx)
+                .await;
 
             // 2. 内部イベント分岐処理
             match &event.data {
@@ -248,12 +262,14 @@ impl EventProcessor {
 
                     // Also create a MessageReceived for plugin cascade
                     let msg = exiv_shared::ExivMessage::new(
-                        exiv_shared::MessageSource::Agent { id: agent_id.clone() },
+                        exiv_shared::MessageSource::Agent {
+                            id: agent_id.clone(),
+                        },
                         content.clone(),
                     );
                     let msg_received = Arc::new(exiv_shared::ExivEvent::with_trace(
                         trace_id,
-                        exiv_shared::ExivEventData::MessageReceived(msg.clone())
+                        exiv_shared::ExivEventData::MessageReceived(msg.clone()),
                     ));
                     let _ = self.tx_internal.send(msg_received.clone());
 
@@ -266,7 +282,9 @@ impl EventProcessor {
                     let _ = event_tx.send(system_envelope).await;
 
                     // Self-Evolution: auto-evaluate or track interaction
-                    if let (Some(ref collector), Some(ref evo)) = (&self.fitness_collector, &self.evolution_engine) {
+                    if let (Some(ref collector), Some(ref evo)) =
+                        (&self.fitness_collector, &self.evolution_engine)
+                    {
                         // Auto-evaluation: compute scores from accumulated metrics
                         let collector = collector.clone();
                         let evo = evo.clone();
@@ -320,7 +338,10 @@ impl EventProcessor {
                         });
                     }
                 }
-                exiv_shared::ExivEventData::ActionRequested { requester, action: _action } => {
+                exiv_shared::ExivEventData::ActionRequested {
+                    requester,
+                    action: _action,
+                } => {
                     // Security Check: Verify that the issuer matches the requester
                     let is_valid_issuer = match &envelope.issuer {
                         Some(issuer_id) => issuer_id == requester,
@@ -348,22 +369,30 @@ impl EventProcessor {
                         );
                     }
                 }
-                exiv_shared::ExivEventData::PermissionGranted { plugin_id, permission } => {
+                exiv_shared::ExivEventData::PermissionGranted {
+                    plugin_id,
+                    permission,
+                } => {
                     info!(
                         trace_id = %trace_id,
                         plugin_id = %plugin_id,
                         permission = ?permission,
                         "🔐 Permission GRANTED to plugin"
                     );
-                    
+
                     // 1. 権限リストの更新 (In-memory)
                     let exiv_id = exiv_shared::ExivId::from_name(plugin_id);
-                    self.registry.update_effective_permissions(exiv_id, permission.clone()).await;
-                    
+                    self.registry
+                        .update_effective_permissions(exiv_id, permission.clone())
+                        .await;
+
                     // 2. Capability の注入
                     let plugins = self.registry.plugins.read().await;
                     if let Some(plugin) = plugins.get(plugin_id) {
-                        if let Some(cap) = self.plugin_manager.get_capability_for_permission(permission) {
+                        if let Some(cap) = self
+                            .plugin_manager
+                            .get_capability_for_permission(permission)
+                        {
                             let plugin_id = plugin_id.clone(); // Clone for spawn
                             info!(trace_id = %trace_id, plugin_id = %plugin_id, "💉 Injecting capability");
                             let plugin = plugin.clone();
@@ -384,7 +413,10 @@ impl EventProcessor {
                     self.request_refresh().await;
                     let _ = self.tx_internal.send(event);
                 }
-                exiv_shared::ExivEventData::AgentPowerChanged { ref agent_id, enabled } => {
+                exiv_shared::ExivEventData::AgentPowerChanged {
+                    ref agent_id,
+                    enabled,
+                } => {
                     info!(
                         trace_id = %trace_id,
                         agent_id = %agent_id,
@@ -394,7 +426,11 @@ impl EventProcessor {
                     let _ = self.tx_internal.send(event);
                 }
                 // Self-Evolution events
-                exiv_shared::ExivEventData::EvolutionBreach { ref agent_id, ref violation_type, ref detail } => {
+                exiv_shared::ExivEventData::EvolutionBreach {
+                    ref agent_id,
+                    ref violation_type,
+                    ref detail,
+                } => {
                     error!(
                         trace_id = %trace_id,
                         agent_id = %agent_id,
@@ -411,13 +447,17 @@ impl EventProcessor {
                             exiv_shared::ExivEventData::AgentPowerChanged {
                                 agent_id: agent_id.clone(),
                                 enabled: false,
-                            }
+                            },
                         ));
                         let _ = self.tx_internal.send(power_event);
                     }
                     let _ = self.tx_internal.send(event);
                 }
-                exiv_shared::ExivEventData::EvolutionGeneration { ref agent_id, generation, ref trigger } => {
+                exiv_shared::ExivEventData::EvolutionGeneration {
+                    ref agent_id,
+                    generation,
+                    ref trigger,
+                } => {
                     info!(
                         trace_id = %trace_id,
                         agent_id = %agent_id,
@@ -431,7 +471,12 @@ impl EventProcessor {
                     }
                     let _ = self.tx_internal.send(event);
                 }
-                exiv_shared::ExivEventData::EvolutionRollback { ref agent_id, from_generation, to_generation, .. } => {
+                exiv_shared::ExivEventData::EvolutionRollback {
+                    ref agent_id,
+                    from_generation,
+                    to_generation,
+                    ..
+                } => {
                     warn!(
                         trace_id = %trace_id,
                         agent_id = %agent_id,
@@ -441,7 +486,12 @@ impl EventProcessor {
                     );
                     let _ = self.tx_internal.send(event);
                 }
-                exiv_shared::ExivEventData::FitnessContribution { ref agent_id, ref axis, score, ref source_plugin } => {
+                exiv_shared::ExivEventData::FitnessContribution {
+                    ref agent_id,
+                    ref axis,
+                    score,
+                    ref source_plugin,
+                } => {
                     if let Some(ref collector) = self.fitness_collector {
                         debug!(
                             trace_id = %trace_id,
@@ -455,7 +505,14 @@ impl EventProcessor {
                     }
                     let _ = self.tx_internal.send(event);
                 }
-                exiv_shared::ExivEventData::ToolInvoked { ref agent_id, ref tool_name, success, duration_ms, iteration, .. } => {
+                exiv_shared::ExivEventData::ToolInvoked {
+                    ref agent_id,
+                    ref tool_name,
+                    success,
+                    duration_ms,
+                    iteration,
+                    ..
+                } => {
                     info!(
                         trace_id = %trace_id,
                         agent_id = %agent_id,
@@ -467,7 +524,12 @@ impl EventProcessor {
                     );
                     let _ = self.tx_internal.send(event);
                 }
-                exiv_shared::ExivEventData::AgenticLoopCompleted { ref agent_id, total_iterations, total_tool_calls, .. } => {
+                exiv_shared::ExivEventData::AgenticLoopCompleted {
+                    ref agent_id,
+                    total_iterations,
+                    total_tool_calls,
+                    ..
+                } => {
                     info!(
                         trace_id = %trace_id,
                         agent_id = %agent_id,

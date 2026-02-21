@@ -4,12 +4,12 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use exiv_shared::{PluginCast, PluginConfig};
 use plugin_deepseek::DeepSeekPlugin;
 use sqlx::SqlitePool;
+use std::any::Any;
 use std::sync::Arc;
 use tower::ServiceExt;
-use exiv_shared::{PluginCast, PluginConfig};
-use std::any::Any;
 
 #[tokio::test]
 async fn test_dynamic_routing_registration() {
@@ -26,7 +26,9 @@ async fn test_dynamic_routing_registration() {
         config_values: [
             ("api_key".to_string(), "test_key".to_string()),
             ("model_id".to_string(), "deepseek-chat".to_string()),
-        ].into_iter().collect(),
+        ]
+        .into_iter()
+        .collect(),
     };
 
     let ds_plugin = Arc::new(DeepSeekPlugin::new_plugin(config).await.unwrap());
@@ -67,7 +69,7 @@ async fn test_permission_logic_unit() {
 #[tokio::test]
 async fn test_capability_injection_logic() {
     let _pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    
+
     let perms_ok: Vec<exiv_shared::Permission> = vec![exiv_shared::Permission::NetworkAccess];
     let client = Arc::new(exiv_core::capabilities::SafeHttpClient::new(vec![]).unwrap());
     let capability = if perms_ok.contains(&exiv_shared::Permission::NetworkAccess) {
@@ -88,9 +90,9 @@ async fn test_capability_injection_logic() {
 
 #[tokio::test]
 async fn test_panic_isolation() {
+    use common::{create_mock_plugin, create_panicking_plugin};
     use exiv_core::managers::PluginRegistry;
     use exiv_shared::ExivId;
-    use common::{create_mock_plugin, create_panicking_plugin};
 
     let registry = PluginRegistry::new(5, 10);
     let id_panic = ExivId::new();
@@ -99,12 +101,20 @@ async fn test_panic_isolation() {
 
     {
         let mut plugins = registry.plugins.write().await;
-        plugins.insert("panic".into(), create_panicking_plugin(id_panic) as Arc<dyn exiv_shared::Plugin>);
-        plugins.insert("normal".into(), normal_plugin as Arc<dyn exiv_shared::Plugin>);
+        plugins.insert(
+            "panic".into(),
+            create_panicking_plugin(id_panic) as Arc<dyn exiv_shared::Plugin>,
+        );
+        plugins.insert(
+            "normal".into(),
+            normal_plugin as Arc<dyn exiv_shared::Plugin>,
+        );
     }
 
     let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<exiv_core::EnvelopedEvent>(10);
-    let event = exiv_shared::ExivEvent::new(exiv_shared::ExivEventData::SystemNotification("test".into()));
+    let event = exiv_shared::ExivEvent::new(exiv_shared::ExivEventData::SystemNotification(
+        "test".into(),
+    ));
 
     let envelope = exiv_core::EnvelopedEvent {
         event: Arc::new(event),

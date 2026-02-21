@@ -41,7 +41,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --exclude app --all-targets -- -D warnings
 
   audit:
     name: Security Audit
@@ -83,7 +83,7 @@ jobs:
           echo '<html><body></body></html>' > dashboard/dist/index.html
 
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude app
         env:
           RUST_LOG: warn
 

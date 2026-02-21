@@ -1,14 +1,13 @@
 //! Integration tests for the Self-Evolution Benchmark Engine.
 //! Tests the EvolutionEngine through SqliteDataStore with an in-memory DB.
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use sqlx::SqlitePool;
 use exiv_core::db::SqliteDataStore;
 use exiv_core::evolution::{
-    EvolutionEngine, FitnessScores, AutonomyLevel, AgentSnapshot,
-    detect_capability_gain,
+    detect_capability_gain, AgentSnapshot, AutonomyLevel, EvolutionEngine, FitnessScores,
 };
+use sqlx::SqlitePool;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 const TEST_AGENT: &str = "agent.test";
 
@@ -37,9 +36,10 @@ fn test_scores(c: f64, b: f64, s: f64, a: AutonomyLevel, m: f64) -> FitnessScore
 fn test_snapshot() -> AgentSnapshot {
     AgentSnapshot {
         active_plugins: vec!["test_plugin".to_string()],
-        plugin_capabilities: HashMap::from([
-            ("test_plugin".to_string(), vec!["Reasoning".to_string()]),
-        ]),
+        plugin_capabilities: HashMap::from([(
+            "test_plugin".to_string(),
+            vec!["Reasoning".to_string()],
+        )]),
         runtime_plugins: vec![],
         personality_hash: "abc123".to_string(),
         strategy_params: Default::default(),
@@ -48,7 +48,8 @@ fn test_snapshot() -> AgentSnapshot {
 
 fn snapshot_with_plugins(plugins: Vec<(&str, Vec<&str>)>) -> AgentSnapshot {
     let active_plugins = plugins.iter().map(|(id, _)| id.to_string()).collect();
-    let plugin_capabilities = plugins.iter()
+    let plugin_capabilities = plugins
+        .iter()
         .map(|(id, caps)| (id.to_string(), caps.iter().map(|c| c.to_string()).collect()))
         .collect();
     AgentSnapshot {
@@ -81,7 +82,10 @@ async fn test_increment_interaction_sequential() {
 async fn test_evaluate_creates_first_generation() {
     let engine = setup().await;
     let scores = test_scores(0.5, 0.5, 1.0, AutonomyLevel::L1, 0.3);
-    let events = engine.evaluate(TEST_AGENT, scores, test_snapshot()).await.unwrap();
+    let events = engine
+        .evaluate(TEST_AGENT, scores, test_snapshot())
+        .await
+        .unwrap();
 
     // First evaluation should create generation 1
     assert!(!events.is_empty(), "Should emit at least one event");
@@ -95,17 +99,24 @@ async fn test_evaluate_second_call_no_generation_if_below_threshold() {
     let scores = test_scores(0.5, 0.5, 1.0, AutonomyLevel::L1, 0.3);
 
     // First call: creates gen 1
-    engine.evaluate(TEST_AGENT, scores.clone(), test_snapshot()).await.unwrap();
+    engine
+        .evaluate(TEST_AGENT, scores.clone(), test_snapshot())
+        .await
+        .unwrap();
 
     // Second call with identical scores: no new generation (below alpha threshold)
-    let events = engine.evaluate(TEST_AGENT, scores, test_snapshot()).await.unwrap();
+    let events = engine
+        .evaluate(TEST_AGENT, scores, test_snapshot())
+        .await
+        .unwrap();
     let gen = engine.get_latest_generation(TEST_AGENT).await.unwrap();
     // Still gen 1 (no trigger fired because delta = 0 and min_interactions not met)
     assert_eq!(gen, 1);
     // No EvolutionGeneration event
-    let gen_events: Vec<_> = events.iter().filter(|e| {
-        matches!(e, exiv_shared::ExivEventData::EvolutionGeneration { .. })
-    }).collect();
+    let gen_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, exiv_shared::ExivEventData::EvolutionGeneration { .. }))
+        .collect();
     assert!(gen_events.is_empty());
 }
 
@@ -118,7 +129,10 @@ async fn test_fitness_log_append_and_retrieve() {
 
     // Evaluate multiple times to build up log
     for _ in 0..5 {
-        engine.evaluate(TEST_AGENT, scores.clone(), test_snapshot()).await.unwrap();
+        engine
+            .evaluate(TEST_AGENT, scores.clone(), test_snapshot())
+            .await
+            .unwrap();
     }
 
     let log = engine.get_fitness_log(TEST_AGENT).await.unwrap();
@@ -139,7 +153,10 @@ async fn test_grace_period_start_and_cancel() {
     assert!(gp.is_none());
 
     // Start grace period
-    engine.start_grace_period(TEST_AGENT, 10, 0.5, "cognitive").await.unwrap();
+    engine
+        .start_grace_period(TEST_AGENT, 10, 0.5, "cognitive")
+        .await
+        .unwrap();
 
     let gp = engine.get_grace_period(TEST_AGENT).await.unwrap();
     assert!(gp.is_some());
@@ -162,25 +179,34 @@ async fn test_rollback_iterative() {
     let scores = test_scores(0.8, 0.8, 1.0, AutonomyLevel::L2, 0.6);
 
     // Create gen 1 via evaluate
-    engine.evaluate(TEST_AGENT, scores.clone(), test_snapshot()).await.unwrap();
+    engine
+        .evaluate(TEST_AGENT, scores.clone(), test_snapshot())
+        .await
+        .unwrap();
     assert_eq!(engine.get_latest_generation(TEST_AGENT).await.unwrap(), 1);
 
     // Manually create gen 2 (simulate positive evolution)
     let scores2 = test_scores(0.9, 0.9, 1.0, AutonomyLevel::L3, 0.7);
-    engine.create_generation(
-        TEST_AGENT,
-        exiv_core::evolution::GenerationTrigger::Evolution,
-        scores2,
-        0.88,
-        0.05,
-        Default::default(),
-        15,
-        test_snapshot(),
-    ).await.unwrap();
+    engine
+        .create_generation(
+            TEST_AGENT,
+            exiv_core::evolution::GenerationTrigger::Evolution,
+            scores2,
+            0.88,
+            0.05,
+            Default::default(),
+            15,
+            test_snapshot(),
+        )
+        .await
+        .unwrap();
     assert_eq!(engine.get_latest_generation(TEST_AGENT).await.unwrap(), 2);
 
     // Rollback from gen 2 to gen 1
-    let events = engine.execute_rollback(TEST_AGENT, 1, "test rollback").await.unwrap();
+    let events = engine
+        .execute_rollback(TEST_AGENT, 1, "test rollback")
+        .await
+        .unwrap();
     assert!(!events.is_empty());
 
     // After rollback, a new generation (gen 3) should be created with gen 1's scores
@@ -199,7 +225,10 @@ async fn test_rollback_iterative() {
 async fn test_get_status_returns_valid_data() {
     let engine = setup().await;
     let scores = test_scores(0.6, 0.7, 1.0, AutonomyLevel::L2, 0.4);
-    engine.evaluate(TEST_AGENT, scores, test_snapshot()).await.unwrap();
+    engine
+        .evaluate(TEST_AGENT, scores, test_snapshot())
+        .await
+        .unwrap();
 
     let status = engine.get_status(TEST_AGENT).await.unwrap();
     assert_eq!(status.agent_id, TEST_AGENT);
@@ -273,7 +302,7 @@ fn test_detect_capability_gain_mixed() {
     let prev = snapshot_with_plugins(vec![("plugA", vec!["Reasoning", "Memory"])]);
     let curr = snapshot_with_plugins(vec![
         ("plugA", vec!["Reasoning", "Memory"]),
-        ("plugB", vec!["Reasoning"]),   // minor: Reasoning already exists
+        ("plugB", vec!["Reasoning"]), // minor: Reasoning already exists
         ("plugC", vec!["Vision", "HAL"]), // major: Vision and HAL are new
     ]);
     let changes = detect_capability_gain(&prev, &curr);
@@ -304,7 +333,10 @@ fn test_detect_capability_gain_empty_prev_capabilities() {
         strategy_params: Default::default(),
     };
     let changes = detect_capability_gain(&prev, &curr);
-    assert!(changes.is_empty(), "Should skip detection when both snapshots lack capability data");
+    assert!(
+        changes.is_empty(),
+        "Should skip detection when both snapshots lack capability data"
+    );
 }
 
 // ── E7: evaluate() integration with CapabilityGain ──
@@ -337,13 +369,20 @@ async fn test_capability_gain_overrides_evolution() {
 
     // Verify the generation was recorded with CapabilityGain trigger
     let record = engine.get_generation(TEST_AGENT, 2).await.unwrap().unwrap();
-    assert_eq!(record.trigger, exiv_core::evolution::GenerationTrigger::CapabilityGain);
+    assert_eq!(
+        record.trigger,
+        exiv_core::evolution::GenerationTrigger::CapabilityGain
+    );
 
     // Verify EvolutionCapability event was emitted
-    let cap_events: Vec<_> = events.iter().filter(|e| {
-        matches!(e, exiv_shared::ExivEventData::EvolutionCapability { .. })
-    }).collect();
-    assert!(!cap_events.is_empty(), "Should emit EvolutionCapability events");
+    let cap_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, exiv_shared::ExivEventData::EvolutionCapability { .. }))
+        .collect();
+    assert!(
+        !cap_events.is_empty(),
+        "Should emit EvolutionCapability events"
+    );
 }
 
 #[tokio::test]
@@ -364,16 +403,24 @@ async fn test_safety_breach_overrides_capability_gain() {
     let events = engine.evaluate(TEST_AGENT, scores2, snap2).await.unwrap();
 
     // SafetyBreach should trigger rollback, not CapabilityGain
-    let breach_events: Vec<_> = events.iter().filter(|e| {
-        matches!(e, exiv_shared::ExivEventData::EvolutionBreach { .. })
-    }).collect();
-    assert!(!breach_events.is_empty(), "SafetyBreach should override CapabilityGain");
+    let breach_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, exiv_shared::ExivEventData::EvolutionBreach { .. }))
+        .collect();
+    assert!(
+        !breach_events.is_empty(),
+        "SafetyBreach should override CapabilityGain"
+    );
 
     // But EvolutionCapability events should STILL be emitted (independent of trigger)
-    let cap_events: Vec<_> = events.iter().filter(|e| {
-        matches!(e, exiv_shared::ExivEventData::EvolutionCapability { .. })
-    }).collect();
-    assert!(!cap_events.is_empty(), "EvolutionCapability events should be emitted even with SafetyBreach");
+    let cap_events: Vec<_> = events
+        .iter()
+        .filter(|e| matches!(e, exiv_shared::ExivEventData::EvolutionCapability { .. }))
+        .collect();
+    assert!(
+        !cap_events.is_empty(),
+        "EvolutionCapability events should be emitted even with SafetyBreach"
+    );
 }
 
 #[tokio::test]
@@ -400,10 +447,16 @@ async fn test_capability_gain_standalone_no_metric_trigger() {
 
     // Should still create a new generation with CapabilityGain
     let gen = engine.get_latest_generation(TEST_AGENT).await.unwrap();
-    assert_eq!(gen, 2, "CapabilityGain should trigger generation even without metric change");
+    assert_eq!(
+        gen, 2,
+        "CapabilityGain should trigger generation even without metric change"
+    );
 
     let record = engine.get_generation(TEST_AGENT, 2).await.unwrap().unwrap();
-    assert_eq!(record.trigger, exiv_core::evolution::GenerationTrigger::CapabilityGain);
+    assert_eq!(
+        record.trigger,
+        exiv_core::evolution::GenerationTrigger::CapabilityGain
+    );
 }
 
 // ── Validation tests ──
@@ -423,13 +476,19 @@ async fn test_set_params_rejects_invalid_weights_sum() {
     let mut params = engine.get_params(TEST_AGENT).await.unwrap();
     params.weights.cognitive = 0.9; // sum would be ~1.65
     let result = engine.set_params(TEST_AGENT, &params).await;
-    assert!(result.is_err(), "set_params should reject weights that don't sum to ~1.0");
+    assert!(
+        result.is_err(),
+        "set_params should reject weights that don't sum to ~1.0"
+    );
 }
 
 #[test]
 fn test_from_normalized_nan_returns_l0() {
     assert_eq!(AutonomyLevel::from_normalized(f64::NAN), AutonomyLevel::L0);
-    assert_eq!(AutonomyLevel::from_normalized(f64::INFINITY), AutonomyLevel::L0);
+    assert_eq!(
+        AutonomyLevel::from_normalized(f64::INFINITY),
+        AutonomyLevel::L0
+    );
     assert_eq!(AutonomyLevel::from_normalized(-0.1), AutonomyLevel::L0);
     assert_eq!(AutonomyLevel::from_normalized(1.1), AutonomyLevel::L0);
 }
@@ -462,5 +521,8 @@ async fn test_increment_counter_concurrent() {
     // All values should be unique (1..=10)
     results.sort();
     let expected: Vec<i64> = (1..=10).collect();
-    assert_eq!(results, expected, "Concurrent increments should produce unique sequential values");
+    assert_eq!(
+        results, expected,
+        "Concurrent increments should produce unique sequential values"
+    );
 }

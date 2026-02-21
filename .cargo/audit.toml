@@ -1,0 +1,11 @@
+# Known advisories from transitive dependencies that cannot be resolved
+# without upstream changes (Tauri, sqlx, validator).
+[advisories]
+ignore = [
+    "RUSTSEC-2023-0071", # rsa Marvin Attack — transitive via sqlx-mysql (we use sqlite only)
+    "RUSTSEC-2024-0412", # gtk-rs GTK3 unmaintained (Tauri transitive dep)
+    "RUSTSEC-2024-0413", # gtk-rs GTK3 unmaintained (Tauri transitive dep)
+    "RUSTSEC-2024-0416", # gtk-rs GTK3 unmaintained (Tauri transitive dep)
+    "RUSTSEC-2024-0421", # idna Punycode — transitive via validator 0.16
+    "RUSTSEC-2025-0057", # fxhash unmaintained (Tauri transitive dep)
+]

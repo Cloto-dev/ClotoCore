@@ -1,12 +1,11 @@
+use anyhow::Result;
+use async_trait::async_trait;
+use exiv_shared::{
+    ExivEvent, ExivEventData, ExivId, Plugin, PluginCast, PluginManifest, ServiceType,
+};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use exiv_shared::{
-    Plugin, PluginCast, PluginManifest, ExivEvent, ExivEventData,
-    ServiceType, ExivId,
-};
-use anyhow::Result;
-use async_trait::async_trait;
 
 pub struct MockPlugin {
     pub manifest: PluginManifest,
@@ -17,7 +16,9 @@ pub struct MockPlugin {
 }
 
 impl PluginCast for MockPlugin {
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[async_trait]

@@ -3,12 +3,20 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 
 use exiv_shared::{ExivEventData, PluginDataStore};
 
-use super::types::{EvolutionParams, EVOLUTION_STORE_ID, GenerationRecord, GenerationTrigger, FitnessScores, AgentSnapshot, FitnessLogEntry, GracePeriodState, RollbackRecord, EvolutionStatus, AutonomyLevel, RegressionSeverity, InteractionMetrics, PluginContributions};
-use super::calc::{calculate_fitness, check_triggers, detect_capability_gain, regression_severity, grace_period_length, compute_delta, detect_rebalance, compute_behavioral_score, compute_safety_score, compute_autonomy_level};
+use super::calc::{
+    calculate_fitness, check_triggers, compute_autonomy_level, compute_behavioral_score,
+    compute_delta, compute_safety_score, detect_capability_gain, detect_rebalance,
+    grace_period_length, regression_severity,
+};
+use super::types::{
+    AgentSnapshot, AutonomyLevel, EvolutionParams, EvolutionStatus, FitnessLogEntry, FitnessScores,
+    GenerationRecord, GenerationTrigger, GracePeriodState, InteractionMetrics, PluginContributions,
+    RegressionSeverity, RollbackRecord, EVOLUTION_STORE_ID,
+};
 
 /// Maximum number of rollbacks to the same target generation before skipping it.
 const MAX_ROLLBACKS_PER_TARGET: u32 = 3;
@@ -73,7 +81,6 @@ impl EvolutionEngine {
         format!("evolution:{}:latest_fitness", agent_id)
     }
 
-
     // ── Parameter Management ──
 
     pub async fn get_params(&self, agent_id: &str) -> anyhow::Result<EvolutionParams> {
@@ -87,7 +94,9 @@ impl EvolutionEngine {
     pub async fn set_params(&self, agent_id: &str, params: &EvolutionParams) -> anyhow::Result<()> {
         params.validate()?;
         let key = Self::key_params(agent_id);
-        self.store.set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(params)?).await
+        self.store
+            .set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(params)?)
+            .await
     }
 
     // ── Interaction Tracking ──
@@ -102,7 +111,10 @@ impl EvolutionEngine {
 
     pub async fn increment_interaction(&self, agent_id: &str) -> anyhow::Result<u64> {
         let key = Self::key_interaction_count(agent_id);
-        let count = self.store.increment_counter(EVOLUTION_STORE_ID, &key).await?;
+        let count = self
+            .store
+            .increment_counter(EVOLUTION_STORE_ID, &key)
+            .await?;
         Ok(count as u64)
     }
 
@@ -116,7 +128,11 @@ impl EvolutionEngine {
         }
     }
 
-    pub async fn get_generation(&self, agent_id: &str, n: u64) -> anyhow::Result<Option<GenerationRecord>> {
+    pub async fn get_generation(
+        &self,
+        agent_id: &str,
+        n: u64,
+    ) -> anyhow::Result<Option<GenerationRecord>> {
         let key = Self::key_generation(agent_id, n);
         match self.store.get_json(EVOLUTION_STORE_ID, &key).await? {
             Some(val) => Ok(Some(serde_json::from_value(val)?)),
@@ -128,14 +144,22 @@ impl EvolutionEngine {
     /// Note: This performs sequential key lookups (one per generation).
     /// For large histories, a batch retrieval (key prefix scan) would be more efficient,
     /// but the current approach is sufficient given typical generation counts (<500).
-    pub async fn get_generation_history(&self, agent_id: &str, limit: usize) -> anyhow::Result<Vec<GenerationRecord>> {
+    pub async fn get_generation_history(
+        &self,
+        agent_id: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<GenerationRecord>> {
         let latest = self.get_latest_generation(agent_id).await?;
         if latest == 0 {
             return Ok(vec![]);
         }
 
         let mut records = Vec::new();
-        let start = if latest > limit as u64 { latest - limit as u64 + 1 } else { 1 };
+        let start = if latest > limit as u64 {
+            latest - limit as u64 + 1
+        } else {
+            1
+        };
         for n in (start..=latest).rev() {
             if let Some(record) = self.get_generation(agent_id, n).await? {
                 records.push(record);
@@ -158,7 +182,10 @@ impl EvolutionEngine {
         // Atomically increment the generation counter (prevents duplicate generation numbers
         // under concurrent calls). increment_counter uses UPSERT with RETURNING.
         let key_latest = Self::key_latest(agent_id);
-        let new_gen = self.store.increment_counter(EVOLUTION_STORE_ID, &key_latest).await? as u64;
+        let new_gen = self
+            .store
+            .increment_counter(EVOLUTION_STORE_ID, &key_latest)
+            .await? as u64;
 
         let record = GenerationRecord {
             generation: new_gen,
@@ -174,7 +201,9 @@ impl EvolutionEngine {
 
         // Store generation record
         let key = Self::key_generation(agent_id, new_gen);
-        self.store.set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(&record)?).await?;
+        self.store
+            .set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(&record)?)
+            .await?;
 
         info!(
             agent_id = %agent_id,
@@ -199,7 +228,11 @@ impl EvolutionEngine {
 
     /// Appends an entry to the fitness log and returns the full log (including the new entry).
     /// Also caches the latest entry under a separate key for O(1) retrieval.
-    pub async fn append_fitness_log(&self, agent_id: &str, entry: FitnessLogEntry) -> anyhow::Result<Vec<FitnessLogEntry>> {
+    pub async fn append_fitness_log(
+        &self,
+        agent_id: &str,
+        entry: FitnessLogEntry,
+    ) -> anyhow::Result<Vec<FitnessLogEntry>> {
         let mut log = self.get_fitness_log(agent_id).await?;
         log.push(entry);
 
@@ -208,34 +241,51 @@ impl EvolutionEngine {
         }
 
         let key = Self::key_fitness_log(agent_id);
-        self.store.set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(&log)?).await?;
+        self.store
+            .set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(&log)?)
+            .await?;
 
         // Cache latest entry for O(1) access by get_latest_fitness()
         if let Some(latest) = log.last() {
             let cache_key = Self::key_latest_fitness(agent_id);
-            self.store.set_json(EVOLUTION_STORE_ID, &cache_key, serde_json::to_value(latest)?).await?;
+            self.store
+                .set_json(
+                    EVOLUTION_STORE_ID,
+                    &cache_key,
+                    serde_json::to_value(latest)?,
+                )
+                .await?;
         }
 
         Ok(log)
     }
 
-    pub async fn get_fitness_timeline(&self, agent_id: &str, limit: usize) -> anyhow::Result<Vec<FitnessLogEntry>> {
+    pub async fn get_fitness_timeline(
+        &self,
+        agent_id: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<FitnessLogEntry>> {
         let log = self.get_fitness_log(agent_id).await?;
-        let start = if log.len() > limit { log.len() - limit } else { 0 };
+        let start = if log.len() > limit {
+            log.len() - limit
+        } else {
+            0
+        };
         Ok(log[start..].to_vec())
     }
 
     // ── Grace Period ──
 
-    pub async fn get_grace_period(&self, agent_id: &str) -> anyhow::Result<Option<GracePeriodState>> {
+    pub async fn get_grace_period(
+        &self,
+        agent_id: &str,
+    ) -> anyhow::Result<Option<GracePeriodState>> {
         let key = Self::key_grace_period(agent_id);
         match self.store.get_json(EVOLUTION_STORE_ID, &key).await? {
-            Some(val) if !val.is_null() => {
-                match serde_json::from_value::<GracePeriodState>(val) {
-                    Ok(state) if state.active => Ok(Some(state)),
-                    _ => Ok(None),
-                }
-            }
+            Some(val) if !val.is_null() => match serde_json::from_value::<GracePeriodState>(val) {
+                Ok(state) if state.active => Ok(Some(state)),
+                _ => Ok(None),
+            },
             _ => Ok(None),
         }
     }
@@ -257,18 +307,25 @@ impl EvolutionEngine {
             affected_axis: affected_axis.to_string(),
         };
         let key = Self::key_grace_period(agent_id);
-        self.store.set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(&state)?).await
+        self.store
+            .set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(&state)?)
+            .await
     }
 
     pub async fn cancel_grace_period(&self, agent_id: &str) -> anyhow::Result<()> {
         let key = Self::key_grace_period(agent_id);
         // Set to null; get_grace_period will return None on deserialization failure
-        self.store.set_json(EVOLUTION_STORE_ID, &key, serde_json::Value::Null).await
+        self.store
+            .set_json(EVOLUTION_STORE_ID, &key, serde_json::Value::Null)
+            .await
     }
 
     // ── Rollback History ──
 
-    pub async fn get_rollback_history(&self, agent_id: &str) -> anyhow::Result<Vec<RollbackRecord>> {
+    pub async fn get_rollback_history(
+        &self,
+        agent_id: &str,
+    ) -> anyhow::Result<Vec<RollbackRecord>> {
         let key = Self::key_rollback_history(agent_id);
         match self.store.get_json(EVOLUTION_STORE_ID, &key).await? {
             Some(val) => Ok(serde_json::from_value(val)?),
@@ -276,7 +333,11 @@ impl EvolutionEngine {
         }
     }
 
-    async fn append_rollback_record(&self, agent_id: &str, record: RollbackRecord) -> anyhow::Result<()> {
+    async fn append_rollback_record(
+        &self,
+        agent_id: &str,
+        record: RollbackRecord,
+    ) -> anyhow::Result<()> {
         let mut history = self.get_rollback_history(agent_id).await?;
         history.push(record);
 
@@ -285,13 +346,18 @@ impl EvolutionEngine {
         }
 
         let key = Self::key_rollback_history(agent_id);
-        self.store.set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(&history)?).await
+        self.store
+            .set_json(EVOLUTION_STORE_ID, &key, serde_json::to_value(&history)?)
+            .await
     }
 
     /// Count how many times we've rolled back to the given generation
     async fn rollback_count_to_gen(&self, agent_id: &str, target_gen: u64) -> anyhow::Result<u32> {
         let history = self.get_rollback_history(agent_id).await?;
-        Ok(history.iter().filter(|r| r.to_generation == target_gen).count() as u32)
+        Ok(history
+            .iter()
+            .filter(|r| r.to_generation == target_gen)
+            .count() as u32)
     }
 
     // ── Rollback Execution ──
@@ -334,7 +400,9 @@ impl EvolutionEngine {
                 return Ok(events);
             }
 
-            if let Some(record) = self.get_generation(agent_id, target_gen).await? { break (record, count) }
+            if let Some(record) = self.get_generation(agent_id, target_gen).await? {
+                break (record, count);
+            }
             error!(agent_id = %agent_id, target_gen = target_gen, "Target generation not found, cascading to earlier");
             if target_gen > 1 {
                 target_gen -= 1;
@@ -343,7 +411,10 @@ impl EvolutionEngine {
             events.push(ExivEventData::EvolutionBreach {
                 agent_id: agent_id.to_string(),
                 violation_type: "rollback_target_missing".to_string(),
-                detail: format!("No valid generation found for rollback (tried down to gen {})", target_gen),
+                detail: format!(
+                    "No valid generation found for rollback (tried down to gen {})",
+                    target_gen
+                ),
             });
             return Ok(events);
         };
@@ -356,13 +427,17 @@ impl EvolutionEngine {
         );
 
         // Record rollback
-        self.append_rollback_record(agent_id, RollbackRecord {
-            timestamp: Utc::now(),
-            from_generation: from_gen,
-            to_generation: target_gen,
-            reason: reason.to_string(),
-            rollback_count_to_target: rollback_count + 1,
-        }).await?;
+        self.append_rollback_record(
+            agent_id,
+            RollbackRecord {
+                timestamp: Utc::now(),
+                from_generation: from_gen,
+                to_generation: target_gen,
+                reason: reason.to_string(),
+                rollback_count_to_target: rollback_count + 1,
+            },
+        )
+        .await?;
 
         // Emit rollback event
         events.push(ExivEventData::EvolutionRollback {
@@ -374,7 +449,10 @@ impl EvolutionEngine {
 
         // Create new generation with restored scores
         let delta = HashMap::new();
-        let restored_fitness = calculate_fitness(&target_record.scores, &self.get_params(agent_id).await?.weights);
+        let restored_fitness = calculate_fitness(
+            &target_record.scores,
+            &self.get_params(agent_id).await?.weights,
+        );
         let fitness_delta = restored_fitness - self.get_latest_fitness(agent_id).await?;
 
         self.create_generation(
@@ -386,7 +464,8 @@ impl EvolutionEngine {
             delta,
             0,
             target_record.snapshot.clone(),
-        ).await?;
+        )
+        .await?;
 
         // Cancel grace period
         self.cancel_grace_period(agent_id).await?;
@@ -402,7 +481,10 @@ impl EvolutionEngine {
                             agent_id = %agent_id,
                             "🔄 Deactivating runtime plugin due to rollback"
                         );
-                        if let Err(e) = crate::db::deactivate_runtime_plugin(&self.pool, &plugin.plugin_id).await {
+                        if let Err(e) =
+                            crate::db::deactivate_runtime_plugin(&self.pool, &plugin.plugin_id)
+                                .await
+                        {
                             warn!(error = %e, plugin_id = %plugin.plugin_id, "Failed to deactivate runtime plugin during rollback");
                         }
                     }
@@ -412,17 +494,20 @@ impl EvolutionEngine {
         }
 
         // Audit log
-        crate::db::spawn_audit_log(self.pool.clone(), crate::db::AuditLogEntry {
-            timestamp: Utc::now(),
-            event_type: "EVOLUTION_ROLLBACK".to_string(),
-            actor_id: Some("kernel".to_string()),
-            target_id: Some(agent_id.to_string()),
-            permission: None,
-            result: "SUCCESS".to_string(),
-            reason: format!("Rollback gen {} → gen {}: {}", from_gen, target_gen, reason),
-            metadata: None,
-            trace_id: None,
-        });
+        crate::db::spawn_audit_log(
+            self.pool.clone(),
+            crate::db::AuditLogEntry {
+                timestamp: Utc::now(),
+                event_type: "EVOLUTION_ROLLBACK".to_string(),
+                actor_id: Some("kernel".to_string()),
+                target_id: Some(agent_id.to_string()),
+                permission: None,
+                result: "SUCCESS".to_string(),
+                reason: format!("Rollback gen {} → gen {}: {}", from_gen, target_gen, reason),
+                metadata: None,
+                trace_id: None,
+            },
+        );
 
         Ok(events)
     }
@@ -465,7 +550,9 @@ impl EvolutionEngine {
         // Read log once and reuse for both interactions count and trend calculation
         let log = self.get_fitness_log(agent_id).await?;
         let interactions_since_last_gen = if let Some(ref record) = gen_record {
-            log.iter().filter(|e| e.timestamp > record.timestamp).count() as u64
+            log.iter()
+                .filter(|e| e.timestamp > record.timestamp)
+                .count() as u64
         } else {
             total_interactions
         };
@@ -480,21 +567,30 @@ impl EvolutionEngine {
         } else {
             0.0
         };
-        let trend = if trend_val > 0.01 { "improving".to_string() }
-                    else if trend_val < -0.01 { "declining".to_string() }
-                    else { "stable".to_string() };
+        let trend = if trend_val > 0.01 {
+            "improving".to_string()
+        } else if trend_val < -0.01 {
+            "declining".to_string()
+        } else {
+            "stable".to_string()
+        };
 
         // Default scores when no generation exists
-        let scores = gen_record.map_or(FitnessScores {
-            cognitive: 0.0,
-            behavioral: 0.0,
-            safety: 1.0,
-            autonomy: AutonomyLevel::L0,
-            meta_learning: 0.0,
-        }, |r| r.scores);
+        let scores = gen_record.map_or(
+            FitnessScores {
+                cognitive: 0.0,
+                behavioral: 0.0,
+                safety: 1.0,
+                autonomy: AutonomyLevel::L0,
+                meta_learning: 0.0,
+            },
+            |r| r.scores,
+        );
 
         let autonomy_level = scores.autonomy.to_string();
-        let top_axes = scores.axis_ranking().into_iter()
+        let top_axes = scores
+            .axis_ranking()
+            .into_iter()
             .map(|(name, val)| (name.to_string(), val))
             .collect();
 
@@ -528,25 +624,32 @@ impl EvolutionEngine {
         let mut events = Vec::new();
 
         // Append to fitness log and get the full log back (eliminates double-read)
-        let log = self.append_fitness_log(agent_id, FitnessLogEntry {
-            timestamp: Utc::now(),
-            interaction_count,
-            scores: scores.clone(),
-            fitness: current_fitness,
-        }).await?;
+        let log = self
+            .append_fitness_log(
+                agent_id,
+                FitnessLogEntry {
+                    timestamp: Utc::now(),
+                    interaction_count,
+                    scores: scores.clone(),
+                    fitness: current_fitness,
+                },
+            )
+            .await?;
         if log.len() < 2 {
             // Not enough data to compare — if this is the first evaluation, create gen 0
             if self.get_latest_generation(agent_id).await? == 0 {
-                let record = self.create_generation(
-                    agent_id,
-                    GenerationTrigger::Evolution,
-                    scores,
-                    current_fitness,
-                    0.0,
-                    HashMap::new(),
-                    0,
-                    snapshot,
-                ).await?;
+                let record = self
+                    .create_generation(
+                        agent_id,
+                        GenerationTrigger::Evolution,
+                        scores,
+                        current_fitness,
+                        0.0,
+                        HashMap::new(),
+                        0,
+                        snapshot,
+                    )
+                    .await?;
                 events.push(ExivEventData::EvolutionGeneration {
                     agent_id: agent_id.to_string(),
                     generation: record.generation,
@@ -572,11 +675,13 @@ impl EvolutionEngine {
                 warn!(agent_id = %agent_id, "Grace period expired, triggering rollback");
                 let latest_gen = self.get_latest_generation(agent_id).await?;
                 let target_gen = if latest_gen > 1 { latest_gen - 1 } else { 1 };
-                let rollback_events = self.execute_rollback(
-                    agent_id,
-                    target_gen,
-                    &format!("Grace period expired for {} axis", grace.affected_axis),
-                ).await?;
+                let rollback_events = self
+                    .execute_rollback(
+                        agent_id,
+                        target_gen,
+                        &format!("Grace period expired for {} axis", grace.affected_axis),
+                    )
+                    .await?;
                 events.extend(rollback_events);
                 return Ok(events);
             } else {
@@ -626,7 +731,9 @@ impl EvolutionEngine {
         // See docs/e7-capability-gain.md for rationale.
         let trigger = match (metric_trigger, capability_changes.is_empty()) {
             // Defensive triggers always win (safety-first principle)
-            (Some(t @ (GenerationTrigger::SafetyBreach | GenerationTrigger::Regression)), _) => Some(t),
+            (Some(t @ (GenerationTrigger::SafetyBreach | GenerationTrigger::Regression)), _) => {
+                Some(t)
+            }
             // Growth trigger + capability changes → CapabilityGain (higher explanatory value)
             (Some(_), false) => Some(GenerationTrigger::CapabilityGain),
             // No metric trigger + capability changes → CapabilityGain (if debounce satisfied)
@@ -640,27 +747,52 @@ impl EvolutionEngine {
         if let Some(trigger) = trigger {
             match trigger {
                 GenerationTrigger::SafetyBreach => {
-                    self.handle_safety_breach(agent_id, latest_gen, &mut events).await?;
+                    self.handle_safety_breach(agent_id, latest_gen, &mut events)
+                        .await?;
                 }
                 GenerationTrigger::Regression => {
                     self.handle_regression(
-                        agent_id, scores, previous_scores, current_fitness, previous_fitness,
-                        &params, interactions_since_last_gen, snapshot, latest_gen, &mut events,
-                    ).await?;
+                        agent_id,
+                        scores,
+                        previous_scores,
+                        current_fitness,
+                        previous_fitness,
+                        &params,
+                        interactions_since_last_gen,
+                        snapshot,
+                        latest_gen,
+                        &mut events,
+                    )
+                    .await?;
                 }
                 GenerationTrigger::Evolution
                 | GenerationTrigger::AutonomyUpgrade
                 | GenerationTrigger::CapabilityGain => {
                     self.handle_positive_trigger(
-                        agent_id, trigger, scores, previous_scores, current_fitness, previous_fitness,
-                        interactions_since_last_gen, snapshot, &mut events,
-                    ).await?;
+                        agent_id,
+                        trigger,
+                        scores,
+                        previous_scores,
+                        current_fitness,
+                        previous_fitness,
+                        interactions_since_last_gen,
+                        snapshot,
+                        &mut events,
+                    )
+                    .await?;
                 }
                 GenerationTrigger::Rebalance => {
                     self.handle_rebalance(
-                        agent_id, scores, previous_scores, current_fitness, previous_fitness,
-                        interactions_since_last_gen, snapshot, &mut events,
-                    ).await?;
+                        agent_id,
+                        scores,
+                        previous_scores,
+                        current_fitness,
+                        previous_fitness,
+                        interactions_since_last_gen,
+                        snapshot,
+                        &mut events,
+                    )
+                    .await?;
                 }
             }
         }
@@ -701,7 +833,9 @@ impl EvolutionEngine {
             detail: "SafetyGate triggered: safety score dropped below 1.0".to_string(),
         });
         if latest_gen > 1 {
-            let rollback_events = self.execute_rollback(agent_id, latest_gen - 1, "Safety breach detected").await?;
+            let rollback_events = self
+                .execute_rollback(agent_id, latest_gen - 1, "Safety breach detected")
+                .await?;
             events.extend(rollback_events);
         } else if latest_gen == 1 {
             warn!(agent_id = %agent_id, "Safety breach on generation 1, no earlier generation available");
@@ -731,19 +865,27 @@ impl EvolutionEngine {
             RegressionSeverity::Severe => {
                 warn!(agent_id = %agent_id, delta = delta_f, "Severe regression, immediate rollback");
                 if latest_gen > 1 {
-                    let rollback_events = self.execute_rollback(agent_id, latest_gen - 1, "Severe regression detected").await?;
+                    let rollback_events = self
+                        .execute_rollback(agent_id, latest_gen - 1, "Severe regression detected")
+                        .await?;
                     events.extend(rollback_events);
                 } else if latest_gen == 1 {
                     warn!(agent_id = %agent_id, "Severe regression on generation 1, no earlier generation available");
                 }
             }
             RegressionSeverity::Mild => {
-                let grace_len = grace_period_length(interactions_since_last_gen, params.gamma, params.min_interactions);
+                let grace_len = grace_period_length(
+                    interactions_since_last_gen,
+                    params.gamma,
+                    params.min_interactions,
+                );
                 let affected_axis = compute_delta(&scores, previous_scores)
                     .into_iter()
-                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)).map_or_else(|| "unknown".to_string(), |(k, _)| k);
+                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                    .map_or_else(|| "unknown".to_string(), |(k, _)| k);
 
-                self.start_grace_period(agent_id, grace_len, current_fitness, &affected_axis).await?;
+                self.start_grace_period(agent_id, grace_len, current_fitness, &affected_axis)
+                    .await?;
                 events.push(ExivEventData::EvolutionWarning {
                     agent_id: agent_id.to_string(),
                     severity: "mild".to_string(),
@@ -754,11 +896,18 @@ impl EvolutionEngine {
                 });
 
                 let delta = compute_delta(&scores, previous_scores);
-                let record = self.create_generation(
-                    agent_id, GenerationTrigger::Regression, scores,
-                    current_fitness, current_fitness - previous_fitness,
-                    delta, interactions_since_last_gen, snapshot,
-                ).await?;
+                let record = self
+                    .create_generation(
+                        agent_id,
+                        GenerationTrigger::Regression,
+                        scores,
+                        current_fitness,
+                        current_fitness - previous_fitness,
+                        delta,
+                        interactions_since_last_gen,
+                        snapshot,
+                    )
+                    .await?;
                 events.push(ExivEventData::EvolutionGeneration {
                     agent_id: agent_id.to_string(),
                     generation: record.generation,
@@ -784,11 +933,18 @@ impl EvolutionEngine {
     ) -> anyhow::Result<()> {
         self.cancel_grace_period(agent_id).await?;
         let delta = compute_delta(&scores, previous_scores);
-        let record = self.create_generation(
-            agent_id, trigger, scores,
-            current_fitness, current_fitness - previous_fitness,
-            delta, interactions_since_last_gen, snapshot,
-        ).await?;
+        let record = self
+            .create_generation(
+                agent_id,
+                trigger,
+                scores,
+                current_fitness,
+                current_fitness - previous_fitness,
+                delta,
+                interactions_since_last_gen,
+                snapshot,
+            )
+            .await?;
         events.push(ExivEventData::EvolutionGeneration {
             agent_id: agent_id.to_string(),
             generation: record.generation,
@@ -814,11 +970,18 @@ impl EvolutionEngine {
     ) -> anyhow::Result<()> {
         let shifted = detect_rebalance(&scores, previous_scores);
         let delta = compute_delta(&scores, previous_scores);
-        let record = self.create_generation(
-            agent_id, GenerationTrigger::Rebalance, scores,
-            current_fitness, current_fitness - previous_fitness,
-            delta, interactions_since_last_gen, snapshot,
-        ).await?;
+        let record = self
+            .create_generation(
+                agent_id,
+                GenerationTrigger::Rebalance,
+                scores,
+                current_fitness,
+                current_fitness - previous_fitness,
+                delta,
+                interactions_since_last_gen,
+                snapshot,
+            )
+            .await?;
         events.push(ExivEventData::EvolutionRebalance {
             agent_id: agent_id.to_string(),
             shifted_axes: shifted,
@@ -850,11 +1013,13 @@ impl EvolutionEngine {
                 warn!(agent_id = %agent_id, "Grace period expired during interaction, triggering rollback");
                 let latest_gen = self.get_latest_generation(agent_id).await?;
                 let target_gen = if latest_gen > 1 { latest_gen - 1 } else { 1 };
-                let rollback_events = self.execute_rollback(
-                    agent_id,
-                    target_gen,
-                    &format!("Grace period expired for {} axis", grace.affected_axis),
-                ).await?;
+                let rollback_events = self
+                    .execute_rollback(
+                        agent_id,
+                        target_gen,
+                        &format!("Grace period expired for {} axis", grace.affected_axis),
+                    )
+                    .await?;
                 events.extend(rollback_events);
             } else {
                 let remaining = grace.grace_interactions - elapsed;
@@ -889,7 +1054,7 @@ pub struct FitnessCollector {
 }
 
 impl FitnessCollector {
-    #[must_use] 
+    #[must_use]
     pub fn new(enabled: bool) -> Self {
         Self {
             metrics: RwLock::new(HashMap::new()),
@@ -930,12 +1095,8 @@ impl FitnessCollector {
                 // Future enhancement: correlate with recent ThoughtResponse agent_id.
                 None
             }
-            ExivEventData::PermissionGranted { .. } => {
-                None
-            }
-            ExivEventData::ActionRequested { .. } => {
-                None
-            }
+            ExivEventData::PermissionGranted { .. } => None,
+            ExivEventData::ActionRequested { .. } => None,
             ExivEventData::EvolutionBreach { agent_id, .. } => {
                 let mut metrics = self.metrics.write().await;
                 let m = metrics.entry(agent_id.clone()).or_default();
@@ -943,7 +1104,9 @@ impl FitnessCollector {
                 m.errors += 1;
                 None
             }
-            ExivEventData::ToolInvoked { agent_id, success, .. } => {
+            ExivEventData::ToolInvoked {
+                agent_id, success, ..
+            } => {
                 let mut metrics = self.metrics.write().await;
                 let m = metrics.entry(agent_id.clone()).or_default();
                 m.autonomous_actions += 1;
@@ -1010,8 +1173,8 @@ impl FitnessCollector {
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::*;
     use super::super::calc::*;
+    use super::super::types::*;
 
     fn default_weights() -> FitnessWeights {
         FitnessWeights::default()
@@ -1021,7 +1184,13 @@ mod tests {
         EvolutionParams::default()
     }
 
-    fn sample_scores(cognitive: f64, behavioral: f64, safety: f64, autonomy: AutonomyLevel, meta: f64) -> FitnessScores {
+    fn sample_scores(
+        cognitive: f64,
+        behavioral: f64,
+        safety: f64,
+        autonomy: AutonomyLevel,
+        meta: f64,
+    ) -> FitnessScores {
         FitnessScores {
             cognitive,
             behavioral,
@@ -1098,7 +1267,14 @@ mod tests {
         let curr_scores = sample_scores(0.8, 0.8, 1.0, AutonomyLevel::L2, 0.35);
         let curr_fitness = calculate_fitness(&curr_scores, &params.weights);
 
-        let trigger = check_triggers(curr_fitness, prev_fitness, &curr_scores, &prev_scores, &params, 15);
+        let trigger = check_triggers(
+            curr_fitness,
+            prev_fitness,
+            &curr_scores,
+            &prev_scores,
+            &params,
+            15,
+        );
         assert_eq!(trigger, Some(GenerationTrigger::Evolution));
     }
 
@@ -1112,7 +1288,14 @@ mod tests {
         let curr_scores = sample_scores(0.3, 0.3, 1.0, AutonomyLevel::L3, 0.2);
         let curr_fitness = calculate_fitness(&curr_scores, &params.weights);
 
-        let trigger = check_triggers(curr_fitness, prev_fitness, &curr_scores, &prev_scores, &params, 15);
+        let trigger = check_triggers(
+            curr_fitness,
+            prev_fitness,
+            &curr_scores,
+            &prev_scores,
+            &params,
+            15,
+        );
         assert_eq!(trigger, Some(GenerationTrigger::Regression));
     }
 
@@ -1126,7 +1309,14 @@ mod tests {
         let curr_fitness = calculate_fitness(&curr_scores, &params.weights);
 
         // interactions=0 should normally be debounced, but safety breach bypasses
-        let trigger = check_triggers(curr_fitness, prev_fitness, &curr_scores, &prev_scores, &params, 0);
+        let trigger = check_triggers(
+            curr_fitness,
+            prev_fitness,
+            &curr_scores,
+            &prev_scores,
+            &params,
+            0,
+        );
         assert_eq!(trigger, Some(GenerationTrigger::SafetyBreach));
     }
 
@@ -1140,7 +1330,14 @@ mod tests {
         let curr_fitness = calculate_fitness(&curr_scores, &params.weights);
 
         // Only 5 interactions (below min_interactions=10)
-        let trigger = check_triggers(curr_fitness, prev_fitness, &curr_scores, &prev_scores, &params, 5);
+        let trigger = check_triggers(
+            curr_fitness,
+            prev_fitness,
+            &curr_scores,
+            &prev_scores,
+            &params,
+            5,
+        );
         assert_eq!(trigger, None);
     }
 
@@ -1154,7 +1351,14 @@ mod tests {
         let curr_scores = sample_scores(0.6, 0.6, 1.0, AutonomyLevel::L3, 0.4);
         let curr_fitness = calculate_fitness(&curr_scores, &params.weights);
 
-        let trigger = check_triggers(curr_fitness, prev_fitness, &curr_scores, &prev_scores, &params, 15);
+        let trigger = check_triggers(
+            curr_fitness,
+            prev_fitness,
+            &curr_scores,
+            &prev_scores,
+            &params,
+            15,
+        );
         assert_eq!(trigger, Some(GenerationTrigger::AutonomyUpgrade));
     }
 
@@ -1169,7 +1373,14 @@ mod tests {
         let curr_scores = sample_scores(0.3, 0.8, 1.0, AutonomyLevel::L2, 0.4);
         let curr_fitness = calculate_fitness(&curr_scores, &params.weights);
 
-        let trigger = check_triggers(curr_fitness, prev_fitness, &curr_scores, &prev_scores, &params, 15);
+        let trigger = check_triggers(
+            curr_fitness,
+            prev_fitness,
+            &curr_scores,
+            &prev_scores,
+            &params,
+            15,
+        );
         // Since fitness is similar but axes swapped, should detect rebalance
         assert_eq!(trigger, Some(GenerationTrigger::Rebalance));
     }
@@ -1185,7 +1396,14 @@ mod tests {
         let curr_scores = sample_scores(0.61, 0.5, 1.0, AutonomyLevel::L2, 0.3);
         let curr_fitness = calculate_fitness(&curr_scores, &params.weights);
 
-        let trigger = check_triggers(curr_fitness, prev_fitness, &curr_scores, &prev_scores, &params, 15);
+        let trigger = check_triggers(
+            curr_fitness,
+            prev_fitness,
+            &curr_scores,
+            &prev_scores,
+            &params,
+            15,
+        );
         assert_eq!(trigger, None);
     }
 

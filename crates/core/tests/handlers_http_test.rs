@@ -1,13 +1,13 @@
 use axum::{
     body::Body,
-    http::{Request, StatusCode, header},
+    http::{header, Request, StatusCode},
 };
+use exiv_core::handlers;
+use exiv_core::test_utils::create_test_app_state;
+use exiv_core::AppState;
 use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
-use exiv_core::AppState;
-use exiv_core::handlers;
-use exiv_core::test_utils::create_test_app_state;
 
 /// Helper function to create a test router with app state
 fn create_test_router(state: Arc<AppState>) -> axum::Router {
@@ -17,7 +17,10 @@ fn create_test_router(state: Arc<AppState>) -> axum::Router {
         .route("/agents", post(handlers::create_agent))
         .route("/agents/:id", post(handlers::update_agent))
         .route("/plugins/:id/config", post(handlers::update_plugin_config))
-        .route("/permissions/:id/approve", post(handlers::approve_permission));
+        .route(
+            "/permissions/:id/approve",
+            post(handlers::approve_permission),
+        );
 
     let api_routes = axum::Router::new()
         .route("/chat", post(handlers::chat_handler))
@@ -87,13 +90,15 @@ async fn test_update_plugin_config_success() {
     let state = create_test_app_state(Some("test-key".to_string())).await;
 
     // Insert a test plugin config first
-    sqlx::query("INSERT INTO plugin_configs (plugin_id, config_key, config_value) VALUES (?, ?, ?)")
-        .bind("test.plugin")
-        .bind("api_key")
-        .bind("old_value")
-        .execute(&state.pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO plugin_configs (plugin_id, config_key, config_value) VALUES (?, ?, ?)",
+    )
+    .bind("test.plugin")
+    .bind("api_key")
+    .bind("old_value")
+    .execute(&state.pool)
+    .await
+    .unwrap();
 
     let app = create_test_router(state);
 
@@ -191,8 +196,8 @@ async fn test_chat_handler_routes_to_agent() {
     // Chat handler should accept the request (or fail gracefully with 500 due to event channel issues in test)
     // In test environment, event_tx channel may not have receiver, causing send failure
     assert!(
-        response.status() == StatusCode::OK ||
-        response.status() == StatusCode::INTERNAL_SERVER_ERROR
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
     );
 }
 
@@ -219,9 +224,9 @@ async fn test_grant_permission_requires_auth() {
 
     // PermissionDenied maps to 403 Forbidden
     assert!(
-        response.status() == StatusCode::FORBIDDEN ||
-        response.status() == StatusCode::UNAUTHORIZED ||
-        response.status() == StatusCode::BAD_REQUEST
+        response.status() == StatusCode::FORBIDDEN
+            || response.status() == StatusCode::UNAUTHORIZED
+            || response.status() == StatusCode::BAD_REQUEST
     );
 }
 

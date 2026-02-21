@@ -39,7 +39,8 @@ pub fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                 }
                 KeyCode::Char('r') => {
                     // Force refresh handled in main loop via flag
-                    app.last_refresh = std::time::Instant::now() - std::time::Duration::from_secs(60);
+                    app.last_refresh =
+                        std::time::Instant::now() - std::time::Duration::from_secs(60);
                 }
                 _ => {}
             }

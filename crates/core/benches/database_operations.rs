@@ -4,10 +4,10 @@
 // - exiv_core/src/db.rs:32-45 (SqliteDataStore::get_json)
 // - exiv_core/src/managers.rs:274-291 (PluginManager::fetch_plugin_configs)
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use sqlx::SqlitePool;
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use exiv_core::db::SqliteDataStore;
 use exiv_shared::PluginDataStore;
+use sqlx::SqlitePool;
 
 mod helpers;
 
@@ -22,24 +22,23 @@ fn json_serialization_benchmark(c: &mut Criterion) {
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
 
-        group.bench_with_input(
-            BenchmarkId::new("set_json", size),
-            &json_data,
-            |b, data| {
-                b.to_async(&runtime).iter(|| async {
-                    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-                    exiv_core::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+        group.bench_with_input(BenchmarkId::new("set_json", size), &json_data, |b, data| {
+            b.to_async(&runtime).iter(|| async {
+                let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+                exiv_core::db::init_db(&pool, "sqlite::memory:")
+                    .await
+                    .unwrap();
 
-                    let store = SqliteDataStore::new(pool);
+                let store = SqliteDataStore::new(pool);
 
-                    // Critical path: JSON serialization + SQLite insert
-                    // From exiv_core/src/db.rs:21-30
-                    store.set_json("test_plugin", "bench_key", data.clone())
-                        .await
-                        .unwrap();
-                });
-            },
-        );
+                // Critical path: JSON serialization + SQLite insert
+                // From exiv_core/src/db.rs:21-30
+                store
+                    .set_json("test_plugin", "bench_key", data.clone())
+                    .await
+                    .unwrap();
+            });
+        });
     }
     group.finish();
 }
@@ -50,7 +49,9 @@ fn get_json_benchmark(c: &mut Criterion) {
     c.bench_function("db_get_json", |b| {
         b.to_async(&runtime).iter(|| async {
             let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-            exiv_core::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+            exiv_core::db::init_db(&pool, "sqlite::memory:")
+                .await
+                .unwrap();
             let store = SqliteDataStore::new(pool);
 
             // Setup: insert test data
@@ -71,13 +72,16 @@ fn get_all_json_benchmark(c: &mut Criterion) {
     c.bench_function("db_get_all_json", |b| {
         b.to_async(&runtime).iter(|| async {
             let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-            exiv_core::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+            exiv_core::db::init_db(&pool, "sqlite::memory:")
+                .await
+                .unwrap();
             let store = SqliteDataStore::new(pool);
 
             // Setup: insert multiple test entries
             for i in 0..100 {
                 let data = serde_json::json!({"index": i, "value": format!("test_{}", i)});
-                store.set_json("test_plugin", &format!("mem:agent:key_{}", i), data)
+                store
+                    .set_json("test_plugin", &format!("mem:agent:key_{}", i), data)
                     .await
                     .unwrap();
             }
@@ -99,7 +103,8 @@ fn plugin_config_operations(c: &mut Criterion) {
 
             // Benchmark: update plugin config
             // Involves SQLite INSERT OR REPLACE
-            state.plugin_manager
+            state
+                .plugin_manager
                 .update_config("test.plugin", "api_key", "test_value")
                 .await
                 .unwrap();

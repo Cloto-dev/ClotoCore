@@ -1,13 +1,13 @@
+use exiv_core::events::EventProcessor;
+use exiv_core::managers::{AgentManager, PluginManager, PluginRegistry};
+use exiv_shared::{
+    ExivEvent, ExivId, Permission, Plugin, PluginCapability, PluginCast, PluginManifest,
+    ServiceType,
+};
+use sqlx::SqlitePool;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use exiv_shared::{
-    Plugin, PluginManifest, ServiceType, ExivId, ExivEvent, Permission, 
-    PluginCapability, PluginCast
-};
-use exiv_core::managers::{PluginRegistry, PluginManager, AgentManager};
-use exiv_core::events::EventProcessor;
-use sqlx::SqlitePool;
 
 struct MockPlugin {
     id: String,
@@ -24,7 +24,9 @@ impl MockPlugin {
 }
 
 impl PluginCast for MockPlugin {
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[async_trait::async_trait]
@@ -52,7 +54,10 @@ impl Plugin for MockPlugin {
         }
     }
 
-    async fn on_event(&self, _event: &ExivEvent) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
+    async fn on_event(
+        &self,
+        _event: &ExivEvent,
+    ) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
         Ok(None)
     }
 
@@ -69,7 +74,9 @@ impl Plugin for MockPlugin {
 async fn test_dynamic_permission_elevation_flow() {
     // 1. Setup Kernel Components
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    exiv_core::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+    exiv_core::db::init_db(&pool, "sqlite::memory:")
+        .await
+        .unwrap();
     let registry_raw = PluginRegistry::new(5, 10);
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 5, 10).unwrap());
     let agent_manager = AgentManager::new(pool.clone());
@@ -79,12 +86,12 @@ async fn test_dynamic_permission_elevation_flow() {
     let plugin_id = "test.mock";
     let mock_plugin = Arc::new(MockPlugin::new(plugin_id));
     let injected_flag = mock_plugin.injected.clone();
-    
+
     {
         let mut plugins = registry_raw.plugins.write().await;
         plugins.insert(plugin_id.to_string(), mock_plugin.clone());
     }
-    
+
     let registry = Arc::new(registry_raw);
     let dynamic_router = Arc::new(exiv_core::DynamicRouter {
         router: tokio::sync::RwLock::new(axum::Router::new()),
@@ -128,25 +135,33 @@ async fn test_dynamic_permission_elevation_flow() {
     });
 
     // Send event
-    event_tx.send(exiv_core::EnvelopedEvent {
-        event: Arc::new(exiv_shared::ExivEvent::new(grant_event_data)),
-        issuer: None,
-        correlation_id: None,
-        depth: 0,
-    }).await.unwrap();
+    event_tx
+        .send(exiv_core::EnvelopedEvent {
+            event: Arc::new(exiv_shared::ExivEvent::new(grant_event_data)),
+            issuer: None,
+            correlation_id: None,
+            depth: 0,
+        })
+        .await
+        .unwrap();
 
     // 5. Assert: Registry is updated
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     {
         let perms = registry.effective_permissions.read().await;
         assert!(perms.contains_key(&exiv_id));
-        assert!(perms.get(&exiv_id).unwrap().contains(&Permission::NetworkAccess));
+        assert!(perms
+            .get(&exiv_id)
+            .unwrap()
+            .contains(&Permission::NetworkAccess));
     }
 
     // 6. Assert: Plugin received the capability
     {
         let is_injected = injected_flag.read().await;
-        assert!(*is_injected, "Capability should have been injected into the plugin");
+        assert!(
+            *is_injected,
+            "Capability should have been injected into the plugin"
+        );
     }
 }
-

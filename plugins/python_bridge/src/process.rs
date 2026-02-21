@@ -5,10 +5,10 @@ use tokio::sync::oneshot;
 use tokio::time::{timeout, Duration};
 use tracing::info;
 
-use crate::PythonBridgePlugin;
 use crate::config::resolve_script_path;
 use crate::ipc::send_raw;
 use crate::state::PythonProcessHandle;
+use crate::PythonBridgePlugin;
 
 impl PythonBridgePlugin {
     pub(crate) const MAX_RESTART_ATTEMPTS: u32 = 3;
@@ -25,23 +25,36 @@ impl PythonBridgePlugin {
             let is_restart = state.last_restart.is_some();
             if is_restart {
                 if state.restart_count >= Self::MAX_RESTART_ATTEMPTS {
-                    return Err(anyhow::anyhow!("Max restart attempts ({}) reached", Self::MAX_RESTART_ATTEMPTS));
+                    return Err(anyhow::anyhow!(
+                        "Max restart attempts ({}) reached",
+                        Self::MAX_RESTART_ATTEMPTS
+                    ));
                 }
                 if let Some(last) = state.last_restart {
                     if last.elapsed().as_secs() < Self::RESTART_COOLDOWN_SECS {
-                        return Err(anyhow::anyhow!("Restart cooldown active ({}s remaining)",
-                            Self::RESTART_COOLDOWN_SECS - last.elapsed().as_secs()));
+                        return Err(anyhow::anyhow!(
+                            "Restart cooldown active ({}s remaining)",
+                            Self::RESTART_COOLDOWN_SECS - last.elapsed().as_secs()
+                        ));
                     }
                 }
                 state.restart_count += 1;
-                info!("🔄 Restarting Python bridge (attempt {}/{})", state.restart_count, Self::MAX_RESTART_ATTEMPTS);
+                info!(
+                    "🔄 Restarting Python bridge (attempt {}/{})",
+                    state.restart_count,
+                    Self::MAX_RESTART_ATTEMPTS
+                );
             }
             state.last_restart = Some(std::time::Instant::now());
 
             let event_tx = state.event_tx.clone();
             let runtime_path = resolve_script_path("scripts/bridge_runtime.py");
             let user_script_path = resolve_script_path(&self.script_path);
-            info!("🐍 Spawning Python subprocess: {} with user script: {}", runtime_path.display(), user_script_path.display());
+            info!(
+                "🐍 Spawning Python subprocess: {} with user script: {}",
+                runtime_path.display(),
+                user_script_path.display()
+            );
 
             let python = if cfg!(windows) { "python" } else { "python3" };
             let mut child = Command::new(python)
@@ -52,8 +65,14 @@ impl PythonBridgePlugin {
                 .stderr(Stdio::inherit())
                 .spawn()?;
 
-            let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("Failed to open stdin"))?;
-            let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to open stdout"))?;
+            let stdin = child
+                .stdin
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("Failed to open stdin"))?;
+            let stdout = child
+                .stdout
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("Failed to open stdout"))?;
 
             // Start background reader with enhanced error handling
             let state_weak = self.state.clone();
@@ -67,7 +86,10 @@ impl PythonBridgePlugin {
                             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
                                 // Handle event messages
                                 if val.get("type").and_then(|v| v.as_str()) == Some("event") {
-                                    if let (Some(ev_type), Some(ev_data)) = (val.get("event_type").and_then(|v| v.as_str()), val.get("data")) {
+                                    if let (Some(ev_type), Some(ev_data)) = (
+                                        val.get("event_type").and_then(|v| v.as_str()),
+                                        val.get("data"),
+                                    ) {
                                         if let Some(tx) = &event_tx {
                                             let data = match ev_type {
                                                 "GazeUpdated" => {
@@ -100,16 +122,24 @@ impl PythonBridgePlugin {
                                     let mut lock = state_weak.write().await;
                                     if let Some(tx) = lock.pending_calls.remove(&id) {
                                         if let Some(err) = val.get("error") {
-                                            let _ = tx.send(Err(anyhow::anyhow!("Python Error: {}", err)));
+                                            let _ = tx.send(Err(anyhow::anyhow!(
+                                                "Python Error: {}",
+                                                err
+                                            )));
                                         } else {
-                                            let _ = tx.send(Ok(val.get("result").cloned().unwrap_or(serde_json::Value::Null)));
+                                            let _ = tx.send(Ok(val
+                                                .get("result")
+                                                .cloned()
+                                                .unwrap_or(serde_json::Value::Null)));
                                         }
                                     }
                                 }
                             }
                         }
                         Ok(None) => {
-                            tracing::warn!("🔥 Python bridge reader received EOF - process terminated");
+                            tracing::warn!(
+                                "🔥 Python bridge reader received EOF - process terminated"
+                            );
                             break;
                         }
                         Err(e) => {
@@ -164,7 +194,7 @@ impl PythonBridgePlugin {
                 }
 
                 (id, rx)
-            };  // Lock released here, after both registration and send are complete
+            }; // Lock released here, after both registration and send are complete
 
             let manifest_json: serde_json::Value = match timeout(Duration::from_secs(5), rx).await {
                 Ok(res) => res??,
@@ -172,7 +202,9 @@ impl PythonBridgePlugin {
                     // Clean up orphaned pending_call entry on timeout
                     let mut state = self.state.write().await;
                     state.pending_calls.remove(&id);
-                    return Err(anyhow::anyhow!("Python bridge manifest handshake timed out"));
+                    return Err(anyhow::anyhow!(
+                        "Python bridge manifest handshake timed out"
+                    ));
                 }
             };
 
@@ -198,8 +230,14 @@ impl PythonBridgePlugin {
             }
 
             // 🧰 ツールとアクション情報の継承
-            if let Some(tools_val) = manifest_json.get("provided_tools").and_then(|v| v.as_array()) {
-                manifest.provided_tools = tools_val.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+            if let Some(tools_val) = manifest_json
+                .get("provided_tools")
+                .and_then(|v| v.as_array())
+            {
+                manifest.provided_tools = tools_val
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect();
             }
             if let Some(icon) = manifest_json.get("action_icon").and_then(|v| v.as_str()) {
                 manifest.action_icon = Some(icon.to_string());
@@ -212,7 +250,11 @@ impl PythonBridgePlugin {
             if let Some(tags_val) = manifest_json.get("tags").and_then(|v| v.as_array()) {
                 for t in tags_val {
                     if let Some(t_str) = t.as_str() {
-                        let t_str = if t_str.starts_with('#') { t_str.to_string() } else { format!("#{}", t_str) };
+                        let t_str = if t_str.starts_with('#') {
+                            t_str.to_string()
+                        } else {
+                            format!("#{}", t_str)
+                        };
                         if !manifest.tags.contains(&t_str) {
                             manifest.tags.push(t_str);
                         }
@@ -226,21 +268,29 @@ impl PythonBridgePlugin {
             state.dynamic_manifest = Some(manifest);
 
             // L5: Populate cached tool metadata from Python manifest for Tool trait
-            if let Some(first_tool) = manifest_json.get("provided_tools")
+            if let Some(first_tool) = manifest_json
+                .get("provided_tools")
                 .and_then(|v| v.as_array())
                 .and_then(|a| a.first())
                 .and_then(|v| v.as_str())
             {
                 let _ = self.tool_name.set(first_tool.to_string());
             }
-            if let Some(desc) = manifest_json.get("tool_description").and_then(|v| v.as_str()) {
+            if let Some(desc) = manifest_json
+                .get("tool_description")
+                .and_then(|v| v.as_str())
+            {
                 let _ = self.tool_description.set(desc.to_string());
             }
             if let Some(schema) = manifest_json.get("tool_schema") {
                 let _ = self.tool_schema.set(schema.clone());
             }
 
-            state.process = Some(PythonProcessHandle { child, stdin, reader_handle });
+            state.process = Some(PythonProcessHandle {
+                child,
+                stdin,
+                reader_handle,
+            });
             // Reset restart counter after successful handshake to prevent permanent lockout
             state.restart_count = 0;
         }
@@ -281,7 +331,9 @@ mod tests {
     fn test_cooldown_elapsed_check() {
         let state_last_restart = std::time::Instant::now() - std::time::Duration::from_secs(10);
         // After 10 seconds, cooldown of 5 seconds should be expired
-        assert!(state_last_restart.elapsed().as_secs() >= PythonBridgePlugin::RESTART_COOLDOWN_SECS);
+        assert!(
+            state_last_restart.elapsed().as_secs() >= PythonBridgePlugin::RESTART_COOLDOWN_SECS
+        );
     }
 
     #[test]
@@ -322,12 +374,20 @@ mod tests {
     fn test_tag_normalization() {
         // Tags without '#' prefix should get it added
         let tag = "PYTHON";
-        let normalized = if tag.starts_with('#') { tag.to_string() } else { format!("#{}", tag) };
+        let normalized = if tag.starts_with('#') {
+            tag.to_string()
+        } else {
+            format!("#{}", tag)
+        };
         assert_eq!(normalized, "#PYTHON");
 
         // Tags with '#' prefix should stay as-is
         let tag2 = "#TOOL";
-        let normalized2 = if tag2.starts_with('#') { tag2.to_string() } else { format!("#{}", tag2) };
+        let normalized2 = if tag2.starts_with('#') {
+            tag2.to_string()
+        } else {
+            format!("#{}", tag2)
+        };
         assert_eq!(normalized2, "#TOOL");
     }
 

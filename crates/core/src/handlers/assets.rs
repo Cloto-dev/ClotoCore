@@ -1,9 +1,9 @@
-use rust_embed::RustEmbed;
 use axum::{
     body::Body,
     http::{header, StatusCode, Uri},
     response::{IntoResponse, Response},
 };
+use rust_embed::RustEmbed;
 
 #[derive(RustEmbed)]
 #[folder = "../../dashboard/dist/"]
@@ -30,10 +30,8 @@ pub async fn static_handler(uri: Uri) -> impl IntoResponse {
                     .header(header::CONTENT_TYPE, mime_type.as_ref())
                     .body(Body::from(index.data))
                     .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
-            },
-            None => {
-                StatusCode::NOT_FOUND.into_response()
             }
+            None => StatusCode::NOT_FOUND.into_response(),
         }
     }
 }

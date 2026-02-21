@@ -1,5 +1,5 @@
 use colored::Colorize;
-use comfy_table::{Table, ContentArrangement, presets::NOTHING};
+use comfy_table::{presets::NOTHING, ContentArrangement, Table};
 
 /// Print a decorated section header.
 pub fn print_header(title: &str) {
@@ -31,15 +31,28 @@ pub fn print_agents_table(agents: &[exiv_shared::AgentMetadata]) {
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     for agent in agents {
-        let agent_type = if agent.default_engine_id.as_deref().map(|e| e.starts_with("mind.")).unwrap_or(false)
-            || agent.metadata.get("agent_type").map(|t| t == "ai").unwrap_or(false)
+        let agent_type = if agent
+            .default_engine_id
+            .as_deref()
+            .map(|e| e.starts_with("mind."))
+            .unwrap_or(false)
+            || agent
+                .metadata
+                .get("agent_type")
+                .map(|t| t == "ai")
+                .unwrap_or(false)
         {
             "AI Agent".cyan().to_string()
         } else {
             "Container".magenta().to_string()
         };
 
-        let engine = agent.default_engine_id.as_deref().unwrap_or("-").dimmed().to_string();
+        let engine = agent
+            .default_engine_id
+            .as_deref()
+            .unwrap_or("-")
+            .dimmed()
+            .to_string();
 
         table.add_row(vec![
             format!("  {}", status_dot(&agent.status)),

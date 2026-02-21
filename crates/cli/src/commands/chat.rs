@@ -5,12 +5,7 @@ use futures::StreamExt;
 use crate::client::ExivClient;
 use crate::output;
 
-pub async fn run(
-    client: &ExivClient,
-    agent: &str,
-    message: &str,
-    json_mode: bool,
-) -> Result<()> {
+pub async fn run(client: &ExivClient, agent: &str, message: &str, json_mode: bool) -> Result<()> {
     if !json_mode {
         println!("  {}: {message}", "You".bold());
     }
@@ -29,13 +24,21 @@ pub async fn run(
     };
 
     // Send chat message
-    client.send_chat(&msg).await
+    client
+        .send_chat(&msg)
+        .await
         .context("Failed to send message")?;
 
     // Connect to SSE stream and wait for ThoughtResponse
-    let sp = if !json_mode { Some(output::spinner("Thinking...")) } else { None };
+    let sp = if !json_mode {
+        Some(output::spinner("Thinking..."))
+    } else {
+        None
+    };
 
-    let response = client.sse_stream().await
+    let response = client
+        .sse_stream()
+        .await
         .context("Failed to connect to event stream")?;
 
     let start = std::time::Instant::now();
@@ -53,7 +56,9 @@ pub async fn run(
         match chunk_result {
             Err(_) => {
                 // Timeout elapsed waiting for next chunk
-                if let Some(ref sp) = sp { sp.finish_and_clear(); }
+                if let Some(ref sp) = sp {
+                    sp.finish_and_clear();
+                }
                 anyhow::bail!("Timeout: no response received within 60 seconds");
             }
             Ok(None) => {
@@ -78,22 +83,25 @@ pub async fn run(
 
                             if let Ok(event) = serde_json::from_str::<serde_json::Value>(data) {
                                 if let Some(event_data) = event.get("data") {
-                                    let event_type = event_data.get("type")
-                                        .and_then(|t| t.as_str());
+                                    let event_type =
+                                        event_data.get("type").and_then(|t| t.as_str());
 
                                     if event_type == Some("ThoughtResponse") {
                                         if let Some(inner) = event_data.get("data") {
-                                            let resp_agent = inner.get("agent_id")
+                                            let resp_agent = inner
+                                                .get("agent_id")
                                                 .and_then(|a| a.as_str())
                                                 .unwrap_or("");
 
                                             if resp_agent == agent {
-                                                let content = inner.get("content")
+                                                let content = inner
+                                                    .get("content")
                                                     .and_then(|c| c.as_str())
                                                     .unwrap_or("")
                                                     .to_string();
 
-                                                let engine = inner.get("engine_id")
+                                                let engine = inner
+                                                    .get("engine_id")
                                                     .and_then(|e| e.as_str())
                                                     .unwrap_or("unknown")
                                                     .to_string();
@@ -108,21 +116,29 @@ pub async fn run(
                         }
                     }
 
-                    if reply.is_some() { break; }
+                    if reply.is_some() {
+                        break;
+                    }
                 }
 
-                if reply.is_some() { break; }
+                if reply.is_some() {
+                    break;
+                }
 
                 // Check overall elapsed time
                 if start.elapsed() > timeout_duration {
-                    if let Some(ref sp) = sp { sp.finish_and_clear(); }
+                    if let Some(ref sp) = sp {
+                        sp.finish_and_clear();
+                    }
                     anyhow::bail!("Timeout: no response received within 60 seconds");
                 }
             }
         }
     }
 
-    if let Some(sp) = sp { sp.finish_and_clear(); }
+    if let Some(sp) = sp {
+        sp.finish_and_clear();
+    }
 
     match reply {
         Some((content, engine)) => {
@@ -151,7 +167,10 @@ pub async fn run(
                 });
                 println!("{}", serde_json::to_string_pretty(&data)?);
             } else {
-                println!("  {} No response received from {agent}", "!".yellow().bold());
+                println!(
+                    "  {} No response received from {agent}",
+                    "!".yellow().bold()
+                );
             }
         }
     }

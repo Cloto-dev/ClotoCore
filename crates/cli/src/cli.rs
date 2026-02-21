@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
     name = "exiv",
     about = "Exiv — AI Agent Management CLI",
     version,
-    propagate_version = true,
+    propagate_version = true
 )]
 pub struct Cli {
     /// Output raw JSON (for scripting/piping)

@@ -3,9 +3,9 @@
 
 mod common;
 
-use std::sync::Arc;
-use exiv_shared::{ExivId};
 use exiv_core::managers::PluginRegistry;
+use exiv_shared::ExivId;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn test_panic_plugin_does_not_crash_normal_plugin() {
@@ -18,12 +18,20 @@ async fn test_panic_plugin_does_not_crash_normal_plugin() {
 
     {
         let mut plugins = registry.plugins.write().await;
-        plugins.insert("panicking".into(), create_panicking_plugin(id_panic) as Arc<dyn exiv_shared::Plugin>);
-        plugins.insert("normal".into(), normal_plugin as Arc<dyn exiv_shared::Plugin>);
+        plugins.insert(
+            "panicking".into(),
+            create_panicking_plugin(id_panic) as Arc<dyn exiv_shared::Plugin>,
+        );
+        plugins.insert(
+            "normal".into(),
+            normal_plugin as Arc<dyn exiv_shared::Plugin>,
+        );
     }
 
     let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<exiv_core::EnvelopedEvent>(10);
-    let event = exiv_shared::ExivEvent::new(exiv_shared::ExivEventData::SystemNotification("test".into()));
+    let event = exiv_shared::ExivEvent::new(exiv_shared::ExivEventData::SystemNotification(
+        "test".into(),
+    ));
     let envelope = exiv_core::EnvelopedEvent {
         event: Arc::new(event),
         issuer: None,
@@ -35,7 +43,11 @@ async fn test_panic_plugin_does_not_crash_normal_plugin() {
     registry.dispatch_event(envelope, &event_tx).await;
 
     let events = received_events.lock().await;
-    assert_eq!(events.len(), 1, "Normal plugin must receive the event despite panic plugin");
+    assert_eq!(
+        events.len(),
+        1,
+        "Normal plugin must receive the event despite panic plugin"
+    );
 }
 
 #[tokio::test]
@@ -44,7 +56,9 @@ async fn test_invalid_magic_seal_rejected() {
 
     struct BadSealPlugin;
     impl PluginCast for BadSealPlugin {
-        fn as_any(&self) -> &dyn std::any::Any { self }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
     }
     #[async_trait::async_trait]
     impl Plugin for BadSealPlugin {
@@ -70,7 +84,10 @@ async fn test_invalid_magic_seal_rejected() {
                 provided_tools: vec![],
             }
         }
-        async fn on_event(&self, _e: &exiv_shared::ExivEvent) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
+        async fn on_event(
+            &self,
+            _e: &exiv_shared::ExivEvent,
+        ) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
             Ok(None)
         }
     }
@@ -78,7 +95,10 @@ async fn test_invalid_magic_seal_rejected() {
     // The manifest with an invalid magic seal should be detectable
     let plugin = BadSealPlugin;
     let manifest = plugin.manifest();
-    assert_ne!(manifest.magic_seal, 0x56455253, "Bad seal should not match official SDK seal");
+    assert_ne!(
+        manifest.magic_seal, 0x56455253,
+        "Bad seal should not match official SDK seal"
+    );
 }
 
 #[tokio::test]
@@ -102,7 +122,9 @@ async fn test_cascading_depth_limit_enforced() {
     }
 
     let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<exiv_core::EnvelopedEvent>(10);
-    let event = exiv_shared::ExivEvent::new(exiv_shared::ExivEventData::SystemNotification("deep".into()));
+    let event = exiv_shared::ExivEvent::new(exiv_shared::ExivEventData::SystemNotification(
+        "deep".into(),
+    ));
 
     // Envelope at max depth — should be dropped without dispatch
     let envelope = exiv_core::EnvelopedEvent {

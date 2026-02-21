@@ -1,29 +1,28 @@
-pub mod system;
 pub mod assets;
-pub mod update;
 pub mod chat;
 pub mod evolution;
 pub mod skill_manager;
+pub mod system;
+pub mod update;
 
 use axum::{
     extract::{Path, State},
+    http::HeaderMap,
     response::sse::{Event, Sse},
     Json,
-    http::HeaderMap,
 };
+use exiv_shared::ExivMessage;
 use futures::stream::Stream;
 use serde::Deserialize;
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
-use tracing::{info, error};
-use exiv_shared::ExivMessage;
+use tracing::{error, info};
 
-use crate::{AppState, AppResult, AppError};
+use crate::{AppError, AppResult, AppState};
 
 pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()> {
     use subtle::ConstantTimeEq;
     if let Some(ref required_key) = state.config.admin_api_key {
-        let auth_header = headers.get("X-API-Key")
-            .and_then(|h| h.to_str().ok());
+        let auth_header = headers.get("X-API-Key").and_then(|h| h.to_str().ok());
 
         let matches: bool = match auth_header {
             Some(provided) => provided.as_bytes().ct_eq(required_key.as_bytes()).into(),
@@ -31,7 +30,7 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()>
         };
         if !matches {
             return Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(
-                exiv_shared::Permission::AdminAccess
+                exiv_shared::Permission::AdminAccess,
             )));
         }
         // Check revocation: reject key even if it matches, if it has been invalidated
@@ -41,7 +40,7 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()>
                 if revoked.contains(&hash) {
                     tracing::warn!("🚫 Rejected revoked API key");
                     return Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(
-                        exiv_shared::Permission::AdminAccess
+                        exiv_shared::Permission::AdminAccess,
                     )));
                 }
             }
@@ -50,11 +49,13 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()>
         // In release builds, require API key to be configured
         if !cfg!(debug_assertions) {
             return Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(
-                exiv_shared::Permission::AdminAccess
+                exiv_shared::Permission::AdminAccess,
             )));
         }
         // M-09: Warn loudly in debug builds when no API key is set
-        tracing::warn!("⚠️  SECURITY: Admin API access without authentication (debug mode, no EXIV_API_KEY)");
+        tracing::warn!(
+            "⚠️  SECURITY: Admin API access without authentication (debug mode, no EXIV_API_KEY)"
+        );
         tracing::warn!("⚠️  Set EXIV_API_KEY in .env before deploying to production");
     }
     Ok(())
@@ -69,17 +70,20 @@ fn spawn_admin_audit(
     metadata: Option<serde_json::Value>,
     trace_id: Option<String>,
 ) {
-    crate::db::spawn_audit_log(pool, crate::db::AuditLogEntry {
-        timestamp: chrono::Utc::now(),
-        event_type: event_type.to_string(),
-        actor_id: Some("admin".to_string()),
-        target_id: Some(target_id),
-        permission,
-        result: "SUCCESS".to_string(),
-        reason,
-        metadata,
-        trace_id,
-    });
+    crate::db::spawn_audit_log(
+        pool,
+        crate::db::AuditLogEntry {
+            timestamp: chrono::Utc::now(),
+            event_type: event_type.to_string(),
+            actor_id: Some("admin".to_string()),
+            target_id: Some(target_id),
+            permission,
+            result: "SUCCESS".to_string(),
+            reason,
+            metadata,
+            trace_id,
+        },
+    );
 }
 
 #[derive(Debug, Deserialize)]
@@ -178,8 +182,10 @@ pub async fn create_agent(
     // M-07: Input validation
     if payload.name.is_empty() || payload.name.len() > 200 {
         return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
-            format!("Agent name must be 1-200 characters (got {} chars); example: \"my-agent\"",
-                payload.name.len()),
+            format!(
+                "Agent name must be 1-200 characters (got {} chars); example: \"my-agent\"",
+                payload.name.len()
+            ),
         )));
     }
     // Bug #1: Add empty check for description to match name validation pattern
@@ -194,8 +200,10 @@ pub async fn create_agent(
     let metadata = payload.metadata.unwrap_or_default();
     if metadata.len() > 50 {
         return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
-            format!("Metadata must have at most 50 key-value pairs (got {})",
-                metadata.len()),
+            format!(
+                "Metadata must have at most 50 key-value pairs (got {})",
+                metadata.len()
+            ),
         )));
     }
     for (k, v) in &metadata {
@@ -214,14 +222,18 @@ pub async fn create_agent(
             &payload.description,
             &payload.default_engine,
             metadata,
-            payload.required_capabilities.unwrap_or_else(|| vec![
-                exiv_shared::CapabilityType::Reasoning,
-                exiv_shared::CapabilityType::Memory
-            ]),
+            payload.required_capabilities.unwrap_or_else(|| {
+                vec![
+                    exiv_shared::CapabilityType::Reasoning,
+                    exiv_shared::CapabilityType::Memory,
+                ]
+            }),
             payload.password.as_deref(),
         )
         .await?;
-    Ok(Json(serde_json::json!({ "status": "success", "id": agent_id })))
+    Ok(Json(
+        serde_json::json!({ "status": "success", "id": agent_id }),
+    ))
 }
 
 /// Update an existing agent's settings.
@@ -253,7 +265,10 @@ pub async fn update_agent(
     Json(payload): Json<UpdateAgentRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-    state.agent_manager.update_agent_config(&id, payload.default_engine_id, payload.metadata).await?;
+    state
+        .agent_manager
+        .update_agent_config(&id, payload.default_engine_id, payload.metadata)
+        .await?;
     Ok(Json(serde_json::json!({ "status": "success" })))
 }
 
@@ -267,11 +282,16 @@ pub async fn get_agent_plugins(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let rows = state.agent_manager.get_agent_plugins(&id).await?;
-    let plugins: Vec<serde_json::Value> = rows.iter().map(|r| serde_json::json!({
-        "plugin_id": r.plugin_id,
-        "pos_x": r.pos_x,
-        "pos_y": r.pos_y,
-    })).collect();
+    let plugins: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "plugin_id": r.plugin_id,
+                "pos_x": r.pos_x,
+                "pos_y": r.pos_y,
+            })
+        })
+        .collect();
     Ok(Json(serde_json::json!({ "plugins": plugins })))
 }
 
@@ -300,10 +320,13 @@ pub async fn set_agent_plugins(
     Json(payload): Json<SetPluginsRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-    let placements: Vec<(String, i32, i32)> = payload.plugins.iter()
+    let placements: Vec<(String, i32, i32)> = payload
+        .plugins
+        .iter()
         .map(|p| (p.plugin_id.clone(), p.pos_x, p.pos_y))
         .collect();
-    state.agent_manager
+    state
+        .agent_manager
         .set_agent_plugins(&id, &placements, &state.registry)
         .await?;
     Ok(Json(serde_json::json!({ "status": "success" })))
@@ -331,9 +354,10 @@ pub async fn delete_agent(
     check_auth(&state, &headers)?;
 
     if id == state.config.default_agent_id {
-        return Err(AppError::Validation(
-            format!("Cannot delete the default agent '{}'", id),
-        ));
+        return Err(AppError::Validation(format!(
+            "Cannot delete the default agent '{}'",
+            id
+        )));
     }
 
     state.agent_manager.delete_agent(&id).await?;
@@ -360,37 +384,48 @@ pub async fn power_toggle(
             Some(pw) => {
                 if !crate::managers::AgentManager::verify_password(pw, hash)? {
                     return Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(
-                        exiv_shared::Permission::AdminAccess
+                        exiv_shared::Permission::AdminAccess,
                     )));
                 }
             }
             None => {
                 return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
-                    "Password required for this agent's power control".to_string()
+                    "Password required for this agent's power control".to_string(),
                 )));
             }
         }
     }
 
-    state.agent_manager.set_enabled(&id, payload.enabled).await?;
+    state
+        .agent_manager
+        .set_enabled(&id, payload.enabled)
+        .await?;
 
     // Broadcast power change event via EventBus
-    let envelope = crate::EnvelopedEvent::system(
-        exiv_shared::ExivEventData::AgentPowerChanged {
-            agent_id: id.clone(),
-            enabled: payload.enabled,
-        }
-    );
+    let envelope = crate::EnvelopedEvent::system(exiv_shared::ExivEventData::AgentPowerChanged {
+        agent_id: id.clone(),
+        enabled: payload.enabled,
+    });
     if let Err(e) = state.event_tx.send(envelope).await {
         error!("Failed to send power change event: {}", e);
     }
 
     spawn_admin_audit(
         state.pool.clone(),
-        if payload.enabled { "AGENT_POWER_ON" } else { "AGENT_POWER_OFF" },
+        if payload.enabled {
+            "AGENT_POWER_ON"
+        } else {
+            "AGENT_POWER_OFF"
+        },
         id.clone(),
-        format!("Agent {} powered {}", id, if payload.enabled { "on" } else { "off" }),
-        None, None, None,
+        format!(
+            "Agent {} powered {}",
+            id,
+            if payload.enabled { "on" } else { "off" }
+        ),
+        None,
+        None,
+        None,
     );
 
     Ok(Json(serde_json::json!({
@@ -413,7 +448,10 @@ pub async fn power_toggle(
 /// Each entry includes: `id`, `name`, `description`, `version`, `category`,
 /// `tags`, `capabilities`, `is_active`, and `provided_tools`.
 pub async fn get_plugins(State(state): State<Arc<AppState>>) -> AppResult<Json<serde_json::Value>> {
-    let manifests = state.plugin_manager.list_plugins_with_settings(&state.registry).await?;
+    let manifests = state
+        .plugin_manager
+        .list_plugins_with_settings(&state.registry)
+        .await?;
     Ok(Json(serde_json::json!(manifests)))
 }
 
@@ -484,7 +522,9 @@ pub async fn update_plugin_config(
         }
 
         spawn_admin_audit(
-            state.pool.clone(), "CONFIG_UPDATED", id.clone(),
+            state.pool.clone(),
+            "CONFIG_UPDATED",
+            id.clone(),
             format!("Configuration key '{}' updated", payload.key),
             None,
             Some(serde_json::json!({ "key": payload.key, "value_length": payload.value.len() })),
@@ -570,7 +610,10 @@ pub async fn grant_permission_handler(
         "🔐 Granting permission to plugin"
     );
 
-    state.plugin_manager.grant_permission(&id, payload.permission.clone()).await?;
+    state
+        .plugin_manager
+        .grant_permission(&id, payload.permission.clone())
+        .await?;
 
     // イベントループに通知して Capability を注入させる
     let envelope = crate::EnvelopedEvent::system(exiv_shared::ExivEventData::PermissionGranted {
@@ -584,10 +627,13 @@ pub async fn grant_permission_handler(
     }
 
     spawn_admin_audit(
-        state.pool.clone(), "PERMISSION_GRANTED", id.clone(),
+        state.pool.clone(),
+        "PERMISSION_GRANTED",
+        id.clone(),
         "Administrator approved permission request".to_string(),
         Some(format!("{:?}", payload.permission)),
-        None, Some(event.trace_id.to_string()),
+        None,
+        Some(event.trace_id.to_string()),
     );
 
     Ok(Json(serde_json::json!({ "status": "success" })))
@@ -604,7 +650,9 @@ pub async fn get_plugin_permissions(
     check_auth(&state, &headers)?;
     let perms = state.plugin_manager.get_permissions(&id).await?;
     let list: Vec<String> = perms.iter().map(|p| format!("{:?}", p)).collect();
-    Ok(Json(serde_json::json!({ "plugin_id": id, "permissions": list })))
+    Ok(Json(
+        serde_json::json!({ "plugin_id": id, "permissions": list }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -632,13 +680,19 @@ pub async fn revoke_permission_handler(
     check_auth(&state, &headers)?;
     info!(plugin_id = %id, permission = ?payload.permission, "🔓 Revoking permission from plugin");
 
-    state.plugin_manager.revoke_permission(&id, &payload.permission, &state.registry).await?;
+    state
+        .plugin_manager
+        .revoke_permission(&id, &payload.permission, &state.registry)
+        .await?;
 
     spawn_admin_audit(
-        state.pool.clone(), "PERMISSION_REVOKED", id.clone(),
+        state.pool.clone(),
+        "PERMISSION_REVOKED",
+        id.clone(),
         "Administrator revoked permission".to_string(),
         Some(format!("{:?}", payload.permission)),
-        None, None,
+        None,
+        None,
     );
 
     Ok(Json(serde_json::json!({ "status": "success" })))
@@ -666,12 +720,12 @@ pub async fn shutdown_handler(
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-    
+
     info!("🛑 Shutdown requested. Broadcasting notification...");
 
     // Send system notification
     let envelope = crate::EnvelopedEvent::system(exiv_shared::ExivEventData::SystemNotification(
-        "Kernel is shutting down for maintenance...".to_string()
+        "Kernel is shutting down for maintenance...".to_string(),
     ));
     // H-04: Log send errors instead of silently ignoring
     if let Err(e) = state.event_tx.send(envelope).await {
@@ -731,21 +785,28 @@ pub async fn post_event_handler(
     match &event_data {
         // H-15: Only allow safe event types from external sources
         // SystemNotification removed - external callers should not inject system notifications
-        exiv_shared::ExivEventData::MessageReceived(_) |
-        exiv_shared::ExivEventData::VisionUpdated(_) |
-        exiv_shared::ExivEventData::GazeUpdated(_) => {
+        exiv_shared::ExivEventData::MessageReceived(_)
+        | exiv_shared::ExivEventData::VisionUpdated(_)
+        | exiv_shared::ExivEventData::GazeUpdated(_) => {
             // これらは許可
-        },
+        }
         _ => {
-            error!("🚫 SECURITY ALERT: External attempt to inject restricted event: {:?}", event_data);
-            return Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(exiv_shared::Permission::AdminAccess)));
+            error!(
+                "🚫 SECURITY ALERT: External attempt to inject restricted event: {:?}",
+                event_data
+            );
+            return Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(
+                exiv_shared::Permission::AdminAccess,
+            )));
         }
     }
 
     let envelope = crate::EnvelopedEvent::system(event_data);
     if let Err(e) = state.event_tx.send(envelope).await {
         error!("Failed to send external event: {}", e);
-        return Err(AppError::Internal(anyhow::anyhow!("Failed to publish event")));
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "Failed to publish event"
+        )));
     }
     Ok(Json(serde_json::json!({ "status": "published" })))
 }
@@ -778,7 +839,9 @@ pub async fn chat_handler(
     let envelope = crate::EnvelopedEvent::system(exiv_shared::ExivEventData::MessageReceived(msg));
     if let Err(e) = state.event_tx.send(envelope).await {
         error!("Failed to send chat message event: {}", e);
-        return Err(AppError::Internal(anyhow::anyhow!("Failed to accept message")));
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "Failed to accept message"
+        )));
     }
     Ok(Json(serde_json::json!({ "status": "accepted" })))
 }
@@ -889,18 +952,25 @@ pub async fn get_metrics(State(state): State<Arc<AppState>>) -> AppResult<Json<s
 /// Returns up to 100 most recent memory entries (key prefix `mem:`),
 /// ordered by key descending. Each entry is parsed from stored JSON.
 /// Malformed entries are silently skipped with a debug log.
-pub async fn get_memories(State(state): State<Arc<AppState>>) -> AppResult<Json<serde_json::Value>> {
+pub async fn get_memories(
+    State(state): State<Arc<AppState>>,
+) -> AppResult<Json<serde_json::Value>> {
     let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT key, value FROM plugin_data WHERE key LIKE 'mem:%' ORDER BY key DESC LIMIT 100"
+        "SELECT key, value FROM plugin_data WHERE key LIKE 'mem:%' ORDER BY key DESC LIMIT 100",
     )
     .fetch_all(&state.pool)
     .await?;
 
-    let memories: Vec<serde_json::Value> = rows.into_iter()
-        .filter_map(|(_k, v)| serde_json::from_str(&v).map_err(|e| {
-            tracing::debug!("Skipping malformed memory entry: {}", e);
-            e
-        }).ok())
+    let memories: Vec<serde_json::Value> = rows
+        .into_iter()
+        .filter_map(|(_k, v)| {
+            serde_json::from_str(&v)
+                .map_err(|e| {
+                    tracing::debug!("Skipping malformed memory entry: {}", e);
+                    e
+                })
+                .ok()
+        })
         .collect();
 
     Ok(Json(serde_json::json!(memories)))
@@ -957,9 +1027,13 @@ pub async fn approve_permission(
     crate::update_permission_request(&state.pool, &request_id, "approved", &actor_id).await?;
 
     spawn_admin_audit(
-        state.pool.clone(), "PERMISSION_REQUEST_APPROVED", request_id.clone(),
+        state.pool.clone(),
+        "PERMISSION_REQUEST_APPROVED",
+        request_id.clone(),
         "Human administrator approved permission request".to_string(),
-        None, None, None,
+        None,
+        None,
+        None,
     );
 
     Ok(Json(serde_json::json!({
@@ -994,9 +1068,13 @@ pub async fn deny_permission(
     crate::update_permission_request(&state.pool, &request_id, "denied", &actor_id).await?;
 
     spawn_admin_audit(
-        state.pool.clone(), "PERMISSION_REQUEST_DENIED", request_id.clone(),
+        state.pool.clone(),
+        "PERMISSION_REQUEST_DENIED",
+        request_id.clone(),
         "Human administrator denied permission request".to_string(),
-        None, None, None,
+        None,
+        None,
+        None,
     );
 
     Ok(Json(serde_json::json!({
@@ -1015,12 +1093,14 @@ pub async fn invalidate_api_key(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
 
-    let provided_key = headers.get("X-API-Key")
+    let provided_key = headers
+        .get("X-API-Key")
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| AppError::Validation("X-API-Key header required".to_string()))?;
 
     // Persist to DB
-    crate::db::revoke_api_key(&state.pool, provided_key).await
+    crate::db::revoke_api_key(&state.pool, provided_key)
+        .await
         .map_err(AppError::Internal)?;
 
     // Update in-memory cache
@@ -1066,7 +1146,10 @@ pub async fn delete_runtime_plugin(
     }
 
     // Remove script file
-    let script_name = format!("runtime_{}.py", id.strip_prefix("python.runtime.").unwrap_or(&id));
+    let script_name = format!(
+        "runtime_{}.py",
+        id.strip_prefix("python.runtime.").unwrap_or(&id)
+    );
     let script_path = std::path::Path::new("scripts").join(&script_name);
     if script_path.exists() {
         let _ = std::fs::remove_file(&script_path);
@@ -1083,8 +1166,8 @@ pub async fn delete_runtime_plugin(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::HeaderValue;
     use crate::test_utils::create_test_app_state;
+    use axum::http::HeaderValue;
 
     #[tokio::test]
     async fn test_check_auth_with_valid_api_key() {

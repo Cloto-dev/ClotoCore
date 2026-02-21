@@ -15,9 +15,7 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
 
     let registry = Arc::new(PluginRegistry::new(5, 10));
     let agent_manager = AgentManager::new(pool.clone());
-    let plugin_manager = Arc::new(
-        PluginManager::new(pool.clone(), vec![], 30, 10).unwrap(),
-    );
+    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10).unwrap());
 
     let dynamic_router = Arc::new(DynamicRouter {
         router: RwLock::new(axum::Router::new()),

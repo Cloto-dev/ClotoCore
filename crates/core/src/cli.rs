@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use tracing::info;
 
@@ -96,7 +96,12 @@ fn default_prefix() -> PathBuf {
 /// Dispatch CLI subcommands
 pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
     match cmd {
-        Commands::Install { prefix, service, no_python, user } => {
+        Commands::Install {
+            prefix,
+            service,
+            no_python,
+            user,
+        } => {
             info!("📦 Installing Exiv to {}", prefix.display());
             crate::installer::install(prefix, service, no_python, user).await
         }
@@ -104,32 +109,30 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
             info!("🗑️  Uninstalling Exiv from {}", prefix.display());
             crate::installer::uninstall(prefix).await
         }
-        Commands::Service { action } => {
-            match action {
-                ServiceAction::Install { prefix, user } => {
-                    crate::platform::install_service(&prefix, user.as_deref())
-                }
-                ServiceAction::Uninstall => crate::platform::uninstall_service(),
-                ServiceAction::Start => crate::platform::start_service(),
-                ServiceAction::Stop => crate::platform::stop_service(),
-                ServiceAction::Status => {
-                    let status = crate::platform::service_status()?;
-                    println!("{}", status);
-                    Ok(())
-                }
+        Commands::Service { action } => match action {
+            ServiceAction::Install { prefix, user } => {
+                crate::platform::install_service(&prefix, user.as_deref())
             }
-        }
-        Commands::Update { check, version, yes } => {
-            update_command(check, version, yes).await
-        }
+            ServiceAction::Uninstall => crate::platform::uninstall_service(),
+            ServiceAction::Start => crate::platform::start_service(),
+            ServiceAction::Stop => crate::platform::stop_service(),
+            ServiceAction::Status => {
+                let status = crate::platform::service_status()?;
+                println!("{}", status);
+                Ok(())
+            }
+        },
+        Commands::Update {
+            check,
+            version,
+            yes,
+        } => update_command(check, version, yes).await,
         Commands::Version => {
             println!("Exiv System v{}", env!("CARGO_PKG_VERSION"));
             println!("Build target: {}", env!("TARGET"));
             Ok(())
         }
-        Commands::SwapExe { target, pid } => {
-            crate::platform::execute_swap(target, pid)
-        }
+        Commands::SwapExe { target, pid } => crate::platform::execute_swap(target, pid),
     }
 }
 
@@ -154,22 +157,31 @@ struct GitHubAsset {
 /// H-10: Compare semantic versions. Returns true if `target` is older than `current`.
 fn is_downgrade(current: &str, target: &str) -> bool {
     let parse = |v: &str| -> Vec<u32> {
-        v.split('.').filter_map(|p| p.split('-').next().and_then(|n| n.parse().ok())).collect()
+        v.split('.')
+            .filter_map(|p| p.split('-').next().and_then(|n| n.parse().ok()))
+            .collect()
     };
     let cur = parse(current);
     let tgt = parse(target);
     for i in 0..cur.len().max(tgt.len()) {
         let c = cur.get(i).copied().unwrap_or(0);
         let t = tgt.get(i).copied().unwrap_or(0);
-        if t < c { return true; }
-        if t > c { return false; }
+        if t < c {
+            return true;
+        }
+        if t > c {
+            return false;
+        }
     }
     false
 }
 
-async fn update_command(check_only: bool, target_version: Option<String>, yes: bool) -> anyhow::Result<()> {
-    let repo = std::env::var("EXIV_UPDATE_REPO")
-        .unwrap_or_else(|_| "Exiv-ai/Exiv".to_string());
+async fn update_command(
+    check_only: bool,
+    target_version: Option<String>,
+    yes: bool,
+) -> anyhow::Result<()> {
+    let repo = std::env::var("EXIV_UPDATE_REPO").unwrap_or_else(|_| "Exiv-ai/Exiv".to_string());
     let current_version = env!("CARGO_PKG_VERSION");
     let target = env!("TARGET");
 
@@ -182,22 +194,33 @@ async fn update_command(check_only: bool, target_version: Option<String>, yes: b
 
     // Resolve the release to check
     let release: GitHubRelease = if let Some(ref ver) = target_version {
-        let tag = if ver.starts_with('v') { ver.clone() } else { format!("v{}", ver) };
-        let url = format!("https://api.github.com/repos/{}/releases/tags/{}", repo, tag);
-        let resp = client.get(&url)
+        let tag = if ver.starts_with('v') {
+            ver.clone()
+        } else {
+            format!("v{}", ver)
+        };
+        let url = format!(
+            "https://api.github.com/repos/{}/releases/tags/{}",
+            repo, tag
+        );
+        let resp = client
+            .get(&url)
             .header("User-Agent", &ua)
             .header("Accept", "application/vnd.github+json")
-            .send().await?;
+            .send()
+            .await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             anyhow::bail!("Release {} not found in {}", tag, repo);
         }
         resp.error_for_status()?.json().await?
     } else {
         let url = format!("https://api.github.com/repos/{}/releases/latest", repo);
-        let resp = client.get(&url)
+        let resp = client
+            .get(&url)
             .header("User-Agent", &ua)
             .header("Accept", "application/vnd.github+json")
-            .send().await?;
+            .send()
+            .await?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             println!("No releases found in repository.");
             return Ok(());
@@ -230,7 +253,10 @@ async fn update_command(check_only: bool, target_version: Option<String>, yes: b
 
     // H-10: Warn on version downgrade
     if is_downgrade(current_version, latest_version) {
-        println!("⚠️  WARNING: This would DOWNGRADE from v{} to v{}", current_version, latest_version);
+        println!(
+            "⚠️  WARNING: This would DOWNGRADE from v{} to v{}",
+            current_version, latest_version
+        );
         println!("   Downgrading may cause compatibility issues.");
         println!();
     }
@@ -244,26 +270,43 @@ async fn update_command(check_only: bool, target_version: Option<String>, yes: b
 
     // Find matching binary asset
     let expected_name = format!("exiv_system-{}", target);
-    let binary_asset = release.assets.iter()
+    let binary_asset = release
+        .assets
+        .iter()
         .find(|a| a.name == expected_name)
-        .ok_or_else(|| anyhow::anyhow!(
-            "No binary '{}' found in release v{}. Your platform may not be supported.",
-            expected_name, latest_version
-        ))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "No binary '{}' found in release v{}. Your platform may not be supported.",
+                expected_name,
+                latest_version
+            )
+        })?;
 
     let sha256_name = format!("{}.sha256", expected_name);
-    let sha256_asset = release.assets.iter()
+    let sha256_asset = release
+        .assets
+        .iter()
         .find(|a| a.name == sha256_name)
-        .ok_or_else(|| anyhow::anyhow!(
-            "No checksum '{}' found in release v{}",
-            sha256_name, latest_version
-        ))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "No checksum '{}' found in release v{}",
+                sha256_name,
+                latest_version
+            )
+        })?;
 
-    println!("Binary:   {} ({:.1} MB)", binary_asset.name, binary_asset.size as f64 / 1_048_576.0);
+    println!(
+        "Binary:   {} ({:.1} MB)",
+        binary_asset.name,
+        binary_asset.size as f64 / 1_048_576.0
+    );
 
     // Confirm unless --yes
     if !yes {
-        print!("Apply update v{} -> v{}? [y/N] ", current_version, latest_version);
+        print!(
+            "Apply update v{} -> v{}? [y/N] ",
+            current_version, latest_version
+        );
         use std::io::Write;
         std::io::stdout().flush()?;
         let mut input = String::new();
@@ -277,10 +320,13 @@ async fn update_command(check_only: bool, target_version: Option<String>, yes: b
     // Download checksum
     print!("Downloading checksum... ");
     std::io::Write::flush(&mut std::io::stdout())?;
-    let expected_hash = client.get(&sha256_asset.browser_download_url)
+    let expected_hash = client
+        .get(&sha256_asset.browser_download_url)
         .header("User-Agent", &ua)
-        .send().await?
-        .text().await?;
+        .send()
+        .await?
+        .text()
+        .await?;
     let expected_hash = expected_hash
         .split_whitespace()
         .next()
@@ -295,10 +341,13 @@ async fn update_command(check_only: bool, target_version: Option<String>, yes: b
     // Download binary
     print!("Downloading binary... ");
     std::io::Write::flush(&mut std::io::stdout())?;
-    let binary_data = client.get(&binary_asset.browser_download_url)
+    let binary_data = client
+        .get(&binary_asset.browser_download_url)
         .header("User-Agent", &ua)
-        .send().await?
-        .bytes().await?;
+        .send()
+        .await?
+        .bytes()
+        .await?;
     println!("OK ({:.1} MB)", binary_data.len() as f64 / 1_048_576.0);
 
     // Verify SHA256
@@ -310,7 +359,8 @@ async fn update_command(check_only: bool, target_version: Option<String>, yes: b
     if computed_hash != expected_hash {
         anyhow::bail!(
             "SHA256 mismatch!\n  Expected: {}\n  Got:      {}",
-            expected_hash, computed_hash
+            expected_hash,
+            computed_hash
         );
     }
     println!("OK");
@@ -325,7 +375,10 @@ async fn update_command(check_only: bool, target_version: Option<String>, yes: b
     crate::platform::swap_running_binary(&new_path, &exe_path, &old_path)?;
 
     println!();
-    println!("Updated successfully: v{} -> v{}", current_version, latest_version);
+    println!(
+        "Updated successfully: v{} -> v{}",
+        current_version, latest_version
+    );
     println!("SHA256: {}", computed_hash);
     println!();
     println!("Restart the service to use the new version:");

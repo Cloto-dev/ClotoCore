@@ -1,5 +1,5 @@
-use plugin_python_bridge::PythonBridgePlugin;
 use exiv_shared::{Plugin, PluginConfig};
+use plugin_python_bridge::PythonBridgePlugin;
 use std::collections::HashMap;
 
 /// Ensure a test `scripts/` directory with a dummy `bridge_main.py` exists.
@@ -20,9 +20,9 @@ async fn test_python_bridge_initialization() {
 
     let config = PluginConfig {
         id: "bridge.python".to_string(),
-        config_values: [
-            ("script_path".to_string(), "bridge_main.py".to_string()),
-        ].into_iter().collect(),
+        config_values: [("script_path".to_string(), "bridge_main.py".to_string())]
+            .into_iter()
+            .collect(),
     };
 
     let plugin = PythonBridgePlugin::new_plugin(config).await;
@@ -42,9 +42,9 @@ async fn test_python_bridge_path_validation_prevents_traversal() {
 
     let config = PluginConfig {
         id: "bridge.python".to_string(),
-        config_values: [
-            ("script_path".to_string(), "../../../etc/passwd".to_string()),
-        ].into_iter().collect(),
+        config_values: [("script_path".to_string(), "../../../etc/passwd".to_string())]
+            .into_iter()
+            .collect(),
     };
 
     let result = PythonBridgePlugin::new_plugin(config).await;
@@ -55,7 +55,8 @@ async fn test_python_bridge_path_validation_prevents_traversal() {
         // Either "Security violation: ... escapes allowed directory" or path-related error
         assert!(
             err_msg.contains("escapes") || err_msg.contains(".."),
-            "Error should indicate path traversal rejection, got: {}", err_msg
+            "Error should indicate path traversal rejection, got: {}",
+            err_msg
         );
     }
 }
@@ -67,9 +68,12 @@ async fn test_python_bridge_path_validation_requires_scripts_dir() {
     // Test that absolute paths are rejected
     let config = PluginConfig {
         id: "bridge.python".to_string(),
-        config_values: [
-            ("script_path".to_string(), "/absolute/path/script.py".to_string()),
-        ].into_iter().collect(),
+        config_values: [(
+            "script_path".to_string(),
+            "/absolute/path/script.py".to_string(),
+        )]
+        .into_iter()
+        .collect(),
     };
 
     let result = PythonBridgePlugin::new_plugin(config).await;
@@ -78,9 +82,9 @@ async fn test_python_bridge_path_validation_requires_scripts_dir() {
     // Test that paths outside scripts/ are rejected
     let config2 = PluginConfig {
         id: "bridge.python".to_string(),
-        config_values: [
-            ("script_path".to_string(), "other_dir/script.py".to_string()),
-        ].into_iter().collect(),
+        config_values: [("script_path".to_string(), "other_dir/script.py".to_string())]
+            .into_iter()
+            .collect(),
     };
 
     let result2 = PythonBridgePlugin::new_plugin(config2).await;

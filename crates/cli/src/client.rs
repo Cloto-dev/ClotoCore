@@ -37,7 +37,8 @@ impl ExivClient {
     /// GET request returning deserialized JSON.
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
         let req = self.client.get(self.url(path));
-        let resp = self.add_auth(req)
+        let resp = self
+            .add_auth(req)
             .send()
             .await
             .context("Failed to connect to Exiv kernel")?;
@@ -52,9 +53,14 @@ impl ExivClient {
     }
 
     /// POST request with JSON body, returning deserialized JSON.
-    pub async fn post<B: serde::Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> Result<T> {
+    pub async fn post<B: serde::Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T> {
         let req = self.client.post(self.url(path)).json(body);
-        let resp = self.add_auth(req)
+        let resp = self
+            .add_auth(req)
             .send()
             .await
             .context("Failed to connect to Exiv kernel")?;
@@ -96,8 +102,11 @@ impl ExivClient {
 
     /// DELETE agent by ID.
     pub async fn delete_agent(&self, agent_id: &str) -> Result<serde_json::Value> {
-        let req = self.client.delete(self.url(&format!("/api/agents/{agent_id}")));
-        let resp = self.add_auth(req)
+        let req = self
+            .client
+            .delete(self.url(&format!("/api/agents/{agent_id}")));
+        let resp = self
+            .add_auth(req)
             .send()
             .await
             .context("Failed to connect to Exiv kernel")?;
@@ -105,21 +114,31 @@ impl ExivClient {
         let status = resp.status();
         if !status.is_success() {
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            let msg = body.get("error").and_then(|e| e.get("message"))
+            let msg = body
+                .get("error")
+                .and_then(|e| e.get("message"))
                 .and_then(|m| m.as_str())
                 .unwrap_or("Unknown error");
             anyhow::bail!("{status}: {msg}");
         }
-        resp.json::<serde_json::Value>().await.context("Failed to parse response")
+        resp.json::<serde_json::Value>()
+            .await
+            .context("Failed to parse response")
     }
 
     /// POST power toggle.
-    pub async fn power_toggle(&self, agent_id: &str, enabled: bool, password: Option<&str>) -> Result<serde_json::Value> {
+    pub async fn power_toggle(
+        &self,
+        agent_id: &str,
+        enabled: bool,
+        password: Option<&str>,
+    ) -> Result<serde_json::Value> {
         let body = serde_json::json!({
             "enabled": enabled,
             "password": password,
         });
-        self.post(&format!("/api/agents/{agent_id}/power"), &body).await
+        self.post(&format!("/api/agents/{agent_id}/power"), &body)
+            .await
     }
 
     /// POST chat message.
@@ -136,43 +155,72 @@ impl ExivClient {
     /// POST approve a permission request.
     pub async fn approve_permission(&self, request_id: &str) -> Result<serde_json::Value> {
         let body = serde_json::json!({ "approved_by": "cli-admin" });
-        self.post(&format!("/api/permissions/{request_id}/approve"), &body).await
+        self.post(&format!("/api/permissions/{request_id}/approve"), &body)
+            .await
     }
 
     /// POST deny a permission request.
     pub async fn deny_permission(&self, request_id: &str) -> Result<serde_json::Value> {
         let body = serde_json::json!({ "approved_by": "cli-admin" });
-        self.post(&format!("/api/permissions/{request_id}/deny"), &body).await
+        self.post(&format!("/api/permissions/{request_id}/deny"), &body)
+            .await
     }
 
     /// POST grant a permission to a plugin.
-    pub async fn grant_plugin_permission(&self, plugin_id: &str, permission: &str) -> Result<serde_json::Value> {
+    pub async fn grant_plugin_permission(
+        &self,
+        plugin_id: &str,
+        permission: &str,
+    ) -> Result<serde_json::Value> {
         let body = serde_json::json!({ "permission": permission });
-        self.post(&format!("/api/plugins/{plugin_id}/permissions/grant"), &body).await
+        self.post(
+            &format!("/api/plugins/{plugin_id}/permissions/grant"),
+            &body,
+        )
+        .await
     }
 
     pub async fn get_plugin_permissions(&self, plugin_id: &str) -> Result<serde_json::Value> {
-        self.get(&format!("/api/plugins/{plugin_id}/permissions")).await
+        self.get(&format!("/api/plugins/{plugin_id}/permissions"))
+            .await
     }
 
-    pub async fn revoke_plugin_permission(&self, plugin_id: &str, permission: &str) -> Result<serde_json::Value> {
+    pub async fn revoke_plugin_permission(
+        &self,
+        plugin_id: &str,
+        permission: &str,
+    ) -> Result<serde_json::Value> {
         let body = serde_json::json!({ "permission": permission });
-        let req = self.client.delete(self.url(&format!("/api/plugins/{plugin_id}/permissions"))).json(&body);
-        let resp = self.add_auth(req).send().await.context("Failed to connect to Exiv kernel")?;
+        let req = self
+            .client
+            .delete(self.url(&format!("/api/plugins/{plugin_id}/permissions")))
+            .json(&body);
+        let resp = self
+            .add_auth(req)
+            .send()
+            .await
+            .context("Failed to connect to Exiv kernel")?;
         let status = resp.status();
         if !status.is_success() {
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            let msg = body.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str()).unwrap_or("Unknown error");
+            let msg = body
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown error");
             anyhow::bail!("{status}: {msg}");
         }
-        resp.json::<serde_json::Value>().await.context("Failed to parse response")
+        resp.json::<serde_json::Value>()
+            .await
+            .context("Failed to parse response")
     }
 
     /// GET SSE stream (raw response for line-by-line parsing).
     #[allow(dead_code)]
     pub async fn sse_stream(&self) -> Result<reqwest::Response> {
         let req = self.client.get(self.url("/api/events"));
-        let resp = self.add_auth(req)
+        let resp = self
+            .add_auth(req)
             .send()
             .await
             .context("Failed to connect to SSE stream")?;

@@ -1,12 +1,11 @@
 mod sandbox;
 
 use async_trait::async_trait;
+use exiv_shared::{
+    exiv_plugin, ExivEvent, ExivEventData, Permission, Plugin, PluginConfig, PluginRuntimeContext,
+};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use exiv_shared::{
-    Plugin, PluginConfig, ExivEvent, ExivEventData,
-    PluginRuntimeContext, Permission, exiv_plugin,
-};
 
 #[exiv_plugin(
     name = "tool.terminal",
@@ -45,13 +44,19 @@ fn safe_truncate(s: &str, max_bytes: usize) -> &str {
 
 impl TerminalPlugin {
     pub async fn new_plugin(config: PluginConfig) -> anyhow::Result<Self> {
-        let working_dir = config.config_values.get("working_dir")
+        let working_dir = config
+            .config_values
+            .get("working_dir")
             .cloned()
             .unwrap_or_else(|| "/tmp/exiv-sandbox".to_string());
-        let max_output_bytes = config.config_values.get("max_output_bytes")
+        let max_output_bytes = config
+            .config_values
+            .get("max_output_bytes")
             .and_then(|v| v.parse().ok())
             .unwrap_or(65536); // 64KB default
-        let command_allowlist = config.config_values.get("allowed_commands")
+        let command_allowlist = config
+            .config_values
+            .get("allowed_commands")
             .map(|v| v.split(',').map(|s| s.trim().to_string()).collect());
 
         Ok(Self {
@@ -76,15 +81,24 @@ impl Plugin for TerminalPlugin {
         context: PluginRuntimeContext,
         _network: Option<Arc<dyn exiv_shared::NetworkCapability>>,
     ) -> anyhow::Result<()> {
-        if !context.effective_permissions.contains(&Permission::ProcessExecution) {
-            tracing::error!("🚫 tool.terminal requires ProcessExecution permission. Plugin will not function.");
+        if !context
+            .effective_permissions
+            .contains(&Permission::ProcessExecution)
+        {
+            tracing::error!(
+                "🚫 tool.terminal requires ProcessExecution permission. Plugin will not function."
+            );
             return Ok(());
         }
 
         let mut state = self.state.write().await;
         // Ensure working directory exists
         if let Err(e) = std::fs::create_dir_all(&state.working_dir) {
-            tracing::warn!("⚠️ Could not create working dir '{}': {}", state.working_dir, e);
+            tracing::warn!(
+                "⚠️ Could not create working dir '{}': {}",
+                state.working_dir,
+                e
+            );
         }
         // C-03: Canonicalize working_dir to prevent path traversal
         match std::fs::canonicalize(&state.working_dir) {
@@ -96,7 +110,10 @@ impl Plugin for TerminalPlugin {
             }
         }
         state.initialized = true;
-        tracing::info!("🖥️ Terminal plugin initialized. Working dir: {}", state.working_dir);
+        tracing::info!(
+            "🖥️ Terminal plugin initialized. Working dir: {}",
+            state.working_dir
+        );
         Ok(())
     }
 
@@ -142,14 +159,16 @@ impl exiv_shared::Tool for TerminalPlugin {
             ));
         }
 
-        let command = args.get("command")
+        let command = args
+            .get("command")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'command' argument"))?;
 
         // C-03: Always use the configured working_dir (no user override)
         let working_dir = &state.working_dir;
 
-        let timeout_secs = args.get("timeout_secs")
+        let timeout_secs = args
+            .get("timeout_secs")
             .and_then(|v| v.as_u64())
             .unwrap_or(30)
             .min(120);
@@ -172,8 +191,9 @@ impl exiv_shared::Tool for TerminalPlugin {
             Ok(child) => {
                 tokio::time::timeout(
                     std::time::Duration::from_secs(timeout_secs),
-                    child.wait_with_output()
-                ).await
+                    child.wait_with_output(),
+                )
+                .await
             }
             Err(e) => Ok(Err(e)),
         };
@@ -186,12 +206,20 @@ impl exiv_shared::Tool for TerminalPlugin {
 
                 // C-01: Safe UTF-8 truncation (never panic on multi-byte boundary)
                 let stdout_str = if stdout.len() > max {
-                    format!("{}...[truncated, {} bytes total]", safe_truncate(&stdout, max), stdout.len())
+                    format!(
+                        "{}...[truncated, {} bytes total]",
+                        safe_truncate(&stdout, max),
+                        stdout.len()
+                    )
                 } else {
                     stdout.to_string()
                 };
                 let stderr_str = if stderr.len() > max {
-                    format!("{}...[truncated, {} bytes total]", safe_truncate(&stderr, max), stderr.len())
+                    format!(
+                        "{}...[truncated, {} bytes total]",
+                        safe_truncate(&stderr, max),
+                        stderr.len()
+                    )
                 } else {
                     stderr.to_string()
                 };
@@ -202,20 +230,16 @@ impl exiv_shared::Tool for TerminalPlugin {
                     "stderr": stderr_str
                 }))
             }
-            Ok(Err(e)) => {
-                Ok(serde_json::json!({
-                    "exit_code": -1,
-                    "stdout": "",
-                    "stderr": format!("Failed to execute command: {}", e)
-                }))
-            }
-            Err(_) => {
-                Ok(serde_json::json!({
-                    "exit_code": -1,
-                    "stdout": "",
-                    "stderr": format!("Command timed out after {} seconds", timeout_secs)
-                }))
-            }
+            Ok(Err(e)) => Ok(serde_json::json!({
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": format!("Failed to execute command: {}", e)
+            })),
+            Err(_) => Ok(serde_json::json!({
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": format!("Command timed out after {} seconds", timeout_secs)
+            })),
         }
     }
 }
@@ -240,7 +264,7 @@ mod tests {
         assert_eq!(safe_truncate(s, 5), "あ"); // can't split い (bytes 3-5)
         assert_eq!(safe_truncate(s, 4), "あ");
         assert_eq!(safe_truncate(s, 3), "あ");
-        assert_eq!(safe_truncate(s, 2), "");  // can't fit even one char
+        assert_eq!(safe_truncate(s, 2), ""); // can't fit even one char
         assert_eq!(safe_truncate(s, 0), "");
     }
 

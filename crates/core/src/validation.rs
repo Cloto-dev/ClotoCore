@@ -21,7 +21,10 @@ pub struct CreateAgentRequest {
 fn validate_config_key(key: &str) -> Result<(), validator::ValidationError> {
     // Allow alphanumeric, underscore, hyphen, dot (common config key patterns)
     // Reject control characters, whitespace, special chars that could cause issues
-    if key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.') {
+    if key
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+    {
         Ok(())
     } else {
         Err(validator::ValidationError::new("invalid_characters"))
@@ -56,7 +59,8 @@ pub struct ApprovePermissionRequest {
 
 /// Validation helper function
 pub fn validate_request<T: Validate>(req: &T) -> Result<(), String> {
-    req.validate().map_err(|e| format!("Validation error: {}", e))
+    req.validate()
+        .map_err(|e| format!("Validation error: {}", e))
 }
 
 #[cfg(test)]

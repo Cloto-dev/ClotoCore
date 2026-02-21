@@ -3,10 +3,10 @@
 
 mod common;
 
-use std::sync::Arc;
-use exiv_shared::ExivId;
 use exiv_core::managers::PluginRegistry;
 use exiv_core::EnvelopedEvent;
+use exiv_shared::ExivId;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn test_concurrent_event_dispatch_100() {
@@ -20,7 +20,10 @@ async fn test_concurrent_event_dispatch_100() {
         let id = ExivId::new();
         let (plugin, _) = create_mock_plugin(id);
         let mut plugins = registry.plugins.write().await;
-        plugins.insert(format!("mock_{}", i), plugin as Arc<dyn exiv_shared::Plugin>);
+        plugins.insert(
+            format!("mock_{}", i),
+            plugin as Arc<dyn exiv_shared::Plugin>,
+        );
     }
 
     // Dispatch 100 concurrent events
@@ -30,7 +33,7 @@ async fn test_concurrent_event_dispatch_100() {
         let event_tx = event_tx.clone();
         let handle = tokio::spawn(async move {
             let event = exiv_shared::ExivEvent::new(
-                exiv_shared::ExivEventData::SystemNotification("concurrent".into())
+                exiv_shared::ExivEventData::SystemNotification("concurrent".into()),
             );
             let envelope = EnvelopedEvent {
                 event: Arc::new(event),
@@ -64,9 +67,9 @@ async fn test_event_depth_limit_prevents_infinite_loop() {
     }
 
     let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<EnvelopedEvent>(10);
-    let event = exiv_shared::ExivEvent::new(
-        exiv_shared::ExivEventData::SystemNotification("depth_test".into())
-    );
+    let event = exiv_shared::ExivEvent::new(exiv_shared::ExivEventData::SystemNotification(
+        "depth_test".into(),
+    ));
 
     // depth = 0: allowed
     let envelope = EnvelopedEvent {
@@ -90,7 +93,10 @@ async fn test_event_depth_limit_prevents_infinite_loop() {
     registry.dispatch_event(envelope_deep, &event_tx).await;
 
     let count_after = received.lock().await.len();
-    assert_eq!(count_after, 1, "Event at max depth must be dropped (depth limit enforced)");
+    assert_eq!(
+        count_after, 1,
+        "Event at max depth must be dropped (depth limit enforced)"
+    );
 }
 
 #[tokio::test]
@@ -98,9 +104,9 @@ async fn test_dispatch_with_no_plugins_is_safe() {
     let registry = PluginRegistry::new(5, 10);
     let (event_tx, _) = tokio::sync::mpsc::channel::<EnvelopedEvent>(10);
 
-    let event = exiv_shared::ExivEvent::new(
-        exiv_shared::ExivEventData::SystemNotification("empty_registry".into())
-    );
+    let event = exiv_shared::ExivEvent::new(exiv_shared::ExivEventData::SystemNotification(
+        "empty_registry".into(),
+    ));
     let envelope = EnvelopedEvent {
         event: Arc::new(event),
         issuer: None,

@@ -1,6 +1,6 @@
-use tauri::Manager;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
+use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 /// Returns the kernel HTTP port (used by frontend to construct API URLs).
@@ -58,7 +58,10 @@ pub fn run() {
     let existing_cors = std::env::var("CORS_ORIGINS").unwrap_or_default();
     let tauri_origins = "tauri://localhost,http://tauri.localhost";
     let combined = if existing_cors.is_empty() {
-        format!("http://localhost:1420,http://127.0.0.1:1420,{}", tauri_origins)
+        format!(
+            "http://localhost:1420,http://127.0.0.1:1420,{}",
+            tauri_origins
+        )
     } else {
         format!("{},{}", existing_cors, tauri_origins)
     };
@@ -86,61 +89,61 @@ pub fn run() {
             }
 
             // --- System Tray ---
-            let status_item = MenuItem::with_id(
-                app, "status", "Exiv: Online", false, None::<&str>,
-            )?;
-            let show_item = MenuItem::with_id(
-                app, "show", "Show Dashboard", true, None::<&str>,
-            )?;
-            let quit_item = MenuItem::with_id(
-                app, "quit", "Quit Exiv", true, None::<&str>,
-            )?;
+            let status_item =
+                MenuItem::with_id(app, "status", "Exiv: Online", false, None::<&str>)?;
+            let show_item = MenuItem::with_id(app, "show", "Show Dashboard", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit Exiv", true, None::<&str>)?;
 
-            let tray_menu = Menu::with_items(app, &[
-                &status_item,
-                &PredefinedMenuItem::separator(app)?,
-                &show_item,
-                &PredefinedMenuItem::separator(app)?,
-                &quit_item,
-            ])?;
+            let tray_menu = Menu::with_items(
+                app,
+                &[
+                    &status_item,
+                    &PredefinedMenuItem::separator(app)?,
+                    &show_item,
+                    &PredefinedMenuItem::separator(app)?,
+                    &quit_item,
+                ],
+            )?;
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Exiv System")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(true)
-                .on_menu_event(|app, event| {
-                    match event.id.as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
                     }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
                 })
                 .build(app)?;
 
             // --- Global Shortcut: CmdOrCtrl+Shift+E to toggle dashboard ---
-            app.global_shortcut().on_shortcut(
-                "CmdOrCtrl+Shift+E",
-                |app_handle: &tauri::AppHandle, _shortcut: &tauri_plugin_global_shortcut::Shortcut, event: tauri_plugin_global_shortcut::ShortcutEvent| {
-                    if event.state == ShortcutState::Pressed {
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            if window.is_visible().unwrap_or(false) {
-                                let _ = window.hide();
-                            } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
+            app.global_shortcut()
+                .on_shortcut(
+                    "CmdOrCtrl+Shift+E",
+                    |app_handle: &tauri::AppHandle,
+                     _shortcut: &tauri_plugin_global_shortcut::Shortcut,
+                     event: tauri_plugin_global_shortcut::ShortcutEvent| {
+                        if event.state == ShortcutState::Pressed {
+                            if let Some(window) = app_handle.get_webview_window("main") {
+                                if window.is_visible().unwrap_or(false) {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
                             }
                         }
-                    }
-                },
-            ).ok();
+                    },
+                )
+                .ok();
 
             // --- Launch the Exiv Kernel Server ---
             tauri::async_runtime::spawn(async move {

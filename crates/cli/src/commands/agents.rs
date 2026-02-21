@@ -1,6 +1,6 @@
 use anyhow::Result;
 use colored::Colorize;
-use dialoguer::{Select, Input, Password, Confirm, theme::ColorfulTheme};
+use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 
 use crate::cli::AgentsCommand;
 use crate::client::ExivClient;
@@ -9,25 +9,53 @@ use crate::output;
 pub async fn run(client: &ExivClient, cmd: AgentsCommand, json_mode: bool) -> Result<()> {
     match cmd {
         AgentsCommand::List => list(client, json_mode).await,
-        AgentsCommand::Create { name, description, engine, agent_type, password } => {
-            create(client, name, description, engine, agent_type, password, json_mode).await
+        AgentsCommand::Create {
+            name,
+            description,
+            engine,
+            agent_type,
+            password,
+        } => {
+            create(
+                client,
+                name,
+                description,
+                engine,
+                agent_type,
+                password,
+                json_mode,
+            )
+            .await
         }
-        AgentsCommand::Power { agent, on, off, password } => {
-            let enabled = if on { true } else if off { false } else {
+        AgentsCommand::Power {
+            agent,
+            on,
+            off,
+            password,
+        } => {
+            let enabled = if on {
+                true
+            } else if off {
+                false
+            } else {
                 anyhow::bail!("Specify --on or --off");
             };
             power(client, &agent, enabled, password, json_mode).await
         }
-        AgentsCommand::Delete { agent, force } => {
-            delete(client, &agent, force, json_mode).await
-        }
+        AgentsCommand::Delete { agent, force } => delete(client, &agent, force, json_mode).await,
     }
 }
 
 async fn list(client: &ExivClient, json_mode: bool) -> Result<()> {
-    let sp = if !json_mode { Some(output::spinner("Loading agents...")) } else { None };
+    let sp = if !json_mode {
+        Some(output::spinner("Loading agents..."))
+    } else {
+        None
+    };
     let agents = client.get_agents().await?;
-    if let Some(sp) = sp { sp.finish_and_clear(); }
+    if let Some(sp) = sp {
+        sp.finish_and_clear();
+    }
 
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&agents)?);
@@ -84,17 +112,30 @@ async fn create(
         "password": password,
     });
 
-    let sp = if !json_mode { Some(output::spinner("Creating agent...")) } else { None };
+    let sp = if !json_mode {
+        Some(output::spinner("Creating agent..."))
+    } else {
+        None
+    };
     let result: serde_json::Value = client.create_agent(&body).await?;
-    if let Some(sp) = sp { sp.finish_and_clear(); }
+    if let Some(sp) = sp {
+        sp.finish_and_clear();
+    }
 
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&result)?);
         return Ok(());
     }
 
-    let agent_id = result.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
-    println!("  {} Agent created: {}", "✓".green().bold(), agent_id.bold());
+    let agent_id = result
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    println!(
+        "  {} Agent created: {}",
+        "✓".green().bold(),
+        agent_id.bold()
+    );
     println!();
     Ok(())
 }
@@ -108,7 +149,10 @@ async fn interactive_create_wizard(
     output::print_header("Create New Agent");
 
     // 1. Agent type selection
-    let type_items = &["AI Agent      (reasoning engine)", "Container     (external process)"];
+    let type_items = &[
+        "AI Agent      (reasoning engine)",
+        "Container     (external process)",
+    ];
     let type_idx = Select::with_theme(&theme)
         .with_prompt("  Agent type")
         .items(type_items)
@@ -135,9 +179,19 @@ async fn interactive_create_wizard(
         .with_prompt("  Power password (optional, Enter to skip)")
         .allow_empty_password(true)
         .interact()?;
-    let password = if password_input.is_empty() { None } else { Some(password_input) };
+    let password = if password_input.is_empty() {
+        None
+    } else {
+        Some(password_input)
+    };
 
-    Ok((name, description, engine, Some(agent_type.to_string()), password))
+    Ok((
+        name,
+        description,
+        engine,
+        Some(agent_type.to_string()),
+        password,
+    ))
 }
 
 /// Fetch plugins and let user select an engine.
@@ -147,14 +201,16 @@ async fn select_engine(client: &ExivClient, agent_type: &str) -> Result<String> 
     // Fetch plugins to show available engines
     let plugins = client.get_plugins().await.unwrap_or_default();
 
-    let engines: Vec<(&str, &str)> = plugins.iter()
+    let engines: Vec<(&str, &str)> = plugins
+        .iter()
         .filter(|p| {
             if agent_type == "ai" {
                 matches!(p.category, exiv_shared::PluginCategory::Agent)
                     && p.id.starts_with("mind.")
             } else {
                 // Container agents can use any non-mind engine
-                !p.id.starts_with("mind.") && !matches!(p.category, exiv_shared::PluginCategory::System)
+                !p.id.starts_with("mind.")
+                    && !matches!(p.category, exiv_shared::PluginCategory::System)
             }
         })
         .map(|p| (p.id.as_str(), p.name.as_str()))
@@ -168,7 +224,8 @@ async fn select_engine(client: &ExivClient, agent_type: &str) -> Result<String> 
         return Ok(engine);
     }
 
-    let items: Vec<String> = engines.iter()
+    let items: Vec<String> = engines
+        .iter()
         .map(|(id, name)| format!("{id:<20} ({name})"))
         .collect();
 
@@ -205,10 +262,16 @@ async fn power(
             agent_id,
             if enabled { "ON" } else { "OFF" }
         )))
-    } else { None };
+    } else {
+        None
+    };
 
-    let result = client.power_toggle(agent_id, enabled, password.as_deref()).await;
-    if let Some(ref sp) = sp { sp.finish_and_clear(); }
+    let result = client
+        .power_toggle(agent_id, enabled, password.as_deref())
+        .await;
+    if let Some(ref sp) = sp {
+        sp.finish_and_clear();
+    }
 
     match result {
         Ok(result) => {
@@ -216,14 +279,22 @@ async fn power(
                 println!("{}", serde_json::to_string_pretty(&result)?);
                 return Ok(());
             }
-            println!("  {} {agent_id} powered {}",
+            println!(
+                "  {} {agent_id} powered {}",
                 "✓".green().bold(),
-                if enabled { "ON".green().bold() } else { "OFF".red().bold() },
+                if enabled {
+                    "ON".green().bold()
+                } else {
+                    "OFF".red().bold()
+                },
             );
             println!();
             Ok(())
         }
-        Err(e) if e.to_string().contains("Password required") || e.to_string().contains("password") => {
+        Err(e)
+            if e.to_string().contains("Password required")
+                || e.to_string().contains("password") =>
+        {
             if json_mode {
                 return Err(e);
             }
@@ -240,9 +311,14 @@ async fn power(
             let result = client.power_toggle(agent_id, enabled, Some(&pw)).await?;
             sp.finish_and_clear();
 
-            println!("  {} {agent_id} powered {}",
+            println!(
+                "  {} {agent_id} powered {}",
                 "✓".green().bold(),
-                if enabled { "ON".green().bold() } else { "OFF".red().bold() },
+                if enabled {
+                    "ON".green().bold()
+                } else {
+                    "OFF".red().bold()
+                },
             );
             println!();
 
@@ -255,12 +331,7 @@ async fn power(
     }
 }
 
-async fn delete(
-    client: &ExivClient,
-    agent_id: &str,
-    force: bool,
-    json_mode: bool,
-) -> Result<()> {
+async fn delete(client: &ExivClient, agent_id: &str, force: bool, json_mode: bool) -> Result<()> {
     if !force && !json_mode {
         output::print_header("Delete Agent");
         println!("  Agent:   {}", agent_id.bold());
@@ -277,9 +348,15 @@ async fn delete(
         }
     }
 
-    let sp = if !json_mode { Some(output::spinner("Deleting agent...")) } else { None };
+    let sp = if !json_mode {
+        Some(output::spinner("Deleting agent..."))
+    } else {
+        None
+    };
     let result = client.delete_agent(agent_id).await;
-    if let Some(sp) = sp { sp.finish_and_clear(); }
+    if let Some(sp) = sp {
+        sp.finish_and_clear();
+    }
 
     match result {
         Ok(body) => {
@@ -287,12 +364,18 @@ async fn delete(
                 println!("{}", serde_json::to_string_pretty(&body)?);
                 return Ok(());
             }
-            println!("  {} Agent deleted: {}", "✓".green().bold(), agent_id.bold());
+            println!(
+                "  {} Agent deleted: {}",
+                "✓".green().bold(),
+                agent_id.bold()
+            );
             println!();
             Ok(())
         }
         Err(e) => {
-            if json_mode { return Err(e); }
+            if json_mode {
+                return Err(e);
+            }
             eprintln!("  {} {}", "✗".red().bold(), e);
             std::process::exit(1);
         }

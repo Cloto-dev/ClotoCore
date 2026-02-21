@@ -1,11 +1,11 @@
 use async_trait::async_trait;
-use std::sync::Arc;
-use std::collections::HashMap;
-use tokio::sync::RwLock;
 use exiv_shared::{
-    Plugin, PluginConfig, exiv_plugin, ExivEvent, ExivEventData, ExivId,
-    ExivMessage, MessageSource, AgentMetadata
+    exiv_plugin, AgentMetadata, ExivEvent, ExivEventData, ExivId, ExivMessage, MessageSource,
+    Plugin, PluginConfig,
 };
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 #[exiv_plugin(
     name = "core.moderator",
@@ -22,8 +22,13 @@ pub struct ModeratorPlugin {
 }
 
 enum SessionState {
-    Collecting { proposals: Vec<Proposal>, created_at: std::time::Instant },
-    Synthesizing { created_at: std::time::Instant },
+    Collecting {
+        proposals: Vec<Proposal>,
+        created_at: std::time::Instant,
+    },
+    Synthesizing {
+        created_at: std::time::Instant,
+    },
 }
 
 const SESSION_TIMEOUT_SECS: u64 = 60;
@@ -76,8 +81,15 @@ impl ModeratorPlugin {
 
 #[async_trait]
 impl exiv_shared::ReasoningEngine for ModeratorPlugin {
-    fn name(&self) -> &str { "ConsensusModerator" }
-    async fn think(&self, _agent: &AgentMetadata, _msg: &ExivMessage, _ctx: Vec<ExivMessage>) -> anyhow::Result<String> {
+    fn name(&self) -> &str {
+        "ConsensusModerator"
+    }
+    async fn think(
+        &self,
+        _agent: &AgentMetadata,
+        _msg: &ExivMessage,
+        _ctx: Vec<ExivMessage>,
+    ) -> anyhow::Result<String> {
         Ok("I am observing the consensus process.".to_string())
     }
 }
@@ -90,36 +102,50 @@ impl Plugin for ModeratorPlugin {
 
     async fn on_event(&self, event: &ExivEvent) -> anyhow::Result<Option<ExivEventData>> {
         match &event.data {
-            ExivEventData::ConsensusRequested { task: _, engine_ids } => {
+            ExivEventData::ConsensusRequested {
+                task: _,
+                engine_ids,
+            } => {
                 tracing::info!(trace_id = %event.trace_id, "🤝 Consensus process started for {} engines", engine_ids.len());
-                
+
                 // セッションの初期化 (Collecting Phase)
                 {
                     let mut sessions = self.sessions.write().await;
-                    sessions.insert(event.trace_id, SessionState::Collecting {
-                        proposals: Vec::new(),
-                        created_at: std::time::Instant::now(),
-                    });
+                    sessions.insert(
+                        event.trace_id,
+                        SessionState::Collecting {
+                            proposals: Vec::new(),
+                            created_at: std::time::Instant::now(),
+                        },
+                    );
                 }
-                
+
                 return Ok(None);
             }
 
-            ExivEventData::ThoughtResponse { agent_id, engine_id: _, content, source_message_id: _ } => {
+            ExivEventData::ThoughtResponse {
+                agent_id,
+                engine_id: _,
+                content,
+                source_message_id: _,
+            } => {
                 // 自分自身(Moderator)や、統合エンジン(Synthesizer)からの回答を区別する必要がある
                 if agent_id == SYSTEM_CONSENSUS_AGENT {
                     return Ok(None);
                 }
 
                 let mut sessions = self.sessions.write().await;
-                
+
                 // 状態遷移のためのフラグ
                 let mut start_synthesis = false;
                 let mut synthesis_prompt = String::new();
 
                 if let Some(state) = sessions.get_mut(&event.trace_id) {
                     match state {
-                        SessionState::Collecting { proposals, created_at } => {
+                        SessionState::Collecting {
+                            proposals,
+                            created_at,
+                        } => {
                             // 1. 提案の収集
                             proposals.push(Proposal {
                                 engine_id: agent_id.clone(),
@@ -130,14 +156,19 @@ impl Plugin for ModeratorPlugin {
 
                             if proposals.len() >= 2 {
                                 // プロンプト作成用データを先に退避
-                                let combined_views = proposals.iter().enumerate()
+                                let combined_views = proposals
+                                    .iter()
+                                    .enumerate()
                                     .map(|(i, p)| format!("## Opinion {}:\n{}", i + 1, p.content))
-                                    .collect::<Vec<_>>().join("\n\n");
+                                    .collect::<Vec<_>>()
+                                    .join("\n\n");
 
                                 // 2. 統合フェーズへ移行
-                                *state = SessionState::Synthesizing { created_at: *created_at };
+                                *state = SessionState::Synthesizing {
+                                    created_at: *created_at,
+                                };
                                 start_synthesis = true;
-                                    
+
                                 synthesis_prompt = format!(
                                     "You are a wise moderator. Synthesize the following opinions into a single, coherent conclusion.\n\n{}",
                                     combined_views
@@ -152,15 +183,18 @@ impl Plugin for ModeratorPlugin {
                             sessions.remove(&event.trace_id);
                             drop(sessions);
 
-                            return Ok(Some(ExivEvent::with_trace(
-                                event.trace_id,
-                                ExivEventData::ThoughtResponse {
-                                    agent_id: SYSTEM_CONSENSUS_AGENT.to_string(),
-                                    engine_id: "core.moderator".to_string(),
-                                    content: content.clone(),
-                                    source_message_id: "consensus".to_string(),
-                                }
-                            ).data));
+                            return Ok(Some(
+                                ExivEvent::with_trace(
+                                    event.trace_id,
+                                    ExivEventData::ThoughtResponse {
+                                        agent_id: SYSTEM_CONSENSUS_AGENT.to_string(),
+                                        engine_id: "core.moderator".to_string(),
+                                        content: content.clone(),
+                                        source_message_id: "consensus".to_string(),
+                                    },
+                                )
+                                .data,
+                            ));
                         }
                     }
                 }
@@ -168,7 +202,7 @@ impl Plugin for ModeratorPlugin {
                 // ロックを解放してからイベント発行
                 if start_synthesis {
                     tracing::info!(trace_id = %event.trace_id, "⚗️ Starting synthesis phase...");
-                    
+
                     // ダミーのエージェントメタデータ (統合用)
                     let synthesizer_agent = AgentMetadata {
                         id: "agent.synthesizer".to_string(),
@@ -183,15 +217,18 @@ impl Plugin for ModeratorPlugin {
                         metadata: HashMap::new(),
                     };
 
-                    return Ok(Some(ExivEvent::with_trace(
-                        event.trace_id,
-                        ExivEventData::ThoughtRequested {
-                            agent: synthesizer_agent,
-                            engine_id: "mind.deepseek".to_string(), // DeepSeekに統合を依頼
-                            message: ExivMessage::new(MessageSource::System, synthesis_prompt),
-                            context: vec![],
-                        }
-                    ).data));
+                    return Ok(Some(
+                        ExivEvent::with_trace(
+                            event.trace_id,
+                            ExivEventData::ThoughtRequested {
+                                agent: synthesizer_agent,
+                                engine_id: "mind.deepseek".to_string(), // DeepSeekに統合を依頼
+                                message: ExivMessage::new(MessageSource::System, synthesis_prompt),
+                                context: vec![],
+                            },
+                        )
+                        .data,
+                    ));
                 }
             }
             _ => {}

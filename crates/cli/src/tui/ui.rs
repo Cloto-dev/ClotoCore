@@ -11,7 +11,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
+            Constraint::Length(3), // Header
             Constraint::Min(8),    // Content (agents + events)
             Constraint::Length(3), // Metrics
             Constraint::Length(1), // Footer
@@ -24,10 +24,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Content: Agents | Events (side by side)
     let content_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(40),
-            Constraint::Percentage(60),
-        ])
+        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
         .split(main_chunks[1]);
 
     widgets::agents::render(f, content_chunks[0], app, app.active_pane == Pane::Agents);
@@ -47,10 +44,19 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
     let status_dot = if app.connected { "●" } else { "○" };
-    let status_color = if app.connected { Color::Green } else { Color::Red };
+    let status_color = if app.connected {
+        Color::Green
+    } else {
+        Color::Red
+    };
 
     let header = Line::from(vec![
-        Span::styled("  Exiv Dashboard", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "  Exiv Dashboard",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(
             format!("  v{}", env!("CARGO_PKG_VERSION")),
             Style::default().fg(Color::DarkGray),

@@ -2,12 +2,12 @@
 // Critical path: exiv_core/src/events.rs:72-76 (EventProcessor::record_event)
 // Measures: VecDeque operations, RwLock contention, event throughput
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use std::collections::VecDeque;
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 #[allow(unused_imports)]
 use exiv_shared::ExivEvent;
+use std::collections::VecDeque;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 mod helpers;
 
@@ -93,9 +93,7 @@ fn event_serialization_benchmark(c: &mut Criterion) {
     let event = helpers::create_test_event("Hello, benchmark!".to_string());
 
     c.bench_function("event_to_json", |b| {
-        b.iter(|| {
-            serde_json::to_string(black_box(&*event)).unwrap()
-        });
+        b.iter(|| serde_json::to_string(black_box(&*event)).unwrap());
     });
 }
 

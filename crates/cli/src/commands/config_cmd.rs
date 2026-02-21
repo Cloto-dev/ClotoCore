@@ -19,14 +19,18 @@ fn show(config: &CliConfig) -> Result<()> {
     println!("  {}", "─".repeat(36).dimmed());
     println!("  {}   {}", "file:".dimmed(), path.display());
     println!("  {}    {}", "url:".dimmed(), config.url);
-    println!("  {}", format!(
-        "api_key: {}",
-        match &config.api_key {
-            Some(k) if k.len() > 8 => format!("{}...{}", &k[..4], &k[k.len()-4..]),
-            Some(_) => "***".to_string(),
-            None => "(not set)".dimmed().to_string(),
-        }
-    ).dimmed());
+    println!(
+        "  {}",
+        format!(
+            "api_key: {}",
+            match &config.api_key {
+                Some(k) if k.len() > 8 => format!("{}...{}", &k[..4], &k[k.len() - 4..]),
+                Some(_) => "***".to_string(),
+                None => "(not set)".dimmed().to_string(),
+            }
+        )
+        .dimmed()
+    );
     println!();
 
     // Show environment overrides if active
@@ -34,7 +38,10 @@ fn show(config: &CliConfig) -> Result<()> {
         println!("  {} EXIV_URL environment variable is active", "ℹ".blue());
     }
     if std::env::var("EXIV_API_KEY").is_ok() {
-        println!("  {} EXIV_API_KEY environment variable is active", "ℹ".blue());
+        println!(
+            "  {} EXIV_API_KEY environment variable is active",
+            "ℹ".blue()
+        );
     }
 
     Ok(())
@@ -43,8 +50,14 @@ fn show(config: &CliConfig) -> Result<()> {
 fn set(key: &str, value: &str) -> Result<()> {
     CliConfig::set(key, value)?;
 
-    println!("  {} {key} = {}", "✓".green().bold(),
-        if key == "api_key" { "***".to_string() } else { value.to_string() }
+    println!(
+        "  {} {key} = {}",
+        "✓".green().bold(),
+        if key == "api_key" {
+            "***".to_string()
+        } else {
+            value.to_string()
+        }
     );
     Ok(())
 }

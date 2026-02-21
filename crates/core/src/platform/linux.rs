@@ -1,4 +1,4 @@
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use std::path::Path;
 use std::process::Command;
 use tracing::info;
@@ -61,8 +61,7 @@ pub fn uninstall_service() -> anyhow::Result<()> {
     let _ = run_systemctl(&["disable", SERVICE_NAME]);
 
     if Path::new(SERVICE_FILE).exists() {
-        std::fs::remove_file(SERVICE_FILE)
-            .context("Failed to remove service file")?;
+        std::fs::remove_file(SERVICE_FILE).context("Failed to remove service file")?;
         run_systemctl(&["daemon-reload"])?;
         info!("✅ Service removed: {}", SERVICE_NAME);
     } else {
@@ -93,7 +92,11 @@ fn run_systemctl(args: &[&str]) -> anyhow::Result<()> {
         .status()
         .with_context(|| format!("Failed to run: systemctl {}", args.join(" ")))?;
     if !status.success() {
-        bail!("systemctl {} failed with exit code {:?}", args.join(" "), status.code());
+        bail!(
+            "systemctl {} failed with exit code {:?}",
+            args.join(" "),
+            status.code()
+        );
     }
     Ok(())
 }
@@ -108,17 +111,31 @@ pub fn set_executable_permission(path: &Path) -> anyhow::Result<()> {
 }
 
 /// Swap a running binary (Unix: rename is safe even while running)
-pub fn swap_running_binary(new_path: &Path, current_path: &Path, old_path: &Path) -> anyhow::Result<()> {
+pub fn swap_running_binary(
+    new_path: &Path,
+    current_path: &Path,
+    old_path: &Path,
+) -> anyhow::Result<()> {
     // Remove previous backup if exists (ignore NotFound)
     match std::fs::remove_file(old_path) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(anyhow::anyhow!("Failed to remove old backup {}: {}", old_path.display(), e)),
+        Err(e) => {
+            return Err(anyhow::anyhow!(
+                "Failed to remove old backup {}: {}",
+                old_path.display(),
+                e
+            ))
+        }
     }
 
     // current → old (backup)
-    std::fs::rename(current_path, old_path)
-        .with_context(|| format!("Failed to backup current binary: {}", current_path.display()))?;
+    std::fs::rename(current_path, old_path).with_context(|| {
+        format!(
+            "Failed to backup current binary: {}",
+            current_path.display()
+        )
+    })?;
 
     // new → current (activate)
     std::fs::rename(new_path, current_path).map_err(|e| {

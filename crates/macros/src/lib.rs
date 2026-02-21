@@ -1,8 +1,11 @@
+use base64::{engine::general_purpose, Engine as _};
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, LitStr, parse::Parse, parse::ParseStream, Token, Ident, ExprArray, Expr};
-use base64::{Engine as _, engine::general_purpose};
 use std::path::PathBuf;
+use syn::{
+    parse::Parse, parse::ParseStream, parse_macro_input, DeriveInput, Expr, ExprArray, Ident,
+    LitStr, Token,
+};
 
 /// Parsed plugin attribute structure
 struct PluginAttr {
@@ -38,7 +41,7 @@ impl Parse for PluginAttr {
         while !input.is_empty() {
             let key: Ident = input.parse()?;
             input.parse::<Token![=]>()?;
-            
+
             if input.peek(LitStr) {
                 let val: LitStr = input.parse()?;
                 match key.to_string().as_str() {
@@ -53,13 +56,21 @@ impl Parse for PluginAttr {
                 }
             } else if input.peek(syn::token::Bracket) {
                 let content: ExprArray = input.parse()?;
-                let vals: Vec<String> = content.elems.iter().filter_map(|e| {
-                    if let Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = e {
-                        Some(s.value())
-                    } else {
-                        None
-                    }
-                }).collect();
+                let vals: Vec<String> = content
+                    .elems
+                    .iter()
+                    .filter_map(|e| {
+                        if let Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Str(s),
+                            ..
+                        }) = e
+                        {
+                            Some(s.value())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
 
                 match key.to_string().as_str() {
                     "permissions" => permissions = vals,
@@ -70,13 +81,26 @@ impl Parse for PluginAttr {
                     _ => {}
                 }
             }
-            
+
             if !input.is_empty() {
                 input.parse::<Token![,]>()?;
             }
         }
 
-        Ok(PluginAttr { name, category, service_type, description, version, icon, action_icon, config_keys, permissions, capabilities, tags, tools })
+        Ok(PluginAttr {
+            name,
+            category,
+            service_type,
+            description,
+            version,
+            icon,
+            action_icon,
+            config_keys,
+            permissions,
+            capabilities,
+            tags,
+            tools,
+        })
     }
 }
 
@@ -85,7 +109,7 @@ impl Parse for PluginAttr {
 pub fn exiv_plugin(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as DeriveInput);
     let attr = parse_macro_input!(attr as PluginAttr);
-    
+
     match emit_plugin_code(input, attr) {
         Ok(expanded) => TokenStream::from(expanded),
         Err(err) => err.to_compile_error().into(),
@@ -98,13 +122,22 @@ fn emit_plugin_code(input: DeriveInput, attr: PluginAttr) -> syn::Result<proc_ma
 
     // Early validation: check required fields (reduces compilation time on errors)
     if attr.name.is_empty() {
-        return Err(syn::Error::new_spanned(&input.ident, "Plugin 'name' is required"));
+        return Err(syn::Error::new_spanned(
+            &input.ident,
+            "Plugin 'name' is required",
+        ));
     }
     if attr.service_type.is_empty() {
-        return Err(syn::Error::new_spanned(&input.ident, "Plugin 'kind' (service_type) is required"));
+        return Err(syn::Error::new_spanned(
+            &input.ident,
+            "Plugin 'kind' (service_type) is required",
+        ));
     }
     if attr.description.is_empty() {
-        return Err(syn::Error::new_spanned(&input.ident, "Plugin 'description' is required"));
+        return Err(syn::Error::new_spanned(
+            &input.ident,
+            "Plugin 'description' is required",
+        ));
     }
 
     let factory_name = quote::format_ident!("{}Factory", name);
@@ -112,7 +145,7 @@ fn emit_plugin_code(input: DeriveInput, attr: PluginAttr) -> syn::Result<proc_ma
     let service_type_ident = quote::format_ident!("{}", attr.service_type);
     let description_str = &attr.description;
     let version_str = &attr.version;
-    
+
     let action_icon_token = match &attr.action_icon {
         Some(i) => quote! { Some(#i.to_string()) },
         None => quote! { None },
@@ -130,10 +163,14 @@ fn emit_plugin_code(input: DeriveInput, attr: PluginAttr) -> syn::Result<proc_ma
 
         if skip_embed {
             // Development mode: skip icon embedding (reduces build time)
-            eprintln!("⚡ Skipping icon embed for {} (EXIV_SKIP_ICON_EMBED=1)", plugin_name_str);
+            eprintln!(
+                "⚡ Skipping icon embed for {} (EXIV_SKIP_ICON_EMBED=1)",
+                plugin_name_str
+            );
             quote! { None }
         } else {
-            let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+            let manifest_dir =
+                std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
             let mut icon_path = PathBuf::from(manifest_dir);
             icon_path.push(icon_path_str);
 
@@ -143,17 +180,23 @@ fn emit_plugin_code(input: DeriveInput, attr: PluginAttr) -> syn::Result<proc_ma
                     if byte_count > 64 * 1024 {
                         return Err(syn::Error::new_spanned(
                             &input.ident,
-                            format!("🔌 Plugin Icon '{}' is too large ({} bytes). Limit is 64KB.", icon_path_str, byte_count)
+                            format!(
+                                "🔌 Plugin Icon '{}' is too large ({} bytes). Limit is 64KB.",
+                                icon_path_str, byte_count
+                            ),
                         ));
                     }
                     let base64_data = general_purpose::STANDARD.encode(bytes);
-                    eprintln!("🔌 Embedded icon for {} ({} bytes)", plugin_name_str, byte_count);
+                    eprintln!(
+                        "🔌 Embedded icon for {} ({} bytes)",
+                        plugin_name_str, byte_count
+                    );
                     quote! { Some(#base64_data.to_string()) }
                 }
                 Err(e) => {
                     return Err(syn::Error::new_spanned(
                         &input.ident,
-                        format!("🔌 Failed to read icon at '{}': {}", icon_path.display(), e)
+                        format!("🔌 Failed to read icon at '{}': {}", icon_path.display(), e),
                     ));
                 }
             }
@@ -206,7 +249,9 @@ fn emit_plugin_code(input: DeriveInput, attr: PluginAttr) -> syn::Result<proc_ma
         match attr.service_type.as_str() {
             "Reasoning" => quote! { exiv_shared::PluginCategory::Agent },
             "Memory" => quote! { exiv_shared::PluginCategory::Memory },
-            "Tool" | "HAL" | "Communication" | "Vision" | "Skill" | "Action" => quote! { exiv_shared::PluginCategory::Tool },
+            "Tool" | "HAL" | "Communication" | "Vision" | "Skill" | "Action" => {
+                quote! { exiv_shared::PluginCategory::Tool }
+            }
             _ => quote! { exiv_shared::PluginCategory::Other },
         }
     } else {

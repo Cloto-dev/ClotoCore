@@ -1,4 +1,4 @@
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use std::path::Path;
 use std::process::Command;
 use tracing::info;
@@ -11,7 +11,8 @@ pub fn install_service(prefix: &Path, _user: Option<&str>) -> anyhow::Result<()>
 
     let status = Command::new("sc.exe")
         .args([
-            "create", SERVICE_NAME,
+            "create",
+            SERVICE_NAME,
             &format!("binPath={}", exe_path.display()),
             "start=auto",
             "DisplayName=Exiv System",
@@ -92,7 +93,11 @@ pub fn set_executable_permission(_path: &Path) -> anyhow::Result<()> {
 
 /// Swap a running binary on Windows.
 /// Cannot rename a running .exe, so spawn a subprocess to do it after parent exits.
-pub fn swap_running_binary(new_path: &Path, current_path: &Path, _old_path: &Path) -> anyhow::Result<()> {
+pub fn swap_running_binary(
+    new_path: &Path,
+    current_path: &Path,
+    _old_path: &Path,
+) -> anyhow::Result<()> {
     let pid = std::process::id();
 
     // Spawn the new binary with swap-exe command to complete the swap
@@ -100,8 +105,10 @@ pub fn swap_running_binary(new_path: &Path, current_path: &Path, _old_path: &Pat
     Command::new(new_path)
         .args([
             "swap-exe",
-            "--target", &current_path.to_string_lossy(),
-            "--pid", &pid.to_string(),
+            "--target",
+            &current_path.to_string_lossy(),
+            "--pid",
+            &pid.to_string(),
         ])
         .spawn()
         .context("Failed to spawn swap-exe subprocess")?;
@@ -128,8 +135,7 @@ pub fn execute_swap(target: std::path::PathBuf, pid: u32) -> anyhow::Result<()> 
 
     eprintln!("Exiv swap-exe: parent exited, performing binary swap...");
 
-    let current_exe = std::env::current_exe()
-        .context("Cannot determine current exe path")?;
+    let current_exe = std::env::current_exe().context("Cannot determine current exe path")?;
 
     let old_path = target.with_extension("old.exe");
 
@@ -149,7 +155,9 @@ pub fn execute_swap(target: std::path::PathBuf, pid: u32) -> anyhow::Result<()> 
     eprintln!("Exiv swap-exe: binary updated. Restarting service...");
 
     // Try to restart the service
-    let _ = Command::new("sc.exe").args(["start", SERVICE_NAME]).status();
+    let _ = Command::new("sc.exe")
+        .args(["start", SERVICE_NAME])
+        .status();
 
     Ok(())
 }

@@ -5,7 +5,12 @@ use crate::PythonBridgePlugin;
 
 /// Low-level send without checking process (avoids recursion)
 // Bug #8: Changed id parameter from i64 to u64
-pub(crate) async fn send_raw(stdin: &mut tokio::process::ChildStdin, id: u64, method: &str, params: serde_json::Value) -> anyhow::Result<()> {
+pub(crate) async fn send_raw(
+    stdin: &mut tokio::process::ChildStdin,
+    id: u64,
+    method: &str,
+    params: serde_json::Value,
+) -> anyhow::Result<()> {
     let request = serde_json::json!({
         "id": id,
         "method": method,
@@ -22,7 +27,11 @@ impl PythonBridgePlugin {
     // M-18: Maximum pending calls to prevent unbounded resource consumption
     pub(crate) const MAX_PENDING_CALLS: usize = 50;
 
-    pub async fn call_python(&self, method: &str, params: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    pub async fn call_python(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
         self.ensure_process().await?;
 
         // C-02: Single write lock for registration + send to prevent deadlock
@@ -88,7 +97,10 @@ mod tests {
             let (tx, _rx) = tokio::sync::oneshot::channel();
             state.pending_calls.insert(i, tx);
         }
-        assert_eq!(state.pending_calls.len(), PythonBridgePlugin::MAX_PENDING_CALLS);
+        assert_eq!(
+            state.pending_calls.len(),
+            PythonBridgePlugin::MAX_PENDING_CALLS
+        );
         // Verify the check condition that call_python uses
         assert!(state.pending_calls.len() >= PythonBridgePlugin::MAX_PENDING_CALLS);
     }

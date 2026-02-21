@@ -1,12 +1,10 @@
 use async_trait::async_trait;
+use exiv_shared::{
+    exiv_plugin, llm, AgentMetadata, ExivMessage, NetworkCapability, Permission, Plugin,
+    PluginConfig, PluginRuntimeContext, ReasoningEngine, ThinkResult,
+};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use exiv_shared::{
-    AgentMetadata, Plugin, PluginConfig,
-    ReasoningEngine, ExivMessage, Permission, PluginRuntimeContext,
-    NetworkCapability, ThinkResult, exiv_plugin,
-    llm,
-};
 
 #[exiv_plugin(
     name = "mind.cerebras",
@@ -32,12 +30,22 @@ struct CerebrasState {
 
 impl CerebrasPlugin {
     pub async fn new_plugin(config: PluginConfig) -> anyhow::Result<Self> {
-        let api_key = config.config_values.get("api_key").cloned().unwrap_or_default();
+        let api_key = config
+            .config_values
+            .get("api_key")
+            .cloned()
+            .unwrap_or_default();
         if api_key.is_empty() {
-            tracing::warn!("⚠️  Cerebras plugin: No API key configured. Set 'api_key' in plugin config.");
+            tracing::warn!(
+                "⚠️  Cerebras plugin: No API key configured. Set 'api_key' in plugin config."
+            );
         }
-        let model_id = config.config_values.get("model_id").cloned().unwrap_or_else(|| "llama3.1-70b".to_string());
-        
+        let model_id = config
+            .config_values
+            .get("model_id")
+            .cloned()
+            .unwrap_or_else(|| "llama3.1-70b".to_string());
+
         Ok(Self {
             state: Arc::new(RwLock::new(CerebrasState {
                 api_key,
@@ -129,7 +137,9 @@ impl ReasoningEngine for CerebrasPlugin {
 
     // Cerebras API rejects JSON schema grammar in tool definitions (wrong_api_format).
     // Disable tool-calling until Cerebras supports our schema format.
-    fn supports_tools(&self) -> bool { false }
+    fn supports_tools(&self) -> bool {
+        false
+    }
 
     async fn think(
         &self,
@@ -142,7 +152,9 @@ impl ReasoningEngine for CerebrasPlugin {
             if state.api_key.is_empty() {
                 return Err(anyhow::anyhow!("Cerebras API Key not configured."));
             }
-            let client = state.http_client.clone()
+            let client = state
+                .http_client
+                .clone()
                 .ok_or_else(|| anyhow::anyhow!("NetworkCapability not injected."))?;
             (state.api_key.clone(), state.model_id.clone(), client)
         };
@@ -150,7 +162,10 @@ impl ReasoningEngine for CerebrasPlugin {
         let messages = llm::build_chat_messages(agent, message, &context);
         let req = llm::build_chat_request(
             "https://api.cerebras.ai/v1/chat/completions",
-            &api_key, &model_id, messages, None,
+            &api_key,
+            &model_id,
+            messages,
+            None,
         );
         let resp = client.send_http_request(req).await?;
         llm::parse_chat_content(&resp.body, "Cerebras")
@@ -169,7 +184,9 @@ impl ReasoningEngine for CerebrasPlugin {
             if state.api_key.is_empty() {
                 return Err(anyhow::anyhow!("Cerebras API Key not configured."));
             }
-            let client = state.http_client.clone()
+            let client = state
+                .http_client
+                .clone()
                 .ok_or_else(|| anyhow::anyhow!("NetworkCapability not injected."))?;
             (state.api_key.clone(), state.model_id.clone(), client)
         };
@@ -180,7 +197,10 @@ impl ReasoningEngine for CerebrasPlugin {
         }
         let req = llm::build_chat_request(
             "https://api.cerebras.ai/v1/chat/completions",
-            &api_key, &model_id, messages, Some(tools),
+            &api_key,
+            &model_id,
+            messages,
+            Some(tools),
         );
         let resp = client.send_http_request(req).await?;
         llm::parse_chat_think_result(&resp.body, "Cerebras")

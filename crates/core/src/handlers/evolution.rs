@@ -2,24 +2,27 @@
 
 use axum::{
     extract::{Path, Query, State},
-    Json,
     http::HeaderMap,
+    Json,
 };
 use serde::Deserialize;
 use std::sync::Arc;
 use tracing::info;
 
-use crate::{AppState, AppResult, AppError, EnvelopedEvent};
-use crate::evolution::{EvolutionParams, FitnessScores, AgentSnapshot, AutonomyLevel};
+use crate::evolution::{AgentSnapshot, AutonomyLevel, EvolutionParams, FitnessScores};
+use crate::{AppError, AppResult, AppState, EnvelopedEvent};
 
 fn get_engine(state: &AppState) -> AppResult<&Arc<crate::evolution::EvolutionEngine>> {
-    state.evolution_engine.as_ref()
+    state
+        .evolution_engine
+        .as_ref()
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("Evolution engine not initialized")))
 }
 
 fn to_json<T: serde::Serialize>(value: &T) -> AppResult<Json<serde_json::Value>> {
-    Ok(Json(serde_json::to_value(value)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Serialization failed: {}", e)))?))
+    Ok(Json(serde_json::to_value(value).map_err(|e| {
+        AppError::Internal(anyhow::anyhow!("Serialization failed: {}", e))
+    })?))
 }
 
 #[derive(Deserialize)]
@@ -33,8 +36,7 @@ pub async fn get_evolution_status(
 ) -> AppResult<Json<serde_json::Value>> {
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
-    let status = evo.get_status(agent_id).await
-        .map_err(AppError::Internal)?;
+    let status = evo.get_status(agent_id).await.map_err(AppError::Internal)?;
     to_json(&status)
 }
 
@@ -46,7 +48,9 @@ pub async fn get_generation_history(
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
     let limit = query.limit.unwrap_or(50).min(500);
-    let history = evo.get_generation_history(agent_id, limit).await
+    let history = evo
+        .get_generation_history(agent_id, limit)
+        .await
         .map_err(AppError::Internal)?;
     to_json(&history)
 }
@@ -58,7 +62,9 @@ pub async fn get_generation(
 ) -> AppResult<Json<serde_json::Value>> {
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
-    let record = evo.get_generation(agent_id, n).await
+    let record = evo
+        .get_generation(agent_id, n)
+        .await
         .map_err(AppError::Internal)?;
     match record {
         Some(r) => to_json(&r),
@@ -74,7 +80,9 @@ pub async fn get_fitness_timeline(
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
     let limit = query.limit.unwrap_or(100).min(1000);
-    let timeline = evo.get_fitness_timeline(agent_id, limit).await
+    let timeline = evo
+        .get_fitness_timeline(agent_id, limit)
+        .await
         .map_err(AppError::Internal)?;
     to_json(&timeline)
 }
@@ -85,8 +93,7 @@ pub async fn get_evolution_params(
 ) -> AppResult<Json<serde_json::Value>> {
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
-    let params = evo.get_params(agent_id).await
-        .map_err(AppError::Internal)?;
+    let params = evo.get_params(agent_id).await.map_err(AppError::Internal)?;
     to_json(&params)
 }
 
@@ -100,51 +107,78 @@ pub async fn update_evolution_params(
 
     // Validate params (NaN/Inf are rejected by is_finite checks)
     if !params.alpha.is_finite() || params.alpha <= 0.0 || params.alpha > 1.0 {
-        return Err(AppError::Validation("alpha must be in (0.0, 1.0] and finite".to_string()));
+        return Err(AppError::Validation(
+            "alpha must be in (0.0, 1.0] and finite".to_string(),
+        ));
     }
     if !params.beta.is_finite() || params.beta <= 0.0 || params.beta > 1.0 {
-        return Err(AppError::Validation("beta must be in (0.0, 1.0] and finite".to_string()));
+        return Err(AppError::Validation(
+            "beta must be in (0.0, 1.0] and finite".to_string(),
+        ));
     }
     if !params.theta_min.is_finite() || params.theta_min < 0.0 || params.theta_min > 1.0 {
-        return Err(AppError::Validation("theta_min must be in [0.0, 1.0] and finite".to_string()));
+        return Err(AppError::Validation(
+            "theta_min must be in [0.0, 1.0] and finite".to_string(),
+        ));
     }
     if !params.gamma.is_finite() || params.gamma < 0.0 || params.gamma > 1.0 {
-        return Err(AppError::Validation("gamma must be in [0.0, 1.0] and finite".to_string()));
+        return Err(AppError::Validation(
+            "gamma must be in [0.0, 1.0] and finite".to_string(),
+        ));
     }
     if params.min_interactions == 0 {
-        return Err(AppError::Validation("min_interactions must be > 0".to_string()));
+        return Err(AppError::Validation(
+            "min_interactions must be > 0".to_string(),
+        ));
     }
     let w = &params.weights;
-    let all_weights = [w.cognitive, w.behavioral, w.safety, w.autonomy, w.meta_learning];
+    let all_weights = [
+        w.cognitive,
+        w.behavioral,
+        w.safety,
+        w.autonomy,
+        w.meta_learning,
+    ];
     if all_weights.iter().any(|v| !v.is_finite()) {
-        return Err(AppError::Validation("all weights must be finite numbers".to_string()));
+        return Err(AppError::Validation(
+            "all weights must be finite numbers".to_string(),
+        ));
     }
     if all_weights.iter().any(|v| *v < 0.0) {
-        return Err(AppError::Validation("all weights must be non-negative".to_string()));
+        return Err(AppError::Validation(
+            "all weights must be non-negative".to_string(),
+        ));
     }
     let weight_sum = w.cognitive + w.behavioral + w.safety + w.autonomy + w.meta_learning;
     if (weight_sum - 1.0).abs() > 0.01 {
-        return Err(AppError::Validation(format!("weights must sum to ~1.0 (got {:.4})", weight_sum)));
+        return Err(AppError::Validation(format!(
+            "weights must sum to ~1.0 (got {:.4})",
+            weight_sum
+        )));
     }
 
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
-    evo.set_params(agent_id, &params).await
+    evo.set_params(agent_id, &params)
+        .await
         .map_err(AppError::Internal)?;
 
     info!(agent_id = %agent_id, "Evolution parameters updated via API");
 
-    crate::db::spawn_audit_log(state.pool.clone(), crate::db::AuditLogEntry {
-        timestamp: chrono::Utc::now(),
-        event_type: "EVOLUTION_PARAMS_UPDATED".to_string(),
-        actor_id: Some("admin".to_string()), // TODO: extract from auth token when auth system supports user identification
-        target_id: Some(agent_id.clone()),
-        permission: None,
-        result: "SUCCESS".to_string(),
-        reason: "Evolution parameters updated via dashboard".to_string(),
-        metadata: serde_json::to_value(&params).ok(),
-        trace_id: None,
-    });
+    crate::db::spawn_audit_log(
+        state.pool.clone(),
+        crate::db::AuditLogEntry {
+            timestamp: chrono::Utc::now(),
+            event_type: "EVOLUTION_PARAMS_UPDATED".to_string(),
+            actor_id: Some("admin".to_string()), // TODO: extract from auth token when auth system supports user identification
+            target_id: Some(agent_id.clone()),
+            permission: None,
+            result: "SUCCESS".to_string(),
+            reason: "Evolution parameters updated via dashboard".to_string(),
+            metadata: serde_json::to_value(&params).ok(),
+            trace_id: None,
+        },
+    );
 
     Ok(Json(serde_json::json!({ "status": "success" })))
 }
@@ -155,7 +189,9 @@ pub async fn get_rollback_history(
 ) -> AppResult<Json<serde_json::Value>> {
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
-    let history = evo.get_rollback_history(agent_id).await
+    let history = evo
+        .get_rollback_history(agent_id)
+        .await
         .map_err(AppError::Internal)?;
     to_json(&history)
 }
@@ -199,9 +235,10 @@ pub async fn evaluate_agent(
         ("meta_learning", req.scores.meta_learning),
     ] {
         if !val.is_finite() || !(0.0..=1.0).contains(&val) {
-            return Err(AppError::Validation(
-                format!("{} must be in [0.0, 1.0] and finite, got {}", name, val),
-            ));
+            return Err(AppError::Validation(format!(
+                "{} must be in [0.0, 1.0] and finite, got {}",
+                name, val
+            )));
         }
     }
 
@@ -221,13 +258,16 @@ pub async fn evaluate_agent(
     let evo = get_engine(&state)?;
     let agent_id = &state.config.default_agent_id;
 
-    let events = evo.evaluate(agent_id, scores, snapshot).await
+    let events = evo
+        .evaluate(agent_id, scores, snapshot)
+        .await
         .map_err(AppError::Internal)?;
 
     // Dispatch events to the event bus for SSE subscribers
-    let event_summaries: Vec<serde_json::Value> = events.iter().map(|e| {
-        serde_json::to_value(e).unwrap_or_default()
-    }).collect();
+    let event_summaries: Vec<serde_json::Value> = events
+        .iter()
+        .map(|e| serde_json::to_value(e).unwrap_or_default())
+        .collect();
 
     for event_data in events {
         let envelope = EnvelopedEvent::system(event_data);

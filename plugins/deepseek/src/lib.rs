@@ -1,13 +1,14 @@
 use async_trait::async_trait;
-use std::any::Any;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-use tokio::sync::RwLock;
 use exiv_shared::{
-    AgentMetadata, Plugin, PluginConfig,
-    ReasoningEngine, ExivMessage, Permission, PluginRuntimeContext,
-    NetworkCapability, ThinkResult, exiv_plugin,
-    llm,
+    exiv_plugin, llm, AgentMetadata, ExivMessage, NetworkCapability, Permission, Plugin,
+    PluginConfig, PluginRuntimeContext, ReasoningEngine, ThinkResult,
 };
+use std::any::Any;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use tokio::sync::RwLock;
 
 #[exiv_plugin(
     name = "mind.deepseek",
@@ -43,12 +44,26 @@ impl DeepSeekPlugin {
     }
 
     pub async fn new_plugin(config: PluginConfig) -> anyhow::Result<Self> {
-        let api_key = config.config_values.get("api_key").cloned().unwrap_or_default();
+        let api_key = config
+            .config_values
+            .get("api_key")
+            .cloned()
+            .unwrap_or_default();
         if api_key.is_empty() {
-            tracing::warn!("⚠️  DeepSeek plugin: No API key configured. Set 'api_key' in plugin config.");
+            tracing::warn!(
+                "⚠️  DeepSeek plugin: No API key configured. Set 'api_key' in plugin config."
+            );
         }
-        let model_id = config.config_values.get("model_id").cloned().unwrap_or_else(|| "deepseek-chat".to_string());
-        let api_url = config.config_values.get("api_url").cloned().unwrap_or_else(|| "https://api.deepseek.com/chat/completions".to_string());
+        let model_id = config
+            .config_values
+            .get("model_id")
+            .cloned()
+            .unwrap_or_else(|| "deepseek-chat".to_string());
+        let api_url = config
+            .config_values
+            .get("api_url")
+            .cloned()
+            .unwrap_or_else(|| "https://api.deepseek.com/chat/completions".to_string());
         let supports = Self::model_supports_tools(&model_id);
 
         Ok(Self {
@@ -78,7 +93,7 @@ impl Plugin for DeepSeekPlugin {
         if network.is_none() {
             tracing::warn!("🔌 DeepSeek Plugin: NetworkCapability NOT provided. API calls will fail until permission is granted.");
         }
-        
+
         let mut state = self.state.write().await;
         state.allowed_permissions = context.effective_permissions;
         state.http_client = network;
@@ -115,7 +130,8 @@ impl Plugin for DeepSeekPlugin {
                     }
                     if let Some(model) = config.get("model_id") {
                         state.model_id = model.clone();
-                        self.tool_support.store(Self::model_supports_tools(model), Ordering::Relaxed);
+                        self.tool_support
+                            .store(Self::model_supports_tools(model), Ordering::Relaxed);
                     }
                     if let Some(url) = config.get("api_url") {
                         state.api_url = url.clone();
@@ -168,7 +184,9 @@ impl ReasoningEngine for DeepSeekPlugin {
     }
 
     // deepseek-reasoner (R1) rejects tool schemas; flag is set per-model at init/hot-reload.
-    fn supports_tools(&self) -> bool { self.tool_support.load(Ordering::Relaxed) }
+    fn supports_tools(&self) -> bool {
+        self.tool_support.load(Ordering::Relaxed)
+    }
 
     async fn think(
         &self,
@@ -181,9 +199,16 @@ impl ReasoningEngine for DeepSeekPlugin {
             if state.api_key.is_empty() {
                 return Err(anyhow::anyhow!("DeepSeek API Key not configured."));
             }
-            let client = state.http_client.clone()
+            let client = state
+                .http_client
+                .clone()
                 .ok_or_else(|| anyhow::anyhow!("NetworkCapability not injected."))?;
-            (state.api_key.clone(), state.model_id.clone(), state.api_url.clone(), client)
+            (
+                state.api_key.clone(),
+                state.model_id.clone(),
+                state.api_url.clone(),
+                client,
+            )
         };
 
         let messages = llm::build_chat_messages(agent, message, &context);
@@ -205,9 +230,16 @@ impl ReasoningEngine for DeepSeekPlugin {
             if state.api_key.is_empty() {
                 return Err(anyhow::anyhow!("DeepSeek API Key not configured."));
             }
-            let client = state.http_client.clone()
+            let client = state
+                .http_client
+                .clone()
                 .ok_or_else(|| anyhow::anyhow!("NetworkCapability not injected."))?;
-            (state.api_key.clone(), state.model_id.clone(), state.api_url.clone(), client)
+            (
+                state.api_key.clone(),
+                state.model_id.clone(),
+                state.api_url.clone(),
+                client,
+            )
         };
 
         let mut messages = llm::build_chat_messages(agent, message, &context);

@@ -1,16 +1,15 @@
-mod state;
 mod config;
-mod process;
 mod ipc;
+mod process;
+mod state;
 
 use async_trait::async_trait;
+use exiv_shared::{
+    exiv_plugin, AgentMetadata, ExivMessage, NetworkCapability, Plugin, PluginRuntimeContext,
+    ReasoningEngine, Tool,
+};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use exiv_shared::{
-    AgentMetadata, Plugin, PluginRuntimeContext,
-    ReasoningEngine, ExivMessage,
-    exiv_plugin, NetworkCapability, Tool
-};
 use tracing::info;
 
 use state::PythonBridgeState;
@@ -63,18 +62,37 @@ impl Plugin for PythonBridgePlugin {
 
         // 🐍 Perform handshake immediately to load dynamic manifest
         if let Err(e) = self.ensure_process().await {
-            tracing::error!("❌ Python Bridge: Failed to initialize subprocess for {}: {}", self.instance_id, e);
+            tracing::error!(
+                "❌ Python Bridge: Failed to initialize subprocess for {}: {}",
+                self.instance_id,
+                e
+            );
         } else {
-            info!("🐍 Python Bridge: Subprocess handshake complete for {}", self.instance_id);
+            info!(
+                "🐍 Python Bridge: Subprocess handshake complete for {}",
+                self.instance_id
+            );
         }
 
         Ok(())
     }
 
-    async fn on_event(&self, event: &exiv_shared::ExivEvent) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
-        if let exiv_shared::ExivEventData::ThoughtRequested { agent, engine_id, message, context } = &event.data {
+    async fn on_event(
+        &self,
+        event: &exiv_shared::ExivEvent,
+    ) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
+        if let exiv_shared::ExivEventData::ThoughtRequested {
+            agent,
+            engine_id,
+            message,
+            context,
+        } = &event.data
+        {
             let manifest = self.manifest();
-            if engine_id != &self.instance_id && engine_id != "bridge.python" && engine_id != &manifest.id {
+            if engine_id != &self.instance_id
+                && engine_id != "bridge.python"
+                && engine_id != &manifest.id
+            {
                 return Ok(None);
             }
             let content = self.think(agent, message, context.clone()).await?;
@@ -99,40 +117,51 @@ impl exiv_shared::WebPlugin for PythonBridgePlugin {
 
         router.route(
             &format!("/api/plugin/{}/action/:command", instance_id),
-            axum::routing::post(move |
-                uri: axum::http::Uri,
-                body: Option<axum::Json<serde_json::Value>>
-            | {
-                let plugin = plugin.clone();
-                let body_val = body.map(|b| b.0).unwrap_or(serde_json::Value::Null);
-                async move {
-                    // Extract command from URI to avoid Path extractor conflict
-                    // with outer router's wildcard parameter
-                    let command = uri.path()
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or("unknown")
-                        .to_string();
-                    match plugin.call_python(&format!("on_action_{}", command), body_val).await {
-                        Ok(res) => axum::Json(res),
-                        Err(e) => {
-                            tracing::error!("❌ Python Bridge Action Error: {}", e);
-                            axum::Json(serde_json::json!({ "error": e.to_string() }))
+            axum::routing::post(
+                move |uri: axum::http::Uri, body: Option<axum::Json<serde_json::Value>>| {
+                    let plugin = plugin.clone();
+                    let body_val = body.map(|b| b.0).unwrap_or(serde_json::Value::Null);
+                    async move {
+                        // Extract command from URI to avoid Path extractor conflict
+                        // with outer router's wildcard parameter
+                        let command = uri
+                            .path()
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or("unknown")
+                            .to_string();
+                        match plugin
+                            .call_python(&format!("on_action_{}", command), body_val)
+                            .await
+                        {
+                            Ok(res) => axum::Json(res),
+                            Err(e) => {
+                                tracing::error!("❌ Python Bridge Action Error: {}", e);
+                                axum::Json(serde_json::json!({ "error": e.to_string() }))
+                            }
                         }
                     }
-                }
-            }),
+                },
+            ),
         )
     }
 }
 
 #[async_trait]
 impl ReasoningEngine for PythonBridgePlugin {
-    fn name(&self) -> &str { "PythonSubprocessBridge" }
-    async fn think(&self, agent: &AgentMetadata, message: &ExivMessage, context: Vec<ExivMessage>) -> anyhow::Result<String> {
+    fn name(&self) -> &str {
+        "PythonSubprocessBridge"
+    }
+    async fn think(
+        &self,
+        agent: &AgentMetadata,
+        message: &ExivMessage,
+        context: Vec<ExivMessage>,
+    ) -> anyhow::Result<String> {
         let params = serde_json::json!({ "agent": agent, "message": message, "context": context });
         let result = self.call_python("think", params).await?;
-        let content = result.as_str()
+        let content = result
+            .as_str()
             .ok_or_else(|| anyhow::anyhow!("Python think() returned non-string: {}", result))?
             .to_string();
         Ok(content)
@@ -142,14 +171,22 @@ impl ReasoningEngine for PythonBridgePlugin {
 #[async_trait]
 impl Tool for PythonBridgePlugin {
     fn name(&self) -> &str {
-        self.tool_name.get().map(|s| s.as_str()).unwrap_or("PythonBridgeTool")
+        self.tool_name
+            .get()
+            .map(|s| s.as_str())
+            .unwrap_or("PythonBridgeTool")
     }
     fn description(&self) -> &str {
-        self.tool_description.get().map(|s| s.as_str())
+        self.tool_description
+            .get()
+            .map(|s| s.as_str())
             .unwrap_or("Delegates tool execution to Python script.")
     }
     fn parameters_schema(&self) -> serde_json::Value {
-        self.tool_schema.get().cloned().unwrap_or_else(|| serde_json::json!({}))
+        self.tool_schema
+            .get()
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}))
     }
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         self.call_python("execute", args).await
@@ -182,13 +219,17 @@ mod tests {
         {
             let mut state = plugin.state.write().await;
             state.restart_count = PythonBridgePlugin::MAX_RESTART_ATTEMPTS;
-            state.last_restart = Some(std::time::Instant::now() - std::time::Duration::from_secs(60));
+            state.last_restart =
+                Some(std::time::Instant::now() - std::time::Duration::from_secs(60));
         }
 
         // Next ensure_process should fail due to max attempts
         let result = plugin.ensure_process().await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Max restart attempts"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Max restart attempts"));
     }
 
     #[tokio::test]
@@ -213,15 +254,23 @@ mod tests {
         let plugin = test_plugin("test.tool");
         // Default when OnceLock is unset
         assert_eq!(Tool::name(&plugin), "PythonBridgeTool");
-        assert_eq!(Tool::description(&plugin), "Delegates tool execution to Python script.");
+        assert_eq!(
+            Tool::description(&plugin),
+            "Delegates tool execution to Python script."
+        );
         assert_eq!(plugin.parameters_schema(), serde_json::json!({}));
         // After setting OnceLock
         let _ = plugin.tool_name.set("custom_tool".to_string());
         let _ = plugin.tool_description.set("A custom tool".to_string());
-        let _ = plugin.tool_schema.set(serde_json::json!({"type": "object"}));
+        let _ = plugin
+            .tool_schema
+            .set(serde_json::json!({"type": "object"}));
         assert_eq!(Tool::name(&plugin), "custom_tool");
         assert_eq!(Tool::description(&plugin), "A custom tool");
-        assert_eq!(plugin.parameters_schema(), serde_json::json!({"type": "object"}));
+        assert_eq!(
+            plugin.parameters_schema(),
+            serde_json::json!({"type": "object"})
+        );
     }
 
     #[tokio::test]

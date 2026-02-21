@@ -1,16 +1,16 @@
 use axum::{
+    body::Bytes,
     extract::{Path, Query, State},
     http::HeaderMap,
-    Json,
-    body::Bytes,
     response::IntoResponse,
+    Json,
 };
 use serde::Deserialize;
 use std::sync::Arc;
 use tracing::error;
 
-use crate::{AppState, AppResult, AppError};
-use crate::db::{self, ChatMessageRow, AttachmentRow};
+use crate::db::{self, AttachmentRow, ChatMessageRow};
+use crate::{AppError, AppResult, AppState};
 
 #[derive(Deserialize)]
 pub struct GetMessagesQuery {
@@ -38,7 +38,8 @@ pub async fn get_messages(
         user_id,
         params.before,
         limit + 1, // fetch one extra to determine has_more
-    ).await?;
+    )
+    .await?;
 
     let has_more = messages.len() as i64 > limit;
     let messages: Vec<ChatMessageRow> = messages.into_iter().take(limit as usize).collect();
@@ -53,7 +54,7 @@ pub async fn get_messages(
 pub struct PostMessageRequest {
     pub id: String,
     pub source: String,
-    pub content: serde_json::Value,   // ContentBlock[] as opaque JSON
+    pub content: serde_json::Value, // ContentBlock[] as opaque JSON
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -83,9 +84,16 @@ pub async fn post_message(
 
     // M-3: Limit content array length to prevent abuse
     const MAX_CONTENT_ITEMS: usize = 20;
-    if payload.content.as_array().is_some_and(|a| a.len() > MAX_CONTENT_ITEMS) {
+    if payload
+        .content
+        .as_array()
+        .is_some_and(|a| a.len() > MAX_CONTENT_ITEMS)
+    {
         return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
-            format!("content array exceeds maximum of {} items", MAX_CONTENT_ITEMS),
+            format!(
+                "content array exceeds maximum of {} items",
+                MAX_CONTENT_ITEMS
+            ),
         )));
     }
 
@@ -117,21 +125,31 @@ pub async fn post_message(
                             let mime_type = mime_info.trim_end_matches(";base64").to_string();
                             // M-2: Only allow known-safe MIME types
                             const ALLOWED_MIME_TYPES: &[&str] = &[
-                                "image/png", "image/jpeg", "image/jpg", "image/gif",
-                                "image/webp", "image/svg+xml",
+                                "image/png",
+                                "image/jpeg",
+                                "image/jpg",
+                                "image/gif",
+                                "image/webp",
+                                "image/svg+xml",
                             ];
                             if !ALLOWED_MIME_TYPES.contains(&mime_type.as_str()) {
-                                tracing::warn!("Rejected attachment with disallowed MIME type: {}", mime_type);
+                                tracing::warn!(
+                                    "Rejected attachment with disallowed MIME type: {}",
+                                    mime_type
+                                );
                                 continue;
                             }
-                            let decoded = if let Ok(d) = base64_decode(base64_data) { d } else {
+                            let decoded = if let Ok(d) = base64_decode(base64_data) {
+                                d
+                            } else {
                                 tracing::warn!("Invalid base64 data in attachment, skipping");
                                 continue;
                             };
                             {
                                 let att_id = uuid::Uuid::new_v4().to_string();
                                 let size = decoded.len() as i64;
-                                let filename = format!("image_{}.{}", &att_id[..8], mime_to_ext(&mime_type));
+                                let filename =
+                                    format!("image_{}.{}", &att_id[..8], mime_to_ext(&mime_type));
 
                                 let (storage_type, inline_data, disk_path) = if size <= 65536 {
                                     // <=64KB: store inline
@@ -212,13 +230,14 @@ pub async fn get_attachment(
 ) -> AppResult<impl IntoResponse> {
     super::check_auth(&state, &headers)?;
 
-    let att = db::get_attachment_by_id(&state.pool, &attachment_id).await?
+    let att = db::get_attachment_by_id(&state.pool, &attachment_id)
+        .await?
         .ok_or_else(|| AppError::NotFound("Attachment not found".to_string()))?;
 
     let data = match att.storage_type.as_str() {
-        "inline" => att.inline_data.ok_or_else(|| {
-            AppError::Internal(anyhow::anyhow!("Inline attachment has no data"))
-        })?,
+        "inline" => att
+            .inline_data
+            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("Inline attachment has no data")))?,
         "disk" => {
             let path = att.disk_path.ok_or_else(|| {
                 AppError::Internal(anyhow::anyhow!("Disk attachment has no path"))
@@ -232,8 +251,14 @@ pub async fn get_attachment(
 
     let headers = [
         (axum::http::header::CONTENT_TYPE, att.mime_type.clone()),
-        (axum::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable".to_string()),
-        (axum::http::header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", att.filename)),
+        (
+            axum::http::header::CACHE_CONTROL,
+            "public, max-age=31536000, immutable".to_string(),
+        ),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", att.filename),
+        ),
     ];
 
     Ok((headers, Bytes::from(data)))

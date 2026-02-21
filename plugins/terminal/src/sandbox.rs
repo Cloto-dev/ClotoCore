@@ -63,8 +63,10 @@ pub fn validate_command(command: &str, allowlist: &Option<Vec<String>>) -> Resul
     let command = command.nfkc().collect::<String>();
 
     // C-02: Block embedded newlines/carriage returns and Unicode line separators
-    if command.contains('\n') || command.contains('\r')
-        || command.contains('\u{2028}') || command.contains('\u{2029}')
+    if command.contains('\n')
+        || command.contains('\r')
+        || command.contains('\u{2028}')
+        || command.contains('\u{2029}')
     {
         bail!("Command contains embedded newline or line separator (potential injection)");
     }
@@ -93,9 +95,9 @@ pub fn validate_command(command: &str, allowlist: &Option<Vec<String>>) -> Resul
         let has_recursive = tokens.iter().any(|t| {
             t.starts_with('-') && !t.starts_with("--") && (t.contains('r') || t.contains('R'))
         });
-        let has_force = tokens.iter().any(|t| {
-            t.starts_with('-') && !t.starts_with("--") && t.contains('f')
-        });
+        let has_force = tokens
+            .iter()
+            .any(|t| t.starts_with('-') && !t.starts_with("--") && t.contains('f'));
         if has_recursive && has_force {
             bail!("Command contains dangerous rm flags (-r and -f)");
         }
@@ -107,7 +109,8 @@ pub fn validate_command(command: &str, allowlist: &Option<Vec<String>>) -> Resul
         if !allowed.iter().any(|a| a == first_word) {
             bail!(
                 "Command '{}' is not in the allowlist. Allowed: {:?}",
-                first_word, allowed
+                first_word,
+                allowed
             );
         }
     }
@@ -140,7 +143,11 @@ mod tests {
 
     #[test]
     fn test_allowlist() {
-        let allow = Some(vec!["ls".to_string(), "cat".to_string(), "echo".to_string()]);
+        let allow = Some(vec![
+            "ls".to_string(),
+            "cat".to_string(),
+            "echo".to_string(),
+        ]);
         assert!(validate_command("ls -la", &allow).is_ok());
         assert!(validate_command("cat file.txt", &allow).is_ok());
         assert!(validate_command("rm file.txt", &allow).is_err());
@@ -188,7 +195,9 @@ mod tests {
 
     #[test]
     fn test_script_execution_blocked() {
-        assert!(validate_command("python3 -c 'import os; os.system(\"rm -rf /\")'", &None).is_err());
+        assert!(
+            validate_command("python3 -c 'import os; os.system(\"rm -rf /\")'", &None).is_err()
+        );
         assert!(validate_command("perl -e 'system(\"rm -rf /\")'", &None).is_err());
         assert!(validate_command("node -e 'require(\"child_process\")'", &None).is_err());
         assert!(validate_command("ruby -e 'system(\"whoami\")'", &None).is_err());

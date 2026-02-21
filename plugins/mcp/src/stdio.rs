@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
@@ -6,14 +6,7 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 /// Allowed commands for MCP server execution (security whitelist)
-const ALLOWED_COMMANDS: &[&str] = &[
-    "npx",
-    "node",
-    "python",
-    "python3",
-    "deno",
-    "bun",
-];
+const ALLOWED_COMMANDS: &[&str] = &["npx", "node", "python", "python3", "deno", "bun"];
 
 /// Validate command against whitelist (bare command names only, no paths)
 fn validate_command(command: &str) -> Result<String> {
@@ -47,8 +40,7 @@ impl StdioTransport {
         info!("🔌 Starting MCP Server: {} {:?}", command, args);
 
         // Security: Validate command against whitelist
-        let validated_command = validate_command(command)
-            .context("Command validation failed")?;
+        let validated_command = validate_command(command).context("Command validation failed")?;
 
         let mut child = Command::new(validated_command)
             .args(args)
@@ -110,7 +102,10 @@ impl StdioTransport {
     }
 
     pub async fn send(&self, msg: String) -> Result<()> {
-        self.request_tx.send(msg).await.context("Failed to send message to transport task")
+        self.request_tx
+            .send(msg)
+            .await
+            .context("Failed to send message to transport task")
     }
 
     pub async fn recv(&mut self) -> Option<String> {

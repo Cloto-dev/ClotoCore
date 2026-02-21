@@ -1,13 +1,11 @@
-use std::sync::Arc;
-use std::collections::HashMap;
 use sqlx::SqlitePool;
-use tracing::{info, error, debug};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tracing::{debug, error, info};
 
-use exiv_shared::{
-    PluginConfig, PluginFactory, ExivId, Permission, PluginRuntimeContext
-};
-use crate::capabilities::SafeHttpClient;
 use super::registry::{PluginRegistry, PluginSetting};
+use crate::capabilities::SafeHttpClient;
+use exiv_shared::{ExivId, Permission, PluginConfig, PluginFactory, PluginRuntimeContext};
 
 /// L-01: Named constant for the official SDK magic seal value
 const OFFICIAL_SDK_MAGIC: u32 = 0x56455253; // "VERS" in ASCII
@@ -25,7 +23,12 @@ pub struct PluginManager {
 }
 
 impl PluginManager {
-    pub fn new(pool: SqlitePool, allowed_hosts: Vec<String>, event_timeout_secs: u64, max_event_depth: u8) -> anyhow::Result<Self> {
+    pub fn new(
+        pool: SqlitePool,
+        allowed_hosts: Vec<String>,
+        event_timeout_secs: u64,
+        max_event_depth: u8,
+    ) -> anyhow::Result<Self> {
         Ok(Self {
             pool: pool.clone(),
             factories: HashMap::new(),
@@ -75,12 +78,18 @@ impl PluginManager {
 
         // Inject API keys from environment variables at runtime (never persisted to DB)
         if let Ok(key) = std::env::var("DEEPSEEK_API_KEY") {
-            config_map.entry("mind.deepseek".to_string()).or_default()
-                .entry("api_key".to_string()).or_insert(key);
+            config_map
+                .entry("mind.deepseek".to_string())
+                .or_default()
+                .entry("api_key".to_string())
+                .or_insert(key);
         }
         if let Ok(key) = std::env::var("CEREBRAS_API_KEY") {
-            config_map.entry("mind.cerebras".to_string()).or_default()
-                .entry("api_key".to_string()).or_insert(key);
+            config_map
+                .entry("mind.cerebras".to_string())
+                .or_default()
+                .entry("api_key".to_string())
+                .or_insert(key);
         }
 
         // M-11: Track failed plugins for summary reporting
@@ -89,7 +98,10 @@ impl PluginManager {
             let pid = setting.plugin_id.clone();
             let config_values = config_map.remove(&pid).unwrap_or_default();
 
-            if let Err(e) = self.bootstrap_plugin(setting, config_values, &mut registry).await {
+            if let Err(e) = self
+                .bootstrap_plugin(setting, config_values, &mut registry)
+                .await
+            {
                 error!(plugin_id = %pid, error = %e, "❌ Failed to bootstrap plugin");
                 failed_plugins.push(pid);
             }
@@ -107,16 +119,19 @@ impl PluginManager {
         Ok(registry)
     }
 
-    async fn fetch_plugin_configs(&self) -> anyhow::Result<(Vec<PluginSetting>, HashMap<String, HashMap<String, String>>)> {
+    async fn fetch_plugin_configs(
+        &self,
+    ) -> anyhow::Result<(Vec<PluginSetting>, HashMap<String, HashMap<String, String>>)> {
         let settings: Vec<PluginSetting> =
             sqlx::query_as("SELECT plugin_id, is_active, allowed_permissions FROM plugin_settings WHERE is_active = 1")
                 .fetch_all(&self.pool)
                 .await?;
 
-        let config_rows: Vec<(String, String, String)> =
-            sqlx::query_as("SELECT plugin_id, config_key, config_value FROM plugin_configs LIMIT 10000")
-                .fetch_all(&self.pool)
-                .await?;
+        let config_rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT plugin_id, config_key, config_value FROM plugin_configs LIMIT 10000",
+        )
+        .fetch_all(&self.pool)
+        .await?;
 
         let mut config_map: HashMap<String, HashMap<String, String>> = HashMap::new();
         for (pid, k, v) in config_rows {
@@ -135,16 +150,23 @@ impl PluginManager {
         let plugin_id_str = &setting.plugin_id;
 
         // 🔍 Factory lookup with fallback for Python plugins (Principle #2: Capability over Type)
-        let factory = self.factories.get(plugin_id_str)
+        let factory = self
+            .factories
+            .get(plugin_id_str)
             .or_else(|| {
                 if plugin_id_str.starts_with("python.") {
-                    debug!("Fallback: Using 'bridge.python' factory for plugin ID '{}'", plugin_id_str);
+                    debug!(
+                        "Fallback: Using 'bridge.python' factory for plugin ID '{}'",
+                        plugin_id_str
+                    );
                     self.factories.get("bridge.python")
                 } else {
                     None
                 }
             })
-            .ok_or_else(|| anyhow::anyhow!("No factory found for enabled plugin: {}", plugin_id_str))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("No factory found for enabled plugin: {}", plugin_id_str)
+            })?;
 
         let config = PluginConfig {
             id: plugin_id_str.clone(),
@@ -157,7 +179,10 @@ impl PluginManager {
 
         // 🛂 入国審査 (Magic Seal Validation)
         if manifest.magic_seal != OFFICIAL_SDK_MAGIC {
-            return Err(anyhow::anyhow!("Access Denied: Plugin '{}' is not compiled with official SDK", manifest.name));
+            return Err(anyhow::anyhow!(
+                "Access Denied: Plugin '{}' is not compiled with official SDK",
+                manifest.name
+            ));
         }
 
         info!(
@@ -210,7 +235,10 @@ impl PluginManager {
 
         let context = PluginRuntimeContext {
             effective_permissions: permissions.clone(),
-            store: Arc::new(crate::db::ScopedDataStore::new(self.store.clone(), plugin_id_str.clone())),
+            store: Arc::new(crate::db::ScopedDataStore::new(
+                self.store.clone(),
+                plugin_id_str.clone(),
+            )),
             event_tx: p_tx,
         };
 
@@ -231,7 +259,9 @@ impl PluginManager {
         let network_capability = if permissions.contains(&Permission::NetworkAccess) {
             self.get_capability_for_permission(&Permission::NetworkAccess)
                 .map(|c| {
-                    let exiv_shared::PluginCapability::Network(net) = c else { unreachable!() };
+                    let exiv_shared::PluginCapability::Network(net) = c else {
+                        unreachable!()
+                    };
                     net
                 })
         } else {
@@ -241,7 +271,11 @@ impl PluginManager {
         plugin.on_plugin_init(context, network_capability).await?;
 
         // Inject additional capabilities for granted permissions
-        for cap_perm in &[Permission::FileRead, Permission::FileWrite, Permission::ProcessExecution] {
+        for cap_perm in &[
+            Permission::FileRead,
+            Permission::FileWrite,
+            Permission::ProcessExecution,
+        ] {
             if permissions.contains(cap_perm) {
                 if let Some(cap) = self.get_capability_for_permission(cap_perm) {
                     if let Err(e) = plugin.on_capability_injected(cap).await {
@@ -269,34 +303,39 @@ impl PluginManager {
     }
 
     /// L5: Get a clone of the shared SafeHttpClient Arc for runtime host addition.
-    #[must_use] 
+    #[must_use]
     pub fn http_client(&self) -> Arc<SafeHttpClient> {
         self.http_client.clone()
     }
 
     #[must_use]
-    pub fn get_capability_for_permission(&self, permission: &Permission) -> Option<exiv_shared::PluginCapability> {
+    pub fn get_capability_for_permission(
+        &self,
+        permission: &Permission,
+    ) -> Option<exiv_shared::PluginCapability> {
         match permission {
-            Permission::NetworkAccess => Some(exiv_shared::PluginCapability::Network(self.http_client.clone())),
+            Permission::NetworkAccess => Some(exiv_shared::PluginCapability::Network(
+                self.http_client.clone(),
+            )),
             Permission::FileRead => {
                 // Read-only sandbox: plugins can read from the data/ directory
                 let base = std::path::PathBuf::from("data/plugin_sandbox");
-                Some(exiv_shared::PluginCapability::File(
-                    std::sync::Arc::new(crate::capabilities::SandboxedFileCapability::read_only(base))
-                ))
+                Some(exiv_shared::PluginCapability::File(std::sync::Arc::new(
+                    crate::capabilities::SandboxedFileCapability::read_only(base),
+                )))
             }
             Permission::FileWrite => {
                 // Read+write sandbox
                 let base = std::path::PathBuf::from("data/plugin_sandbox");
-                Some(exiv_shared::PluginCapability::File(
-                    std::sync::Arc::new(crate::capabilities::SandboxedFileCapability::read_write(base))
-                ))
+                Some(exiv_shared::PluginCapability::File(std::sync::Arc::new(
+                    crate::capabilities::SandboxedFileCapability::read_write(base),
+                )))
             }
             Permission::ProcessExecution => {
                 // Empty allowlist by default — callers must configure permitted commands
-                Some(exiv_shared::PluginCapability::Process(
-                    std::sync::Arc::new(crate::capabilities::AllowedProcessCapability::new(vec![]))
-                ))
+                Some(exiv_shared::PluginCapability::Process(std::sync::Arc::new(
+                    crate::capabilities::AllowedProcessCapability::new(vec![]),
+                )))
             }
             _ => None,
         }
@@ -326,14 +365,18 @@ impl PluginManager {
         Ok(())
     }
 
-    pub async fn list_plugins_with_settings(&self, registry: &PluginRegistry) -> anyhow::Result<Vec<exiv_shared::PluginManifest>> {
+    pub async fn list_plugins_with_settings(
+        &self,
+        registry: &PluginRegistry,
+    ) -> anyhow::Result<Vec<exiv_shared::PluginManifest>> {
         let rows: Vec<PluginSetting> = sqlx::query_as(
-            "SELECT plugin_id, is_active, allowed_permissions FROM plugin_settings LIMIT 100"
+            "SELECT plugin_id, is_active, allowed_permissions FROM plugin_settings LIMIT 100",
         )
-            .fetch_all(&self.pool)
-            .await?;
+        .fetch_all(&self.pool)
+        .await?;
 
-        let settings: HashMap<String, bool> = rows.into_iter()
+        let settings: HashMap<String, bool> = rows
+            .into_iter()
             .map(|s| (s.plugin_id, s.is_active))
             .collect();
 
@@ -349,7 +392,7 @@ impl PluginManager {
     pub async fn apply_settings(&self, settings: Vec<(String, bool)>) -> anyhow::Result<()> {
         let mut tx = self.pool.begin().await?;
         for (id, active) in settings {
-             sqlx::query("UPDATE plugin_settings SET is_active = ? WHERE plugin_id = ?")
+            sqlx::query("UPDATE plugin_settings SET is_active = ? WHERE plugin_id = ?")
                 .bind(active)
                 .bind(id)
                 .execute(&mut *tx)
@@ -360,13 +403,15 @@ impl PluginManager {
     }
 
     /// Return the current effective permissions for a plugin from the DB.
-    pub async fn get_permissions(&self, plugin_id: &str) -> anyhow::Result<Vec<exiv_shared::Permission>> {
-        let row: Option<(sqlx::types::Json<Vec<exiv_shared::Permission>>,)> = sqlx::query_as(
-            "SELECT allowed_permissions FROM plugin_settings WHERE plugin_id = ?"
-        )
-        .bind(plugin_id)
-        .fetch_optional(&self.pool)
-        .await?;
+    pub async fn get_permissions(
+        &self,
+        plugin_id: &str,
+    ) -> anyhow::Result<Vec<exiv_shared::Permission>> {
+        let row: Option<(sqlx::types::Json<Vec<exiv_shared::Permission>>,)> =
+            sqlx::query_as("SELECT allowed_permissions FROM plugin_settings WHERE plugin_id = ?")
+                .bind(plugin_id)
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.map(|(j,)| j.0).unwrap_or_default())
     }
 
@@ -382,7 +427,11 @@ impl PluginManager {
         let before = perms.len();
         perms.retain(|p| p != permission);
         if perms.len() == before {
-            return Err(anyhow::anyhow!("Permission '{:?}' is not granted to plugin '{}'", permission, plugin_id));
+            return Err(anyhow::anyhow!(
+                "Permission '{:?}' is not granted to plugin '{}'",
+                permission,
+                plugin_id
+            ));
         }
         let updated = serde_json::to_string(&perms)?;
         sqlx::query("UPDATE plugin_settings SET allowed_permissions = ? WHERE plugin_id = ?")
@@ -400,7 +449,11 @@ impl PluginManager {
         Ok(())
     }
 
-    pub async fn grant_permission(&self, plugin_id: &str, permission: exiv_shared::Permission) -> anyhow::Result<()> {
+    pub async fn grant_permission(
+        &self,
+        plugin_id: &str,
+        permission: exiv_shared::Permission,
+    ) -> anyhow::Result<()> {
         // H-08: Single atomic SQL statement to prevent TOCTOU race in permission grant
         let perm_json = serde_json::to_string(&permission)?;
         sqlx::query(
@@ -412,12 +465,13 @@ impl PluginManager {
             AND NOT EXISTS (
                 SELECT 1 FROM json_each(allowed_permissions)
                 WHERE value = json_extract(json(?), '$')
-            )"
+            )",
         )
         .bind(&perm_json)
         .bind(plugin_id)
         .bind(&perm_json)
-        .execute(&self.pool).await?;
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -433,7 +487,8 @@ impl PluginManager {
         // 1. Namespace validation
         if !plugin_id.starts_with("python.runtime.") {
             return Err(anyhow::anyhow!(
-                "Runtime plugin ID must start with 'python.runtime.', got: {}", plugin_id
+                "Runtime plugin ID must start with 'python.runtime.', got: {}",
+                plugin_id
             ));
         }
 
@@ -442,13 +497,16 @@ impl PluginManager {
             let plugins = registry.plugins.read().await;
             if plugins.contains_key(plugin_id) {
                 return Err(anyhow::anyhow!(
-                    "Plugin '{}' is already registered", plugin_id
+                    "Plugin '{}' is already registered",
+                    plugin_id
                 ));
             }
         }
 
         // 3. Use bridge.python factory
-        let factory = self.factories.get("bridge.python")
+        let factory = self
+            .factories
+            .get("bridge.python")
             .ok_or_else(|| anyhow::anyhow!("bridge.python factory not found"))?;
 
         let config = PluginConfig {
@@ -463,7 +521,8 @@ impl PluginManager {
         // 4. Magic Seal validation
         if manifest.magic_seal != OFFICIAL_SDK_MAGIC {
             return Err(anyhow::anyhow!(
-                "Access Denied: Runtime plugin '{}' is not compiled with official SDK", plugin_id
+                "Access Denied: Runtime plugin '{}' is not compiled with official SDK",
+                plugin_id
             ));
         }
 
@@ -506,7 +565,10 @@ impl PluginManager {
         // 6. PluginRuntimeContext with scoped data store
         let context = PluginRuntimeContext {
             effective_permissions: permissions.clone(),
-            store: Arc::new(crate::db::ScopedDataStore::new(self.store.clone(), plugin_id.to_string())),
+            store: Arc::new(crate::db::ScopedDataStore::new(
+                self.store.clone(),
+                plugin_id.to_string(),
+            )),
             event_tx: p_tx,
         };
 
@@ -514,7 +576,9 @@ impl PluginManager {
         let network_capability = if permissions.contains(&Permission::NetworkAccess) {
             self.get_capability_for_permission(&Permission::NetworkAccess)
                 .map(|c| {
-                    let exiv_shared::PluginCapability::Network(net) = c else { unreachable!() };
+                    let exiv_shared::PluginCapability::Network(net) = c else {
+                        unreachable!()
+                    };
                     net
                 })
         } else {

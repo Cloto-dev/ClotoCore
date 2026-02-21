@@ -1,14 +1,18 @@
+use exiv_core::managers::PluginManager;
+use exiv_shared::{Plugin, PluginConfig, PluginFactory, PluginManifest, ServiceType};
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use exiv_shared::{PluginConfig, PluginFactory, ServiceType, Plugin, PluginManifest};
-use exiv_core::managers::PluginManager;
 
 struct MockFactory;
 
 #[async_trait::async_trait]
 impl PluginFactory for MockFactory {
-    fn name(&self) -> &'static str { "test.mock" }
-    fn service_type(&self) -> ServiceType { ServiceType::Skill }
+    fn name(&self) -> &'static str {
+        "test.mock"
+    }
+    fn service_type(&self) -> ServiceType {
+        ServiceType::Skill
+    }
     async fn create(&self, _config: PluginConfig) -> anyhow::Result<Arc<dyn Plugin>> {
         Ok(Arc::new(MockPlugin))
     }
@@ -17,7 +21,9 @@ impl PluginFactory for MockFactory {
 struct MockPlugin;
 
 impl exiv_shared::PluginCast for MockPlugin {
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[async_trait::async_trait]
@@ -68,7 +74,9 @@ async fn test_plugin_bootstrap_with_valid_seal() {
 struct InvalidSealPlugin;
 
 impl exiv_shared::PluginCast for InvalidSealPlugin {
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[async_trait::async_trait]
@@ -83,8 +91,12 @@ impl Plugin for InvalidSealPlugin {
 struct InvalidFactory;
 #[async_trait::async_trait]
 impl PluginFactory for InvalidFactory {
-    fn name(&self) -> &'static str { "test.invalid" }
-    fn service_type(&self) -> ServiceType { ServiceType::Skill }
+    fn name(&self) -> &'static str {
+        "test.invalid"
+    }
+    fn service_type(&self) -> ServiceType {
+        ServiceType::Skill
+    }
     async fn create(&self, _config: PluginConfig) -> anyhow::Result<Arc<dyn Plugin>> {
         Ok(Arc::new(InvalidSealPlugin))
     }

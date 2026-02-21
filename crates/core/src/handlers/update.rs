@@ -1,15 +1,11 @@
-use axum::{
-    extract::State,
-    http::HeaderMap,
-    Json,
-};
+use axum::{extract::State, http::HeaderMap, Json};
 use serde::Deserialize;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use tracing::{info, error};
+use tracing::{error, info};
 
-use crate::{AppState, AppResult, AppError};
 use super::check_auth;
+use crate::{AppError, AppResult, AppState};
 
 /// GET /api/system/version
 /// Returns current Exiv version and build target (public, no auth).
@@ -86,7 +82,7 @@ pub async fn check_handler(
     // Bug #2: Use semver library for robust version comparison
     let (update_available, is_downgrade) = if let (Ok(cur), Ok(tgt)) = (
         semver::Version::parse(current_version),
-        semver::Version::parse(latest_version)
+        semver::Version::parse(latest_version),
     ) {
         let update_available = tgt != cur;
         let is_downgrade = tgt < cur;
@@ -107,7 +103,10 @@ pub async fn check_handler(
                 .collect()
         };
 
-        match (parse_components(current_version), parse_components(latest_version)) {
+        match (
+            parse_components(current_version),
+            parse_components(latest_version),
+        ) {
             (Some(cur), Some(tgt)) if !cur.is_empty() && !tgt.is_empty() => {
                 use std::cmp::Ordering;
                 let is_downgrade = matches!(cur.cmp(&tgt), Ordering::Greater);
@@ -184,13 +183,18 @@ pub async fn apply_handler(
 
     // Validate version format: only allow semver-like strings (alphanumeric, dots, hyphens, 'v' prefix)
     {
-        let v = requested_version.strip_prefix('v').unwrap_or(requested_version);
+        let v = requested_version
+            .strip_prefix('v')
+            .unwrap_or(requested_version);
         let is_valid = !v.is_empty()
             && v.len() <= 40
-            && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+            && v.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
             && v.contains('.');
         if !is_valid {
-            return Err(AppError::Internal(anyhow::anyhow!("Invalid version format")));
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "Invalid version format"
+            )));
         }
     }
 
@@ -294,7 +298,8 @@ pub async fn apply_handler(
     if expected_hash.len() != 64 || !expected_hash.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(AppError::Internal(anyhow::anyhow!(
             "Invalid SHA256 checksum format in {} (expected 64 hex characters, got {})",
-            sha256_asset_name, expected_hash.len()
+            sha256_asset_name,
+            expected_hash.len()
         )));
     }
 
@@ -383,12 +388,11 @@ pub async fn apply_handler(
     }
 
     // 11. Broadcast system notification
-    let envelope = crate::EnvelopedEvent::system(
-        exiv_shared::ExivEventData::SystemNotification(format!(
+    let envelope =
+        crate::EnvelopedEvent::system(exiv_shared::ExivEventData::SystemNotification(format!(
             "System update applied: {} → {}. Restarting...",
             current_version, requested_version
-        )),
-    );
+        )));
     let _ = state.event_tx.send(envelope).await;
 
     // 12. Trigger restart (same pattern as shutdown_handler)

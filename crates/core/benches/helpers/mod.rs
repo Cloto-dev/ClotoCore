@@ -2,35 +2,32 @@
 // Reusable infrastructure for Exiv performance benchmarks
 // Pattern inspired by: exiv_core/tests/handlers_http_test.rs:18-60
 
-use sqlx::SqlitePool;
-use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, RwLock, Notify};
 use exiv_core::{
-    managers::{PluginRegistry, PluginManager, AgentManager, SystemMetrics},
-    DynamicRouter, AppState,
     config::AppConfig,
+    managers::{AgentManager, PluginManager, PluginRegistry, SystemMetrics},
+    AppState, DynamicRouter,
 };
-use std::collections::VecDeque;
 use exiv_shared::{ExivEvent, ExivEventData, ExivMessage, MessageSource};
+use sqlx::SqlitePool;
+use std::collections::VecDeque;
+use std::sync::Arc;
+use tokio::sync::{broadcast, mpsc, Notify, RwLock};
 
 /// Reusable helper to create test AppState for benchmarks
 /// Uses larger buffer sizes (1000 vs 100) for high-throughput scenarios
 #[allow(dead_code)]
 pub async fn create_bench_app_state() -> Arc<AppState> {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    exiv_core::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+    exiv_core::db::init_db(&pool, "sqlite::memory:")
+        .await
+        .unwrap();
 
     let (event_tx, _event_rx) = mpsc::channel(1000); // Larger buffer for benchmarks
     let (tx, _rx) = broadcast::channel(1000);
 
     let registry = Arc::new(PluginRegistry::new(5, 10));
     let agent_manager = AgentManager::new(pool.clone());
-    let plugin_manager = Arc::new(PluginManager::new(
-        pool.clone(),
-        vec![],
-        30,
-        10,
-    ).unwrap());
+    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10).unwrap());
 
     let dynamic_router = Arc::new(DynamicRouter {
         router: RwLock::new(axum::Router::new()),

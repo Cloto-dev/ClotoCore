@@ -1,14 +1,14 @@
 use axum::{
     body::Body,
-    http::{Request, StatusCode, header},
+    http::{header, Request, StatusCode},
 };
+use exiv_core::handlers;
+use exiv_core::test_utils::create_test_app_state as create_test_app_state_with_key;
+use exiv_core::AppState;
+use exiv_shared::{ExivEvent, ExivEventData};
 use futures::StreamExt;
 use std::sync::Arc;
 use tower::ServiceExt;
-use exiv_core::AppState;
-use exiv_core::handlers;
-use exiv_shared::{ExivEvent, ExivEventData};
-use exiv_core::test_utils::create_test_app_state as create_test_app_state_with_key;
 
 async fn create_test_app_state() -> Arc<exiv_core::AppState> {
     create_test_app_state_with_key(None).await
@@ -50,10 +50,7 @@ async fn test_sse_handshake() {
         headers.get(header::CONTENT_TYPE).unwrap(),
         "text/event-stream"
     );
-    assert_eq!(
-        headers.get(header::CACHE_CONTROL).unwrap(),
-        "no-cache"
-    );
+    assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-cache");
 }
 
 #[tokio::test]
@@ -66,9 +63,9 @@ async fn test_sse_handler_streams_events() {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Send a test event
-        let event = Arc::new(ExivEvent::new(
-            ExivEventData::SystemNotification("Test message".to_string())
-        ));
+        let event = Arc::new(ExivEvent::new(ExivEventData::SystemNotification(
+            "Test message".to_string(),
+        )));
         let _ = tx.send(event);
     });
 
@@ -92,25 +89,19 @@ async fn test_sse_handler_streams_events() {
     let mut stream = body.into_data_stream();
 
     // First chunk should be the handshake
-    let first_chunk = tokio::time::timeout(
-        tokio::time::Duration::from_secs(1),
-        stream.next()
-    )
-    .await
-    .expect("Timeout waiting for handshake")
-    .expect("Stream ended unexpectedly")
-    .expect("Error reading stream");
+    let first_chunk = tokio::time::timeout(tokio::time::Duration::from_secs(1), stream.next())
+        .await
+        .expect("Timeout waiting for handshake")
+        .expect("Stream ended unexpectedly")
+        .expect("Error reading stream");
 
     let first_data = String::from_utf8(first_chunk.to_vec()).unwrap();
     assert!(first_data.contains("event: handshake"));
     assert!(first_data.contains("data: connected"));
 
     // Second chunk should be our test event (with timeout to prevent hanging)
-    let second_chunk = tokio::time::timeout(
-        tokio::time::Duration::from_secs(2),
-        stream.next()
-    )
-    .await;
+    let second_chunk =
+        tokio::time::timeout(tokio::time::Duration::from_secs(2), stream.next()).await;
 
     // If we got an event, verify it contains our test message
     if let Ok(Some(Ok(chunk))) = second_chunk {
@@ -130,9 +121,10 @@ async fn test_sse_handler_handles_lagged_receiver() {
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         for i in 0..10 {
-            let event = Arc::new(ExivEvent::new(
-                ExivEventData::SystemNotification(format!("Message {}", i))
-            ));
+            let event = Arc::new(ExivEvent::new(ExivEventData::SystemNotification(format!(
+                "Message {}",
+                i
+            ))));
             let _ = tx.send(event);
         }
     });
@@ -158,21 +150,16 @@ async fn test_sse_handler_handles_lagged_receiver() {
     let mut stream = body.into_data_stream();
 
     // Read first chunk (handshake)
-    let _ = tokio::time::timeout(
-        tokio::time::Duration::from_secs(1),
-        stream.next()
-    )
-    .await
-    .expect("Timeout waiting for handshake");
+    let _ = tokio::time::timeout(tokio::time::Duration::from_secs(1), stream.next())
+        .await
+        .expect("Timeout waiting for handshake");
 
     // Try to read a few more chunks (may or may not get all messages due to lagging)
     for _ in 0..3 {
-        if tokio::time::timeout(
-            tokio::time::Duration::from_millis(500),
-            stream.next()
-        )
-        .await
-        .is_err() {
+        if tokio::time::timeout(tokio::time::Duration::from_millis(500), stream.next())
+            .await
+            .is_err()
+        {
             break; // Timeout is acceptable
         }
     }

@@ -1,15 +1,14 @@
+use async_trait::async_trait;
+use chrono::Utc;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{info, warn, error};
-use chrono::Utc;
-use async_trait::async_trait;
+use tracing::{error, info, warn};
 
-use exiv_shared::{
-    Plugin, PluginCast, PluginManifest,
-    ExivEvent, ExivEventData, ExivMessage, ExivId,
-    AgentMetadata, ThinkResult,
-};
 use crate::managers::{AgentManager, PluginRegistry};
+use exiv_shared::{
+    AgentMetadata, ExivEvent, ExivEventData, ExivId, ExivMessage, Plugin, PluginCast,
+    PluginManifest, ThinkResult,
+};
 
 pub struct SystemHandler {
     registry: Arc<PluginRegistry>,
@@ -35,16 +34,31 @@ impl SystemHandler {
         max_agentic_iterations: u8,
         tool_execution_timeout_secs: u64,
     ) -> Self {
-        Self { registry, agent_manager, default_agent_id, sender, memory_context_limit, metrics, consensus_engines, max_agentic_iterations, tool_execution_timeout_secs }
+        Self {
+            registry,
+            agent_manager,
+            default_agent_id,
+            sender,
+            memory_context_limit,
+            metrics,
+            consensus_engines,
+            max_agentic_iterations,
+            tool_execution_timeout_secs,
+        }
     }
 
     pub async fn handle_message(&self, msg: ExivMessage) -> anyhow::Result<()> {
-        let target_agent_id = msg.metadata.get("target_agent_id")
+        let target_agent_id = msg
+            .metadata
+            .get("target_agent_id")
             .cloned()
             .unwrap_or_else(|| self.default_agent_id.clone());
 
         // 1. エージェント情報の取得
-        let (agent, _engine_id) = self.agent_manager.get_agent_config(&target_agent_id).await?;
+        let (agent, _engine_id) = self
+            .agent_manager
+            .get_agent_config(&target_agent_id)
+            .await?;
 
         // Block disabled agents from processing messages
         if !agent.enabled {
@@ -53,13 +67,20 @@ impl SystemHandler {
         }
 
         // Passive heartbeat: update last_seen on message routing
-        self.agent_manager.touch_last_seen(&target_agent_id).await.ok();
+        self.agent_manager
+            .touch_last_seen(&target_agent_id)
+            .await
+            .ok();
 
         // 1b. エージェントに割り当てられたプラグインIDを取得
-        let agent_plugin_ids: Vec<String> = self.agent_manager
-            .get_agent_plugins(&target_agent_id).await
+        let agent_plugin_ids: Vec<String> = self
+            .agent_manager
+            .get_agent_plugins(&target_agent_id)
+            .await
             .unwrap_or_default()
-            .into_iter().map(|r| r.plugin_id).collect();
+            .into_iter()
+            .map(|r| r.plugin_id)
+            .collect();
 
         // 2. メモリからのコンテキスト取得
         let memory_plugin = if let Some(preferred_id) = agent.metadata.get("preferred_memory") {
@@ -86,21 +107,23 @@ impl SystemHandler {
                     );
                     vec![]
                 } else {
-                // 🛑 停滞対策: メモリの呼び出しにタイムアウトを設定
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    mem.recall(agent.id.clone(), &msg.content, self.memory_context_limit)
-                ).await {
-                    Ok(Ok(ctx)) => ctx,
-                    Ok(Err(e)) => {
-                        error!(agent_id = %agent.id, error = %e, "❌ Memory recall failed");
-                        vec![]
+                    // 🛑 停滞対策: メモリの呼び出しにタイムアウトを設定
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        mem.recall(agent.id.clone(), &msg.content, self.memory_context_limit),
+                    )
+                    .await
+                    {
+                        Ok(Ok(ctx)) => ctx,
+                        Ok(Err(e)) => {
+                            error!(agent_id = %agent.id, error = %e, "❌ Memory recall failed");
+                            vec![]
+                        }
+                        Err(_) => {
+                            error!(agent_id = %agent.id, "⏱️ Memory recall timed out");
+                            vec![]
+                        }
                     }
-                    Err(_) => {
-                        error!(agent_id = %agent.id, "⏱️ Memory recall timed out");
-                        vec![]
-                    }
-                }
                 } // end has_memory_read else branch
             } else {
                 vec![]
@@ -125,9 +148,12 @@ impl SystemHandler {
                 task: msg.content.clone(),
                 engine_ids: self.consensus_engines.clone(),
             };
-            
+
             let envelope = crate::EnvelopedEvent {
-                event: Arc::new(exiv_shared::ExivEvent::with_trace(trace_id, thought_event_data)),
+                event: Arc::new(exiv_shared::ExivEvent::with_trace(
+                    trace_id,
+                    thought_event_data,
+                )),
                 issuer: None,
                 correlation_id: None,
                 depth: 0,
@@ -151,20 +177,35 @@ impl SystemHandler {
                     depth: 1,
                 };
                 if let Err(e) = self.sender.send(env).await {
-                    error!("Failed to dispatch ThoughtRequested for engine {}: {}", engine, e);
+                    error!(
+                        "Failed to dispatch ThoughtRequested for engine {}: {}",
+                        engine, e
+                    );
                 }
             }
         } else {
             // 通常モード: エージェントループで処理
             let engine_id = _engine_id;
-            match self.run_agentic_loop(&agent, &engine_id, &msg, context, &agent_plugin_ids, trace_id).await {
+            match self
+                .run_agentic_loop(
+                    &agent,
+                    &engine_id,
+                    &msg,
+                    context,
+                    &agent_plugin_ids,
+                    trace_id,
+                )
+                .await
+            {
                 Ok(content) => {
                     // エージェント返答もメモリに保存 (user messageと対で保存)
                     if let Some(plugin) = &memory_plugin {
                         let plugin_clone = plugin.clone();
                         let agent_resp_msg = ExivMessage {
                             id: format!("{}-resp", msg.id),
-                            source: exiv_shared::MessageSource::Agent { id: agent.id.clone() },
+                            source: exiv_shared::MessageSource::Agent {
+                                id: agent.id.clone(),
+                            },
                             target_agent: Some(agent.id.clone()),
                             content: content.clone(),
                             timestamp: Utc::now(),
@@ -175,8 +216,9 @@ impl SystemHandler {
                             if let Some(mem) = plugin_clone.as_memory() {
                                 let _ = tokio::time::timeout(
                                     std::time::Duration::from_secs(5),
-                                    mem.store(agent_id_clone, agent_resp_msg)
-                                ).await;
+                                    mem.store(agent_id_clone, agent_resp_msg),
+                                )
+                                .await;
                             }
                         });
                     }
@@ -234,7 +276,8 @@ impl SystemHandler {
                 let has_memory_write = {
                     let perms_lock = self.registry.effective_permissions.read().await;
                     let pid = exiv_shared::ExivId::from_name(&manifest.id);
-                    perms_lock.get(&pid)
+                    perms_lock
+                        .get(&pid)
                         .map(|p| p.contains(&exiv_shared::Permission::MemoryWrite))
                         .unwrap_or(false)
                 };
@@ -244,28 +287,32 @@ impl SystemHandler {
                         "⚠️  Memory plugin lacks MemoryWrite permission — store skipped"
                     );
                 } else {
-                let agent_id = agent.id.clone();
-                let plugin_clone = plugin.clone();
-                let metrics = self.metrics.clone();
-                // 🛑 停滞対策: 保存処理はバックグラウンドで行い、メインループをブロックしない
-                tokio::spawn(async move {
-                    if let Some(mem) = plugin_clone.as_memory() {
-                        match tokio::time::timeout(
-                            std::time::Duration::from_secs(5),
-                            mem.store(agent_id.clone(), msg)
-                        ).await {
-                            Ok(Ok(())) => {
-                                metrics.total_memories.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            }
-                            Ok(Err(e)) => {
-                                error!(agent_id = %agent_id, error = %e, "❌ Memory store failed");
-                            }
-                            Err(_) => {
-                                error!(agent_id = %agent_id, "❌ Memory store timed out (5s)");
+                    let agent_id = agent.id.clone();
+                    let plugin_clone = plugin.clone();
+                    let metrics = self.metrics.clone();
+                    // 🛑 停滞対策: 保存処理はバックグラウンドで行い、メインループをブロックしない
+                    tokio::spawn(async move {
+                        if let Some(mem) = plugin_clone.as_memory() {
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(5),
+                                mem.store(agent_id.clone(), msg),
+                            )
+                            .await
+                            {
+                                Ok(Ok(())) => {
+                                    metrics
+                                        .total_memories
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
+                                Ok(Err(e)) => {
+                                    error!(agent_id = %agent_id, error = %e, "❌ Memory store failed");
+                                }
+                                Err(_) => {
+                                    error!(agent_id = %agent_id, "❌ Memory store timed out (5s)");
+                                }
                             }
                         }
-                    }
-                });
+                    });
                 } // end has_memory_write branch
             }
         }
@@ -284,9 +331,13 @@ impl SystemHandler {
         agent_plugin_ids: &[String],
         trace_id: ExivId,
     ) -> anyhow::Result<String> {
-        let engine_plugin = self.registry.get_engine(engine_id).await
+        let engine_plugin = self
+            .registry
+            .get_engine(engine_id)
+            .await
             .ok_or_else(|| anyhow::anyhow!("Engine '{}' not found", engine_id))?;
-        let engine = engine_plugin.as_reasoning()
+        let engine = engine_plugin
+            .as_reasoning()
             .ok_or_else(|| anyhow::anyhow!("Plugin '{}' is not a ReasoningEngine", engine_id))?;
 
         // Fallback: engine does not support tools → plain think()
@@ -298,18 +349,23 @@ impl SystemHandler {
         let tools = if agent_plugin_ids.is_empty() {
             self.registry.collect_tool_schemas().await
         } else {
-            self.registry.collect_tool_schemas_for(agent_plugin_ids).await
+            self.registry
+                .collect_tool_schemas_for(agent_plugin_ids)
+                .await
         };
         if tools.is_empty() {
             return engine.think(agent, message, context).await;
         }
 
         // M-04: Build tool name set for pre-validation (avoid timeout waiting for non-existent tools)
-        let tool_names: std::collections::HashSet<String> = tools.iter()
-            .filter_map(|t| t.get("function")
-                .and_then(|f| f.get("name"))
-                .and_then(|n| n.as_str())
-                .map(std::string::ToString::to_string))
+        let tool_names: std::collections::HashSet<String> = tools
+            .iter()
+            .filter_map(|t| {
+                t.get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+                    .map(std::string::ToString::to_string)
+            })
             .collect();
 
         info!(
@@ -335,20 +391,24 @@ impl SystemHandler {
                 return engine.think(agent, message, context.clone()).await;
             }
 
-            let result = engine.think_with_tools(
-                agent, message, context.clone(), &tools, &tool_history
-            ).await?;
+            let result = engine
+                .think_with_tools(agent, message, context.clone(), &tools, &tool_history)
+                .await?;
 
             match result {
                 ThinkResult::Final(content) => {
                     // Emit loop completion event
-                    self.emit_event(trace_id, ExivEventData::AgenticLoopCompleted {
-                        agent_id: agent.id.clone(),
-                        engine_id: engine_id.to_string(),
-                        total_iterations: iteration,
-                        total_tool_calls,
-                        source_message_id: message.id.clone(),
-                    }).await;
+                    self.emit_event(
+                        trace_id,
+                        ExivEventData::AgenticLoopCompleted {
+                            agent_id: agent.id.clone(),
+                            engine_id: engine_id.to_string(),
+                            total_iterations: iteration,
+                            total_tool_calls,
+                            source_message_id: message.id.clone(),
+                        },
+                    )
+                    .await;
 
                     info!(
                         agent_id = %agent.id,
@@ -358,7 +418,10 @@ impl SystemHandler {
                     );
                     return Ok(content);
                 }
-                ThinkResult::ToolCalls { assistant_content, calls } => {
+                ThinkResult::ToolCalls {
+                    assistant_content,
+                    calls,
+                } => {
                     info!(
                         agent_id = %agent.id,
                         iteration = iteration,
@@ -367,16 +430,19 @@ impl SystemHandler {
                     );
 
                     // Build assistant message with tool_calls for history
-                    let tool_calls_json: Vec<serde_json::Value> = calls.iter().map(|tc| {
-                        serde_json::json!({
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.name,
-                                "arguments": tc.arguments.to_string()
-                            }
+                    let tool_calls_json: Vec<serde_json::Value> = calls
+                        .iter()
+                        .map(|tc| {
+                            serde_json::json!({
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.name,
+                                    "arguments": tc.arguments.to_string()
+                                }
+                            })
                         })
-                    }).collect();
+                        .collect();
 
                     let mut assistant_msg = serde_json::json!({
                         "role": "assistant",
@@ -411,12 +477,21 @@ impl SystemHandler {
                             Duration::from_secs(self.tool_execution_timeout_secs),
                             async {
                                 if agent_plugin_ids.is_empty() {
-                                    self.registry.execute_tool(&call.name, call.arguments.clone()).await
+                                    self.registry
+                                        .execute_tool(&call.name, call.arguments.clone())
+                                        .await
                                 } else {
-                                    self.registry.execute_tool_for(agent_plugin_ids, &call.name, call.arguments.clone()).await
+                                    self.registry
+                                        .execute_tool_for(
+                                            agent_plugin_ids,
+                                            &call.name,
+                                            call.arguments.clone(),
+                                        )
+                                        .await
                                 }
-                            }
-                        ).await;
+                            },
+                        )
+                        .await;
 
                         let duration_ms = start.elapsed().as_millis() as u64;
 
@@ -434,15 +509,19 @@ impl SystemHandler {
                         );
 
                         // Emit observability event
-                        self.emit_event(trace_id, ExivEventData::ToolInvoked {
-                            agent_id: agent.id.clone(),
-                            engine_id: engine_id.to_string(),
-                            tool_name: call.name.clone(),
-                            call_id: call.id.clone(),
-                            success,
-                            duration_ms,
-                            iteration,
-                        }).await;
+                        self.emit_event(
+                            trace_id,
+                            ExivEventData::ToolInvoked {
+                                agent_id: agent.id.clone(),
+                                engine_id: engine_id.to_string(),
+                                tool_name: call.name.clone(),
+                                call_id: call.id.clone(),
+                                success,
+                                duration_ms,
+                                iteration,
+                            },
+                        )
+                        .await;
 
                         // Add tool result to history (OpenAI format)
                         tool_history.push(serde_json::json!({
@@ -476,7 +555,9 @@ impl SystemHandler {
 }
 
 impl PluginCast for SystemHandler {
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[async_trait]
@@ -504,7 +585,10 @@ impl Plugin for SystemHandler {
         }
     }
 
-    async fn on_event(&self, event: &ExivEvent) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
+    async fn on_event(
+        &self,
+        event: &ExivEvent,
+    ) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
         if let exiv_shared::ExivEventData::MessageReceived(msg) = &event.data {
             // Only trigger thinking for messages from users to prevent agent-agent loops
             if matches!(msg.source, exiv_shared::MessageSource::User { .. }) {

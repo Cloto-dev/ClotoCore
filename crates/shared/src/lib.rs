@@ -126,11 +126,24 @@ pub struct PluginRuntimeContext {
 #[async_trait]
 pub trait PluginDataStore: Send + Sync {
     /// JSON形式でデータを保存
-    async fn set_json(&self, plugin_id: &str, key: &str, value: serde_json::Value) -> anyhow::Result<()>;
+    async fn set_json(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        value: serde_json::Value,
+    ) -> anyhow::Result<()>;
     /// JSON形式でデータを取得
-    async fn get_json(&self, plugin_id: &str, key: &str) -> anyhow::Result<Option<serde_json::Value>>;
+    async fn get_json(
+        &self,
+        plugin_id: &str,
+        key: &str,
+    ) -> anyhow::Result<Option<serde_json::Value>>;
     /// 指定されたプレフィックスを持つ全てのデータを取得
-    async fn get_all_json(&self, plugin_id: &str, key_prefix: &str) -> anyhow::Result<Vec<(String, serde_json::Value)>>;
+    async fn get_all_json(
+        &self,
+        plugin_id: &str,
+        key_prefix: &str,
+    ) -> anyhow::Result<Vec<(String, serde_json::Value)>>;
 
     /// アトミックにカウンタをインクリメントし、更新後の値を返す (TOCTOU防止)
     async fn increment_counter(&self, plugin_id: &str, key: &str) -> anyhow::Result<i64> {
@@ -143,7 +156,8 @@ pub trait PluginDataStore: Send + Sync {
             None => 0,
         };
         let new_val = current + 1;
-        self.set_json(plugin_id, key, serde_json::to_value(new_val)?).await?;
+        self.set_json(plugin_id, key, serde_json::to_value(new_val)?)
+            .await?;
         Ok(new_val)
     }
 }
@@ -151,11 +165,21 @@ pub trait PluginDataStore: Send + Sync {
 /// SALを型安全に利用するための拡張トレイト
 #[async_trait]
 pub trait SALExt: PluginDataStore {
-    async fn save<T: Serialize + Sync>(&self, plugin_id: &str, key: &str, value: &T) -> anyhow::Result<()> {
-        self.set_json(plugin_id, key, serde_json::to_value(value)?).await
+    async fn save<T: Serialize + Sync>(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        value: &T,
+    ) -> anyhow::Result<()> {
+        self.set_json(plugin_id, key, serde_json::to_value(value)?)
+            .await
     }
 
-    async fn load<T: for<'de> Deserialize<'de>>(&self, plugin_id: &str, key: &str) -> anyhow::Result<Option<T>> {
+    async fn load<T: for<'de> Deserialize<'de>>(
+        &self,
+        plugin_id: &str,
+        key: &str,
+    ) -> anyhow::Result<Option<T>> {
         if let Some(json) = self.get_json(plugin_id, key).await? {
             Ok(Some(serde_json::from_value(json)?))
         } else {
@@ -301,7 +325,7 @@ pub enum HandAction {
     KeyPress { key: String },
     Wait { ms: u32 },
     // New Actions for Vision-HAL Coordination
-    CaptureScreen, 
+    CaptureScreen,
     ClickElement { label: String },
 }
 
@@ -323,11 +347,21 @@ pub struct DetectedElement {
 /// プラグインのダウンキャストを補助するためのトレイト
 pub trait PluginCast {
     fn as_any(&self) -> &dyn Any;
-    fn as_tool(&self) -> Option<&dyn Tool> { None }
-    fn as_communication(&self) -> Option<&dyn CommunicationAdapter> { None }
-    fn as_reasoning(&self) -> Option<&dyn ReasoningEngine> { None }
-    fn as_memory(&self) -> Option<&dyn MemoryProvider> { None }
-    fn as_web(&self) -> Option<&dyn WebPlugin> { None }
+    fn as_tool(&self) -> Option<&dyn Tool> {
+        None
+    }
+    fn as_communication(&self) -> Option<&dyn CommunicationAdapter> {
+        None
+    }
+    fn as_reasoning(&self) -> Option<&dyn ReasoningEngine> {
+        None
+    }
+    fn as_memory(&self) -> Option<&dyn MemoryProvider> {
+        None
+    }
+    fn as_web(&self) -> Option<&dyn WebPlugin> {
+        None
+    }
 }
 
 /// 全てのプラグインが実装するベースとなるマーカートレイト
@@ -356,16 +390,16 @@ pub trait Plugin: Any + Send + Sync + PluginCast {
     }
 
     /// 実行中に権限が承認され、Capabilityが注入された際のフック
-    async fn on_capability_injected(
-        &self,
-        _capability: PluginCapability,
-    ) -> anyhow::Result<()> {
+    async fn on_capability_injected(&self, _capability: PluginCapability) -> anyhow::Result<()> {
         Ok(())
     }
 }
 
 pub trait WebPlugin: Plugin {
-    fn register_routes(&self, router: axum::Router<Arc<dyn Any + Send + Sync>>) -> axum::Router<Arc<dyn Any + Send + Sync>>;
+    fn register_routes(
+        &self,
+        router: axum::Router<Arc<dyn Any + Send + Sync>>,
+    ) -> axum::Router<Arc<dyn Any + Send + Sync>>;
 }
 
 #[async_trait]
@@ -430,7 +464,9 @@ pub trait ReasoningEngine: Plugin {
     ) -> anyhow::Result<String>;
 
     /// Whether this engine supports tool use (agentic loop). Default: false.
-    fn supports_tools(&self) -> bool { false }
+    fn supports_tools(&self) -> bool {
+        false
+    }
 
     /// Think with tool support. Default delegates to think() as Final.
     async fn think_with_tools(

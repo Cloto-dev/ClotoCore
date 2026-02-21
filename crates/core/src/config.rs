@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 /// Returns the directory containing the running executable.
 /// Falls back to CWD if the exe path cannot be determined.
-#[must_use] 
+#[must_use]
 pub fn exe_dir() -> PathBuf {
     std::env::current_exe()
         .ok()
@@ -59,7 +59,10 @@ impl AppConfig {
 
         // M-01: Value range validation
         if plugin_event_timeout_secs == 0 || plugin_event_timeout_secs > 300 {
-            anyhow::bail!("PLUGIN_EVENT_TIMEOUT_SECS must be between 1 and 300 (got {})", plugin_event_timeout_secs);
+            anyhow::bail!(
+                "PLUGIN_EVENT_TIMEOUT_SECS must be between 1 and 300 (got {})",
+                plugin_event_timeout_secs
+            );
         }
 
         let max_event_depth = env::var("MAX_EVENT_DEPTH")
@@ -68,7 +71,10 @@ impl AppConfig {
             .context("Failed to parse MAX_EVENT_DEPTH")?;
 
         if max_event_depth == 0 || max_event_depth > 50 {
-            anyhow::bail!("MAX_EVENT_DEPTH must be between 1 and 50 (got {})", max_event_depth);
+            anyhow::bail!(
+                "MAX_EVENT_DEPTH must be between 1 and 50 (got {})",
+                max_event_depth
+            );
         }
 
         let memory_context_limit = env::var("MEMORY_CONTEXT_LIMIT")
@@ -77,10 +83,12 @@ impl AppConfig {
             .context("Failed to parse MEMORY_CONTEXT_LIMIT")?;
 
         let port_str = env::var("PORT").unwrap_or_else(|_| "8081".to_string());
-        let port = port_str.parse::<u16>()
-            .map_err(|_| anyhow::anyhow!(
-                "Invalid PORT value '{}': must be an integer between 1 and 65535", port_str
-            ))?;
+        let port = port_str.parse::<u16>().map_err(|_| {
+            anyhow::anyhow!(
+                "Invalid PORT value '{}': must be an integer between 1 and 65535",
+                port_str
+            )
+        })?;
 
         if port == 0 {
             anyhow::bail!("Invalid PORT value '0': must be between 1 and 65535");
@@ -127,11 +135,14 @@ impl AppConfig {
         let allowed_hosts = if allowed_hosts_str.is_empty() {
             vec![]
         } else {
-            allowed_hosts_str.split(',').map(std::string::ToString::to_string).collect()
+            allowed_hosts_str
+                .split(',')
+                .map(std::string::ToString::to_string)
+                .collect()
         };
 
-        let update_repo = env::var("EXIV_UPDATE_REPO")
-            .unwrap_or_else(|_| "Exiv-ai/Exiv".to_string());
+        let update_repo =
+            env::var("EXIV_UPDATE_REPO").unwrap_or_else(|_| "Exiv-ai/Exiv".to_string());
 
         let consensus_engines_str = env::var("CONSENSUS_ENGINES")
             .unwrap_or_else(|_| "mind.deepseek,mind.cerebras".to_string());
@@ -153,7 +164,10 @@ impl AppConfig {
             .context("Failed to parse EVENT_RETENTION_HOURS")?;
 
         if event_retention_hours == 0 || event_retention_hours > 720 {
-            anyhow::bail!("EVENT_RETENTION_HOURS must be between 1 and 720 (got {})", event_retention_hours);
+            anyhow::bail!(
+                "EVENT_RETENTION_HOURS must be between 1 and 720 (got {})",
+                event_retention_hours
+            );
         }
 
         let auto_eval_enabled = env::var("EXIV_AUTO_EVAL")
@@ -167,7 +181,10 @@ impl AppConfig {
             .context("Failed to parse EXIV_MAX_AGENTIC_ITERATIONS")?;
 
         if max_agentic_iterations == 0 || max_agentic_iterations > 64 {
-            anyhow::bail!("EXIV_MAX_AGENTIC_ITERATIONS must be between 1 and 64 (got {})", max_agentic_iterations);
+            anyhow::bail!(
+                "EXIV_MAX_AGENTIC_ITERATIONS must be between 1 and 64 (got {})",
+                max_agentic_iterations
+            );
         }
 
         let tool_execution_timeout_secs = env::var("EXIV_TOOL_TIMEOUT_SECS")
@@ -176,7 +193,10 @@ impl AppConfig {
             .context("Failed to parse EXIV_TOOL_TIMEOUT_SECS")?;
 
         if tool_execution_timeout_secs == 0 || tool_execution_timeout_secs > 300 {
-            anyhow::bail!("EXIV_TOOL_TIMEOUT_SECS must be between 1 and 300 (got {})", tool_execution_timeout_secs);
+            anyhow::bail!(
+                "EXIV_TOOL_TIMEOUT_SECS must be between 1 and 300 (got {})",
+                tool_execution_timeout_secs
+            );
         }
 
         Ok(Self {
@@ -236,13 +256,19 @@ mod tests {
         let _guard = EnvGuard("CONSENSUS_ENGINES");
 
         let config = AppConfig::load().unwrap();
-        assert_eq!(config.consensus_engines, vec!["mind.deepseek", "mind.cerebras"]);
+        assert_eq!(
+            config.consensus_engines,
+            vec!["mind.deepseek", "mind.cerebras"]
+        );
     }
 
     #[test]
     fn test_consensus_engines_whitespace_handling() {
         let _lock = ENV_LOCK.lock().unwrap();
-        std::env::set_var("CONSENSUS_ENGINES", " mind.deepseek , mind.anthropic , mind.openai ");
+        std::env::set_var(
+            "CONSENSUS_ENGINES",
+            " mind.deepseek , mind.anthropic , mind.openai ",
+        );
         let _guard = EnvGuard("CONSENSUS_ENGINES");
 
         let config = AppConfig::load().unwrap();

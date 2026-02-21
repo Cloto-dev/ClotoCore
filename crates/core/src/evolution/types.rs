@@ -45,10 +45,16 @@ impl<'de> Deserialize<'de> for AutonomyLevel {
             }
             fn visit_str<E: de::Error>(self, v: &str) -> Result<AutonomyLevel, E> {
                 match v {
-                    "L0" => Ok(AutonomyLevel::L0), "L1" => Ok(AutonomyLevel::L1),
-                    "L2" => Ok(AutonomyLevel::L2), "L3" => Ok(AutonomyLevel::L3),
-                    "L4" => Ok(AutonomyLevel::L4), "L5" => Ok(AutonomyLevel::L5),
-                    _ => Err(de::Error::unknown_variant(v, &["L0","L1","L2","L3","L4","L5"])),
+                    "L0" => Ok(AutonomyLevel::L0),
+                    "L1" => Ok(AutonomyLevel::L1),
+                    "L2" => Ok(AutonomyLevel::L2),
+                    "L3" => Ok(AutonomyLevel::L3),
+                    "L4" => Ok(AutonomyLevel::L4),
+                    "L5" => Ok(AutonomyLevel::L5),
+                    _ => Err(de::Error::unknown_variant(
+                        v,
+                        &["L0", "L1", "L2", "L3", "L4", "L5"],
+                    )),
                 }
             }
         }
@@ -58,21 +64,25 @@ impl<'de> Deserialize<'de> for AutonomyLevel {
 
 impl AutonomyLevel {
     /// Normalized value in [0.0, 1.0] for fitness calculation
-    #[must_use] 
+    #[must_use]
     pub fn normalized(&self) -> f64 {
         f64::from(*self as u8) / 5.0
     }
 
     /// Create from a normalized f64 value (0.0-1.0), rounding to nearest level.
     /// Non-finite, negative, or out-of-range values fall back to L0.
-    #[must_use] 
+    #[must_use]
     pub fn from_normalized(v: f64) -> Self {
         if !v.is_finite() || !(0.0..=1.0).contains(&v) {
             return Self::L0;
         }
         match (v * 5.0).round() as u8 {
-            0 => Self::L0, 1 => Self::L1, 2 => Self::L2,
-            3 => Self::L3, 4 => Self::L4, _ => Self::L5,
+            0 => Self::L0,
+            1 => Self::L1,
+            2 => Self::L2,
+            3 => Self::L3,
+            4 => Self::L4,
+            _ => Self::L5,
         }
     }
 }
@@ -117,15 +127,17 @@ impl FitnessScores {
             }
         }
         if self.safety != 0.0 && self.safety != 1.0 {
-            tracing::debug!(safety = self.safety,
-                "Safety score is non-binary; SafetyGate treats any value < 1.0 as a breach");
+            tracing::debug!(
+                safety = self.safety,
+                "Safety score is non-binary; SafetyGate treats any value < 1.0 as a breach"
+            );
         }
         Ok(())
     }
 
     /// Returns the axis ranking (sorted by normalized score, descending).
     /// Safety is excluded because it's a binary gate (0.0 or 1.0), not a gradient score.
-    #[must_use] 
+    #[must_use]
     pub fn axis_ranking(&self) -> Vec<(&str, f64)> {
         let mut axes = vec![
             ("cognitive", self.cognitive),
@@ -154,9 +166,13 @@ pub struct FitnessWeights {
 
 impl FitnessWeights {
     pub fn validate(&self) -> anyhow::Result<()> {
-        let fields = [("cognitive", self.cognitive), ("behavioral", self.behavioral),
-                      ("safety", self.safety), ("autonomy", self.autonomy),
-                      ("meta_learning", self.meta_learning)];
+        let fields = [
+            ("cognitive", self.cognitive),
+            ("behavioral", self.behavioral),
+            ("safety", self.safety),
+            ("autonomy", self.autonomy),
+            ("meta_learning", self.meta_learning),
+        ];
         for (name, val) in fields {
             if !val.is_finite() || val < 0.0 {
                 anyhow::bail!("{} weight must be >= 0 and finite, got {}", name, val);
@@ -195,8 +211,12 @@ pub struct EvolutionParams {
 
 impl EvolutionParams {
     pub fn validate(&self) -> anyhow::Result<()> {
-        for (name, val) in [("alpha", self.alpha), ("beta", self.beta),
-                            ("theta_min", self.theta_min), ("gamma", self.gamma)] {
+        for (name, val) in [
+            ("alpha", self.alpha),
+            ("beta", self.beta),
+            ("theta_min", self.theta_min),
+            ("gamma", self.gamma),
+        ] {
             if !val.is_finite() || !(0.0..=1.0).contains(&val) {
                 anyhow::bail!("{} must be in [0.0, 1.0] and finite, got {}", name, val);
             }

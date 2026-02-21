@@ -16,27 +16,57 @@ pub fn render(f: &mut Frame) {
     let text = vec![
         Line::from(""),
         Line::from(vec![
-            Span::styled("  Tab       ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "  Tab       ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("Switch pane"),
         ]),
         Line::from(vec![
-            Span::styled("  ↑/k ↓/j   ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "  ↑/k ↓/j   ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("Navigate list"),
         ]),
         Line::from(vec![
-            Span::styled("  r         ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "  r         ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("Force refresh"),
         ]),
         Line::from(vec![
-            Span::styled("  q         ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "  q         ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("Quit"),
         ]),
         Line::from(vec![
-            Span::styled("  Ctrl+C    ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "  Ctrl+C    ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("Force quit"),
         ]),
         Line::from(vec![
-            Span::styled("  ?         ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "  ?         ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("Toggle help"),
         ]),
         Line::from(""),

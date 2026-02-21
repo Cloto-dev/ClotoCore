@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::error;
 
-use exiv_shared::{Plugin, PluginManifest, ExivId, Permission};
+use exiv_shared::{ExivId, Permission, Plugin, PluginManifest};
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct PluginSetting {
@@ -36,14 +36,14 @@ impl Default for SystemMetrics {
 }
 
 impl SystemMetrics {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 }
 
 impl PluginRegistry {
-    #[must_use] 
+    #[must_use]
     pub fn new(event_timeout_secs: u64, max_event_depth: u8) -> Self {
         Self {
             plugins: tokio::sync::RwLock::new(HashMap::new()),
@@ -85,47 +85,64 @@ impl PluginRegistry {
     /// Collect tool schemas from all active Tool plugins (OpenAI function calling format).
     pub async fn collect_tool_schemas(&self) -> Vec<serde_json::Value> {
         let plugins = self.plugins.read().await;
-        plugins.values().filter_map(|p| {
-            let tool = p.as_tool()?;
-            Some(serde_json::json!({
-                "type": "function",
-                "function": {
-                    "name": tool.name(),
-                    "description": tool.description(),
-                    "parameters": tool.parameters_schema(),
-                }
-            }))
-        }).collect()
+        plugins
+            .values()
+            .filter_map(|p| {
+                let tool = p.as_tool()?;
+                Some(serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": tool.name(),
+                        "description": tool.description(),
+                        "parameters": tool.parameters_schema(),
+                    }
+                }))
+            })
+            .collect()
     }
 
     /// Collect tool schemas filtered to a specific agent's allowed plugin set.
-    pub async fn collect_tool_schemas_for(&self, allowed_plugin_ids: &[String]) -> Vec<serde_json::Value> {
+    pub async fn collect_tool_schemas_for(
+        &self,
+        allowed_plugin_ids: &[String],
+    ) -> Vec<serde_json::Value> {
         let plugins = self.plugins.read().await;
-        plugins.iter().filter_map(|(id, p)| {
-            if !allowed_plugin_ids.contains(id) { return None; }
-            let tool = p.as_tool()?;
-            Some(serde_json::json!({
-                "type": "function",
-                "function": {
-                    "name": tool.name(),
-                    "description": tool.description(),
-                    "parameters": tool.parameters_schema(),
+        plugins
+            .iter()
+            .filter_map(|(id, p)| {
+                if !allowed_plugin_ids.contains(id) {
+                    return None;
                 }
-            }))
-        }).collect()
+                let tool = p.as_tool()?;
+                Some(serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": tool.name(),
+                        "description": tool.description(),
+                        "parameters": tool.parameters_schema(),
+                    }
+                }))
+            })
+            .collect()
     }
 
     /// Execute a tool by name with the given arguments.
     /// H-01: Drops the read lock before calling tool.execute() to avoid blocking
     /// plugin registration during long-running tool execution.
-    pub async fn execute_tool(&self, tool_name: &str, args: serde_json::Value)
-        -> anyhow::Result<serde_json::Value>
-    {
+    pub async fn execute_tool(
+        &self,
+        tool_name: &str,
+        args: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
         let tool_plugin = {
             let plugins = self.plugins.read().await;
             plugins.values().find_map(|p| {
                 let tool = p.as_tool()?;
-                if tool.name() == tool_name { Some(p.clone()) } else { None }
+                if tool.name() == tool_name {
+                    Some(p.clone())
+                } else {
+                    None
+                }
             })
         }; // read lock dropped here
         if let Some(plugin) = tool_plugin {
@@ -146,9 +163,15 @@ impl PluginRegistry {
         let tool_plugin = {
             let plugins = self.plugins.read().await;
             plugins.iter().find_map(|(id, p)| {
-                if !allowed_plugin_ids.contains(id) { return None; }
+                if !allowed_plugin_ids.contains(id) {
+                    return None;
+                }
                 let tool = p.as_tool()?;
-                if tool.name() == tool_name { Some(p.clone()) } else { None }
+                if tool.name() == tool_name {
+                    Some(p.clone())
+                } else {
+                    None
+                }
             })
         }; // read lock dropped here
         if let Some(plugin) = tool_plugin {
@@ -156,7 +179,10 @@ impl PluginRegistry {
                 return tool.execute(args).await;
             }
         }
-        Err(anyhow::anyhow!("Tool '{}' not found or not available for this agent", tool_name))
+        Err(anyhow::anyhow!(
+            "Tool '{}' not found or not available for this agent",
+            tool_name
+        ))
     }
 
     /// 全てのアクティブなプラグインにイベントを配信する
@@ -193,23 +219,23 @@ impl PluginRegistry {
             let semaphore = self.event_semaphore.clone();
 
             futures.push(tokio::spawn(async move {
-                let _permit = if let Ok(p) = semaphore.acquire().await { p } else {
+                let _permit = if let Ok(p) = semaphore.acquire().await {
+                    p
+                } else {
                     tracing::warn!("Semaphore closed during shutdown, skipping plugin {}", id);
                     return (id, Ok(Ok(None)));
                 };
                 // Catch panics to prevent semaphore permit leaks
-                let result = tokio::time::timeout(
-                    timeout_duration,
-                    async {
-                        match std::panic::AssertUnwindSafe(plugin.on_event(&event))
-                            .catch_unwind()
-                            .await
-                        {
-                            Ok(r) => r,
-                            Err(_) => Err(anyhow::anyhow!("Plugin panicked during on_event")),
-                        }
+                let result = tokio::time::timeout(timeout_duration, async {
+                    match std::panic::AssertUnwindSafe(plugin.on_event(&event))
+                        .catch_unwind()
+                        .await
+                    {
+                        Ok(r) => r,
+                        Err(_) => Err(anyhow::anyhow!("Plugin panicked during on_event")),
                     }
-                ).await;
+                })
+                .await;
                 // _permit dropped here automatically (even on panic path above)
                 (id, result)
             }));
@@ -264,8 +290,13 @@ async fn redispatch_plugin_event(
     current_depth: u8,
     semaphore: Arc<tokio::sync::Semaphore>,
 ) {
-    let _permit = if let Ok(p) = semaphore.acquire().await { p } else {
-        tracing::warn!("Semaphore closed during shutdown, skipping redispatch for {}", plugin_id);
+    let _permit = if let Ok(p) = semaphore.acquire().await {
+        p
+    } else {
+        tracing::warn!(
+            "Semaphore closed during shutdown, skipping redispatch for {}",
+            plugin_id
+        );
         return;
     };
     let issuer_id = ExivId::from_name(&plugin_id);

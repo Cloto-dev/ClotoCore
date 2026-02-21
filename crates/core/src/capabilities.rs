@@ -1,11 +1,13 @@
 use async_trait::async_trait;
-use tracing::warn;
-use exiv_shared::{HttpRequest, HttpResponse, NetworkCapability, FileCapability, ProcessCapability};
+use exiv_shared::{
+    FileCapability, HttpRequest, HttpResponse, NetworkCapability, ProcessCapability,
+};
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tokio::net::lookup_host;
+use tracing::warn;
 
 #[derive(Clone)]
 pub struct SafeHttpClient {
@@ -44,27 +46,40 @@ impl SafeHttpClient {
     fn is_restricted_addr(&self, ip: IpAddr) -> bool {
         match ip {
             IpAddr::V4(v4) => {
-                v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_broadcast() || v4.is_documentation() || v4.is_unspecified() || v4.octets()[0] == 0
+                v4.is_private()
+                    || v4.is_loopback()
+                    || v4.is_link_local()
+                    || v4.is_broadcast()
+                    || v4.is_documentation()
+                    || v4.is_unspecified()
+                    || v4.octets()[0] == 0
             }
             IpAddr::V6(v6) => {
-                v6.is_loopback() || v6.is_unspecified() || (v6.segments()[0] & 0xfe00 == 0xfc00) || v6.is_multicast()
+                v6.is_loopback()
+                    || v6.is_unspecified()
+                    || (v6.segments()[0] & 0xfe00 == 0xfc00)
+                    || v6.is_multicast()
             }
         }
     }
 
     /// ホスト名ベースでのホワイトリストチェック (O(1) HashSet lookup)
     fn is_whitelisted_host(&self, host: &str) -> bool {
-        let hosts = self.allowed_hosts.read()
+        let hosts = self
+            .allowed_hosts
+            .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         hosts.contains(&host.to_lowercase())
     }
 
     /// L5: Add a host to the whitelist at runtime.
     /// Returns true if newly inserted, false if already present.
-    #[must_use] 
+    #[must_use]
     pub fn add_host(&self, host: &str) -> bool {
         let normalized = host.to_lowercase();
-        let mut hosts = self.allowed_hosts.write()
+        let mut hosts = self
+            .allowed_hosts
+            .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         hosts.insert(normalized)
     }
@@ -74,13 +89,21 @@ impl SafeHttpClient {
 impl NetworkCapability for SafeHttpClient {
     async fn send_http_request(&self, request: HttpRequest) -> anyhow::Result<HttpResponse> {
         let url = reqwest::Url::parse(&request.url)?;
-        let host = url.host_str().ok_or_else(|| anyhow::anyhow!("Invalid URL: No host found"))?;
+        let host = url
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid URL: No host found"))?;
         let port = url.port_or_known_default().unwrap_or(80);
 
         // 1. ホワイトリストチェック (ホスト名)
         if !self.is_whitelisted_host(host) {
-            warn!("🚫 Security Violation: Host '{}' is not in the whitelist.", host);
-            return Err(anyhow::anyhow!("Access to host '{}' is denied by security policy (Not Whitelisted).", host));
+            warn!(
+                "🚫 Security Violation: Host '{}' is not in the whitelist.",
+                host
+            );
+            return Err(anyhow::anyhow!(
+                "Access to host '{}' is denied by security policy (Not Whitelisted).",
+                host
+            ));
         }
 
         // 2. DNS名前解決とIPベースの検証 (DNS Rebinding対策)
@@ -90,8 +113,15 @@ impl NetworkCapability for SafeHttpClient {
 
         for addr in addrs {
             if self.is_restricted_addr(addr.ip()) {
-                warn!("🚫 Security Violation: Host '{}' resolved to a restricted IP: {}", host, addr.ip());
-                return Err(anyhow::anyhow!("Access to host '{}' is denied: restricted IP range detected.", host));
+                warn!(
+                    "🚫 Security Violation: Host '{}' resolved to a restricted IP: {}",
+                    host,
+                    addr.ip()
+                );
+                return Err(anyhow::anyhow!(
+                    "Access to host '{}' is denied: restricted IP range detected.",
+                    host
+                ));
             }
             if target_ip.is_none() {
                 target_ip = Some(addr.ip());
@@ -134,16 +164,24 @@ pub struct SandboxedFileCapability {
 impl SandboxedFileCapability {
     /// Create a read-only capability sandboxed to `base_dir`.
     pub fn read_only(base_dir: PathBuf) -> Self {
-        Self { base_dir, write_enabled: false }
+        Self {
+            base_dir,
+            write_enabled: false,
+        }
     }
 
     /// Create a read+write capability sandboxed to `base_dir`.
     pub fn read_write(base_dir: PathBuf) -> Self {
-        Self { base_dir, write_enabled: true }
+        Self {
+            base_dir,
+            write_enabled: true,
+        }
     }
 
     fn resolve(&self, path: &str) -> anyhow::Result<PathBuf> {
-        let base = self.base_dir.canonicalize()
+        let base = self
+            .base_dir
+            .canonicalize()
             .map_err(|e| anyhow::anyhow!("Sandbox base dir inaccessible: {}", e))?;
         let candidate = base.join(path);
         // Canonicalize to resolve symlinks and ".." components
@@ -151,15 +189,21 @@ impl SandboxedFileCapability {
         let resolved = if candidate.exists() {
             candidate.canonicalize()?
         } else {
-            let parent = candidate.parent()
+            let parent = candidate
+                .parent()
                 .ok_or_else(|| anyhow::anyhow!("Invalid path: no parent directory"))?
                 .canonicalize()
                 .map_err(|_| anyhow::anyhow!("Parent directory does not exist"))?;
-            parent.join(candidate.file_name().ok_or_else(|| anyhow::anyhow!("Invalid file name"))?)
+            parent.join(
+                candidate
+                    .file_name()
+                    .ok_or_else(|| anyhow::anyhow!("Invalid file name"))?,
+            )
         };
         if !resolved.starts_with(&base) {
             return Err(anyhow::anyhow!(
-                "Security violation: path '{}' escapes sandbox directory", path
+                "Security violation: path '{}' escapes sandbox directory",
+                path
             ));
         }
         Ok(resolved)
@@ -170,7 +214,8 @@ impl SandboxedFileCapability {
 impl FileCapability for SandboxedFileCapability {
     async fn read(&self, path: &str) -> anyhow::Result<Vec<u8>> {
         let resolved = self.resolve(path)?;
-        tokio::fs::read(&resolved).await
+        tokio::fs::read(&resolved)
+            .await
             .map_err(|e| anyhow::anyhow!("FileRead failed for '{}': {}", path, e))
     }
 
@@ -181,11 +226,14 @@ impl FileCapability for SandboxedFileCapability {
             ));
         }
         let resolved = self.resolve(path)?;
-        tokio::fs::write(&resolved, data).await
+        tokio::fs::write(&resolved, data)
+            .await
             .map_err(|e| anyhow::anyhow!("FileWrite failed for '{}': {}", path, e))
     }
 
-    fn can_write(&self) -> bool { self.write_enabled }
+    fn can_write(&self) -> bool {
+        self.write_enabled
+    }
 }
 
 // ── ProcessCapability ───────────────────────────────────────────────────────
@@ -203,7 +251,9 @@ pub struct AllowedProcessCapability {
 impl AllowedProcessCapability {
     /// Create a capability that permits the given command names.
     pub fn new(commands: Vec<String>) -> Self {
-        Self { allowed_commands: Arc::new(commands.into_iter().collect()) }
+        Self {
+            allowed_commands: Arc::new(commands.into_iter().collect()),
+        }
     }
 }
 
@@ -216,9 +266,13 @@ impl ProcessCapability for AllowedProcessCapability {
             .unwrap_or(cmd);
 
         if self.allowed_commands.is_empty() || !self.allowed_commands.contains(basename) {
-            warn!("🚫 ProcessExecution denied: command '{}' is not in the allowlist", cmd);
+            warn!(
+                "🚫 ProcessExecution denied: command '{}' is not in the allowlist",
+                cmd
+            );
             return Err(anyhow::anyhow!(
-                "ProcessExecution denied: '{}' is not in the permitted command list", cmd
+                "ProcessExecution denied: '{}' is not in the permitted command list",
+                cmd
             ));
         }
 
@@ -256,7 +310,8 @@ mod tests {
         let client = SafeHttpClient::new(vec![
             "custom.example.com".to_string(),
             "api.custom.io".to_string(),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         // Verify custom hosts are included
         assert!(client.is_whitelisted_host("custom.example.com"));
@@ -330,7 +385,8 @@ mod tests {
         // Public IPs should NOT be restricted
         assert!(!client.is_restricted_addr(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)))); // Google DNS
         assert!(!client.is_restricted_addr(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)))); // Cloudflare DNS
-        assert!(!client.is_restricted_addr(IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)))); // example.com
+        assert!(!client.is_restricted_addr(IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34))));
+        // example.com
     }
 
     #[test]
@@ -369,7 +425,9 @@ mod tests {
         let client = SafeHttpClient::new(vec![]).unwrap();
 
         // Public IPv6 should NOT be restricted
-        assert!(!client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888)))); // Google DNS
+        assert!(!client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888
+        )))); // Google DNS
     }
 
     #[test]

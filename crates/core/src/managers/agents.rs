@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use sqlx::SqlitePool;
+use std::collections::HashMap;
 use tracing::debug;
 
 use exiv_shared::AgentMetadata;
@@ -26,7 +26,7 @@ impl AgentManager {
     /// Heartbeat threshold: 90 seconds. Agents not heard from in this window are "degraded".
     pub const HEARTBEAT_THRESHOLD_MS: i64 = 90_000;
 
-    #[must_use] 
+    #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
@@ -53,10 +53,13 @@ impl AgentManager {
         agent
     }
 
-    pub async fn get_agent_config(&self, agent_id: &str) -> anyhow::Result<(AgentMetadata, String)> {
+    pub async fn get_agent_config(
+        &self,
+        agent_id: &str,
+    ) -> anyhow::Result<(AgentMetadata, String)> {
         let row: AgentRow = sqlx::query_as(
             "SELECT id, name, description, enabled, last_seen, default_engine_id, \
-             required_capabilities, metadata, power_password_hash FROM agents WHERE id = ?"
+             required_capabilities, metadata, power_password_hash FROM agents WHERE id = ?",
         )
         .bind(agent_id)
         .fetch_one(&self.pool)
@@ -68,9 +71,9 @@ impl AgentManager {
     }
 
     pub async fn list_agents(&self) -> anyhow::Result<Vec<AgentMetadata>> {
-         let rows: Vec<AgentRow> = sqlx::query_as(
+        let rows: Vec<AgentRow> = sqlx::query_as(
             "SELECT id, name, description, enabled, last_seen, default_engine_id, \
-             required_capabilities, metadata, power_password_hash FROM agents"
+             required_capabilities, metadata, power_password_hash FROM agents",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -78,7 +81,10 @@ impl AgentManager {
         let agents: Vec<AgentMetadata> = rows.into_iter().map(Self::row_to_metadata).collect();
 
         for agent in &agents {
-            debug!("Agent {} engine is {:?}", agent.name, agent.default_engine_id);
+            debug!(
+                "Agent {} engine is {:?}",
+                agent.name, agent.default_engine_id
+            );
         }
 
         Ok(agents)
@@ -100,7 +106,11 @@ impl AgentManager {
         let now_ms = chrono::Utc::now().timestamp_millis();
 
         let password_hash = if let Some(pw) = password {
-            if pw.is_empty() { None } else { Some(Self::hash_password(pw)?) }
+            if pw.is_empty() {
+                None
+            } else {
+                Some(Self::hash_password(pw)?)
+            }
         } else {
             None
         };
@@ -108,18 +118,18 @@ impl AgentManager {
         sqlx::query(
             "INSERT INTO agents (id, name, description, default_engine_id, status, \
              enabled, last_seen, metadata, required_capabilities, power_password_hash) \
-             VALUES (?, ?, ?, ?, 'online', 1, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?, 'online', 1, ?, ?, ?, ?)",
         )
-            .bind(&id_str)
-            .bind(name)
-            .bind(description)
-            .bind(default_engine)
-            .bind(now_ms)
-            .bind(metadata_json)
-            .bind(capabilities_json)
-            .bind(&password_hash)
-            .execute(&self.pool)
-            .await?;
+        .bind(&id_str)
+        .bind(name)
+        .bind(description)
+        .bind(default_engine)
+        .bind(now_ms)
+        .bind(metadata_json)
+        .bind(capabilities_json)
+        .bind(&password_hash)
+        .execute(&self.pool)
+        .await?;
 
         Ok(id_str)
     }
@@ -137,7 +147,11 @@ impl AgentManager {
 
     /// Set the enabled state of an agent (power on/off).
     pub async fn set_enabled(&self, agent_id: &str, enabled: bool) -> anyhow::Result<()> {
-        let now_ms = if enabled { chrono::Utc::now().timestamp_millis() } else { 0 };
+        let now_ms = if enabled {
+            chrono::Utc::now().timestamp_millis()
+        } else {
+            0
+        };
         sqlx::query("UPDATE agents SET enabled = ?, last_seen = ? WHERE id = ?")
             .bind(enabled)
             .bind(now_ms)
@@ -149,12 +163,11 @@ impl AgentManager {
 
     /// Get the stored password hash for an agent.
     pub async fn get_password_hash(&self, agent_id: &str) -> anyhow::Result<Option<String>> {
-        let row: (Option<String>,) = sqlx::query_as(
-            "SELECT power_password_hash FROM agents WHERE id = ?"
-        )
-        .bind(agent_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let row: (Option<String>,) =
+            sqlx::query_as("SELECT power_password_hash FROM agents WHERE id = ?")
+                .bind(agent_id)
+                .fetch_one(&self.pool)
+                .await?;
         Ok(row.0)
     }
 
@@ -176,15 +189,18 @@ impl AgentManager {
         use argon2::password_hash::PasswordHash;
         use argon2::{Argon2, PasswordVerifier};
 
-        let parsed_hash = PasswordHash::new(hash)
-            .map_err(|e| anyhow::anyhow!("Invalid password hash: {}", e))?;
+        let parsed_hash =
+            PasswordHash::new(hash).map_err(|e| anyhow::anyhow!("Invalid password hash: {}", e))?;
         Ok(Argon2::default()
             .verify_password(password.as_bytes(), &parsed_hash)
             .is_ok())
     }
 
     /// Return the plugin list for an agent from the agent_plugins table.
-    pub async fn get_agent_plugins(&self, agent_id: &str) -> anyhow::Result<Vec<crate::db::AgentPluginRow>> {
+    pub async fn get_agent_plugins(
+        &self,
+        agent_id: &str,
+    ) -> anyhow::Result<Vec<crate::db::AgentPluginRow>> {
         crate::db::get_agent_plugins(&self.pool, agent_id).await
     }
 
@@ -201,7 +217,7 @@ impl AgentManager {
         // Derive default_engine_id and preferred_memory from the new plugin list.
         // Priority for default_engine_id: mind.* LLM engines > other Reasoning engines.
         let manifests = registry.list_plugins().await;
-        let mut llm_engine_id: Option<String> = None;  // mind.* preferred
+        let mut llm_engine_id: Option<String> = None; // mind.* preferred
         let mut fallback_engine_id: Option<String> = None;
         let mut memory_id: Option<String> = None;
         for (plugin_id, _, _) in plugins {
@@ -226,7 +242,8 @@ impl AgentManager {
         if let Some(ref mid) = memory_id {
             metadata.insert("preferred_memory".to_string(), mid.clone());
         }
-        self.update_agent_config(agent_id, engine_id, metadata).await?;
+        self.update_agent_config(agent_id, engine_id, metadata)
+            .await?;
         Ok(())
     }
 

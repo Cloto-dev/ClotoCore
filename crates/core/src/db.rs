@@ -1,11 +1,11 @@
-use sqlx::SqlitePool;
-use tracing::info;
 use async_trait::async_trait;
-use std::sync::Arc;
-use exiv_shared::PluginDataStore;
 use chrono::{DateTime, Utc};
-use serde::{Serialize, Deserialize};
+use exiv_shared::PluginDataStore;
+use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
+use std::sync::Arc;
 use tokio::time::{timeout, Duration};
+use tracing::info;
 
 // Bug #7: Database operation timeout to prevent indefinite hangs
 const DB_TIMEOUT_SECS: u64 = 10;
@@ -15,7 +15,7 @@ pub struct SqliteDataStore {
 }
 
 impl SqliteDataStore {
-    #[must_use] 
+    #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
@@ -23,59 +23,98 @@ impl SqliteDataStore {
 
 #[async_trait]
 impl PluginDataStore for SqliteDataStore {
-    async fn set_json(&self, plugin_id: &str, key: &str, value: serde_json::Value) -> anyhow::Result<()> {
+    async fn set_json(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        value: serde_json::Value,
+    ) -> anyhow::Result<()> {
         // Input validation
         if plugin_id.contains('\0') || plugin_id.len() > 255 {
-            return Err(anyhow::anyhow!("plugin_id must not contain null bytes and must be <= 255 chars"));
+            return Err(anyhow::anyhow!(
+                "plugin_id must not contain null bytes and must be <= 255 chars"
+            ));
         }
         if key.contains('\0') {
             return Err(anyhow::anyhow!("Key must not contain null bytes"));
         }
         if key.len() > 255 {
-            return Err(anyhow::anyhow!("Key exceeds maximum length (255 characters)"));
+            return Err(anyhow::anyhow!(
+                "Key exceeds maximum length (255 characters)"
+            ));
         }
 
         let val_str = serde_json::to_string(&value)?;
 
         // Bug #7: Add timeout to prevent indefinite hangs on database locks
-        let query_future = sqlx::query("INSERT OR REPLACE INTO plugin_data (plugin_id, key, value) VALUES (?, ?, ?)")
-            .bind(plugin_id)
-            .bind(key)
-            .bind(val_str)
-            .execute(&self.pool);
+        let query_future = sqlx::query(
+            "INSERT OR REPLACE INTO plugin_data (plugin_id, key, value) VALUES (?, ?, ?)",
+        )
+        .bind(plugin_id)
+        .bind(key)
+        .bind(val_str)
+        .execute(&self.pool);
 
         // Bug A: Fixed error handling pattern - single ? operator after map_err
         timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
             .await
-            .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-            .map_err(|e| anyhow::anyhow!("Failed to save key '{}' for plugin '{}': {}", key, plugin_id, e))?;
+            .map_err(|_| {
+                anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
+            })?
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to save key '{}' for plugin '{}': {}",
+                    key,
+                    plugin_id,
+                    e
+                )
+            })?;
 
         Ok(())
     }
 
-    async fn get_json(&self, plugin_id: &str, key: &str) -> anyhow::Result<Option<serde_json::Value>> {
+    async fn get_json(
+        &self,
+        plugin_id: &str,
+        key: &str,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
         // Input validation
         if plugin_id.contains('\0') || plugin_id.len() > 255 {
-            return Err(anyhow::anyhow!("plugin_id must not contain null bytes and must be <= 255 chars"));
+            return Err(anyhow::anyhow!(
+                "plugin_id must not contain null bytes and must be <= 255 chars"
+            ));
         }
         if key.contains('\0') {
             return Err(anyhow::anyhow!("Key must not contain null bytes"));
         }
         if key.len() > 255 {
-            return Err(anyhow::anyhow!("Key exceeds maximum length (255 characters)"));
+            return Err(anyhow::anyhow!(
+                "Key exceeds maximum length (255 characters)"
+            ));
         }
 
         // Bug #7: Add timeout to prevent indefinite hangs on database locks
-        let query_future = sqlx::query_as::<_, (String,)>("SELECT value FROM plugin_data WHERE plugin_id = ? AND key = ?")
-            .bind(plugin_id)
-            .bind(key)
-            .fetch_optional(&self.pool);
+        let query_future = sqlx::query_as::<_, (String,)>(
+            "SELECT value FROM plugin_data WHERE plugin_id = ? AND key = ?",
+        )
+        .bind(plugin_id)
+        .bind(key)
+        .fetch_optional(&self.pool);
 
         // Bug A: Fixed error handling pattern - single ? operator after each map_err
         let row: Option<(String,)> = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
             .await
-            .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-            .map_err(|e| anyhow::anyhow!("Failed to get key '{}' for plugin '{}': {}", key, plugin_id, e))?;
+            .map_err(|_| {
+                anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
+            })?
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to get key '{}' for plugin '{}': {}",
+                    key,
+                    plugin_id,
+                    e
+                )
+            })?;
 
         if let Some((val_str,)) = row {
             let val = serde_json::from_str(&val_str)?;
@@ -85,13 +124,19 @@ impl PluginDataStore for SqliteDataStore {
         }
     }
 
-    async fn get_all_json(&self, plugin_id: &str, key_prefix: &str) -> anyhow::Result<Vec<(String, serde_json::Value)>> {
+    async fn get_all_json(
+        &self,
+        plugin_id: &str,
+        key_prefix: &str,
+    ) -> anyhow::Result<Vec<(String, serde_json::Value)>> {
         // Input validation: prevent malicious characters
         if key_prefix.contains('\0') {
             return Err(anyhow::anyhow!("Key prefix must not contain null bytes"));
         }
         if key_prefix.len() > 255 {
-            return Err(anyhow::anyhow!("Key prefix exceeds maximum length (255 characters)"));
+            return Err(anyhow::anyhow!(
+                "Key prefix exceeds maximum length (255 characters)"
+            ));
         }
 
         // Escape LIKE special characters to prevent pattern injection
@@ -104,18 +149,28 @@ impl PluginDataStore for SqliteDataStore {
         // Fetch DEFAULT_MAX_RESULTS + 1 to detect overflow without fetching all rows.
         let query_future = sqlx::query_as::<_, (String, String)>(
             "SELECT key, value FROM plugin_data WHERE plugin_id = ? AND key LIKE ? ESCAPE '\\' \
-             ORDER BY key DESC LIMIT ?"
+             ORDER BY key DESC LIMIT ?",
         )
-            .bind(plugin_id)
-            .bind(pattern)
-            .bind(DEFAULT_MAX_RESULTS + 1)
-            .fetch_all(&self.pool);
+        .bind(plugin_id)
+        .bind(pattern)
+        .bind(DEFAULT_MAX_RESULTS + 1)
+        .fetch_all(&self.pool);
 
         // Bug A: Fixed error handling pattern - single ? operator after each map_err
-        let mut rows: Vec<(String, String)> = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-            .await
-            .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-            .map_err(|e| anyhow::anyhow!("Failed to list keys with prefix '{}' for plugin '{}': {}", key_prefix, plugin_id, e))?;
+        let mut rows: Vec<(String, String)> =
+            timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
+                })?
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to list keys with prefix '{}' for plugin '{}': {}",
+                        key_prefix,
+                        plugin_id,
+                        e
+                    )
+                })?;
 
         if rows.len() > DEFAULT_MAX_RESULTS as usize {
             rows.truncate(DEFAULT_MAX_RESULTS as usize);
@@ -148,7 +203,9 @@ impl PluginDataStore for SqliteDataStore {
             return Err(anyhow::anyhow!("Key must not contain null bytes"));
         }
         if key.len() > 255 {
-            return Err(anyhow::anyhow!("Key exceeds maximum length (255 characters)"));
+            return Err(anyhow::anyhow!(
+                "Key exceeds maximum length (255 characters)"
+            ));
         }
 
         // Atomic UPSERT: INSERT or UPDATE in a single SQL statement
@@ -164,10 +221,20 @@ impl PluginDataStore for SqliteDataStore {
 
         let (val_str,) = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
             .await
-            .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-            .map_err(|e| anyhow::anyhow!("Failed to increment counter '{}' for plugin '{}': {}", key, plugin_id, e))?;
+            .map_err(|_| {
+                anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
+            })?
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to increment counter '{}' for plugin '{}': {}",
+                    key,
+                    plugin_id,
+                    e
+                )
+            })?;
 
-        val_str.parse::<i64>()
+        val_str
+            .parse::<i64>()
             .map_err(|e| anyhow::anyhow!("Failed to parse counter value '{}': {}", val_str, e))
     }
 }
@@ -186,16 +253,29 @@ impl ScopedDataStore {
 
 #[async_trait]
 impl PluginDataStore for ScopedDataStore {
-    async fn set_json(&self, _plugin_id: &str, key: &str, value: serde_json::Value) -> anyhow::Result<()> {
+    async fn set_json(
+        &self,
+        _plugin_id: &str,
+        key: &str,
+        value: serde_json::Value,
+    ) -> anyhow::Result<()> {
         // Ignore the argument plugin_id and forcibly use our own ID
         self.inner.set_json(&self.plugin_id, key, value).await
     }
 
-    async fn get_json(&self, _plugin_id: &str, key: &str) -> anyhow::Result<Option<serde_json::Value>> {
+    async fn get_json(
+        &self,
+        _plugin_id: &str,
+        key: &str,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
         self.inner.get_json(&self.plugin_id, key).await
     }
 
-    async fn get_all_json(&self, _plugin_id: &str, key_prefix: &str) -> anyhow::Result<Vec<(String, serde_json::Value)>> {
+    async fn get_all_json(
+        &self,
+        _plugin_id: &str,
+        key_prefix: &str,
+    ) -> anyhow::Result<Vec<(String, serde_json::Value)>> {
         self.inner.get_all_json(&self.plugin_id, key_prefix).await
     }
 
@@ -211,13 +291,21 @@ pub async fn init_db(pool: &SqlitePool, database_url: &str) -> anyhow::Result<()
     // Bug C: Wrap migration with timeout to prevent indefinite startup hangs (30s for schema changes)
     const MIGRATION_TIMEOUT_SECS: u64 = 30;
     let migration_future = sqlx::migrate!("./migrations").run(pool);
-    timeout(Duration::from_secs(MIGRATION_TIMEOUT_SECS), migration_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database migrations timed out after {}s", MIGRATION_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database migration failed: {}", e))?;
+    timeout(
+        Duration::from_secs(MIGRATION_TIMEOUT_SECS),
+        migration_future,
+    )
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "Database migrations timed out after {}s",
+            MIGRATION_TIMEOUT_SECS
+        )
+    })?
+    .map_err(|e| anyhow::anyhow!("Database migration failed: {}", e))?;
 
     info!("Applying runtime configurations...");
-    
+
     // Configs that depend on runtime environment
     sqlx::query("INSERT OR REPLACE INTO plugin_configs (plugin_id, config_key, config_value) VALUES ('core.ks22', 'database_url', ?)")
         .bind(database_url)
@@ -282,11 +370,7 @@ pub fn spawn_audit_log(pool: SqlitePool, entry: AuditLogEntry) {
             match write_audit_log(&pool, entry.clone()).await {
                 Ok(()) => return,
                 Err(e) => {
-                    tracing::error!(
-                        attempt = attempt + 1,
-                        "Failed to write audit log: {}",
-                        e
-                    );
+                    tracing::error!(attempt = attempt + 1, "Failed to write audit log: {}", e);
                     if attempt < 2 {
                         tokio::time::sleep(std::time::Duration::from_millis(
                             100 * (u64::from(attempt) + 1),
@@ -301,10 +385,7 @@ pub fn spawn_audit_log(pool: SqlitePool, entry: AuditLogEntry) {
 }
 
 /// Query audit logs from the database (most recent first)
-pub async fn query_audit_logs(
-    pool: &SqlitePool,
-    limit: i64,
-) -> anyhow::Result<Vec<AuditLogEntry>> {
+pub async fn query_audit_logs(pool: &SqlitePool, limit: i64) -> anyhow::Result<Vec<AuditLogEntry>> {
     // Bug #7: Add timeout to prevent indefinite hangs on database locks
     #[allow(clippy::type_complexity)]
     let query_future = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<String>, String, String, Option<String>, Option<String>)>(
@@ -411,7 +492,20 @@ pub async fn get_pending_permission_requests(
         .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
 
     let mut requests = Vec::new();
-    for (request_id, created_at, plugin_id, permission_type, target_resource, justification, status, approved_by, approved_at, expires_at, metadata) in rows {
+    for (
+        request_id,
+        created_at,
+        plugin_id,
+        permission_type,
+        target_resource,
+        justification,
+        status,
+        approved_by,
+        approved_at,
+        expires_at,
+        metadata,
+    ) in rows
+    {
         requests.push(PermissionRequest {
             request_id,
             created_at: DateTime::parse_from_rfc3339(&created_at)?.with_timezone(&Utc),
@@ -421,8 +515,16 @@ pub async fn get_pending_permission_requests(
             justification,
             status,
             approved_by,
-            approved_at: approved_at.and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&Utc))),
-            expires_at: expires_at.and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&Utc))),
+            approved_at: approved_at.and_then(|s| {
+                DateTime::parse_from_rfc3339(&s)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&Utc))
+            }),
+            expires_at: expires_at.and_then(|s| {
+                DateTime::parse_from_rfc3339(&s)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&Utc))
+            }),
             metadata: metadata.and_then(|s| serde_json::from_str(&s).ok()),
         });
     }
@@ -452,7 +554,7 @@ pub async fn update_permission_request(
     let query_future = sqlx::query(
         "UPDATE permission_requests
          SET status = ?, approved_by = ?, approved_at = ?
-         WHERE request_id = ? AND status = 'pending'"
+         WHERE request_id = ? AND status = 'pending'",
     )
     .bind(status)
     .bind(approved_by)
@@ -484,7 +586,7 @@ pub struct ChatMessageRow {
     pub agent_id: String,
     pub user_id: String,
     pub source: String,
-    pub content: String,        // JSON string of ContentBlock[]
+    pub content: String, // JSON string of ContentBlock[]
     pub metadata: Option<String>,
     pub created_at: i64,
 }
@@ -507,7 +609,7 @@ pub struct AttachmentRow {
 pub async fn save_chat_message(pool: &SqlitePool, msg: &ChatMessageRow) -> anyhow::Result<()> {
     let query_future = sqlx::query(
         "INSERT INTO chat_messages (id, agent_id, user_id, source, content, metadata, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)"
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&msg.id)
     .bind(&msg.agent_id)
@@ -536,46 +638,64 @@ pub async fn get_chat_messages(
 ) -> anyhow::Result<Vec<ChatMessageRow>> {
     let limit = limit.min(200);
 
-    let rows: Vec<(String, String, String, String, String, Option<String>, i64)> = if let Some(before) = before_ts {
-        let query_future = sqlx::query_as::<_, (String, String, String, String, String, Option<String>, i64)>(
-            "SELECT id, agent_id, user_id, source, content, metadata, created_at
+    let rows: Vec<(String, String, String, String, String, Option<String>, i64)> =
+        if let Some(before) = before_ts {
+            let query_future =
+                sqlx::query_as::<_, (String, String, String, String, String, Option<String>, i64)>(
+                    "SELECT id, agent_id, user_id, source, content, metadata, created_at
              FROM chat_messages
              WHERE agent_id = ? AND user_id = ? AND created_at < ?
              ORDER BY created_at DESC
-             LIMIT ?"
-        )
-        .bind(agent_id)
-        .bind(user_id)
-        .bind(before)
-        .bind(limit)
-        .fetch_all(pool);
+             LIMIT ?",
+                )
+                .bind(agent_id)
+                .bind(user_id)
+                .bind(before)
+                .bind(limit)
+                .fetch_all(pool);
 
-        timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-            .await
-            .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-            .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?
-    } else {
-        let query_future = sqlx::query_as::<_, (String, String, String, String, String, Option<String>, i64)>(
-            "SELECT id, agent_id, user_id, source, content, metadata, created_at
+            timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
+                })?
+                .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?
+        } else {
+            let query_future =
+                sqlx::query_as::<_, (String, String, String, String, String, Option<String>, i64)>(
+                    "SELECT id, agent_id, user_id, source, content, metadata, created_at
              FROM chat_messages
              WHERE agent_id = ? AND user_id = ?
              ORDER BY created_at DESC
-             LIMIT ?"
+             LIMIT ?",
+                )
+                .bind(agent_id)
+                .bind(user_id)
+                .bind(limit)
+                .fetch_all(pool);
+
+            timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
+                })?
+                .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?
+        };
+
+    let messages = rows
+        .into_iter()
+        .map(
+            |(id, agent_id, user_id, source, content, metadata, created_at)| ChatMessageRow {
+                id,
+                agent_id,
+                user_id,
+                source,
+                content,
+                metadata,
+                created_at,
+            },
         )
-        .bind(agent_id)
-        .bind(user_id)
-        .bind(limit)
-        .fetch_all(pool);
-
-        timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-            .await
-            .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-            .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?
-    };
-
-    let messages = rows.into_iter().map(|(id, agent_id, user_id, source, content, metadata, created_at)| {
-        ChatMessageRow { id, agent_id, user_id, source, content, metadata, created_at }
-    }).collect();
+        .collect();
 
     Ok(messages)
 }
@@ -588,7 +708,7 @@ pub async fn delete_chat_messages(
 ) -> anyhow::Result<u64> {
     // First get message IDs for disk attachment cleanup
     let ids_future = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM chat_messages WHERE agent_id = ? AND user_id = ?"
+        "SELECT id FROM chat_messages WHERE agent_id = ? AND user_id = ?",
     )
     .bind(agent_id)
     .bind(user_id)
@@ -606,12 +726,10 @@ pub async fn delete_chat_messages(
     let disk_paths = get_disk_attachment_paths(pool, &msg_ids).await?;
 
     // Delete messages (attachments cascade via ON DELETE CASCADE)
-    let delete_future = sqlx::query(
-        "DELETE FROM chat_messages WHERE agent_id = ? AND user_id = ?"
-    )
-    .bind(agent_id)
-    .bind(user_id)
-    .execute(pool);
+    let delete_future = sqlx::query("DELETE FROM chat_messages WHERE agent_id = ? AND user_id = ?")
+        .bind(agent_id)
+        .bind(user_id)
+        .execute(pool);
 
     let result = timeout(Duration::from_secs(DB_TIMEOUT_SECS), delete_future)
         .await
@@ -669,9 +787,34 @@ pub async fn get_attachments_for_message(
         .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
         .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
 
-    let attachments = rows.into_iter().map(|(id, message_id, filename, mime_type, size_bytes, storage_type, inline_data, disk_path, created_at)| {
-        AttachmentRow { id, message_id, filename, mime_type, size_bytes, storage_type, inline_data, disk_path, created_at }
-    }).collect();
+    let attachments = rows
+        .into_iter()
+        .map(
+            |(
+                id,
+                message_id,
+                filename,
+                mime_type,
+                size_bytes,
+                storage_type,
+                inline_data,
+                disk_path,
+                created_at,
+            )| {
+                AttachmentRow {
+                    id,
+                    message_id,
+                    filename,
+                    mime_type,
+                    size_bytes,
+                    storage_type,
+                    inline_data,
+                    disk_path,
+                    created_at,
+                }
+            },
+        )
+        .collect();
 
     Ok(attachments)
 }
@@ -694,9 +837,31 @@ pub async fn get_attachment_by_id(
         .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
         .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
 
-    Ok(row.map(|(id, message_id, filename, mime_type, size_bytes, storage_type, inline_data, disk_path, created_at)| {
-        AttachmentRow { id, message_id, filename, mime_type, size_bytes, storage_type, inline_data, disk_path, created_at }
-    }))
+    Ok(row.map(
+        |(
+            id,
+            message_id,
+            filename,
+            mime_type,
+            size_bytes,
+            storage_type,
+            inline_data,
+            disk_path,
+            created_at,
+        )| {
+            AttachmentRow {
+                id,
+                message_id,
+                filename,
+                mime_type,
+                size_bytes,
+                storage_type,
+                inline_data,
+                disk_path,
+                created_at,
+            }
+        },
+    ))
 }
 
 /// Helper: get disk paths for attachments belonging to given message IDs
@@ -744,7 +909,10 @@ pub struct RuntimePluginRecord {
     pub is_active: bool,
 }
 
-pub async fn save_runtime_plugin(pool: &SqlitePool, record: &RuntimePluginRecord) -> anyhow::Result<()> {
+pub async fn save_runtime_plugin(
+    pool: &SqlitePool,
+    record: &RuntimePluginRecord,
+) -> anyhow::Result<()> {
     tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
         sqlx::query(
             "INSERT OR REPLACE INTO runtime_plugins \
@@ -769,7 +937,9 @@ pub async fn save_runtime_plugin(pool: &SqlitePool, record: &RuntimePluginRecord
     .map_err(|_| anyhow::anyhow!("Database timeout saving runtime plugin"))?
 }
 
-pub async fn load_active_runtime_plugins(pool: &SqlitePool) -> anyhow::Result<Vec<RuntimePluginRecord>> {
+pub async fn load_active_runtime_plugins(
+    pool: &SqlitePool,
+) -> anyhow::Result<Vec<RuntimePluginRecord>> {
     tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
         let rows = sqlx::query_as::<_, (String, String, Option<String>, String, String, i64, Option<String>, Option<i64>, bool)>(
             "SELECT plugin_id, script_name, description, code_content, permissions, created_at, created_by, generation_number, is_active \
@@ -831,9 +1001,9 @@ pub async fn delete_runtime_plugin(pool: &SqlitePool, plugin_id: &str) -> anyhow
 /// Uses DefaultHasher with a fixed salt (not crypto-grade, but sufficient
 /// for revocation purposes on a local LAN-only dashboard).
 pub fn hash_api_key(key: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
     use std::fmt::Write as _;
     use std::hash::{Hash, Hasher};
-    use std::collections::hash_map::DefaultHasher;
     let mut h = DefaultHasher::new();
     key.hash(&mut h);
     key.len().hash(&mut h);
@@ -882,21 +1052,31 @@ pub struct AgentPluginRow {
 }
 
 /// Return the ordered plugin list for an agent.
-pub async fn get_agent_plugins(pool: &SqlitePool, agent_id: &str) -> anyhow::Result<Vec<AgentPluginRow>> {
+pub async fn get_agent_plugins(
+    pool: &SqlitePool,
+    agent_id: &str,
+) -> anyhow::Result<Vec<AgentPluginRow>> {
     let rows: Vec<(String, i32, i32)> = sqlx::query_as(
         "SELECT plugin_id, pos_x, pos_y FROM agent_plugins WHERE agent_id = ? ORDER BY pos_y, pos_x"
     )
     .bind(agent_id)
     .fetch_all(pool)
     .await?;
-    Ok(rows.into_iter().map(|(plugin_id, pos_x, pos_y)| AgentPluginRow { plugin_id, pos_x, pos_y }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|(plugin_id, pos_x, pos_y)| AgentPluginRow {
+            plugin_id,
+            pos_x,
+            pos_y,
+        })
+        .collect())
 }
 
 /// Replace an agent's entire plugin list atomically.
 pub async fn set_agent_plugins(
     pool: &SqlitePool,
     agent_id: &str,
-    plugins: &[(String, i32, i32)],  // (plugin_id, pos_x, pos_y)
+    plugins: &[(String, i32, i32)], // (plugin_id, pos_x, pos_y)
 ) -> anyhow::Result<()> {
     let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM agent_plugins WHERE agent_id = ?")
@@ -904,13 +1084,15 @@ pub async fn set_agent_plugins(
         .execute(&mut *tx)
         .await?;
     for (plugin_id, pos_x, pos_y) in plugins {
-        sqlx::query("INSERT INTO agent_plugins (agent_id, plugin_id, pos_x, pos_y) VALUES (?, ?, ?, ?)")
-            .bind(agent_id)
-            .bind(plugin_id)
-            .bind(pos_x)
-            .bind(pos_y)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "INSERT INTO agent_plugins (agent_id, plugin_id, pos_x, pos_y) VALUES (?, ?, ?, ?)",
+        )
+        .bind(agent_id)
+        .bind(plugin_id)
+        .bind(pos_x)
+        .bind(pos_y)
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
     Ok(())
@@ -919,13 +1101,12 @@ pub async fn set_agent_plugins(
 pub async fn is_api_key_revoked(pool: &SqlitePool, key: &str) -> anyhow::Result<bool> {
     let key_hash = hash_api_key(key);
     tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT key_hash FROM revoked_keys WHERE key_hash = ?"
-        )
-        .bind(&key_hash)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to check revoked keys: {}", e))?;
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT key_hash FROM revoked_keys WHERE key_hash = ?")
+                .bind(&key_hash)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to check revoked keys: {}", e))?;
         Ok(row.is_some())
     })
     .await
@@ -1022,7 +1203,9 @@ mod tests {
         assert_eq!(pending[0].status, "pending");
 
         // Approve the request
-        update_permission_request(&pool, "req-001", "approved", "admin").await.unwrap();
+        update_permission_request(&pool, "req-001", "approved", "admin")
+            .await
+            .unwrap();
 
         // Verify no longer in pending list
         let pending_after = get_pending_permission_requests(&pool).await.unwrap();

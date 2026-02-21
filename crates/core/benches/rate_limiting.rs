@@ -2,9 +2,9 @@
 // Critical path: exiv_core/src/middleware.rs:41-47 (RateLimiter::check)
 // Measures: DashMap contention, token bucket operations, cleanup performance
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use std::net::IpAddr;
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use exiv_core::middleware::RateLimiter;
+use std::net::IpAddr;
 
 mod helpers;
 
@@ -88,9 +88,8 @@ fn rate_limiter_cleanup_benchmark(c: &mut Criterion) {
                         // Setup: Create limiter with many tracked IPs
                         let limiter = RateLimiter::new(100, 1);
                         for i in 0..count {
-                            let ip: IpAddr = format!("172.16.{}.{}", i / 256, i % 256)
-                                .parse()
-                                .unwrap();
+                            let ip: IpAddr =
+                                format!("172.16.{}.{}", i / 256, i % 256).parse().unwrap();
                             limiter.check(ip);
                         }
                         limiter
@@ -115,9 +114,7 @@ fn rate_limiter_tracked_ips_count(c: &mut Criterion) {
 
         // Populate with 1000 IPs
         for i in 0..1000 {
-            let ip: IpAddr = format!("192.168.{}.{}", i / 256, i % 256)
-                .parse()
-                .unwrap();
+            let ip: IpAddr = format!("192.168.{}.{}", i / 256, i % 256).parse().unwrap();
             limiter.check(ip);
         }
 
