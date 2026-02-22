@@ -9,7 +9,7 @@ import { ApiKeyGate } from './ApiKeyGate';
 
 const ALL_PERMISSIONS = [
   { name: 'NetworkAccess',    label: 'Network Access',     enforced: true,  desc: 'HTTP requests to whitelisted hosts' },
-  { name: 'InputControl',     label: 'Input Control',      enforced: true,  desc: 'Keyboard / mouse control via hal.cursor' },
+  { name: 'InputControl',     label: 'Input Control',      enforced: true,  desc: 'Keyboard / mouse control' },
   { name: 'FileRead',         label: 'File Read',          enforced: false, desc: 'Read files from disk (declared only)' },
   { name: 'FileWrite',        label: 'File Write',         enforced: false, desc: 'Write files to disk (declared only)' },
   { name: 'ProcessExecution', label: 'Process Execution',  enforced: false, desc: 'Execute system processes (declared only)' },

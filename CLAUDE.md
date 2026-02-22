@@ -121,7 +121,7 @@ This script is the mechanical verification engine that prevents hallucination an
 
 - **Language**: Rust (workspace with multiple crates)
 - **Core**: `crates/core/` - kernel, handlers, database, middleware
-- **Plugins**: `plugins/` - python_bridge, etc.
+- **Plugins**: `plugins/` - mcp, terminal, deepseek, ks22, cerebras, moderator
 - **Dashboard**: `dashboard/` - React/TypeScript web UI
 - **Scripts**: `scripts/` - build, verification, and utility scripts
 - **QA**: `qa/` - issue registry and quality assurance data

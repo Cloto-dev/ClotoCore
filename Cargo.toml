@@ -9,7 +9,6 @@ members = [
     "plugins/cerebras",
     "plugins/moderator",
     "plugins/mcp",
-    "plugins/python_bridge",
     "plugins/terminal",
     "dashboard/src-tauri",
 ]

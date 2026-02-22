@@ -1,7 +1,14 @@
 # WASM Plugin Design (Tier 3)
 
-> **Status:** Design proposal. Not yet implemented.
-> **Target Phase:** Post-E7 (after Evolution Engine YOLO mode stabilization)
+> **Status:** Superseded. MCP adapter now provides dynamic tool integration without WASM complexity.
+> **Superseded by:** `plugins/mcp/` — Model Context Protocol adapter with runtime server management
+> **Original Target Phase:** Post-E7 (after Evolution Engine YOLO mode stabilization)
+>
+> **Decision (2026-02-22):** Plugin system simplified from 4 formats (Rust/Python Bridge/WASM/MCP)
+> to 2 formats (Rust + MCP). Python Bridge deleted, WASM plan superseded.
+> MCP provides language-agnostic tool integration via industry-standard protocol,
+> covering the same use cases with lower implementation cost.
+> This document is retained as historical reference.
 
 ---
 

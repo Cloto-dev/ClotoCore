@@ -53,7 +53,7 @@ Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 [CustomMessages]
 ; English
 english.ComponentCore=Exiv Core System (required)
-english.ComponentPython=Python Bridge (requires Python 3.9+)
+english.ComponentPython=MCP Server Support
 english.ComponentDashboard=Desktop Dashboard (Tauri)
 english.TaskDesktopIcon=Create a desktop shortcut
 english.TaskAddToPath=Add Exiv to system PATH
@@ -67,7 +67,7 @@ english.ConfigGenerating=Configuring Exiv...
 english.FinishOpenDashboard=Open Exiv Dashboard
 ; Japanese
 japanese.ComponentCore=Exiv Core System (必須)
-japanese.ComponentPython=Python Bridge (Python 3.9以上が必要)
+japanese.ComponentPython=MCP サーバーサポート
 japanese.ComponentDashboard=デスクトップダッシュボード (Tauri)
 japanese.TaskDesktopIcon=デスクトップにショートカットを作成
 japanese.TaskAddToPath=Exivをシステム PATH に追加
@@ -82,7 +82,7 @@ japanese.FinishOpenDashboard=Exiv ダッシュボードを開く
 
 [Types]
 Name: "full"; Description: "Full installation"
-Name: "core"; Description: "Core only (no Python Bridge)"
+Name: "core"; Description: "Core only"
 Name: "custom"; Description: "Custom installation"; Flags: iscustom
 
 [Components]
@@ -97,10 +97,7 @@ Source: "build\exiv_system.exe"; DestDir: "{app}"; Components: core; Flags: igno
 Source: "..\env.example"; DestDir: "{app}"; DestName: ".env.example"; Components: core; Flags: ignoreversion
 ; License
 Source: "..\LICENSE"; DestDir: "{app}"; Components: core; Flags: ignoreversion
-; Python bridge scripts
-Source: "..\scripts\bridge_runtime.py"; DestDir: "{app}\scripts"; Components: python; Flags: ignoreversion
-Source: "..\scripts\bridge_main.py"; DestDir: "{app}\scripts"; Components: python; Flags: ignoreversion
-Source: "..\scripts\requirements.txt"; DestDir: "{app}\scripts"; Components: python; Flags: ignoreversion
+; MCP scripts directory (populated at runtime via MCP server management API)
 ; Uninstaller helper
 Source: "..\uninstall.ps1"; DestDir: "{app}"; Components: core; Flags: ignoreversion
 
@@ -116,7 +113,7 @@ Name: "addtopath"; Description: "{cm:TaskAddToPath}"; GroupDescription: "{cm:Tas
 Name: "installservice"; Description: "{cm:TaskInstallService}"; GroupDescription: "{cm:TaskGroup}"
 
 [Run]
-; Run self-installer to set up directories, .env, and Python venv
+; Run self-installer to set up directories and .env
 Filename: "{app}\exiv_system.exe"; Parameters: "install --prefix ""{app}"" {code:GetInstallFlags}"; StatusMsg: "{cm:ConfigGenerating}"; Flags: runhidden waituntilterminated
 ; Optionally open dashboard after install
 Filename: "http://localhost:{code:GetPort}"; Description: "{cm:FinishOpenDashboard}"; Flags: postinstall nowait shellexec skipifsilent unchecked
@@ -254,8 +251,6 @@ begin
   Flags := '';
   if WizardIsTaskSelected('installservice') then
     Flags := Flags + ' --service';
-  if not WizardIsComponentSelected('python') then
-    Flags := Flags + ' --no-python';
   Result := Trim(Flags);
 end;
 

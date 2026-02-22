@@ -159,12 +159,9 @@ jobs:
         shell: bash
         run: |
           STAGING="exiv-${{ steps.version.outputs.version }}-${{ matrix.platform }}"
-          mkdir -p "${STAGING}/scripts"
+          mkdir -p "${STAGING}"
 
           cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "${STAGING}/"
-          cp scripts/bridge_runtime.py "${STAGING}/scripts/"
-          cp scripts/bridge_main.py "${STAGING}/scripts/"
-          cp scripts/requirements.txt "${STAGING}/scripts/"
           cp .env.example "${STAGING}/"
 
           tar czf "${STAGING}.tar.gz" "${STAGING}"
@@ -187,12 +184,9 @@ jobs:
           $platform = "${{ matrix.platform }}"
           $staging = "exiv-${version}-${platform}"
 
-          New-Item -Type Directory -Path "${staging}/scripts" -Force | Out-Null
+          New-Item -Type Directory -Path "${staging}" -Force | Out-Null
 
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" "${staging}/"
-          Copy-Item "scripts/bridge_runtime.py" "${staging}/scripts/"
-          Copy-Item "scripts/bridge_main.py" "${staging}/scripts/"
-          Copy-Item "scripts/requirements.txt" "${staging}/scripts/"
           Copy-Item ".env.example" "${staging}/"
 
           Compress-Archive -Path "${staging}/*" -DestinationPath "${staging}.zip"

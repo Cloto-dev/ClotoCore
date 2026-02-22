@@ -100,8 +100,8 @@
 |----------|------|--------|
 | Security | ダミーAPIキー削除、環境変数ベースに移行 (`db.rs`) | Done |
 | Security | 認証バイパス修正、release buildで`EXIV_API_KEY`必須化 (`handlers.rs`) | Done |
-| Security | Python Bridge メソッドホワイトリスト導入 (`bridge_runtime.py`) | Done |
-| Security | パストラバーサル対策 (`plugin_python_bridge`) | Done |
+| Security | ~~Python Bridge メソッドホワイトリスト導入~~ (deleted with python_bridge) | Done |
+| Security | ~~パストラバーサル対策~~ (deleted with python_bridge) | Done |
 | Security | 未使用DISCORD_TOKEN削除 (`.env`) | Done |
 | Performance | イベント履歴 `Vec` → `VecDeque` (O(1) pop_front) | Done |
 | Performance | ホワイトリスト `Vec` → `HashSet` (O(1) lookup) | Done |

@@ -17,9 +17,9 @@ Exiv/
 │   ├── shared/      # 共有型・トレイト
 │   ├── macros/      # 手続きマクロ
 │   └── cli/         # CLIツール
-├── plugins/         # 9プラグイン (ks22, deepseek, cerebras, mcp, vision, cursor, moderator, python_bridge, terminal)
+├── plugins/         # 6プラグイン (ks22, deepseek, cerebras, mcp, moderator, terminal)
 ├── dashboard/       # React + TypeScript + Tauri 2.x
-├── scripts/         # Python Bridge スクリプト
+├── scripts/         # ユーティリティスクリプト
 ├── qa/              # issue-registry.json（バグ検証の真実の源泉）
 └── .dev-notes/      # 保守ノート（gitignore対象・補足資料）
 ```
@@ -40,7 +40,6 @@ Exiv/
 | `crates/core/src/db.rs` | 839 | ⚠️ 監視中 |
 | `crates/shared/src/lib.rs` | 662 | 許容範囲 |
 | `crates/core/src/capabilities.rs` | 285 | 良好 |
-| `plugins/python_bridge/src/process.rs` | 351 | 良好（分割済み）|
 
 ### テスト規模
 
@@ -210,7 +209,6 @@ if history.len() > MAX_EVENT_HISTORY {
 
 | 箇所 | 理由 | 判定 |
 |---|---|---|
-| `plugins/python_bridge/src/state.rs` | サブプロセス保持のため意図的に保持 | ✅ 正当 |
 | `plugins/moderator/src/lib.rs` | 将来の UI 用フィールド | ✅ 正当 |
 | `crates/cli/src/client.rs` (3箇所) | 将来の API レスポンスフィールド | ✅ 正当 |
 | `crates/core/src/handlers.rs:797` | 調査が必要 | ⚠️ 要確認 |

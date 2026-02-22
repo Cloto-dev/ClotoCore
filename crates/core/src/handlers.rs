@@ -1117,10 +1117,10 @@ pub async fn invalidate_api_key(
 }
 
 // ============================================================
-// Runtime Plugin Management
+// MCP Dynamic Server Management
 // ============================================================
 
-pub async fn create_runtime_plugin(
+pub async fn create_mcp_server(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
@@ -1132,198 +1132,196 @@ pub async fn create_runtime_plugin(
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::Validation("Missing required field: name".into()))?;
 
-    let code = body
-        .get("code")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Validation("Missing required field: code".into()))?;
-
-    let description = body
-        .get("description")
-        .and_then(|v| v.as_str())
-        .unwrap_or("A runtime-created plugin.");
-
     // Name validation
     if name.is_empty() || name.len() > 64 {
         return Err(AppError::Validation(
-            "Plugin name must be 1-64 characters".into(),
+            "Server name must be 1-64 characters".into(),
         ));
     }
     if !name
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
         return Err(AppError::Validation(
-            "Plugin name must contain only alphanumeric characters and underscores".into(),
+            "Server name must contain only alphanumeric characters, underscores, and hyphens"
+                .into(),
         ));
     }
 
-    // Optional custom JSON Schema for tool parameters
-    let default_schema = serde_json::json!({
-        "type": "object",
-        "properties": {
-            "input": { "type": "string", "description": "Input for the plugin" }
-        }
-    });
-    let tool_schema = body
-        .get("tool_schema")
-        .filter(|v| v.is_object())
-        .cloned()
-        .unwrap_or(default_schema);
+    // Determine command/args: either explicit or auto-generated from code
+    let (command, args, script_content) = if let Some(code) = body.get("code").and_then(|v| v.as_str()) {
+        let description = body
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("A dynamically generated MCP server.");
 
-    let network_access = body
-        .get("network_access")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
+        // Auto-generate MCP server Python script
+        let script = format!(
+            r#""""MCP Server: {name} — {description}"""
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
 
-    // Generate Python script with EXIV_MANIFEST
-    let script_content = format!(
-        r##"# Auto-generated runtime plugin: {name}
-EXIV_MANIFEST = {{
-    "name": "python.runtime.{name}",
-    "description": "{description}",
-    "provided_tools": ["{name}"],
-    "tool_description": "{description}",
-    "tool_schema": {tool_schema},
-    "tags": ["#RUNTIME", "#PLUGIN"]
-}}
+app = Server("{name}")
 
 {code}
 
-def execute(params):
-    return on_execute(params)
-"##,
-        name = name,
-        description = description.replace('"', r#"\""#),
-        tool_schema = tool_schema.to_string(),
-        code = code,
-    );
+async def main():
+    async with stdio_server() as (read, write):
+        await app.run(read, write)
 
-    // Write script to scripts/ directory
-    let script_filename = format!("runtime_{}.py", name);
-    let scripts_dir = std::path::Path::new("scripts");
-    if !scripts_dir.exists() {
-        std::fs::create_dir_all(scripts_dir)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to create scripts directory: {}", e)))?;
-    }
-    std::fs::write(scripts_dir.join(&script_filename), &script_content)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to write script: {}", e)))?;
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+"#,
+            name = name,
+            description = description.replace('"', r#"\""#),
+            code = code,
+        );
 
-    // Permissions
-    let permissions = if network_access {
-        vec![exiv_shared::Permission::NetworkAccess]
+        // Write script to scripts/ directory
+        let script_filename = format!("mcp_{}.py", name);
+        let scripts_dir = std::path::Path::new("scripts");
+        if !scripts_dir.exists() {
+            std::fs::create_dir_all(scripts_dir)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to create scripts directory: {}", e)))?;
+        }
+        std::fs::write(scripts_dir.join(&script_filename), &script)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to write MCP server script: {}", e)))?;
+
+        let python = if cfg!(windows) { "python" } else { "python3" };
+        (
+            python.to_string(),
+            vec![format!("scripts/{}", script_filename)],
+            Some(script),
+        )
     } else {
-        vec![]
+        // Explicit command/args
+        let command = body
+            .get("command")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                AppError::Validation("Missing 'command' or 'code' field".into())
+            })?
+            .to_string();
+
+        let args: Vec<String> = body
+            .get("args")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        (command, args, None)
     };
-    let permissions_json = serde_json::to_string(
-        &permissions
-            .iter()
-            .map(|p| format!("{:?}", p))
-            .collect::<Vec<_>>(),
-    )
-    .unwrap_or_else(|_| "[]".to_string());
 
-    // Register as runtime plugin
-    let plugin_id = format!("python.runtime.{}", name);
-    let mut config_values = std::collections::HashMap::new();
-    config_values.insert("script_path".to_string(), script_filename.clone());
+    // Get MCP plugin and add server
+    let mcp_plugin = {
+        let plugins = state.registry.plugins.read().await;
+        plugins.get("adapter.mcp").cloned()
+    };
 
-    state
-        .plugin_manager
-        .register_runtime_plugin(&plugin_id, config_values, permissions, &state.registry)
+    let mcp = mcp_plugin
+        .as_ref()
+        .and_then(|p| p.as_any().downcast_ref::<plugin_mcp::McpAdapterPlugin>())
+        .ok_or_else(|| {
+            AppError::Internal(anyhow::anyhow!("MCP adapter plugin not found"))
+        })?;
+
+    let tool_names = mcp
+        .add_server(name.to_string(), command.clone(), args.clone())
         .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to register plugin: {}", e)))?;
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to add MCP server: {}", e)))?;
 
     // Persist to database
-    let record = crate::db::RuntimePluginRecord {
-        plugin_id: plugin_id.clone(),
-        script_name: script_filename,
-        description: Some(description.to_string()),
-        code_content: script_content,
-        permissions: permissions_json,
+    let record = crate::db::McpServerRecord {
+        name: name.to_string(),
+        command: command.clone(),
+        args: serde_json::to_string(&args).unwrap_or_else(|_| "[]".to_string()),
+        script_content,
+        description: body.get("description").and_then(|v| v.as_str()).map(String::from),
         created_at: chrono::Utc::now().timestamp_millis(),
-        created_by: None,
-        generation_number: None,
         is_active: true,
     };
-    if let Err(e) = crate::db::save_runtime_plugin(&state.pool, &record).await {
-        tracing::warn!(error = %e, plugin_id = %plugin_id, "Failed to persist runtime plugin to DB");
+    if let Err(e) = crate::db::save_mcp_server(&state.pool, &record).await {
+        tracing::warn!(error = %e, name = %name, "Failed to persist MCP server to DB");
     }
 
-    tracing::info!(plugin_id = %plugin_id, "🔌 Runtime plugin created");
+    tracing::info!(name = %name, tools = ?tool_names, "🔌 Dynamic MCP server added");
 
     Ok(Json(serde_json::json!({
         "status": "created",
-        "plugin_id": plugin_id,
-        "tool_name": name,
+        "name": name,
+        "tools": tool_names,
     })))
 }
 
-pub async fn list_runtime_plugins(
+pub async fn list_mcp_servers(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
 
-    let records = crate::db::load_active_runtime_plugins(&state.pool)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to load runtime plugins: {}", e)))?;
-
-    let plugins: Vec<serde_json::Value> = records
-        .iter()
-        .map(|r| {
-            serde_json::json!({
-                "plugin_id": r.plugin_id,
-                "description": r.description,
-                "created_at": r.created_at,
-            })
-        })
-        .collect();
-
-    Ok(Json(serde_json::json!({
-        "plugins": plugins,
-        "count": plugins.len(),
-    })))
-}
-
-pub async fn delete_runtime_plugin(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-    headers: HeaderMap,
-) -> AppResult<Json<serde_json::Value>> {
-    check_auth(&state, &headers)?;
-
-    let plugin_id = if id.starts_with("python.runtime.") {
-        id.clone()
-    } else {
-        format!("python.runtime.{}", id)
+    let mcp_plugin = {
+        let plugins = state.registry.plugins.read().await;
+        plugins.get("adapter.mcp").cloned()
     };
 
+    let servers = if let Some(ref plugin) = mcp_plugin {
+        if let Some(mcp) = plugin.as_any().downcast_ref::<plugin_mcp::McpAdapterPlugin>() {
+            mcp.list_servers().await
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
+    Ok(Json(serde_json::json!({
+        "servers": servers,
+        "count": servers.len(),
+    })))
+}
+
+pub async fn delete_mcp_server(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    // Remove from MCP plugin
+    let mcp_plugin = {
+        let plugins = state.registry.plugins.read().await;
+        plugins.get("adapter.mcp").cloned()
+    };
+
+    if let Some(ref plugin) = mcp_plugin {
+        if let Some(mcp) = plugin.as_any().downcast_ref::<plugin_mcp::McpAdapterPlugin>() {
+            mcp.remove_server(&name)
+                .await
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+        }
+    }
+
     // Deactivate in DB
-    if let Err(e) = crate::db::deactivate_runtime_plugin(&state.pool, &plugin_id).await {
-        tracing::warn!(error = %e, plugin_id = %plugin_id, "Failed to deactivate runtime plugin in DB");
+    if let Err(e) = crate::db::deactivate_mcp_server(&state.pool, &name).await {
+        tracing::warn!(error = %e, name = %name, "Failed to deactivate MCP server in DB");
     }
 
-    // Remove from registry
-    {
-        let mut plugins = state.registry.plugins.write().await;
-        plugins.remove(&plugin_id);
-    }
-
-    // Remove script file
-    let script_name = format!(
-        "runtime_{}.py",
-        id.strip_prefix("python.runtime.").unwrap_or(&id)
-    );
-    let script_path = std::path::Path::new("scripts").join(&script_name);
+    // Remove auto-generated script file if it exists
+    let script_path = std::path::Path::new("scripts").join(format!("mcp_{}.py", name));
     if script_path.exists() {
         let _ = std::fs::remove_file(&script_path);
     }
 
-    tracing::info!(plugin_id = %plugin_id, "🗑️ Runtime plugin deleted");
+    tracing::info!(name = %name, "🗑️ MCP server removed");
 
     Ok(Json(serde_json::json!({
         "status": "deleted",
-        "plugin_id": plugin_id,
+        "name": name,
     })))
 }
 

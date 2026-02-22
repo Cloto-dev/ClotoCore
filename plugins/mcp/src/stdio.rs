@@ -9,7 +9,7 @@ use tracing::{error, info, warn};
 const ALLOWED_COMMANDS: &[&str] = &["npx", "node", "python", "python3", "deno", "bun"];
 
 /// Validate command against whitelist (bare command names only, no paths)
-fn validate_command(command: &str) -> Result<String> {
+pub(crate) fn validate_command(command: &str) -> Result<String> {
     // Reject any command containing path separators to prevent path-based bypass
     if command.contains('/') || command.contains('\\') {
         bail!(

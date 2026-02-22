@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use super::registry::{PluginRegistry, PluginSetting};
 use crate::capabilities::SafeHttpClient;
@@ -18,7 +18,7 @@ pub struct PluginManager {
     event_timeout_secs: u64,
     max_event_depth: u8,
     pub event_tx: Option<tokio::sync::mpsc::Sender<crate::EnvelopedEvent>>,
-    pub bridge_semaphore: Arc<tokio::sync::Semaphore>,
+    pub plugin_semaphore: Arc<tokio::sync::Semaphore>,
     pub shutdown: Arc<tokio::sync::Notify>,
 }
 
@@ -37,7 +37,7 @@ impl PluginManager {
             event_timeout_secs,
             max_event_depth,
             event_tx: None,
-            bridge_semaphore: Arc::new(tokio::sync::Semaphore::new(20)),
+            plugin_semaphore: Arc::new(tokio::sync::Semaphore::new(20)),
             shutdown: Arc::new(tokio::sync::Notify::new()),
         })
     }
@@ -149,21 +149,10 @@ impl PluginManager {
     ) -> anyhow::Result<()> {
         let plugin_id_str = &setting.plugin_id;
 
-        // 🔍 Factory lookup with fallback for Python plugins (Principle #2: Capability over Type)
+        // 🔍 Factory lookup
         let factory = self
             .factories
             .get(plugin_id_str)
-            .or_else(|| {
-                if plugin_id_str.starts_with("python.") {
-                    debug!(
-                        "Fallback: Using 'bridge.python' factory for plugin ID '{}'",
-                        plugin_id_str
-                    );
-                    self.factories.get("bridge.python")
-                } else {
-                    None
-                }
-            })
             .ok_or_else(|| {
                 anyhow::anyhow!("No factory found for enabled plugin: {}", plugin_id_str)
             })?;
@@ -200,7 +189,7 @@ impl PluginManager {
         if let Some(main_tx) = &self.event_tx {
             let main_tx = main_tx.clone();
             let pid = ExivId::from_name(plugin_id_str);
-            let semaphore = self.bridge_semaphore.clone();
+            let semaphore = self.plugin_semaphore.clone();
             let shutdown = self.shutdown.clone();
             tokio::spawn(async move {
                 loop {
@@ -475,128 +464,4 @@ impl PluginManager {
         Ok(())
     }
 
-    /// L5: Register a Python Bridge plugin at runtime into a live PluginRegistry.
-    /// Runtime plugins are ephemeral (not persisted to DB) and use the `python.runtime.*` namespace.
-    pub async fn register_runtime_plugin(
-        &self,
-        plugin_id: &str,
-        config_values: HashMap<String, String>,
-        permissions: Vec<Permission>,
-        registry: &PluginRegistry,
-    ) -> anyhow::Result<()> {
-        // 1. Namespace validation
-        if !plugin_id.starts_with("python.runtime.") {
-            return Err(anyhow::anyhow!(
-                "Runtime plugin ID must start with 'python.runtime.', got: {}",
-                plugin_id
-            ));
-        }
-
-        // 2. Duplicate check
-        {
-            let plugins = registry.plugins.read().await;
-            if plugins.contains_key(plugin_id) {
-                return Err(anyhow::anyhow!(
-                    "Plugin '{}' is already registered",
-                    plugin_id
-                ));
-            }
-        }
-
-        // 3. Use bridge.python factory
-        let factory = self
-            .factories
-            .get("bridge.python")
-            .ok_or_else(|| anyhow::anyhow!("bridge.python factory not found"))?;
-
-        let config = PluginConfig {
-            id: plugin_id.to_string(),
-            config_values,
-        };
-
-        info!(plugin_id = %plugin_id, "🔌 L5: Runtime plugin registration");
-        let plugin = factory.create(config).await?;
-        let manifest = plugin.manifest();
-
-        // 4. Magic Seal validation
-        if manifest.magic_seal != OFFICIAL_SDK_MAGIC {
-            return Err(anyhow::anyhow!(
-                "Access Denied: Runtime plugin '{}' is not compiled with official SDK",
-                plugin_id
-            ));
-        }
-
-        // 5. Per-plugin event bridge (same pattern as bootstrap_plugin)
-        let (p_tx, mut p_rx) = tokio::sync::mpsc::channel::<exiv_shared::ExivEventData>(100);
-        if let Some(main_tx) = &self.event_tx {
-            let main_tx = main_tx.clone();
-            let pid = ExivId::from_name(plugin_id);
-            let semaphore = self.bridge_semaphore.clone();
-            let shutdown = self.shutdown.clone();
-            tokio::spawn(async move {
-                loop {
-                    tokio::select! {
-                        () = shutdown.notified() => {
-                            tracing::info!("Runtime plugin event bridge shutting down for {}", pid);
-                            break;
-                        }
-                        maybe_data = p_rx.recv() => {
-                            let data = match maybe_data {
-                                Some(d) => d,
-                                None => break,
-                            };
-                            let _permit = match semaphore.acquire().await {
-                                Ok(p) => p,
-                                Err(_) => break,
-                            };
-                            let envelope = crate::EnvelopedEvent {
-                                event: Arc::new(exiv_shared::ExivEvent::new(data)),
-                                issuer: Some(pid),
-                                correlation_id: None,
-                                depth: 0,
-                            };
-                            let _ = main_tx.send(envelope).await;
-                        }
-                    }
-                }
-            });
-        }
-
-        // 6. PluginRuntimeContext with scoped data store
-        let context = PluginRuntimeContext {
-            effective_permissions: permissions.clone(),
-            store: Arc::new(crate::db::ScopedDataStore::new(
-                self.store.clone(),
-                plugin_id.to_string(),
-            )),
-            event_tx: p_tx,
-        };
-
-        // 7. Capability injection
-        let network_capability = if permissions.contains(&Permission::NetworkAccess) {
-            self.get_capability_for_permission(&Permission::NetworkAccess)
-                .map(|c| {
-                    let exiv_shared::PluginCapability::Network(net) = c else {
-                        unreachable!()
-                    };
-                    net
-                })
-        } else {
-            None
-        };
-
-        // 8. Initialize (triggers Python subprocess handshake)
-        plugin.on_plugin_init(context, network_capability).await?;
-
-        // 9. Atomic registration
-        {
-            let mut plugins = registry.plugins.write().await;
-            let mut perms_lock = registry.effective_permissions.write().await;
-            plugins.insert(plugin_id.to_string(), plugin);
-            perms_lock.insert(ExivId::from_name(plugin_id), permissions);
-        }
-
-        info!(plugin_id = %plugin_id, "✅ L5: Runtime plugin registered successfully");
-        Ok(())
-    }
 }

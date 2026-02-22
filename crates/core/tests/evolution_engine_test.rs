@@ -40,7 +40,6 @@ fn test_snapshot() -> AgentSnapshot {
             "test_plugin".to_string(),
             vec!["Reasoning".to_string()],
         )]),
-        runtime_plugins: vec![],
         personality_hash: "abc123".to_string(),
         strategy_params: Default::default(),
     }
@@ -55,7 +54,6 @@ fn snapshot_with_plugins(plugins: Vec<(&str, Vec<&str>)>) -> AgentSnapshot {
     AgentSnapshot {
         active_plugins,
         plugin_capabilities,
-        runtime_plugins: vec![],
         personality_hash: "abc123".to_string(),
         strategy_params: Default::default(),
     }
@@ -321,14 +319,12 @@ fn test_detect_capability_gain_empty_prev_capabilities() {
     let prev = AgentSnapshot {
         active_plugins: vec!["plugA".to_string()],
         plugin_capabilities: HashMap::new(),
-        runtime_plugins: vec![],
         personality_hash: "abc".to_string(),
         strategy_params: Default::default(),
     };
     let curr = AgentSnapshot {
         active_plugins: vec!["plugA".to_string(), "plugB".to_string()],
         plugin_capabilities: HashMap::new(),
-        runtime_plugins: vec![],
         personality_hash: "abc".to_string(),
         strategy_params: Default::default(),
     };

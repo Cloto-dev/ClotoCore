@@ -98,13 +98,6 @@ Exiv/
 │   └── macros/        # Procedural macros (#[exiv_plugin])
 │
 ├── plugins/
-│   ├── python_bridge/  # Python subprocess bridge (JSON-RPC)
-│   │   └── src/
-│   │       ├── lib.rs           # Coordinator + trait impls
-│   │       ├── state.rs         # State management
-│   │       ├── config.rs        # Path validation + security
-│   │       ├── process.rs       # Process lifecycle + restart
-│   │       └── ipc.rs           # RPC protocol + call management
 │   ├── deepseek/       # DeepSeek API reasoning engine
 │   ├── cerebras/       # Cerebras API reasoning engine
 │   ├── cursor/         # Cursor integration
@@ -336,26 +329,18 @@ See [`WASM_PLUGIN_DESIGN.md`](WASM_PLUGIN_DESIGN.md) for Tier 3 design details.
 
 ---
 
-## 4. Project Oculi: Eye-Tracking & Visual Symbiosis
+## 4. Project Oculi: Eye-Tracking & Visual Symbiosis (Paused)
+
+> **Status:** Paused. Python Bridge (sensor layer) has been removed. Vision/cursor plugins archived.
+> Future implementation would use MCP server-based approach.
 
 人間の視線（Gaze）を AI とリアルタイムに共有し、Foveated Vision による低レイテンシ・低コスト推論を実現するサブプロジェクト。
 
-**Architecture:**
-- **Sensor**: Webカメラ + MediaPipe Face Mesh
-- **Bridge**: `bridge.python` 経由の非同期イベントストリーミング
-- **UI**: 視線同期ニューラルカーソル
-- **Intelligence**: 注視点周辺 (256x256) のみを VLM へ送信
-
-**Roadmap:**
+**Original Roadmap:**
 - [x] Phase 1: Communication Infrastructure (GazeUpdated イベント, ストリーミング対応)
 - [x] Phase 2: Neural Synchronization (MediaPipe 視線推定, ダッシュボード同期)
-- [ ] Phase 3: Foveated Vision (画面部分キャプチャ, OCR/Object Detection)
-- [ ] Phase 4: Intent Discovery (フィクセーション検知, 視線ベース命令実行)
-
-**Safety & Privacy:**
-- 顔の生映像はメモリ内でのみ処理し、ストレージに保存しない
-- 外部送信は座標データとクロップ画像のみに制限
-- カメラ動作中はダッシュボード上にインジケータを表示
+- [ ] Phase 3: Foveated Vision — paused
+- [ ] Phase 4: Intent Discovery — paused
 
 ---
 
@@ -404,7 +389,7 @@ See [`WASM_PLUGIN_DESIGN.md`](WASM_PLUGIN_DESIGN.md) for Tier 3 design details.
   "fitness": 0.57,
   "fitness_delta": "+0.09",
   "snapshot": {
-    "active_plugins": ["mind.deepseek", "bridge.python", "mod.safety"],
+    "active_plugins": ["mind.deepseek", "core.ks22", "adapter.mcp"],
     "personality_hash": "a3f8c2...",
     "strategy_params": {
       "tool_selection_weight": 0.7,

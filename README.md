@@ -103,18 +103,8 @@ The dashboard opens at **http://localhost:8081**.
 | `mind.cerebras` | Reasoning | Ultra-high-speed reasoning via Cerebras API |
 | `core.ks22` | Memory | Persistent key-value memory with chronological recall |
 | `core.moderator` | Reasoning | Consensus moderator for collective intelligence |
-| `hal.cursor` | HAL | High-precision cursor with fluid motion trails |
-| `bridge.python` | Bridge | Universal Python Bridge with async event streaming |
-| `adapter.mcp` | Skill | Model Context Protocol (MCP) client adapter |
+| `adapter.mcp` | Skill | Model Context Protocol (MCP) client adapter with dynamic server management |
 | `tool.terminal` | Skill | Sandboxed shell command execution |
-| `vision.screen` | Vision | Screen capture and analysis module |
-
-**Python plugins** (loaded through `bridge.python`):
-
-| ID | Type | Description |
-|----|------|-------------|
-| `python.analyst` | Reasoning | Data analysis agent with external data fetching |
-| `python.gaze` | Vision | Webcam-based eye tracking via MediaPipe |
 
 ### Writing a Plugin
 

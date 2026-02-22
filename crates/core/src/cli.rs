@@ -24,9 +24,6 @@ pub enum Commands {
         /// Register as OS service (systemd on Linux, sc.exe on Windows)
         #[arg(long)]
         service: bool,
-        /// Skip Python virtual environment setup
-        #[arg(long)]
-        no_python: bool,
         /// Service user (Linux only, default: current user)
         #[arg(long)]
         user: Option<String>,
@@ -99,11 +96,10 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
         Commands::Install {
             prefix,
             service,
-            no_python,
             user,
         } => {
             info!("📦 Installing Exiv to {}", prefix.display());
-            crate::installer::install(prefix, service, no_python, user).await
+            crate::installer::install(prefix, service, user).await
         }
         Commands::Uninstall { prefix } => {
             info!("🗑️  Uninstalling Exiv from {}", prefix.display());

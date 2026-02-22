@@ -893,104 +893,87 @@ async fn get_disk_attachment_paths(
 }
 
 // ============================================================
-// Runtime Plugin Persistence (L5 Self-Extension)
+// MCP Dynamic Server Persistence
 // ============================================================
 
 #[derive(Debug, Clone)]
-pub struct RuntimePluginRecord {
-    pub plugin_id: String,
-    pub script_name: String,
+pub struct McpServerRecord {
+    pub name: String,
+    pub command: String,
+    pub args: String,
+    pub script_content: Option<String>,
     pub description: Option<String>,
-    pub code_content: String,
-    pub permissions: String,
     pub created_at: i64,
-    pub created_by: Option<String>,
-    pub generation_number: Option<i64>,
     pub is_active: bool,
 }
 
-pub async fn save_runtime_plugin(
-    pool: &SqlitePool,
-    record: &RuntimePluginRecord,
-) -> anyhow::Result<()> {
+pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> anyhow::Result<()> {
     tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
         sqlx::query(
-            "INSERT OR REPLACE INTO runtime_plugins \
-             (plugin_id, script_name, description, code_content, permissions, created_at, created_by, generation_number, is_active) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT OR REPLACE INTO mcp_servers \
+             (name, command, args, script_content, description, created_at, is_active) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
-        .bind(&record.plugin_id)
-        .bind(&record.script_name)
+        .bind(&record.name)
+        .bind(&record.command)
+        .bind(&record.args)
+        .bind(&record.script_content)
         .bind(&record.description)
-        .bind(&record.code_content)
-        .bind(&record.permissions)
         .bind(record.created_at)
-        .bind(&record.created_by)
-        .bind(record.generation_number)
         .bind(record.is_active)
         .execute(pool)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to save runtime plugin: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to save MCP server: {}", e))?;
         Ok(())
     })
     .await
-    .map_err(|_| anyhow::anyhow!("Database timeout saving runtime plugin"))?
+    .map_err(|_| anyhow::anyhow!("Database timeout saving MCP server"))?
 }
 
-pub async fn load_active_runtime_plugins(
+pub async fn load_active_mcp_servers(
     pool: &SqlitePool,
-) -> anyhow::Result<Vec<RuntimePluginRecord>> {
+) -> anyhow::Result<Vec<McpServerRecord>> {
     tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
-        let rows = sqlx::query_as::<_, (String, String, Option<String>, String, String, i64, Option<String>, Option<i64>, bool)>(
-            "SELECT plugin_id, script_name, description, code_content, permissions, created_at, created_by, generation_number, is_active \
-             FROM runtime_plugins WHERE is_active = 1 ORDER BY created_at ASC"
+        let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, i64, bool)>(
+            "SELECT name, command, args, script_content, description, created_at, is_active \
+             FROM mcp_servers WHERE is_active = 1 ORDER BY created_at ASC",
         )
         .fetch_all(pool)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to load runtime plugins: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to load MCP servers: {}", e))?;
 
-        Ok(rows.into_iter().map(|(plugin_id, script_name, description, code_content, permissions, created_at, created_by, generation_number, is_active)| {
-            RuntimePluginRecord {
-                plugin_id,
-                script_name,
-                description,
-                code_content,
-                permissions,
-                created_at,
-                created_by,
-                generation_number,
-                is_active,
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(
+                |(name, command, args, script_content, description, created_at, is_active)| {
+                    McpServerRecord {
+                        name,
+                        command,
+                        args,
+                        script_content,
+                        description,
+                        created_at,
+                        is_active,
+                    }
+                },
+            )
+            .collect())
     })
     .await
-    .map_err(|_| anyhow::anyhow!("Database timeout loading runtime plugins"))?
+    .map_err(|_| anyhow::anyhow!("Database timeout loading MCP servers"))?
 }
 
-pub async fn deactivate_runtime_plugin(pool: &SqlitePool, plugin_id: &str) -> anyhow::Result<()> {
+pub async fn deactivate_mcp_server(pool: &SqlitePool, name: &str) -> anyhow::Result<()> {
     tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
-        sqlx::query("UPDATE runtime_plugins SET is_active = 0 WHERE plugin_id = ?")
-            .bind(plugin_id)
+        sqlx::query("UPDATE mcp_servers SET is_active = 0 WHERE name = ?")
+            .bind(name)
             .execute(pool)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to deactivate runtime plugin: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to deactivate MCP server: {}", e))?;
         Ok(())
     })
     .await
-    .map_err(|_| anyhow::anyhow!("Database timeout deactivating runtime plugin"))?
-}
-
-pub async fn delete_runtime_plugin(pool: &SqlitePool, plugin_id: &str) -> anyhow::Result<()> {
-    tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
-        sqlx::query("DELETE FROM runtime_plugins WHERE plugin_id = ?")
-            .bind(plugin_id)
-            .execute(pool)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to delete runtime plugin: {}", e))?;
-        Ok(())
-    })
-    .await
-    .map_err(|_| anyhow::anyhow!("Database timeout deleting runtime plugin"))?
+    .map_err(|_| anyhow::anyhow!("Database timeout deactivating MCP server"))?
 }
 
 // ============================================================

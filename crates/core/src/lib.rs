@@ -26,7 +26,6 @@ extern crate plugin_deepseek;
 extern crate plugin_ks22;
 extern crate plugin_mcp;
 extern crate plugin_moderator;
-extern crate plugin_python_bridge;
 extern crate plugin_terminal;
 
 use exiv_shared::ExivEvent;
@@ -158,7 +157,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     use crate::handlers::{self, system::SystemHandler};
     use crate::managers::{AgentManager, PluginManager};
     use axum::{
-        routing::{any, delete, get, post},
+        routing::{any, get, post},
         Router,
     };
     use tower_http::cors::CorsLayer;
@@ -276,58 +275,64 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         plugins.insert("core.system".to_string(), system_handler);
     }
 
-    // L5: Restore persisted runtime plugins from database
-    match db::load_active_runtime_plugins(&pool).await {
-        Ok(runtime_plugins) => {
-            let count = runtime_plugins.len();
-            for record in runtime_plugins {
-                // Ensure script file exists (regenerate from DB if missing)
-                let scripts_dir = std::path::Path::new("scripts");
-                let script_path = scripts_dir.join(&record.script_name);
-                if !script_path.exists() {
-                    if let Err(e) = std::fs::create_dir_all(scripts_dir) {
-                        tracing::warn!(error = %e, "Failed to create scripts directory for runtime plugin restore");
-                        continue;
+    // Restore persisted dynamic MCP servers from database
+    match db::load_active_mcp_servers(&pool).await {
+        Ok(records) => {
+            if !records.is_empty() {
+                let mcp_plugin = {
+                    let plugins = registry_arc.plugins.read().await;
+                    plugins.get("adapter.mcp").cloned()
+                };
+                if let Some(ref plugin) = mcp_plugin {
+                    if let Some(mcp) =
+                        plugin.as_any().downcast_ref::<plugin_mcp::McpAdapterPlugin>()
+                    {
+                        for record in &records {
+                            let args: Vec<String> =
+                                serde_json::from_str(&record.args).unwrap_or_default();
+
+                            // Regenerate script file if needed
+                            if let Some(ref content) = record.script_content {
+                                let script_path = std::path::Path::new("scripts")
+                                    .join(format!("mcp_{}.py", record.name));
+                                if !script_path.exists() {
+                                    let _ = std::fs::create_dir_all("scripts");
+                                    if let Err(e) = std::fs::write(&script_path, content) {
+                                        tracing::warn!(
+                                            error = %e,
+                                            name = %record.name,
+                                            "Failed to regenerate MCP server script"
+                                        );
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            match mcp
+                                .add_server(record.name.clone(), record.command.clone(), args)
+                                .await
+                            {
+                                Ok(tools) => {
+                                    info!(
+                                        name = %record.name,
+                                        tools = tools.len(),
+                                        "🔄 Restored MCP server from DB"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        error = %e,
+                                        name = %record.name,
+                                        "Failed to restore MCP server"
+                                    );
+                                }
+                            }
+                        }
                     }
-                    if let Err(e) = std::fs::write(&script_path, &record.code_content) {
-                        tracing::warn!(error = %e, plugin_id = %record.plugin_id, "Failed to regenerate script file");
-                        continue;
-                    }
-                    info!(plugin_id = %record.plugin_id, "📄 Regenerated script from DB");
                 }
-
-                let mut config_values = std::collections::HashMap::new();
-                config_values.insert("script_path".to_string(), record.script_name.clone());
-
-                let permissions: Vec<exiv_shared::Permission> =
-                    if record.permissions.contains("NetworkAccess") {
-                        vec![exiv_shared::Permission::NetworkAccess]
-                    } else {
-                        vec![]
-                    };
-
-                match plugin_manager
-                    .register_runtime_plugin(
-                        &record.plugin_id,
-                        config_values,
-                        permissions,
-                        &registry_arc,
-                    )
-                    .await
-                {
-                    Ok(_) => {
-                        info!(plugin_id = %record.plugin_id, "🔄 Restored runtime plugin from DB")
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, plugin_id = %record.plugin_id, "Failed to restore runtime plugin")
-                    }
-                }
-            }
-            if count > 0 {
-                info!(count = count, "✅ Runtime plugin restoration complete");
             }
         }
-        Err(e) => tracing::warn!(error = %e, "Failed to load runtime plugins from database"),
+        Err(e) => tracing::warn!(error = %e, "Failed to load MCP servers from database"),
     }
 
     // 5. Rate Limiter & Evolution Engine & App State
@@ -490,14 +495,14 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             "/chat/attachments/:attachment_id",
             get(handlers::chat::get_attachment),
         )
-        // Runtime plugin management
+        // MCP dynamic server management
         .route(
-            "/plugins/runtime",
-            get(handlers::list_runtime_plugins).post(handlers::create_runtime_plugin),
+            "/mcp/servers",
+            get(handlers::list_mcp_servers).post(handlers::create_mcp_server),
         )
         .route(
-            "/plugins/runtime/:id",
-            delete(handlers::delete_runtime_plugin),
+            "/mcp/servers/:name",
+            axum::routing::delete(handlers::delete_mcp_server),
         )
         // API key invalidation
         .route("/system/invalidate-key", post(handlers::invalidate_api_key))

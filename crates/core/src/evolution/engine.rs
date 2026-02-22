@@ -470,29 +470,6 @@ impl EvolutionEngine {
         // Cancel grace period
         self.cancel_grace_period(agent_id).await?;
 
-        // Deactivate runtime plugins not present in target snapshot
-        let target_runtime = &target_record.snapshot.runtime_plugins;
-        match crate::db::load_active_runtime_plugins(&self.pool).await {
-            Ok(current_runtime) => {
-                for plugin in &current_runtime {
-                    if !target_runtime.contains(&plugin.plugin_id) {
-                        info!(
-                            plugin_id = %plugin.plugin_id,
-                            agent_id = %agent_id,
-                            "🔄 Deactivating runtime plugin due to rollback"
-                        );
-                        if let Err(e) =
-                            crate::db::deactivate_runtime_plugin(&self.pool, &plugin.plugin_id)
-                                .await
-                        {
-                            warn!(error = %e, plugin_id = %plugin.plugin_id, "Failed to deactivate runtime plugin during rollback");
-                        }
-                    }
-                }
-            }
-            Err(e) => warn!(error = %e, "Failed to load runtime plugins for rollback comparison"),
-        }
-
         // Audit log
         crate::db::spawn_audit_log(
             self.pool.clone(),

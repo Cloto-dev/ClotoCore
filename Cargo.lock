@@ -1909,7 +1909,6 @@ dependencies = [
  "plugin_ks22",
  "plugin_mcp",
  "plugin_moderator",
- "plugin_python_bridge",
  "plugin_terminal",
  "rand 0.8.5",
  "reqwest 0.12.28",
@@ -4844,21 +4843,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "exiv_shared",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "plugin_python_bridge"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "exiv_shared",
- "futures",
  "serde",
  "serde_json",
  "tokio",

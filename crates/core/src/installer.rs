@@ -2,11 +2,6 @@ use anyhow::Context;
 use std::path::{Path, PathBuf};
 use tracing::info;
 
-// Embedded Python bridge scripts (extracted during install)
-const BRIDGE_RUNTIME_PY: &str = include_str!("../../../scripts/bridge_runtime.py");
-const BRIDGE_MAIN_PY: &str = include_str!("../../../scripts/bridge_main.py");
-const REQUIREMENTS_TXT: &str = include_str!("../../../scripts/requirements.txt");
-
 /// Binary name for the current platform
 fn binary_name() -> &'static str {
     if cfg!(windows) {
@@ -92,13 +87,11 @@ DATABASE_URL=sqlite:{db_path}
 pub async fn install(
     prefix: PathBuf,
     service: bool,
-    no_python: bool,
     user: Option<String>,
 ) -> anyhow::Result<()> {
     println!("=== Exiv System Installer ===");
     println!("  Prefix:  {}", prefix.display());
     println!("  Service: {}", service);
-    println!("  Python:  {}", !no_python);
     println!();
 
     // 1. Create directories
@@ -122,16 +115,7 @@ pub async fn install(
         info!("📦 Installed binary: {}", dst_exe.display());
     }
 
-    // 3. Extract embedded Python scripts
-    std::fs::write(scripts_dir.join("bridge_runtime.py"), BRIDGE_RUNTIME_PY)
-        .context("Failed to write bridge_runtime.py")?;
-    std::fs::write(scripts_dir.join("bridge_main.py"), BRIDGE_MAIN_PY)
-        .context("Failed to write bridge_main.py")?;
-    std::fs::write(scripts_dir.join("requirements.txt"), REQUIREMENTS_TXT)
-        .context("Failed to write requirements.txt")?;
-    info!("🐍 Extracted Python bridge scripts");
-
-    // 4. Generate .env (skip if exists)
+    // 3. Generate .env (skip if exists)
     let env_path = prefix.join(".env");
     if env_path.exists() {
         info!("ℹ️  .env already exists, skipping");
@@ -151,17 +135,12 @@ pub async fn install(
         println!("  {}", api_key);
     }
 
-    // 5. Python venv setup (optional)
-    if !no_python {
-        setup_python_venv(&prefix)?;
-    }
-
-    // 6. Register service (optional)
+    // 4. Register service (optional)
     if service {
         crate::platform::install_service(&prefix, user.as_deref())?;
     }
 
-    // 7. Summary
+    // 5. Summary
     println!();
     println!("=== Installation complete ===");
     println!();
@@ -200,58 +179,3 @@ pub async fn uninstall(prefix: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Set up Python virtual environment
-fn setup_python_venv(prefix: &Path) -> anyhow::Result<()> {
-    let python = if cfg!(windows) { "python" } else { "python3" };
-
-    // Check if python is available
-    if std::process::Command::new(python)
-        .arg("--version")
-        .output()
-        .is_err()
-    {
-        println!("  ⚠️  {} not found, skipping venv setup", python);
-        return Ok(());
-    }
-
-    let venv_dir = prefix.join("venv");
-    if !venv_dir.exists() {
-        info!("🐍 Creating Python venv...");
-        let status = std::process::Command::new(python)
-            .args(["-m", "venv"])
-            .arg(&venv_dir)
-            .status()
-            .context("Failed to create venv")?;
-        if !status.success() {
-            anyhow::bail!("python -m venv failed");
-        }
-    }
-
-    let pip = if cfg!(windows) {
-        venv_dir.join("Scripts").join("pip.exe")
-    } else {
-        venv_dir.join("bin").join("pip")
-    };
-
-    let requirements = prefix.join("scripts").join("requirements.txt");
-
-    // Upgrade pip
-    let _ = std::process::Command::new(&pip)
-        .args(["install", "--quiet", "--upgrade", "pip"])
-        .status();
-
-    // Install requirements
-    let status = std::process::Command::new(&pip)
-        .args(["install", "--quiet", "-r"])
-        .arg(&requirements)
-        .status()
-        .context("Failed to install Python dependencies")?;
-
-    if status.success() {
-        info!("🐍 Python dependencies installed");
-    } else {
-        println!("  ⚠️  pip install returned non-zero, some dependencies may be missing");
-    }
-
-    Ok(())
-}
