@@ -4,6 +4,9 @@ import { getDpr } from '../lib/canvasUtils';
 
 interface Point { x: number; y: number; r: number }
 
+/** Accent color for gaze-tracking mode cursor */
+const GAZE_COLOR = GAZE_COLOR;
+
 export function CustomCursor() {
   const trailCanvasRef = useRef<HTMLCanvasElement>(null);
   const points = useRef<Point[]>([]);
@@ -149,7 +152,7 @@ export function CustomCursor() {
           octx.clearRect(0, 0, 400, 400);
           octx.save();
           octx.translate(200 - mx, 200 - my);
-          octx.fillStyle = isGazeActiveRef.current ? '#ec4899' : brandHexRef.current;
+          octx.fillStyle = isGazeActiveRef.current ? GAZE_COLOR : brandHexRef.current;
           octx.globalAlpha = 1;
           octx.beginPath();
           octx.arc(mx, my, isGazeActiveRef.current ? 6 : 4, 0, Math.PI * 2);
@@ -238,7 +241,7 @@ export function CustomCursor() {
 
       octx.save();
       octx.translate(200 - mx, 200 - my);
-      octx.fillStyle = isGazeActiveRef.current ? '#ec4899' : brandHexRef.current;
+      octx.fillStyle = isGazeActiveRef.current ? GAZE_COLOR : brandHexRef.current;
 
       for (let i = 0; i < points.current.length; i++) {
         const p = points.current[i];
@@ -255,7 +258,7 @@ export function CustomCursor() {
       octx.fill();
 
       if (isGazeActiveRef.current) {
-          octx.strokeStyle = '#ec4899';
+          octx.strokeStyle = GAZE_COLOR;
           octx.lineWidth = 1;
           octx.beginPath();
           octx.arc(mx, my, 12 + Math.sin(Date.now() / 200) * 2, 0, Math.PI * 2);

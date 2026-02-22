@@ -2,24 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { memo } from 'react';
 import { Brain, Sparkles, History, Activity, User, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Memory, Episode } from '../types';
 import { SystemHistory } from './SystemHistory';
 import { useEventStream } from '../hooks/useEventStream';
 import { useMetrics, Metrics } from '../hooks/useMetrics';
-import { api, API_BASE } from '../services/api';
-
-interface Memory {
-  user_id: string;
-  guild_id: string;
-  content: string;
-  updated_at: string;
-}
-
-interface Episode {
-  id: number;
-  summary: string;
-  start_time: string;
-  channel_id?: string;
-}
+import { api, EVENTS_URL } from '../services/api';
 
 export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { isWindowMode?: boolean }) {
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -63,7 +50,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
     fetchData();
   }, [fetchData]);
 
-  useEventStream(`${API_BASE}/events`, (data) => {
+  useEventStream(EVENTS_URL, (data) => {
     if (data.type === 'MessageReceived' || data.type === 'VisionUpdated' || data.type === 'SystemNotification') {
        // H-18: Use debounced fetch to prevent cascading API calls
        debouncedFetchData();

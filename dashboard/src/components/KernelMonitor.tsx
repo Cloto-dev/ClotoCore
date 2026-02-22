@@ -1,27 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Cpu, Database, MousePointer2, Globe } from 'lucide-react';
-import { api } from '../services/api';
-import { PluginManifest, AgentMetadata } from '../types';
 import { ServiceTypeIcon } from '../lib/pluginUtils';
+import { usePlugins } from '../hooks/usePlugins';
+import { useAgents } from '../hooks/useAgents';
 
 interface KernelMonitorProps {
   onClose: () => void;
 }
 
 export const KernelMonitor: React.FC<KernelMonitorProps> = ({ onClose }) => {
-  const [plugins, setPlugins] = useState<PluginManifest[]>([]);
-  const [agents, setAgents] = useState<AgentMetadata[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    Promise.all([api.getPlugins(), api.getAgents()])
-      .then(([p, a]) => {
-        setPlugins(p);
-        setAgents(a);
-      })
-      .catch(console.error)
-      .finally(() => setIsLoading(false));
-  }, []);
+  const { plugins, isLoading: pluginsLoading } = usePlugins();
+  const { agents, isLoading: agentsLoading } = useAgents();
+  const isLoading = pluginsLoading || agentsLoading;
 
   const activePlugins = plugins.filter(p => p.is_active);
   const capabilityStats = {
@@ -33,7 +23,7 @@ export const KernelMonitor: React.FC<KernelMonitorProps> = ({ onClose }) => {
 
 
   return (
-    <div className="flex flex-col h-full bg-white/20 backdrop-blur-3xl p-6 overflow-hidden animate-in fade-in duration-300">
+    <div className="flex flex-col h-full bg-glass backdrop-blur-3xl p-6 overflow-hidden animate-in fade-in duration-300">
       <div className="mb-8 px-4 flex justify-between items-start">
         <div>
           <h2 className="text-2xl font-black tracking-tighter text-content-primary uppercase leading-none">Kernel Monitor</h2>
@@ -99,7 +89,7 @@ export const KernelMonitor: React.FC<KernelMonitorProps> = ({ onClose }) => {
           </div>
           <div className="flex flex-wrap gap-2">
             {agents.map(agent => (
-              <div key={agent.id} className="px-4 py-2 bg-emerald-50/50 border border-emerald-100 rounded-xl flex items-center gap-3">
+              <div key={agent.id} className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center gap-3">
                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">{agent.name}</span>
               </div>

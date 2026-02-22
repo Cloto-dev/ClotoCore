@@ -11,7 +11,7 @@ import { AgentConsole } from './AgentConsole';
 import { ContainerDashboard } from './ContainerDashboard';
 import { AgentPowerButton } from './AgentPowerButton';
 
-import { api, API_BASE } from '../services/api';
+import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
 
 export interface AgentTerminalProps {
@@ -61,7 +61,7 @@ export function AgentTerminal({
   const { form: newAgent, updateField, handleTypeChange, handleCreate, isCreating, createError } = useAgentCreation(onRefresh);
 
   // Listen for AgentPowerChanged events to auto-refresh
-  useEventStream(`${API_BASE}/events`, (event) => {
+  useEventStream(EVENTS_URL, (event) => {
     if (event.type === 'AgentPowerChanged') {
       onRefresh();
     }
@@ -123,7 +123,7 @@ export function AgentTerminal({
 
       {/* Delete confirmation modal */}
       {deleteTarget && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm">
           <div className="bg-surface-primary border border-edge rounded-2xl shadow-xl p-6 w-80 space-y-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-red-500/10 text-red-500"><Trash2 size={18} /></div>
@@ -229,7 +229,7 @@ export function AgentTerminal({
                   ) : (
                     <button
                       title="Delete agent"
-                      className="p-2 rounded-lg border border-edge-subtle text-content-tertiary hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-all"
+                      className="p-2 rounded-lg border border-edge-subtle text-content-tertiary hover:text-red-500 hover:border-red-500/30 hover:bg-red-500/10 transition-all"
                       onClick={(e) => { e.stopPropagation(); setDeleteTarget(agent); setDeleteError(null); }}
                     >
                       <Trash2 size={15} />

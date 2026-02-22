@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useEventStream } from './useEventStream';
-import { api, API_BASE } from '../services/api';
+import { api, EVENTS_URL } from '../services/api';
 import type { StrictSystemEvent } from '../types';
 import { isTauri } from '../lib/tauri';
 
@@ -85,7 +85,7 @@ export const useStatusManager = (fetchMetrics: () => void) => {
     }
   }, [fetchMetrics, isHistoryLoaded]);
 
-  useEventStream(`${API_BASE}/events`, handleEvent);
+  useEventStream(EVENTS_URL, handleEvent);
 
   useEffect(() => {
     const fetchHistory = async () => {

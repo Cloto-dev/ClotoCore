@@ -4,9 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { Activity, Database, MessageSquare, Puzzle, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, TrendingUp, LucideIcon } from 'lucide-react';
 import { InteractiveGrid } from '../components/InteractiveGrid';
 import { SecurityGuard } from '../components/SecurityGuard';
-import { PluginManifest } from '../types';
 import { useEventStream } from '../hooks/useEventStream';
-import { api, API_BASE } from '../services/api';
+import { usePlugins } from '../hooks/usePlugins';
+import { api, EVENTS_URL } from '../services/api';
 import { SystemUpdate } from '../components/SystemUpdate';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { ThemeToggle } from '../components/ThemeToggle';
@@ -21,7 +21,7 @@ function SystemView() {
   const pendingLogs = useRef<string[]>([]);
   const rafId = useRef<number>(0);
 
-  useEventStream(`${API_BASE}/events`, (event) => {
+  useEventStream(EVENTS_URL, (event) => {
     const timestamp = new Date().toLocaleTimeString();
     const logLine = `[${timestamp}] ${event.type}: ${JSON.stringify(event.data).slice(0, 100)}...`;
     pendingLogs.current.push(logLine);
@@ -80,7 +80,7 @@ export function Home() {
 
   const [activeMainView, setActiveMainView] = useState<string | null>(null);
   const [isGazeActive, setIsGazeActive] = useState(false);
-  const [plugins, setPlugins] = useState<PluginManifest[]>([]);
+  const { plugins } = usePlugins();
 
   const handleItemClick = async (item: any) => {
     if (item.path.startsWith('api:')) {
@@ -88,9 +88,9 @@ export function Home() {
       try {
         await api.post(`/plugin/${item.pluginId}/action/${command}`, {}, apiKey);
         console.log(`Action ${command} executed for ${item.pluginId}`);
-        // 🆕 Handle gaze tracking toggle (flexible ID check)
+        // Handle gaze tracking toggle (flexible ID check)
         if (item.pluginId === 'vision.gaze_webcam' && command === 'toggle') {
-          console.log("👁️ Toggling GazeTracker component...");
+          console.log("Toggling GazeTracker component...");
           setIsGazeActive(prev => !prev);
         }
       } catch (err) {
@@ -105,12 +105,6 @@ export function Home() {
       navigate(item.path);
     }
   };
-
-  useEffect(() => {
-    api.getPlugins()
-      .then((data: PluginManifest[]) => setPlugins(data))
-      .catch(err => console.error("Failed to sync plugins:", err));
-  }, []);
 
   const iconMap: Record<string, LucideIcon> = {
     'Activity': Activity,
@@ -138,7 +132,7 @@ export function Home() {
       { id: 'plugin', label: 'PLUGIN', path: '#', icon: Puzzle, disabled: false },
     ];
 
-    // 🚀 Dynamic Plugin Actions (Principle #6: SDK-driven UX)
+    // Dynamic Plugin Actions (Principle #6: SDK-driven UX)
     const pluginItems = plugins
       .filter(p => p.is_active && p.action_icon && p.action_target)
       .map(p => ({

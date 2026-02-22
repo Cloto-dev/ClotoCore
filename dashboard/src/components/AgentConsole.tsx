@@ -5,7 +5,7 @@ import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { useLongPress } from '../hooks/useLongPress';
 import { MessageContent } from './ContentBlockView';
-import { api, API_BASE } from '../services/api';
+import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
 
 // Legacy localStorage key prefix for migration
@@ -154,7 +154,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   }, [agent.id, messages, isLoadingMore, hasMore]);
 
   // Subscribe to system-wide events
-  useEventStream(`${API_BASE}/events`, (event) => {
+  useEventStream(EVENTS_URL, (event) => {
     if (event.type === 'ThoughtResponse' && event.data.agent_id === agent.id) {
       setIsTyping(false);
       const agentMsg: ChatMessage = {
@@ -332,7 +332,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
             disabled={isTyping}
             placeholder={isTyping ? "PROCESSING..." : "ENTER COMMAND..."}
             className="w-full bg-surface-primary border border-edge rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none focus:border-brand transition-colors placeholder:text-content-muted disabled:opacity-50 shadow-inner"

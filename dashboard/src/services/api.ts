@@ -1,4 +1,4 @@
-import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, ExivMessage, EvolutionStatus, GenerationRecord, FitnessLogEntry, EvolutionParams, RollbackRecord } from '../types';
+import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, ExivMessage, EvolutionStatus, GenerationRecord, FitnessLogEntry, EvolutionParams, RollbackRecord, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, UpdateInfo, UpdateResult } from '../types';
 import { isTauri } from '../lib/tauri';
 
 // In Tauri mode, window.location.origin returns "tauri://localhost" which cannot reach
@@ -7,6 +7,7 @@ const KERNEL_PORT = 8081;
 const API_URL = import.meta.env.VITE_API_URL
   || (isTauri ? `http://127.0.0.1:${KERNEL_PORT}/api` : `${window.location.origin}/api`);
 export const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
+export const EVENTS_URL = `${API_BASE}/events`;
 
 /** Throw with detailed error message from JSON body if available */
 async function throwIfNotOk(res: Response, ctx: string): Promise<void> {
@@ -43,13 +44,13 @@ export const api = {
     });
     return res.then(r => { if (!r.ok) throw new Error(`Failed to get plugin config: ${r.statusText}`); return r.json() as Promise<Record<string, string>>; });
   },
-  getPendingPermissions: () => fetchJson<any[]>('/permissions/pending', 'fetch pending permissions'),
+  getPendingPermissions: () => fetchJson<PermissionRequest[]>('/permissions/pending', 'fetch pending permissions'),
   checkForUpdate: () => fetchJson<UpdateInfo>('/system/update/check', 'check for updates'),
   getVersion: () => fetchJson<{ version: string; build_target: string }>('/system/version', 'fetch version'),
-  getMetrics: () => fetchJson<any>('/metrics', 'fetch metrics'),
-  getMemories: () => fetchJson<any[]>('/memories', 'fetch memories'),
-  getEpisodes: () => fetchJson<any[]>('/episodes', 'fetch episodes'),
-  getHistory: () => fetchJson<any[]>('/history', 'fetch history'),
+  getMetrics: () => fetchJson<Metrics>('/metrics', 'fetch metrics'),
+  getMemories: () => fetchJson<Memory[]>('/memories', 'fetch memories'),
+  getEpisodes: () => fetchJson<Episode[]>('/episodes', 'fetch episodes'),
+  getHistory: () => fetchJson<StrictSystemEvent[]>('/history', 'fetch history'),
   getEvolutionStatus: () => fetchJson<EvolutionStatus>('/evolution/status', 'fetch evolution status'),
   getGeneration: (n: number) => fetchJson<GenerationRecord>(`/evolution/generations/${n}`, 'fetch generation'),
   getEvolutionParams: () => fetchJson<EvolutionParams>('/evolution/params', 'fetch evolution params'),
@@ -104,9 +105,9 @@ export const api = {
 
   grantPermission: (pluginId: string, permission: string, apiKey: string) =>
     mutate(`/plugins/${pluginId}/permissions/grant`, 'POST', 'grant permission', { permission }, { 'X-API-Key': apiKey }).then(() => {}),
-  postEvent: (eventData: any, apiKey: string) =>
+  postEvent: (eventData: unknown, apiKey: string) =>
     mutate('/events/publish', 'POST', 'post event', eventData, { 'X-API-Key': apiKey }).then(() => {}),
-  post: (path: string, payload: any, apiKey: string) =>
+  post: (path: string, payload: unknown, apiKey: string) =>
     mutate(path, 'POST', `post to ${path}`, payload, { 'X-API-Key': apiKey }).then(() => {}),
   approvePermission: (requestId: string, approvedBy: string, apiKey: string) =>
     mutate(`/permissions/${requestId}/approve`, 'POST', 'approve permission', { approved_by: approvedBy }, { 'X-API-Key': apiKey }).then(() => {}),
@@ -179,24 +180,3 @@ export const api = {
     return `${API_BASE}/chat/attachments/${attachmentId}`;
   },
 };
-
-export interface UpdateInfo {
-  current_version: string;
-  latest_version?: string;
-  update_available: boolean;
-  release_url?: string;
-  release_name?: string;
-  release_notes?: string;
-  published_at?: string;
-  build_target?: string;
-  message?: string;
-  assets?: { name: string; size: number; download_url: string }[];
-}
-
-export interface UpdateResult {
-  status: string;
-  previous_version: string;
-  new_version: string;
-  sha256: string;
-  message: string;
-}

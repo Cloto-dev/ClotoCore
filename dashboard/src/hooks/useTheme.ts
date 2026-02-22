@@ -14,6 +14,8 @@ interface ThemeContextValue {
     canvasGrid: string;
     canvasNodeFill: string;
     canvasText: string;
+    canvasNodeTool: string;
+    canvasNodeEndpoint: string;
   };
 }
 
@@ -29,8 +31,8 @@ function resolveTheme(pref: ThemePreference): Theme {
 
 function getCanvasColors(theme: Theme) {
   return theme === 'dark'
-    ? { brandHex: '#5b7aff', canvasBg: '#0f172a', canvasGrid: '#334155', canvasNodeFill: '#1e293b', canvasText: 'rgba(226,232,240,0.8)' }
-    : { brandHex: '#2e4de6', canvasBg: '#f8fafc', canvasGrid: '#cbd5e1', canvasNodeFill: '#ffffff', canvasText: 'rgba(15,23,42,0.8)' };
+    ? { brandHex: '#5b7aff', canvasBg: '#0f172a', canvasGrid: '#334155', canvasNodeFill: '#1e293b', canvasText: 'rgba(226,232,240,0.8)', canvasNodeTool: '#5b8aff', canvasNodeEndpoint: '#5bb8ff' }
+    : { brandHex: '#2e4de6', canvasBg: '#f8fafc', canvasGrid: '#cbd5e1', canvasNodeFill: '#ffffff', canvasText: 'rgba(15,23,42,0.8)', canvasNodeTool: '#2e6be6', canvasNodeEndpoint: '#2ea8e6' };
 }
 
 export const ThemeContext = createContext<ThemeContextValue | null>(null);

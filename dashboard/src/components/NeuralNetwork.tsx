@@ -9,7 +9,7 @@ export function NeuralNetwork({ mouseRef, events, onEventProcessed, seekTime }: 
   const { canvasRef, selectedModal, setSelectedModal, nodes, longPressTimer, viewport } = useNeuralNetwork(mouseRef, events, onEventProcessed, seekTime);
 
   const activeNode = nodes.current.find(n => n.id === selectedModal?.nodeId);
-  const coreNode = nodes.current.find(n => n.id === 'karin');
+  const coreNode = nodes.current.find(n => n.id === 'exiv');
 
   const onModalMouseDown = (e: any) => {
     e.stopPropagation();
@@ -30,7 +30,7 @@ export function NeuralNetwork({ mouseRef, events, onEventProcessed, seekTime }: 
       {activeNode && selectedModal && coreNode && (
         <div 
           onMouseDown={onModalMouseDown}
-          className={`absolute z-30 p-3 rounded-lg border bg-white/90 backdrop-blur-md shadow-xl w-48 pointer-events-auto transition-transform duration-200 ${selectedModal.isDragging ? 'shadow-2xl scale-105 cursor-grabbing' : 'cursor-grab'}`}
+          className={`absolute z-30 p-3 rounded-lg border bg-surface-primary/90 backdrop-blur-md shadow-xl w-48 pointer-events-auto transition-transform duration-200 ${selectedModal.isDragging ? 'shadow-2xl scale-105 cursor-grabbing' : 'cursor-grab'}`}
           style={{
             transform: `translate(${screenX + (activeNode.x > coreNode.x ? 40 : -232) + selectedModal.offsetX}px, ${screenY + (activeNode.y > coreNode.y ? 40 : -120) + selectedModal.offsetY}px)`,
             borderColor: activeNode.color,

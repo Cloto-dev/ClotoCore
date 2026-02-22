@@ -5,27 +5,6 @@
 export const isTauri = '__TAURI_INTERNALS__' in window;
 
 /**
- * Capture the primary screen. Returns a base64-encoded PNG string.
- * Only available in Tauri mode; throws in browser mode.
- */
-export async function captureScreen(): Promise<string> {
-  if (!isTauri) {
-    throw new Error('Screen capture is only available in Tauri desktop mode');
-  }
-  const { invoke } = await import('@tauri-apps/api/core');
-  return invoke<string>('capture_screen');
-}
-
-/**
- * Get the kernel HTTP port from the Tauri backend.
- */
-export async function getKernelPort(): Promise<number> {
-  if (!isTauri) return 8081;
-  const { invoke } = await import('@tauri-apps/api/core');
-  return invoke<number>('get_kernel_port');
-}
-
-/**
  * Open a native file dialog to select a file.
  * Returns the selected file path or null if cancelled.
  */

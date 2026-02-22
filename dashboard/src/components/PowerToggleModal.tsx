@@ -34,7 +34,7 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm">
       <div className="bg-surface-primary rounded-2xl shadow-2xl p-6 w-80 space-y-4 animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-lg ${agent.enabled ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-500'}`}>
+          <div className={`p-2 rounded-lg ${agent.enabled ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
             <Power size={18} />
           </div>
           <div>

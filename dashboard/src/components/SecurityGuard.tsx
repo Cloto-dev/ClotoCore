@@ -1,18 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Lock, Unlock, AlertTriangle, X, Check, ShieldAlert } from 'lucide-react';
+import { PermissionRequest } from '../types';
 import { api } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { Spinner } from '../lib/Spinner';
-
-interface PermissionRequest {
-  request_id: string;
-  plugin_id: string;
-  permission_type: string;
-  target_resource?: string;
-  justification: string;
-  status: string;
-  created_at: string;
-}
 
 export function SecurityGuard() {
   const { apiKey } = useApiKey();
@@ -100,8 +91,8 @@ export function SecurityGuard() {
         return (
           <div
             key={req.request_id}
-            className={`bg-white/90 backdrop-blur-2xl border rounded-[2rem] shadow-2xl overflow-hidden shadow-brand/20 flex flex-col transition-all duration-500 ${
-              isGranted ? 'border-emerald-500 scale-95 opacity-50' : 'border-white'
+            className={`bg-surface-primary/90 backdrop-blur-2xl border rounded-[2rem] shadow-2xl overflow-hidden shadow-brand/20 flex flex-col transition-all duration-500 ${
+              isGranted ? 'border-emerald-500 scale-95 opacity-50' : 'border-edge'
             }`}
           >
             {/* Header */}
@@ -115,7 +106,7 @@ export function SecurityGuard() {
                 </span>
               </div>
               {!isGranted && (
-                <button onClick={() => handleDeny(req)} className="p-1 hover:bg-white/20 rounded-lg transition-colors">
+                <button onClick={() => handleDeny(req)} className="p-1 hover:bg-glass rounded-lg transition-colors">
                   <X size={16} />
                 </button>
               )}
@@ -124,7 +115,7 @@ export function SecurityGuard() {
             <div className="p-6">
               <div className="flex items-start gap-4 mb-4">
                 <div className={`p-3 rounded-2xl transition-colors ${
-                  isGranted ? 'bg-emerald-50 text-emerald-500' : 'bg-brand/10 text-brand'
+                  isGranted ? 'bg-emerald-500/10 text-emerald-500' : 'bg-brand/10 text-brand'
                 }`}>
                   {isGranted ? <Unlock size={20} /> : <Lock size={20} />}
                 </div>

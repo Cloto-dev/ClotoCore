@@ -1,4 +1,3 @@
-import React from 'react';
 import { User, Cpu } from 'lucide-react';
 import { AgentMetadata } from '../types';
 
@@ -20,11 +19,6 @@ export function isAiAgent(agent: AgentMetadata): boolean {
   if (agent.metadata?.agent_type === 'ai') return true;
   if (agent.metadata?.agent_type === 'container') return false;
   return !!agent.default_engine_id?.startsWith('mind.');
-}
-
-/** Get the resolved agent type */
-export function getAgentType(agent: AgentMetadata): AgentType {
-  return isAiAgent(agent) ? 'ai' : 'container';
 }
 
 /** Get the accent color for an agent */
@@ -55,6 +49,6 @@ export function statusDotColor(status: string): string {
 
 /** Status badge classes (3-state) */
 export function statusBadgeClass(status: string): string {
-  return status === 'online' ? 'bg-emerald-50 text-emerald-500' :
-         status === 'degraded' ? 'bg-amber-50 text-amber-500' : 'bg-surface-secondary text-content-tertiary';
+  return status === 'online' ? 'bg-emerald-500/10 text-emerald-500' :
+         status === 'degraded' ? 'bg-amber-500/10 text-amber-500' : 'bg-surface-secondary text-content-tertiary';
 }

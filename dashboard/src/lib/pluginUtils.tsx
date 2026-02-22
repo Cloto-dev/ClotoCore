@@ -1,4 +1,3 @@
-import React from 'react';
 import { Brain, Cpu, Database, Globe, MousePointer2, Puzzle, Zap } from 'lucide-react';
 import { PluginManifest } from '../types';
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { api, API_BASE } from '../services/api';
+import { api, EVENTS_URL } from '../services/api';
 import { useEventStream } from './useEventStream';
 import type {
   EvolutionStatus,
@@ -52,7 +52,7 @@ export function useEvolution() {
   }, [fetchAll]);
 
   // SSE: filter evolution events and trigger refresh
-  useEventStream(`${API_BASE}/events`, useCallback((data: any) => {
+  useEventStream(EVENTS_URL, useCallback((data: any) => {
     const type: string = data?.type || '';
     if (!type.startsWith('Evolution')) return;
 

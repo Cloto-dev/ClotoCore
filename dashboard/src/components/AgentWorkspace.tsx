@@ -1,36 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { AgentMetadata, PluginManifest } from '../types';
+import { useState } from 'react';
 import { AgentTerminal } from './AgentTerminal';
 import { WindowAgentNavigator } from './WindowAgentNavigator';
 import { KernelMonitor } from './KernelMonitor';
-
-import { api } from '../services/api';
+import { usePlugins } from '../hooks/usePlugins';
+import { useAgents } from '../hooks/useAgents';
 
 export function AgentWorkspace() {
-  const [agents, setAgents] = useState<AgentMetadata[]>([]);
-  const [plugins, setPlugins] = useState<PluginManifest[]>([]);
+  const { agents } = useAgents();
+  const { plugins } = usePlugins();
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [systemActive, setSystemActive] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    fetchInitialData();
-  }, []);
-
-  const fetchInitialData = async () => {
-    try {
-      const [agentsData, pluginsData] = await Promise.all([
-        api.getAgents(),
-        api.getPlugins()
-      ]);
-      setAgents(agentsData);
-      setPlugins(pluginsData);
-    } catch (err) {
-      console.error('Failed to fetch initial data:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleSelectAgent = (id: string) => {
     setSelectedAgentId(id);

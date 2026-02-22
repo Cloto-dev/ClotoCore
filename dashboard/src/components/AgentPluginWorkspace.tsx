@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Puzzle, X, CheckCircle2, Save, Lock, Shield, Wrench } from 'lucide-react';
-import { PluginManifest, AgentMetadata } from '../types';
+import { PluginManifest, AgentMetadata, InstalledConfig } from '../types';
 import { api } from '../services/api';
 import { AgentIcon, agentColor, isAiAgent } from '../lib/agentIdentity';
 import { isLlmPlugin, ServiceTypeIcon } from '../lib/pluginUtils';
@@ -11,12 +11,6 @@ interface Props {
   agent: AgentMetadata;
   availablePlugins: PluginManifest[];
   onBack: () => void;
-}
-
-interface InstalledConfig {
-  pluginId: string;
-  x: number;
-  y: number;
 }
 
 // System-level plugins that are always active for all agents (event dispatch level).
@@ -131,7 +125,7 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
   const MANDATORY_TAGS = ['#CORE', '#MIND', '#MEMORY', '#LLM', '#TOOL', '#ADAPTER', '#HAL'];
 
   return (
-    <div className="flex h-full bg-white/20 backdrop-blur-3xl overflow-hidden animate-in fade-in duration-500">
+    <div className="flex h-full bg-glass backdrop-blur-3xl overflow-hidden animate-in fade-in duration-500">
       {/* Sidebar: Plugin Library */}
       <div
         className="w-80 border-r border-edge-subtle bg-surface-base/50 flex flex-col"
@@ -242,7 +236,7 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDropToCore}
           style={{
-            backgroundImage: `radial-gradient(circle, #e2e8f0 1px, transparent 1px)`,
+            backgroundImage: `radial-gradient(circle, var(--canvas-grid) 1px, transparent 1px)`,
             backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`
           }}
         >

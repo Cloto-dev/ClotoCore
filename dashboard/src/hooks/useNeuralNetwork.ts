@@ -3,19 +3,20 @@ import type { Node, Edge, Pulse, ModalState, StrictSystemEvent } from '../types'
 import { useTheme } from './useTheme';
 import { getDpr } from '../lib/canvasUtils';
 
+// Color placeholders overridden by theme useEffect below
 const INITIAL_NODES: Node[] = [
-  { id: 'karin', label: 'EXIV CORE', x: 0, y: 0, vx: 0, vy: 0, type: 'core', color: '#2e4de6', data: { status: 'OPTIMIZING', lastActive: 'NOW', log: 'Core processing stable...' } },
-  { id: 'memory_recall', label: 'MEMORY', x: -200, y: -100, vx: 0, vy: 0, type: 'tool', color: '#2e6be6', data: { status: 'STANDBY', lastActive: 'READY', log: 'Long-term memory interface.' } },
-  { id: 'google_search', label: 'GOOGLE', x: 200, y: -100, vx: 0, vy: 0, type: 'tool', color: '#2ea8e6', data: { status: 'STANDBY', lastActive: 'READY', log: 'Web search interface.' } },
-  { id: 'discord_research', label: 'DISCORD', x: 300, y: 50, vx: 0, vy: 0, type: 'endpoint', color: '#2ea8e6', data: { status: 'STANDBY', lastActive: 'READY', log: 'Discord log analyzer.' } },
-  { id: 'user', label: 'USER', x: -150, y: 150, vx: 0, vy: 0, type: 'endpoint', color: '#2e4de6', data: { status: 'CONNECTED', lastActive: 'NOW', log: 'User interaction gateway.' } },
+  { id: 'exiv', label: 'EXIV CORE', x: 0, y: 0, vx: 0, vy: 0, type: 'core', color: '', data: { status: 'OPTIMIZING', lastActive: 'NOW', log: 'Core processing stable...' } },
+  { id: 'memory_recall', label: 'MEMORY', x: -200, y: -100, vx: 0, vy: 0, type: 'tool', color: '', data: { status: 'STANDBY', lastActive: 'READY', log: 'Long-term memory interface.' } },
+  { id: 'google_search', label: 'GOOGLE', x: 200, y: -100, vx: 0, vy: 0, type: 'tool', color: '', data: { status: 'STANDBY', lastActive: 'READY', log: 'Web search interface.' } },
+  { id: 'discord_research', label: 'DISCORD', x: 300, y: 50, vx: 0, vy: 0, type: 'endpoint', color: '', data: { status: 'STANDBY', lastActive: 'READY', log: 'Discord log analyzer.' } },
+  { id: 'user', label: 'USER', x: -150, y: 150, vx: 0, vy: 0, type: 'endpoint', color: '', data: { status: 'CONNECTED', lastActive: 'NOW', log: 'User interaction gateway.' } },
 ];
 
 const INITIAL_EDGES: Edge[] = [
-  { source: 'karin', target: 'memory_recall', color: '#2e6be6' },
-  { source: 'karin', target: 'google_search', color: '#2ea8e6' },
-  { source: 'karin', target: 'discord_research', color: '#2ea8e6' },
-  { source: 'karin', target: 'user', color: '#2e4de6' },
+  { source: 'exiv', target: 'memory_recall', color: '' },
+  { source: 'exiv', target: 'google_search', color: '' },
+  { source: 'exiv', target: 'discord_research', color: '' },
+  { source: 'exiv', target: 'user', color: '' },
 ];
 
 export function useNeuralNetwork(
@@ -49,28 +50,31 @@ export function useNeuralNetwork(
   useEffect(() => { selectedModalRef.current = selectedModal; }, [selectedModal]);
   useEffect(() => { eventsRef.current = events; }, [events]);
 
-  // Update brand-colored nodes/edges when theme changes
+  // Update all node/edge colors from theme
   useEffect(() => {
-    nodes.current.forEach(n => {
-      if (n.id === 'karin' || n.id === 'user') n.color = colors.brandHex;
-    });
+    const colorForType = (type: string) =>
+      type === 'core' ? colors.brandHex :
+      type === 'endpoint' ? colors.canvasNodeEndpoint :
+      colors.canvasNodeTool;
+    nodes.current.forEach(n => { n.color = colorForType(n.type); });
     edges.current.forEach(e => {
-      if (e.source === 'karin' && e.target === 'user') e.color = colors.brandHex;
+      const targetNode = nodes.current.find(n => n.id === e.target);
+      e.color = targetNode ? colorForType(targetNode.type) : colors.canvasNodeTool;
     });
-  }, [colors.brandHex]);
+  }, [colors.brandHex, colors.canvasNodeTool, colors.canvasNodeEndpoint]);
 
   const processEvent = (event: StrictSystemEvent, isHistorical = false) => {
     switch (event.type) {
       case "MessageReceived":
         pulses.current.push({
-          edge: { source: 'user', target: 'karin', color: colorsRef.current.brandHex },
+          edge: { source: 'user', target: 'exiv', color: colorsRef.current.brandHex },
           progress: 0, speed: 0.04, color: colorsRef.current.brandHex
         });
         break;
       case "RawMessage":
         if (event.payload.message && event.payload.message.role === "user") {
           pulses.current.push({
-            edge: { source: 'user', target: 'karin', color: colorsRef.current.brandHex },
+            edge: { source: 'user', target: 'exiv', color: colorsRef.current.brandHex },
             progress: 0, speed: 0.04, color: colorsRef.current.brandHex
           });
         }
@@ -81,10 +85,10 @@ export function useNeuralNetwork(
         if (!target) {
           target = { id: node, label: label, x: Math.random()*100, y: Math.random()*100, vx: 0, vy: 0, type: 'tool', color: color, data: { status: 'ACTIVE', lastActive: 'NOW', log: `Initializing ${label}...` } };
           nodes.current.push(target);
-          edges.current.push({ source: 'karin', target: node, color: color });
+          edges.current.push({ source: 'exiv', target: node, color: color });
         }
         target.data = { ...target.data!, status: 'ACTIVE', lastActive: 'NOW' };
-        pulses.current.push({ edge: { source: 'karin', target: node, color: color }, progress: 0, speed: 0.05, color: color });
+        pulses.current.push({ edge: { source: 'exiv', target: node, color: color }, progress: 0, speed: 0.05, color: color });
         break;
       }
       case "ToolEnd": {
@@ -92,7 +96,7 @@ export function useNeuralNetwork(
         const target = nodes.current.find(n => n.id === node);
         if (target) {
           target.data = { ...target.data!, status: 'STANDBY', lastActive: 'NOW' };
-          pulses.current.push({ edge: { source: node, target: 'karin', color: target.color }, progress: 0, speed: 0.03, color: target.color });
+          pulses.current.push({ edge: { source: node, target: 'exiv', color: target.color }, progress: 0, speed: 0.03, color: target.color });
         }
         break;
       }
@@ -190,11 +194,11 @@ export function useNeuralNetwork(
      * Physics Simulation: Handles node attraction/repulsion and movement.
      */
     const updatePhysics = () => {
-      const core = nodes.current.find(n => n.id === 'karin');
+      const core = nodes.current.find(n => n.id === 'exiv');
       if (!core) return;
 
       nodes.current.forEach(node => {
-        if (node === draggingNode.current || node.id === 'karin') return;
+        if (node === draggingNode.current || node.id === 'exiv') return;
         
         const dx = node.x - core.x;
         const dy = node.y - core.y;

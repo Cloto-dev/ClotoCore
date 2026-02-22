@@ -9,8 +9,8 @@ function LongPressPowerButton({ agent, onComplete }: { agent: AgentMetadata; onC
   const isOn = agent.enabled;
   const progressColor = isOn ? 'bg-red-400/25' : 'bg-emerald-400/25';
   const ringColor = isOn
-    ? (progress > 0 ? 'border-red-300 text-red-500' : 'border-emerald-200 text-emerald-500')
-    : (progress > 0 ? 'border-emerald-300 text-emerald-500' : 'border-edge text-content-tertiary');
+    ? (progress > 0 ? 'border-red-500/30 text-red-500' : 'border-emerald-500/30 text-emerald-500')
+    : (progress > 0 ? 'border-emerald-500/30 text-emerald-500' : 'border-edge text-content-tertiary');
 
   return (
     <button
@@ -19,7 +19,7 @@ function LongPressPowerButton({ agent, onComplete }: { agent: AgentMetadata; onC
       onTouchStart={(e) => { e.stopPropagation(); handlers.onTouchStart(); }}
       onClick={(e) => e.stopPropagation()}
       className={`relative p-2 rounded-lg border transition-all overflow-hidden ${ringColor} ${
-        isOn ? 'hover:bg-emerald-50' : 'hover:bg-surface-base'
+        isOn ? 'hover:bg-emerald-500/10' : 'hover:bg-surface-base'
       }`}
       title={isOn ? `Power Off (hold ${durationMs / 1000}s)` : `Power On (hold ${durationMs / 1000}s)`}
     >
@@ -44,7 +44,7 @@ export function AgentPowerButton({ agent, onPowerToggle }: {
       <button
         className={`p-2 rounded-lg border transition-all ${
           agent.enabled
-            ? 'border-emerald-200 text-emerald-500 hover:bg-emerald-50'
+            ? 'border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10'
             : 'border-edge text-content-tertiary hover:bg-surface-base'
         }`}
         title={agent.enabled ? 'Power Off' : 'Power On'}

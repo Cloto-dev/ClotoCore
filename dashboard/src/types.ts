@@ -236,3 +236,62 @@ export interface EvolutionEvent {
   data: Record<string, unknown>;
   timestamp: number;
 }
+
+// API response types
+export interface PermissionRequest {
+  request_id: string;
+  plugin_id: string;
+  permission_type: string;
+  target_resource?: string;
+  justification: string;
+  status: string;
+  created_at: string;
+}
+
+export interface Metrics {
+  total_requests: number;
+  total_memories: number;
+  total_episodes: number;
+  ram_usage: string;
+}
+
+export interface Memory {
+  user_id: string;
+  guild_id: string;
+  content: string;
+  updated_at: string;
+}
+
+export interface Episode {
+  id: number;
+  summary: string;
+  start_time: string;
+  channel_id?: string;
+}
+
+export interface InstalledConfig {
+  pluginId: string;
+  x: number;
+  y: number;
+}
+
+export interface UpdateInfo {
+  current_version: string;
+  latest_version?: string;
+  update_available: boolean;
+  release_url?: string;
+  release_name?: string;
+  release_notes?: string;
+  published_at?: string;
+  build_target?: string;
+  message?: string;
+  assets?: { name: string; size: number; download_url: string }[];
+}
+
+export interface UpdateResult {
+  status: string;
+  previous_version: string;
+  new_version: string;
+  sha256: string;
+  message: string;
+}

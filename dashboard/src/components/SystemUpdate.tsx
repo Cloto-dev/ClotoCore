@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { RefreshCw, Download, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { api, UpdateInfo } from '../services/api';
+import { UpdateInfo } from '../types';
+import { api } from '../services/api';
 import { isTauri } from '../lib/tauri';
 import { useApiKey } from '../contexts/ApiKeyContext';
 
