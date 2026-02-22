@@ -22,7 +22,6 @@ pub use db::{
 // Static Linker: Force plugin crates to be linked for inventory discovery
 // Without these imports, the Rust linker will not include plugin code,
 // causing inventory::submit! to never execute and plugins to be undiscoverable.
-extern crate plugin_cerebras;
 extern crate plugin_deepseek;
 extern crate plugin_ks22;
 extern crate plugin_mcp;

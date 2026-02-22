@@ -11,7 +11,6 @@ path = "src/main.rs"
 exiv_shared = { path = "../shared" }
 plugin_ks22 = { path = "../../plugins/ks22" }
 plugin_deepseek = { path = "../../plugins/deepseek" }
-plugin_cerebras = { path = "../../plugins/cerebras" }
 plugin_moderator = { path = "../../plugins/moderator" }
 plugin_mcp = { path = "../../plugins/mcp" }
 plugin_terminal = { path = "../../plugins/terminal" }
