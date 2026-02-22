@@ -619,6 +619,15 @@ impl McpClientManager {
         servers.contains_key(id)
     }
 
+    /// Check if a specific server has a tool with the given name.
+    pub async fn has_server_tool(&self, server_id: &str, tool_name: &str) -> bool {
+        let servers = self.servers.read().await;
+        servers
+            .get(server_id)
+            .map(|h| h.tools.iter().any(|t| t.name == tool_name))
+            .unwrap_or(false)
+    }
+
     // ============================================================
     // Tool Routing (used by PluginRegistry in Phase 1+)
     // ============================================================

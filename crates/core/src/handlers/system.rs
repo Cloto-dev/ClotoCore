@@ -4,10 +4,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
-use crate::managers::{AgentManager, PluginRegistry};
+use crate::managers::{AgentManager, McpClientManager, PluginRegistry};
 use exiv_shared::{
     AgentMetadata, ExivEvent, ExivEventData, ExivId, ExivMessage, Plugin, PluginCast,
-    PluginManifest, ThinkResult,
+    PluginManifest, ThinkResult, ToolCall,
 };
 
 pub struct SystemHandler {
@@ -331,18 +331,45 @@ impl SystemHandler {
         agent_plugin_ids: &[String],
         trace_id: ExivId,
     ) -> anyhow::Result<String> {
-        let engine_plugin = self
-            .registry
-            .get_engine(engine_id)
-            .await
-            .ok_or_else(|| anyhow::anyhow!("Engine '{}' not found", engine_id))?;
-        let engine = engine_plugin
-            .as_reasoning()
-            .ok_or_else(|| anyhow::anyhow!("Plugin '{}' is not a ReasoningEngine", engine_id))?;
+        // Engine Resolver: try Rust plugin first, then fall back to MCP server
+        let engine_plugin = self.registry.get_engine(engine_id).await;
+        let mcp_engine = if engine_plugin.is_none() {
+            // Check if an MCP server with this engine ID exists
+            if let Some(ref mcp) = self.registry.mcp_manager {
+                if mcp.has_server(engine_id).await {
+                    Some(mcp.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if engine_plugin.is_none() && mcp_engine.is_none() {
+            return Err(anyhow::anyhow!("Engine '{}' not found", engine_id));
+        }
+
+        // Determine tool support
+        let supports_tools = if let Some(ref plugin) = engine_plugin {
+            plugin
+                .as_reasoning()
+                .map(|e| e.supports_tools())
+                .unwrap_or(false)
+        } else if let Some(ref mcp) = mcp_engine {
+            // MCP engine supports tools if it has a 'think_with_tools' tool
+            mcp.has_server_tool(engine_id, "think_with_tools").await
+        } else {
+            false
+        };
 
         // Fallback: engine does not support tools → plain think()
-        if !engine.supports_tools() {
-            return engine.think(agent, message, context).await;
+        if !supports_tools {
+            return self
+                .engine_think(&engine_plugin, &mcp_engine, engine_id, agent, message, context)
+                .await;
         }
 
         // エージェントに割り当てられたプラグインのみからツールを収集
@@ -354,7 +381,9 @@ impl SystemHandler {
                 .await
         };
         if tools.is_empty() {
-            return engine.think(agent, message, context).await;
+            return self
+                .engine_think(&engine_plugin, &mcp_engine, engine_id, agent, message, context)
+                .await;
         }
 
         // M-04: Build tool name set for pre-validation (avoid timeout waiting for non-existent tools)
@@ -388,11 +417,29 @@ impl SystemHandler {
                     "⚠️ Agentic loop hit max iterations ({}), forcing text response",
                     self.max_agentic_iterations
                 );
-                return engine.think(agent, message, context.clone()).await;
+                return self
+                    .engine_think(
+                        &engine_plugin,
+                        &mcp_engine,
+                        engine_id,
+                        agent,
+                        message,
+                        context.clone(),
+                    )
+                    .await;
             }
 
-            let result = engine
-                .think_with_tools(agent, message, context.clone(), &tools, &tool_history)
+            let result = self
+                .engine_think_with_tools(
+                    &engine_plugin,
+                    &mcp_engine,
+                    engine_id,
+                    agent,
+                    message,
+                    context.clone(),
+                    &tools,
+                    &tool_history,
+                )
                 .await?;
 
             match result {
@@ -539,6 +586,173 @@ impl SystemHandler {
                 }
             }
         }
+    }
+
+    // ── Engine Dispatch Helpers (Rust Plugin / MCP Dual Dispatch) ──
+
+    /// Call engine's think() — routes to either Rust plugin or MCP server.
+    async fn engine_think(
+        &self,
+        engine_plugin: &Option<Arc<dyn Plugin>>,
+        mcp_engine: &Option<Arc<McpClientManager>>,
+        engine_id: &str,
+        agent: &AgentMetadata,
+        message: &ExivMessage,
+        context: Vec<ExivMessage>,
+    ) -> anyhow::Result<String> {
+        if let Some(plugin) = engine_plugin {
+            let engine = plugin
+                .as_reasoning()
+                .ok_or_else(|| anyhow::anyhow!("Plugin '{}' is not a ReasoningEngine", engine_id))?;
+            return engine.think(agent, message, context).await;
+        }
+
+        if let Some(mcp) = mcp_engine {
+            let args = serde_json::json!({
+                "agent": serde_json::to_value(agent)?,
+                "message": serde_json::to_value(message)?,
+                "context": context.iter().map(|m| {
+                    serde_json::json!({
+                        "source": m.source,
+                        "content": m.content,
+                    })
+                }).collect::<Vec<_>>(),
+            });
+            let result = mcp.call_server_tool(engine_id, "think", args).await?;
+            return Self::extract_mcp_think_content(&result);
+        }
+
+        Err(anyhow::anyhow!("Engine '{}' not found", engine_id))
+    }
+
+    /// Call engine's think_with_tools() — routes to either Rust plugin or MCP server.
+    async fn engine_think_with_tools(
+        &self,
+        engine_plugin: &Option<Arc<dyn Plugin>>,
+        mcp_engine: &Option<Arc<McpClientManager>>,
+        engine_id: &str,
+        agent: &AgentMetadata,
+        message: &ExivMessage,
+        context: Vec<ExivMessage>,
+        tools: &[serde_json::Value],
+        tool_history: &[serde_json::Value],
+    ) -> anyhow::Result<ThinkResult> {
+        if let Some(plugin) = engine_plugin {
+            let engine = plugin
+                .as_reasoning()
+                .ok_or_else(|| anyhow::anyhow!("Plugin '{}' is not a ReasoningEngine", engine_id))?;
+            return engine
+                .think_with_tools(agent, message, context, tools, tool_history)
+                .await;
+        }
+
+        if let Some(mcp) = mcp_engine {
+            let args = serde_json::json!({
+                "agent": serde_json::to_value(agent)?,
+                "message": serde_json::to_value(message)?,
+                "context": context.iter().map(|m| {
+                    serde_json::json!({
+                        "source": m.source,
+                        "content": m.content,
+                    })
+                }).collect::<Vec<_>>(),
+                "tools": tools,
+                "tool_history": tool_history,
+            });
+            let result = mcp.call_server_tool(engine_id, "think_with_tools", args).await?;
+            return Self::parse_mcp_think_result(&result);
+        }
+
+        Err(anyhow::anyhow!("Engine '{}' not found", engine_id))
+    }
+
+    /// Extract text content from MCP think() response.
+    fn extract_mcp_think_content(
+        result: &crate::managers::mcp_protocol::CallToolResult,
+    ) -> anyhow::Result<String> {
+        use crate::managers::mcp_protocol::ToolContent;
+        for content in &result.content {
+            if let ToolContent::Text { text } = content {
+                // Try to parse as JSON (may contain {"type":"final","content":"..."})
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
+                    if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
+                        return Err(anyhow::anyhow!("MCP engine error: {}", error));
+                    }
+                    if let Some(content) = json.get("content").and_then(|c| c.as_str()) {
+                        return Ok(content.to_string());
+                    }
+                }
+                // Fall back to raw text
+                return Ok(text.clone());
+            }
+        }
+        Err(anyhow::anyhow!("MCP engine returned no text content"))
+    }
+
+    /// Parse ThinkResult from MCP think_with_tools() response.
+    fn parse_mcp_think_result(
+        result: &crate::managers::mcp_protocol::CallToolResult,
+    ) -> anyhow::Result<ThinkResult> {
+        use crate::managers::mcp_protocol::ToolContent;
+        for content in &result.content {
+            if let ToolContent::Text { text } = content {
+                let json: serde_json::Value = serde_json::from_str(text).map_err(|e| {
+                    anyhow::anyhow!("MCP engine returned invalid JSON: {}", e)
+                })?;
+
+                if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
+                    return Err(anyhow::anyhow!("MCP engine error: {}", error));
+                }
+
+                let result_type = json
+                    .get("type")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("final");
+
+                match result_type {
+                    "tool_calls" => {
+                        let assistant_content = json
+                            .get("assistant_content")
+                            .and_then(|c| c.as_str())
+                            .map(|s| s.to_string());
+                        let calls_json = json
+                            .get("calls")
+                            .and_then(|c| c.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+
+                        let calls: Vec<ToolCall> = calls_json
+                            .iter()
+                            .filter_map(|tc| {
+                                let id = tc.get("id")?.as_str()?.to_string();
+                                let name = tc.get("name")?.as_str()?.to_string();
+                                let arguments = tc
+                                    .get("arguments")
+                                    .cloned()
+                                    .unwrap_or(serde_json::json!({}));
+                                Some(ToolCall { id, name, arguments })
+                            })
+                            .collect();
+
+                        return Ok(ThinkResult::ToolCalls {
+                            assistant_content,
+                            calls,
+                        });
+                    }
+                    _ => {
+                        let content = json
+                            .get("content")
+                            .and_then(|c| c.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        return Ok(ThinkResult::Final(content));
+                    }
+                }
+            }
+        }
+        Err(anyhow::anyhow!(
+            "MCP engine returned no parseable ThinkResult"
+        ))
     }
 
     async fn emit_event(&self, trace_id: ExivId, data: ExivEventData) {
