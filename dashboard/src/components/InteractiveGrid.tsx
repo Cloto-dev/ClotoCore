@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTheme } from '../hooks/useTheme';
+import { getDpr } from '../lib/canvasUtils';
 
 export function InteractiveGrid() {
   const gridCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -15,7 +16,7 @@ export function InteractiveGrid() {
     if (!gctx) return;
 
     const draw = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = getDpr();
       const width = window.innerWidth;
       const height = window.innerHeight;
 

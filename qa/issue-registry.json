@@ -434,6 +434,90 @@
       "pattern": "function ContainerDashboard",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-050",
+      "summary": "Duplicate Metrics interface in MemoryCore (also in useMetrics hook)",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "e647833",
+      "file": "dashboard/src/components/MemoryCore.tsx",
+      "pattern": "interface Metrics",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-051",
+      "summary": "Unused ColorVisionData/DetectedElement types (vision plugin deleted)",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "e647833",
+      "file": "dashboard/src/types.ts",
+      "pattern": "ColorVisionData",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-052",
+      "summary": "Dead buttons in WindowAgentNavigator (ShieldCheck/Settings with no onClick)",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "e647833",
+      "file": "dashboard/src/components/WindowAgentNavigator.tsx",
+      "pattern": "<ShieldCheck",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-053",
+      "summary": "Canvas DPR pattern duplicated across 4 files",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "e647833",
+      "file": "dashboard/src/components/CustomCursor.tsx",
+      "pattern": "Math\\.min\\(window\\.devicePixelRatio",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-054",
+      "summary": "Hardcoded #cbd5e1 in MemoryCore (should use CSS variable)",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "e647833",
+      "file": "dashboard/src/components/MemoryCore.tsx",
+      "pattern": "#cbd5e1",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-055",
+      "summary": "Duplicate error-body parsing pattern in api.ts (5 identical blocks → 1 helper)",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "e647833",
+      "file": "dashboard/src/services/api.ts",
+      "pattern": "Failed to delete agent.*statusText",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-056",
+      "summary": "Hardcoded #1e3bb3 in ExivPluginManager (should use CSS variable)",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "e647833",
+      "file": "dashboard/src/components/ExivPluginManager.tsx",
+      "pattern": "#1e3bb3",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

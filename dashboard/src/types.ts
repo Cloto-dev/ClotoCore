@@ -75,16 +75,6 @@ export type ServiceType =
   | 'Memory'
   | 'HAL';
 
-export interface ColorVisionData {
-  captured_at: string;
-  detected_elements: DetectedElement[];
-}
-
-export interface DetectedElement {
-  label: string;
-  bounds: [number, number, number, number];
-  confidence: number;
-}
 
 export interface GazeData {
   x: number;

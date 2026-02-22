@@ -197,7 +197,7 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
       <div 
         className="absolute inset-0 z-0 opacity-30 pointer-events-none"
         style={{
-          backgroundImage: `linear-gradient(to right, #cbd5e1 1px, transparent 1px), linear-gradient(to bottom, #cbd5e1 1px, transparent 1px)`,
+          backgroundImage: `linear-gradient(to right, var(--canvas-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--canvas-grid) 1px, transparent 1px)`,
           backgroundSize: '40px 40px',
           maskImage: 'radial-gradient(circle at center, black, transparent 80%)',
           WebkitMaskImage: 'radial-gradient(circle at center, black, transparent 80%)'

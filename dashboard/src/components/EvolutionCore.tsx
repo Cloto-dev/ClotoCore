@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
+import { getDpr } from '../lib/canvasUtils';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { Link } from 'react-router-dom';
 import {
@@ -125,7 +126,7 @@ function FitnessChart({ timeline }: { timeline: FitnessLogEntry[] }) {
     if (!ctx) return;
     const data = timelineRef.current;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = getDpr();
     const w = canvas.width / dpr;
     const h = canvas.height / dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -245,7 +246,7 @@ function FitnessChart({ timeline }: { timeline: FitnessLogEntry[] }) {
     if (!container || !canvas) return;
 
     const handleResize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = getDpr();
       const w = container.clientWidth;
       const h = container.clientHeight;
       canvas.width = w * dpr;

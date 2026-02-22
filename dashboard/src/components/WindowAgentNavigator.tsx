@@ -1,9 +1,7 @@
 import React from 'react';
 import {
   Cpu,
-  Settings,
   Plus,
-  ShieldCheck
 } from 'lucide-react';
 import { AgentMetadata } from '../types';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
@@ -90,14 +88,7 @@ export const WindowAgentNavigator: React.FC<AgentNavigatorProps> = ({
         </button>
       </div>
 
-      <div className="mt-auto flex flex-col gap-3">
-        <button className="p-2.5 rounded-xl text-content-tertiary hover:text-content-secondary hover:bg-glass-strong transition-all">
-          <ShieldCheck size={18} />
-        </button>
-        <button className="p-2.5 rounded-xl text-content-tertiary hover:text-content-secondary hover:bg-glass-strong transition-all">
-          <Settings size={18} />
-        </button>
-      </div>
+      <div className="mt-auto" />
     </div>
   );
 };

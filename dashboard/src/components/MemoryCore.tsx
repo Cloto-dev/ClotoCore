@@ -4,6 +4,7 @@ import { Brain, Sparkles, History, Activity, User, ArrowLeft } from 'lucide-reac
 import { Link } from 'react-router-dom';
 import { SystemHistory } from './SystemHistory';
 import { useEventStream } from '../hooks/useEventStream';
+import { useMetrics, Metrics } from '../hooks/useMetrics';
 import { api, API_BASE } from '../services/api';
 
 interface Memory {
@@ -20,26 +21,20 @@ interface Episode {
   channel_id?: string;
 }
 
-interface Metrics {
-  ram_usage: string;
-  total_memories: number;
-}
-
 export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { isWindowMode?: boolean }) {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
-  const [metrics, setMetrics] = useState<Metrics>({ ram_usage: 'N/A', total_memories: 0 });
+  const { metrics: hookMetrics } = useMetrics();
+  const metrics: Metrics = hookMetrics ?? { ram_usage: 'N/A', total_memories: 0, total_requests: 0, total_episodes: 0 };
 
   const fetchData = useCallback(async () => {
     try {
-      const [memories, episodes, metrics] = await Promise.all([
+      const [memories, episodes] = await Promise.all([
         api.getMemories(),
         api.getEpisodes(),
-        api.getMetrics()
       ]);
       setMemories(memories);
       setEpisodes(episodes);
-      setMetrics(metrics);
     } catch (error) {
       console.error('Failed to fetch data', error);
     }
@@ -81,7 +76,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
         <div 
           className="fixed inset-0 z-0 opacity-30 pointer-events-none"
           style={{
-            backgroundImage: `linear-gradient(to right, #cbd5e1 1px, transparent 1px), linear-gradient(to bottom, #cbd5e1 1px, transparent 1px)`,
+            backgroundImage: `linear-gradient(to right, var(--canvas-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--canvas-grid) 1px, transparent 1px)`,
             backgroundSize: '40px 40px',
             maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
             WebkitMaskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)'

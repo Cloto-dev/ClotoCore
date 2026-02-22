@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTheme } from '../hooks/useTheme';
+import { getDpr } from '../lib/canvasUtils';
 
 interface Point { x: number; y: number; r: number }
 
@@ -91,7 +92,7 @@ export function CustomCursor() {
     const handleResize = () => {
       const canvas = trailCanvasRef.current;
       if (!canvas || !tctx || !octx || !offscreenCanvas || !filteredCanvas || !filteredCtx) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = getDpr();
       const width = window.innerWidth;
       const height = window.innerHeight;
       canvas.width = width * dpr;

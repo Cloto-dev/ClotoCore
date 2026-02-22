@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Node, Edge, Pulse, ModalState, StrictSystemEvent } from '../types';
 import { useTheme } from './useTheme';
+import { getDpr } from '../lib/canvasUtils';
 
 const INITIAL_NODES: Node[] = [
   { id: 'karin', label: 'KARIN CORE', x: 0, y: 0, vx: 0, vy: 0, type: 'core', color: '#2e4de6', data: { status: 'OPTIMIZING', lastActive: 'NOW', log: 'Core processing stable...' } },
@@ -109,7 +110,7 @@ export function useNeuralNetwork(
 
     const handleResize = () => {
       if (canvas.parentElement) {
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const dpr = getDpr();
         const width = canvas.parentElement.clientWidth;
         const height = canvas.parentElement.clientHeight;
         canvas.width = width * dpr;
@@ -224,7 +225,7 @@ export function useNeuralNetwork(
       if (document.hidden || !isVisible.current) return;
 
       const { x, y, k } = viewportRef.current;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = getDpr();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
       

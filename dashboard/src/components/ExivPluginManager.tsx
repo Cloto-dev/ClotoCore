@@ -215,7 +215,7 @@ function ConfigModal({ plugin, onClose }: { plugin: PluginManifest, onClose: () 
               }
             }}
             disabled={saveState === 'saving'}
-            className="px-6 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:bg-[#1e3bb3] transition-all shadow-md shadow-brand/20 tracking-wide disabled:opacity-50"
+            className="px-6 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:bg-[var(--brand-hover)] transition-all shadow-md shadow-brand/20 tracking-wide disabled:opacity-50"
           >
             {saveState === 'saving' ? 'SAVING...' : saveState === 'error' ? 'SAVE ERROR (TRY AGAIN)' : 'SAVE & CLOSE'}
           </button>

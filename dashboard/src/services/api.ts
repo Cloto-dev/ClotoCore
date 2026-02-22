@@ -8,6 +8,13 @@ const API_URL = import.meta.env.VITE_API_URL
   || (isTauri ? `http://127.0.0.1:${KERNEL_PORT}/api` : `${window.location.origin}/api`);
 export const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
 
+/** Throw with detailed error message from JSON body if available */
+async function throwIfNotOk(res: Response, ctx: string): Promise<void> {
+  if (res.ok) return;
+  const body = await res.json().catch(() => ({}));
+  throw new Error(body?.error?.message || `Failed to ${ctx}: ${res.statusText}`);
+}
+
 async function fetchJson<T>(path: string, ctx: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
   if (!res.ok) throw new Error(`Failed to ${ctx}: ${res.statusText}`);
@@ -75,10 +82,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
       body: JSON.stringify({ plugins }),
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body?.error?.message || `Failed to set agent plugins: ${res.statusText}`);
-    }
+    await throwIfNotOk(res, 'set agent plugins');
   },
   getPluginPermissions: async (pluginId: string, apiKey: string): Promise<string[]> => {
     const res = await fetch(`${API_BASE}/plugins/${pluginId}/permissions`, {
@@ -95,10 +99,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
       body: JSON.stringify({ permission }),
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body?.error?.message || `Failed to revoke permission: ${res.statusText}`);
-    }
+    await throwIfNotOk(res, 'revoke permission');
   },
 
   grantPermission: (pluginId: string, permission: string, apiKey: string) =>
@@ -116,10 +117,7 @@ export const api = {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body?.error?.message || `Failed to delete agent: ${res.statusText}`);
-    }
+    await throwIfNotOk(res, 'delete agent');
   },
 
   async createAgent(payload: { name: string; description: string; default_engine: string; metadata: Record<string, string>; password?: string }, apiKey: string): Promise<void> {
@@ -128,10 +126,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body?.error?.message || `Failed to create agent: ${res.statusText}`);
-    }
+    await throwIfNotOk(res, 'create agent');
   },
   postChat: (message: ExivMessage, apiKey: string) =>
     mutate('/chat', 'POST', 'send chat', message, { 'X-API-Key': apiKey }).then(() => {}),
@@ -156,10 +151,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
       body: JSON.stringify({ enabled, password: password || undefined })
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body?.error?.message || `Failed to toggle agent power: ${res.statusText}`);
-    }
+    await throwIfNotOk(res, 'toggle agent power');
   },
 
   // Custom response transformation: parses JSON string fields
