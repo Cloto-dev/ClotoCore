@@ -518,6 +518,54 @@
       "pattern": "#1e3bb3",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-057",
+      "summary": "ThoughtLine interface defined in both StatusCore and useStatusManager",
+      "severity": "LOW",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "da2dbdd",
+      "file": "dashboard/src/components/StatusCore.tsx",
+      "pattern": "interface ThoughtLine",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-058",
+      "summary": "clearProcessedEvent is a no-op function passed to NeuralNetwork",
+      "severity": "LOW",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "da2dbdd",
+      "file": "dashboard/src/components/StatusCore.tsx",
+      "pattern": "clearProcessedEvent",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-059",
+      "summary": "Old Karin branding remains in SystemHistory and useNeuralNetwork",
+      "severity": "LOW",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "da2dbdd",
+      "file": "dashboard/src/components/SystemHistory.tsx",
+      "pattern": "Karin Strategic",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-060",
+      "summary": "Duplicate CSS spinner pattern across 3 components",
+      "severity": "LOW",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "da2dbdd",
+      "file": "dashboard/src/components/SecurityGuard.tsx",
+      "pattern": "border-white/20 border-t-white rounded-full animate-spin",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { NeuralNetwork } from '../components/NeuralNetwork';
 import { useMetrics } from '../hooks/useMetrics';
-import { useStatusManager } from '../hooks/useStatusManager';
+import { useStatusManager, ThoughtLine } from '../hooks/useStatusManager';
 import { useTheme } from '../hooks/useTheme';
 import type { StrictSystemEvent } from '../types';
 
@@ -38,12 +38,6 @@ function DecipherText({ targetText }: { targetText: string }) {
   }, [targetText]);
 
   return <span>{displayText}</span>;
-}
-
-interface ThoughtLine {
-  id: number;
-  text: string;
-  timestamp: number;
 }
 
 // --- Sub-component: ThoughtLineDisplay ---
@@ -153,10 +147,6 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
     }
   };
 
-  const clearProcessedEvent = (_timestamp: number) => {
-    // No-op
-  };
-
   const startTime = eventHistory.length > 0 ? eventHistory[0].timestamp : now;
   const endTime = now;
   const currentEffectiveTime = seekTime || endTime;
@@ -205,10 +195,9 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
       />
 
       {/* 3. The Core Visualizer */}
-      <NeuralNetwork 
-        mouseRef={realMouse} 
-        events={eventHistory} 
-        onEventProcessed={clearProcessedEvent} 
+      <NeuralNetwork
+        mouseRef={realMouse}
+        events={eventHistory}
         seekTime={seekTime}
       />
 

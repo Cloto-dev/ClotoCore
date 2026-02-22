@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Shield, Lock, Unlock, AlertTriangle, X, Check, ShieldAlert } from 'lucide-react';
 import { api } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
+import { Spinner } from '../lib/Spinner';
 
 interface PermissionRequest {
   request_id: string;
@@ -164,7 +165,7 @@ export function SecurityGuard() {
                     className="flex-1 py-2.5 rounded-xl bg-brand text-white text-[10px] font-bold shadow-lg shadow-brand/30 hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     {isAuthorizing ? (
-                      <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      <Spinner size={3} />
                     ) : <Unlock size={14} />}
                     {isAuthorizing ? 'Authorizing...' : 'Authorize'}
                   </button>

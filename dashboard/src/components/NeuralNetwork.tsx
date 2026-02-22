@@ -1,9 +1,9 @@
 import { useNeuralNetwork } from '../hooks/useNeuralNetwork';
 
-export function NeuralNetwork({ mouseRef, events, onEventProcessed, seekTime }: { 
-  mouseRef: React.MutableRefObject<{ x: number, y: number }>, 
+export function NeuralNetwork({ mouseRef, events, onEventProcessed, seekTime }: {
+  mouseRef: React.MutableRefObject<{ x: number, y: number }>,
   events: any[],
-  onEventProcessed: (timestamp: number) => void,
+  onEventProcessed?: (timestamp: number) => void,
   seekTime?: number | null
 }) {
   const { canvasRef, selectedModal, setSelectedModal, nodes, longPressTimer, viewport } = useNeuralNetwork(mouseRef, events, onEventProcessed, seekTime);

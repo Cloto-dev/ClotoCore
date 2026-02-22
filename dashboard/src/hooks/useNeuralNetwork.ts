@@ -4,7 +4,7 @@ import { useTheme } from './useTheme';
 import { getDpr } from '../lib/canvasUtils';
 
 const INITIAL_NODES: Node[] = [
-  { id: 'karin', label: 'KARIN CORE', x: 0, y: 0, vx: 0, vy: 0, type: 'core', color: '#2e4de6', data: { status: 'OPTIMIZING', lastActive: 'NOW', log: 'Core processing stable...' } },
+  { id: 'karin', label: 'EXIV CORE', x: 0, y: 0, vx: 0, vy: 0, type: 'core', color: '#2e4de6', data: { status: 'OPTIMIZING', lastActive: 'NOW', log: 'Core processing stable...' } },
   { id: 'memory_recall', label: 'MEMORY', x: -200, y: -100, vx: 0, vy: 0, type: 'tool', color: '#2e6be6', data: { status: 'STANDBY', lastActive: 'READY', log: 'Long-term memory interface.' } },
   { id: 'google_search', label: 'GOOGLE', x: 200, y: -100, vx: 0, vy: 0, type: 'tool', color: '#2ea8e6', data: { status: 'STANDBY', lastActive: 'READY', log: 'Web search interface.' } },
   { id: 'discord_research', label: 'DISCORD', x: 300, y: 50, vx: 0, vy: 0, type: 'endpoint', color: '#2ea8e6', data: { status: 'STANDBY', lastActive: 'READY', log: 'Discord log analyzer.' } },
@@ -21,7 +21,7 @@ const INITIAL_EDGES: Edge[] = [
 export function useNeuralNetwork(
   mouseRef: React.MutableRefObject<{ x: number, y: number }>,
   events: StrictSystemEvent[],
-  onEventProcessed: (timestamp: number) => void,
+  onEventProcessed?: (timestamp: number) => void,
   seekTime: number | null = null
 ) {
   const { colors } = useTheme();
@@ -97,7 +97,7 @@ export function useNeuralNetwork(
         break;
       }
     }
-    if (!isHistorical) onEventProcessed(event.timestamp);
+    if (!isHistorical) onEventProcessed?.(event.timestamp);
   };
 
   useEffect(() => {

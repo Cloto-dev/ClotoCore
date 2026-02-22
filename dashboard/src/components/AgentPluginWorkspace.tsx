@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { AgentIcon, agentColor, isAiAgent } from '../lib/agentIdentity';
 import { isLlmPlugin, ServiceTypeIcon } from '../lib/pluginUtils';
 import { useApiKey } from '../contexts/ApiKeyContext';
+import { Spinner } from '../lib/Spinner';
 
 interface Props {
   agent: AgentMetadata;
@@ -300,7 +301,7 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
              style={{ backgroundColor: agentColor(agent), boxShadow: `0 10px 15px -3px ${agentColor(agent)}33` }}
            >
              {isSaving ? (
-               <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+               <Spinner size={3} />
              ) : <Save size={14} />}
              Save and exit
            </button>

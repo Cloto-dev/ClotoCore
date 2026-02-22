@@ -23,7 +23,7 @@ async function sendNativeNotification(title: string, body: string) {
   }
 }
 
-interface ThoughtLine {
+export interface ThoughtLine {
   id: number;
   text: string;
   timestamp: number;

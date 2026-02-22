@@ -59,7 +59,7 @@ export const SystemHistory = memo(function SystemHistory() {
       </div>
       
       <div className="mt-12 text-[9px] font-mono text-content-muted uppercase tracking-widest">
-        &copy; 2026 Karin Strategic Systems / KS2.1
+        &copy; 2026 Exiv Project
       </div>
     </footer>
   );

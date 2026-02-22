@@ -6,6 +6,7 @@ import { ServiceTypeIcon } from '../lib/pluginUtils';
 import { isTauri, openFileDialog } from '../lib/tauri';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { ApiKeyGate } from './ApiKeyGate';
+import { Spinner } from '../lib/Spinner';
 
 const ALL_PERMISSIONS = [
   { name: 'NetworkAccess',    label: 'Network Access',     enforced: true,  desc: 'HTTP requests to whitelisted hosts' },
@@ -528,7 +529,7 @@ export function ExivPluginManager() {
             className="flex items-center gap-2 px-6 py-2.5 bg-brand text-white rounded-xl text-xs font-bold shadow-lg shadow-brand/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
           >
             {isSaving ? (
-              <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+              <Spinner size={4} />
             ) : <Save size={16} />}
             APPLY CONFIGURATION
           </button>
