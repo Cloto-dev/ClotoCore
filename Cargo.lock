@@ -1905,14 +1905,12 @@ dependencies = [
  "http",
  "mime_guess",
  "plugin_cerebras",
- "plugin_cursor",
  "plugin_deepseek",
  "plugin_ks22",
  "plugin_mcp",
  "plugin_moderator",
  "plugin_python_bridge",
  "plugin_terminal",
- "plugin_vision",
  "rand 0.8.5",
  "reqwest 0.12.28",
  "rust-embed",
@@ -4795,18 +4793,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "plugin_cursor"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "exiv_shared",
- "serde",
- "serde_json",
- "tracing",
-]
-
-[[package]]
 name = "plugin_deepseek"
 version = "0.1.0"
 dependencies = [
@@ -4891,21 +4877,6 @@ dependencies = [
  "tokio",
  "tracing",
  "unicode-normalization",
-]
-
-[[package]]
-name = "plugin_vision"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.21.7",
- "chrono",
- "exiv_shared",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
 ]
 
 [[package]]

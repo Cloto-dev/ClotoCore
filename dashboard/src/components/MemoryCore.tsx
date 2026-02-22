@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { memo } from 'react';
 import { Brain, Sparkles, History, Activity, User, ArrowLeft } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
-import { LockScreen } from './LockScreen';
+import { Link } from 'react-router-dom';
 import { SystemHistory } from './SystemHistory';
 import { useEventStream } from '../hooks/useEventStream';
 import { api, API_BASE } from '../services/api';
@@ -26,12 +25,10 @@ interface Metrics {
   total_memories: number;
 }
 
-export const MemoryCore = memo(function MemoryCore({ isWindowMode = false, onClose }: { isWindowMode?: boolean, onClose?: () => void }) {
+export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { isWindowMode?: boolean }) {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [metrics, setMetrics] = useState<Metrics>({ ram_usage: 'N/A', total_memories: 0 });
-  const [isLocked, setIsLocked] = useState(true);
-  const navigate = useNavigate();
 
   const fetchData = useCallback(async () => {
     try {
@@ -68,10 +65,8 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false, onClo
   }, []);
 
   useEffect(() => {
-    if (!isLocked) {
-      fetchData();
-    }
-  }, [isLocked, fetchData]);
+    fetchData();
+  }, [fetchData]);
 
   useEventStream(`${API_BASE}/events`, (data) => {
     if (data.type === 'MessageReceived' || data.type === 'VisionUpdated' || data.type === 'SystemNotification') {
@@ -79,20 +74,6 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false, onClo
        debouncedFetchData();
     }
   });
-
-  if (isLocked) {
-    return (
-      <div className={`${isWindowMode ? 'bg-transparent h-full w-full' : 'bg-surface-base min-h-screen'} relative font-sans text-content-primary overflow-hidden`}>
-        <LockScreen 
-          onUnlock={() => setIsLocked(false)} 
-          onBack={() => {
-            if (onClose) onClose();
-            else navigate('/');
-          }}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className={`${isWindowMode ? 'bg-transparent p-4' : 'bg-surface-base min-h-screen'} relative font-sans text-content-primary overflow-x-hidden h-full animate-in fade-in duration-500`}>

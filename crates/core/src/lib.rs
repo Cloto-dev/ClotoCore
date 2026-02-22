@@ -22,14 +22,12 @@ pub use db::{
 // Without these imports, the Rust linker will not include plugin code,
 // causing inventory::submit! to never execute and plugins to be undiscoverable.
 extern crate plugin_cerebras;
-extern crate plugin_cursor;
 extern crate plugin_deepseek;
 extern crate plugin_ks22;
 extern crate plugin_mcp;
 extern crate plugin_moderator;
 extern crate plugin_python_bridge;
 extern crate plugin_terminal;
-extern crate plugin_vision;
 
 use exiv_shared::ExivEvent;
 use sqlx::SqlitePool;
@@ -273,19 +271,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         config.tool_execution_timeout_secs,
     ));
 
-    // L5: Skill Manager (register_skill + add_network_host tools)
-    let skill_manager: Arc<dyn exiv_shared::Plugin> =
-        Arc::new(handlers::skill_manager::SkillManager::new(
-            plugin_manager.clone(),
-            registry_arc.clone(),
-            plugin_manager.http_client(),
-            pool.clone(),
-        ));
-
     {
         let mut plugins = registry_arc.plugins.write().await;
         plugins.insert("core.system".to_string(), system_handler);
-        plugins.insert("core.skill_manager".to_string(), skill_manager);
     }
 
     // L5: Restore persisted runtime plugins from database
@@ -503,6 +491,10 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             get(handlers::chat::get_attachment),
         )
         // Runtime plugin management
+        .route(
+            "/plugins/runtime",
+            get(handlers::list_runtime_plugins).post(handlers::create_runtime_plugin),
+        )
         .route(
             "/plugins/runtime/:id",
             delete(handlers::delete_runtime_plugin),

@@ -44,9 +44,9 @@ function SystemView() {
   }, [logs]);
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-900/90 text-blue-400 overflow-hidden">
+    <div className="flex-1 flex flex-col bg-surface-base text-content-secondary overflow-hidden">
       {/* Update Section */}
-      <div className="border-b border-blue-900/50">
+      <div className="border-b border-edge">
         <div className="flex items-center gap-2 px-4 pt-4 pb-2">
           <RefreshCw size={14} />
           <span className="text-[10px] font-black tracking-widest font-mono">SYSTEM_UPDATE</span>
@@ -56,7 +56,7 @@ function SystemView() {
 
       {/* Live Log Section */}
       <div className="flex-1 flex flex-col p-6 font-mono text-[10px] overflow-hidden">
-        <div className="flex items-center gap-2 mb-4 border-b border-blue-900/50 pb-2">
+        <div className="flex items-center gap-2 mb-4 border-b border-edge pb-2">
           <Cpu size={14} />
           <span className="font-black tracking-widest">KERNEL_LIVE_LOG</span>
         </div>

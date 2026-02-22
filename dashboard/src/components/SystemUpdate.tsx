@@ -122,15 +122,15 @@ export function SystemUpdate() {
       {/* Version display */}
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-[10px] font-mono text-blue-400/60 tracking-widest uppercase">System Version</div>
-          <div className="text-sm font-bold text-blue-300 font-mono">
+          <div className="text-[10px] font-mono text-content-tertiary tracking-widest uppercase">System Version</div>
+          <div className="text-sm font-bold text-brand font-mono">
             v{currentVersion || '...'}
           </div>
         </div>
         <button
           onClick={checkForUpdate}
           disabled={state === 'checking' || state === 'applying'}
-          className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 hover:border-blue-400/50 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase rounded border border-brand/30 text-brand hover:bg-brand/10 hover:border-brand/50 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
         >
           {state === 'checking' ? (
             <Loader2 size={12} className="animate-spin" />
@@ -150,31 +150,31 @@ export function SystemUpdate() {
       )}
 
       {state === 'available' && info && (
-        <div className="space-y-3 p-3 rounded bg-blue-500/10 border border-blue-500/20">
+        <div className="space-y-3 p-3 rounded bg-brand/10 border border-brand/20">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-[11px] font-bold text-blue-300 font-mono">
+              <div className="text-[11px] font-bold text-brand font-mono">
                 v{info.latest_version} available
               </div>
               {info.release_name && (
-                <div className="text-[10px] text-blue-400/60 mt-0.5">{info.release_name}</div>
+                <div className="text-[10px] text-content-tertiary mt-0.5">{info.release_name}</div>
               )}
               {info.published_at && (
-                <div className="text-[10px] text-blue-400/40 mt-0.5">
+                <div className="text-[10px] text-content-muted mt-0.5">
                   {new Date(info.published_at).toLocaleDateString()}
                 </div>
               )}
             </div>
             <button
               onClick={applyUpdate}
-              className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase rounded bg-blue-600 text-white hover:bg-blue-500 transition-all"
+              className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase rounded bg-brand text-white hover:opacity-90 transition-all"
             >
               <Download size={12} />
               Apply Update
             </button>
           </div>
           {info.release_notes && (
-            <div className="text-[10px] text-blue-400/70 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto border-t border-blue-500/10 pt-2 no-scrollbar">
+            <div className="text-[10px] text-content-secondary font-mono whitespace-pre-wrap max-h-24 overflow-y-auto border-t border-edge pt-2 no-scrollbar">
               {info.release_notes.slice(0, 500)}
             </div>
           )}

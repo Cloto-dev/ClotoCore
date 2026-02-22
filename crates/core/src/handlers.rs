@@ -1,7 +1,6 @@
 pub mod assets;
 pub mod chat;
 pub mod evolution;
-pub mod skill_manager;
 pub mod system;
 pub mod update;
 
@@ -1120,6 +1119,171 @@ pub async fn invalidate_api_key(
 // ============================================================
 // Runtime Plugin Management
 // ============================================================
+
+pub async fn create_runtime_plugin(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let name = body
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Validation("Missing required field: name".into()))?;
+
+    let code = body
+        .get("code")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Validation("Missing required field: code".into()))?;
+
+    let description = body
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("A runtime-created plugin.");
+
+    // Name validation
+    if name.is_empty() || name.len() > 64 {
+        return Err(AppError::Validation(
+            "Plugin name must be 1-64 characters".into(),
+        ));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(AppError::Validation(
+            "Plugin name must contain only alphanumeric characters and underscores".into(),
+        ));
+    }
+
+    // Optional custom JSON Schema for tool parameters
+    let default_schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "input": { "type": "string", "description": "Input for the plugin" }
+        }
+    });
+    let tool_schema = body
+        .get("tool_schema")
+        .filter(|v| v.is_object())
+        .cloned()
+        .unwrap_or(default_schema);
+
+    let network_access = body
+        .get("network_access")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+
+    // Generate Python script with EXIV_MANIFEST
+    let script_content = format!(
+        r##"# Auto-generated runtime plugin: {name}
+EXIV_MANIFEST = {{
+    "name": "python.runtime.{name}",
+    "description": "{description}",
+    "provided_tools": ["{name}"],
+    "tool_description": "{description}",
+    "tool_schema": {tool_schema},
+    "tags": ["#RUNTIME", "#PLUGIN"]
+}}
+
+{code}
+
+def execute(params):
+    return on_execute(params)
+"##,
+        name = name,
+        description = description.replace('"', r#"\""#),
+        tool_schema = tool_schema.to_string(),
+        code = code,
+    );
+
+    // Write script to scripts/ directory
+    let script_filename = format!("runtime_{}.py", name);
+    let scripts_dir = std::path::Path::new("scripts");
+    if !scripts_dir.exists() {
+        std::fs::create_dir_all(scripts_dir)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to create scripts directory: {}", e)))?;
+    }
+    std::fs::write(scripts_dir.join(&script_filename), &script_content)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to write script: {}", e)))?;
+
+    // Permissions
+    let permissions = if network_access {
+        vec![exiv_shared::Permission::NetworkAccess]
+    } else {
+        vec![]
+    };
+    let permissions_json = serde_json::to_string(
+        &permissions
+            .iter()
+            .map(|p| format!("{:?}", p))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap_or_else(|_| "[]".to_string());
+
+    // Register as runtime plugin
+    let plugin_id = format!("python.runtime.{}", name);
+    let mut config_values = std::collections::HashMap::new();
+    config_values.insert("script_path".to_string(), script_filename.clone());
+
+    state
+        .plugin_manager
+        .register_runtime_plugin(&plugin_id, config_values, permissions, &state.registry)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to register plugin: {}", e)))?;
+
+    // Persist to database
+    let record = crate::db::RuntimePluginRecord {
+        plugin_id: plugin_id.clone(),
+        script_name: script_filename,
+        description: Some(description.to_string()),
+        code_content: script_content,
+        permissions: permissions_json,
+        created_at: chrono::Utc::now().timestamp_millis(),
+        created_by: None,
+        generation_number: None,
+        is_active: true,
+    };
+    if let Err(e) = crate::db::save_runtime_plugin(&state.pool, &record).await {
+        tracing::warn!(error = %e, plugin_id = %plugin_id, "Failed to persist runtime plugin to DB");
+    }
+
+    tracing::info!(plugin_id = %plugin_id, "🔌 Runtime plugin created");
+
+    Ok(Json(serde_json::json!({
+        "status": "created",
+        "plugin_id": plugin_id,
+        "tool_name": name,
+    })))
+}
+
+pub async fn list_runtime_plugins(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let records = crate::db::load_active_runtime_plugins(&state.pool)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to load runtime plugins: {}", e)))?;
+
+    let plugins: Vec<serde_json::Value> = records
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "plugin_id": r.plugin_id,
+                "description": r.description,
+                "created_at": r.created_at,
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "plugins": plugins,
+        "count": plugins.len(),
+    })))
+}
 
 pub async fn delete_runtime_plugin(
     State(state): State<Arc<AppState>>,
