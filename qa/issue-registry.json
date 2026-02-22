@@ -386,6 +386,54 @@
       "pattern": "You are \\{\\}\\. \\{\\}\\.",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-046",
+      "summary": "Dead python.gaze reference in Home.tsx plugin ID check",
+      "severity": "HIGH",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "03a5f79",
+      "file": "dashboard/src/pages/Home.tsx",
+      "pattern": "python\\.gaze",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-047",
+      "summary": "AgentTerminal internal fallback dead code (internalAgents/internalPlugins/fetchInitialData)",
+      "severity": "HIGH",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "03a5f79",
+      "file": "dashboard/src/components/AgentTerminal.tsx",
+      "pattern": "internalAgents",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-048",
+      "summary": "Multiple SSE connections created per useEventStream consumer (no singleton)",
+      "severity": "HIGH",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "03a5f79",
+      "file": "dashboard/src/hooks/useEventStream.ts",
+      "pattern": "eventSourceRef",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-049",
+      "summary": "ContainerDashboard not extracted from AgentTerminal (988-line monolithic file)",
+      "severity": "HIGH",
+      "discovered": "2026-02-22T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "03a5f79",
+      "file": "dashboard/src/components/AgentTerminal.tsx",
+      "pattern": "function ContainerDashboard",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

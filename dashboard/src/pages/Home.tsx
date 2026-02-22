@@ -89,7 +89,7 @@ export function Home() {
         await api.post(`/plugin/${item.pluginId}/action/${command}`, {}, apiKey);
         console.log(`Action ${command} executed for ${item.pluginId}`);
         // 🆕 Handle gaze tracking toggle (flexible ID check)
-        if ((item.pluginId === 'python.gaze' || item.pluginId === 'vision.gaze_webcam') && command === 'toggle') {
+        if (item.pluginId === 'vision.gaze_webcam' && command === 'toggle') {
           console.log("👁️ Toggling GazeTracker component...");
           setIsGazeActive(prev => !prev);
         }
