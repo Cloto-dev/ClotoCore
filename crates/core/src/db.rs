@@ -578,6 +578,30 @@ pub async fn update_permission_request(
     Ok(())
 }
 
+/// Check if a specific permission is already approved for a plugin/server.
+/// Returns true if an approved, non-expired permission exists.
+pub async fn is_permission_approved(
+    pool: &SqlitePool,
+    plugin_id: &str,
+    permission_type: &str,
+) -> anyhow::Result<bool> {
+    let query_future = sqlx::query_scalar::<_, i32>(
+        "SELECT COUNT(*) FROM permission_requests
+         WHERE plugin_id = ? AND permission_type = ? AND status = 'approved'
+           AND (expires_at IS NULL OR expires_at > datetime('now'))",
+    )
+    .bind(plugin_id)
+    .bind(permission_type)
+    .fetch_one(pool);
+
+    let count = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
+        .await
+        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
+        .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
+
+    Ok(count > 0)
+}
+
 // ─── Chat Persistence Layer ───
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

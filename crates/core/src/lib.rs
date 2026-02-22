@@ -14,8 +14,9 @@ pub mod validation;
 
 // Re-export audit log and permission request types for external use
 pub use db::{
-    create_permission_request, get_pending_permission_requests, query_audit_logs,
-    update_permission_request, write_audit_log, AuditLogEntry, PermissionRequest,
+    create_permission_request, get_pending_permission_requests, is_permission_approved,
+    query_audit_logs, update_permission_request, write_audit_log, AuditLogEntry,
+    PermissionRequest,
 };
 
 // Static Linker: Force plugin crates to be linked for inventory discovery
@@ -66,6 +67,7 @@ pub struct AppState {
     pub pool: SqlitePool,
     pub agent_manager: managers::AgentManager,
     pub plugin_manager: Arc<managers::PluginManager>,
+    pub mcp_manager: Arc<managers::McpClientManager>,
     pub dynamic_router: Arc<DynamicRouter>,
     pub config: config::AppConfig,
     pub event_history: Arc<RwLock<VecDeque<Arc<ExivEvent>>>>,
@@ -229,8 +231,16 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     plugin_manager_obj.set_event_tx(event_tx.clone());
     let plugin_manager = Arc::new(plugin_manager_obj);
 
+    // 3b. MCP Client Manager (created early so PluginRegistry can reference it)
+    let mcp_manager = Arc::new(managers::McpClientManager::new(
+        pool.clone(),
+        shutdown.clone(),
+        config.yolo_mode,
+    ));
+
     // 4. Initialize External Plugins
-    let registry = plugin_manager.initialize_all().await?;
+    let mut registry = plugin_manager.initialize_all().await?;
+    registry.set_mcp_manager(mcp_manager.clone());
     let registry_arc = Arc::new(registry);
 
     // 5. Managers & Internal Handlers
@@ -275,7 +285,29 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         plugins.insert("core.system".to_string(), system_handler);
     }
 
+    // Load MCP servers from config file (mcp.toml)
+    {
+        let config_path = config
+            .mcp_config_path
+            .clone()
+            .unwrap_or_else(|| {
+                config::exe_dir()
+                    .join("data")
+                    .join("mcp.toml")
+                    .to_string_lossy()
+                    .to_string()
+            });
+        if let Err(e) = mcp_manager.load_config_file(&config_path).await {
+            tracing::warn!(error = %e, "Failed to load MCP config file");
+        }
+    }
+
     // Restore persisted dynamic MCP servers from database
+    if let Err(e) = mcp_manager.restore_from_db().await {
+        tracing::warn!(error = %e, "Failed to restore MCP servers from database");
+    }
+
+    // Legacy: also restore via adapter.mcp plugin (for backward compat during migration)
     match db::load_active_mcp_servers(&pool).await {
         Ok(records) => {
             if !records.is_empty() {
@@ -316,7 +348,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                                     info!(
                                         name = %record.name,
                                         tools = tools.len(),
-                                        "🔄 Restored MCP server from DB"
+                                        "Restored MCP server from DB (legacy)"
                                     );
                                 }
                                 Err(e) => {
@@ -375,6 +407,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         pool: pool.clone(),
         agent_manager: agent_manager.clone(),
         plugin_manager: plugin_manager.clone(),
+        mcp_manager: mcp_manager.clone(),
         dynamic_router: dynamic_router.clone(),
         config: config.clone(),
         event_history: event_history.clone(),

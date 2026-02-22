@@ -29,6 +29,13 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
 
     let rate_limiter = Arc::new(crate::middleware::RateLimiter::new(10, 20));
 
+    let shutdown = Arc::new(Notify::new());
+    let mcp_manager = Arc::new(crate::managers::McpClientManager::new(
+        pool.clone(),
+        shutdown.clone(),
+        false, // yolo_mode disabled in tests
+    ));
+
     Arc::new(crate::AppState {
         tx,
         registry,
@@ -36,12 +43,13 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
         pool,
         agent_manager,
         plugin_manager,
+        mcp_manager,
         dynamic_router,
         config,
         event_history,
         metrics,
         rate_limiter,
-        shutdown: Arc::new(Notify::new()),
+        shutdown,
         evolution_engine: None,
         fitness_collector: None,
         revoked_keys: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),

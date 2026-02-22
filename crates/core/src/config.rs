@@ -32,6 +32,11 @@ pub struct AppConfig {
     pub auto_eval_enabled: bool,
     pub max_agentic_iterations: u8,
     pub tool_execution_timeout_secs: u64,
+    pub mcp_config_path: Option<String>,
+    pub mcp_sdk_secret: Option<String>,
+    /// YOLO mode: auto-approve all permission requests (ARCHITECTURE.md §5.7).
+    /// SafetyGate remains active even in YOLO mode.
+    pub yolo_mode: bool,
 }
 
 impl AppConfig {
@@ -199,6 +204,17 @@ impl AppConfig {
             );
         }
 
+        let mcp_config_path = env::var("EXIV_MCP_CONFIG").ok();
+        let mcp_sdk_secret = env::var("EXIV_SDK_SECRET").ok();
+        let yolo_mode = env::var("EXIV_YOLO")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse::<bool>()
+            .unwrap_or(false);
+
+        if yolo_mode {
+            tracing::warn!("YOLO mode enabled: MCP server permissions will be auto-approved");
+        }
+
         Ok(Self {
             database_url,
             port,
@@ -217,6 +233,9 @@ impl AppConfig {
             auto_eval_enabled,
             max_agentic_iterations,
             tool_execution_timeout_secs,
+            mcp_config_path,
+            mcp_sdk_secret,
+            yolo_mode,
         })
     }
 }

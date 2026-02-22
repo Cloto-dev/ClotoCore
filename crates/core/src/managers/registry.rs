@@ -17,6 +17,8 @@ pub struct PluginRegistry {
     pub event_timeout_secs: u64,
     pub max_event_depth: u8,
     pub event_semaphore: Arc<tokio::sync::Semaphore>,
+    /// MCP Client Manager for dual dispatch (Rust plugins + MCP servers)
+    pub mcp_manager: Option<Arc<super::McpClientManager>>,
 }
 
 pub struct SystemMetrics {
@@ -51,7 +53,13 @@ impl PluginRegistry {
             event_timeout_secs,
             max_event_depth,
             event_semaphore: Arc::new(tokio::sync::Semaphore::new(50)),
+            mcp_manager: None,
         }
+    }
+
+    /// Set the MCP Client Manager for dual dispatch.
+    pub fn set_mcp_manager(&mut self, mcp_manager: Arc<super::McpClientManager>) {
+        self.mcp_manager = Some(mcp_manager);
     }
 
     pub async fn update_effective_permissions(&self, plugin_id: ExivId, permission: Permission) {
@@ -82,23 +90,32 @@ impl PluginRegistry {
         None
     }
 
-    /// Collect tool schemas from all active Tool plugins (OpenAI function calling format).
+    /// Collect tool schemas from all active Tool plugins + MCP servers (OpenAI function calling format).
     pub async fn collect_tool_schemas(&self) -> Vec<serde_json::Value> {
-        let plugins = self.plugins.read().await;
-        plugins
-            .values()
-            .filter_map(|p| {
-                let tool = p.as_tool()?;
-                Some(serde_json::json!({
-                    "type": "function",
-                    "function": {
-                        "name": tool.name(),
-                        "description": tool.description(),
-                        "parameters": tool.parameters_schema(),
-                    }
-                }))
-            })
-            .collect()
+        let mut schemas: Vec<serde_json::Value> = {
+            let plugins = self.plugins.read().await;
+            plugins
+                .values()
+                .filter_map(|p| {
+                    let tool = p.as_tool()?;
+                    Some(serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": tool.name(),
+                            "description": tool.description(),
+                            "parameters": tool.parameters_schema(),
+                        }
+                    }))
+                })
+                .collect()
+        };
+
+        // Dual Dispatch: also collect from MCP servers
+        if let Some(ref mcp) = self.mcp_manager {
+            schemas.extend(mcp.collect_tool_schemas().await);
+        }
+
+        schemas
     }
 
     /// Collect tool schemas filtered to a specific agent's allowed plugin set.
@@ -106,34 +123,45 @@ impl PluginRegistry {
         &self,
         allowed_plugin_ids: &[String],
     ) -> Vec<serde_json::Value> {
-        let plugins = self.plugins.read().await;
-        plugins
-            .iter()
-            .filter_map(|(id, p)| {
-                if !allowed_plugin_ids.contains(id) {
-                    return None;
-                }
-                let tool = p.as_tool()?;
-                Some(serde_json::json!({
-                    "type": "function",
-                    "function": {
-                        "name": tool.name(),
-                        "description": tool.description(),
-                        "parameters": tool.parameters_schema(),
+        let mut schemas: Vec<serde_json::Value> = {
+            let plugins = self.plugins.read().await;
+            plugins
+                .iter()
+                .filter_map(|(id, p)| {
+                    if !allowed_plugin_ids.contains(id) {
+                        return None;
                     }
-                }))
-            })
-            .collect()
+                    let tool = p.as_tool()?;
+                    Some(serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": tool.name(),
+                            "description": tool.description(),
+                            "parameters": tool.parameters_schema(),
+                        }
+                    }))
+                })
+                .collect()
+        };
+
+        // Dual Dispatch: also collect from MCP servers matching allowed IDs
+        if let Some(ref mcp) = self.mcp_manager {
+            schemas.extend(mcp.collect_tool_schemas_for(allowed_plugin_ids).await);
+        }
+
+        schemas
     }
 
     /// Execute a tool by name with the given arguments.
     /// H-01: Drops the read lock before calling tool.execute() to avoid blocking
     /// plugin registration during long-running tool execution.
+    /// Dual Dispatch: tries Rust plugins first, then falls back to MCP servers.
     pub async fn execute_tool(
         &self,
         tool_name: &str,
         args: serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
+        // 1. Try Rust plugins first
         let tool_plugin = {
             let plugins = self.plugins.read().await;
             plugins.values().find_map(|p| {
@@ -150,16 +178,24 @@ impl PluginRegistry {
                 return tool.execute(args).await;
             }
         }
+
+        // 2. Fall back to MCP servers
+        if let Some(ref mcp) = self.mcp_manager {
+            return mcp.execute_tool(tool_name, args).await;
+        }
+
         Err(anyhow::anyhow!("Tool '{}' not found", tool_name))
     }
 
     /// Execute a tool by name, only if it belongs to the agent's allowed plugin set.
+    /// Dual Dispatch: tries Rust plugins first, then falls back to MCP servers.
     pub async fn execute_tool_for(
         &self,
         allowed_plugin_ids: &[String],
         tool_name: &str,
         args: serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
+        // 1. Try Rust plugins first
         let tool_plugin = {
             let plugins = self.plugins.read().await;
             plugins.iter().find_map(|(id, p)| {
@@ -179,6 +215,22 @@ impl PluginRegistry {
                 return tool.execute(args).await;
             }
         }
+
+        // 2. Fall back to MCP servers (if allowed)
+        if let Some(ref mcp) = self.mcp_manager {
+            // Check if any allowed ID matches an MCP server that provides this tool
+            let mcp_schemas = mcp.collect_tool_schemas_for(allowed_plugin_ids).await;
+            let has_tool = mcp_schemas.iter().any(|s| {
+                s.get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+                    == Some(tool_name)
+            });
+            if has_tool {
+                return mcp.execute_tool(tool_name, args).await;
+            }
+        }
+
         Err(anyhow::anyhow!(
             "Tool '{}' not found or not available for this agent",
             tool_name
