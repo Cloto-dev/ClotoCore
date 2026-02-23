@@ -295,3 +295,49 @@ export interface UpdateResult {
   sha256: string;
   message: string;
 }
+
+// MCP Server Management types (MCP_SERVER_UI_DESIGN.md)
+export type McpServerStatus = 'Connected' | 'Disconnected' | 'Error';
+export type DefaultPolicy = 'opt-in' | 'opt-out';
+export type EntryType = 'capability' | 'server_grant' | 'tool_grant';
+export type AccessPermission = 'allow' | 'deny';
+
+export interface McpServerInfo {
+  id: string;
+  command: string;
+  args: string[];
+  status: McpServerStatus;
+  status_message?: string;
+  tools: string[];
+  is_exiv_sdk: boolean;
+}
+
+export interface AccessControlEntry {
+  id?: number;
+  entry_type: EntryType;
+  agent_id: string;
+  server_id: string;
+  tool_name?: string;
+  permission: AccessPermission;
+  granted_by?: string;
+  granted_at: string;
+  expires_at?: string;
+  justification?: string;
+}
+
+export interface AccessTreeResponse {
+  server_id: string;
+  default_policy: DefaultPolicy;
+  tools: string[];
+  entries: AccessControlEntry[];
+}
+
+export interface McpServerSettings {
+  server_id: string;
+  default_policy: DefaultPolicy;
+  config: Record<string, string>;
+  auto_restart: boolean;
+  command: string;
+  args: string[];
+  description?: string;
+}

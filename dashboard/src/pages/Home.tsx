@@ -129,7 +129,7 @@ export function Home() {
       { id: 'status', label: 'STATUS', path: '/status', icon: Activity, disabled: false },
       { id: 'memory', label: 'MEMORY', path: '/dashboard', icon: Database, disabled: false },
       { id: 'sandbox', label: 'EXIV', path: '#', icon: MessageSquare, disabled: false },
-      { id: 'plugin', label: 'PLUGIN', path: '#', icon: Puzzle, disabled: false },
+      { id: 'mcp', label: 'MCP', path: '/mcp-servers', icon: Puzzle, disabled: false },
     ];
 
     // Dynamic Plugin Actions (Principle #6: SDK-driven UX)

@@ -1,4 +1,4 @@
-import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, ExivMessage, EvolutionStatus, GenerationRecord, FitnessLogEntry, EvolutionParams, RollbackRecord, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, UpdateInfo, UpdateResult } from '../types';
+import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, ExivMessage, EvolutionStatus, GenerationRecord, FitnessLogEntry, EvolutionParams, RollbackRecord, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, UpdateInfo, UpdateResult, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry } from '../types';
 import { isTauri } from '../lib/tauri';
 
 // In Tauri mode, window.location.origin returns "tauri://localhost" which cannot reach
@@ -179,4 +179,53 @@ export const api = {
   getAttachmentUrl(attachmentId: string): string {
     return `${API_BASE}/chat/attachments/${attachmentId}`;
   },
+
+  // MCP Server Management (MCP_SERVER_UI_DESIGN.md §4)
+  listMcpServers: async (apiKey: string): Promise<{ servers: McpServerInfo[]; count: number }> => {
+    const res = await fetch(`${API_BASE}/mcp/servers`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    if (!res.ok) throw new Error(`Failed to list MCP servers: ${res.statusText}`);
+    return res.json();
+  },
+
+  getMcpServerSettings: async (name: string, apiKey: string): Promise<McpServerSettings> => {
+    const res = await fetch(`${API_BASE}/mcp/servers/${encodeURIComponent(name)}/settings`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    if (!res.ok) throw new Error(`Failed to get server settings: ${res.statusText}`);
+    return res.json();
+  },
+
+  updateMcpServerSettings: (name: string, settings: { default_policy?: string }, apiKey: string) =>
+    mutate(`/mcp/servers/${encodeURIComponent(name)}/settings`, 'PUT', 'update server settings', settings, { 'X-API-Key': apiKey }).then(() => {}),
+
+  getMcpServerAccess: async (name: string, apiKey: string): Promise<AccessTreeResponse> => {
+    const res = await fetch(`${API_BASE}/mcp/servers/${encodeURIComponent(name)}/access`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    if (!res.ok) throw new Error(`Failed to get access control: ${res.statusText}`);
+    return res.json();
+  },
+
+  putMcpServerAccess: (name: string, entries: AccessControlEntry[], apiKey: string) =>
+    mutate(`/mcp/servers/${encodeURIComponent(name)}/access`, 'PUT', 'update access control', { entries }, { 'X-API-Key': apiKey }).then(() => {}),
+
+  getAgentAccess: (agentId: string) =>
+    fetchJson<{ agent_id: string; entries: AccessControlEntry[] }>(`/mcp/access/by-agent/${encodeURIComponent(agentId)}`, 'fetch agent access'),
+
+  startMcpServer: (name: string, apiKey: string) =>
+    mutate(`/mcp/servers/${encodeURIComponent(name)}/start`, 'POST', 'start MCP server', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
+
+  stopMcpServer: (name: string, apiKey: string) =>
+    mutate(`/mcp/servers/${encodeURIComponent(name)}/stop`, 'POST', 'stop MCP server', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
+
+  restartMcpServer: (name: string, apiKey: string) =>
+    mutate(`/mcp/servers/${encodeURIComponent(name)}/restart`, 'POST', 'restart MCP server', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
+
+  createMcpServer: (payload: { name: string; command?: string; args?: string[]; code?: string; description?: string }, apiKey: string) =>
+    mutate('/mcp/servers', 'POST', 'create MCP server', payload, { 'X-API-Key': apiKey }).then(r => r.json()),
+
+  deleteMcpServer: (name: string, apiKey: string) =>
+    mutate(`/mcp/servers/${encodeURIComponent(name)}`, 'DELETE', 'delete MCP server', undefined, { 'X-API-Key': apiKey }).then(() => {}),
 };
