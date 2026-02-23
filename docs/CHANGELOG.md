@@ -4,6 +4,37 @@ Project's major changes recorded chronologically.
 
 ---
 
+## MCP Server Management UI (2026-02-23)
+
+> **Design:** `docs/MCP_SERVER_UI_DESIGN.md`
+> **Result:** New MCP Server Management UI replacing legacy Plugin Manager
+
+### Phase A: Backend
+
+- New `mcp_access_control` table — unified access control (capability / server_grant / tool_grant)
+- `mcp_servers.default_policy` column — opt-in (deny by default) / opt-out per server
+- 8 new API endpoints: server settings, access control tree, lifecycle (start/stop/restart)
+- Access resolution with priority rule: tool_grant > server_grant > default_policy
+- McpClientManager: stop_server, start_server, restart_server methods
+
+### Phase B: Frontend
+
+- New `/mcp-servers` route with Master-Detail layout
+- Left pane: server list with status indicators (Running/Stopped/Error)
+- Right pane: 3-tab detail view (Settings / Access / Logs)
+- Access tab: directory hierarchy tree (3-level: capability → server_grant → tool_grant)
+- Summary Bar: per-tool agent access counts (horizontal cross-referencing)
+- SSE event log tab for real-time server event monitoring
+- 8 new React components in `dashboard/src/components/mcp/`
+
+### Phase C: Cleanup
+
+- Removed `ExivPluginManager.tsx` and `PluginConfigModal.tsx`
+- Updated Home menu: PLUGIN → MCP (navigates to `/mcp-servers`)
+- Updated `SCHEMA.md` with `mcp_servers` and `mcp_access_control` tables
+
+---
+
 ## Comprehensive Bug Fix Project (2026-02-16)
 
 > **Trigger:** Full codebase bug investigation and systematic resolution

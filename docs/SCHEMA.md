@@ -130,6 +130,43 @@ File attachments for chat messages. Small files (<=64KB) stored inline, larger f
 | `disk_path` | TEXT | | File path for >64KB files |
 | `created_at` | INTEGER | NOT NULL | Unix timestamp (ms) |
 
+### mcp_servers
+
+Dynamic MCP server persistence for restart restoration.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `name` | TEXT | PRIMARY KEY | Server identifier |
+| `command` | TEXT | NOT NULL | Executable command |
+| `args` | TEXT | NOT NULL DEFAULT '[]' | JSON array of arguments |
+| `script_content` | TEXT | | Auto-generated script content |
+| `description` | TEXT | | Server description |
+| `created_at` | INTEGER | NOT NULL | Unix timestamp |
+| `is_active` | BOOLEAN | NOT NULL DEFAULT 1 | Active state |
+| `default_policy` | TEXT | NOT NULL DEFAULT 'opt-in' | `opt-in` (deny by default) / `opt-out` (allow by default) |
+
+### mcp_access_control
+
+Unified access control for MCP tool-level permissions (MCP_SERVER_UI_DESIGN.md §3).
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Auto-incrementing ID |
+| `entry_type` | TEXT | NOT NULL, CHECK IN ('capability','server_grant','tool_grant') | Entry type |
+| `agent_id` | TEXT | NOT NULL | Target agent |
+| `server_id` | TEXT | NOT NULL | MCP Server ID |
+| `tool_name` | TEXT | | Tool name (required for `tool_grant`) |
+| `permission` | TEXT | NOT NULL DEFAULT 'allow' | `allow` / `deny` |
+| `granted_by` | TEXT | | Who granted (user or system) |
+| `granted_at` | TEXT | NOT NULL | ISO-8601 timestamp |
+| `expires_at` | TEXT | | Expiration time |
+| `justification` | TEXT | | Reason for grant/deny |
+| `metadata` | TEXT | | JSON metadata |
+
+**Indexes:** `(agent_id, server_id, tool_name)`, `(server_id)`, `(entry_type)`
+
+**Access Resolution Priority:** `tool_grant` > `server_grant` > `default_policy`
+
 ---
 
 ## Migration History
@@ -148,3 +185,10 @@ File attachments for chat messages. Small files (<=64KB) stored inline, larger f
 | `20260217000000_add_chat_persistence.sql` | Add chat_messages and chat_attachments tables |
 | `20260217100000_rename_python_analyst.sql` | Rename agent to "Python Bridge" |
 | `20260218000000_agent_heartbeat_power.sql` | Add enabled/last_seen/power_password_hash to agents |
+| `20260219000000_add_runtime_plugins.sql` | Add runtime plugin registration |
+| `20260219120000_add_revoked_keys.sql` | Add revoked API keys table |
+| `20260220000000_add_agent_plugins.sql` | Add agent_plugins table |
+| `20260220000001_fix_agent_engine_type.sql` | Fix agent engine type |
+| `20260220000002_grant_memory_permissions.sql` | Grant memory permissions |
+| `20260222000000_add_mcp_servers.sql` | Add mcp_servers table |
+| `20260223000000_add_mcp_access_control.sql` | Add mcp_access_control + mcp_servers.default_policy |

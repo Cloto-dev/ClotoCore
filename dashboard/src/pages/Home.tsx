@@ -12,7 +12,6 @@ import { useApiKey } from '../contexts/ApiKeyContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 
 const ExivWorkspace = lazy(() => import('../components/AgentWorkspace').then(m => ({ default: m.AgentWorkspace })));
-const ExivPluginManager = lazy(() => import('../components/ExivPluginManager').then(m => ({ default: m.ExivPluginManager })));
 const GazeTracker = lazy(() => import('../components/GazeTracker').then(m => ({ default: m.GazeTracker })));
 
 function SystemView() {
@@ -181,7 +180,6 @@ export function Home() {
             <div className="flex-1 overflow-hidden animate-in fade-in duration-300">
               <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">SYNCHRONIZING...</div>}>
                 {activeMainView === 'sandbox' && <ExivWorkspace />}
-                {activeMainView === 'plugin' && <ExivPluginManager />}
                 {activeMainView === 'system' && <SystemView />}
               </Suspense>
             </div>
