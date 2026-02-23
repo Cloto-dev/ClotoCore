@@ -6,7 +6,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
-use tokio::sync::{oneshot, Mutex, Notify, RwLock};
+use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use tracing::{debug, error, info, warn};
 
 // ============================================================
@@ -15,6 +15,10 @@ use tracing::{debug, error, info, warn};
 
 pub struct McpClient {
     transport: Arc<Mutex<StdioTransport>>,
+    /// Cloned sender for lock-free request dispatch.
+    /// The response loop holds `transport` Mutex during recv(); sending through
+    /// this channel avoids the deadlock where call() would block on the same Mutex.
+    sender: mpsc::Sender<String>,
     pending_requests: Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>>,
     next_id: Arc<AtomicI64>,
 }
@@ -29,8 +33,10 @@ impl McpClient {
         env: &HashMap<String, String>,
     ) -> Result<Self> {
         let transport = StdioTransport::start(command, args, env).await?;
+        let sender = transport.sender();
         let client = Self {
             transport: Arc::new(Mutex::new(transport)),
+            sender,
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicI64::new(1)),
         };
@@ -116,11 +122,10 @@ impl McpClient {
             map.insert(id, tx);
         }
 
-        {
-            let tp: tokio::sync::MutexGuard<'_, StdioTransport> =
-                self.transport.lock().await;
-            tp.send(req_str).await?;
-        }
+        self.sender
+            .send(req_str)
+            .await
+            .context("Failed to send request to MCP transport")?;
 
         match tokio::time::timeout(
             std::time::Duration::from_secs(Self::REQUEST_TIMEOUT_SECS),
@@ -155,11 +160,10 @@ impl McpClient {
         // Send initialized notification
         let notify = JsonRpcRequest::notification("notifications/initialized", None);
         let notify_str = serde_json::to_string(&notify)?;
-        {
-            let tp: tokio::sync::MutexGuard<'_, StdioTransport> =
-                self.transport.lock().await;
-            tp.send(notify_str).await?;
-        }
+        self.sender
+            .send(notify_str)
+            .await
+            .context("Failed to send initialized notification")?;
 
         Ok(())
     }
@@ -186,8 +190,10 @@ impl McpClient {
     pub async fn send_notification(&self, method: &str, params: Option<Value>) -> Result<()> {
         let request = JsonRpcRequest::notification(method, params);
         let req_str = serde_json::to_string(&request)?;
-        let tp: tokio::sync::MutexGuard<'_, StdioTransport> = self.transport.lock().await;
-        tp.send(req_str).await
+        self.sender
+            .send(req_str)
+            .await
+            .context("Failed to send notification to MCP transport")
     }
 
     /// Perform exiv/handshake custom method.
@@ -213,9 +219,9 @@ impl McpClient {
     }
 
     /// Check if the underlying transport process is still alive.
-    pub async fn is_alive(&self) -> bool {
-        let mut tp: tokio::sync::MutexGuard<'_, StdioTransport> = self.transport.lock().await;
-        tp.is_alive()
+    /// Uses sender channel state to avoid contending with the response loop's Mutex.
+    pub fn is_alive(&self) -> bool {
+        !self.sender.is_closed()
     }
 }
 
@@ -258,7 +264,6 @@ pub struct McpServerInfo {
 pub struct McpClientManager {
     servers: RwLock<HashMap<String, McpServerHandle>>,
     pool: SqlitePool,
-    shutdown: Arc<Notify>,
     /// Tool name → server ID index for fast routing
     tool_index: RwLock<HashMap<String, String>>,
     /// YOLO mode: auto-approve all MCP server permissions (ARCHITECTURE.md §5.7)
@@ -266,17 +271,22 @@ pub struct McpClientManager {
 }
 
 impl McpClientManager {
-    pub fn new(pool: SqlitePool, shutdown: Arc<Notify>, yolo_mode: bool) -> Self {
+    pub fn new(pool: SqlitePool, yolo_mode: bool) -> Self {
         Self {
             servers: RwLock::new(HashMap::new()),
             pool,
-            shutdown,
             tool_index: RwLock::new(HashMap::new()),
             yolo_mode,
         }
     }
 
     /// Load server configs from mcp.toml file (if exists) and connect.
+    ///
+    /// Relative paths in `args` are resolved against the project root directory
+    /// (detected by walking up from the config file to find `Cargo.toml`) or,
+    /// in production, against the config file's parent directory.
+    /// This allows `mcp.toml` to use portable paths like
+    /// `"mcp-servers/terminal/server.py"` instead of absolute ones.
     pub async fn load_config_file(&self, config_path: &str) -> Result<()> {
         let path = std::path::Path::new(config_path);
         if !path.exists() {
@@ -289,13 +299,41 @@ impl McpClientManager {
         let config: McpConfigFile =
             toml::from_str(&content).context("Failed to parse MCP config file")?;
 
+        // Determine the base directory for resolving relative paths.
+        // In development: walk up from the config file to find the workspace root
+        //   (directory containing `Cargo.toml`).
+        // In production: fall back to the config file's parent directory.
+        let base_dir = Self::detect_project_root(path)
+            .unwrap_or_else(|| {
+                path.parent()
+                    .map(std::path::Path::to_path_buf)
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+            });
+
         info!(
-            "Loading {} MCP server(s) from {}",
+            "Loading {} MCP server(s) from {} (base_dir={})",
             config.servers.len(),
-            config_path
+            config_path,
+            base_dir.display()
         );
 
-        for server_config in config.servers {
+        for mut server_config in config.servers {
+            // Resolve relative paths in args against the base directory
+            server_config.args = server_config
+                .args
+                .into_iter()
+                .map(|arg| {
+                    let p = std::path::Path::new(&arg);
+                    if p.is_relative() {
+                        let resolved = base_dir.join(p);
+                        if resolved.exists() {
+                            return resolved.to_string_lossy().to_string();
+                        }
+                    }
+                    arg
+                })
+                .collect();
+
             if let Err(e) = self.connect_server(server_config.clone()).await {
                 warn!(
                     id = %server_config.id,
@@ -946,6 +984,27 @@ impl McpClientManager {
     /// Get a reference to the database pool (for access control queries).
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    /// Walk up from the given path to find the project root (directory
+    /// containing `Cargo.toml`).  Returns `None` in production deployments
+    /// where no workspace marker exists.
+    fn detect_project_root(from: &std::path::Path) -> Option<std::path::PathBuf> {
+        let start = if from.is_file() {
+            from.parent()?
+        } else {
+            from
+        };
+        let mut dir = std::fs::canonicalize(start).ok()?;
+        for _ in 0..10 {
+            if dir.join("Cargo.toml").exists() {
+                return Some(dir);
+            }
+            if !dir.pop() {
+                break;
+            }
+        }
+        None
     }
 }
 

@@ -224,7 +224,6 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // 3b. MCP Client Manager (created early so PluginRegistry can reference it)
     let mcp_manager = Arc::new(managers::McpClientManager::new(
         pool.clone(),
-        shutdown.clone(),
         config.yolo_mode,
     ));
 

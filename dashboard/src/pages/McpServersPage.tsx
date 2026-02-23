@@ -9,7 +9,9 @@ import { api } from '../services/api';
 
 export function McpServersPage() {
   const { apiKey } = useApiKey();
-  const { servers, isLoading, refetch } = useMcpServers(apiKey ?? '');
+  // Allow empty apiKey — debug backend skips auth when EXIV_API_KEY is unset
+  const effectiveKey = apiKey || '';
+  const { servers, isLoading, refetch } = useMcpServers(effectiveKey);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
 
@@ -23,53 +25,49 @@ export function McpServersPage() {
   const selectedServer = servers.find(s => s.id === selectedId);
 
   const handleDelete = useCallback(async (id: string) => {
-    if (!apiKey) return;
     try {
-      await api.deleteMcpServer(id, apiKey);
+      await api.deleteMcpServer(id, effectiveKey);
       if (selectedId === id) setSelectedId(null);
       refetch();
     } catch (err) {
       console.error('Failed to delete server:', err);
     }
-  }, [apiKey, selectedId, refetch]);
+  }, [effectiveKey, selectedId, refetch]);
 
   const handleStart = useCallback(async (id: string) => {
-    if (!apiKey) return;
     try {
-      await api.startMcpServer(id, apiKey);
+      await api.startMcpServer(id, effectiveKey);
       setTimeout(refetch, 500);
     } catch (err) {
       console.error('Failed to start server:', err);
     }
-  }, [apiKey, refetch]);
+  }, [effectiveKey, refetch]);
 
   const handleStop = useCallback(async (id: string) => {
-    if (!apiKey) return;
     try {
-      await api.stopMcpServer(id, apiKey);
+      await api.stopMcpServer(id, effectiveKey);
       setTimeout(refetch, 500);
     } catch (err) {
       console.error('Failed to stop server:', err);
     }
-  }, [apiKey, refetch]);
+  }, [effectiveKey, refetch]);
 
   const handleRestart = useCallback(async (id: string) => {
-    if (!apiKey) return;
     try {
-      await api.restartMcpServer(id, apiKey);
+      await api.restartMcpServer(id, effectiveKey);
       setTimeout(refetch, 500);
     } catch (err) {
       console.error('Failed to restart server:', err);
     }
-  }, [apiKey, refetch]);
+  }, [effectiveKey, refetch]);
 
   async function handleAdd() {
-    if (!apiKey || !newName.trim()) return;
+    if (!newName.trim()) return;
     setAdding(true);
     setAddError(null);
     try {
       const args = newArgs.trim() ? newArgs.split(/\s+/) : [];
-      await api.createMcpServer({ name: newName.trim(), command: newCommand, args }, apiKey);
+      await api.createMcpServer({ name: newName.trim(), command: newCommand, args }, effectiveKey);
       setAddModalOpen(false);
       setNewName('');
       setNewArgs('');
@@ -79,17 +77,6 @@ export function McpServersPage() {
     } finally {
       setAdding(false);
     }
-  }
-
-  if (!apiKey) {
-    return (
-      <div className="min-h-screen bg-surface-base flex items-center justify-center">
-        <div className="text-center font-mono text-xs text-content-muted">
-          <p>API Key required to manage MCP servers.</p>
-          <Link to="/" className="text-brand hover:underline mt-2 inline-block">Return Home</Link>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -122,7 +109,7 @@ export function McpServersPage() {
           {selectedServer ? (
             <McpServerDetail
               server={selectedServer}
-              apiKey={apiKey}
+              apiKey={effectiveKey}
               onRefresh={refetch}
               onDelete={handleDelete}
               onStart={handleStart}

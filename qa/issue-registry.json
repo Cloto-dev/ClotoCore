@@ -998,6 +998,18 @@
       "pattern": "print\\(",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-097",
+      "summary": "Dead shutdown field in McpClientManager — stored but never read",
+      "severity": "LOW",
+      "discovered": "2026-02-24T00:00:00Z",
+      "version": "0.1.0",
+      "commit": "ec54961",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "shutdown:\\s*Arc<Notify>",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

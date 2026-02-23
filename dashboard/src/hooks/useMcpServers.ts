@@ -40,7 +40,6 @@ export function useMcpServers(apiKey: string) {
   }, [apiKey]);
 
   useEffect(() => {
-    if (!apiKey) return;
     fetchCached(apiKey)
       .then(setData)
       .catch(err => console.error('Failed to fetch MCP servers:', err))

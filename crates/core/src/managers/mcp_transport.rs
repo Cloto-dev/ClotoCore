@@ -36,6 +36,11 @@ pub struct StdioTransport {
 }
 
 impl StdioTransport {
+    /// Get a clone of the request sender for lock-free sending.
+    pub fn sender(&self) -> mpsc::Sender<String> {
+        self.request_tx.clone()
+    }
+
     /// Start a new MCP server process with environment variable injection.
     pub async fn start(
         command: &str,

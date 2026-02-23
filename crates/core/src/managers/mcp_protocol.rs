@@ -57,6 +57,7 @@ impl JsonRpcRequest {
 // ============================================================
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InitializeParams {
     pub protocol_version: String,
     pub capabilities: ClientCapabilities,
@@ -75,6 +76,7 @@ pub struct ClientInfo {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct McpTool {
     pub name: String,
     pub description: Option<String>,
@@ -82,25 +84,28 @@ pub struct McpTool {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListToolsResult {
     pub tools: Vec<McpTool>,
     pub next_cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CallToolParams {
     pub name: String,
     pub arguments: Value,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct CallToolResult {
     pub content: Vec<ToolContent>,
     pub is_error: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum ToolContent {
     #[serde(rename = "text")]
     Text { text: String },
@@ -116,12 +121,14 @@ pub enum ToolContent {
 
 /// Request params for exiv/handshake custom method
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExivHandshakeParams {
     pub kernel_version: String,
 }
 
 /// Response from exiv/handshake
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ExivHandshakeResult {
     pub server_id: String,
     pub version: Option<String>,

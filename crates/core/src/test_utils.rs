@@ -32,7 +32,6 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
     let shutdown = Arc::new(Notify::new());
     let mcp_manager = Arc::new(crate::managers::McpClientManager::new(
         pool.clone(),
-        shutdown.clone(),
         false, // yolo_mode disabled in tests
     ));
 

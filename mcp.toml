@@ -1,0 +1,46 @@
+# Exiv MCP Server Configuration
+# Servers listed here are auto-connected on kernel startup.
+# Environment variables use ${VAR} syntax (resolved from process env).
+
+[[servers]]
+id = "tool.terminal"
+command = "python"
+args = ["mcp-servers/terminal/server.py"]
+transport = "stdio"
+auto_restart = true
+[servers.tool_validators]
+execute_command = "sandbox"
+
+[[servers]]
+id = "mind.deepseek"
+command = "python"
+args = ["mcp-servers/deepseek/server.py"]
+transport = "stdio"
+auto_restart = true
+[servers.env]
+DEEPSEEK_API_KEY = "${DEEPSEEK_API_KEY}"
+
+[[servers]]
+id = "mind.cerebras"
+command = "python"
+args = ["mcp-servers/cerebras/server.py"]
+transport = "stdio"
+auto_restart = true
+[servers.env]
+CEREBRAS_API_KEY = "${CEREBRAS_API_KEY}"
+
+[[servers]]
+id = "memory.ks22"
+command = "python"
+args = ["mcp-servers/ks22/server.py"]
+transport = "stdio"
+auto_restart = true
+
+[[servers]]
+id = "tool.embedding"
+command = "python"
+args = ["mcp-servers/embedding/server.py"]
+transport = "stdio"
+auto_restart = true
+[servers.env]
+EMBEDDING_API_KEY = "${EMBEDDING_API_KEY}"
