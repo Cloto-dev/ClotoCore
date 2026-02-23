@@ -57,7 +57,7 @@ echo "Virtual environment activated."
 echo ""
 
 # Upgrade pip
-pip install --upgrade pip --quiet
+python -m pip install --upgrade pip --quiet
 
 # Install each MCP server's dependencies
 INSTALLED=0
@@ -65,7 +65,7 @@ for server_dir in "$PROJECT_ROOT"/mcp-servers/*/; do
     server_name=$(basename "$server_dir")
     if [[ -f "$server_dir/pyproject.toml" ]]; then
         echo "  Installing: $server_name"
-        pip install -e "$server_dir" --quiet
+        pip install "$server_dir" --quiet
         INSTALLED=$((INSTALLED + 1))
     fi
 done
