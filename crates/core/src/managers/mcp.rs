@@ -233,7 +233,7 @@ impl McpClient {
 pub struct McpServerHandle {
     pub id: String,
     pub config: McpServerConfig,
-    pub client: Arc<McpClient>,
+    pub client: Option<Arc<McpClient>>,
     pub tools: Vec<McpTool>,
     pub handshake: Option<ExivHandshakeResult>,
     pub status: ServerStatus,
@@ -340,6 +340,18 @@ impl McpClientManager {
                     error = %e,
                     "Failed to connect MCP server from config"
                 );
+                // Register with Error status so it appears in list_servers()
+                let mut servers = self.servers.write().await;
+                servers.entry(server_config.id.clone()).or_insert_with(|| {
+                    McpServerHandle {
+                        id: server_config.id.clone(),
+                        config: server_config,
+                        client: None,
+                        tools: Vec::new(),
+                        handshake: None,
+                        status: ServerStatus::Error(e.to_string()),
+                    }
+                });
             }
         }
 
@@ -385,12 +397,24 @@ impl McpClientManager {
                 }
             }
 
-            if let Err(e) = self.connect_server(config).await {
+            if let Err(e) = self.connect_server(config.clone()).await {
                 warn!(
                     name = %record.name,
                     error = %e,
                     "Failed to restore MCP server"
                 );
+                // Register with Error status so it appears in list_servers()
+                let mut servers = self.servers.write().await;
+                servers.entry(config.id.clone()).or_insert_with(|| {
+                    McpServerHandle {
+                        id: config.id.clone(),
+                        config,
+                        client: None,
+                        tools: Vec::new(),
+                        handshake: None,
+                        status: ServerStatus::Error(e.to_string()),
+                    }
+                });
             }
         }
 
@@ -404,14 +428,17 @@ impl McpClientManager {
         // Validate command against whitelist
         mcp_transport::validate_command(&config.command)?;
 
-        // Check for duplicate
+        // Check for duplicate — allow retry if server is in Error/Disconnected state
         {
             let servers = self.servers.read().await;
-            if servers.contains_key(&id) {
-                return Err(anyhow::anyhow!(
-                    "MCP server '{}' is already registered",
-                    id
-                ));
+            if let Some(existing) = servers.get(&id) {
+                if existing.status == ServerStatus::Connected {
+                    return Err(anyhow::anyhow!(
+                        "MCP server '{}' is already connected",
+                        id
+                    ));
+                }
+                // Non-connected server will be replaced below
             }
         }
 
@@ -587,7 +614,7 @@ impl McpClientManager {
         let handle = McpServerHandle {
             id: id.clone(),
             config,
-            client: client_arc,
+            client: Some(client_arc),
             tools: tools.clone(),
             handshake,
             status: ServerStatus::Connected,
@@ -732,9 +759,12 @@ impl McpClientManager {
             let handle = servers
                 .get(&server_id)
                 .ok_or_else(|| {
-                    anyhow::anyhow!("MCP server '{}' not connected", server_id)
+                    anyhow::anyhow!("MCP server '{}' not found", server_id)
                 })?;
-            (handle.client.clone(), handle.config.tool_validators.clone())
+            let client = handle.client.clone().ok_or_else(|| {
+                anyhow::anyhow!("MCP server '{}' not connected", server_id)
+            })?;
+            (client, handle.config.tool_validators.clone())
         };
 
         // ──── Kernel-side Validation (A): Validate tool arguments before forwarding ────
@@ -788,12 +818,14 @@ impl McpClientManager {
     ) -> Result<CallToolResult> {
         let client = {
             let servers = self.servers.read().await;
-            servers
+            let handle = servers
                 .get(server_id)
-                .map(|h| h.client.clone())
                 .ok_or_else(|| {
-                    anyhow::anyhow!("MCP server '{}' not connected", server_id)
-                })?
+                    anyhow::anyhow!("MCP server '{}' not found", server_id)
+                })?;
+            handle.client.clone().ok_or_else(|| {
+                anyhow::anyhow!("MCP server '{}' not connected", server_id)
+            })?
         };
 
         client.call_tool(tool_name, args).await
@@ -810,12 +842,15 @@ impl McpClientManager {
             if handle.status != ServerStatus::Connected {
                 continue;
             }
+            let client = match &handle.client {
+                Some(c) => c,
+                None => continue,
+            };
             let event_json = match serde_json::to_value(event) {
                 Ok(v) => v,
                 Err(_) => continue,
             };
-            if let Err(e) = handle
-                .client
+            if let Err(e) = client
                 .send_notification(
                     "notifications/exiv.event",
                     Some(event_json),
@@ -835,12 +870,15 @@ impl McpClientManager {
     pub async fn notify_config_updated(&self, server_id: &str, config: Value) {
         let servers = self.servers.read().await;
         if let Some(handle) = servers.get(server_id) {
+            let client = match &handle.client {
+                Some(c) => c,
+                None => return,
+            };
             let params = serde_json::json!({
                 "server_id": server_id,
                 "config": config,
             });
-            if let Err(e) = handle
-                .client
+            if let Err(e) = client
                 .send_notification("notifications/exiv.config_updated", Some(params))
                 .await
             {
