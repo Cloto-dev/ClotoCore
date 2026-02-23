@@ -55,9 +55,7 @@ enum SessionState {
         created_at: std::time::Instant,
     },
     /// Waiting for the synthesizer to produce a final response.
-    Synthesizing {
-        created_at: std::time::Instant,
-    },
+    Synthesizing { created_at: std::time::Instant },
 }
 
 // ============================================================
@@ -96,9 +94,7 @@ impl ConsensusOrchestrator {
             }
 
             ExivEventData::ThoughtResponse {
-                agent_id,
-                content,
-                ..
+                agent_id, content, ..
             } => {
                 self.on_thought_response(event.trace_id, agent_id, content)
                     .await
@@ -223,10 +219,7 @@ impl ConsensusOrchestrator {
                             ExivEventData::ThoughtRequested {
                                 agent: synthesizer_agent,
                                 engine_id: synthesizer,
-                                message: ExivMessage::new(
-                                    MessageSource::System,
-                                    synthesis_prompt,
-                                ),
+                                message: ExivMessage::new(MessageSource::System, synthesis_prompt),
                                 context: vec![],
                             },
                         )

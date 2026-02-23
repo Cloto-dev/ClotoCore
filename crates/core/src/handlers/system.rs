@@ -90,18 +90,17 @@ impl SystemHandler {
         };
 
         // MCP fallback: find MCP server with store+recall tools
-        let mcp_memory: Option<(Arc<McpClientManager>, String)> =
-            if memory_plugin.is_none() {
-                if let Some(ref mcp) = self.registry.mcp_manager {
-                    mcp.find_memory_server()
-                        .await
-                        .map(|server_id| (mcp.clone(), server_id))
-                } else {
-                    None
-                }
+        let mcp_memory: Option<(Arc<McpClientManager>, String)> = if memory_plugin.is_none() {
+            if let Some(ref mcp) = self.registry.mcp_manager {
+                mcp.find_memory_server()
+                    .await
+                    .map(|server_id| (mcp.clone(), server_id))
             } else {
                 None
-            };
+            }
+        } else {
+            None
+        };
 
         let context = if let Some(ref plugin) = memory_plugin {
             if let Some(mem) = plugin.as_memory() {
@@ -460,7 +459,14 @@ impl SystemHandler {
         // Fallback: engine does not support tools → plain think()
         if !supports_tools {
             return self
-                .engine_think(&engine_plugin, &mcp_engine, engine_id, agent, message, context)
+                .engine_think(
+                    &engine_plugin,
+                    &mcp_engine,
+                    engine_id,
+                    agent,
+                    message,
+                    context,
+                )
                 .await;
         }
 
@@ -474,7 +480,14 @@ impl SystemHandler {
         };
         if tools.is_empty() {
             return self
-                .engine_think(&engine_plugin, &mcp_engine, engine_id, agent, message, context)
+                .engine_think(
+                    &engine_plugin,
+                    &mcp_engine,
+                    engine_id,
+                    agent,
+                    message,
+                    context,
+                )
                 .await;
         }
 
@@ -693,9 +706,9 @@ impl SystemHandler {
         context: Vec<ExivMessage>,
     ) -> anyhow::Result<String> {
         if let Some(plugin) = engine_plugin {
-            let engine = plugin
-                .as_reasoning()
-                .ok_or_else(|| anyhow::anyhow!("Plugin '{}' is not a ReasoningEngine", engine_id))?;
+            let engine = plugin.as_reasoning().ok_or_else(|| {
+                anyhow::anyhow!("Plugin '{}' is not a ReasoningEngine", engine_id)
+            })?;
             return engine.think(agent, message, context).await;
         }
 
@@ -730,9 +743,9 @@ impl SystemHandler {
         tool_history: &[serde_json::Value],
     ) -> anyhow::Result<ThinkResult> {
         if let Some(plugin) = engine_plugin {
-            let engine = plugin
-                .as_reasoning()
-                .ok_or_else(|| anyhow::anyhow!("Plugin '{}' is not a ReasoningEngine", engine_id))?;
+            let engine = plugin.as_reasoning().ok_or_else(|| {
+                anyhow::anyhow!("Plugin '{}' is not a ReasoningEngine", engine_id)
+            })?;
             return engine
                 .think_with_tools(agent, message, context, tools, tool_history)
                 .await;
@@ -751,7 +764,9 @@ impl SystemHandler {
                 "tools": tools,
                 "tool_history": tool_history,
             });
-            let result = mcp.call_server_tool(engine_id, "think_with_tools", args).await?;
+            let result = mcp
+                .call_server_tool(engine_id, "think_with_tools", args)
+                .await?;
             return Self::parse_mcp_think_result(&result);
         }
 
@@ -788,18 +803,14 @@ impl SystemHandler {
         use crate::managers::mcp_protocol::ToolContent;
         for content in &result.content {
             if let ToolContent::Text { text } = content {
-                let json: serde_json::Value = serde_json::from_str(text).map_err(|e| {
-                    anyhow::anyhow!("MCP engine returned invalid JSON: {}", e)
-                })?;
+                let json: serde_json::Value = serde_json::from_str(text)
+                    .map_err(|e| anyhow::anyhow!("MCP engine returned invalid JSON: {}", e))?;
 
                 if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
                     return Err(anyhow::anyhow!("MCP engine error: {}", error));
                 }
 
-                let result_type = json
-                    .get("type")
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("final");
+                let result_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("final");
 
                 match result_type {
                     "tool_calls" => {
@@ -822,7 +833,11 @@ impl SystemHandler {
                                     .get("arguments")
                                     .cloned()
                                     .unwrap_or(serde_json::json!({}));
-                                Some(ToolCall { id, name, arguments })
+                                Some(ToolCall {
+                                    id,
+                                    name,
+                                    arguments,
+                                })
                             })
                             .collect();
 

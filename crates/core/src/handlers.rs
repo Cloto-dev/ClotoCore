@@ -1149,15 +1149,16 @@ pub async fn create_mcp_server(
     }
 
     // Determine command/args: either explicit or auto-generated from code
-    let (command, args, script_content) = if let Some(code) = body.get("code").and_then(|v| v.as_str()) {
-        let description = body
-            .get("description")
-            .and_then(|v| v.as_str())
-            .unwrap_or("A dynamically generated MCP server.");
+    let (command, args, script_content) =
+        if let Some(code) = body.get("code").and_then(|v| v.as_str()) {
+            let description = body
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("A dynamically generated MCP server.");
 
-        // Auto-generate MCP server Python script
-        let script = format!(
-            r#""""MCP Server: {name} — {description}"""
+            // Auto-generate MCP server Python script
+            let script = format!(
+                r#""""MCP Server: {name} — {description}"""
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
@@ -1173,49 +1174,49 @@ if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
 "#,
-            name = name,
-            description = description.replace('"', r#"\""#),
-            code = code,
-        );
+                name = name,
+                description = description.replace('"', r#"\""#),
+                code = code,
+            );
 
-        // Write script to scripts/ directory
-        let script_filename = format!("mcp_{}.py", name);
-        let scripts_dir = std::path::Path::new("scripts");
-        if !scripts_dir.exists() {
-            std::fs::create_dir_all(scripts_dir)
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to create scripts directory: {}", e)))?;
-        }
-        std::fs::write(scripts_dir.join(&script_filename), &script)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to write MCP server script: {}", e)))?;
+            // Write script to scripts/ directory
+            let script_filename = format!("mcp_{}.py", name);
+            let scripts_dir = std::path::Path::new("scripts");
+            if !scripts_dir.exists() {
+                std::fs::create_dir_all(scripts_dir).map_err(|e| {
+                    AppError::Internal(anyhow::anyhow!("Failed to create scripts directory: {}", e))
+                })?;
+            }
+            std::fs::write(scripts_dir.join(&script_filename), &script).map_err(|e| {
+                AppError::Internal(anyhow::anyhow!("Failed to write MCP server script: {}", e))
+            })?;
 
-        let python = if cfg!(windows) { "python" } else { "python3" };
-        (
-            python.to_string(),
-            vec![format!("scripts/{}", script_filename)],
-            Some(script),
-        )
-    } else {
-        // Explicit command/args
-        let command = body
-            .get("command")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                AppError::Validation("Missing 'command' or 'code' field".into())
-            })?
-            .to_string();
+            let python = if cfg!(windows) { "python" } else { "python3" };
+            (
+                python.to_string(),
+                vec![format!("scripts/{}", script_filename)],
+                Some(script),
+            )
+        } else {
+            // Explicit command/args
+            let command = body
+                .get("command")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AppError::Validation("Missing 'command' or 'code' field".into()))?
+                .to_string();
 
-        let args: Vec<String> = body
-            .get("args")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
+            let args: Vec<String> = body
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
 
-        (command, args, None)
-    };
+            (command, args, None)
+        };
 
     // Add server via McpClientManager (handles connection + DB persistence)
     let tool_names = state
@@ -1225,7 +1226,9 @@ if __name__ == "__main__":
             command.clone(),
             args.clone(),
             script_content,
-            body.get("description").and_then(|v| v.as_str()).map(String::from),
+            body.get("description")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         )
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to add MCP server: {}", e)))?;
@@ -1327,7 +1330,10 @@ pub async fn get_mcp_server_settings(
                     "description": null,
                 })))
             } else {
-                Err(AppError::Validation(format!("MCP server '{}' not found", name)))
+                Err(AppError::Validation(format!(
+                    "MCP server '{}' not found",
+                    name
+                )))
             }
         }
     }
@@ -1422,8 +1428,9 @@ pub async fn put_mcp_server_access(
         .get("entries")
         .ok_or_else(|| AppError::Validation("Missing required field: entries".into()))?;
 
-    let entries: Vec<crate::db::AccessControlEntry> = serde_json::from_value(entries_val.clone())
-        .map_err(|e| AppError::Validation(format!("Invalid entries format: {}", e)))?;
+    let entries: Vec<crate::db::AccessControlEntry> =
+        serde_json::from_value(entries_val.clone())
+            .map_err(|e| AppError::Validation(format!("Invalid entries format: {}", e)))?;
 
     // Validate all entries reference this server
     for entry in &entries {

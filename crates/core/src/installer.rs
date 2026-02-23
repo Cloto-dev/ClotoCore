@@ -84,11 +84,7 @@ DATABASE_URL=sqlite:{db_path}
 }
 
 /// Install Exiv to the specified prefix directory
-pub async fn install(
-    prefix: PathBuf,
-    service: bool,
-    user: Option<String>,
-) -> anyhow::Result<()> {
+pub async fn install(prefix: PathBuf, service: bool, user: Option<String>) -> anyhow::Result<()> {
     println!("=== Exiv System Installer ===");
     println!("  Prefix:  {}", prefix.display());
     println!("  Service: {}", service);
@@ -178,4 +174,3 @@ pub async fn uninstall(prefix: PathBuf) -> anyhow::Result<()> {
     println!("Exiv uninstalled.");
     Ok(())
 }
-

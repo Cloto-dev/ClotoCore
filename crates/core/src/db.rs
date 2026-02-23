@@ -954,11 +954,20 @@ pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> any
     .map_err(|_| anyhow::anyhow!("Database timeout saving MCP server"))?
 }
 
-pub async fn load_active_mcp_servers(
-    pool: &SqlitePool,
-) -> anyhow::Result<Vec<McpServerRecord>> {
+pub async fn load_active_mcp_servers(pool: &SqlitePool) -> anyhow::Result<Vec<McpServerRecord>> {
     tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
-        let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, i64, bool)>(
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                i64,
+                bool,
+            ),
+        >(
             "SELECT name, command, args, script_content, description, created_at, is_active \
              FROM mcp_servers WHERE is_active = 1 ORDER BY created_at ASC",
         )
@@ -1073,9 +1082,9 @@ pub async fn get_access_entries_for_server(
 
     Ok(rows
         .into_iter()
-        .map(|(id, entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at, expires_at, justification, metadata)| {
-            AccessControlEntry {
-                id: Some(id),
+        .map(
+            |(
+                id,
                 entry_type,
                 agent_id,
                 server_id,
@@ -1086,8 +1095,22 @@ pub async fn get_access_entries_for_server(
                 expires_at,
                 justification,
                 metadata,
-            }
-        })
+            )| {
+                AccessControlEntry {
+                    id: Some(id),
+                    entry_type,
+                    agent_id,
+                    server_id,
+                    tool_name,
+                    permission,
+                    granted_by,
+                    granted_at,
+                    expires_at,
+                    justification,
+                    metadata,
+                }
+            },
+        )
         .collect())
 }
 
@@ -1111,9 +1134,9 @@ pub async fn get_access_entries_for_agent(
 
     Ok(rows
         .into_iter()
-        .map(|(id, entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at, expires_at, justification, metadata)| {
-            AccessControlEntry {
-                id: Some(id),
+        .map(
+            |(
+                id,
                 entry_type,
                 agent_id,
                 server_id,
@@ -1124,8 +1147,22 @@ pub async fn get_access_entries_for_agent(
                 expires_at,
                 justification,
                 metadata,
-            }
-        })
+            )| {
+                AccessControlEntry {
+                    id: Some(id),
+                    entry_type,
+                    agent_id,
+                    server_id,
+                    tool_name,
+                    permission,
+                    granted_by,
+                    granted_at,
+                    expires_at,
+                    justification,
+                    metadata,
+                }
+            },
+        )
         .collect())
 }
 
@@ -1317,20 +1354,31 @@ pub async fn get_mcp_server_settings(
     .await
     .map_err(|_| anyhow::anyhow!("Database timeout getting MCP server settings"))??;
 
-    Ok(result.map(|(name, command, args, script_content, description, created_at, is_active, default_policy)| {
-        (
-            McpServerRecord {
-                name,
-                command,
-                args,
-                script_content,
-                description,
-                created_at,
-                is_active,
-            },
+    Ok(result.map(
+        |(
+            name,
+            command,
+            args,
+            script_content,
+            description,
+            created_at,
+            is_active,
             default_policy,
-        )
-    }))
+        )| {
+            (
+                McpServerRecord {
+                    name,
+                    command,
+                    args,
+                    script_content,
+                    description,
+                    created_at,
+                    is_active,
+                },
+                default_policy,
+            )
+        },
+    ))
 }
 
 /// Update MCP server default_policy.

@@ -16,8 +16,7 @@ pub mod validation;
 // Re-export audit log and permission request types for external use
 pub use db::{
     create_permission_request, get_pending_permission_requests, is_permission_approved,
-    query_audit_logs, update_permission_request, write_audit_log, AuditLogEntry,
-    PermissionRequest,
+    query_audit_logs, update_permission_request, write_audit_log, AuditLogEntry, PermissionRequest,
 };
 
 use exiv_shared::ExivEvent;
@@ -263,24 +262,20 @@ pub async fn run_kernel() -> anyhow::Result<()> {
 
     // Load MCP servers from config file (mcp.toml)
     {
-        let config_path = config
-            .mcp_config_path
-            .clone()
-            .unwrap_or_else(|| {
-                config::exe_dir()
-                    .join("data")
-                    .join("mcp.toml")
-                    .to_string_lossy()
-                    .to_string()
-            });
+        let config_path = config.mcp_config_path.clone().unwrap_or_else(|| {
+            config::exe_dir()
+                .join("data")
+                .join("mcp.toml")
+                .to_string_lossy()
+                .to_string()
+        });
         // Resolve relative config paths against the project root (handles
         // cargo tauri dev where CWD differs from project root).
         let config_path = {
             let p = std::path::Path::new(&config_path);
             if p.is_relative() && !p.exists() {
                 // Walk up from exe_dir to find the workspace root (Cargo.toml)
-                managers::McpClientManager::resolve_project_path(p)
-                    .unwrap_or(config_path)
+                managers::McpClientManager::resolve_project_path(p).unwrap_or(config_path)
             } else {
                 config_path
             }
@@ -495,14 +490,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             "/mcp/servers/:name/restart",
             post(handlers::restart_mcp_server),
         )
-        .route(
-            "/mcp/servers/:name/start",
-            post(handlers::start_mcp_server),
-        )
-        .route(
-            "/mcp/servers/:name/stop",
-            post(handlers::stop_mcp_server),
-        )
+        .route("/mcp/servers/:name/start", post(handlers::start_mcp_server))
+        .route("/mcp/servers/:name/stop", post(handlers::stop_mcp_server))
         // API key invalidation
         .route("/system/invalidate-key", post(handlers::invalidate_api_key))
         // Evolution Engine endpoints (auth required for write)

@@ -76,18 +76,28 @@ impl McpClient {
                                     let mut map = pending.lock().await;
                                     if let Some(tx) = map.remove(&id) {
                                         if let Some(error) = response.error {
-                                            if tx.send(Err(anyhow::anyhow!(
-                                                "RPC Error {}: {}",
-                                                error.code,
-                                                error.message
-                                            ))).is_err() {
-                                                debug!("Response receiver dropped for request {}", id);
+                                            if tx
+                                                .send(Err(anyhow::anyhow!(
+                                                    "RPC Error {}: {}",
+                                                    error.code,
+                                                    error.message
+                                                )))
+                                                .is_err()
+                                            {
+                                                debug!(
+                                                    "Response receiver dropped for request {}",
+                                                    id
+                                                );
                                             }
                                         } else {
-                                            if tx.send(Ok(
-                                                response.result.unwrap_or(Value::Null)
-                                            )).is_err() {
-                                                debug!("Response receiver dropped for request {}", id);
+                                            if tx
+                                                .send(Ok(response.result.unwrap_or(Value::Null)))
+                                                .is_err()
+                                            {
+                                                debug!(
+                                                    "Response receiver dropped for request {}",
+                                                    id
+                                                );
                                             }
                                         }
                                     }
@@ -102,7 +112,10 @@ impl McpClient {
                         let mut map = pending.lock().await;
                         let count = map.len();
                         for (id, tx) in map.drain() {
-                            if tx.send(Err(anyhow::anyhow!("MCP server process terminated"))).is_err() {
+                            if tx
+                                .send(Err(anyhow::anyhow!("MCP server process terminated")))
+                                .is_err()
+                            {
                                 debug!("Response receiver dropped for request {}", id);
                             }
                         }
@@ -321,8 +334,7 @@ impl McpClientManager {
             return Ok(());
         }
 
-        let content =
-            std::fs::read_to_string(path).context("Failed to read MCP config file")?;
+        let content = std::fs::read_to_string(path).context("Failed to read MCP config file")?;
         let config: McpConfigFile =
             toml::from_str(&content).context("Failed to parse MCP config file")?;
 
@@ -330,12 +342,11 @@ impl McpClientManager {
         // In development: walk up from the config file to find the workspace root
         //   (directory containing `Cargo.toml`).
         // In production: fall back to the config file's parent directory.
-        let base_dir = Self::detect_project_root(path)
-            .unwrap_or_else(|| {
-                path.parent()
-                    .map(std::path::Path::to_path_buf)
-                    .unwrap_or_else(|| std::path::PathBuf::from("."))
-            });
+        let base_dir = Self::detect_project_root(path).unwrap_or_else(|| {
+            path.parent()
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+        });
 
         let total = config.servers.len();
         info!(
@@ -372,16 +383,16 @@ impl McpClientManager {
                 );
                 // Register with Error status so it appears in list_servers()
                 let mut servers = self.servers.write().await;
-                servers.entry(server_config.id.clone()).or_insert_with(|| {
-                    McpServerHandle {
+                servers
+                    .entry(server_config.id.clone())
+                    .or_insert_with(|| McpServerHandle {
                         id: server_config.id.clone(),
                         config: server_config,
                         client: None,
                         tools: Vec::new(),
                         handshake: None,
                         status: ServerStatus::Error(e.to_string()),
-                    }
-                });
+                    });
             }
         }
 
@@ -390,7 +401,8 @@ impl McpClientManager {
                 total = total,
                 failed = failed,
                 "MCP config loaded with failures ({}/{} servers failed)",
-                failed, total
+                failed,
+                total
             );
         }
 
@@ -444,16 +456,16 @@ impl McpClientManager {
                 );
                 // Register with Error status so it appears in list_servers()
                 let mut servers = self.servers.write().await;
-                servers.entry(config.id.clone()).or_insert_with(|| {
-                    McpServerHandle {
+                servers
+                    .entry(config.id.clone())
+                    .or_insert_with(|| McpServerHandle {
                         id: config.id.clone(),
                         config,
                         client: None,
                         tools: Vec::new(),
                         handshake: None,
                         status: ServerStatus::Error(e.to_string()),
-                    }
-                });
+                    });
             }
         }
 
@@ -472,10 +484,7 @@ impl McpClientManager {
             let servers = self.servers.read().await;
             if let Some(existing) = servers.get(&id) {
                 if existing.status == ServerStatus::Connected {
-                    return Err(anyhow::anyhow!(
-                        "MCP server '{}' is already connected",
-                        id
-                    ));
+                    return Err(anyhow::anyhow!("MCP server '{}' is already connected", id));
                 }
                 // Non-connected server will be replaced below
             }
@@ -486,10 +495,9 @@ impl McpClientManager {
             if self.yolo_mode {
                 // YOLO mode: auto-approve all permissions
                 for perm in &config.required_permissions {
-                    let already_approved =
-                        crate::db::is_permission_approved(&self.pool, &id, perm)
-                            .await
-                            .unwrap_or(false);
+                    let already_approved = crate::db::is_permission_approved(&self.pool, &id, perm)
+                        .await
+                        .unwrap_or(false);
                     if !already_approved {
                         let request = crate::db::PermissionRequest {
                             request_id: format!("mcp-{}-{}", id, perm),
@@ -524,10 +532,9 @@ impl McpClientManager {
                 // Non-YOLO: check each permission, create pending requests for missing ones
                 let mut pending_perms = Vec::new();
                 for perm in &config.required_permissions {
-                    let approved =
-                        crate::db::is_permission_approved(&self.pool, &id, perm)
-                            .await
-                            .unwrap_or(false);
+                    let approved = crate::db::is_permission_approved(&self.pool, &id, perm)
+                        .await
+                        .unwrap_or(false);
                     if !approved {
                         pending_perms.push(perm.clone());
                         // Create a pending permission request for admin to approve
@@ -613,11 +620,7 @@ impl McpClientManager {
         // Discover tools
         let tools = match client.list_tools().await {
             Ok(result) => {
-                info!(
-                    "Found {} tools on [MCP] {}",
-                    result.tools.len(),
-                    id
-                );
+                info!("Found {} tools on [MCP] {}", result.tools.len(), id);
                 for tool in &result.tools {
                     info!(
                         "  - {}: {}",
@@ -803,12 +806,11 @@ impl McpClientManager {
             let servers = self.servers.read().await;
             let handle = servers
                 .get(&server_id)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("MCP server '{}' not found", server_id)
-                })?;
-            let client = handle.client.clone().ok_or_else(|| {
-                anyhow::anyhow!("MCP server '{}' not connected", server_id)
-            })?;
+                .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not found", server_id))?;
+            let client = handle
+                .client
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not connected", server_id))?;
             (client, handle.config.tool_validators.clone())
         };
 
@@ -865,12 +867,11 @@ impl McpClientManager {
             let servers = self.servers.read().await;
             let handle = servers
                 .get(server_id)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("MCP server '{}' not found", server_id)
-                })?;
-            handle.client.clone().ok_or_else(|| {
-                anyhow::anyhow!("MCP server '{}' not connected", server_id)
-            })?
+                .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not found", server_id))?;
+            handle
+                .client
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not connected", server_id))?
         };
 
         client.call_tool(tool_name, args).await
@@ -896,10 +897,7 @@ impl McpClientManager {
                 Err(_) => continue,
             };
             if let Err(e) = client
-                .send_notification(
-                    "notifications/exiv.event",
-                    Some(event_json),
-                )
+                .send_notification("notifications/exiv.event", Some(event_json))
                 .await
             {
                 debug!(
@@ -1081,11 +1079,7 @@ impl McpClientManager {
     /// containing `Cargo.toml`).  Returns `None` in production deployments
     /// where no workspace marker exists.
     fn detect_project_root(from: &std::path::Path) -> Option<std::path::PathBuf> {
-        let start = if from.is_file() {
-            from.parent()?
-        } else {
-            from
-        };
+        let start = if from.is_file() { from.parent()? } else { from };
         let mut dir = std::fs::canonicalize(start).ok()?;
         for _ in 0..10 {
             if dir.join("Cargo.toml").exists() {
@@ -1164,7 +1158,11 @@ fn validate_sandbox_args(_tool_name: &str, args: &Value) -> Result<()> {
     let lower = command.to_lowercase();
 
     // Block embedded newlines/carriage returns (injection vectors)
-    if lower.contains('\n') || lower.contains('\r') || lower.contains('\u{2028}') || lower.contains('\u{2029}') {
+    if lower.contains('\n')
+        || lower.contains('\r')
+        || lower.contains('\u{2028}')
+        || lower.contains('\u{2029}')
+    {
         return Err(anyhow::anyhow!(
             "Kernel validation: command contains embedded newline or line separator"
         ));
@@ -1195,9 +1193,7 @@ fn validate_sandbox_args(_tool_name: &str, args: &Value) -> Result<()> {
     if let Some(first) = tokens.first() {
         if *first == "rm" || first.ends_with("/rm") {
             let has_recursive = tokens.iter().any(|t| {
-                t.starts_with('-')
-                    && !t.starts_with("--")
-                    && (t.contains('r') || t.contains('R'))
+                t.starts_with('-') && !t.starts_with("--") && (t.contains('r') || t.contains('R'))
             });
             let has_force = tokens
                 .iter()

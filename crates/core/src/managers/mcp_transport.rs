@@ -189,9 +189,6 @@ mod tests {
 
     #[test]
     fn test_resolve_env_value_missing() {
-        assert_eq!(
-            resolve_env_value("${NONEXISTENT_EXIV_VAR_12345}"),
-            ""
-        );
+        assert_eq!(resolve_env_value("${NONEXISTENT_EXIV_VAR_12345}"), "");
     }
 }

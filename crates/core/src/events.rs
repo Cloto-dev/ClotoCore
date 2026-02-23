@@ -382,7 +382,6 @@ impl EventProcessor {
                         }
                     }
                     drop(plugins);
-
                 }
                 exiv_shared::ExivEventData::ConfigUpdated { .. } => {
                     let _ = self.tx_internal.send(event);

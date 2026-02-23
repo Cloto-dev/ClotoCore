@@ -218,5 +218,4 @@ impl PluginManager {
         .await?;
         Ok(())
     }
-
 }
