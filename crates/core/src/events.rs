@@ -44,6 +44,7 @@ pub struct EventProcessor {
     event_retention_hours: u64, // M-10: Configurable retention period
     evolution_engine: Option<Arc<crate::evolution::EvolutionEngine>>,
     fitness_collector: Option<Arc<crate::evolution::FitnessCollector>>,
+    consensus: Option<Arc<crate::consensus::ConsensusOrchestrator>>,
 }
 
 impl EventProcessor {
@@ -60,6 +61,7 @@ impl EventProcessor {
         event_retention_hours: u64, // M-10: Configurable retention period
         evolution_engine: Option<Arc<crate::evolution::EvolutionEngine>>,
         fitness_collector: Option<Arc<crate::evolution::FitnessCollector>>,
+        consensus: Option<Arc<crate::consensus::ConsensusOrchestrator>>,
     ) -> Self {
         let (refresh_tx, mut refresh_rx) = mpsc::channel(1);
         let registry_clone = registry.clone();
@@ -101,6 +103,7 @@ impl EventProcessor {
             event_retention_hours,
             evolution_engine,
             fitness_collector,
+            consensus,
         }
     }
 
@@ -237,6 +240,22 @@ impl EventProcessor {
             self.registry
                 .dispatch_event(envelope.clone(), &event_tx)
                 .await;
+
+            // 1b. Consensus Orchestrator (kernel-level, replaces core.moderator plugin)
+            if let Some(ref consensus) = self.consensus {
+                if let Some(response_data) = consensus.handle_event(&event).await {
+                    let response_event = Arc::new(ExivEvent::with_trace(trace_id, response_data));
+                    let response_envelope = crate::EnvelopedEvent {
+                        event: response_event,
+                        issuer: None,
+                        correlation_id: Some(trace_id),
+                        depth: envelope.depth + 1,
+                    };
+                    if let Err(e) = event_tx.send(response_envelope).await {
+                        error!("Failed to send consensus response event: {}", e);
+                    }
+                }
+            }
 
             // 2. 内部イベント分岐処理
             match &event.data {

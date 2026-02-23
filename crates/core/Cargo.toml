@@ -10,7 +10,6 @@ path = "src/main.rs"
 [dependencies]
 exiv_shared = { path = "../shared" }
 plugin_deepseek = { path = "../../plugins/deepseek" }
-plugin_moderator = { path = "../../plugins/moderator" }
 plugin_mcp = { path = "../../plugins/mcp" }
 plugin_terminal = { path = "../../plugins/terminal" }
 tokio.workspace = true

@@ -1906,7 +1906,6 @@ dependencies = [
  "mime_guess",
  "plugin_deepseek",
  "plugin_mcp",
- "plugin_moderator",
  "plugin_terminal",
  "rand 0.8.5",
  "reqwest 0.12.28",
@@ -4798,20 +4797,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "exiv_shared",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "plugin_moderator"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
  "exiv_shared",
  "serde",
  "serde_json",

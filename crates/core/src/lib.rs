@@ -1,6 +1,7 @@
 pub mod capabilities;
 pub mod cli;
 pub mod config;
+pub mod consensus;
 pub mod db;
 pub mod events;
 pub mod evolution;
@@ -24,7 +25,6 @@ pub use db::{
 // causing inventory::submit! to never execute and plugins to be undiscoverable.
 extern crate plugin_deepseek;
 extern crate plugin_mcp;
-extern crate plugin_moderator;
 extern crate plugin_terminal;
 
 use exiv_shared::ExivEvent;
@@ -417,7 +417,23 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         revoked_keys,
     });
 
-    // 6. Event Loop
+    // 6. Consensus Orchestrator (kernel-level, replaces core.moderator plugin)
+    let consensus_config = consensus::ConsensusConfig {
+        synthesizer_engine: std::env::var("CONSENSUS_SYNTHESIZER").unwrap_or_default(),
+        min_proposals: std::env::var("CONSENSUS_MIN_PROPOSALS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2)
+            .max(2),
+        session_timeout_secs: std::env::var("CONSENSUS_SESSION_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60)
+            .max(10),
+    };
+    let consensus_orchestrator = consensus::ConsensusOrchestrator::new(consensus_config);
+
+    // 6a. Event Loop
     let processor = Arc::new(EventProcessor::new(
         registry_arc.clone(),
         plugin_manager.clone(),
@@ -430,6 +446,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         config.event_retention_hours,
         Some(evolution_engine),
         fitness_collector,
+        Some(consensus_orchestrator),
     ));
 
     // Start event history cleanup task
