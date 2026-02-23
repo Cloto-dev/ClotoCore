@@ -24,11 +24,10 @@ export function McpServerDetail({ server, apiKey, onRefresh, onDelete, onStart, 
   const isRunning = server.status === 'Connected';
   const isError = server.status === 'Error';
 
-  async function handleAction(action: string, fn: () => void) {
+  async function handleAction(action: string, fn: () => Promise<void>) {
     setActionLoading(action);
     try {
-      fn();
-      // Refresh after short delay to allow state change
+      await fn();
       setTimeout(onRefresh, 500);
     } finally {
       setActionLoading(null);

@@ -21,43 +21,50 @@ export function McpServersPage() {
   const [newArgs, setNewArgs] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const isValidServerName = (name: string) => /^[a-z][a-z0-9._-]{0,62}[a-z0-9]$/.test(name);
 
   const selectedServer = servers.find(s => s.id === selectedId);
 
   const handleDelete = useCallback(async (id: string) => {
     try {
+      setActionError(null);
       await api.deleteMcpServer(id, effectiveKey);
       if (selectedId === id) setSelectedId(null);
       refetch();
     } catch (err) {
-      console.error('Failed to delete server:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to delete server');
     }
   }, [effectiveKey, selectedId, refetch]);
 
   const handleStart = useCallback(async (id: string) => {
     try {
+      setActionError(null);
       await api.startMcpServer(id, effectiveKey);
       setTimeout(refetch, 500);
     } catch (err) {
-      console.error('Failed to start server:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to start server');
     }
   }, [effectiveKey, refetch]);
 
   const handleStop = useCallback(async (id: string) => {
     try {
+      setActionError(null);
       await api.stopMcpServer(id, effectiveKey);
       setTimeout(refetch, 500);
     } catch (err) {
-      console.error('Failed to stop server:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to stop server');
     }
   }, [effectiveKey, refetch]);
 
   const handleRestart = useCallback(async (id: string) => {
     try {
+      setActionError(null);
       await api.restartMcpServer(id, effectiveKey);
       setTimeout(refetch, 500);
     } catch (err) {
-      console.error('Failed to restart server:', err);
+      setActionError(err instanceof Error ? err.message : 'Failed to restart server');
     }
   }, [effectiveKey, refetch]);
 
@@ -89,6 +96,13 @@ export function McpServersPage() {
         <Server size={14} className="text-brand" />
         <h1 className="text-xs font-mono uppercase tracking-widest text-content-primary">MCP Server Management</h1>
       </header>
+
+      {/* Action error banner */}
+      {actionError && (
+        <div className="px-4 py-2 text-[10px] font-mono text-red-500 bg-red-500/10 border-b border-red-500/20">
+          {actionError}
+        </div>
+      )}
 
       {/* Master-Detail */}
       <div className="flex-1 flex overflow-hidden">
@@ -146,6 +160,7 @@ export function McpServersPage() {
                   placeholder="my-server"
                   className="w-full text-xs font-mono bg-glass border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-muted"
                 />
+                <p className="mt-0.5 text-[9px] font-mono text-content-muted">Lowercase letters, digits, dots, hyphens (e.g. tool.terminal)</p>
               </div>
               <div>
                 <label className="block text-[10px] font-mono text-content-muted mb-1">Command</label>
@@ -178,7 +193,7 @@ export function McpServersPage() {
               </button>
               <button
                 onClick={handleAdd}
-                disabled={adding || !newName.trim()}
+                disabled={adding || !isValidServerName(newName.trim())}
                 className="px-3 py-1.5 text-[10px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand disabled:opacity-40 transition-colors border border-brand/20"
               >
                 {adding ? 'Adding...' : 'Add Server'}

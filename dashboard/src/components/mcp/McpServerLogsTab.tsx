@@ -62,7 +62,7 @@ export function McpServerLogsTab({ server }: Props) {
           </div>
         )}
         {logs.map((log, i) => (
-          <div key={i} className="flex gap-2 py-0.5 hover:bg-glass rounded px-1">
+          <div key={`${log.timestamp}-${log.type}-${i}`} className="flex gap-2 py-0.5 hover:bg-glass rounded px-1">
             <span className="text-content-muted flex-shrink-0">{log.timestamp}</span>
             <span className="text-brand flex-shrink-0">[{log.type}]</span>
             <span className="text-content-secondary truncate">{log.message}</span>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { McpServerInfo, McpServerSettings, DefaultPolicy } from '../../types';
 import { api } from '../../services/api';
 import { Save, RotateCcw } from 'lucide-react';
@@ -15,11 +15,7 @@ export function McpServerSettingsTab({ server, apiKey, onRefresh }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadSettings();
-  }, [server.id]);
-
-  async function loadSettings() {
+  const loadSettings = useCallback(async () => {
     try {
       setError(null);
       const data = await api.getMcpServerSettings(server.id, apiKey);
@@ -28,7 +24,11 @@ export function McpServerSettingsTab({ server, apiKey, onRefresh }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings');
     }
-  }
+  }, [server.id, apiKey]);
+
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
 
   async function handleSave() {
     setSaving(true);

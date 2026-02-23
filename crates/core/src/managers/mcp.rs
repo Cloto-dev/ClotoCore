@@ -21,6 +21,15 @@ pub struct McpClient {
     sender: mpsc::Sender<String>,
     pending_requests: Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>>,
     next_id: Arc<AtomicI64>,
+    response_task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for McpClient {
+    fn drop(&mut self) {
+        if let Some(handle) = self.response_task.take() {
+            handle.abort();
+        }
+    }
 }
 
 impl McpClient {
@@ -34,11 +43,12 @@ impl McpClient {
     ) -> Result<Self> {
         let transport = StdioTransport::start(command, args, env).await?;
         let sender = transport.sender();
-        let client = Self {
+        let mut client = Self {
             transport: Arc::new(Mutex::new(transport)),
             sender,
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicI64::new(1)),
+            response_task: None,
         };
 
         client.start_response_loop();
@@ -47,11 +57,11 @@ impl McpClient {
         Ok(client)
     }
 
-    fn start_response_loop(&self) {
+    fn start_response_loop(&mut self) {
         let transport = self.transport.clone();
         let pending = self.pending_requests.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
                 let msg_opt = {
                     let mut tp = transport.lock().await;
@@ -66,15 +76,19 @@ impl McpClient {
                                     let mut map = pending.lock().await;
                                     if let Some(tx) = map.remove(&id) {
                                         if let Some(error) = response.error {
-                                            let _ = tx.send(Err(anyhow::anyhow!(
+                                            if tx.send(Err(anyhow::anyhow!(
                                                 "RPC Error {}: {}",
                                                 error.code,
                                                 error.message
-                                            )));
+                                            ))).is_err() {
+                                                debug!("Response receiver dropped for request {}", id);
+                                            }
                                         } else {
-                                            let _ = tx.send(Ok(
+                                            if tx.send(Ok(
                                                 response.result.unwrap_or(Value::Null)
-                                            ));
+                                            )).is_err() {
+                                                debug!("Response receiver dropped for request {}", id);
+                                            }
                                         }
                                     }
                                 }
@@ -87,9 +101,10 @@ impl McpClient {
                         error!("MCP Connection closed.");
                         let mut map = pending.lock().await;
                         let count = map.len();
-                        for (_, tx) in map.drain() {
-                            let _ =
-                                tx.send(Err(anyhow::anyhow!("MCP server process terminated")));
+                        for (id, tx) in map.drain() {
+                            if tx.send(Err(anyhow::anyhow!("MCP server process terminated"))).is_err() {
+                                debug!("Response receiver dropped for request {}", id);
+                            }
                         }
                         if count > 0 {
                             error!(
@@ -102,6 +117,7 @@ impl McpClient {
                 }
             }
         });
+        self.response_task = Some(handle);
     }
 
     async fn call(&self, method: &str, params: Option<Value>) -> Result<Value> {
@@ -239,11 +255,21 @@ pub struct McpServerHandle {
     pub status: ServerStatus,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerStatus {
     Connected,
     Disconnected,
     Error(String),
+}
+
+impl serde::Serialize for ServerStatus {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Connected => serializer.serialize_str("Connected"),
+            Self::Disconnected => serializer.serialize_str("Disconnected"),
+            Self::Error(_) => serializer.serialize_str("Error"),
+        }
+    }
 }
 
 /// Public info about a connected MCP server.
@@ -253,6 +279,7 @@ pub struct McpServerInfo {
     pub command: String,
     pub args: Vec<String>,
     pub status: ServerStatus,
+    pub status_message: Option<String>,
     pub tools: Vec<String>,
     pub is_exiv_sdk: bool,
 }
@@ -310,13 +337,15 @@ impl McpClientManager {
                     .unwrap_or_else(|| std::path::PathBuf::from("."))
             });
 
+        let total = config.servers.len();
         info!(
             "Loading {} MCP server(s) from {} (base_dir={})",
-            config.servers.len(),
+            total,
             config_path,
             base_dir.display()
         );
 
+        let mut failed = 0usize;
         for mut server_config in config.servers {
             // Resolve relative paths in args against the base directory
             server_config.args = server_config
@@ -335,6 +364,7 @@ impl McpClientManager {
                 .collect();
 
             if let Err(e) = self.connect_server(server_config.clone()).await {
+                failed += 1;
                 warn!(
                     id = %server_config.id,
                     error = %e,
@@ -353,6 +383,15 @@ impl McpClientManager {
                     }
                 });
             }
+        }
+
+        if failed > 0 {
+            warn!(
+                total = total,
+                failed = failed,
+                "MCP config loaded with failures ({}/{} servers failed)",
+                failed, total
+            );
         }
 
         Ok(())
@@ -630,6 +669,14 @@ impl McpClientManager {
         {
             let mut index = self.tool_index.write().await;
             for tool in &tools {
+                if let Some(existing) = index.get(&tool.name) {
+                    warn!(
+                        tool = %tool.name,
+                        existing_server = %existing,
+                        new_server = %id,
+                        "Tool name collision — overwriting routing"
+                    );
+                }
                 index.insert(tool.name.clone(), id.clone());
             }
         }
@@ -644,22 +691,16 @@ impl McpClientManager {
 
     /// Disconnect and remove an MCP server.
     pub async fn disconnect_server(&self, id: &str) -> Result<()> {
-        let handle = {
-            let mut servers = self.servers.write().await;
-            servers.remove(id)
-        };
-
-        if let Some(handle) = handle {
-            // Remove from tool index
-            let mut index = self.tool_index.write().await;
-            for tool in &handle.tools {
-                index.remove(&tool.name);
-            }
-            info!("MCP server '{}' disconnected", id);
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("MCP server '{}' not found", id))
+        let mut servers = self.servers.write().await;
+        let handle = servers
+            .remove(id)
+            .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not found", id))?;
+        let mut index = self.tool_index.write().await;
+        for tool in &handle.tools {
+            index.remove(&tool.name);
         }
+        info!("MCP server '{}' disconnected", id);
+        Ok(())
     }
 
     /// List all registered MCP servers with status.
@@ -671,6 +712,10 @@ impl McpClientManager {
                 id: h.id.clone(),
                 command: h.config.command.clone(),
                 args: h.config.args.clone(),
+                status_message: match &h.status {
+                    ServerStatus::Error(msg) => Some(msg.clone()),
+                    _ => None,
+                },
                 status: h.status.clone(),
                 tools: h.tools.iter().map(|t| t.name.clone()).collect(),
                 is_exiv_sdk: h.handshake.is_some(),
@@ -962,16 +1007,10 @@ impl McpClientManager {
     /// Stop a server (disconnect but preserve DB record).
     pub async fn stop_server(&self, id: &str) -> Result<()> {
         // Remove from servers map and tool index, but don't touch DB
-        let handle = {
-            let mut servers = self.servers.write().await;
-            servers.remove(id)
-        };
-
-        if handle.is_none() {
-            return Err(anyhow::anyhow!("Server '{}' not found or already stopped", id));
-        }
-
-        // Remove tools from index
+        let mut servers = self.servers.write().await;
+        let _handle = servers
+            .remove(id)
+            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found or already stopped", id))?;
         let mut index = self.tool_index.write().await;
         index.retain(|_, server_id| server_id != id);
 
