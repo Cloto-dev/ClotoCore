@@ -273,6 +273,18 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                     .to_string_lossy()
                     .to_string()
             });
+        // Resolve relative config paths against the project root (handles
+        // cargo tauri dev where CWD differs from project root).
+        let config_path = {
+            let p = std::path::Path::new(&config_path);
+            if p.is_relative() && !p.exists() {
+                // Walk up from exe_dir to find the workspace root (Cargo.toml)
+                managers::McpClientManager::resolve_project_path(p)
+                    .unwrap_or(config_path)
+            } else {
+                config_path
+            }
+        };
         if let Err(e) = mcp_manager.load_config_file(&config_path).await {
             tracing::warn!(error = %e, "Failed to load MCP config file");
         }

@@ -1024,6 +1024,20 @@ impl McpClientManager {
         &self.pool
     }
 
+    /// Resolve a relative path against the project root.
+    /// Used by `lib.rs` to find `mcp.toml` when CWD differs from the project root
+    /// (e.g. `cargo tauri dev`).
+    pub fn resolve_project_path(relative: &std::path::Path) -> Option<String> {
+        let exe = std::env::current_exe().ok()?;
+        let root = Self::detect_project_root(exe.as_path())?;
+        let candidate = root.join(relative);
+        if candidate.exists() {
+            Some(candidate.to_string_lossy().to_string())
+        } else {
+            None
+        }
+    }
+
     /// Walk up from the given path to find the project root (directory
     /// containing `Cargo.toml`).  Returns `None` in production deployments
     /// where no workspace marker exists.
