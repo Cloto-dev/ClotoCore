@@ -6,8 +6,13 @@ import { usePlugins } from '../hooks/usePlugins';
 import { useAgents } from '../hooks/useAgents';
 
 export function AgentWorkspace() {
-  const { agents } = useAgents();
-  const { plugins } = usePlugins();
+  const { agents, refetch: refetchAgents } = useAgents();
+  const { plugins, refetch: refetchPlugins } = usePlugins();
+
+  const fetchInitialData = () => {
+    refetchAgents();
+    refetchPlugins();
+  };
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [systemActive, setSystemActive] = useState(false);
 

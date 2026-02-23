@@ -73,9 +73,12 @@ def build_chat_messages(
 
     for msg in context:
         source = msg.get("source", {})
-        if "User" in source or "user" in source:
+        # Handle both serde internally-tagged {"type": "User", ...}
+        # and legacy externally-tagged {"User": {...}} formats
+        src_type = source.get("type", "") if isinstance(source, dict) else ""
+        if src_type in ("User",) or "User" in source or "user" in source:
             role = "user"
-        elif "Agent" in source or "agent" in source:
+        elif src_type in ("Agent",) or "Agent" in source or "agent" in source:
             role = "assistant"
         else:
             role = "system"

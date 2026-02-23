@@ -35,7 +35,7 @@ fn validate_config_key(key: &str) -> Result<(), validator::ValidationError> {
 pub struct UpdatePluginConfigRequest {
     #[validate(
         length(min = 1, max = 100, message = "Config key must be 1-100 characters"),
-        custom = "validate_config_key"
+        custom(function = validate_config_key)
     )]
     pub key: String,
 

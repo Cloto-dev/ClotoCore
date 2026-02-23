@@ -93,9 +93,6 @@ async fn test_dynamic_permission_elevation_flow() {
     }
 
     let registry = Arc::new(registry_raw);
-    let dynamic_router = Arc::new(exiv_core::DynamicRouter {
-        router: tokio::sync::RwLock::new(axum::Router::new()),
-    });
 
     let metrics = Arc::new(exiv_core::managers::SystemMetrics::new());
     let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
@@ -105,13 +102,13 @@ async fn test_dynamic_permission_elevation_flow() {
         plugin_manager.clone(),
         agent_manager,
         tx_internal,
-        dynamic_router,
         event_history,
         metrics,
         1000, // max_history_size
         24,   // event_retention_hours
         None, // evolution_engine
         None, // fitness_collector
+        None, // consensus
     );
     let (event_tx, event_rx) = mpsc::channel(10);
 

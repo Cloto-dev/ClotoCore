@@ -36,8 +36,8 @@
       "commit": "fcb13b1",
       "file": "plugins/python_bridge/src/ipc.rs",
       "pattern": "pending_calls\\.remove\\(&id\\)",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "obsolete"
     },
     {
       "id": "bug-017",
@@ -73,7 +73,7 @@
       "file": "scripts/bridge_runtime.py",
       "pattern": "'socket'\\}",
       "expected": "absent",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-020",
@@ -96,8 +96,8 @@
       "commit": "19c19da",
       "file": "plugins/deepseek/src/lib.rs",
       "pattern": "DeepSeek plugin.*No API key configured",
-      "expected": "present",
-      "status": "fixed"
+      "expected": "absent",
+      "status": "obsolete"
     },
     {
       "id": "bug-022",
@@ -108,8 +108,8 @@
       "commit": "19c19da",
       "file": "plugins/cerebras/src/lib.rs",
       "pattern": "Cerebras plugin.*No API key configured",
-      "expected": "present",
-      "status": "fixed"
+      "expected": "absent",
+      "status": "obsolete"
     },
     {
       "id": "bug-023",
@@ -228,7 +228,7 @@
       "commit": "fcc5d54",
       "file": "crates/cli/src/commands/logs.rs",
       "pattern": "into_iter\\(\\)\\.rev\\(\\)\\.collect",
-      "expected": "present",
+      "expected": "absent",
       "status": "fixed"
     },
     {
@@ -253,7 +253,7 @@
       "file": "Cargo.lock",
       "pattern": "\"idna 0\\.4\\.",
       "expected": "absent",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-035",
@@ -337,7 +337,7 @@
       "file": "plugins/cerebras/src/lib.rs",
       "pattern": "fn supports_tools.*true",
       "expected": "absent",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-042",
@@ -373,7 +373,7 @@
       "file": "plugins/deepseek/src/lib.rs",
       "pattern": "fn supports_tools.*true",
       "expected": "absent",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-045",
@@ -926,6 +926,78 @@
       "pattern": "iconMap",
       "expected": "present",
       "status": "wontfix"
+    },
+    {
+      "id": "bug-091",
+      "summary": "MessageSource manual JSON uses externally-tagged format but serde expects internally-tagged; all recalled memories lose source attribution",
+      "severity": "CRITICAL",
+      "discovered": "2026-02-23T03:00:00Z",
+      "version": "0.1.0",
+      "commit": "84093d4",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "\"source\".*\"User\".*\\{\\}",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-092",
+      "summary": "Terminal sandbox uses create_subprocess_shell allowing redirect operators and env var expansion bypass",
+      "severity": "CRITICAL",
+      "discovered": "2026-02-23T03:00:00Z",
+      "version": "0.1.0",
+      "commit": "84093d4",
+      "file": "mcp-servers/terminal/server.py",
+      "pattern": "create_subprocess_shell",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-093",
+      "summary": "Terminal NFKC normalization applied to local variable but original un-normalized command is executed",
+      "severity": "CRITICAL",
+      "discovered": "2026-02-23T03:00:00Z",
+      "version": "0.1.0",
+      "commit": "84093d4",
+      "file": "mcp-servers/terminal/server.py",
+      "pattern": "NFKC normalization to prevent Unicode homoglyph bypass",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-094",
+      "summary": "KS22 vector search _rid prefix (vec_mem/vec_ep) differs from keyword (mem) and FTS (fts); same memory can appear as duplicates across strategies",
+      "severity": "HIGH",
+      "discovered": "2026-02-23T03:30:00Z",
+      "version": "0.1.0",
+      "commit": "84093d4",
+      "file": "mcp-servers/ks22/server.py",
+      "pattern": "vec_mem",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-095",
+      "summary": "KS22 FTS5 query sanitization only removes quotes; FTS5 operators (AND/OR/NOT/NEAR) and special characters can cause injection",
+      "severity": "HIGH",
+      "discovered": "2026-02-23T03:30:00Z",
+      "version": "0.1.0",
+      "commit": "84093d4",
+      "file": "mcp-servers/ks22/server.py",
+      "pattern": "re\\.sub\\(r'\\[\"",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-096",
+      "summary": "MCP servers use stderr print/logging which conflicts with MCP stdio transport on stderr — FALSE POSITIVE: logging to stderr is MCP-safe (stdio uses stdin/stdout only)",
+      "severity": "HIGH",
+      "discovered": "2026-02-23T03:30:00Z",
+      "version": "0.1.0",
+      "commit": "84093d4",
+      "file": "mcp-servers/embedding/server.py",
+      "pattern": "print\\(",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

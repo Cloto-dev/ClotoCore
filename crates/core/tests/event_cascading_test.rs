@@ -1,7 +1,7 @@
 use exiv_core::{
     events::EventProcessor,
     managers::{AgentManager, PluginManager, PluginRegistry},
-    DynamicRouter, EnvelopedEvent,
+    EnvelopedEvent,
 };
 use exiv_shared::{ExivEvent, Plugin, PluginCast, PluginManifest, ServiceType};
 use sqlx::SqlitePool;
@@ -101,10 +101,6 @@ async fn test_event_cascading_protection() {
     let (tx_broadcast, mut rx_broadcast) = broadcast::channel::<Arc<ExivEvent>>(1000);
     let (tx_internal, rx_internal) = mpsc::channel::<EnvelopedEvent>(1000);
 
-    let dynamic_router = Arc::new(DynamicRouter {
-        router: tokio::sync::RwLock::new(axum::Router::new()),
-    });
-
     let metrics = Arc::new(exiv_core::managers::SystemMetrics::new());
     let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
 
@@ -113,13 +109,13 @@ async fn test_event_cascading_protection() {
         plugin_manager.clone(),
         agent_manager,
         tx_broadcast.clone(),
-        dynamic_router,
         event_history,
         metrics,
         1000, // max_history_size
         24,   // event_retention_hours
         None, // evolution_engine
         None, // fitness_collector
+        None, // consensus
     );
 
     let tx_internal_for_loop = tx_internal.clone();

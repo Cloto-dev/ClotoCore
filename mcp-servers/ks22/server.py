@@ -4,12 +4,15 @@ Persistent memory with FTS5 full-text search and pluggable vector embedding.
 Ported from plugins/ks22/src/lib.rs + ai_karin KS2.1 architecture.
 
 Phase 1: store, recall (FTS5 + keyword), update_profile (stub), archive_episode (simple)
+Phase 2: Vector embedding integration (cosine similarity search)
 """
 
 import asyncio
 import json
+import logging
 import os
 import re
+import struct
 import hashlib
 from datetime import datetime, timezone
 
@@ -17,6 +20,8 @@ import aiosqlite
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
+
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # Configuration
@@ -26,9 +31,123 @@ DB_PATH = os.environ.get("KS22_DB_PATH", "data/ks22_memory.db")
 MAX_MEMORIES = int(os.environ.get("KS22_MAX_MEMORIES", "500"))
 FTS_ENABLED = os.environ.get("KS22_FTS_ENABLED", "true").lower() == "true"
 
-# Embedding (Phase 2 — not yet active)
+# Embedding configuration
 EMBEDDING_MODE = os.environ.get("KS22_EMBEDDING_MODE", "none")
 EMBEDDING_URL = os.environ.get("KS22_EMBEDDING_URL", "")
+EMBEDDING_API_KEY = os.environ.get("KS22_EMBEDDING_API_KEY", "")
+EMBEDDING_API_URL = os.environ.get(
+    "KS22_EMBEDDING_API_URL", "https://api.openai.com/v1/embeddings"
+)
+EMBEDDING_MODEL = os.environ.get("KS22_EMBEDDING_MODEL", "text-embedding-3-small")
+
+# Vector search threshold (cosine similarity, 0.0-1.0)
+VECTOR_MIN_SIMILARITY = float(os.environ.get("KS22_VECTOR_MIN_SIMILARITY", "0.3"))
+
+# ============================================================
+# Embedding Client
+# ============================================================
+
+
+class EmbeddingClient:
+    """Client for computing vector embeddings via HTTP or API."""
+
+    def __init__(
+        self,
+        mode: str,
+        http_url: str = "",
+        api_key: str = "",
+        api_url: str = "",
+        model: str = "",
+    ):
+        self.mode = mode
+        self._http_url = http_url
+        self._api_key = api_key
+        self._api_url = api_url
+        self._model = model
+        self._client = None
+
+    async def initialize(self):
+        """Create persistent HTTP client."""
+        import httpx
+
+        self._client = httpx.AsyncClient(timeout=30)
+        logger.info(
+            "EmbeddingClient initialized (mode=%s)", self.mode,
+        )
+
+    async def close(self):
+        """Close HTTP client."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+    async def embed(self, texts: list[str]) -> list[list[float]] | None:
+        """Compute embeddings. Returns None on failure (graceful degradation)."""
+        if self.mode == "none" or not self._client:
+            return None
+
+        try:
+            if self.mode == "http":
+                return await self._embed_via_http(texts)
+            elif self.mode == "api":
+                return await self._embed_via_api(texts)
+            else:
+                logger.warning("Unknown embedding mode: %s", self.mode)
+                return None
+        except Exception as e:
+            logger.warning("Embedding request failed: %s", e)
+            return None
+
+    async def _embed_via_http(self, texts: list[str]) -> list[list[float]] | None:
+        """Call the embedding server's HTTP endpoint."""
+        response = await self._client.post(
+            self._http_url,
+            json={"texts": texts},
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("embeddings")
+
+    async def _embed_via_api(self, texts: list[str]) -> list[list[float]] | None:
+        """Call OpenAI-compatible embedding API directly."""
+        import numpy as np
+
+        response = await self._client.post(
+            self._api_url,
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            },
+            json={"model": self._model, "input": texts},
+        )
+        response.raise_for_status()
+        data = response.json()
+        embeddings = [item["embedding"] for item in data["data"]]
+
+        # L2-normalize for consistent cosine similarity via dot product
+        result = []
+        for emb in embeddings:
+            vec = np.array(emb, dtype=np.float32)
+            norm = np.linalg.norm(vec)
+            if norm > 1e-9:
+                vec = vec / norm
+            result.append(vec.tolist())
+
+        return result
+
+    @staticmethod
+    def pack_embedding(embedding: list[float]) -> bytes:
+        """Pack a float list into a BLOB (little-endian float32)."""
+        return struct.pack(f"<{len(embedding)}f", *embedding)
+
+    @staticmethod
+    def unpack_embedding(blob: bytes) -> list[float]:
+        """Unpack a BLOB into a float list."""
+        n = len(blob) // 4
+        return list(struct.unpack(f"<{n}f", blob))
+
+
+_embedding_client: EmbeddingClient | None = None
 
 # ============================================================
 # Database
@@ -197,10 +316,20 @@ async def do_store(agent_id: str, message: dict) -> dict:
         if row:
             return {"ok": True, "skipped": True, "reason": "duplicate msg_id"}
 
+    # Compute embedding before insert (so we can include it in the INSERT)
+    embedding_blob = None
+    if _embedding_client:
+        try:
+            embeddings = await _embedding_client.embed([content])
+            if embeddings and embeddings[0]:
+                embedding_blob = EmbeddingClient.pack_embedding(embeddings[0])
+        except Exception as e:
+            logger.warning("Embedding failed during store: %s", e)
+
     await db.execute(
-        """INSERT INTO memories (agent_id, msg_id, content, source, timestamp, metadata)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (agent_id, msg_id, content, source, timestamp, metadata),
+        """INSERT INTO memories (agent_id, msg_id, content, source, timestamp, metadata, embedding)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (agent_id, msg_id, content, source, timestamp, metadata, embedding_blob),
     )
     await db.commit()
     return {"ok": True}
@@ -210,15 +339,25 @@ async def do_recall(agent_id: str, query: str, limit: int) -> dict:
     """Recall relevant memories using multi-strategy search."""
     db = await get_db()
     results: list[dict] = []
-    seen_ids: set[int] = set()
+    seen_ids: set = set()
+
+    # Strategy 0: Vector search (if embedding available and query non-empty)
+    if _embedding_client and query.strip():
+        vector_results = await _search_vector(db, agent_id, query, limit)
+        for row in vector_results:
+            rid = row.get("_rid", row["id"])
+            if rid not in seen_ids:
+                results.append(row)
+                seen_ids.add(rid)
 
     # Strategy 1: FTS5 episode search (if enabled and query non-empty)
     if FTS_ENABLED and query.strip():
         fts_results = await _search_episodes_fts(db, agent_id, query, limit)
         for row in fts_results:
-            if row["id"] not in seen_ids:
+            rid = ("ep", row["id"])
+            if rid not in seen_ids:
                 results.append(row)
-                seen_ids.add(row["id"])
+                seen_ids.add(rid)
 
     # Strategy 2: Profile lookup
     profile_rows = await db.execute_fetchall(
@@ -241,9 +380,10 @@ async def do_recall(agent_id: str, query: str, limit: int) -> dict:
             db, agent_id, query, remaining
         )
         for row in memory_rows:
-            if row["id"] not in seen_ids:
+            rid = ("mem", row["id"])
+            if rid not in seen_ids:
                 results.append(row)
-                seen_ids.add(row["id"])
+                seen_ids.add(rid)
 
     # Truncate to limit and reverse for chronological order (oldest first for LLM)
     results = results[:limit]
@@ -259,21 +399,102 @@ async def do_recall(agent_id: str, query: str, limit: int) -> dict:
             msg["timestamp"] = r["timestamp"]
         if r.get("msg_id"):
             msg["id"] = r["msg_id"]
+        # Remove internal tracking keys
+        r.pop("_rid", None)
         messages.append(msg)
 
     return {"messages": messages}
+
+
+async def _search_vector(
+    db: aiosqlite.Connection, agent_id: str, query: str, limit: int
+) -> list[dict]:
+    """Search memories and episodes using vector cosine similarity."""
+    import numpy as np
+
+    # 1. Compute query embedding
+    embeddings = await _embedding_client.embed([query])
+    if not embeddings or not embeddings[0]:
+        return []
+    query_vec = np.array(embeddings[0], dtype=np.float32)
+    query_dim = len(query_vec)
+
+    candidates: list[tuple[float, dict]] = []
+
+    # 2. Search memory embeddings
+    rows = await db.execute_fetchall(
+        """SELECT id, msg_id, content, source, timestamp, embedding
+           FROM memories
+           WHERE agent_id = ? AND embedding IS NOT NULL
+           ORDER BY created_at DESC
+           LIMIT ?""",
+        (agent_id, MAX_MEMORIES),
+    )
+
+    for row in rows:
+        mem_id, msg_id, content, source, timestamp, blob = row
+        try:
+            mem_vec = np.frombuffer(blob, dtype=np.float32)
+            if len(mem_vec) != query_dim:
+                continue  # Dimension mismatch (provider changed)
+            sim = float(np.dot(query_vec, mem_vec))
+            if sim >= VECTOR_MIN_SIMILARITY:
+                candidates.append((sim, {
+                    "id": mem_id,
+                    "_rid": ("mem", mem_id),
+                    "msg_id": msg_id,
+                    "content": content,
+                    "source": source,
+                    "timestamp": timestamp,
+                }))
+        except Exception:
+            continue
+
+    # 3. Search episode embeddings
+    ep_rows = await db.execute_fetchall(
+        """SELECT id, summary, start_time, embedding
+           FROM episodes
+           WHERE agent_id = ? AND embedding IS NOT NULL
+           ORDER BY created_at DESC
+           LIMIT ?""",
+        (agent_id, MAX_MEMORIES),
+    )
+
+    for row in ep_rows:
+        ep_id, summary, start_time, blob = row
+        try:
+            ep_vec = np.frombuffer(blob, dtype=np.float32)
+            if len(ep_vec) != query_dim:
+                continue
+            sim = float(np.dot(query_vec, ep_vec))
+            if sim >= VECTOR_MIN_SIMILARITY:
+                candidates.append((sim, {
+                    "id": ep_id,
+                    "_rid": ("ep", ep_id),
+                    "content": f"[Episode] {summary}",
+                    "source": {"System": "episode"},
+                    "timestamp": start_time or "",
+                }))
+        except Exception:
+            continue
+
+    # 4. Sort by similarity descending, return top-K
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    return [c[1] for c in candidates[:limit]]
 
 
 async def _search_episodes_fts(
     db: aiosqlite.Connection, agent_id: str, query: str, limit: int
 ) -> list[dict]:
     """Search episodes using FTS5."""
-    # Sanitize and build FTS query: each word quoted for AND matching
-    sanitized = re.sub(r'["\']', "", query)
+    # Sanitize: strip everything except alphanumeric, CJK, and whitespace
+    # to prevent FTS5 operator injection (AND/OR/NOT/NEAR/*/^/- etc.)
+    sanitized = re.sub(r'[^\w\s]', "", query, flags=re.UNICODE)
     words = sanitized.split()
     if not words:
         return []
 
+    # Each word quoted for phrase matching; quotes inside words already stripped
     fts_query = " ".join(f'"{w}"' for w in words)
 
     rows = await db.execute_fetchall(
@@ -375,7 +596,7 @@ async def do_update_profile(agent_id: str, history: list[dict]) -> dict:
 
 
 async def do_archive_episode(agent_id: str, history: list[dict]) -> dict:
-    """Phase 1: simple concatenation summary + keyword extraction (no LLM)."""
+    """Simple concatenation summary + keyword extraction (no LLM)."""
     db = await get_db()
 
     if not history:
@@ -422,10 +643,20 @@ async def do_archive_episode(agent_id: str, history: list[dict]) -> dict:
     start_time = min(timestamps) if timestamps else None
     end_time = max(timestamps) if timestamps else None
 
+    # Compute embedding for episode summary
+    embedding_blob = None
+    if _embedding_client and summary:
+        try:
+            embeddings = await _embedding_client.embed([summary])
+            if embeddings and embeddings[0]:
+                embedding_blob = EmbeddingClient.pack_embedding(embeddings[0])
+        except Exception as e:
+            logger.warning("Embedding failed for episode: %s", e)
+
     cursor = await db.execute(
-        """INSERT INTO episodes (agent_id, summary, keywords, start_time, end_time)
-           VALUES (?, ?, ?, ?, ?)""",
-        (agent_id, summary, keywords, start_time, end_time),
+        """INSERT INTO episodes (agent_id, summary, keywords, start_time, end_time, embedding)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (agent_id, summary, keywords, start_time, end_time, embedding_blob),
     )
     await db.commit()
     return {"ok": True, "episode_id": cursor.lastrowid}
@@ -469,7 +700,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="recall",
-            description="Recall relevant memories using multi-strategy search (FTS5 + keyword).",
+            description="Recall relevant memories using multi-strategy search (vector + FTS5 + keyword).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -566,6 +797,27 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
 
 async def main():
+    global _embedding_client
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    )
+
+    # Initialize embedding client
+    if EMBEDDING_MODE != "none":
+        _embedding_client = EmbeddingClient(
+            mode=EMBEDDING_MODE,
+            http_url=EMBEDDING_URL,
+            api_key=EMBEDDING_API_KEY,
+            api_url=EMBEDDING_API_URL,
+            model=EMBEDDING_MODEL,
+        )
+        await _embedding_client.initialize()
+        logger.info("Embedding client ready (mode=%s)", EMBEDDING_MODE)
+    else:
+        logger.info("Embedding disabled (mode=none), using FTS5 + keyword only")
+
     # Initialize DB on startup
     await get_db()
     try:
@@ -575,6 +827,8 @@ async def main():
             )
     finally:
         await close_db()
+        if _embedding_client:
+            await _embedding_client.close()
 
 
 if __name__ == "__main__":

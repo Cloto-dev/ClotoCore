@@ -7,6 +7,7 @@ Ported from plugins/terminal/src/lib.rs + sandbox.rs
 import asyncio
 import json
 import os
+import shlex
 import unicodedata
 
 from mcp.server import Server
@@ -42,17 +43,18 @@ BLOCKED_PATTERNS = [
 ]
 
 BLOCKED_METACHAR_PATTERNS = [
-    "$(", "`", "|", ";", "&&", "||",
+    "$(", "`", "|", ";", "&&", "||", ">", "<",
 ]
 
 
 def validate_command(command: str) -> None:
-    """Validate a command against security rules. Raises ValueError on failure."""
+    """Validate a command against security rules. Raises ValueError on failure.
+
+    NOTE: The caller MUST pass an already-NFKC-normalized string so that
+    the same string that is validated is also the one that gets executed.
+    """
     if not command.strip():
         raise ValueError("Empty command is not allowed")
-
-    # NFKC normalization to prevent Unicode homoglyph bypass
-    command = unicodedata.normalize("NFKC", command)
 
     # Block embedded newlines/carriage returns and Unicode line separators
     if "\n" in command or "\r" in command or "\u2028" in command or "\u2029" in command:
@@ -158,6 +160,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             "stderr": "Missing 'command' argument",
         }))]
 
+    # NFKC normalization BEFORE validation so the same string is validated and executed
+    command = unicodedata.normalize("NFKC", command)
+
     timeout_secs = min(arguments.get("timeout_secs", 30), 120)
 
     # Validate command against sandbox rules
@@ -174,8 +179,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     os.makedirs(WORKING_DIR, exist_ok=True)
 
     try:
-        proc = await asyncio.create_subprocess_shell(
-            command,
+        argv = shlex.split(command)
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=WORKING_DIR,

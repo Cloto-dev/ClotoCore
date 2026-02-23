@@ -265,7 +265,7 @@ impl SystemHandler {
                         let resp_msg_json = serde_json::json!({
                             "id": format!("{}-resp", msg.id),
                             "content": content.clone(),
-                            "source": { "Agent": { "id": agent.id } },
+                            "source": { "type": "Agent", "id": agent.id },
                             "timestamp": Utc::now().to_rfc3339(),
                         });
                         tokio::spawn(async move {
@@ -380,7 +380,7 @@ impl SystemHandler {
             let msg_json = serde_json::json!({
                 "id": msg.id,
                 "content": msg.content,
-                "source": { "User": {} },
+                "source": { "type": "User", "id": "", "name": "" },
                 "timestamp": msg.timestamp.to_rfc3339(),
             });
             tokio::spawn(async move {

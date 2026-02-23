@@ -45,8 +45,12 @@ if [[ ! -f "$REGISTRY" ]]; then
     exit 1
 fi
 
-if ! command -v python3 &>/dev/null; then
-    echo -e "${RED}[ERROR]${NC} python3 is required but not found"
+PYTHON_CMD="python3"
+if ! "$PYTHON_CMD" --version &>/dev/null 2>&1; then
+    PYTHON_CMD="python"
+fi
+if ! command -v "$PYTHON_CMD" &>/dev/null; then
+    echo -e "${RED}[ERROR]${NC} python3 or python is required but not found"
     exit 1
 fi
 
@@ -68,6 +72,11 @@ errors=0
 while IFS='|' read -r id severity file pattern expected status summary; do
     # Apply filter
     if [[ -n "$FILTER" && "$status" != "$FILTER" ]]; then
+        continue
+    fi
+
+    # Skip obsolete entries (referenced files deleted during migration)
+    if [[ "$status" == "obsolete" ]]; then
         continue
     fi
 
@@ -108,9 +117,15 @@ while IFS='|' read -r id severity file pattern expected status summary; do
     fi
 
 done < <(
-    python3 -c "
-import json, sys
-with open('$REGISTRY') as f:
+    # Convert path for native Python on Windows (MSYS /c/ → C:/)
+    _REGISTRY_PY="$REGISTRY"
+    if command -v cygpath &>/dev/null; then
+        _REGISTRY_PY="$(cygpath -m "$REGISTRY")"
+    fi
+    PYTHONUTF8=1 $PYTHON_CMD -c "
+import json, sys, os
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+with open('$_REGISTRY_PY', encoding='utf-8') as f:
     data = json.load(f)
 for issue in data.get('issues', []):
     print('|'.join([

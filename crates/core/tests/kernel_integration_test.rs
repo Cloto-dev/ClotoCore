@@ -1,62 +1,7 @@
 mod common;
 
-use axum::{
-    body::Body,
-    http::{Request, StatusCode},
-};
-use exiv_shared::{PluginCast, PluginConfig};
-use plugin_deepseek::DeepSeekPlugin;
 use sqlx::SqlitePool;
-use std::any::Any;
 use std::sync::Arc;
-use tower::ServiceExt;
-
-#[tokio::test]
-async fn test_dynamic_routing_registration() {
-    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    sqlx::query("CREATE TABLE agents (id TEXT PRIMARY KEY, name TEXT, description TEXT, status TEXT, default_engine_id TEXT, required_capabilities TEXT, metadata TEXT)").execute(&pool).await.unwrap();
-    sqlx::query("CREATE TABLE plugin_settings (plugin_id TEXT PRIMARY KEY, is_active BOOLEAN, allowed_permissions TEXT)")
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("CREATE TABLE plugin_configs (plugin_id TEXT, config_key TEXT, config_value TEXT, PRIMARY KEY(plugin_id, config_key))").execute(&pool).await.unwrap();
-
-    let config = PluginConfig {
-        id: "test.deepseek".to_string(),
-        config_values: [
-            ("api_key".to_string(), "test_key".to_string()),
-            ("model_id".to_string(), "deepseek-chat".to_string()),
-        ]
-        .into_iter()
-        .collect(),
-    };
-
-    let ds_plugin = Arc::new(DeepSeekPlugin::new_plugin(config).await.unwrap());
-
-    let mut dynamic_routes = axum::Router::new();
-    if let Some(web) = ds_plugin.as_web() {
-        dynamic_routes = web.register_routes(dynamic_routes);
-    }
-
-    let mock_state = Arc::new("mock_state".to_string()) as Arc<dyn Any + Send + Sync>;
-    let api_routes = axum::Router::new()
-        .route("/health", axum::routing::get(|| async { "ok" }))
-        .merge(dynamic_routes.with_state(mock_state));
-
-    let app = axum::Router::new().nest("/api", api_routes);
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/plugin/deepseek/status")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-}
 
 #[tokio::test]
 async fn test_permission_logic_unit() {

@@ -142,9 +142,8 @@
 
 ### Remaining Items (Next Phase)
 
-- [ ] Manifest Caching: exiv_macros 側でのキャッシュ実装
 - [ ] Event Envelope: Kernel 管理の封筒によるイベント改竄防止
-- [ ] Plugin hot-reload: ランタイムプラグイン再読み込み
+- [ ] MCP server hot-reload: ランタイムMCPサーバー再接続
 
 ---
 

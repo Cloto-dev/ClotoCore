@@ -5,7 +5,7 @@ import { getDpr } from '../lib/canvasUtils';
 interface Point { x: number; y: number; r: number }
 
 /** Accent color for gaze-tracking mode cursor */
-const GAZE_COLOR = GAZE_COLOR;
+const GAZE_COLOR = '#ec4899';
 
 export function CustomCursor() {
   const trailCanvasRef = useRef<HTMLCanvasElement>(null);

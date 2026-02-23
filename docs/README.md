@@ -28,12 +28,15 @@ Documentation for Exiv design, development, and quality management.
 | [SCHEMA.md](SCHEMA.md) | Database schema reference (8 tables, migration history) | 2026-02-19 |
 | [WASM_PLUGIN_DESIGN.md](WASM_PLUGIN_DESIGN.md) | WASM plugin design proposal (Tier 3, wasmtime) | 2026-02-19 |
 
-## Plugin Documentation
+## MCP Server Documentation
 
-| Plugin | Location | Description |
+| Server | Location | Description |
 |--------|----------|-------------|
-| exiv_macros | [`crates/macros/README.md`](../crates/macros/README.md) | Macro optimization guide, icon embedding, CI/CD integration |
-| All plugins | `plugins/*/README.md` | Individual plugin documentation (WIP) |
+| exiv-mcp-terminal | `mcp-servers/terminal/` | Terminal tool execution with sandbox security |
+| exiv-mcp-deepseek | `mcp-servers/deepseek/` | DeepSeek reasoning engine integration |
+| exiv-mcp-cerebras | `mcp-servers/cerebras/` | Cerebras fast inference engine |
+| exiv-mcp-ks22 | `mcp-servers/ks22/` | KS2.2 persistent memory with FTS5 + vector search |
+| exiv-mcp-embedding | `mcp-servers/embedding/` | Vector embedding generation (OpenAI API / local ONNX) |
 
 ## Getting Started
 

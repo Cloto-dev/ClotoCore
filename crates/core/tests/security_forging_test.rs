@@ -1,7 +1,6 @@
 use exiv_core::{
     events::EventProcessor,
     managers::{AgentManager, PluginManager, PluginRegistry},
-    DynamicRouter,
 };
 use exiv_shared::{
     ExivEvent, ExivId, HandAction, Permission, Plugin, PluginCast, PluginManifest, ServiceType,
@@ -144,10 +143,6 @@ async fn test_vulnerability_event_forging() {
     let (tx_broadcast, mut rx_broadcast) = broadcast::channel::<Arc<ExivEvent>>(100);
     let (tx_internal, rx_internal) = mpsc::channel::<exiv_core::EnvelopedEvent>(100);
 
-    let dynamic_router = Arc::new(DynamicRouter {
-        router: tokio::sync::RwLock::new(axum::Router::new()),
-    });
-
     let metrics = Arc::new(exiv_core::managers::SystemMetrics::new());
     let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
 
@@ -156,13 +151,13 @@ async fn test_vulnerability_event_forging() {
         plugin_manager.clone(),
         agent_manager,
         tx_broadcast.clone(),
-        dynamic_router,
         event_history,
         metrics,
         1000, // max_history_size
         24,   // event_retention_hours
         None, // evolution_engine
         None, // fitness_collector
+        None, // consensus
     );
 
     // Run Processor in background
