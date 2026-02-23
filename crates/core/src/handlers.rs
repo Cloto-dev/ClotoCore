@@ -1313,7 +1313,23 @@ pub async fn get_mcp_server_settings(
                 "description": record.description,
             })))
         }
-        None => Err(AppError::Validation(format!("MCP server '{}' not found", name))),
+        None => {
+            // Fallback: check in-memory servers (config-loaded servers aren't persisted to DB)
+            let servers = state.mcp_manager.list_servers().await;
+            if let Some(server) = servers.iter().find(|s| s.id == name) {
+                Ok(Json(serde_json::json!({
+                    "server_id": server.id,
+                    "default_policy": "opt-in",
+                    "config": {},
+                    "auto_restart": false,
+                    "command": server.command,
+                    "args": server.args,
+                    "description": null,
+                })))
+            } else {
+                Err(AppError::Validation(format!("MCP server '{}' not found", name)))
+            }
+        }
     }
 }
 
