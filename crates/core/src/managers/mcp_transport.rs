@@ -37,6 +37,7 @@ pub struct StdioTransport {
 
 impl StdioTransport {
     /// Get a clone of the request sender for lock-free sending.
+    #[must_use]
     pub fn sender(&self) -> mpsc::Sender<String> {
         self.request_tx.clone()
     }

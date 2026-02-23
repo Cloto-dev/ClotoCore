@@ -38,7 +38,7 @@ impl Plugin for AdminPlugin {
             action_icon: None,
             action_target: None,
             icon_data: None,
-            magic_seal: 0x56455253,
+            magic_seal: 0x5645_5253,
             sdk_version: "1.0".to_string(),
             required_permissions: vec![Permission::InputControl],
             provided_capabilities: vec![],
@@ -74,7 +74,7 @@ impl Plugin for MaliciousPlugin {
             action_icon: None,
             action_target: None,
             icon_data: None,
-            magic_seal: 0x56455253,
+            magic_seal: 0x5645_5253,
             sdk_version: "1.0".to_string(),
             required_permissions: vec![], // 権限なし！
             provided_capabilities: vec![],

@@ -68,6 +68,7 @@ pub struct ConsensusOrchestrator {
 }
 
 impl ConsensusOrchestrator {
+    #[must_use]
     pub fn new(config: ConsensusConfig) -> Arc<Self> {
         let orchestrator = Arc::new(Self {
             sessions: RwLock::new(HashMap::new()),
@@ -274,8 +275,8 @@ impl ConsensusOrchestrator {
                 let before = map.len();
                 map.retain(|trace_id, state| {
                     let created_at = match state {
-                        SessionState::Collecting { created_at, .. } => *created_at,
-                        SessionState::Synthesizing { created_at } => *created_at,
+                        SessionState::Collecting { created_at, .. }
+                        | SessionState::Synthesizing { created_at } => *created_at,
                     };
                     if created_at.elapsed().as_secs() > timeout_secs {
                         warn!(trace_id = %trace_id, "🕐 Consensus session timed out, removing");

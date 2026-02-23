@@ -6,7 +6,7 @@ pub mod permissions;
 pub mod plugins;
 pub mod status;
 
-use crate::cli::*;
+use crate::cli::{Cli, Commands};
 use crate::client::ExivClient;
 use crate::config::CliConfig;
 use anyhow::Result;

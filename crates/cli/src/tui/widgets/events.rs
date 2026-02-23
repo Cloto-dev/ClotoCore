@@ -3,6 +3,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 
 use crate::tui::app::App;
 
+#[allow(clippy::too_many_lines)]
 pub fn render(f: &mut Frame, area: Rect, app: &App, is_active: bool) {
     let border_style = if is_active {
         Style::default().fg(Color::Cyan)
@@ -40,8 +41,10 @@ pub fn render(f: &mut Frame, area: Rect, app: &App, is_active: bool) {
                 .get("timestamp")
                 .and_then(|t| t.as_str())
                 .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
-                .map(|dt| dt.format("%H:%M:%S").to_string())
-                .unwrap_or_else(|| "??:??:??".to_string());
+                .map_or_else(
+                    || "??:??:??".to_string(),
+                    |dt| dt.format("%H:%M:%S").to_string(),
+                );
 
             let data = event
                 .get("data")
@@ -72,7 +75,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &App, is_active: bool) {
                     let agent = data.get("agent_id").and_then(|a| a.as_str()).unwrap_or("?");
                     let on = data
                         .get("enabled")
-                        .and_then(|e| e.as_bool())
+                        .and_then(serde_json::Value::as_bool)
                         .unwrap_or(false);
                     (
                         Color::Magenta,

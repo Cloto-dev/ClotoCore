@@ -47,6 +47,7 @@ impl SystemHandler {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub async fn handle_message(&self, msg: ExivMessage) -> anyhow::Result<()> {
         let target_agent_id = msg
             .metadata
@@ -55,7 +56,7 @@ impl SystemHandler {
             .unwrap_or_else(|| self.default_agent_id.clone());
 
         // 1. エージェント情報の取得
-        let (agent, _engine_id) = self
+        let (agent, default_engine_id) = self
             .agent_manager
             .get_agent_config(&target_agent_id)
             .await?;
@@ -110,16 +111,9 @@ impl SystemHandler {
                 let plugin_exiv_id = exiv_shared::ExivId::from_name(&manifest.id);
                 let has_memory_read = perms_lock
                     .get(&plugin_exiv_id)
-                    .map(|p| p.contains(&exiv_shared::Permission::MemoryRead))
-                    .unwrap_or(false);
+                    .is_some_and(|p| p.contains(&exiv_shared::Permission::MemoryRead));
                 drop(perms_lock);
-                if !has_memory_read {
-                    tracing::warn!(
-                        plugin_id = %manifest.id,
-                        "⚠️  Memory plugin lacks MemoryRead permission — context recall skipped"
-                    );
-                    vec![]
-                } else {
+                if has_memory_read {
                     // 🛑 停滞対策: メモリの呼び出しにタイムアウトを設定
                     match tokio::time::timeout(
                         std::time::Duration::from_secs(5),
@@ -137,6 +131,12 @@ impl SystemHandler {
                             vec![]
                         }
                     }
+                } else {
+                    tracing::warn!(
+                        plugin_id = %manifest.id,
+                        "⚠️  Memory plugin lacks MemoryRead permission — context recall skipped"
+                    );
+                    vec![]
                 } // end has_memory_read else branch
             } else {
                 vec![]
@@ -172,7 +172,7 @@ impl SystemHandler {
         info!(
             target_agent_id = %target_agent_id,
             agent_name = %agent.name,
-            engine_id = %_engine_id,
+            engine_id = %default_engine_id,
             "📢 Dispatching Thought/Consensus Request"
         );
 
@@ -221,7 +221,7 @@ impl SystemHandler {
             }
         } else {
             // 通常モード: エージェントループで処理
-            let engine_id = _engine_id;
+            let engine_id = default_engine_id;
             match self
                 .run_agentic_loop(
                     &agent,
@@ -335,15 +335,9 @@ impl SystemHandler {
                     let pid = exiv_shared::ExivId::from_name(&manifest.id);
                     perms_lock
                         .get(&pid)
-                        .map(|p| p.contains(&exiv_shared::Permission::MemoryWrite))
-                        .unwrap_or(false)
+                        .is_some_and(|p| p.contains(&exiv_shared::Permission::MemoryWrite))
                 };
-                if !has_memory_write {
-                    tracing::warn!(
-                        plugin_id = %manifest.id,
-                        "⚠️  Memory plugin lacks MemoryWrite permission — store skipped"
-                    );
-                } else {
+                if has_memory_write {
                     let agent_id = agent.id.clone();
                     let plugin_clone = plugin.clone();
                     let metrics = self.metrics.clone();
@@ -370,6 +364,11 @@ impl SystemHandler {
                             }
                         }
                     });
+                } else {
+                    tracing::warn!(
+                        plugin_id = %manifest.id,
+                        "⚠️  Memory plugin lacks MemoryWrite permission — store skipped"
+                    );
                 } // end has_memory_write branch
             }
         } else if let Some((mcp, server_id)) = mcp_memory {
@@ -413,6 +412,7 @@ impl SystemHandler {
 
     // ── Agentic Loop ──
 
+    #[allow(clippy::too_many_lines)]
     async fn run_agentic_loop(
         &self,
         agent: &AgentMetadata,
@@ -447,8 +447,7 @@ impl SystemHandler {
         let supports_tools = if let Some(ref plugin) = engine_plugin {
             plugin
                 .as_reasoning()
-                .map(|e| e.supports_tools())
-                .unwrap_or(false)
+                .is_some_and(exiv_shared::ReasoningEngine::supports_tools)
         } else if let Some(ref mcp) = mcp_engine {
             // MCP engine supports tools if it has a 'think_with_tools' tool
             mcp.has_server_tool(engine_id, "think_with_tools").await
@@ -460,8 +459,8 @@ impl SystemHandler {
         if !supports_tools {
             return self
                 .engine_think(
-                    &engine_plugin,
-                    &mcp_engine,
+                    engine_plugin.as_ref(),
+                    mcp_engine.as_ref(),
                     engine_id,
                     agent,
                     message,
@@ -481,8 +480,8 @@ impl SystemHandler {
         if tools.is_empty() {
             return self
                 .engine_think(
-                    &engine_plugin,
-                    &mcp_engine,
+                    engine_plugin.as_ref(),
+                    mcp_engine.as_ref(),
                     engine_id,
                     agent,
                     message,
@@ -524,8 +523,8 @@ impl SystemHandler {
                 );
                 return self
                     .engine_think(
-                        &engine_plugin,
-                        &mcp_engine,
+                        engine_plugin.as_ref(),
+                        mcp_engine.as_ref(),
                         engine_id,
                         agent,
                         message,
@@ -536,8 +535,8 @@ impl SystemHandler {
 
             let result = self
                 .engine_think_with_tools(
-                    &engine_plugin,
-                    &mcp_engine,
+                    engine_plugin.as_ref(),
+                    mcp_engine.as_ref(),
                     engine_id,
                     agent,
                     message,
@@ -698,8 +697,8 @@ impl SystemHandler {
     /// Call engine's think() — routes to either Rust plugin or MCP server.
     async fn engine_think(
         &self,
-        engine_plugin: &Option<Arc<dyn Plugin>>,
-        mcp_engine: &Option<Arc<McpClientManager>>,
+        engine_plugin: Option<&Arc<dyn Plugin>>,
+        mcp_engine: Option<&Arc<McpClientManager>>,
         engine_id: &str,
         agent: &AgentMetadata,
         message: &ExivMessage,
@@ -733,8 +732,8 @@ impl SystemHandler {
     /// Call engine's think_with_tools() — routes to either Rust plugin or MCP server.
     async fn engine_think_with_tools(
         &self,
-        engine_plugin: &Option<Arc<dyn Plugin>>,
-        mcp_engine: &Option<Arc<McpClientManager>>,
+        engine_plugin: Option<&Arc<dyn Plugin>>,
+        mcp_engine: Option<&Arc<McpClientManager>>,
         engine_id: &str,
         agent: &AgentMetadata,
         message: &ExivMessage,
@@ -812,49 +811,45 @@ impl SystemHandler {
 
                 let result_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("final");
 
-                match result_type {
-                    "tool_calls" => {
-                        let assistant_content = json
-                            .get("assistant_content")
-                            .and_then(|c| c.as_str())
-                            .map(|s| s.to_string());
-                        let calls_json = json
-                            .get("calls")
-                            .and_then(|c| c.as_array())
-                            .cloned()
-                            .unwrap_or_default();
+                if result_type == "tool_calls" {
+                    let assistant_content = json
+                        .get("assistant_content")
+                        .and_then(|c| c.as_str())
+                        .map(std::string::ToString::to_string);
+                    let calls_json = json
+                        .get("calls")
+                        .and_then(|c| c.as_array())
+                        .cloned()
+                        .unwrap_or_default();
 
-                        let calls: Vec<ToolCall> = calls_json
-                            .iter()
-                            .filter_map(|tc| {
-                                let id = tc.get("id")?.as_str()?.to_string();
-                                let name = tc.get("name")?.as_str()?.to_string();
-                                let arguments = tc
-                                    .get("arguments")
-                                    .cloned()
-                                    .unwrap_or(serde_json::json!({}));
-                                Some(ToolCall {
-                                    id,
-                                    name,
-                                    arguments,
-                                })
+                    let calls: Vec<ToolCall> = calls_json
+                        .iter()
+                        .filter_map(|tc| {
+                            let id = tc.get("id")?.as_str()?.to_string();
+                            let name = tc.get("name")?.as_str()?.to_string();
+                            let arguments = tc
+                                .get("arguments")
+                                .cloned()
+                                .unwrap_or(serde_json::json!({}));
+                            Some(ToolCall {
+                                id,
+                                name,
+                                arguments,
                             })
-                            .collect();
+                        })
+                        .collect();
 
-                        return Ok(ThinkResult::ToolCalls {
-                            assistant_content,
-                            calls,
-                        });
-                    }
-                    _ => {
-                        let content = json
-                            .get("content")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        return Ok(ThinkResult::Final(content));
-                    }
+                    return Ok(ThinkResult::ToolCalls {
+                        assistant_content,
+                        calls,
+                    });
                 }
+                let content = json
+                    .get("content")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                return Ok(ThinkResult::Final(content));
             }
         }
         Err(anyhow::anyhow!(
@@ -952,7 +947,7 @@ impl Plugin for SystemHandler {
             action_icon: None,
             action_target: None,
             icon_data: None,
-            magic_seal: 0x56455253,
+            magic_seal: 0x5645_5253,
             sdk_version: "internal".to_string(),
             required_permissions: vec![],
             provided_capabilities: vec![],

@@ -47,10 +47,10 @@ pub async fn run(client: &ExivClient, cmd: AgentsCommand, json_mode: bool) -> Re
 }
 
 async fn list(client: &ExivClient, json_mode: bool) -> Result<()> {
-    let sp = if !json_mode {
-        Some(output::spinner("Loading agents..."))
-    } else {
+    let sp = if json_mode {
         None
+    } else {
+        Some(output::spinner("Loading agents..."))
     };
     let agents = client.get_agents().await?;
     if let Some(sp) = sp {
@@ -83,7 +83,7 @@ async fn create(
     let (name, description, engine, agent_type, password) = if has_all_flags {
         (
             name.unwrap(),
-            description.unwrap_or_else(|| String::new()),
+            description.unwrap_or_default(),
             engine.unwrap(),
             agent_type,
             password,
@@ -112,10 +112,10 @@ async fn create(
         "password": password,
     });
 
-    let sp = if !json_mode {
-        Some(output::spinner("Creating agent..."))
-    } else {
+    let sp = if json_mode {
         None
+    } else {
+        Some(output::spinner("Creating agent..."))
     };
     let result: serde_json::Value = client.create_agent(&body).await?;
     if let Some(sp) = sp {
@@ -246,24 +246,14 @@ async fn power(
     json_mode: bool,
 ) -> Result<()> {
     // If the agent has a password and none was provided, prompt interactively
-    let password = match password {
-        Some(p) => Some(p),
-        None if !json_mode => {
-            // Check if agent requires password by attempting without one first
-            // and prompting on failure
-            None
-        }
-        None => None,
-    };
-
-    let sp = if !json_mode {
+    let sp = if json_mode {
+        None
+    } else {
         Some(output::spinner(&format!(
             "Powering {} {}...",
             agent_id,
             if enabled { "ON" } else { "OFF" }
         )))
-    } else {
-        None
     };
 
     let result = client
@@ -348,10 +338,10 @@ async fn delete(client: &ExivClient, agent_id: &str, force: bool, json_mode: boo
         }
     }
 
-    let sp = if !json_mode {
-        Some(output::spinner("Deleting agent..."))
-    } else {
+    let sp = if json_mode {
         None
+    } else {
+        Some(output::spinner("Deleting agent..."))
     };
     let result = client.delete_agent(agent_id).await;
     if let Some(sp) = sp {

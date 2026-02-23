@@ -16,7 +16,11 @@ fn generate_api_key() -> String {
     use rand::rngs::OsRng;
     use rand::Rng;
     let bytes: [u8; 32] = OsRng.gen();
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    use std::fmt::Write;
+    bytes.iter().fold(String::with_capacity(64), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    })
 }
 
 /// Generate .env file content

@@ -652,6 +652,9 @@ pub async fn save_chat_message(pool: &SqlitePool, msg: &ChatMessageRow) -> anyho
     Ok(())
 }
 
+/// Row type returned by chat message queries.
+type ChatMessageTuple = (String, String, String, String, String, Option<String>, i64);
+
 /// Get chat messages with cursor-based pagination (ordered by created_at DESC)
 pub async fn get_chat_messages(
     pool: &SqlitePool,
@@ -662,49 +665,46 @@ pub async fn get_chat_messages(
 ) -> anyhow::Result<Vec<ChatMessageRow>> {
     let limit = limit.min(200);
 
-    let rows: Vec<(String, String, String, String, String, Option<String>, i64)> =
-        if let Some(before) = before_ts {
-            let query_future =
-                sqlx::query_as::<_, (String, String, String, String, String, Option<String>, i64)>(
-                    "SELECT id, agent_id, user_id, source, content, metadata, created_at
+    let rows: Vec<ChatMessageTuple> = if let Some(before) = before_ts {
+        let query_future = sqlx::query_as::<_, ChatMessageTuple>(
+            "SELECT id, agent_id, user_id, source, content, metadata, created_at
              FROM chat_messages
              WHERE agent_id = ? AND user_id = ? AND created_at < ?
              ORDER BY created_at DESC
              LIMIT ?",
-                )
-                .bind(agent_id)
-                .bind(user_id)
-                .bind(before)
-                .bind(limit)
-                .fetch_all(pool);
+        )
+        .bind(agent_id)
+        .bind(user_id)
+        .bind(before)
+        .bind(limit)
+        .fetch_all(pool);
 
-            timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-                .await
-                .map_err(|_| {
-                    anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
-                })?
-                .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?
-        } else {
-            let query_future =
-                sqlx::query_as::<_, (String, String, String, String, String, Option<String>, i64)>(
-                    "SELECT id, agent_id, user_id, source, content, metadata, created_at
+        timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
+            })?
+            .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?
+    } else {
+        let query_future = sqlx::query_as::<_, ChatMessageTuple>(
+            "SELECT id, agent_id, user_id, source, content, metadata, created_at
              FROM chat_messages
              WHERE agent_id = ? AND user_id = ?
              ORDER BY created_at DESC
              LIMIT ?",
-                )
-                .bind(agent_id)
-                .bind(user_id)
-                .bind(limit)
-                .fetch_all(pool);
+        )
+        .bind(agent_id)
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(pool);
 
-            timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-                .await
-                .map_err(|_| {
-                    anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
-                })?
-                .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?
-        };
+        timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
+            })?
+            .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?
+    };
 
     let messages = rows
         .into_iter()
@@ -1411,6 +1411,7 @@ pub async fn update_mcp_server_default_policy(
 /// Compute a deterministic fingerprint of a key for revocation storage.
 /// Uses DefaultHasher with a fixed salt (not crypto-grade, but sufficient
 /// for revocation purposes on a local LAN-only dashboard).
+#[must_use]
 pub fn hash_api_key(key: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::fmt::Write as _;
@@ -1421,7 +1422,7 @@ pub fn hash_api_key(key: &str) -> String {
     b"exiv-revoke-salt-2026".hash(&mut h);
     let val = h.finish();
     let mut out = String::new();
-    write!(out, "{:016x}{:016x}", val, val ^ 0xdeadbeef_cafebabe).unwrap();
+    write!(out, "{:016x}{:016x}", val, val ^ 0xdead_beef_cafe_babe).unwrap();
     out
 }
 

@@ -24,7 +24,7 @@ fn rate_limiter_single_ip(c: &mut Criterion) {
 fn rate_limiter_multiple_ips(c: &mut Criterion) {
     let mut group = c.benchmark_group("rate_limiter_multiple_ips");
 
-    for ip_count in [10, 100, 1000].iter() {
+    for ip_count in &[10, 100, 1000] {
         group.bench_with_input(
             BenchmarkId::from_parameter(ip_count),
             ip_count,
@@ -78,7 +78,7 @@ fn rate_limiter_concurrent_access(c: &mut Criterion) {
 fn rate_limiter_cleanup_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("rate_limiter_cleanup");
 
-    for ip_count in [10, 100, 1000].iter() {
+    for ip_count in &[10, 100, 1000] {
         group.bench_with_input(
             BenchmarkId::from_parameter(ip_count),
             ip_count,
@@ -90,7 +90,7 @@ fn rate_limiter_cleanup_benchmark(c: &mut Criterion) {
                         for i in 0..count {
                             let ip: IpAddr =
                                 format!("172.16.{}.{}", i / 256, i % 256).parse().unwrap();
-                            limiter.check(ip);
+                            let _ = limiter.check(ip);
                         }
                         limiter
                     },
@@ -115,7 +115,7 @@ fn rate_limiter_tracked_ips_count(c: &mut Criterion) {
         // Populate with 1000 IPs
         for i in 0..1000 {
             let ip: IpAddr = format!("192.168.{}.{}", i / 256, i % 256).parse().unwrap();
-            limiter.check(ip);
+            let _ = limiter.check(ip);
         }
 
         b.iter(|| {

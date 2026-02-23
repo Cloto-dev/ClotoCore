@@ -43,6 +43,7 @@ impl SafeHttpClient {
     }
 
     /// IPアドレスベースでの制限チェック (Principle #5: Strict Permission Isolation)
+    #[allow(clippy::unused_self)]
     fn is_restricted_addr(&self, ip: IpAddr) -> bool {
         match ip {
             IpAddr::V4(v4) => {
@@ -163,6 +164,7 @@ pub struct SandboxedFileCapability {
 
 impl SandboxedFileCapability {
     /// Create a read-only capability sandboxed to `base_dir`.
+    #[must_use]
     pub fn read_only(base_dir: PathBuf) -> Self {
         Self {
             base_dir,
@@ -171,6 +173,7 @@ impl SandboxedFileCapability {
     }
 
     /// Create a read+write capability sandboxed to `base_dir`.
+    #[must_use]
     pub fn read_write(base_dir: PathBuf) -> Self {
         Self {
             base_dir,
@@ -250,6 +253,7 @@ pub struct AllowedProcessCapability {
 
 impl AllowedProcessCapability {
     /// Create a capability that permits the given command names.
+    #[must_use]
     pub fn new(commands: Vec<String>) -> Self {
         Self {
             allowed_commands: Arc::new(commands.into_iter().collect()),

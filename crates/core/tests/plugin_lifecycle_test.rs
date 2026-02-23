@@ -77,7 +77,7 @@ async fn test_invalid_magic_seal_rejected() {
                 action_icon: None,
                 action_target: None,
                 icon_data: None,
-                magic_seal: 0xDEADBEEF, // Invalid seal
+                magic_seal: 0xDEAD_BEEF, // Invalid seal
                 sdk_version: "1.0.0".to_string(),
                 required_permissions: vec![],
                 provided_capabilities: vec![],
@@ -96,7 +96,7 @@ async fn test_invalid_magic_seal_rejected() {
     let plugin = BadSealPlugin;
     let manifest = plugin.manifest();
     assert_ne!(
-        manifest.magic_seal, 0x56455253,
+        manifest.magic_seal, 0x5645_5253,
         "Bad seal should not match official SDK seal"
     );
 }

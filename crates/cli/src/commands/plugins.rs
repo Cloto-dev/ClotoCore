@@ -11,10 +11,10 @@ pub async fn run(client: &ExivClient, cmd: PluginsCommand, json_mode: bool) -> R
 }
 
 async fn list(client: &ExivClient, json_mode: bool) -> Result<()> {
-    let sp = if !json_mode {
-        Some(output::spinner("Loading plugins..."))
-    } else {
+    let sp = if json_mode {
         None
+    } else {
+        Some(output::spinner("Loading plugins..."))
     };
     let plugins = client.get_plugins().await?;
     if let Some(sp) = sp {

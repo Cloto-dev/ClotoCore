@@ -69,7 +69,7 @@ async fn test_permissions_are_isolated_between_plugins() {
     let perms = registry.effective_permissions.read().await;
     // plugin_b should have no permissions
     assert!(
-        perms.get(&plugin_b).is_none_or(|p| p.is_empty()),
+        perms.get(&plugin_b).is_none_or(std::vec::Vec::is_empty),
         "plugin.b must not inherit plugin.a's permissions"
     );
 }

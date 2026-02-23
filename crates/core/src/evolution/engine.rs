@@ -588,6 +588,7 @@ impl EvolutionEngine {
     // ── Main Evaluation Entry Point ──
 
     /// Called after each interaction. Evaluates fitness and checks for generation transitions.
+    #[allow(clippy::too_many_lines)]
     pub async fn evaluate(
         &self,
         agent_id: &str,
@@ -809,15 +810,19 @@ impl EvolutionEngine {
             violation_type: "safety_gate_zero".to_string(),
             detail: "SafetyGate triggered: safety score dropped below 1.0".to_string(),
         });
-        if latest_gen > 1 {
-            let rollback_events = self
-                .execute_rollback(agent_id, latest_gen - 1, "Safety breach detected")
-                .await?;
-            events.extend(rollback_events);
-        } else if latest_gen == 1 {
-            warn!(agent_id = %agent_id, "Safety breach on generation 1, no earlier generation available");
-        } else {
-            warn!(agent_id = %agent_id, "Safety breach on generation 0, no rollback target exists");
+        match latest_gen {
+            2.. => {
+                let rollback_events = self
+                    .execute_rollback(agent_id, latest_gen - 1, "Safety breach detected")
+                    .await?;
+                events.extend(rollback_events);
+            }
+            1 => {
+                warn!(agent_id = %agent_id, "Safety breach on generation 1, no earlier generation available");
+            }
+            0 => {
+                warn!(agent_id = %agent_id, "Safety breach on generation 0, no rollback target exists");
+            }
         }
         Ok(())
     }
@@ -1067,13 +1072,6 @@ impl FitnessCollector {
                 m.total_interactions += 1;
                 Some(agent_id.clone())
             }
-            ExivEventData::PermissionRequested { .. } => {
-                // PermissionRequested lacks agent_id; tracked as system-level metric.
-                // Future enhancement: correlate with recent ThoughtResponse agent_id.
-                None
-            }
-            ExivEventData::PermissionGranted { .. } => None,
-            ExivEventData::ActionRequested { .. } => None,
             ExivEventData::EvolutionBreach { agent_id, .. } => {
                 let mut metrics = self.metrics.write().await;
                 let m = metrics.entry(agent_id.clone()).or_default();

@@ -5,6 +5,7 @@ use futures::StreamExt;
 use crate::client::ExivClient;
 use crate::output;
 
+#[allow(clippy::too_many_lines)]
 pub async fn run(client: &ExivClient, agent: &str, message: &str, json_mode: bool) -> Result<()> {
     if !json_mode {
         println!("  {}: {message}", "You".bold());
@@ -30,10 +31,10 @@ pub async fn run(client: &ExivClient, agent: &str, message: &str, json_mode: boo
         .context("Failed to send message")?;
 
     // Connect to SSE stream and wait for ThoughtResponse
-    let sp = if !json_mode {
-        Some(output::spinner("Thinking..."))
-    } else {
+    let sp = if json_mode {
         None
+    } else {
+        Some(output::spinner("Thinking..."))
     };
 
     let response = client

@@ -16,7 +16,7 @@ fn json_serialization_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("db_json_operations");
 
-    for size in [10, 100, 1000].iter() {
+    for size in &[10, 100, 1000] {
         let json_data = serde_json::json!({
             "data": vec!["test".to_string(); *size],
             "timestamp": chrono::Utc::now().to_rfc3339(),

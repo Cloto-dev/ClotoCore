@@ -145,6 +145,7 @@ impl EventProcessor {
         const MAX_EVENT_HISTORY: usize = 10_000;
 
         // M-10: Use configurable retention period instead of hardcoded 24h
+        #[allow(clippy::cast_possible_wrap)]
         let cutoff =
             chrono::Utc::now() - chrono::Duration::hours(self.event_retention_hours as i64);
         let mut history = self.history.write().await;
@@ -175,6 +176,7 @@ impl EventProcessor {
         info!("Event history cleanup: {} events retained", history.len());
     }
 
+    #[allow(clippy::too_many_lines)]
     pub async fn process_loop(
         &self,
         mut event_rx: mpsc::Receiver<crate::EnvelopedEvent>,

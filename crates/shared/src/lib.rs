@@ -35,15 +35,18 @@ impl Default for ExivId {
 }
 
 impl ExivId {
+    #[must_use]
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
 
     /// トレース用のIDを生成
+    #[must_use]
     pub fn new_trace_id() -> Self {
         Self(Uuid::new_v4())
     }
 
+    #[must_use]
     pub fn from_name(name: &str) -> Self {
         let namespace = Uuid::NAMESPACE_DNS;
         Self(Uuid::new_v5(&namespace, name.as_bytes()))
@@ -305,6 +308,7 @@ pub struct ExivMessage {
 }
 
 impl ExivMessage {
+    #[must_use]
     pub fn new(source: MessageSource, content: String) -> Self {
         Self {
             id: ExivId::new().to_string(),
@@ -651,6 +655,7 @@ pub enum ExivEventData {
 }
 
 impl ExivEvent {
+    #[must_use]
     pub fn new(data: ExivEventData) -> Self {
         Self {
             trace_id: ExivId::new_trace_id(),
@@ -659,6 +664,7 @@ impl ExivEvent {
         }
     }
 
+    #[must_use]
     pub fn with_trace(trace_id: ExivId, data: ExivEventData) -> Self {
         Self {
             trace_id,
@@ -685,9 +691,7 @@ pub struct AgentMetadata {
 impl AgentMetadata {
     /// Resolve dynamic status from enabled flag and last_seen timestamp.
     pub fn resolve_status(&mut self, heartbeat_threshold_ms: i64) {
-        self.status = if !self.enabled {
-            "offline".to_string()
-        } else if self.last_seen == 0 {
+        self.status = if !self.enabled || self.last_seen == 0 {
             "offline".to_string()
         } else {
             let now_ms = chrono::Utc::now().timestamp_millis();

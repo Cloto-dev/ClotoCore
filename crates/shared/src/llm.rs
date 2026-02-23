@@ -15,8 +15,7 @@ fn build_system_prompt(agent: &AgentMetadata) -> String {
     let has_memory = agent
         .metadata
         .get("preferred_memory")
-        .map(|m| !m.is_empty())
-        .unwrap_or(false);
+        .is_some_and(|m| !m.is_empty());
 
     let memory_line = if has_memory {
         "You have persistent memory — you can recall past conversations with your operator.\n"
@@ -41,6 +40,7 @@ fn build_system_prompt(agent: &AgentMetadata) -> String {
 ///
 /// Returns `[system_message, ...context_messages, user_message]`.
 /// The caller may append additional entries (e.g. tool_history) after this.
+#[must_use]
 pub fn build_chat_messages(
     agent: &AgentMetadata,
     message: &ExivMessage,
@@ -69,6 +69,7 @@ pub fn build_chat_messages(
 /// Build an `HttpRequest` for an OpenAI-compatible chat completions endpoint.
 ///
 /// When `tools` is `Some` and non-empty, the `"tools"` field is included in the body.
+#[must_use]
 pub fn build_chat_request(
     url: &str,
     api_key: &str,
@@ -125,8 +126,7 @@ pub fn parse_chat_content(response_body: &str, provider_name: &str) -> anyhow::R
     if json
         .get("type")
         .and_then(|t| t.as_str())
-        .map(|t| t.contains("error"))
-        .unwrap_or(false)
+        .is_some_and(|t| t.contains("error"))
     {
         let msg = json
             .get("message")
@@ -140,7 +140,7 @@ pub fn parse_chat_content(response_body: &str, provider_name: &str) -> anyhow::R
         .and_then(|c| c.get("message"))
         .and_then(|m| m.get("content"))
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .ok_or_else(|| {
             tracing::error!(provider = %provider_name, body = %response_body, "Unexpected API response structure");
             anyhow::anyhow!(
@@ -180,8 +180,7 @@ pub fn parse_chat_think_result(
     if json
         .get("type")
         .and_then(|t| t.as_str())
-        .map(|t| t.contains("error"))
-        .unwrap_or(false)
+        .is_some_and(|t| t.contains("error"))
     {
         let msg = json
             .get("message")
@@ -229,7 +228,7 @@ pub fn parse_chat_think_result(
                 let assistant_content = message_obj
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                    .map(std::string::ToString::to_string);
                 return Ok(ThinkResult::ToolCalls {
                     assistant_content,
                     calls,

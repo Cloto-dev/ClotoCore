@@ -152,14 +152,14 @@ mod tests {
 
         assert_eq!(limiter.tracked_ips(), 0);
 
-        limiter.check(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)));
+        let _ = limiter.check(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)));
         assert_eq!(limiter.tracked_ips(), 1);
 
-        limiter.check(IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)));
+        let _ = limiter.check(IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)));
         assert_eq!(limiter.tracked_ips(), 2);
 
         // Same IP should not increase count
-        limiter.check(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)));
+        let _ = limiter.check(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)));
         assert_eq!(limiter.tracked_ips(), 2);
     }
 }

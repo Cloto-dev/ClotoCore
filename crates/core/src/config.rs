@@ -40,6 +40,7 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
+    #[allow(clippy::too_many_lines)]
     pub fn load() -> anyhow::Result<Self> {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
             let db_path = exe_dir().join("data").join("exiv_memories.db");

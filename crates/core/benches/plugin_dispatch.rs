@@ -93,7 +93,7 @@ fn plugin_dispatch_concurrent(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("plugin_dispatch_concurrent");
 
-    for plugin_count in [5, 10, 20].iter() {
+    for plugin_count in &[5, 10, 20] {
         group.bench_with_input(
             BenchmarkId::from_parameter(plugin_count),
             plugin_count,
@@ -133,7 +133,7 @@ fn plugin_dispatch_no_latency(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("plugin_dispatch_no_latency");
 
-    for plugin_count in [5, 10, 20].iter() {
+    for plugin_count in &[5, 10, 20] {
         group.bench_with_input(
             BenchmarkId::from_parameter(plugin_count),
             plugin_count,

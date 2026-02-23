@@ -4,7 +4,7 @@
 
 use exiv_core::{
     config::AppConfig,
-    managers::{AgentManager, PluginManager, PluginRegistry, SystemMetrics},
+    managers::{AgentManager, McpClientManager, PluginManager, PluginRegistry, SystemMetrics},
     AppState, DynamicRouter,
 };
 use exiv_shared::{ExivEvent, ExivEventData, ExivMessage, MessageSource};
@@ -41,6 +41,8 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
 
     let rate_limiter = Arc::new(exiv_core::middleware::RateLimiter::new(100, 200));
 
+    let mcp_manager = Arc::new(McpClientManager::new(pool.clone(), false));
+
     Arc::new(AppState {
         tx,
         registry,
@@ -48,6 +50,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         pool,
         agent_manager,
         plugin_manager,
+        mcp_manager,
         dynamic_router,
         config,
         event_history,
@@ -55,6 +58,8 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         rate_limiter,
         shutdown: Arc::new(Notify::new()),
         evolution_engine: None,
+        fitness_collector: None,
+        revoked_keys: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
     })
 }
 

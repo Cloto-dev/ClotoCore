@@ -27,10 +27,10 @@ pub async fn run(client: &ExivClient, follow: bool, limit: usize, json_mode: boo
 
 /// Display recent event history from the ring buffer.
 async fn show_history(client: &ExivClient, limit: usize, json_mode: bool) -> Result<()> {
-    let sp = if !json_mode {
-        Some(output::spinner("Loading event history..."))
-    } else {
+    let sp = if json_mode {
         None
+    } else {
+        Some(output::spinner("Loading event history..."))
     };
     let history: Vec<serde_json::Value> = client.get_history().await?;
     if let Some(sp) = sp {
@@ -127,6 +127,7 @@ async fn follow_stream(client: &ExivClient, json_mode: bool) -> Result<()> {
 }
 
 /// Format and print a single event with color coding.
+#[allow(clippy::too_many_lines)]
 fn print_event(event: &serde_json::Value) {
     let event_type = event
         .get("type")
@@ -137,8 +138,10 @@ fn print_event(event: &serde_json::Value) {
         .get("timestamp")
         .and_then(|t| t.as_str())
         .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
-        .map(|dt| dt.format("%H:%M:%S").to_string())
-        .unwrap_or_else(|| "??:??:??".to_string());
+        .map_or_else(
+            || "??:??:??".to_string(),
+            |dt| dt.format("%H:%M:%S").to_string(),
+        );
 
     let data = event
         .get("data")
@@ -191,7 +194,7 @@ fn print_event(event: &serde_json::Value) {
             let agent = data.get("agent_id").and_then(|a| a.as_str()).unwrap_or("?");
             let enabled = data
                 .get("enabled")
-                .and_then(|e| e.as_bool())
+                .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
             let state = if enabled {
                 "ON".green().to_string()
@@ -237,7 +240,9 @@ fn print_event(event: &serde_json::Value) {
         }
         _ => (
             format!("[{}]", event_type.dimmed()),
-            format!("{}", serde_json::to_string(&data).unwrap_or_default())
+            serde_json::to_string(&data)
+                .unwrap_or_default()
+                .clone()
                 .dimmed()
                 .to_string(),
         ),

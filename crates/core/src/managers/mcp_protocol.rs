@@ -33,6 +33,7 @@ pub struct JsonRpcError {
 }
 
 impl JsonRpcRequest {
+    #[must_use]
     pub fn new(id: i64, method: &str, params: Option<Value>) -> Self {
         Self {
             jsonrpc: "2.0".to_string(),
@@ -42,6 +43,7 @@ impl JsonRpcRequest {
         }
     }
 
+    #[must_use]
     pub fn notification(method: &str, params: Option<Value>) -> Self {
         Self {
             jsonrpc: "2.0".to_string(),

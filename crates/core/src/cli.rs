@@ -172,6 +172,7 @@ fn is_downgrade(current: &str, target: &str) -> bool {
     false
 }
 
+#[allow(clippy::too_many_lines)]
 async fn update_command(
     check_only: bool,
     target_version: Option<String>,

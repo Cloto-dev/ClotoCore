@@ -5,10 +5,10 @@ use crate::client::ExivClient;
 use crate::output;
 
 pub async fn run(client: &ExivClient, json_mode: bool) -> Result<()> {
-    let sp = if !json_mode {
-        Some(output::spinner("Fetching system status..."))
-    } else {
+    let sp = if json_mode {
         None
+    } else {
+        Some(output::spinner("Fetching system status..."))
     };
 
     let agents = client.get_agents().await?;
@@ -50,15 +50,15 @@ pub async fn run(client: &ExivClient, json_mode: bool) -> Result<()> {
 
     let total_requests = metrics
         .get("total_requests")
-        .and_then(|v| v.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
     let total_memories = metrics
         .get("total_memories")
-        .and_then(|v| v.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
     let total_episodes = metrics
         .get("total_episodes")
-        .and_then(|v| v.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
 
     output::print_header("Exiv System Status");

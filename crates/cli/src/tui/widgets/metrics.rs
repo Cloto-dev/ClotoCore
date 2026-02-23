@@ -12,15 +12,15 @@ pub fn render(f: &mut Frame, area: Rect, app: &App) {
     let content = if let Some(ref metrics) = app.metrics {
         let requests = metrics
             .get("total_requests")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
         let memories = metrics
             .get("total_memories")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
         let episodes = metrics
             .get("total_episodes")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(0);
         let event_count = app.events.len();
 

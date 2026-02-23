@@ -64,10 +64,10 @@ impl App {
         match action {
             AppAction::AgentsUpdated(agents) => {
                 // bug-028: Clamp scroll position when list shrinks
-                if !agents.is_empty() {
-                    self.agent_scroll = self.agent_scroll.min(agents.len() - 1);
-                } else {
+                if agents.is_empty() {
                     self.agent_scroll = 0;
+                } else {
+                    self.agent_scroll = self.agent_scroll.min(agents.len() - 1);
                 }
                 self.agents = agents;
                 self.connected = true;
@@ -86,10 +86,10 @@ impl App {
                     self.events.drain(..self.events.len() - 200);
                 }
                 // bug-028: Clamp event scroll after drain
-                if !self.events.is_empty() {
-                    self.event_scroll = self.event_scroll.min(self.events.len() - 1);
-                } else {
+                if self.events.is_empty() {
                     self.event_scroll = 0;
+                } else {
+                    self.event_scroll = self.event_scroll.min(self.events.len() - 1);
                 }
             }
             AppAction::Tick => {}

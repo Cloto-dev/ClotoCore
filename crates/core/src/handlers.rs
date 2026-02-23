@@ -876,7 +876,6 @@ pub async fn sse_handler(
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     tracing::warn!("SSE stream lagged by {} messages", n);
-                    continue;
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                     break;
@@ -1300,41 +1299,38 @@ pub async fn get_mcp_server_settings(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
 
-    match settings {
-        Some((record, default_policy)) => {
-            // Get env config from running server if available
-            let config: HashMap<String, String> = HashMap::new();
-            let auto_restart = false;
+    if let Some((record, default_policy)) = settings {
+        // Get env config from running server if available
+        let config: HashMap<String, String> = HashMap::new();
+        let auto_restart = false;
 
+        Ok(Json(serde_json::json!({
+            "server_id": record.name,
+            "default_policy": default_policy,
+            "config": config,
+            "auto_restart": auto_restart,
+            "command": record.command,
+            "args": serde_json::from_str::<Vec<String>>(&record.args).unwrap_or_default(),
+            "description": record.description,
+        })))
+    } else {
+        // Fallback: check in-memory servers (config-loaded servers aren't persisted to DB)
+        let servers = state.mcp_manager.list_servers().await;
+        if let Some(server) = servers.iter().find(|s| s.id == name) {
             Ok(Json(serde_json::json!({
-                "server_id": record.name,
-                "default_policy": default_policy,
-                "config": config,
-                "auto_restart": auto_restart,
-                "command": record.command,
-                "args": serde_json::from_str::<Vec<String>>(&record.args).unwrap_or_default(),
-                "description": record.description,
+                "server_id": server.id,
+                "default_policy": "opt-in",
+                "config": {},
+                "auto_restart": false,
+                "command": server.command,
+                "args": server.args,
+                "description": null,
             })))
-        }
-        None => {
-            // Fallback: check in-memory servers (config-loaded servers aren't persisted to DB)
-            let servers = state.mcp_manager.list_servers().await;
-            if let Some(server) = servers.iter().find(|s| s.id == name) {
-                Ok(Json(serde_json::json!({
-                    "server_id": server.id,
-                    "default_policy": "opt-in",
-                    "config": {},
-                    "auto_restart": false,
-                    "command": server.command,
-                    "args": server.args,
-                    "description": null,
-                })))
-            } else {
-                Err(AppError::Validation(format!(
-                    "MCP server '{}' not found",
-                    name
-                )))
-            }
+        } else {
+            Err(AppError::Validation(format!(
+                "MCP server '{}' not found",
+                name
+            )))
         }
     }
 }
@@ -1392,10 +1388,7 @@ pub async fn get_mcp_server_access(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
 
-    let default_policy = settings
-        .as_ref()
-        .map(|(_, dp)| dp.as_str())
-        .unwrap_or("opt-in");
+    let default_policy = settings.as_ref().map_or("opt-in", |(_, dp)| dp.as_str());
 
     // Get tools from running server
     let tools: Vec<String> = {

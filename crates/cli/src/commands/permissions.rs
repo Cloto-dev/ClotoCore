@@ -77,8 +77,7 @@ async fn pending(client: &ExivClient, json: bool) -> Result<()> {
             "NetworkAccess" => perm_type.yellow().to_string(),
             "FileRead" => perm_type.cyan().to_string(),
             "FileWrite" => perm_type.red().to_string(),
-            "ProcessExecution" => perm_type.red().bold().to_string(),
-            "AdminAccess" => perm_type.red().bold().to_string(),
+            "ProcessExecution" | "AdminAccess" => perm_type.red().bold().to_string(),
             _ => perm_type.to_string(),
         };
 
@@ -107,10 +106,10 @@ async fn pending(client: &ExivClient, json: bool) -> Result<()> {
 }
 
 async fn approve(client: &ExivClient, request_id: &str, json: bool) -> Result<()> {
-    let sp = if !json {
-        Some(output::spinner(&format!("Approving {request_id}...")))
-    } else {
+    let sp = if json {
         None
+    } else {
+        Some(output::spinner(&format!("Approving {request_id}...")))
     };
 
     let result = client.approve_permission(request_id).await?;
@@ -133,10 +132,10 @@ async fn approve(client: &ExivClient, request_id: &str, json: bool) -> Result<()
 }
 
 async fn deny(client: &ExivClient, request_id: &str, json: bool) -> Result<()> {
-    let sp = if !json {
-        Some(output::spinner(&format!("Denying {request_id}...")))
-    } else {
+    let sp = if json {
         None
+    } else {
+        Some(output::spinner(&format!("Denying {request_id}...")))
     };
 
     let result = client.deny_permission(request_id).await?;
@@ -159,10 +158,10 @@ async fn deny(client: &ExivClient, request_id: &str, json: bool) -> Result<()> {
 }
 
 async fn list(client: &ExivClient, plugin_id: &str, json: bool) -> Result<()> {
-    let sp = if !json {
-        Some(output::spinner("Fetching permissions..."))
-    } else {
+    let sp = if json {
         None
+    } else {
+        Some(output::spinner("Fetching permissions..."))
     };
     let result = client.get_plugin_permissions(plugin_id).await?;
     if let Some(sp) = sp {
@@ -230,12 +229,12 @@ async fn revoke(client: &ExivClient, plugin_id: &str, permission: &str, json: bo
         );
     }
 
-    let sp = if !json {
+    let sp = if json {
+        None
+    } else {
         Some(output::spinner(&format!(
             "Revoking {permission} from {plugin_id}..."
         )))
-    } else {
-        None
     };
 
     let result = client
@@ -249,8 +248,7 @@ async fn revoke(client: &ExivClient, plugin_id: &str, permission: &str, json: bo
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
         println!(
-            "  {} {} revoked from {}",
-            "🔓".to_string(),
+            "  🔓 {} revoked from {}",
             permission.yellow().bold(),
             plugin_id.bold()
         );
@@ -268,12 +266,12 @@ async fn grant(client: &ExivClient, plugin_id: &str, permission: &str, json: boo
         );
     }
 
-    let sp = if !json {
+    let sp = if json {
+        None
+    } else {
         Some(output::spinner(&format!(
             "Granting {permission} to {plugin_id}..."
         )))
-    } else {
-        None
     };
 
     let result = client
@@ -288,8 +286,7 @@ async fn grant(client: &ExivClient, plugin_id: &str, permission: &str, json: boo
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
         println!(
-            "  {} {} granted to {}",
-            "🔐".to_string(),
+            "  🔐 {} granted to {}",
             permission.yellow().bold(),
             plugin_id.bold()
         );

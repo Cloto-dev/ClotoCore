@@ -126,6 +126,7 @@ impl FitnessScores {
                 anyhow::bail!("{} score must be in [0.0, 1.0], got {}", name, val);
             }
         }
+        #[allow(clippy::float_cmp)] // Safety is a binary gate (exactly 0.0 or 1.0)
         if self.safety != 0.0 && self.safety != 1.0 {
             tracing::debug!(
                 safety = self.safety,

@@ -271,9 +271,7 @@ impl PluginRegistry {
             let semaphore = self.event_semaphore.clone();
 
             futures.push(tokio::spawn(async move {
-                let _permit = if let Ok(p) = semaphore.acquire().await {
-                    p
-                } else {
+                let Ok(_permit) = semaphore.acquire().await else {
                     tracing::warn!("Semaphore closed during shutdown, skipping plugin {}", id);
                     return (id, Ok(Ok(None)));
                 };
@@ -342,9 +340,7 @@ async fn redispatch_plugin_event(
     current_depth: u8,
     semaphore: Arc<tokio::sync::Semaphore>,
 ) {
-    let _permit = if let Ok(p) = semaphore.acquire().await {
-        p
-    } else {
+    let Ok(_permit) = semaphore.acquire().await else {
         tracing::warn!(
             "Semaphore closed during shutdown, skipping redispatch for {}",
             plugin_id

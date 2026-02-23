@@ -41,6 +41,7 @@ pub async fn get_messages(
     )
     .await?;
 
+    #[allow(clippy::cast_possible_wrap)]
     let has_more = messages.len() as i64 > limit;
     let messages: Vec<ChatMessageRow> = messages.into_iter().take(limit as usize).collect();
 
@@ -60,6 +61,7 @@ pub struct PostMessageRequest {
 
 /// POST /api/chat/:agent_id/messages
 /// Save a new chat message
+#[allow(clippy::too_many_lines)]
 pub async fn post_message(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -139,14 +141,13 @@ pub async fn post_message(
                                 );
                                 continue;
                             }
-                            let decoded = if let Ok(d) = base64_decode(base64_data) {
-                                d
-                            } else {
+                            let Ok(decoded) = base64_decode(base64_data) else {
                                 tracing::warn!("Invalid base64 data in attachment, skipping");
                                 continue;
                             };
                             {
                                 let att_id = uuid::Uuid::new_v4().to_string();
+                                #[allow(clippy::cast_possible_wrap)]
                                 let size = decoded.len() as i64;
                                 let filename =
                                     format!("image_{}.{}", &att_id[..8], mime_to_ext(&mime_type));

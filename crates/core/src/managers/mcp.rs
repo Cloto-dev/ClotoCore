@@ -1,4 +1,8 @@
-use super::mcp_protocol::*;
+use super::mcp_protocol::{
+    CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, ExivHandshakeParams,
+    ExivHandshakeResult, InitializeParams, JsonRpcRequest, JsonRpcResponse, ListToolsResult,
+    McpConfigFile, McpServerConfig, McpTool, ToolContent,
+};
 use super::mcp_transport::{self, StdioTransport};
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -68,65 +72,54 @@ impl McpClient {
                     tp.recv().await
                 };
 
-                match msg_opt {
-                    Some(line) => {
-                        if let Ok(response) = serde_json::from_str::<JsonRpcResponse>(&line) {
-                            if let Some(id_val) = response.id {
-                                if let Some(id) = id_val.as_i64() {
-                                    let mut map = pending.lock().await;
-                                    if let Some(tx) = map.remove(&id) {
-                                        if let Some(error) = response.error {
-                                            if tx
-                                                .send(Err(anyhow::anyhow!(
-                                                    "RPC Error {}: {}",
-                                                    error.code,
-                                                    error.message
-                                                )))
-                                                .is_err()
-                                            {
-                                                debug!(
-                                                    "Response receiver dropped for request {}",
-                                                    id
-                                                );
-                                            }
-                                        } else {
-                                            if tx
-                                                .send(Ok(response.result.unwrap_or(Value::Null)))
-                                                .is_err()
-                                            {
-                                                debug!(
-                                                    "Response receiver dropped for request {}",
-                                                    id
-                                                );
-                                            }
+                if let Some(line) = msg_opt {
+                    if let Ok(response) = serde_json::from_str::<JsonRpcResponse>(&line) {
+                        if let Some(id_val) = response.id {
+                            if let Some(id) = id_val.as_i64() {
+                                let mut map = pending.lock().await;
+                                if let Some(tx) = map.remove(&id) {
+                                    if let Some(error) = response.error {
+                                        if tx
+                                            .send(Err(anyhow::anyhow!(
+                                                "RPC Error {}: {}",
+                                                error.code,
+                                                error.message
+                                            )))
+                                            .is_err()
+                                        {
+                                            debug!("Response receiver dropped for request {}", id);
                                         }
+                                    } else if tx
+                                        .send(Ok(response.result.unwrap_or(Value::Null)))
+                                        .is_err()
+                                    {
+                                        debug!("Response receiver dropped for request {}", id);
                                     }
                                 }
                             }
-                        } else {
-                            debug!("Received non-response message: {}", line);
+                        }
+                    } else {
+                        debug!("Received non-response message: {}", line);
+                    }
+                } else {
+                    error!("MCP Connection closed.");
+                    let mut map = pending.lock().await;
+                    let count = map.len();
+                    for (id, tx) in map.drain() {
+                        if tx
+                            .send(Err(anyhow::anyhow!("MCP server process terminated")))
+                            .is_err()
+                        {
+                            debug!("Response receiver dropped for request {}", id);
                         }
                     }
-                    None => {
-                        error!("MCP Connection closed.");
-                        let mut map = pending.lock().await;
-                        let count = map.len();
-                        for (id, tx) in map.drain() {
-                            if tx
-                                .send(Err(anyhow::anyhow!("MCP server process terminated")))
-                                .is_err()
-                            {
-                                debug!("Response receiver dropped for request {}", id);
-                            }
-                        }
-                        if count > 0 {
-                            error!(
-                                "Failed {} pending MCP requests due to process termination",
-                                count
-                            );
-                        }
-                        break;
+                    if count > 0 {
+                        error!(
+                            "Failed {} pending MCP requests due to process termination",
+                            count
+                        );
                     }
+                    break;
                 }
             }
         });
@@ -156,18 +149,17 @@ impl McpClient {
             .await
             .context("Failed to send request to MCP transport")?;
 
-        match tokio::time::timeout(
+        if let Ok(res) = tokio::time::timeout(
             std::time::Duration::from_secs(Self::REQUEST_TIMEOUT_SECS),
             rx,
         )
         .await
         {
-            Ok(res) => res.context("Response channel closed")?,
-            Err(_) => {
-                let mut map = self.pending_requests.lock().await;
-                map.remove(&id);
-                Err(anyhow::anyhow!("MCP Request timed out"))
-            }
+            res.context("Response channel closed")?
+        } else {
+            let mut map = self.pending_requests.lock().await;
+            map.remove(&id);
+            Err(anyhow::anyhow!("MCP Request timed out"))
         }
     }
 
@@ -249,6 +241,7 @@ impl McpClient {
 
     /// Check if the underlying transport process is still alive.
     /// Uses sender channel state to avoid contending with the response loop's Mutex.
+    #[must_use]
     pub fn is_alive(&self) -> bool {
         !self.sender.is_closed()
     }
@@ -311,6 +304,7 @@ pub struct McpClientManager {
 }
 
 impl McpClientManager {
+    #[must_use]
     pub fn new(pool: SqlitePool, yolo_mode: bool) -> Self {
         Self {
             servers: RwLock::new(HashMap::new()),
@@ -343,9 +337,10 @@ impl McpClientManager {
         //   (directory containing `Cargo.toml`).
         // In production: fall back to the config file's parent directory.
         let base_dir = Self::detect_project_root(path).unwrap_or_else(|| {
-            path.parent()
-                .map(std::path::Path::to_path_buf)
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
+            path.parent().map_or_else(
+                || std::path::PathBuf::from("."),
+                std::path::Path::to_path_buf,
+            )
         });
 
         let total = config.servers.len();
@@ -473,6 +468,7 @@ impl McpClientManager {
     }
 
     /// Connect to an MCP server with retry logic.
+    #[allow(clippy::too_many_lines)]
     pub async fn connect_server(&self, config: McpServerConfig) -> Result<Vec<String>> {
         let id = config.id.clone();
 
@@ -737,8 +733,7 @@ impl McpClientManager {
         let servers = self.servers.read().await;
         servers
             .get(server_id)
-            .map(|h| h.tools.iter().any(|t| t.name == tool_name))
-            .unwrap_or(false)
+            .is_some_and(|h| h.tools.iter().any(|t| t.name == tool_name))
     }
 
     // ============================================================
@@ -888,13 +883,11 @@ impl McpClientManager {
             if handle.status != ServerStatus::Connected {
                 continue;
             }
-            let client = match &handle.client {
-                Some(c) => c,
-                None => continue,
+            let Some(client) = &handle.client else {
+                continue;
             };
-            let event_json = match serde_json::to_value(event) {
-                Ok(v) => v,
-                Err(_) => continue,
+            let Ok(event_json) = serde_json::to_value(event) else {
+                continue;
             };
             if let Err(e) = client
                 .send_notification("notifications/exiv.event", Some(event_json))
@@ -913,9 +906,8 @@ impl McpClientManager {
     pub async fn notify_config_updated(&self, server_id: &str, config: Value) {
         let servers = self.servers.read().await;
         if let Some(handle) = servers.get(server_id) {
-            let client = match &handle.client {
-                Some(c) => c,
-                None => return,
+            let Some(client) = &handle.client else {
+                return;
             };
             let params = serde_json::json!({
                 "server_id": server_id,
@@ -1064,6 +1056,7 @@ impl McpClientManager {
     /// Resolve a relative path against the project root.
     /// Used by `lib.rs` to find `mcp.toml` when CWD differs from the project root
     /// (e.g. `cargo tauri dev`).
+    #[must_use]
     pub fn resolve_project_path(relative: &std::path::Path) -> Option<String> {
         let exe = std::env::current_exe().ok()?;
         let root = Self::detect_project_root(exe.as_path())?;
@@ -1142,9 +1135,8 @@ fn validate_tool_arguments(validator_name: &str, tool_name: &str, args: &Value) 
 /// "sandbox" validator: checks command arguments against blocked patterns.
 /// Applied to tools like `execute_command` that run shell commands.
 fn validate_sandbox_args(_tool_name: &str, args: &Value) -> Result<()> {
-    let command = match args.get("command").and_then(|v| v.as_str()) {
-        Some(cmd) => cmd,
-        None => return Ok(()), // No command argument, nothing to validate
+    let Some(command) = args.get("command").and_then(|v| v.as_str()) else {
+        return Ok(()); // No command argument, nothing to validate
     };
 
     if command.trim().is_empty() {

@@ -49,7 +49,7 @@ fn base_manifest(id: ExivId, name: &str) -> PluginManifest {
         action_icon: None,
         action_target: None,
         icon_data: None,
-        magic_seal: 0x56455253,
+        magic_seal: 0x5645_5253,
         sdk_version: "1.0.0".to_string(),
         required_permissions: vec![],
         provided_capabilities: vec![],
@@ -71,6 +71,7 @@ pub fn create_mock_plugin(id: ExivId) -> (Arc<MockPlugin>, Arc<Mutex<Vec<ExivEve
 }
 
 /// Slow mock plugin: introduces a configurable delay before returning.
+#[allow(dead_code)]
 pub fn create_slow_plugin(id: ExivId, delay: Duration) -> Arc<MockPlugin> {
     Arc::new(MockPlugin {
         manifest: base_manifest(id, "SlowPlugin"),
@@ -82,6 +83,7 @@ pub fn create_slow_plugin(id: ExivId, delay: Duration) -> Arc<MockPlugin> {
 }
 
 /// Panicking mock plugin: panics on every on_event call.
+#[allow(dead_code)]
 pub fn create_panicking_plugin(id: ExivId) -> Arc<MockPlugin> {
     Arc::new(MockPlugin {
         manifest: base_manifest(id, "PanickingPlugin"),

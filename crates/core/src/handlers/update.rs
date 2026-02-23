@@ -164,6 +164,7 @@ pub struct ApplyRequest {
 /// POST /api/system/update/apply
 /// Downloads, verifies (SHA256), and installs a specific version (admin auth required).
 /// After successful installation, triggers a restart via the same mechanism as shutdown.
+#[allow(clippy::too_many_lines)]
 pub async fn apply_handler(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,

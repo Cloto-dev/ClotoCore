@@ -45,13 +45,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &App, is_active: bool) {
             let agent_type = if agent
                 .default_engine_id
                 .as_deref()
-                .map(|e| e.starts_with("mind."))
-                .unwrap_or(false)
-                || agent
-                    .metadata
-                    .get("agent_type")
-                    .map(|t| t == "ai")
-                    .unwrap_or(false)
+                .is_some_and(|e| e.starts_with("mind."))
+                || agent.metadata.get("agent_type").is_some_and(|t| t == "ai")
             {
                 Span::styled("AI     ", Style::default().fg(Color::Cyan))
             } else {

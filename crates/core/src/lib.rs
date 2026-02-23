@@ -142,6 +142,7 @@ impl From<sqlx::Error> for AppError {
 pub type AppResult<T> = Result<T, AppError>;
 
 /// Kernel 起動用のエントリポイント
+#[allow(clippy::too_many_lines)]
 pub async fn run_kernel() -> anyhow::Result<()> {
     use crate::config::AppConfig;
     use crate::db;

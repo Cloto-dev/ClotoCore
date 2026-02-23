@@ -23,6 +23,7 @@ async fn setup() -> EvolutionEngine {
     EvolutionEngine::new(store, pool)
 }
 
+#[allow(clippy::many_single_char_names)]
 fn test_scores(c: f64, b: f64, s: f64, a: AutonomyLevel, m: f64) -> FitnessScores {
     FitnessScores {
         cognitive: c,
@@ -41,7 +42,7 @@ fn test_snapshot() -> AgentSnapshot {
             vec!["Reasoning".to_string()],
         )]),
         personality_hash: "abc123".to_string(),
-        strategy_params: Default::default(),
+        strategy_params: HashMap::default(),
     }
 }
 
@@ -49,13 +50,18 @@ fn snapshot_with_plugins(plugins: Vec<(&str, Vec<&str>)>) -> AgentSnapshot {
     let active_plugins = plugins.iter().map(|(id, _)| id.to_string()).collect();
     let plugin_capabilities = plugins
         .iter()
-        .map(|(id, caps)| (id.to_string(), caps.iter().map(|c| c.to_string()).collect()))
+        .map(|(id, caps)| {
+            (
+                id.to_string(),
+                caps.iter().map(std::string::ToString::to_string).collect(),
+            )
+        })
         .collect();
     AgentSnapshot {
         active_plugins,
         plugin_capabilities,
         personality_hash: "abc123".to_string(),
-        strategy_params: Default::default(),
+        strategy_params: HashMap::default(),
     }
 }
 
@@ -192,7 +198,7 @@ async fn test_rollback_iterative() {
             scores2,
             0.88,
             0.05,
-            Default::default(),
+            HashMap::default(),
             15,
             test_snapshot(),
         )
@@ -320,13 +326,13 @@ fn test_detect_capability_gain_empty_prev_capabilities() {
         active_plugins: vec!["plugA".to_string()],
         plugin_capabilities: HashMap::new(),
         personality_hash: "abc".to_string(),
-        strategy_params: Default::default(),
+        strategy_params: HashMap::default(),
     };
     let curr = AgentSnapshot {
         active_plugins: vec!["plugA".to_string(), "plugB".to_string()],
         plugin_capabilities: HashMap::new(),
         personality_hash: "abc".to_string(),
-        strategy_params: Default::default(),
+        strategy_params: HashMap::default(),
     };
     let changes = detect_capability_gain(&prev, &curr);
     assert!(
@@ -515,7 +521,7 @@ async fn test_increment_counter_concurrent() {
     }
 
     // All values should be unique (1..=10)
-    results.sort();
+    results.sort_unstable();
     let expected: Vec<i64> = (1..=10).collect();
     assert_eq!(
         results, expected,

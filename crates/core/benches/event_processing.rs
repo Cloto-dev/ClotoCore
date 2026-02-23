@@ -35,7 +35,7 @@ fn event_throughput_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("event_throughput");
 
-    for event_count in [100, 1_000, 10_000].iter() {
+    for event_count in &[100, 1_000, 10_000] {
         group.bench_with_input(
             BenchmarkId::from_parameter(event_count),
             event_count,

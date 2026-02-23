@@ -13,7 +13,7 @@ fn hashset_lookup_benchmark(c: &mut Criterion) {
 
     // Test with various HashSet sizes to verify O(1) behavior
     // This mirrors the internal implementation of SafeHttpClient::is_whitelisted_host
-    for size in [10, 100, 1000, 10000].iter() {
+    for size in &[10, 100, 1000, 10000] {
         let hosts: HashSet<String> = (0..*size)
             .map(|i| format!("host{}.example.com", i))
             .collect();
