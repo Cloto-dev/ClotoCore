@@ -578,7 +578,10 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                     axum::http::Method::DELETE,
                     axum::http::Method::PUT,
                 ])
-                .allow_headers([axum::http::header::CONTENT_TYPE]),
+                .allow_headers([
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::HeaderName::from_static("x-api-key"),
+                ]),
         );
 
     let listener =
