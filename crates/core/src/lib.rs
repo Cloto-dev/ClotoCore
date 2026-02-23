@@ -470,6 +470,28 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             "/mcp/servers/:name",
             axum::routing::delete(handlers::delete_mcp_server),
         )
+        // MCP server settings & access control (MCP_SERVER_UI_DESIGN.md §4)
+        .route(
+            "/mcp/servers/:name/settings",
+            get(handlers::get_mcp_server_settings).put(handlers::update_mcp_server_settings),
+        )
+        .route(
+            "/mcp/servers/:name/access",
+            get(handlers::get_mcp_server_access).put(handlers::put_mcp_server_access),
+        )
+        // MCP server lifecycle
+        .route(
+            "/mcp/servers/:name/restart",
+            post(handlers::restart_mcp_server),
+        )
+        .route(
+            "/mcp/servers/:name/start",
+            post(handlers::start_mcp_server),
+        )
+        .route(
+            "/mcp/servers/:name/stop",
+            post(handlers::stop_mcp_server),
+        )
         // API key invalidation
         .route("/system/invalidate-key", post(handlers::invalidate_api_key))
         // Evolution Engine endpoints (auth required for write)
@@ -501,6 +523,11 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route(
             "/permissions/pending",
             get(handlers::get_pending_permissions),
+        )
+        // MCP access control (public/read)
+        .route(
+            "/mcp/access/by-agent/:agent_id",
+            get(handlers::get_agent_access),
         )
         // Evolution Engine public endpoints (read-only)
         .route(

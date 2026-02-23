@@ -1001,6 +1001,362 @@ pub async fn deactivate_mcp_server(pool: &SqlitePool, name: &str) -> anyhow::Res
 }
 
 // ============================================================
+// MCP Access Control (MCP_SERVER_UI_DESIGN.md §3)
+// ============================================================
+
+/// Access control entry for MCP tool-level permissions.
+/// Maps to `mcp_access_control` table.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccessControlEntry {
+    pub id: Option<i64>,
+    pub entry_type: String, // "capability" | "server_grant" | "tool_grant"
+    pub agent_id: String,
+    pub server_id: String,
+    pub tool_name: Option<String>,
+    pub permission: String, // "allow" | "deny"
+    pub granted_by: Option<String>,
+    pub granted_at: String,
+    pub expires_at: Option<String>,
+    pub justification: Option<String>,
+    pub metadata: Option<String>,
+}
+
+/// Save a single access control entry.
+pub async fn save_access_control_entry(
+    pool: &SqlitePool,
+    entry: &AccessControlEntry,
+) -> anyhow::Result<i64> {
+    let result = timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query_scalar::<_, i64>(
+            "INSERT INTO mcp_access_control \
+             (entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at, expires_at, justification, metadata) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             RETURNING id",
+        )
+        .bind(&entry.entry_type)
+        .bind(&entry.agent_id)
+        .bind(&entry.server_id)
+        .bind(&entry.tool_name)
+        .bind(&entry.permission)
+        .bind(&entry.granted_by)
+        .bind(&entry.granted_at)
+        .bind(&entry.expires_at)
+        .bind(&entry.justification)
+        .bind(&entry.metadata)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to save access control entry: {}", e))
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout saving access control entry"))??;
+
+    Ok(result)
+}
+
+/// Get all access control entries for a specific MCP server (tree view data).
+pub async fn get_access_entries_for_server(
+    pool: &SqlitePool,
+    server_id: &str,
+) -> anyhow::Result<Vec<AccessControlEntry>> {
+    let rows = timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query_as::<_, (i64, String, String, String, Option<String>, String, Option<String>, String, Option<String>, Option<String>, Option<String>)>(
+            "SELECT id, entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at, expires_at, justification, metadata \
+             FROM mcp_access_control WHERE server_id = ? ORDER BY agent_id, entry_type, tool_name",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to load access entries: {}", e))
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout loading access entries"))??;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at, expires_at, justification, metadata)| {
+            AccessControlEntry {
+                id: Some(id),
+                entry_type,
+                agent_id,
+                server_id,
+                tool_name,
+                permission,
+                granted_by,
+                granted_at,
+                expires_at,
+                justification,
+                metadata,
+            }
+        })
+        .collect())
+}
+
+/// Get all access control entries for a specific agent (by-agent view).
+pub async fn get_access_entries_for_agent(
+    pool: &SqlitePool,
+    agent_id: &str,
+) -> anyhow::Result<Vec<AccessControlEntry>> {
+    let rows = timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query_as::<_, (i64, String, String, String, Option<String>, String, Option<String>, String, Option<String>, Option<String>, Option<String>)>(
+            "SELECT id, entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at, expires_at, justification, metadata \
+             FROM mcp_access_control WHERE agent_id = ? ORDER BY server_id, entry_type, tool_name",
+        )
+        .bind(agent_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to load access entries for agent: {}", e))
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout loading access entries for agent"))??;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at, expires_at, justification, metadata)| {
+            AccessControlEntry {
+                id: Some(id),
+                entry_type,
+                agent_id,
+                server_id,
+                tool_name,
+                permission,
+                granted_by,
+                granted_at,
+                expires_at,
+                justification,
+                metadata,
+            }
+        })
+        .collect())
+}
+
+/// Bulk update access control entries for a server.
+/// Deletes all non-capability entries for the server and inserts the new ones in a transaction.
+pub async fn put_access_entries(
+    pool: &SqlitePool,
+    server_id: &str,
+    entries: &[AccessControlEntry],
+) -> anyhow::Result<()> {
+    timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        let mut tx = pool.begin().await.map_err(|e| anyhow::anyhow!("Failed to begin transaction: {}", e))?;
+
+        // Delete existing server_grant and tool_grant entries (preserve capability entries)
+        sqlx::query(
+            "DELETE FROM mcp_access_control WHERE server_id = ? AND entry_type IN ('server_grant', 'tool_grant')",
+        )
+        .bind(server_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to delete old access entries: {}", e))?;
+
+        // Insert new entries
+        for entry in entries {
+            if entry.entry_type == "capability" {
+                continue; // Don't overwrite capability entries via bulk update
+            }
+            sqlx::query(
+                "INSERT INTO mcp_access_control \
+                 (entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at, expires_at, justification, metadata) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&entry.entry_type)
+            .bind(&entry.agent_id)
+            .bind(&entry.server_id)
+            .bind(&entry.tool_name)
+            .bind(&entry.permission)
+            .bind(&entry.granted_by)
+            .bind(&entry.granted_at)
+            .bind(&entry.expires_at)
+            .bind(&entry.justification)
+            .bind(&entry.metadata)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to insert access entry: {}", e))?;
+        }
+
+        tx.commit().await.map_err(|e| anyhow::anyhow!("Failed to commit transaction: {}", e))?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout updating access entries"))?
+}
+
+/// Resolve tool access for an agent.
+/// Priority: tool_grant > server_grant > default_policy
+pub async fn resolve_tool_access(
+    pool: &SqlitePool,
+    agent_id: &str,
+    server_id: &str,
+    tool_name: &str,
+) -> anyhow::Result<String> {
+    // 1. Check for explicit tool_grant
+    let tool_grant = timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query_scalar::<_, String>(
+            "SELECT permission FROM mcp_access_control \
+             WHERE agent_id = ? AND server_id = ? AND tool_name = ? AND entry_type = 'tool_grant' \
+             AND (expires_at IS NULL OR expires_at > datetime('now')) \
+             LIMIT 1",
+        )
+        .bind(agent_id)
+        .bind(server_id)
+        .bind(tool_name)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to check tool grant: {}", e))
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout checking tool grant"))??;
+
+    if let Some(permission) = tool_grant {
+        return Ok(permission);
+    }
+
+    // 2. Check for server_grant
+    let server_grant = timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query_scalar::<_, String>(
+            "SELECT permission FROM mcp_access_control \
+             WHERE agent_id = ? AND server_id = ? AND entry_type = 'server_grant' AND tool_name IS NULL \
+             AND (expires_at IS NULL OR expires_at > datetime('now')) \
+             LIMIT 1",
+        )
+        .bind(agent_id)
+        .bind(server_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to check server grant: {}", e))
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout checking server grant"))??;
+
+    if let Some(permission) = server_grant {
+        return Ok(permission);
+    }
+
+    // 3. Fall back to server default_policy
+    let policy = timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query_scalar::<_, String>(
+            "SELECT default_policy FROM mcp_servers WHERE name = ? LIMIT 1",
+        )
+        .bind(server_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to check default policy: {}", e))
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout checking default policy"))??;
+
+    match policy.as_deref() {
+        Some("opt-out") => Ok("allow".to_string()),
+        _ => Ok("deny".to_string()), // opt-in = deny by default
+    }
+}
+
+/// Get access summary for a server's tools (Summary Bar data).
+/// Returns (tool_name, allowed_count, denied_count, inherited_count).
+pub async fn get_access_summary(
+    pool: &SqlitePool,
+    server_id: &str,
+) -> anyhow::Result<Vec<(String, i64, i64, i64)>> {
+    // This query counts explicit grants per tool.
+    // "inherited" means agents that have a server_grant but no tool_grant.
+    let rows = timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query_as::<_, (String, i64, i64)>(
+            "SELECT tool_name, \
+             SUM(CASE WHEN permission = 'allow' THEN 1 ELSE 0 END) as allowed, \
+             SUM(CASE WHEN permission = 'deny' THEN 1 ELSE 0 END) as denied \
+             FROM mcp_access_control \
+             WHERE server_id = ? AND entry_type = 'tool_grant' AND tool_name IS NOT NULL \
+             GROUP BY tool_name",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get access summary: {}", e))
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout getting access summary"))??;
+
+    // Count agents with server_grant but no tool_grant (inherited)
+    let server_grant_count = timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(DISTINCT agent_id) FROM mcp_access_control \
+             WHERE server_id = ? AND entry_type = 'server_grant'",
+        )
+        .bind(server_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to count server grants: {}", e))
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout counting server grants"))??;
+
+    Ok(rows
+        .into_iter()
+        .map(|(tool_name, allowed, denied)| {
+            let explicit = allowed + denied;
+            let inherited = (server_grant_count - explicit).max(0);
+            (tool_name, allowed, denied, inherited)
+        })
+        .collect())
+}
+
+/// Get MCP server settings (including default_policy from the extended mcp_servers table).
+pub async fn get_mcp_server_settings(
+    pool: &SqlitePool,
+    name: &str,
+) -> anyhow::Result<Option<(McpServerRecord, String)>> {
+    let result = timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, i64, bool, String)>(
+            "SELECT name, command, args, script_content, description, created_at, is_active, default_policy \
+             FROM mcp_servers WHERE name = ?",
+        )
+        .bind(name)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to get MCP server settings: {}", e))
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout getting MCP server settings"))??;
+
+    Ok(result.map(|(name, command, args, script_content, description, created_at, is_active, default_policy)| {
+        (
+            McpServerRecord {
+                name,
+                command,
+                args,
+                script_content,
+                description,
+                created_at,
+                is_active,
+            },
+            default_policy,
+        )
+    }))
+}
+
+/// Update MCP server default_policy.
+pub async fn update_mcp_server_default_policy(
+    pool: &SqlitePool,
+    name: &str,
+    default_policy: &str,
+) -> anyhow::Result<()> {
+    timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        let result = sqlx::query("UPDATE mcp_servers SET default_policy = ? WHERE name = ?")
+            .bind(default_policy)
+            .bind(name)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to update default policy: {}", e))?;
+
+        if result.rows_affected() == 0 {
+            return Err(anyhow::anyhow!("MCP server '{}' not found", name));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout updating default policy"))?
+}
+
+// ============================================================
 // Revoked API Keys
 // ============================================================
 

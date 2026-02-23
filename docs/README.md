@@ -27,6 +27,7 @@ Documentation for Exiv design, development, and quality management.
 | [CHANGELOG.md](CHANGELOG.md) | Comprehensive change history across all phases | 2026-02-18 |
 | [SCHEMA.md](SCHEMA.md) | Database schema reference (8 tables, migration history) | 2026-02-19 |
 | [WASM_PLUGIN_DESIGN.md](WASM_PLUGIN_DESIGN.md) | WASM plugin design proposal (Tier 3, wasmtime) | 2026-02-19 |
+| [MCP_SERVER_UI_DESIGN.md](MCP_SERVER_UI_DESIGN.md) | MCP Server Management UI design (Master-Detail, access control tree) | 2026-02-23 |
 
 ## MCP Server Documentation
 

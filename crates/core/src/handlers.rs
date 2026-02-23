@@ -1281,6 +1281,284 @@ pub async fn delete_mcp_server(
     })))
 }
 
+// ============================================================
+// MCP Server Settings & Access Control (MCP_SERVER_UI_DESIGN.md §4)
+// ============================================================
+
+/// GET /api/mcp/servers/:name/settings
+pub async fn get_mcp_server_settings(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let settings = crate::db::get_mcp_server_settings(&state.pool, &name)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    match settings {
+        Some((record, default_policy)) => {
+            // Get env config from running server if available
+            let config: HashMap<String, String> = HashMap::new();
+            let auto_restart = false;
+
+            Ok(Json(serde_json::json!({
+                "server_id": record.name,
+                "default_policy": default_policy,
+                "config": config,
+                "auto_restart": auto_restart,
+                "command": record.command,
+                "args": serde_json::from_str::<Vec<String>>(&record.args).unwrap_or_default(),
+                "description": record.description,
+            })))
+        }
+        None => Err(AppError::Validation(format!("MCP server '{}' not found", name))),
+    }
+}
+
+/// PUT /api/mcp/servers/:name/settings
+pub async fn update_mcp_server_settings(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    if let Some(policy) = body.get("default_policy").and_then(|v| v.as_str()) {
+        if !["opt-in", "opt-out"].contains(&policy) {
+            return Err(AppError::Validation(
+                "default_policy must be 'opt-in' or 'opt-out'".into(),
+            ));
+        }
+        crate::db::update_mcp_server_default_policy(&state.pool, &name, policy)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+    }
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        "MCP_SERVER_SETTINGS_UPDATED",
+        name.clone(),
+        "MCP server settings updated".to_string(),
+        None,
+        None,
+        None,
+    );
+
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "message": format!("Settings updated for server '{}'", name)
+    })))
+}
+
+/// GET /api/mcp/servers/:name/access
+pub async fn get_mcp_server_access(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let entries = crate::db::get_access_entries_for_server(&state.pool, &name)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    // Get server's default_policy
+    let settings = crate::db::get_mcp_server_settings(&state.pool, &name)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    let default_policy = settings
+        .as_ref()
+        .map(|(_, dp)| dp.as_str())
+        .unwrap_or("opt-in");
+
+    // Get tools from running server
+    let tools: Vec<String> = {
+        let servers = state.mcp_manager.list_servers().await;
+        servers
+            .iter()
+            .find(|s| s.id == name)
+            .map(|s| s.tools.clone())
+            .unwrap_or_default()
+    };
+
+    Ok(Json(serde_json::json!({
+        "server_id": name,
+        "default_policy": default_policy,
+        "tools": tools,
+        "entries": entries,
+    })))
+}
+
+/// PUT /api/mcp/servers/:name/access
+pub async fn put_mcp_server_access(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let entries_val = body
+        .get("entries")
+        .ok_or_else(|| AppError::Validation("Missing required field: entries".into()))?;
+
+    let entries: Vec<crate::db::AccessControlEntry> = serde_json::from_value(entries_val.clone())
+        .map_err(|e| AppError::Validation(format!("Invalid entries format: {}", e)))?;
+
+    // Validate all entries reference this server
+    for entry in &entries {
+        if entry.server_id != name {
+            return Err(AppError::Validation(format!(
+                "Entry server_id '{}' does not match route server '{}'",
+                entry.server_id, name
+            )));
+        }
+        if !["server_grant", "tool_grant"].contains(&entry.entry_type.as_str()) {
+            return Err(AppError::Validation(format!(
+                "Cannot bulk-update entry_type '{}'; only server_grant and tool_grant allowed",
+                entry.entry_type
+            )));
+        }
+    }
+
+    crate::db::put_access_entries(&state.pool, &name, &entries)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        "MCP_ACCESS_UPDATED",
+        name.clone(),
+        format!("Access control updated with {} entries", entries.len()),
+        None,
+        None,
+        None,
+    );
+
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "message": format!("Access control updated for server '{}'", name),
+        "count": entries.len(),
+    })))
+}
+
+/// GET /api/mcp/access/by-agent/:agent_id
+pub async fn get_agent_access(
+    State(state): State<Arc<AppState>>,
+    Path(agent_id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    let entries = crate::db::get_access_entries_for_agent(&state.pool, &agent_id)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "agent_id": agent_id,
+        "entries": entries,
+    })))
+}
+
+/// POST /api/mcp/servers/:name/restart
+pub async fn restart_mcp_server(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let tools = state
+        .mcp_manager
+        .restart_server(&name)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to restart server: {}", e)))?;
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        "MCP_SERVER_RESTARTED",
+        name.clone(),
+        "MCP server restarted".to_string(),
+        None,
+        None,
+        None,
+    );
+
+    info!(name = %name, "🔄 MCP server restarted");
+
+    Ok(Json(serde_json::json!({
+        "status": "restarted",
+        "name": name,
+        "tools": tools,
+    })))
+}
+
+/// POST /api/mcp/servers/:name/start
+pub async fn start_mcp_server(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let tools = state
+        .mcp_manager
+        .start_server(&name)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to start server: {}", e)))?;
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        "MCP_SERVER_STARTED",
+        name.clone(),
+        "MCP server started".to_string(),
+        None,
+        None,
+        None,
+    );
+
+    info!(name = %name, "▶️ MCP server started");
+
+    Ok(Json(serde_json::json!({
+        "status": "started",
+        "name": name,
+        "tools": tools,
+    })))
+}
+
+/// POST /api/mcp/servers/:name/stop
+pub async fn stop_mcp_server(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    state
+        .mcp_manager
+        .stop_server(&name)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to stop server: {}", e)))?;
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        "MCP_SERVER_STOPPED",
+        name.clone(),
+        "MCP server stopped".to_string(),
+        None,
+        None,
+        None,
+    );
+
+    info!(name = %name, "⏹️ MCP server stopped");
+
+    Ok(Json(serde_json::json!({
+        "status": "stopped",
+        "name": name,
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

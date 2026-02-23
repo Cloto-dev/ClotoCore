@@ -878,6 +878,75 @@ impl McpClientManager {
             _ => None,
         }
     }
+
+    // ============================================================
+    // Server Lifecycle (MCP_SERVER_UI_DESIGN.md §4.3)
+    // ============================================================
+
+    /// Stop a server (disconnect but preserve DB record).
+    pub async fn stop_server(&self, id: &str) -> Result<()> {
+        // Remove from servers map and tool index, but don't touch DB
+        let handle = {
+            let mut servers = self.servers.write().await;
+            servers.remove(id)
+        };
+
+        if handle.is_none() {
+            return Err(anyhow::anyhow!("Server '{}' not found or already stopped", id));
+        }
+
+        // Remove tools from index
+        let mut index = self.tool_index.write().await;
+        index.retain(|_, server_id| server_id != id);
+
+        info!(server = %id, "MCP server stopped (DB record preserved)");
+        Ok(())
+    }
+
+    /// Start a server from its persisted DB config.
+    pub async fn start_server(&self, id: &str) -> Result<Vec<String>> {
+        // Check if already running
+        {
+            let servers = self.servers.read().await;
+            if servers.contains_key(id) {
+                return Err(anyhow::anyhow!("Server '{}' is already running", id));
+            }
+        }
+
+        // Load config from DB
+        let records = crate::db::load_active_mcp_servers(&self.pool).await?;
+        let record = records
+            .into_iter()
+            .find(|r| r.name == id)
+            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in database", id))?;
+
+        let args: Vec<String> = serde_json::from_str(&record.args).unwrap_or_default();
+
+        let config = McpServerConfig {
+            id: id.to_string(),
+            command: record.command,
+            args,
+            env: HashMap::new(),
+            transport: "stdio".to_string(),
+            auto_restart: false,
+            required_permissions: Vec::new(),
+            tool_validators: HashMap::new(),
+        };
+
+        self.connect_server(config).await
+    }
+
+    /// Restart a server (stop + start).
+    pub async fn restart_server(&self, id: &str) -> Result<Vec<String>> {
+        // Stop if running (ignore error if already stopped)
+        let _ = self.stop_server(id).await;
+        self.start_server(id).await
+    }
+
+    /// Get a reference to the database pool (for access control queries).
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
 }
 
 // ============================================================
