@@ -20,13 +20,6 @@ pub use db::{
     PermissionRequest,
 };
 
-// Static Linker: Force plugin crates to be linked for inventory discovery
-// Without these imports, the Rust linker will not include plugin code,
-// causing inventory::submit! to never execute and plugins to be undiscoverable.
-extern crate plugin_deepseek;
-extern crate plugin_mcp;
-extern crate plugin_terminal;
-
 use exiv_shared::ExivEvent;
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
@@ -222,7 +215,6 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         config.max_event_depth,
     )?;
     plugin_manager_obj.shutdown = shutdown.clone();
-    plugin_manager_obj.register_builtins();
 
     // 3. Channel Setup
     let (event_tx, event_rx) = tokio::sync::mpsc::channel::<EnvelopedEvent>(100);
@@ -245,21 +237,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let agent_manager = AgentManager::new(pool.clone());
     let (tx, _rx) = tokio::sync::broadcast::channel(100);
 
-    let mut dynamic_routes = Router::new();
-    let plugins_snapshot = registry_arc.plugins.read().await;
-    for (id, plugin) in plugins_snapshot.iter() {
-        if let Some(web) = plugin.as_web() {
-            dynamic_routes = web.register_routes(dynamic_routes);
-            info!(
-                "🔌 Registered dynamic routes for web-enabled plugin: {}",
-                id
-            );
-        }
-    }
-    drop(plugins_snapshot);
-
     let dynamic_router = Arc::new(DynamicRouter {
-        router: tokio::sync::RwLock::new(dynamic_routes),
+        router: tokio::sync::RwLock::new(Router::new()),
     });
 
     let metrics = Arc::new(managers::SystemMetrics::new());
@@ -303,66 +282,6 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // Restore persisted dynamic MCP servers from database
     if let Err(e) = mcp_manager.restore_from_db().await {
         tracing::warn!(error = %e, "Failed to restore MCP servers from database");
-    }
-
-    // Legacy: also restore via adapter.mcp plugin (for backward compat during migration)
-    match db::load_active_mcp_servers(&pool).await {
-        Ok(records) => {
-            if !records.is_empty() {
-                let mcp_plugin = {
-                    let plugins = registry_arc.plugins.read().await;
-                    plugins.get("adapter.mcp").cloned()
-                };
-                if let Some(ref plugin) = mcp_plugin {
-                    if let Some(mcp) =
-                        plugin.as_any().downcast_ref::<plugin_mcp::McpAdapterPlugin>()
-                    {
-                        for record in &records {
-                            let args: Vec<String> =
-                                serde_json::from_str(&record.args).unwrap_or_default();
-
-                            // Regenerate script file if needed
-                            if let Some(ref content) = record.script_content {
-                                let script_path = std::path::Path::new("scripts")
-                                    .join(format!("mcp_{}.py", record.name));
-                                if !script_path.exists() {
-                                    let _ = std::fs::create_dir_all("scripts");
-                                    if let Err(e) = std::fs::write(&script_path, content) {
-                                        tracing::warn!(
-                                            error = %e,
-                                            name = %record.name,
-                                            "Failed to regenerate MCP server script"
-                                        );
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            match mcp
-                                .add_server(record.name.clone(), record.command.clone(), args)
-                                .await
-                            {
-                                Ok(tools) => {
-                                    info!(
-                                        name = %record.name,
-                                        tools = tools.len(),
-                                        "Restored MCP server from DB (legacy)"
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        error = %e,
-                                        name = %record.name,
-                                        "Failed to restore MCP server"
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Err(e) => tracing::warn!(error = %e, "Failed to load MCP servers from database"),
     }
 
     // 5. Rate Limiter & Evolution Engine & App State
@@ -439,7 +358,6 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         plugin_manager.clone(),
         agent_manager.clone(),
         tx.clone(),
-        dynamic_router.clone(),
         event_history,
         metrics,
         config.event_history_size,

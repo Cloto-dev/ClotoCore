@@ -2,11 +2,7 @@
 members = [
     "crates/core",
     "crates/shared",
-    "crates/macros",
     "crates/cli",
-    "plugins/deepseek",
-    "plugins/mcp",
-    "plugins/terminal",
     "dashboard/src-tauri",
 ]
 resolver = "2"

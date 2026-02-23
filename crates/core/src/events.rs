@@ -37,7 +37,6 @@ pub struct EventProcessor {
     plugin_manager: Arc<PluginManager>,
     agent_manager: AgentManager,
     tx_internal: broadcast::Sender<Arc<ExivEvent>>,
-    refresh_tx: mpsc::Sender<()>, // 🔄 ルート更新用チャンネル
     history: Arc<tokio::sync::RwLock<VecDeque<Arc<ExivEvent>>>>,
     metrics: Arc<crate::managers::SystemMetrics>,
     max_history_size: usize,
@@ -54,7 +53,6 @@ impl EventProcessor {
         plugin_manager: Arc<PluginManager>,
         agent_manager: AgentManager,
         tx_internal: broadcast::Sender<Arc<ExivEvent>>,
-        dynamic_router: Arc<crate::DynamicRouter>,
         history: Arc<tokio::sync::RwLock<VecDeque<Arc<ExivEvent>>>>,
         metrics: Arc<crate::managers::SystemMetrics>,
         max_history_size: usize,
@@ -63,40 +61,11 @@ impl EventProcessor {
         fitness_collector: Option<Arc<crate::evolution::FitnessCollector>>,
         consensus: Option<Arc<crate::consensus::ConsensusOrchestrator>>,
     ) -> Self {
-        let (refresh_tx, mut refresh_rx) = mpsc::channel(1);
-        let registry_clone = registry.clone();
-        let dynamic_router_clone = dynamic_router.clone();
-
-        // 🔄 デバウンスされたルート更新タスク
-        tokio::spawn(async move {
-            while (refresh_rx.recv().await).is_some() {
-                // 連続した要求を待機してまとめる (デバウンス)
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                // チャンネルに溜まった残りのメッセージを空にする
-                while refresh_rx.try_recv().is_ok() {}
-
-                info!("🔄 Refreshing dynamic routes (debounced)...");
-                let mut dynamic_routes = axum::Router::new();
-                let plugins_snapshot = registry_clone.plugins.read().await;
-                for (id, plugin) in plugins_snapshot.iter() {
-                    if let Some(web) = plugin.as_web() {
-                        dynamic_routes = web.register_routes(dynamic_routes);
-                        info!("🔌 Re-registered dynamic routes for plugin: {}", id);
-                    }
-                }
-                drop(plugins_snapshot);
-
-                let mut router_lock = dynamic_router_clone.router.write().await;
-                *router_lock = dynamic_routes;
-            }
-        });
-
         Self {
             registry,
             plugin_manager,
             agent_manager,
             tx_internal,
-            refresh_tx,
             history,
             metrics,
             max_history_size,
@@ -105,10 +74,6 @@ impl EventProcessor {
             fitness_collector,
             consensus,
         }
-    }
-
-    async fn request_refresh(&self) {
-        let _ = self.refresh_tx.try_send(());
     }
 
     async fn record_event(&self, event: Arc<ExivEvent>) {
@@ -418,12 +383,8 @@ impl EventProcessor {
                     }
                     drop(plugins);
 
-                    // 3. ルーティングの更新をリクエスト
-                    self.request_refresh().await;
                 }
                 exiv_shared::ExivEventData::ConfigUpdated { .. } => {
-                    // 設定変更によってルートが変わる可能性があるため更新をリクエスト
-                    self.request_refresh().await;
                     let _ = self.tx_internal.send(event);
                 }
                 exiv_shared::ExivEventData::AgentPowerChanged {

@@ -8,8 +8,7 @@ use uuid::Uuid;
 
 pub mod llm;
 
-pub use exiv_macros::exiv_plugin;
-pub use inventory;
+// Legacy re-exports removed (exiv_macros, inventory) — all plugins are now MCP servers.
 
 /// SDK version constant for consistent version reporting across all plugins
 /// M-14: Plugins should reference this instead of their own CARGO_PKG_VERSION
@@ -706,16 +705,3 @@ pub struct PluginConfig {
     pub id: String,
     pub config_values: std::collections::HashMap<String, String>,
 }
-
-#[async_trait]
-pub trait PluginFactory: Send + Sync {
-    fn name(&self) -> &str;
-    fn service_type(&self) -> ServiceType;
-    async fn create(&self, config: PluginConfig) -> anyhow::Result<Arc<dyn Plugin>>;
-}
-
-pub struct PluginRegistrar {
-    pub factory: fn() -> Arc<dyn PluginFactory>,
-}
-
-inventory::collect!(PluginRegistrar);

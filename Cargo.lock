@@ -1904,9 +1904,6 @@ dependencies = [
  "governor",
  "http",
  "mime_guess",
- "plugin_deepseek",
- "plugin_mcp",
- "plugin_terminal",
  "rand 0.8.5",
  "reqwest 0.12.28",
  "rust-embed",
@@ -1929,16 +1926,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "exiv_macros"
-version = "0.1.0"
-dependencies = [
- "base64 0.21.7",
- "proc-macro2",
- "quote",
- "syn 2.0.114",
-]
-
-[[package]]
 name = "exiv_shared"
 version = "0.1.0"
 dependencies = [
@@ -1946,8 +1933,6 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
- "exiv_macros",
- "inventory",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -3202,15 +3187,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.114",
-]
-
-[[package]]
-name = "inventory"
-version = "0.3.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc61209c082fbeb19919bee74b176221b27223e27b65d781eb91af24eb1fb46e"
-dependencies = [
- "rustversion",
 ]
 
 [[package]]
@@ -4774,48 +4750,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51bae2ac328883f7acdfea3d66a7c35751187f870bc81f94563733a154d7a670"
 dependencies = [
  "plotters-backend",
-]
-
-[[package]]
-name = "plugin_deepseek"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "exiv_shared",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "plugin_mcp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "exiv_shared",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "plugin_terminal"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "exiv_shared",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "unicode-normalization",
 ]
 
 [[package]]

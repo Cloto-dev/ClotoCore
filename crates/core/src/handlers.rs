@@ -1217,37 +1217,18 @@ if __name__ == "__main__":
         (command, args, None)
     };
 
-    // Get MCP plugin and add server
-    let mcp_plugin = {
-        let plugins = state.registry.plugins.read().await;
-        plugins.get("adapter.mcp").cloned()
-    };
-
-    let mcp = mcp_plugin
-        .as_ref()
-        .and_then(|p| p.as_any().downcast_ref::<plugin_mcp::McpAdapterPlugin>())
-        .ok_or_else(|| {
-            AppError::Internal(anyhow::anyhow!("MCP adapter plugin not found"))
-        })?;
-
-    let tool_names = mcp
-        .add_server(name.to_string(), command.clone(), args.clone())
+    // Add server via McpClientManager (handles connection + DB persistence)
+    let tool_names = state
+        .mcp_manager
+        .add_dynamic_server(
+            name.to_string(),
+            command.clone(),
+            args.clone(),
+            script_content,
+            body.get("description").and_then(|v| v.as_str()).map(String::from),
+        )
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to add MCP server: {}", e)))?;
-
-    // Persist to database
-    let record = crate::db::McpServerRecord {
-        name: name.to_string(),
-        command: command.clone(),
-        args: serde_json::to_string(&args).unwrap_or_else(|_| "[]".to_string()),
-        script_content,
-        description: body.get("description").and_then(|v| v.as_str()).map(String::from),
-        created_at: chrono::Utc::now().timestamp_millis(),
-        is_active: true,
-    };
-    if let Err(e) = crate::db::save_mcp_server(&state.pool, &record).await {
-        tracing::warn!(error = %e, name = %name, "Failed to persist MCP server to DB");
-    }
 
     tracing::info!(name = %name, tools = ?tool_names, "🔌 Dynamic MCP server added");
 
@@ -1264,20 +1245,7 @@ pub async fn list_mcp_servers(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
 
-    let mcp_plugin = {
-        let plugins = state.registry.plugins.read().await;
-        plugins.get("adapter.mcp").cloned()
-    };
-
-    let servers = if let Some(ref plugin) = mcp_plugin {
-        if let Some(mcp) = plugin.as_any().downcast_ref::<plugin_mcp::McpAdapterPlugin>() {
-            mcp.list_servers().await
-        } else {
-            vec![]
-        }
-    } else {
-        vec![]
-    };
+    let servers = state.mcp_manager.list_servers().await;
 
     Ok(Json(serde_json::json!({
         "servers": servers,
@@ -1292,24 +1260,12 @@ pub async fn delete_mcp_server(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
 
-    // Remove from MCP plugin
-    let mcp_plugin = {
-        let plugins = state.registry.plugins.read().await;
-        plugins.get("adapter.mcp").cloned()
-    };
-
-    if let Some(ref plugin) = mcp_plugin {
-        if let Some(mcp) = plugin.as_any().downcast_ref::<plugin_mcp::McpAdapterPlugin>() {
-            mcp.remove_server(&name)
-                .await
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
-        }
-    }
-
-    // Deactivate in DB
-    if let Err(e) = crate::db::deactivate_mcp_server(&state.pool, &name).await {
-        tracing::warn!(error = %e, name = %name, "Failed to deactivate MCP server in DB");
-    }
+    // Remove from McpClientManager (handles disconnect + DB deactivation)
+    state
+        .mcp_manager
+        .remove_dynamic_server(&name)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
 
     // Remove auto-generated script file if it exists
     let script_path = std::path::Path::new("scripts").join(format!("mcp_{}.py", name));

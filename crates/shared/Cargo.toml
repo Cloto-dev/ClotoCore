@@ -14,5 +14,3 @@ thiserror = "2.0"
 async-trait.workspace = true
 tokio.workspace = true
 axum.workspace = true
-exiv_macros = { path = "../macros" }
-inventory = "0.3.21"
