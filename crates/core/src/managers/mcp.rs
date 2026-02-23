@@ -862,6 +862,22 @@ impl McpClientManager {
         crate::db::deactivate_mcp_server(&self.pool, id).await?;
         Ok(())
     }
+
+    // ============================================================
+    // Memory Provider Discovery
+    // ============================================================
+
+    /// Find an MCP server that provides memory capabilities (has both `store` and `recall` tools).
+    /// Returns the server ID if found.
+    pub async fn find_memory_server(&self) -> Option<String> {
+        let index = self.tool_index.read().await;
+        let store_server = index.get("store").cloned();
+        let recall_server = index.get("recall").cloned();
+        match (store_server, recall_server) {
+            (Some(s1), Some(s2)) if s1 == s2 => Some(s1),
+            _ => None,
+        }
+    }
 }
 
 // ============================================================

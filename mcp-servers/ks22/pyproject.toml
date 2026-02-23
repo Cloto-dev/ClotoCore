@@ -1,0 +1,13 @@
+[project]
+name = "exiv-mcp-ks22"
+version = "0.1.0"
+description = "Exiv MCP Server: KS2.2 persistent memory with FTS5 search"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+    "aiosqlite>=0.20.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

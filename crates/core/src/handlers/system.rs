@@ -82,12 +82,26 @@ impl SystemHandler {
             .map(|r| r.plugin_id)
             .collect();
 
-        // 2. メモリからのコンテキスト取得
+        // 2. メモリからのコンテキスト取得 (Dual Dispatch: Rust Plugin → MCP Server)
         let memory_plugin = if let Some(preferred_id) = agent.metadata.get("preferred_memory") {
             self.registry.get_engine(preferred_id).await
         } else {
             self.registry.find_memory().await
         };
+
+        // MCP fallback: find MCP server with store+recall tools
+        let mcp_memory: Option<(Arc<McpClientManager>, String)> =
+            if memory_plugin.is_none() {
+                if let Some(ref mcp) = self.registry.mcp_manager {
+                    mcp.find_memory_server()
+                        .await
+                        .map(|server_id| (mcp.clone(), server_id))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
         let context = if let Some(ref plugin) = memory_plugin {
             if let Some(mem) = plugin.as_memory() {
@@ -127,6 +141,29 @@ impl SystemHandler {
                 } // end has_memory_read else branch
             } else {
                 vec![]
+            }
+        } else if let Some((ref mcp, ref server_id)) = mcp_memory {
+            // MCP Memory Resolver: recall via MCP server
+            let recall_args = serde_json::json!({
+                "agent_id": agent.id,
+                "query": msg.content,
+                "limit": self.memory_context_limit,
+            });
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                mcp.call_server_tool(server_id, "recall", recall_args),
+            )
+            .await
+            {
+                Ok(Ok(result)) => Self::parse_mcp_recall_result(&result),
+                Ok(Err(e)) => {
+                    error!(agent_id = %agent.id, server_id = %server_id, error = %e, "❌ MCP memory recall failed");
+                    vec![]
+                }
+                Err(_) => {
+                    error!(agent_id = %agent.id, server_id = %server_id, "⏱️ MCP memory recall timed out");
+                    vec![]
+                }
             }
         } else {
             vec![]
@@ -220,6 +257,27 @@ impl SystemHandler {
                                 )
                                 .await;
                             }
+                        });
+                    } else if let Some((ref mcp, ref server_id)) = mcp_memory {
+                        let mcp_clone = mcp.clone();
+                        let server_id_clone = server_id.clone();
+                        let agent_id_clone = agent.id.clone();
+                        let resp_msg_json = serde_json::json!({
+                            "id": format!("{}-resp", msg.id),
+                            "content": content.clone(),
+                            "source": { "Agent": { "id": agent.id } },
+                            "timestamp": Utc::now().to_rfc3339(),
+                        });
+                        tokio::spawn(async move {
+                            let store_args = serde_json::json!({
+                                "agent_id": agent_id_clone,
+                                "message": resp_msg_json,
+                            });
+                            let _ = tokio::time::timeout(
+                                std::time::Duration::from_secs(5),
+                                mcp_clone.call_server_tool(&server_id_clone, "store", store_args),
+                            )
+                            .await;
                         });
                     }
 
@@ -315,6 +373,40 @@ impl SystemHandler {
                     });
                 } // end has_memory_write branch
             }
+        } else if let Some((mcp, server_id)) = mcp_memory {
+            // MCP Memory Store: store user message via MCP server
+            let agent_id = agent.id.clone();
+            let metrics = self.metrics.clone();
+            let msg_json = serde_json::json!({
+                "id": msg.id,
+                "content": msg.content,
+                "source": { "User": {} },
+                "timestamp": msg.timestamp.to_rfc3339(),
+            });
+            tokio::spawn(async move {
+                let store_args = serde_json::json!({
+                    "agent_id": agent_id,
+                    "message": msg_json,
+                });
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    mcp.call_server_tool(&server_id, "store", store_args),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => {
+                        metrics
+                            .total_memories
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    Ok(Err(e)) => {
+                        error!(agent_id = %agent_id, error = %e, "❌ MCP memory store failed");
+                    }
+                    Err(_) => {
+                        error!(agent_id = %agent_id, "❌ MCP memory store timed out (5s)");
+                    }
+                }
+            });
         }
 
         Ok(())
@@ -753,6 +845,60 @@ impl SystemHandler {
         Err(anyhow::anyhow!(
             "MCP engine returned no parseable ThinkResult"
         ))
+    }
+
+    /// Parse MCP recall() response into Vec<ExivMessage>.
+    fn parse_mcp_recall_result(
+        result: &crate::managers::mcp_protocol::CallToolResult,
+    ) -> Vec<ExivMessage> {
+        use crate::managers::mcp_protocol::ToolContent;
+        for content in &result.content {
+            if let ToolContent::Text { text } = content {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
+                    if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
+                        error!("MCP memory recall error: {}", error);
+                        return vec![];
+                    }
+                    if let Some(messages) = json.get("messages").and_then(|m| m.as_array()) {
+                        return messages
+                            .iter()
+                            .filter_map(|m| {
+                                let content = m.get("content")?.as_str()?.to_string();
+                                let source = if let Some(src) = m.get("source") {
+                                    serde_json::from_value(src.clone())
+                                        .unwrap_or(exiv_shared::MessageSource::System)
+                                } else {
+                                    exiv_shared::MessageSource::System
+                                };
+                                let timestamp = m
+                                    .get("timestamp")
+                                    .and_then(|t| t.as_str())
+                                    .and_then(|t| {
+                                        chrono::DateTime::parse_from_rfc3339(t)
+                                            .ok()
+                                            .map(|dt| dt.with_timezone(&chrono::Utc))
+                                    })
+                                    .unwrap_or_else(Utc::now);
+                                let id = m
+                                    .get("id")
+                                    .and_then(|i| i.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                Some(ExivMessage {
+                                    id,
+                                    source,
+                                    target_agent: None,
+                                    content,
+                                    timestamp,
+                                    metadata: std::collections::HashMap::new(),
+                                })
+                            })
+                            .collect();
+                    }
+                }
+            }
+        }
+        vec![]
     }
 
     async fn emit_event(&self, trace_id: ExivId, data: ExivEventData) {

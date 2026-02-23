@@ -4,7 +4,6 @@ members = [
     "crates/shared",
     "crates/macros",
     "crates/cli",
-    "plugins/ks22",
     "plugins/deepseek",
     "plugins/moderator",
     "plugins/mcp",
