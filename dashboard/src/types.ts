@@ -298,6 +298,7 @@ export interface UpdateResult {
 
 // MCP Server Management types (MCP_SERVER_UI_DESIGN.md)
 export type McpServerStatus = 'Connected' | 'Disconnected' | 'Error';
+export type ServerSource = 'config' | 'dynamic';
 export type DefaultPolicy = 'opt-in' | 'opt-out';
 export type EntryType = 'capability' | 'server_grant' | 'tool_grant';
 export type AccessPermission = 'allow' | 'deny';
@@ -310,6 +311,7 @@ export interface McpServerInfo {
   status_message?: string;
   tools: string[];
   is_exiv_sdk: boolean;
+  source: ServerSource;
 }
 
 export interface AccessControlEntry {

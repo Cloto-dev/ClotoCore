@@ -11,10 +11,10 @@ interface Props {
   server: McpServerInfo;
   apiKey: string;
   onRefresh: () => void;
-  onDelete: (id: string) => void;
-  onStart: (id: string) => void;
-  onStop: (id: string) => void;
-  onRestart: (id: string) => void;
+  onDelete: (id: string) => Promise<void>;
+  onStart: (id: string) => Promise<void>;
+  onStop: (id: string) => Promise<void>;
+  onRestart: (id: string) => Promise<void>;
 }
 
 export function McpServerDetail({ server, apiKey, onRefresh, onDelete, onStart, onStop, onRestart }: Props) {
@@ -46,13 +46,19 @@ export function McpServerDetail({ server, apiKey, onRefresh, onDelete, onStart, 
       <div className="px-4 py-3 border-b border-edge">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-mono font-medium text-content-primary">{server.id}</h2>
-          <button
-            onClick={() => { if (confirm(`Delete server '${server.id}'?`)) onDelete(server.id); }}
-            className="p-1 rounded hover:bg-red-500/10 text-content-muted hover:text-red-500 transition-colors"
-            title="Delete Server"
-          >
-            <Trash2 size={14} />
-          </button>
+          {server.source === 'dynamic' && (
+            <button
+              onClick={() => {
+                if (confirm(`Delete server '${server.id}'?`))
+                  handleAction('delete', () => onDelete(server.id));
+              }}
+              disabled={actionLoading !== null}
+              className="p-1 rounded hover:bg-red-500/10 text-content-muted hover:text-red-500 transition-colors disabled:opacity-40"
+              title="Delete Server"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-4 mt-1.5 text-[10px] font-mono text-content-tertiary">
           <span className="flex items-center gap-1">
@@ -63,6 +69,9 @@ export function McpServerDetail({ server, apiKey, onRefresh, onDelete, onStart, 
           </span>
           <span>Tools: {server.tools.length} registered</span>
           {server.is_exiv_sdk && <span className="text-brand">EXIV SDK</span>}
+          <span className={server.source === 'config' ? 'text-amber-500' : 'text-blue-400'}>
+            {server.source === 'config' ? 'CONFIG' : 'DYNAMIC'}
+          </span>
         </div>
 
         {/* Lifecycle buttons */}

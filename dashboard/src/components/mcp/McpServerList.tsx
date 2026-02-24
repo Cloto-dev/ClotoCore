@@ -54,6 +54,9 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
             <span className="text-[10px]">{statusIndicator(server.status)}</span>
             <Server size={12} className="text-content-tertiary flex-shrink-0" />
             <span className="truncate">{server.id}</span>
+            {server.source === 'config' && (
+              <span className="text-[8px] text-amber-500/70 flex-shrink-0" title="Config-loaded">C</span>
+            )}
             <span className="ml-auto text-[9px] text-content-muted">{server.tools.length}t</span>
           </button>
         ))}

@@ -259,6 +259,14 @@ pub struct McpServerHandle {
     pub tools: Vec<McpTool>,
     pub handshake: Option<ExivHandshakeResult>,
     pub status: ServerStatus,
+    pub source: ServerSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServerSource {
+    Config,
+    Dynamic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -288,6 +296,7 @@ pub struct McpServerInfo {
     pub status_message: Option<String>,
     pub tools: Vec<String>,
     pub is_exiv_sdk: bool,
+    pub source: ServerSource,
 }
 
 // ============================================================
@@ -301,6 +310,8 @@ pub struct McpClientManager {
     tool_index: RwLock<HashMap<String, String>>,
     /// YOLO mode: auto-approve all MCP server permissions (ARCHITECTURE.md §5.7)
     yolo_mode: bool,
+    /// Preserved configs from stopped servers, enabling restart for config-loaded servers
+    stopped_configs: RwLock<HashMap<String, (McpServerConfig, ServerSource)>>,
 }
 
 impl McpClientManager {
@@ -311,6 +322,7 @@ impl McpClientManager {
             pool,
             tool_index: RwLock::new(HashMap::new()),
             yolo_mode,
+            stopped_configs: RwLock::new(HashMap::new()),
         }
     }
 
@@ -369,7 +381,10 @@ impl McpClientManager {
                 })
                 .collect();
 
-            if let Err(e) = self.connect_server(server_config.clone()).await {
+            if let Err(e) = self
+                .connect_server(server_config.clone(), ServerSource::Config)
+                .await
+            {
                 failed += 1;
                 warn!(
                     id = %server_config.id,
@@ -387,6 +402,7 @@ impl McpClientManager {
                         tools: Vec::new(),
                         handshake: None,
                         status: ServerStatus::Error(e.to_string()),
+                        source: ServerSource::Config,
                     });
             }
         }
@@ -443,7 +459,10 @@ impl McpClientManager {
                 }
             }
 
-            if let Err(e) = self.connect_server(config.clone()).await {
+            if let Err(e) = self
+                .connect_server(config.clone(), ServerSource::Dynamic)
+                .await
+            {
                 warn!(
                     name = %record.name,
                     error = %e,
@@ -460,6 +479,7 @@ impl McpClientManager {
                         tools: Vec::new(),
                         handshake: None,
                         status: ServerStatus::Error(e.to_string()),
+                        source: ServerSource::Dynamic,
                     });
             }
         }
@@ -469,7 +489,11 @@ impl McpClientManager {
 
     /// Connect to an MCP server with retry logic.
     #[allow(clippy::too_many_lines)]
-    pub async fn connect_server(&self, config: McpServerConfig) -> Result<Vec<String>> {
+    pub async fn connect_server(
+        &self,
+        config: McpServerConfig,
+        source: ServerSource,
+    ) -> Result<Vec<String>> {
         let id = config.id.clone();
 
         // Validate command against whitelist
@@ -656,6 +680,7 @@ impl McpClientManager {
             tools: tools.clone(),
             handshake,
             status: ServerStatus::Connected,
+            source,
         };
 
         // Register in servers map
@@ -688,7 +713,7 @@ impl McpClientManager {
         Ok(tool_names)
     }
 
-    /// Disconnect and remove an MCP server.
+    /// Disconnect and permanently remove an MCP server (also clears stopped_configs).
     pub async fn disconnect_server(&self, id: &str) -> Result<()> {
         let mut servers = self.servers.write().await;
         let handle = servers
@@ -698,6 +723,9 @@ impl McpClientManager {
         for tool in &handle.tools {
             index.remove(&tool.name);
         }
+        // Clean up stopped_configs too (permanent removal)
+        let mut stopped = self.stopped_configs.write().await;
+        stopped.remove(id);
         info!("MCP server '{}' disconnected", id);
         Ok(())
     }
@@ -718,6 +746,7 @@ impl McpClientManager {
                 status: h.status.clone(),
                 tools: h.tools.iter().map(|t| t.name.clone()).collect(),
                 is_exiv_sdk: h.handshake.is_some(),
+                source: h.source,
             })
             .collect()
     }
@@ -950,7 +979,7 @@ impl McpClientManager {
             tool_validators: HashMap::new(),
         };
 
-        let tool_names = self.connect_server(config).await?;
+        let tool_names = self.connect_server(config, ServerSource::Dynamic).await?;
 
         // Persist to DB
         let record = crate::db::McpServerRecord {
@@ -968,7 +997,20 @@ impl McpClientManager {
     }
 
     /// Remove a dynamic MCP server and deactivate in DB.
+    /// Config-loaded servers cannot be deleted (must be removed from mcp.toml).
     pub async fn remove_dynamic_server(&self, id: &str) -> Result<()> {
+        // Reject deletion of config-loaded servers
+        {
+            let servers = self.servers.read().await;
+            if let Some(handle) = servers.get(id) {
+                if handle.source == ServerSource::Config {
+                    return Err(anyhow::anyhow!(
+                        "Cannot delete config-loaded server '{}'. Remove it from mcp.toml instead.",
+                        id
+                    ));
+                }
+            }
+        }
         self.disconnect_server(id).await?;
         crate::db::deactivate_mcp_server(&self.pool, id).await?;
         Ok(())
@@ -994,21 +1036,24 @@ impl McpClientManager {
     // Server Lifecycle (MCP_SERVER_UI_DESIGN.md §4.3)
     // ============================================================
 
-    /// Stop a server (disconnect but preserve DB record).
+    /// Stop a server (disconnect but preserve config for restart).
     pub async fn stop_server(&self, id: &str) -> Result<()> {
-        // Remove from servers map and tool index, but don't touch DB
         let mut servers = self.servers.write().await;
-        let _handle = servers
+        let handle = servers
             .remove(id)
             .ok_or_else(|| anyhow::anyhow!("Server '{}' not found or already stopped", id))?;
         let mut index = self.tool_index.write().await;
         index.retain(|_, server_id| server_id != id);
 
-        info!(server = %id, "MCP server stopped (DB record preserved)");
+        // Preserve config for restart capability (works for both config and dynamic)
+        let mut stopped = self.stopped_configs.write().await;
+        stopped.insert(id.to_string(), (handle.config.clone(), handle.source));
+
+        info!(server = %id, source = ?handle.source, "MCP server stopped (config preserved for restart)");
         Ok(())
     }
 
-    /// Start a server from its persisted DB config.
+    /// Start a server from stopped_configs or DB.
     pub async fn start_server(&self, id: &str) -> Result<Vec<String>> {
         // Check if already running
         {
@@ -1018,12 +1063,25 @@ impl McpClientManager {
             }
         }
 
-        // Load config from DB
+        // 1. Check stopped_configs first (works for both config-loaded and dynamic)
+        {
+            let mut stopped = self.stopped_configs.write().await;
+            if let Some((config, source)) = stopped.remove(id) {
+                return self.connect_server(config, source).await;
+            }
+        }
+
+        // 2. Fall back to DB (dynamic servers that were never stopped in this session)
         let records = crate::db::load_active_mcp_servers(&self.pool).await?;
         let record = records
             .into_iter()
             .find(|r| r.name == id)
-            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in database", id))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Server '{}' not found in stopped configs or database",
+                    id
+                )
+            })?;
 
         let args: Vec<String> = serde_json::from_str(&record.args).unwrap_or_default();
 
@@ -1038,7 +1096,7 @@ impl McpClientManager {
             tool_validators: HashMap::new(),
         };
 
-        self.connect_server(config).await
+        self.connect_server(config, ServerSource::Dynamic).await
     }
 
     /// Restart a server (stop + start).

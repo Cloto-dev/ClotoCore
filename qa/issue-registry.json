@@ -1154,6 +1154,78 @@
       "pattern": "key=\\{i\\}",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-110",
+      "summary": "No ServerSource tracking in McpServerHandle — config vs dynamic indistinguishable",
+      "severity": "HIGH",
+      "discovered": "2026-02-24T15:00:00Z",
+      "version": "0.1.0",
+      "commit": "20a6670",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "source:\\s*ServerSource",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-111",
+      "summary": "remove_dynamic_server doesn't reject config-loaded servers — delete is no-op",
+      "severity": "HIGH",
+      "discovered": "2026-02-24T15:00:00Z",
+      "version": "0.1.0",
+      "commit": "20a6670",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "Cannot delete config-loaded",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-112",
+      "summary": "start_server only checks DB — config-loaded servers cannot restart after stop",
+      "severity": "HIGH",
+      "discovered": "2026-02-24T15:00:00Z",
+      "version": "0.1.0",
+      "commit": "20a6670",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "stopped_configs",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-113",
+      "summary": "onDelete type is void not Promise<void> — errors uncaught in McpServerDetail",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-24T15:00:00Z",
+      "version": "0.1.0",
+      "commit": "20a6670",
+      "file": "dashboard/src/components/mcp/McpServerDetail.tsx",
+      "pattern": "onDelete:\\s*\\(id:\\s*string\\)\\s*=>\\s*void",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-114",
+      "summary": "Delete button bypasses handleAction — no loading state or error handling",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-24T15:00:00Z",
+      "version": "0.1.0",
+      "commit": "20a6670",
+      "file": "dashboard/src/components/mcp/McpServerDetail.tsx",
+      "pattern": "handleAction\\('delete'",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-115",
+      "summary": "No source field in frontend McpServerInfo — no config/dynamic UI distinction",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-24T15:00:00Z",
+      "version": "0.1.0",
+      "commit": "20a6670",
+      "file": "dashboard/src/types.ts",
+      "pattern": "source:\\s*ServerSource",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }

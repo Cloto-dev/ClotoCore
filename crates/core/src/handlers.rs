@@ -1263,11 +1263,19 @@ pub async fn delete_mcp_server(
     check_auth(&state, &headers)?;
 
     // Remove from McpClientManager (handles disconnect + DB deactivation)
+    // Config-loaded servers cannot be deleted — return 400 with guidance
     state
         .mcp_manager
         .remove_dynamic_server(&name)
         .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+        .map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("config-loaded") {
+                AppError::Validation(msg)
+            } else {
+                AppError::Internal(anyhow::anyhow!("{}", e))
+            }
+        })?;
 
     // Remove auto-generated script file if it exists
     let script_path = std::path::Path::new("scripts").join(format!("mcp_{}.py", name));
