@@ -7,7 +7,6 @@ import { SecurityGuard } from '../components/SecurityGuard';
 import { useEventStream } from '../hooks/useEventStream';
 import { usePlugins } from '../hooks/usePlugins';
 import { api, EVENTS_URL } from '../services/api';
-import { SystemUpdate } from '../components/SystemUpdate';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 
@@ -45,14 +44,6 @@ function SystemView() {
   return (
     <div className="flex-1 flex flex-col bg-surface-base text-content-secondary overflow-hidden">
       {/* Update Section */}
-      <div className="border-b border-edge">
-        <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-          <RefreshCw size={14} />
-          <span className="text-[10px] font-black tracking-widest font-mono">SYSTEM_UPDATE</span>
-        </div>
-        <SystemUpdate />
-      </div>
-
       {/* Live Log Section */}
       <div className="flex-1 flex flex-col p-6 font-mono text-[10px] overflow-hidden">
         <div className="flex items-center gap-2 mb-4 border-b border-edge pb-2">

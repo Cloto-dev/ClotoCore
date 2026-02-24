@@ -187,27 +187,6 @@ export interface InstalledConfig {
   y: number;
 }
 
-export interface UpdateInfo {
-  current_version: string;
-  latest_version?: string;
-  update_available: boolean;
-  release_url?: string;
-  release_name?: string;
-  release_notes?: string;
-  published_at?: string;
-  build_target?: string;
-  message?: string;
-  assets?: { name: string; size: number; download_url: string }[];
-}
-
-export interface UpdateResult {
-  status: string;
-  previous_version: string;
-  new_version: string;
-  sha256: string;
-  message: string;
-}
-
 // MCP Server Management types (MCP_SERVER_UI_DESIGN.md)
 export type McpServerStatus = 'Connected' | 'Disconnected' | 'Error';
 export type ServerSource = 'config' | 'dynamic';

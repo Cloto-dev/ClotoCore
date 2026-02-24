@@ -1,4 +1,4 @@
-import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, ExivMessage, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, UpdateInfo, UpdateResult, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry } from '../types';
+import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, ExivMessage, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry } from '../types';
 import { isTauri } from '../lib/tauri';
 
 // In Tauri mode, window.location.origin returns "tauri://localhost" which cannot reach
@@ -45,7 +45,6 @@ export const api = {
     return res.then(r => { if (!r.ok) throw new Error(`Failed to get plugin config: ${r.statusText}`); return r.json() as Promise<Record<string, string>>; });
   },
   getPendingPermissions: () => fetchJson<PermissionRequest[]>('/permissions/pending', 'fetch pending permissions'),
-  checkForUpdate: () => fetchJson<UpdateInfo>('/system/update/check', 'check for updates'),
   getVersion: () => fetchJson<{ version: string; build_target: string }>('/system/version', 'fetch version'),
   getMetrics: () => fetchJson<Metrics>('/metrics', 'fetch metrics'),
   getMemories: () => fetchJson<Memory[]>('/memories', 'fetch memories'),
@@ -121,8 +120,6 @@ export const api = {
   },
   postChat: (message: ExivMessage, apiKey: string) =>
     mutate('/chat', 'POST', 'send chat', message, { 'X-API-Key': apiKey }).then(() => {}),
-  applyUpdate: (version: string, apiKey: string): Promise<UpdateResult> =>
-    mutate('/system/update/apply', 'POST', 'apply update', { version }, { 'X-API-Key': apiKey }).then(r => r.json()),
   postChatMessage: (agentId: string, msg: { id: string; source: string; content: ContentBlock[]; metadata?: Record<string, unknown> }, apiKey: string): Promise<{ id: string; created_at: number }> =>
     mutate(`/chat/${agentId}/messages`, 'POST', 'post chat message', msg, { 'X-API-Key': apiKey }).then(r => r.json()),
   deleteChatMessages: (agentId: string, apiKey: string): Promise<{ deleted_count: number }> =>

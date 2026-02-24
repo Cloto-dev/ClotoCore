@@ -404,10 +404,6 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // Admin endpoints: rate-limited (10 req/s, burst 20)
     let admin_routes = Router::new()
         .route("/system/shutdown", post(handlers::shutdown_handler))
-        .route(
-            "/system/update/apply",
-            post(handlers::update::apply_handler),
-        )
         .route("/plugins/apply", post(handlers::apply_plugin_settings))
         .route("/plugins/:id/config", post(handlers::update_plugin_config))
         .route(
@@ -481,8 +477,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
 
     // Public/read endpoints (no rate limiting)
     let api_routes = Router::new()
-        .route("/system/version", get(handlers::update::version_handler))
-        .route("/system/update/check", get(handlers::update::check_handler))
+        .route("/system/version", get(handlers::version_handler))
         .route("/events", get(handlers::sse_handler))
         .route("/history", get(handlers::get_history))
         .route("/metrics", get(handlers::get_metrics))

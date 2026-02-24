@@ -26,7 +26,6 @@ pub struct AppConfig {
     pub memory_context_limit: usize,
     pub admin_api_key: Option<String>,
     pub consensus_engines: Vec<String>,
-    pub update_repo: String,
     pub event_history_size: usize,
     pub event_retention_hours: u64,
     pub max_agentic_iterations: u8,
@@ -146,9 +145,6 @@ impl AppConfig {
                 .collect()
         };
 
-        let update_repo =
-            env::var("EXIV_UPDATE_REPO").unwrap_or_else(|_| "Exiv-ai/Exiv".to_string());
-
         let consensus_engines_str = env::var("CONSENSUS_ENGINES")
             .unwrap_or_else(|_| "mind.deepseek,mind.cerebras".to_string());
         let consensus_engines = consensus_engines_str
@@ -222,7 +218,6 @@ impl AppConfig {
             memory_context_limit,
             admin_api_key,
             consensus_engines,
-            update_repo,
             event_history_size,
             event_retention_hours,
             max_agentic_iterations,

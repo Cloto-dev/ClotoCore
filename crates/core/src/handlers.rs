@@ -1,7 +1,15 @@
 pub mod assets;
 pub mod chat;
 pub mod system;
-pub mod update;
+
+/// GET /api/system/version
+/// Returns current Exiv version and build target (public, no auth).
+pub async fn version_handler() -> axum::Json<serde_json::Value> {
+    axum::Json(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "build_target": env!("TARGET"),
+    }))
+}
 
 use axum::{
     extract::{Path, State},
