@@ -49,8 +49,6 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
         metrics,
         rate_limiter,
         shutdown,
-        evolution_engine: None,
-        fitness_collector: None,
         revoked_keys: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
     })
 }

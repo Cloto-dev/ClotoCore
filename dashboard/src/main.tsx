@@ -10,7 +10,6 @@ import './compiled-tailwind.css'
 
 const StatusCore = lazy(() => import('./components/StatusCore').then(m => ({ default: m.StatusCore })));
 const MemoryCore = lazy(() => import('./components/MemoryCore').then(m => ({ default: m.MemoryCore })));
-const EvolutionCore = lazy(() => import('./components/EvolutionCore').then(m => ({ default: m.EvolutionCore })));
 const McpServersPage = lazy(() => import('./pages/McpServersPage').then(m => ({ default: m.McpServersPage })));
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -24,7 +23,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/" element={<Home />} />
               <Route path="/status" element={<StatusCore />} />
               <Route path="/dashboard" element={<MemoryCore />} />
-              <Route path="/evolution" element={<EvolutionCore />} />
               <Route path="/mcp-servers" element={<McpServersPage />} />
             </Routes>
           </Suspense>

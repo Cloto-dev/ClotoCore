@@ -113,8 +113,6 @@ async fn test_event_cascading_protection() {
         metrics,
         1000, // max_history_size
         24,   // event_retention_hours
-        None, // evolution_engine
-        None, // fitness_collector
         None, // consensus
     );
 

@@ -29,7 +29,6 @@ pub struct AppConfig {
     pub update_repo: String,
     pub event_history_size: usize,
     pub event_retention_hours: u64,
-    pub auto_eval_enabled: bool,
     pub max_agentic_iterations: u8,
     pub tool_execution_timeout_secs: u64,
     pub mcp_config_path: Option<String>,
@@ -176,11 +175,6 @@ impl AppConfig {
             );
         }
 
-        let auto_eval_enabled = env::var("EXIV_AUTO_EVAL")
-            .unwrap_or_else(|_| "true".to_string())
-            .parse::<bool>()
-            .context("Failed to parse EXIV_AUTO_EVAL (expected 'true' or 'false')")?;
-
         let max_agentic_iterations = env::var("EXIV_MAX_AGENTIC_ITERATIONS")
             .unwrap_or_else(|_| "16".to_string())
             .parse::<u8>()
@@ -231,7 +225,6 @@ impl AppConfig {
             update_repo,
             event_history_size,
             event_retention_hours,
-            auto_eval_enabled,
             max_agentic_iterations,
             tool_execution_timeout_secs,
             mcp_config_path,

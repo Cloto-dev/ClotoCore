@@ -31,8 +31,6 @@ async fn create_test_processor(
         metrics,
         max_history_size,
         24,   // event_retention_hours
-        None, // evolution_engine
-        None, // fitness_collector
         None, // consensus
     ));
 

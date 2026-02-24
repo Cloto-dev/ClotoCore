@@ -106,8 +106,6 @@ async fn test_dynamic_permission_elevation_flow() {
         metrics,
         1000, // max_history_size
         24,   // event_retention_hours
-        None, // evolution_engine
-        None, // fitness_collector
         None, // consensus
     );
     let (event_tx, event_rx) = mpsc::channel(10);

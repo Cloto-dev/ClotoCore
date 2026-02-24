@@ -1,4 +1,4 @@
-import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, ExivMessage, EvolutionStatus, GenerationRecord, FitnessLogEntry, EvolutionParams, RollbackRecord, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, UpdateInfo, UpdateResult, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry } from '../types';
+import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, ExivMessage, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, UpdateInfo, UpdateResult, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry } from '../types';
 import { isTauri } from '../lib/tauri';
 
 // In Tauri mode, window.location.origin returns "tauri://localhost" which cannot reach
@@ -51,16 +51,6 @@ export const api = {
   getMemories: () => fetchJson<Memory[]>('/memories', 'fetch memories'),
   getEpisodes: () => fetchJson<Episode[]>('/episodes', 'fetch episodes'),
   getHistory: () => fetchJson<StrictSystemEvent[]>('/history', 'fetch history'),
-  getEvolutionStatus: () => fetchJson<EvolutionStatus>('/evolution/status', 'fetch evolution status'),
-  getGeneration: (n: number) => fetchJson<GenerationRecord>(`/evolution/generations/${n}`, 'fetch generation'),
-  getEvolutionParams: () => fetchJson<EvolutionParams>('/evolution/params', 'fetch evolution params'),
-  getRollbackHistory: () => fetchJson<RollbackRecord[]>('/evolution/rollbacks', 'fetch rollback history'),
-
-  getGenerationHistory: (limit?: number) =>
-    fetchJson<GenerationRecord[]>(`/evolution/generations${limit ? `?limit=${limit}` : ''}`, 'fetch generations'),
-  getFitnessTimeline: (limit?: number) =>
-    fetchJson<FitnessLogEntry[]>(`/evolution/fitness${limit ? `?limit=${limit}` : ''}`, 'fetch fitness timeline'),
-
   applyPluginSettings: (settings: { id: string, is_active: boolean }[], apiKey: string) =>
     mutate('/plugins/apply', 'POST', 'apply plugin settings', settings, { 'X-API-Key': apiKey }).then(() => {}),
   updatePluginConfig: (id: string, payload: { key: string, value: string }, apiKey: string) =>
@@ -131,15 +121,10 @@ export const api = {
   },
   postChat: (message: ExivMessage, apiKey: string) =>
     mutate('/chat', 'POST', 'send chat', message, { 'X-API-Key': apiKey }).then(() => {}),
-  updateEvolutionParams: (params: EvolutionParams, apiKey: string) =>
-    mutate('/evolution/params', 'PUT', 'update evolution params', params, { 'X-API-Key': apiKey }).then(() => {}),
-
   applyUpdate: (version: string, apiKey: string): Promise<UpdateResult> =>
     mutate('/system/update/apply', 'POST', 'apply update', { version }, { 'X-API-Key': apiKey }).then(r => r.json()),
   postChatMessage: (agentId: string, msg: { id: string; source: string; content: ContentBlock[]; metadata?: Record<string, unknown> }, apiKey: string): Promise<{ id: string; created_at: number }> =>
     mutate(`/chat/${agentId}/messages`, 'POST', 'post chat message', msg, { 'X-API-Key': apiKey }).then(r => r.json()),
-  evaluateAgent: (scores: { cognitive: number; behavioral: number; safety: number; autonomy: number; meta_learning: number }, apiKey: string): Promise<{ status: string; events: unknown[] }> =>
-    mutate('/evolution/evaluate', 'POST', 'evaluate', { scores }, { 'X-API-Key': apiKey }).then(r => r.json()),
   deleteChatMessages: (agentId: string, apiKey: string): Promise<{ deleted_count: number }> =>
     mutate(`/chat/${agentId}/messages`, 'DELETE', 'delete chat messages', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
   invalidateApiKey: (apiKey: string): Promise<{ status: string; message: string }> =>

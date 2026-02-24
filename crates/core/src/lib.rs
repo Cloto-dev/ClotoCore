@@ -4,7 +4,6 @@ pub mod config;
 pub mod consensus;
 pub mod db;
 pub mod events;
-pub mod evolution;
 pub mod handlers;
 pub mod installer;
 pub mod managers;
@@ -64,8 +63,6 @@ pub struct AppState {
     pub metrics: Arc<managers::SystemMetrics>,
     pub rate_limiter: Arc<middleware::RateLimiter>,
     pub shutdown: Arc<Notify>,
-    pub evolution_engine: Option<Arc<evolution::EvolutionEngine>>,
-    pub fitness_collector: Option<Arc<evolution::FitnessCollector>>,
     /// In-memory cache of revoked API key hashes (SHA-256 fingerprints).
     /// Loaded from DB at startup; updated on POST /api/system/invalidate-key.
     pub revoked_keys: Arc<std::sync::RwLock<std::collections::HashSet<String>>>,
@@ -291,22 +288,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         tracing::warn!(error = %e, "Failed to restore MCP servers from database");
     }
 
-    // 5. Rate Limiter & Evolution Engine & App State
+    // 5. Rate Limiter & App State
     let rate_limiter = Arc::new(middleware::RateLimiter::new(10, 20));
-
-    // Self-Evolution Engine (E1-E5)
-    let data_store: Arc<dyn exiv_shared::PluginDataStore> =
-        Arc::new(db::SqliteDataStore::new(pool.clone()));
-    let evolution_engine = Arc::new(evolution::EvolutionEngine::new(data_store, pool.clone()));
-
-    // Automatic Fitness Scoring (Principle 1.1 compliant)
-    let fitness_collector = if config.auto_eval_enabled {
-        info!("📊 Auto-evaluation enabled (EXIV_AUTO_EVAL=true)");
-        Some(Arc::new(evolution::FitnessCollector::new(true)))
-    } else {
-        info!("📊 Auto-evaluation disabled (EXIV_AUTO_EVAL=false), using on_interaction fallback");
-        None
-    };
 
     // Load revoked key hashes into memory
     let revoked_keys = {
@@ -338,8 +321,6 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         metrics: metrics.clone(),
         rate_limiter: rate_limiter.clone(),
         shutdown,
-        evolution_engine: Some(evolution_engine.clone()),
-        fitness_collector: fitness_collector.clone(),
         revoked_keys,
     });
 
@@ -369,8 +350,6 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         metrics,
         config.event_history_size,
         config.event_retention_hours,
-        Some(evolution_engine),
-        fitness_collector,
         Some(consensus_orchestrator),
     ));
 
@@ -495,16 +474,6 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/mcp/servers/:name/stop", post(handlers::stop_mcp_server))
         // API key invalidation
         .route("/system/invalidate-key", post(handlers::invalidate_api_key))
-        // Evolution Engine endpoints (auth required for write)
-        .route(
-            "/evolution/evaluate",
-            post(handlers::evolution::evaluate_agent),
-        )
-        .route(
-            "/evolution/params",
-            get(handlers::evolution::get_evolution_params)
-                .put(handlers::evolution::update_evolution_params),
-        )
         .layer(axum::middleware::from_fn_with_state(
             app_state.clone(),
             middleware::rate_limit_middleware,
@@ -529,27 +498,6 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route(
             "/mcp/access/by-agent/:agent_id",
             get(handlers::get_agent_access),
-        )
-        // Evolution Engine public endpoints (read-only)
-        .route(
-            "/evolution/status",
-            get(handlers::evolution::get_evolution_status),
-        )
-        .route(
-            "/evolution/generations",
-            get(handlers::evolution::get_generation_history),
-        )
-        .route(
-            "/evolution/generations/:n",
-            get(handlers::evolution::get_generation),
-        )
-        .route(
-            "/evolution/fitness",
-            get(handlers::evolution::get_fitness_timeline),
-        )
-        .route(
-            "/evolution/rollbacks",
-            get(handlers::evolution::get_rollback_history),
         )
         .merge(admin_routes)
         .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024)); // 10MB for chat attachments

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, Database, MessageSquare, Puzzle, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, TrendingUp, LucideIcon } from 'lucide-react';
+import { Activity, Database, MessageSquare, Puzzle, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, LucideIcon } from 'lucide-react';
 import { InteractiveGrid } from '../components/InteractiveGrid';
 import { SecurityGuard } from '../components/SecurityGuard';
 import { useEventStream } from '../hooks/useEventStream';
@@ -120,7 +120,6 @@ export function Home() {
     'Play': Play,
     'Pause': Pause,
     'RefreshCw': RefreshCw,
-    'TrendingUp': TrendingUp,
   };
 
   const menuItems = useMemo(() => {
@@ -143,7 +142,7 @@ export function Home() {
         pluginId: p.id
       }));
 
-    return [...baseItems, ...pluginItems, { id: 'evolve', label: 'EVOLVE', path: '/evolution', icon: TrendingUp, disabled: false }, { id: 'system', label: 'SYSTEM', path: '#', icon: Settings, disabled: false }];
+    return [...baseItems, ...pluginItems, { id: 'system', label: 'SYSTEM', path: '#', icon: Settings, disabled: false }];
   }, [plugins]);
 
   return (
