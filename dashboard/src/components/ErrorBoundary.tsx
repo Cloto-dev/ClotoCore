@@ -21,7 +21,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('Exiv ErrorBoundary caught:', error, info.componentStack);
+    console.error('Cloto ErrorBoundary caught:', error, info.componentStack);
   }
 
   render() {

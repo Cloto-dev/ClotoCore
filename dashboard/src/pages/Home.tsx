@@ -10,7 +10,7 @@ import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 
-const ExivWorkspace = lazy(() => import('../components/AgentWorkspace').then(m => ({ default: m.AgentWorkspace })));
+const ClotoWorkspace = lazy(() => import('../components/AgentWorkspace').then(m => ({ default: m.AgentWorkspace })));
 const GazeTracker = lazy(() => import('../components/GazeTracker').then(m => ({ default: m.GazeTracker })));
 
 function SystemView() {
@@ -117,7 +117,7 @@ export function Home() {
     const baseItems = [
       { id: 'status', label: 'STATUS', path: '/status', icon: Activity, disabled: false },
       { id: 'memory', label: 'MEMORY', path: '/dashboard', icon: Database, disabled: false },
-      { id: 'sandbox', label: 'EXIV', path: '#', icon: MessageSquare, disabled: false },
+      { id: 'sandbox', label: 'CLOTO', path: '#', icon: MessageSquare, disabled: false },
       { id: 'mcp', label: 'MCP', path: '/mcp-servers', icon: Puzzle, disabled: false },
     ];
 
@@ -169,7 +169,7 @@ export function Home() {
           <div className="absolute inset-0 top-16 flex flex-col">
             <div className="flex-1 overflow-hidden animate-in fade-in duration-300">
               <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">SYNCHRONIZING...</div>}>
-                {activeMainView === 'sandbox' && <ExivWorkspace />}
+                {activeMainView === 'sandbox' && <ClotoWorkspace />}
                 {activeMainView === 'system' && <SystemView />}
               </Suspense>
             </div>
@@ -184,7 +184,7 @@ export function Home() {
       <div className="relative z-20 w-full max-w-5xl flex flex-col items-center">
         <div className="mb-16 text-center">
           <h1 className="text-4xl font-black tracking-[0.2em] text-content-primary">
-            EXIV SYSTEM <span className="text-xl font-black tracking-widest text-brand ml-1">v{__APP_VERSION__}</span>
+            CLOTO SYSTEM <span className="text-xl font-black tracking-widest text-brand ml-1">v{__APP_VERSION__}</span>
           </h1>
           <p className="text-[10px] text-content-tertiary mt-3 font-mono uppercase tracking-[0.4em]">
             Neural Interface / Central Archive

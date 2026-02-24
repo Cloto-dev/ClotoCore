@@ -9,7 +9,7 @@ import { api } from '../services/api';
 
 export function McpServersPage() {
   const { apiKey } = useApiKey();
-  // Allow empty apiKey — debug backend skips auth when EXIV_API_KEY is unset
+  // Allow empty apiKey — debug backend skips auth when CLOTO_API_KEY is unset
   const effectiveKey = apiKey || '';
   const { servers, isLoading, refetch } = useMcpServers(effectiveKey);
   const [selectedId, setSelectedId] = useState<string | null>(null);

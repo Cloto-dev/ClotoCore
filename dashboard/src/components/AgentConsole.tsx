@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Activity, Send, Zap, User as UserIcon, RotateCcw, ArrowLeft } from 'lucide-react';
-import { AgentMetadata, ExivMessage, ChatMessage } from '../types';
+import { AgentMetadata, ClotoMessage, ChatMessage } from '../types';
 import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { useLongPress } from '../hooks/useLongPress';
@@ -9,7 +9,7 @@ import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
 
 // Legacy localStorage key prefix for migration
-const LEGACY_SESSION_KEY_PREFIX = 'exiv-chat-';
+const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
 
 function LongPressResetButton({ onReset }: { onReset: () => void }) {
   const { progress, handlers } = useLongPress(2000, onReset);
@@ -37,7 +37,7 @@ async function migrateLegacyData(agentId: string, apiKey: string) {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return;
-    const legacyMessages: ExivMessage[] = JSON.parse(raw);
+    const legacyMessages: ClotoMessage[] = JSON.parse(raw);
     if (!Array.isArray(legacyMessages) || legacyMessages.length === 0) {
       localStorage.removeItem(key);
       return;
@@ -202,7 +202,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       }, apiKey);
 
       // Send to event bus for agent processing
-      const exivMsg: ExivMessage = {
+      const clotoMsg: ClotoMessage = {
         id: msgId,
         source: { type: 'User', id: 'user', name: 'User' },
         target_agent: agent.id,
@@ -211,7 +211,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         metadata: { target_agent_id: agent.id }
       };
 
-      await api.postChat(exivMsg, apiKey);
+      await api.postChat(clotoMsg, apiKey);
     } catch (err) {
       // Rollback: remove the user message from UI and show error
       setMessages(prev => prev.filter(m => m.id !== msgId));

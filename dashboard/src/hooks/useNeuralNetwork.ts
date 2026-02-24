@@ -5,7 +5,7 @@ import { getDpr } from '../lib/canvasUtils';
 
 // Color placeholders overridden by theme useEffect below
 const INITIAL_NODES: Node[] = [
-  { id: 'exiv', label: 'EXIV CORE', x: 0, y: 0, vx: 0, vy: 0, type: 'core', color: '', data: { status: 'OPTIMIZING', lastActive: 'NOW', log: 'Core processing stable...' } },
+  { id: 'cloto', label: 'CLOTO CORE', x: 0, y: 0, vx: 0, vy: 0, type: 'core', color: '', data: { status: 'OPTIMIZING', lastActive: 'NOW', log: 'Core processing stable...' } },
   { id: 'memory_recall', label: 'MEMORY', x: -200, y: -100, vx: 0, vy: 0, type: 'tool', color: '', data: { status: 'STANDBY', lastActive: 'READY', log: 'Long-term memory interface.' } },
   { id: 'google_search', label: 'GOOGLE', x: 200, y: -100, vx: 0, vy: 0, type: 'tool', color: '', data: { status: 'STANDBY', lastActive: 'READY', log: 'Web search interface.' } },
   { id: 'discord_research', label: 'DISCORD', x: 300, y: 50, vx: 0, vy: 0, type: 'endpoint', color: '', data: { status: 'STANDBY', lastActive: 'READY', log: 'Discord log analyzer.' } },
@@ -13,10 +13,10 @@ const INITIAL_NODES: Node[] = [
 ];
 
 const INITIAL_EDGES: Edge[] = [
-  { source: 'exiv', target: 'memory_recall', color: '' },
-  { source: 'exiv', target: 'google_search', color: '' },
-  { source: 'exiv', target: 'discord_research', color: '' },
-  { source: 'exiv', target: 'user', color: '' },
+  { source: 'cloto', target: 'memory_recall', color: '' },
+  { source: 'cloto', target: 'google_search', color: '' },
+  { source: 'cloto', target: 'discord_research', color: '' },
+  { source: 'cloto', target: 'user', color: '' },
 ];
 
 export function useNeuralNetwork(
@@ -67,14 +67,14 @@ export function useNeuralNetwork(
     switch (event.type) {
       case "MessageReceived":
         pulses.current.push({
-          edge: { source: 'user', target: 'exiv', color: colorsRef.current.brandHex },
+          edge: { source: 'user', target: 'cloto', color: colorsRef.current.brandHex },
           progress: 0, speed: 0.04, color: colorsRef.current.brandHex
         });
         break;
       case "RawMessage":
         if (event.payload.message && event.payload.message.role === "user") {
           pulses.current.push({
-            edge: { source: 'user', target: 'exiv', color: colorsRef.current.brandHex },
+            edge: { source: 'user', target: 'cloto', color: colorsRef.current.brandHex },
             progress: 0, speed: 0.04, color: colorsRef.current.brandHex
           });
         }
@@ -85,10 +85,10 @@ export function useNeuralNetwork(
         if (!target) {
           target = { id: node, label: label, x: Math.random()*100, y: Math.random()*100, vx: 0, vy: 0, type: 'tool', color: color, data: { status: 'ACTIVE', lastActive: 'NOW', log: `Initializing ${label}...` } };
           nodes.current.push(target);
-          edges.current.push({ source: 'exiv', target: node, color: color });
+          edges.current.push({ source: 'cloto', target: node, color: color });
         }
         target.data = { ...target.data!, status: 'ACTIVE', lastActive: 'NOW' };
-        pulses.current.push({ edge: { source: 'exiv', target: node, color: color }, progress: 0, speed: 0.05, color: color });
+        pulses.current.push({ edge: { source: 'cloto', target: node, color: color }, progress: 0, speed: 0.05, color: color });
         break;
       }
       case "ToolEnd": {
@@ -96,7 +96,7 @@ export function useNeuralNetwork(
         const target = nodes.current.find(n => n.id === node);
         if (target) {
           target.data = { ...target.data!, status: 'STANDBY', lastActive: 'NOW' };
-          pulses.current.push({ edge: { source: node, target: 'exiv', color: target.color }, progress: 0, speed: 0.03, color: target.color });
+          pulses.current.push({ edge: { source: node, target: 'cloto', color: target.color }, progress: 0, speed: 0.03, color: target.color });
         }
         break;
       }
@@ -194,11 +194,11 @@ export function useNeuralNetwork(
      * Physics Simulation: Handles node attraction/repulsion and movement.
      */
     const updatePhysics = () => {
-      const core = nodes.current.find(n => n.id === 'exiv');
+      const core = nodes.current.find(n => n.id === 'cloto');
       if (!core) return;
 
       nodes.current.forEach(node => {
-        if (node === draggingNode.current || node.id === 'exiv') return;
+        if (node === draggingNode.current || node.id === 'cloto') return;
         
         const dx = node.x - core.x;
         const dy = node.y - core.y;

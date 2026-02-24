@@ -40,7 +40,7 @@ export function AgentTerminal({
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const DEFAULT_AGENT_ID = 'agent.exiv_default';
+  const DEFAULT_AGENT_ID = 'agent.cloto_default';
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;

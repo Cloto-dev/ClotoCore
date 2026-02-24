@@ -18,7 +18,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <ThemeProvider>
         <ApiKeyProvider>
         <Router>
-          <Suspense fallback={<div className="min-h-screen bg-surface-base flex items-center justify-center font-mono text-xs text-content-tertiary">LOADING EXIV...</div>}>
+          <Suspense fallback={<div className="min-h-screen bg-surface-base flex items-center justify-center font-mono text-xs text-content-tertiary">LOADING CLOTO...</div>}>
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/status" element={<StatusCore />} />

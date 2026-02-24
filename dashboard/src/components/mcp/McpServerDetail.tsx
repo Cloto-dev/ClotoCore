@@ -68,7 +68,7 @@ export function McpServerDetail({ server, apiKey, onRefresh, onDelete, onStart, 
             </span>
           </span>
           <span>Tools: {server.tools.length} registered</span>
-          {server.is_exiv_sdk && <span className="text-brand">EXIV SDK</span>}
+          {server.is_cloto_sdk && <span className="text-brand">CLOTO SDK</span>}
           <span className={server.source === 'config' ? 'text-amber-500' : 'text-blue-400'}>
             {server.source === 'config' ? 'CONFIG' : 'DYNAMIC'}
           </span>

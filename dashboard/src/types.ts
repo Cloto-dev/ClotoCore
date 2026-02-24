@@ -1,6 +1,6 @@
-export type ExivId = string;
+export type ClotoId = string;
 
-export interface ExivMessage {
+export interface ClotoMessage {
   id: string;
   source: 
     | { type: 'User'; id: string; name: string }
@@ -13,7 +13,7 @@ export interface ExivMessage {
 }
 
 export interface AgentMetadata {
-  id: ExivId;
+  id: ClotoId;
   name: string;
   description: string;
   default_engine_id?: string;
@@ -47,7 +47,7 @@ export type CapabilityType =
 export type PluginCategory = 'Agent' | 'Tool' | 'Memory' | 'System' | 'Other';
 
 export interface PluginManifest {
-  id: ExivId;
+  id: ClotoId;
   name: string;
   description: string;
   version: string;
@@ -201,7 +201,7 @@ export interface McpServerInfo {
   status: McpServerStatus;
   status_message?: string;
   tools: string[];
-  is_exiv_sdk: boolean;
+  is_cloto_sdk: boolean;
   source: ServerSource;
 }
 

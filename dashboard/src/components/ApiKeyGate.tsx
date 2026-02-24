@@ -50,7 +50,7 @@ export function ApiKeyGate() {
       setApiKey(key);
       setOpen(false);
     } catch {
-      setValidationError('キーがサーバーと一致しません。EXIV_API_KEY の値を確認してください。');
+      setValidationError('キーがサーバーと一致しません。CLOTO_API_KEY の値を確認してください。');
     } finally {
       setValidating(false);
     }
@@ -181,7 +181,7 @@ export function ApiKeyGate() {
             <div className="p-3 bg-red-500/10 rounded-lg border border-red-500/20 space-y-2">
               <div className="flex items-start gap-2 text-red-400 text-[10px]">
                 <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" />
-                <span>このキーはExivシステム全体で永久に使用不可になります。<br />新しいキーで再起動するまで管理操作ができなくなります。</span>
+                <span>このキーはClotoシステム全体で永久に使用不可になります。<br />新しいキーで再起動するまで管理操作ができなくなります。</span>
               </div>
               {invalidateError && <p className="text-[10px] text-red-400">{invalidateError}</p>}
               <div className="flex gap-2">

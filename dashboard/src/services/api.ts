@@ -1,4 +1,4 @@
-import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, ExivMessage, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry } from '../types';
+import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, ClotoMessage, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry } from '../types';
 import { isTauri } from '../lib/tauri';
 
 // In Tauri mode, window.location.origin returns "tauri://localhost" which cannot reach
@@ -118,7 +118,7 @@ export const api = {
     });
     await throwIfNotOk(res, 'create agent');
   },
-  postChat: (message: ExivMessage, apiKey: string) =>
+  postChat: (message: ClotoMessage, apiKey: string) =>
     mutate('/chat', 'POST', 'send chat', message, { 'X-API-Key': apiKey }).then(() => {}),
   postChatMessage: (agentId: string, msg: { id: string; source: string; content: ContentBlock[]; metadata?: Record<string, unknown> }, apiKey: string): Promise<{ id: string; created_at: number }> =>
     mutate(`/chat/${agentId}/messages`, 'POST', 'post chat message', msg, { 'X-API-Key': apiKey }).then(r => r.json()),

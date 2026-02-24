@@ -19,7 +19,7 @@ interface ThemeContextValue {
   };
 }
 
-const STORAGE_KEY = 'exiv-theme';
+const STORAGE_KEY = 'cloto-theme';
 
 function getSystemTheme(): Theme {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';

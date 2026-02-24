@@ -80,7 +80,7 @@ export const useStatusManager = (fetchMetrics: () => void) => {
       // Forward SystemNotification events to OS notifications (Tauri only)
       if (data.type === "SystemNotification" && isTauri) {
         const message = typeof data.data === 'string' ? data.data : JSON.stringify(data.data);
-        sendNativeNotification("Exiv System", message);
+        sendNativeNotification("Cloto System", message);
       }
     }
   }, [fetchMetrics, isHistoryLoaded]);

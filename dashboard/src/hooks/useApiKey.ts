@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 
-const SESSION_KEY = 'exiv-api-key';
-const LOCAL_KEY   = 'exiv-api-key-local';
+const SESSION_KEY = 'cloto-api-key';
+const LOCAL_KEY   = 'cloto-api-key-local';
 
 function readStored(): string {
   try {

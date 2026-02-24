@@ -9,7 +9,7 @@ export function NeuralNetwork({ mouseRef, events, onEventProcessed, seekTime }: 
   const { canvasRef, selectedModal, setSelectedModal, nodes, longPressTimer, viewport } = useNeuralNetwork(mouseRef, events, onEventProcessed, seekTime);
 
   const activeNode = nodes.current.find(n => n.id === selectedModal?.nodeId);
-  const coreNode = nodes.current.find(n => n.id === 'exiv');
+  const coreNode = nodes.current.find(n => n.id === 'cloto');
 
   const onModalMouseDown = (e: any) => {
     e.stopPropagation();

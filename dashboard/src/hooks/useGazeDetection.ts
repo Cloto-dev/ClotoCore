@@ -231,7 +231,7 @@ function processLandmarks(
 }
 
 function dispatchGaze(data: GazeData) {
-  window.dispatchEvent(new CustomEvent('exiv-gaze', { detail: data }));
+  window.dispatchEvent(new CustomEvent('cloto-gaze', { detail: data }));
 }
 
 function createLandmarker(

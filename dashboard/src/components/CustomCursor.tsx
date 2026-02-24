@@ -38,9 +38,9 @@ export function CustomCursor() {
         }, 500);
       }
     };
-    window.addEventListener('exiv-gaze', handler);
+    window.addEventListener('cloto-gaze', handler);
     return () => {
-      window.removeEventListener('exiv-gaze', handler);
+      window.removeEventListener('cloto-gaze', handler);
       clearTimeout(gazeTimeoutRef.current);
     };
   }, []);
