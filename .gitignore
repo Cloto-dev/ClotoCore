@@ -15,7 +15,7 @@ Desktop.ini
 target/
 *.dSYM/
 
-# Exiv Specific
+# Cloto Specific
 data/
 *.db
 *.db-shm
@@ -37,7 +37,7 @@ compiled-tailwind.css
 
 # Build artifacts
 vers_bin_release/
-exiv_guardian
+cloto_guardian
 installer/output/
 
 # Python

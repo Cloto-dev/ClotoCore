@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════
-# Exiv Live Auto-Evaluation Test
+# Cloto Live Auto-Evaluation Test
 # ══════════════════════════════════════════════════════════════
 # Sends real chat messages → LLM responds → FitnessCollector auto-evaluates
 # Monitors evolution state changes in real-time.
@@ -100,7 +100,7 @@ assert_range() {
 
 # ══════════════════════════════════════════════════════════════
 
-echo -e "\n${CYAN}═══ Exiv Live Auto-Evaluation Test ═══${NC}\n"
+echo -e "\n${CYAN}═══ Cloto Live Auto-Evaluation Test ═══${NC}\n"
 
 if ! curl -sf "${BASE}/system/version" > /dev/null 2>&1; then
   echo -e "${RED}ERROR: Server not reachable${NC}"

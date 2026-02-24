@@ -1,7 +1,7 @@
 [project]
-name = "exiv-mcp-ks22"
+name = "cloto-mcp-ks22"
 version = "0.1.0"
-description = "Exiv MCP Server: KS2.2 persistent memory with FTS5 search"
+description = "Cloto MCP Server: KS2.2 persistent memory with FTS5 search"
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.0.0",

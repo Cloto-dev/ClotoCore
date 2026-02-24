@@ -1,7 +1,7 @@
 [project]
-name = "exiv-mcp-terminal"
+name = "cloto-mcp-terminal"
 version = "0.1.0"
-description = "Exiv MCP Server: Terminal (sandboxed command execution)"
+description = "Cloto MCP Server: Terminal (sandboxed command execution)"
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.0.0",

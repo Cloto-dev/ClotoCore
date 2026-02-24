@@ -1,4 +1,4 @@
-# Exiv MCP Server Configuration
+# Cloto MCP Server Configuration
 # Servers listed here are auto-connected on kernel startup.
 # Environment variables use ${VAR} syntax (resolved from process env).
 

@@ -1,20 +1,20 @@
 # ============================================================
-# Exiv Quick Installer for Windows
+# Cloto Quick Installer for Windows
 # Downloads a pre-built binary from GitHub Releases and installs it.
 #
 # Usage:
 #   .\install.ps1
 #
 # Environment variables:
-#   EXIV_PREFIX   Install directory (default: C:\ProgramData\Exiv)
-#   EXIV_VERSION  Version to install (default: latest)
-#   EXIV_SERVICE  Set to "true" to register as Windows service
+#   CLOTO_PREFIX   Install directory (default: C:\ProgramData\Cloto)
+#   CLOTO_VERSION  Version to install (default: latest)
+#   CLOTO_SERVICE  Set to "true" to register as Windows service
 # ============================================================
 
 $ErrorActionPreference = "Stop"
 
 # --- Logging ---
-$LogFile = Join-Path $env:TEMP "exiv-install.log"
+$LogFile = Join-Path $env:TEMP "cloto-install.log"
 
 function Write-Log {
     param(
@@ -124,16 +124,16 @@ function Register-Uninstaller {
         [string]$InstallDir,
         [string]$Version
     )
-    $RegKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Exiv"
+    $RegKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ClotoCore"
     $UninstallScript = Join-Path $InstallDir "uninstall.ps1"
 
     New-Item -Path $RegKey -Force | Out-Null
-    Set-ItemProperty -Path $RegKey -Name "DisplayName" -Value "Exiv"
+    Set-ItemProperty -Path $RegKey -Name "DisplayName" -Value "ClotoCore"
     Set-ItemProperty -Path $RegKey -Name "DisplayVersion" -Value $Version
-    Set-ItemProperty -Path $RegKey -Name "Publisher" -Value "Exiv Project"
+    Set-ItemProperty -Path $RegKey -Name "Publisher" -Value "ClotoCore Project"
     Set-ItemProperty -Path $RegKey -Name "InstallLocation" -Value $InstallDir
     Set-ItemProperty -Path $RegKey -Name "UninstallString" -Value "powershell.exe -ExecutionPolicy Bypass -File `"$UninstallScript`""
-    Set-ItemProperty -Path $RegKey -Name "DisplayIcon" -Value (Join-Path $InstallDir "exiv_system.exe")
+    Set-ItemProperty -Path $RegKey -Name "DisplayIcon" -Value (Join-Path $InstallDir "cloto_system.exe")
     Set-ItemProperty -Path $RegKey -Name "NoModify" -Value 1 -Type DWord
     Set-ItemProperty -Path $RegKey -Name "NoRepair" -Value 1 -Type DWord
     Set-ItemProperty -Path $RegKey -Name "InstallDate" -Value (Get-Date -Format "yyyyMMdd")
@@ -169,14 +169,14 @@ function Invoke-Rollback {
 # Main
 # ============================================================
 
-Write-Log "=== Exiv Installer started ==="
+Write-Log "=== Cloto Installer started ==="
 
 Assert-Administrator
 
-$Repo = "Exiv-ai/Exiv"
-$InstallDir = if ($env:EXIV_PREFIX) { $env:EXIV_PREFIX } else { "C:\ProgramData\Exiv" }
-$Version = if ($env:EXIV_VERSION) { $env:EXIV_VERSION } else { "latest" }
-$SetupService = if ($env:EXIV_SERVICE -eq "true") { $true } else { $false }
+$Repo = "Cloto-dev/ClotoCore"
+$InstallDir = if ($env:CLOTO_PREFIX) { $env:CLOTO_PREFIX } else { "C:\ProgramData\Cloto" }
+$Version = if ($env:CLOTO_VERSION) { $env:CLOTO_VERSION } else { "latest" }
+$SetupService = if ($env:CLOTO_SERVICE -eq "true") { $true } else { $false }
 $Platform = "windows-x64"
 
 Write-Host ""
@@ -187,7 +187,7 @@ Write-Host " |  __|  \ \/ /| \ \ / /" -ForegroundColor Cyan
 Write-Host " | |____  >  < | |\ V / " -ForegroundColor Cyan
 Write-Host " |______|/_/\_\|_| \_/  " -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  Exiv Installer" -ForegroundColor Cyan
+Write-Host "  Cloto Installer" -ForegroundColor Cyan
 Write-Host "  Platform: $Platform"
 Write-Host "  Log file: $LogFile"
 Write-Host ""
@@ -200,7 +200,7 @@ if ($Version -eq "latest") {
     try {
         $ApiParams = @{
             Uri     = "https://api.github.com/repos/$Repo/releases/latest"
-            Headers = @{ "User-Agent" = "Exiv-Installer" }
+            Headers = @{ "User-Agent" = "ClotoCore-Installer" }
         }
         if ($env:HTTPS_PROXY) { $ApiParams.Proxy = $env:HTTPS_PROXY }
         elseif ($env:HTTP_PROXY) { $ApiParams.Proxy = $env:HTTP_PROXY }
@@ -208,7 +208,7 @@ if ($Version -eq "latest") {
         $Release = Invoke-RestMethod @ApiParams
         $Version = $Release.tag_name
     } catch {
-        Write-Err "Failed to fetch latest release. Set EXIV_VERSION explicitly."
+        Write-Err "Failed to fetch latest release. Set CLOTO_VERSION explicitly."
         exit 1
     }
 }
@@ -221,11 +221,11 @@ if ($VersionNum -notmatch '^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$') {
 Write-Step "  Version:  v$VersionNum" -Color Green
 
 # --- Download ---
-$Archive = "exiv-$VersionNum-$Platform.zip"
+$Archive = "cloto-$VersionNum-$Platform.zip"
 $Url = "https://github.com/$Repo/releases/download/v$VersionNum/$Archive"
 $ChecksumUrl = "$Url.sha256"
 
-$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "exiv-install-$(Get-Random)"
+$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "cloto-install-$(Get-Random)"
 New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
 Write-Log "Temp directory: $TmpDir"
 
@@ -264,10 +264,10 @@ try {
     $ExtractDir = Join-Path $TmpDir "extracted"
     Expand-Archive -Path (Join-Path $TmpDir $Archive) -DestinationPath $ExtractDir -Force
 
-    $Binary = Join-Path $ExtractDir "exiv_system.exe"
+    $Binary = Join-Path $ExtractDir "cloto_system.exe"
     if (-not (Test-Path $Binary)) {
         # Archive may contain a subdirectory
-        $Binary = Get-ChildItem -Path $ExtractDir -Recurse -Filter "exiv_system.exe" | Select-Object -First 1 -ExpandProperty FullName
+        $Binary = Get-ChildItem -Path $ExtractDir -Recurse -Filter "cloto_system.exe" | Select-Object -First 1 -ExpandProperty FullName
         if (-not $Binary) {
             Write-Err "Binary not found in archive."
             exit 1
@@ -323,7 +323,7 @@ try {
     try {
         Register-Uninstaller -InstallDir $InstallDir -Version $VersionNum
         Add-RollbackAction -Description "Remove registry entry" -Action {
-            Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Exiv" -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ClotoCore" -Force -ErrorAction SilentlyContinue
         }
     } catch {
         Write-Step "  (Registry setup skipped: $_)" -Color Yellow
@@ -332,14 +332,14 @@ try {
 
     # --- Success ---
     Write-Host ""
-    Write-Step "Exiv v$VersionNum installed successfully!" -Color Green
+    Write-Step "ClotoCore v$VersionNum installed successfully!" -Color Green
     Write-Host ""
-    Write-Host "  Binary:    $InstallDir\exiv_system.exe" -ForegroundColor Cyan
+    Write-Host "  Binary:    $InstallDir\cloto_system.exe" -ForegroundColor Cyan
     Write-Host "  Dashboard: http://localhost:8081" -ForegroundColor Cyan
-    Write-Host "  Manage:    exiv_system.exe service start|stop|status" -ForegroundColor Cyan
+    Write-Host "  Manage:    cloto_system.exe service start|stop|status" -ForegroundColor Cyan
     Write-Host "  Uninstall: powershell -File `"$InstallDir\uninstall.ps1`"" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  NOTE: Restart your terminal to use 'exiv_system' from PATH." -ForegroundColor Yellow
+    Write-Host "  NOTE: Restart your terminal to use 'cloto_system' from PATH." -ForegroundColor Yellow
     Write-Host ""
     Write-Log "Installation completed successfully: v$VersionNum -> $InstallDir"
 
@@ -349,5 +349,5 @@ try {
         Remove-Item -Path $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
         Write-Log "Cleaned up temp directory: $TmpDir"
     }
-    Write-Log "=== Exiv Installer finished ==="
+    Write-Log "=== Cloto Installer finished ==="
 }

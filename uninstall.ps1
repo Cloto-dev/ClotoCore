@@ -1,6 +1,6 @@
 # ============================================================
-# Exiv Uninstaller for Windows
-# Removes Exiv installation, service, PATH entry, and registry.
+# Cloto Uninstaller for Windows
+# Removes ClotoCore installation, service, PATH entry, and registry.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File uninstall.ps1
@@ -8,7 +8,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$LogFile = Join-Path $env:TEMP "exiv-uninstall.log"
+$LogFile = Join-Path $env:TEMP "cloto-uninstall.log"
 
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
@@ -44,46 +44,46 @@ if (-not $CurrentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
 }
 
 # --- Determine install directory ---
-$RegKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Exiv"
+$RegKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ClotoCore"
 if (Test-Path $RegKey) {
     $InstallDir = (Get-ItemProperty -Path $RegKey -Name "InstallLocation" -ErrorAction SilentlyContinue).InstallLocation
 }
 if (-not $InstallDir) {
     # Fallback: script is in the install directory
     $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-    if (Test-Path (Join-Path $ScriptDir "exiv_system.exe")) {
+    if (Test-Path (Join-Path $ScriptDir "cloto_system.exe")) {
         $InstallDir = $ScriptDir
     } else {
-        $InstallDir = "C:\ProgramData\Exiv"
+        $InstallDir = "C:\ProgramData\Cloto"
     }
 }
 
 Write-Host ""
-Write-Host "  Exiv Uninstaller" -ForegroundColor Cyan
+Write-Host "  Cloto Uninstaller" -ForegroundColor Cyan
 Write-Host "  Install directory: $InstallDir"
 Write-Host "  Log file: $LogFile"
 Write-Host ""
 
-Write-Log "=== Exiv Uninstaller started ==="
+Write-Log "=== Cloto Uninstaller started ==="
 Write-Log "Install directory: $InstallDir"
 
 # --- Confirmation ---
-$Confirm = Read-Host "Are you sure you want to uninstall Exiv? (y/N)"
+$Confirm = Read-Host "Are you sure you want to uninstall ClotoCore? (y/N)"
 if ($Confirm -notin @("y", "Y", "yes", "Yes")) {
     Write-Step "Uninstall cancelled." -Color Yellow
     exit 0
 }
 
 # --- Stop and remove Windows Service ---
-Write-Step "Stopping Exiv service..." -Color Cyan
+Write-Step "Stopping ClotoCore service..." -Color Cyan
 try {
-    $ServiceStatus = sc.exe query ExivService 2>&1
+    $ServiceStatus = sc.exe query ClotoCoreService 2>&1
     if ($LASTEXITCODE -eq 0) {
-        sc.exe stop ExivService 2>&1 | Out-Null
+        sc.exe stop ClotoCoreService 2>&1 | Out-Null
         Start-Sleep -Seconds 2
-        sc.exe delete ExivService 2>&1 | Out-Null
+        sc.exe delete ClotoCoreService 2>&1 | Out-Null
         Write-Step "  Service removed." -Color Green
-        Write-Log "Windows Service 'ExivService' stopped and deleted"
+        Write-Log "Windows Service 'ClotoCoreService' stopped and deleted"
     } else {
         Write-Step "  Service not found (skipping)." -Color Yellow
         Write-Log "Service not found, skipping"
@@ -136,7 +136,7 @@ try {
         if (Test-Path $DataDir) {
             $KeepData = Read-Host "Keep user data ($DataDir)? (y/N)"
             if ($KeepData -in @("y", "Y", "yes", "Yes")) {
-                $BackupDir = Join-Path $env:USERPROFILE "Exiv-data-backup"
+                $BackupDir = Join-Path $env:USERPROFILE "ClotoCore-data-backup"
                 Copy-Item -Path $DataDir -Destination $BackupDir -Recurse -Force
                 Write-Step "  Data backed up to: $BackupDir" -Color Green
                 Write-Log "Data directory backed up to $BackupDir"
@@ -154,8 +154,8 @@ try {
 }
 
 Write-Host ""
-Write-Step "Exiv has been uninstalled." -Color Green
+Write-Step "ClotoCore has been uninstalled." -Color Green
 Write-Host ""
 Write-Host "  NOTE: Restart your terminal to apply PATH changes." -ForegroundColor Yellow
 Write-Host ""
-Write-Log "=== Exiv Uninstaller finished ==="
+Write-Log "=== Cloto Uninstaller finished ==="

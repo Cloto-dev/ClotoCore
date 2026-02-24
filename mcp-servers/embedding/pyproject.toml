@@ -1,7 +1,7 @@
 [project]
-name = "exiv-mcp-embedding"
+name = "cloto-mcp-embedding"
 version = "0.1.0"
-description = "Exiv MCP Server: Vector embedding generation (local ONNX + API providers)"
+description = "Cloto MCP Server: Vector embedding generation (local ONNX + API providers)"
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.0.0",

@@ -1,5 +1,5 @@
 """
-Exiv MCP Server: KS2.2 Memory
+Cloto MCP Server: KS2.2 Memory
 Persistent memory with FTS5 full-text search and pluggable vector embedding.
 Ported from plugins/ks22/src/lib.rs + ai_karin KS2.1 architecture.
 
@@ -389,7 +389,7 @@ async def do_recall(agent_id: str, query: str, limit: int) -> dict:
     results = results[:limit]
     results.reverse()
 
-    # Convert to ExivMessage-compatible format
+    # Convert to ClotoMessage-compatible format
     messages = []
     for r in results:
         msg: dict = {"content": r["content"]}
@@ -674,7 +674,7 @@ def _try_parse_json(s: str) -> dict:
 # MCP Server
 # ============================================================
 
-server = Server("exiv-mcp-ks22")
+server = Server("cloto-mcp-ks22")
 
 
 @server.list_tools()
@@ -692,7 +692,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "message": {
                         "type": "object",
-                        "description": "ExivMessage to store (id, content, source, timestamp, metadata)",
+                        "description": "ClotoMessage to store (id, content, source, timestamp, metadata)",
                     },
                 },
                 "required": ["agent_id", "message"],

@@ -1,7 +1,7 @@
 [project]
-name = "exiv-mcp-cerebras"
+name = "cloto-mcp-cerebras"
 version = "0.1.0"
-description = "Exiv MCP Server: Cerebras ultra-high-speed reasoning engine"
+description = "Cloto MCP Server: Cerebras ultra-high-speed reasoning engine"
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.0.0",

@@ -1,5 +1,5 @@
 """
-Exiv MCP Server: Terminal
+Cloto MCP Server: Terminal
 Sandboxed shell command execution via MCP protocol.
 Ported from plugins/terminal/src/lib.rs + sandbox.rs
 """
@@ -18,9 +18,9 @@ from mcp.types import TextContent, Tool
 # Configuration (from environment variables)
 # ============================================================
 
-WORKING_DIR = os.environ.get("EXIV_SANDBOX_DIR", "/tmp/exiv-sandbox")
-MAX_OUTPUT_BYTES = int(os.environ.get("EXIV_MAX_OUTPUT_BYTES", "65536"))
-ALLOWED_COMMANDS_STR = os.environ.get("EXIV_ALLOWED_COMMANDS", "")
+WORKING_DIR = os.environ.get("CLOTO_SANDBOX_DIR", "/tmp/cloto-sandbox")
+MAX_OUTPUT_BYTES = int(os.environ.get("CLOTO_MAX_OUTPUT_BYTES", "65536"))
+ALLOWED_COMMANDS_STR = os.environ.get("CLOTO_ALLOWED_COMMANDS", "")
 
 ALLOWED_COMMANDS: list[str] | None = None
 if ALLOWED_COMMANDS_STR:
@@ -112,7 +112,7 @@ def safe_truncate(s: str, max_bytes: int) -> str:
 # MCP Server
 # ============================================================
 
-server = Server("exiv-mcp-terminal")
+server = Server("cloto-mcp-terminal")
 
 
 @server.list_tools()

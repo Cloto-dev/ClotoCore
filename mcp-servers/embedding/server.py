@@ -1,5 +1,5 @@
 """
-Exiv MCP Server: Vector Embedding
+Cloto MCP Server: Vector Embedding
 Pluggable embedding provider with HTTP endpoint for inter-server communication.
 Providers: api_openai (OpenAI-compatible API), onnx_miniml (local MiniLM ONNX).
 
@@ -152,7 +152,7 @@ class OnnxMiniLMProvider(EmbeddingProvider):
         except ImportError:
             raise ImportError(
                 "onnx_miniml provider requires: pip install onnxruntime tokenizers\n"
-                "Or: pip install exiv-mcp-embedding[onnx]"
+                "Or: pip install cloto-mcp-embedding[onnx]"
             )
 
         model_path = os.path.join(self._model_dir, "model.onnx")
@@ -333,7 +333,7 @@ async def run_http_server(port: int) -> None:
 # MCP Server
 # ============================================================
 
-mcp_server = Server("exiv-mcp-embedding")
+mcp_server = Server("cloto-mcp-embedding")
 
 
 @mcp_server.list_tools()

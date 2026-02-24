@@ -1,5 +1,5 @@
 """
-Exiv MCP Server: Cerebras
+Cloto MCP Server: Cerebras
 Ultra-high-speed OpenAI-compatible reasoning engine via MCP protocol.
 Ported from plugins/cerebras/src/lib.rs + crates/shared/src/llm.rs
 
@@ -33,7 +33,7 @@ REQUEST_TIMEOUT = int(os.environ.get("CEREBRAS_TIMEOUT_SECS", "60"))
 
 
 def build_system_prompt(agent: dict) -> str:
-    """Build the system prompt for an Exiv agent."""
+    """Build the system prompt for an Cloto agent."""
     name = agent.get("name", "Agent")
     description = agent.get("description", "")
     metadata = agent.get("metadata", {})
@@ -46,8 +46,8 @@ def build_system_prompt(agent: dict) -> str:
     )
 
     return (
-        f"You are {name}, an AI agent running on the Exiv platform.\n"
-        f"Exiv is a local, self-hosted AI container system — all data stays on your "
+        f"You are {name}, an AI agent running on the Cloto platform.\n"
+        f"Cloto is a local, self-hosted AI container system — all data stays on your "
         f"operator's hardware and is never sent to any external service.\n"
         f"{memory_line}"
         f"You can extend your own capabilities by creating new skills at runtime.\n"
@@ -131,7 +131,7 @@ async def call_cerebras_api(messages: list[dict]) -> dict:
 # MCP Server
 # ============================================================
 
-server = Server("exiv-mcp-cerebras")
+server = Server("cloto-mcp-cerebras")
 
 
 @server.list_tools()

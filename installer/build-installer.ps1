@@ -1,9 +1,9 @@
 # ============================================================
-# Exiv Installer Build Script
+# Cloto Installer Build Script
 # Compiles the Inno Setup script into an .exe installer.
 #
 # Usage:
-#   .\build-installer.ps1 -Version 0.2.0 -BinaryPath ..\target\release\exiv_system.exe
+#   .\build-installer.ps1 -Version 0.2.0 -BinaryPath ..\target\release\cloto_system.exe
 #
 # Requirements:
 #   - Inno Setup 6+ (ISCC.exe in PATH or default install location)
@@ -21,7 +21,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "Exiv Installer Build" -ForegroundColor Cyan
+Write-Host "Cloto Installer Build" -ForegroundColor Cyan
 Write-Host "  Version:    $Version"
 Write-Host "  Binary:     $BinaryPath"
 Write-Host "  Output dir: $OutputDir"
@@ -63,7 +63,7 @@ if (Test-Path $BuildDir) {
 New-Item -ItemType Directory -Path $BuildDir -Force | Out-Null
 
 # Copy binary to build directory
-Copy-Item -Path $BinaryPath -Destination (Join-Path $BuildDir "exiv_system.exe") -Force
+Copy-Item -Path $BinaryPath -Destination (Join-Path $BuildDir "cloto_system.exe") -Force
 Write-Host "  Copied binary to build directory" -ForegroundColor Green
 
 # --- Ensure output directory ---
@@ -76,7 +76,7 @@ if (-not (Test-Path $AbsOutputDir)) {
 Write-Host ""
 Write-Host "Compiling installer..." -ForegroundColor Cyan
 
-$IssFile = Join-Path $ScriptDir "exiv-setup.iss"
+$IssFile = Join-Path $ScriptDir "cloto-setup.iss"
 & $Iscc "/DAppVersion=$Version" "/O$AbsOutputDir" $IssFile
 
 if ($LASTEXITCODE -ne 0) {
@@ -85,7 +85,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- Generate checksum ---
-$InstallerName = "exiv-setup-$Version.exe"
+$InstallerName = "cloto-setup-$Version.exe"
 $InstallerPath = Join-Path $AbsOutputDir $InstallerName
 
 if (-not (Test-Path $InstallerPath)) {

@@ -1,22 +1,22 @@
 #!/bin/bash
 # ============================================================
-# Exiv Quick Installer
+# Cloto Quick Installer
 # Downloads a pre-built binary from GitHub Releases and installs it.
 #
 # Usage:
 #   bash install.sh
 #
 # Environment variables:
-#   EXIV_PREFIX   Install directory (default: /opt/exiv)
-#   EXIV_VERSION  Version to install (default: latest)
-#   EXIV_SERVICE  Set to "true" to register as systemd service
+#   CLOTO_PREFIX   Install directory (default: /opt/cloto)
+#   CLOTO_VERSION  Version to install (default: latest)
+#   CLOTO_SERVICE  Set to "true" to register as systemd service
 # ============================================================
 set -euo pipefail
 
-REPO="Exiv-ai/Exiv"
-INSTALL_DIR="${EXIV_PREFIX:-/opt/exiv}"
-VERSION="${EXIV_VERSION:-latest}"
-SETUP_SERVICE="${EXIV_SERVICE:-false}"
+REPO="Cloto-dev/ClotoCore"
+INSTALL_DIR="${CLOTO_PREFIX:-/opt/cloto}"
+VERSION="${CLOTO_VERSION:-latest}"
+SETUP_SERVICE="${CLOTO_SERVICE:-false}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -50,7 +50,7 @@ detect_platform() {
 }
 
 PLATFORM="$(detect_platform)"
-echo -e "${CYAN}Exiv Installer${NC}"
+echo -e "${CYAN}Cloto Installer${NC}"
 echo "  Platform: ${PLATFORM}"
 
 # --- Resolve version ---
@@ -58,7 +58,7 @@ if [[ "$VERSION" == "latest" ]]; then
     echo "  Resolving latest version..."
     VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
         | grep '"tag_name"' | head -1 | cut -d'"' -f4)" \
-        || error "Failed to fetch latest release. Set EXIV_VERSION explicitly."
+        || error "Failed to fetch latest release. Set CLOTO_VERSION explicitly."
 fi
 VERSION_NUM="${VERSION#v}"
 
@@ -70,7 +70,7 @@ fi
 echo "  Version:  v${VERSION_NUM}"
 
 # --- Download ---
-ARCHIVE="exiv-${VERSION_NUM}-${PLATFORM}.tar.gz"
+ARCHIVE="cloto-${VERSION_NUM}-${PLATFORM}.tar.gz"
 URL="https://github.com/${REPO}/releases/download/v${VERSION_NUM}/${ARCHIVE}"
 CHECKSUM_URL="${URL}.sha256"
 
@@ -103,13 +103,13 @@ echo "Extracting..."
 tar xzf "${TMPDIR}/${ARCHIVE}" -C "${TMPDIR}"
 
 # --- Install via the binary's self-install command ---
-EXTRACTED_DIR="${TMPDIR}/exiv-${VERSION_NUM}-${PLATFORM}"
+EXTRACTED_DIR="${TMPDIR}/cloto-${VERSION_NUM}-${PLATFORM}"
 
-if [[ ! -f "${EXTRACTED_DIR}/exiv_system" ]]; then
+if [[ ! -f "${EXTRACTED_DIR}/cloto_system" ]]; then
     error "Binary not found in archive"
 fi
 
-chmod +x "${EXTRACTED_DIR}/exiv_system"
+chmod +x "${EXTRACTED_DIR}/cloto_system"
 
 echo ""
 echo -e "${CYAN}Installing to ${INSTALL_DIR}...${NC}"
@@ -120,13 +120,13 @@ INSTALL_ARGS=(install --prefix "${INSTALL_DIR}")
 
 # The binary's install command handles: file placement, .env generation,
 # Python setup, and optional systemd service registration.
-sudo "${EXTRACTED_DIR}/exiv_system" "${INSTALL_ARGS[@]}"
+sudo "${EXTRACTED_DIR}/cloto_system" "${INSTALL_ARGS[@]}"
 
 echo ""
-echo -e "${GREEN}Exiv v${VERSION_NUM} installed successfully.${NC}"
+echo -e "${GREEN}ClotoCore v${VERSION_NUM} installed successfully.${NC}"
 echo ""
-echo -e "  Binary:    ${CYAN}${INSTALL_DIR}/exiv_system${NC}"
+echo -e "  Binary:    ${CYAN}${INSTALL_DIR}/cloto_system${NC}"
 echo -e "  Dashboard: ${CYAN}http://localhost:8081${NC}"
-echo -e "  Manage:    ${CYAN}${INSTALL_DIR}/exiv_system service start|stop|status${NC}"
-echo -e "  Uninstall: ${CYAN}${INSTALL_DIR}/exiv_system uninstall${NC}"
+echo -e "  Manage:    ${CYAN}${INSTALL_DIR}/cloto_system service start|stop|status${NC}"
+echo -e "  Uninstall: ${CYAN}${INSTALL_DIR}/cloto_system uninstall${NC}"
 echo ""

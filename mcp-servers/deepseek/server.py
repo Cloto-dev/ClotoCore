@@ -1,5 +1,5 @@
 """
-Exiv MCP Server: DeepSeek
+Cloto MCP Server: DeepSeek
 OpenAI-compatible reasoning engine via MCP protocol.
 Ported from plugins/deepseek/src/lib.rs + crates/shared/src/llm.rs
 """
@@ -35,7 +35,7 @@ def model_supports_tools(model_id: str) -> bool:
 
 
 def build_system_prompt(agent: dict) -> str:
-    """Build the system prompt for an Exiv agent.
+    """Build the system prompt for an Cloto agent.
 
     Ported from llm::build_system_prompt().
     """
@@ -51,8 +51,8 @@ def build_system_prompt(agent: dict) -> str:
     )
 
     return (
-        f"You are {name}, an AI agent running on the Exiv platform.\n"
-        f"Exiv is a local, self-hosted AI container system — all data stays on your "
+        f"You are {name}, an AI agent running on the Cloto platform.\n"
+        f"Cloto is a local, self-hosted AI container system — all data stays on your "
         f"operator's hardware and is never sent to any external service.\n"
         f"{memory_line}"
         f"You can extend your own capabilities by creating new skills at runtime.\n"
@@ -205,7 +205,7 @@ async def call_deepseek_api(
 # MCP Server
 # ============================================================
 
-server = Server("exiv-mcp-deepseek")
+server = Server("cloto-mcp-deepseek")
 
 
 @server.list_tools()

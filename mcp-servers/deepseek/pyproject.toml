@@ -1,7 +1,7 @@
 [project]
-name = "exiv-mcp-deepseek"
+name = "cloto-mcp-deepseek"
 version = "0.1.0"
-description = "Exiv MCP Server: DeepSeek reasoning engine"
+description = "Cloto MCP Server: DeepSeek reasoning engine"
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.0.0",

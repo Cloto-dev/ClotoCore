@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$PROJECT_ROOT/mcp-servers/.venv"
 
-echo "=== Exiv MCP Server Dependency Setup ==="
+echo "=== Cloto MCP Server Dependency Setup ==="
 echo ""
 
 # Detect Python command

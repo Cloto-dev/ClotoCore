@@ -1,16 +1,16 @@
 ; ============================================================
-; Exiv - Windows Installer (Inno Setup)
-; Extensible Intelligence Virtualization
+; ClotoCore - Windows Installer (Inno Setup)
+; AI Agent Orchestration Platform
 ;
 ; Build:
-;   iscc.exe exiv-setup.iss /DAppVersion=0.1.0
+;   iscc.exe cloto-setup.iss /DAppVersion=0.1.0
 ;
 ; Silent install:
-;   exiv-setup-0.1.0.exe /SILENT /PORT=3000 /APIKEY=mykey
-;   exiv-setup-0.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES
+;   cloto-setup-0.1.0.exe /SILENT /PORT=3000 /APIKEY=mykey
+;   cloto-setup-0.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES
 ;
 ; Prerequisites:
-;   - Place exiv_system.exe in build/ directory
+;   - Place cloto_system.exe in build/ directory
 ;   - icon.ico in assets/ directory (copied from dashboard/src-tauri/icons/)
 ; ============================================================
 
@@ -20,25 +20,25 @@
 
 [Setup]
 AppId={{A7E3F2B1-5C4D-4A8E-B9F0-1D2E3F4A5B6C}
-AppName=Exiv
+AppName=ClotoCore
 AppVersion={#AppVersion}
-AppVerName=Exiv {#AppVersion}
-AppPublisher=Exiv Project
-AppPublisherURL=https://github.com/Exiv-ai/Exiv
-AppSupportURL=https://github.com/Exiv-ai/Exiv/issues
-AppContact=exiv.project@proton.me
-DefaultDirName={autopf}\Exiv
-DefaultGroupName=Exiv
+AppVerName=ClotoCore {#AppVersion}
+AppPublisher=ClotoCore Project
+AppPublisherURL=https://github.com/Cloto-dev/ClotoCore
+AppSupportURL=https://github.com/Cloto-dev/ClotoCore/issues
+AppContact=ClotoCore@proton.me
+DefaultDirName={autopf}\ClotoCore
+DefaultGroupName=ClotoCore
 LicenseFile=..\LICENSE
 OutputDir=output
-OutputBaseFilename=exiv-setup-{#AppVersion}
+OutputBaseFilename=cloto-setup-{#AppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 SetupIconFile=assets\icon.ico
-UninstallDisplayIcon={app}\exiv_system.exe
+UninstallDisplayIcon={app}\cloto_system.exe
 WizardStyle=modern
 WizardImageFile=assets\wizard-image.bmp
 WizardSmallImageFile=assets\wizard-small.bmp
@@ -52,33 +52,33 @@ Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 
 [CustomMessages]
 ; English
-english.ComponentCore=Exiv Core System (required)
+english.ComponentCore=ClotoCore System (required)
 english.ComponentPython=MCP Server Support
 english.ComponentDashboard=Desktop Dashboard (Tauri)
 english.TaskDesktopIcon=Create a desktop shortcut
-english.TaskAddToPath=Add Exiv to system PATH
+english.TaskAddToPath=Add ClotoCore to system PATH
 english.TaskInstallService=Register as Windows Service (auto-start)
 english.TaskGroup=Additional options:
 english.ConfigPageCaption=Configuration
-english.ConfigPageDescription=Configure Exiv server settings.
+english.ConfigPageDescription=Configure ClotoCore server settings.
 english.ConfigPortLabel=Server Port:
 english.ConfigApiKeyLabel=API Key (leave empty to auto-generate):
-english.ConfigGenerating=Configuring Exiv...
-english.FinishOpenDashboard=Open Exiv Dashboard
+english.ConfigGenerating=Configuring ClotoCore...
+english.FinishOpenDashboard=Open ClotoCore Dashboard
 ; Japanese
-japanese.ComponentCore=Exiv Core System (必須)
+japanese.ComponentCore=ClotoCore System (必須)
 japanese.ComponentPython=MCP サーバーサポート
 japanese.ComponentDashboard=デスクトップダッシュボード (Tauri)
 japanese.TaskDesktopIcon=デスクトップにショートカットを作成
-japanese.TaskAddToPath=Exivをシステム PATH に追加
+japanese.TaskAddToPath=ClotoCoreをシステム PATH に追加
 japanese.TaskInstallService=Windows サービスとして登録 (自動起動)
 japanese.TaskGroup=追加オプション:
 japanese.ConfigPageCaption=設定
-japanese.ConfigPageDescription=Exiv サーバーの設定を行います。
+japanese.ConfigPageDescription=ClotoCore サーバーの設定を行います。
 japanese.ConfigPortLabel=サーバーポート:
 japanese.ConfigApiKeyLabel=API キー (空欄で自動生成):
-japanese.ConfigGenerating=Exiv を構成中...
-japanese.FinishOpenDashboard=Exiv ダッシュボードを開く
+japanese.ConfigGenerating=ClotoCore を構成中...
+japanese.FinishOpenDashboard=ClotoCore ダッシュボードを開く
 
 [Types]
 Name: "full"; Description: "Full installation"
@@ -92,7 +92,7 @@ Name: "dashboard"; Description: "{cm:ComponentDashboard}"; Types: full custom
 
 [Files]
 ; Core binary
-Source: "build\exiv_system.exe"; DestDir: "{app}"; Components: core; Flags: ignoreversion
+Source: "build\cloto_system.exe"; DestDir: "{app}"; Components: core; Flags: ignoreversion
 ; Configuration template
 Source: "..\env.example"; DestDir: "{app}"; DestName: ".env.example"; Components: core; Flags: ignoreversion
 ; License
@@ -102,10 +102,10 @@ Source: "..\LICENSE"; DestDir: "{app}"; Components: core; Flags: ignoreversion
 Source: "..\uninstall.ps1"; DestDir: "{app}"; Components: core; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Exiv Dashboard"; Filename: "http://localhost:{code:GetPort}"; IconFilename: "{app}\exiv_system.exe"; Comment: "Open Exiv Dashboard"
-Name: "{group}\Exiv Command Line"; Filename: "{cmd}"; Parameters: "/k cd /d ""{app}"""; IconFilename: "{app}\exiv_system.exe"; Comment: "Exiv CLI"
-Name: "{group}\Uninstall Exiv"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Exiv Dashboard"; Filename: "http://localhost:{code:GetPort}"; IconFilename: "{app}\exiv_system.exe"; Tasks: desktopicon
+Name: "{group}\ClotoCore Dashboard"; Filename: "http://localhost:{code:GetPort}"; IconFilename: "{app}\cloto_system.exe"; Comment: "Open ClotoCore Dashboard"
+Name: "{group}\ClotoCore Command Line"; Filename: "{cmd}"; Parameters: "/k cd /d ""{app}"""; IconFilename: "{app}\cloto_system.exe"; Comment: "ClotoCore CLI"
+Name: "{group}\Uninstall ClotoCore"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\ClotoCore Dashboard"; Filename: "http://localhost:{code:GetPort}"; IconFilename: "{app}\cloto_system.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:TaskDesktopIcon}"; GroupDescription: "{cm:TaskGroup}"
@@ -114,19 +114,19 @@ Name: "installservice"; Description: "{cm:TaskInstallService}"; GroupDescription
 
 [Run]
 ; Run self-installer to set up directories and .env
-Filename: "{app}\exiv_system.exe"; Parameters: "install --prefix ""{app}"" {code:GetInstallFlags}"; StatusMsg: "{cm:ConfigGenerating}"; Flags: runhidden waituntilterminated
+Filename: "{app}\cloto_system.exe"; Parameters: "install --prefix ""{app}"" {code:GetInstallFlags}"; StatusMsg: "{cm:ConfigGenerating}"; Flags: runhidden waituntilterminated
 ; Optionally open dashboard after install
 Filename: "http://localhost:{code:GetPort}"; Description: "{cm:FinishOpenDashboard}"; Flags: postinstall nowait shellexec skipifsilent unchecked
 
 [UninstallRun]
 ; Stop service before uninstall
-Filename: "sc.exe"; Parameters: "stop Exiv"; Flags: runhidden; RunOnceId: "StopService"
-Filename: "sc.exe"; Parameters: "delete Exiv"; Flags: runhidden; RunOnceId: "DeleteService"
+Filename: "sc.exe"; Parameters: "stop ClotoCore"; Flags: runhidden; RunOnceId: "StopService"
+Filename: "sc.exe"; Parameters: "delete ClotoCore"; Flags: runhidden; RunOnceId: "DeleteService"
 
 [Registry]
 ; Store install info for detection
-Root: HKLM; Subkey: "SOFTWARE\Exiv"; ValueType: string; ValueName: "InstallPath"; ValueData: "{app}"; Flags: uninsdeletekey
-Root: HKLM; Subkey: "SOFTWARE\Exiv"; ValueType: string; ValueName: "Version"; ValueData: "{#AppVersion}"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "SOFTWARE\ClotoCore"; ValueType: string; ValueName: "InstallPath"; ValueData: "{app}"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "SOFTWARE\ClotoCore"; ValueType: string; ValueName: "Version"; ValueData: "{#AppVersion}"; Flags: uninsdeletekey
 
 [Code]
 var
@@ -226,17 +226,17 @@ begin
   if ApiKeyEdit <> nil then
     ApiKey := ApiKeyEdit.Text;
 
-  // If no API key provided, let exiv_system generate one
+  // If no API key provided, let cloto_system generate one
   if ApiKey = '' then
     Exit;
 
   Lines := TStringList.Create;
   try
-    Lines.Add('# Exiv Configuration (generated by installer)');
+    Lines.Add('# ClotoCore Configuration (generated by installer)');
     Lines.Add('PORT=' + Port);
     Lines.Add('RUST_LOG=info');
-    Lines.Add('EXIV_API_KEY=' + ApiKey);
-    Lines.Add('DATABASE_URL=sqlite:' + ExpandConstant('{app}') + '\data\exiv_memories.db');
+    Lines.Add('CLOTO_API_KEY=' + ApiKey);
+    Lines.Add('DATABASE_URL=sqlite:' + ExpandConstant('{app}') + '\data\cloto_memories.db');
     Lines.SaveToFile(EnvPath);
   finally
     Lines.Free;
