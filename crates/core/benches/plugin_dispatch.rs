@@ -1,11 +1,11 @@
 // Plugin Dispatch Benchmarks
-// Critical path: exiv_core/src/managers.rs:80-162 (PluginRegistry::dispatch_event)
+// Critical path: cloto_core/src/managers.rs:80-162 (PluginRegistry::dispatch_event)
 // Measures: FuturesUnordered concurrency, semaphore contention, plugin execution
 
 use async_trait::async_trait;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use exiv_shared::{
-    ExivEvent, ExivEventData, Plugin, PluginCast, PluginCategory, PluginManifest, ServiceType,
+use cloto_shared::{
+    ClotoEvent, ClotoEventData, Plugin, PluginCast, PluginCategory, PluginManifest, ServiceType,
 };
 use std::any::Any;
 use std::sync::Arc;
@@ -51,7 +51,7 @@ impl Plugin for BenchPlugin {
         }
     }
 
-    async fn on_event(&self, _event: &ExivEvent) -> anyhow::Result<Option<ExivEventData>> {
+    async fn on_event(&self, _event: &ClotoEvent) -> anyhow::Result<Option<ClotoEventData>> {
         // Simulate plugin processing time
         if self.latency_ms > 0 {
             tokio::time::sleep(tokio::time::Duration::from_millis(self.latency_ms)).await;

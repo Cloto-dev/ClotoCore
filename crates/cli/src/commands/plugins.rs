@@ -1,16 +1,16 @@
 use anyhow::Result;
 
 use crate::cli::PluginsCommand;
-use crate::client::ExivClient;
+use crate::client::ClotoClient;
 use crate::output;
 
-pub async fn run(client: &ExivClient, cmd: PluginsCommand, json_mode: bool) -> Result<()> {
+pub async fn run(client: &ClotoClient, cmd: PluginsCommand, json_mode: bool) -> Result<()> {
     match cmd {
         PluginsCommand::List => list(client, json_mode).await,
     }
 }
 
-async fn list(client: &ExivClient, json_mode: bool) -> Result<()> {
+async fn list(client: &ClotoClient, json_mode: bool) -> Result<()> {
     let sp = if json_mode {
         None
     } else {

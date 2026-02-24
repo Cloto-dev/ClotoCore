@@ -3,7 +3,7 @@ pub mod chat;
 pub mod system;
 
 /// GET /api/system/version
-/// Returns current Exiv version and build target (public, no auth).
+/// Returns current Cloto version and build target (public, no auth).
 pub async fn version_handler() -> axum::Json<serde_json::Value> {
     axum::Json(serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
@@ -17,7 +17,7 @@ use axum::{
     response::sse::{Event, Sse},
     Json,
 };
-use exiv_shared::ExivMessage;
+use cloto_shared::ClotoMessage;
 use futures::stream::Stream;
 use serde::Deserialize;
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
@@ -35,8 +35,8 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()>
             None => false,
         };
         if !matches {
-            return Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(
-                exiv_shared::Permission::AdminAccess,
+            return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                cloto_shared::Permission::AdminAccess,
             )));
         }
         // Check revocation: reject key even if it matches, if it has been invalidated
@@ -45,8 +45,8 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()>
             if let Ok(revoked) = state.revoked_keys.read() {
                 if revoked.contains(&hash) {
                     tracing::warn!("🚫 Rejected revoked API key");
-                    return Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(
-                        exiv_shared::Permission::AdminAccess,
+                    return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                        cloto_shared::Permission::AdminAccess,
                     )));
                 }
             }
@@ -54,15 +54,15 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()>
     } else {
         // In release builds, require API key to be configured
         if !cfg!(debug_assertions) {
-            return Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(
-                exiv_shared::Permission::AdminAccess,
+            return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                cloto_shared::Permission::AdminAccess,
             )));
         }
         // M-09: Warn loudly in debug builds when no API key is set
         tracing::warn!(
-            "⚠️  SECURITY: Admin API access without authentication (debug mode, no EXIV_API_KEY)"
+            "⚠️  SECURITY: Admin API access without authentication (debug mode, no CLOTO_API_KEY)"
         );
-        tracing::warn!("⚠️  Set EXIV_API_KEY in .env before deploying to production");
+        tracing::warn!("⚠️  Set CLOTO_API_KEY in .env before deploying to production");
     }
     Ok(())
 }
@@ -104,7 +104,7 @@ pub struct CreateAgentRequest {
     pub description: String,
     pub default_engine: String,
     pub metadata: Option<HashMap<String, String>>,
-    pub required_capabilities: Option<Vec<exiv_shared::CapabilityType>>,
+    pub required_capabilities: Option<Vec<cloto_shared::CapabilityType>>,
     pub password: Option<String>,
 }
 
@@ -187,7 +187,7 @@ pub async fn create_agent(
 
     // M-07: Input validation
     if payload.name.is_empty() || payload.name.len() > 200 {
-        return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
+        return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             format!(
                 "Agent name must be 1-200 characters (got {} chars); example: \"my-agent\"",
                 payload.name.len()
@@ -196,7 +196,7 @@ pub async fn create_agent(
     }
     // Bug #1: Add empty check for description to match name validation pattern
     if payload.description.is_empty() || payload.description.len() > 1000 {
-        return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
+        return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             format!("Agent description must be 1-1000 characters (got {} chars); example: \"A helpful assistant\"",
                 payload.description.len()),
         )));
@@ -205,7 +205,7 @@ pub async fn create_agent(
     // H-04: Metadata size validation
     let metadata = payload.metadata.unwrap_or_default();
     if metadata.len() > 50 {
-        return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
+        return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             format!(
                 "Metadata must have at most 50 key-value pairs (got {})",
                 metadata.len()
@@ -214,7 +214,7 @@ pub async fn create_agent(
     }
     for (k, v) in &metadata {
         if k.len() > 200 || v.len() > 5000 {
-            return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
+            return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
                 format!("Metadata key '{}' exceeds limits (key: {} chars max 200, value: {} chars max 5000)",
                     k, k.len(), v.len()),
             )));
@@ -230,8 +230,8 @@ pub async fn create_agent(
             metadata,
             payload.required_capabilities.unwrap_or_else(|| {
                 vec![
-                    exiv_shared::CapabilityType::Reasoning,
-                    exiv_shared::CapabilityType::Memory,
+                    cloto_shared::CapabilityType::Reasoning,
+                    cloto_shared::CapabilityType::Memory,
                 ]
             }),
             payload.password.as_deref(),
@@ -389,13 +389,13 @@ pub async fn power_toggle(
         match &payload.password {
             Some(pw) => {
                 if !crate::managers::AgentManager::verify_password(pw, hash)? {
-                    return Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(
-                        exiv_shared::Permission::AdminAccess,
+                    return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                        cloto_shared::Permission::AdminAccess,
                     )));
                 }
             }
             None => {
-                return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
+                return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
                     "Password required for this agent's power control".to_string(),
                 )));
             }
@@ -408,7 +408,7 @@ pub async fn power_toggle(
         .await?;
 
     // Broadcast power change event via EventBus
-    let envelope = crate::EnvelopedEvent::system(exiv_shared::ExivEventData::AgentPowerChanged {
+    let envelope = crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::AgentPowerChanged {
         agent_id: id.clone(),
         enabled: payload.enabled,
     });
@@ -517,7 +517,7 @@ pub async fn update_plugin_config(
 
     // Get latest settings and notify
     if let Ok(full_config) = state.plugin_manager.get_config(&id).await {
-        let envelope = crate::EnvelopedEvent::system(exiv_shared::ExivEventData::ConfigUpdated {
+        let envelope = crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::ConfigUpdated {
             plugin_id: id.clone(),
             config: full_config,
         });
@@ -578,7 +578,7 @@ pub async fn apply_plugin_settings(
 
 #[derive(Deserialize)]
 pub struct GrantPermissionRequest {
-    pub permission: exiv_shared::Permission,
+    pub permission: cloto_shared::Permission,
 }
 
 /// Grant a permission to a plugin.
@@ -622,7 +622,7 @@ pub async fn grant_permission_handler(
         .await?;
 
     // イベントループに通知して Capability を注入させる
-    let envelope = crate::EnvelopedEvent::system(exiv_shared::ExivEventData::PermissionGranted {
+    let envelope = crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::PermissionGranted {
         plugin_id: id.clone(),
         permission: payload.permission.clone(),
     });
@@ -663,7 +663,7 @@ pub async fn get_plugin_permissions(
 
 #[derive(Deserialize)]
 pub struct RevokePermissionRequest {
-    pub permission: exiv_shared::Permission,
+    pub permission: cloto_shared::Permission,
 }
 
 /// Revoke a permission from a plugin.
@@ -730,7 +730,7 @@ pub async fn shutdown_handler(
     info!("🛑 Shutdown requested. Broadcasting notification...");
 
     // Send system notification
-    let envelope = crate::EnvelopedEvent::system(exiv_shared::ExivEventData::SystemNotification(
+    let envelope = crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::SystemNotification(
         "Kernel is shutting down for maintenance...".to_string(),
     ));
     // H-04: Log send errors instead of silently ignoring
@@ -784,16 +784,16 @@ pub async fn shutdown_handler(
 pub async fn post_event_handler(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(event_data): Json<exiv_shared::ExivEventData>,
+    Json(event_data): Json<cloto_shared::ClotoEventData>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     // 🛡️ Security Check: 外部からの重要なシステムイベントの注入を禁止
     match &event_data {
         // H-15: Only allow safe event types from external sources
         // SystemNotification removed - external callers should not inject system notifications
-        exiv_shared::ExivEventData::MessageReceived(_)
-        | exiv_shared::ExivEventData::VisionUpdated(_)
-        | exiv_shared::ExivEventData::GazeUpdated(_) => {
+        cloto_shared::ClotoEventData::MessageReceived(_)
+        | cloto_shared::ClotoEventData::VisionUpdated(_)
+        | cloto_shared::ClotoEventData::GazeUpdated(_) => {
             // これらは許可
         }
         _ => {
@@ -801,8 +801,8 @@ pub async fn post_event_handler(
                 "🚫 SECURITY ALERT: External attempt to inject restricted event: {:?}",
                 event_data
             );
-            return Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(
-                exiv_shared::Permission::AdminAccess,
+            return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                cloto_shared::Permission::AdminAccess,
             )));
         }
     }
@@ -825,7 +825,7 @@ pub async fn post_event_handler(
 /// Requires valid API key in `X-API-Key` header.
 ///
 /// # Request Body
-/// An `ExivMessage` JSON object containing the message content,
+/// An `ClotoMessage` JSON object containing the message content,
 /// sender information, and optional metadata.
 ///
 /// # Behavior
@@ -839,10 +839,10 @@ pub async fn post_event_handler(
 pub async fn chat_handler(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(msg): Json<ExivMessage>,
+    Json(msg): Json<ClotoMessage>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-    let envelope = crate::EnvelopedEvent::system(exiv_shared::ExivEventData::MessageReceived(msg));
+    let envelope = crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::MessageReceived(msg));
     if let Err(e) = state.event_tx.send(envelope).await {
         error!("Failed to send chat message event: {}", e);
         return Err(AppError::Internal(anyhow::anyhow!(
@@ -941,7 +941,7 @@ pub async fn get_metrics(State(state): State<Arc<AppState>>) -> AppResult<Json<s
         "event_history": {
             "current_size": history_len,
             "max_size": max_size,
-            "memory_estimate_bytes": history_len * std::mem::size_of::<std::sync::Arc<exiv_shared::ExivEvent>>(),
+            "memory_estimate_bytes": history_len * std::mem::size_of::<std::sync::Arc<cloto_shared::ClotoEvent>>(),
         }
     })))
 }
@@ -1118,7 +1118,7 @@ pub async fn invalidate_api_key(
 
     Ok(Json(serde_json::json!({
         "status": "invalidated",
-        "message": "API key has been revoked. All future requests with this key will be rejected. Restart with a new EXIV_API_KEY to restore access."
+        "message": "API key has been revoked. All future requests with this key will be rejected. Restart with a new CLOTO_API_KEY to restore access."
     })))
 }
 
@@ -1615,8 +1615,8 @@ mod tests {
         let result = check_auth(&state, &headers);
         assert!(result.is_err());
 
-        if let Err(AppError::Exiv(exiv_shared::ExivError::PermissionDenied(perm))) = result {
-            assert_eq!(perm, exiv_shared::Permission::AdminAccess);
+        if let Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(perm))) = result {
+            assert_eq!(perm, cloto_shared::Permission::AdminAccess);
         } else {
             panic!("Expected PermissionDenied error");
         }

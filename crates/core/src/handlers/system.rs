@@ -5,8 +5,8 @@ use std::time::Duration;
 use tracing::{error, info, warn};
 
 use crate::managers::{AgentManager, McpClientManager, PluginRegistry};
-use exiv_shared::{
-    AgentMetadata, ExivEvent, ExivEventData, ExivId, ExivMessage, Plugin, PluginCast,
+use cloto_shared::{
+    AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, Plugin, PluginCast,
     PluginManifest, ThinkResult, ToolCall,
 };
 
@@ -48,7 +48,7 @@ impl SystemHandler {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub async fn handle_message(&self, msg: ExivMessage) -> anyhow::Result<()> {
+    pub async fn handle_message(&self, msg: ClotoMessage) -> anyhow::Result<()> {
         let target_agent_id = msg
             .metadata
             .get("target_agent_id")
@@ -108,10 +108,10 @@ impl SystemHandler {
                 // 🔐 Check MemoryRead permission before recall
                 let manifest = plugin.manifest();
                 let perms_lock = self.registry.effective_permissions.read().await;
-                let plugin_exiv_id = exiv_shared::ExivId::from_name(&manifest.id);
+                let plugin_cloto_id = cloto_shared::ClotoId::from_name(&manifest.id);
                 let has_memory_read = perms_lock
-                    .get(&plugin_exiv_id)
-                    .is_some_and(|p| p.contains(&exiv_shared::Permission::MemoryRead));
+                    .get(&plugin_cloto_id)
+                    .is_some_and(|p| p.contains(&cloto_shared::Permission::MemoryRead));
                 drop(perms_lock);
                 if has_memory_read {
                     // 🛑 停滞対策: メモリの呼び出しにタイムアウトを設定
@@ -176,17 +176,17 @@ impl SystemHandler {
             "📢 Dispatching Thought/Consensus Request"
         );
 
-        let trace_id = exiv_shared::ExivId::new_trace_id();
+        let trace_id = cloto_shared::ClotoId::new_trace_id();
 
         if msg.content.to_lowercase().starts_with("consensus:") {
             // 合意形成モード
-            let thought_event_data = exiv_shared::ExivEventData::ConsensusRequested {
+            let thought_event_data = cloto_shared::ClotoEventData::ConsensusRequested {
                 task: msg.content.clone(),
                 engine_ids: self.consensus_engines.clone(),
             };
 
             let envelope = crate::EnvelopedEvent {
-                event: Arc::new(exiv_shared::ExivEvent::with_trace(
+                event: Arc::new(cloto_shared::ClotoEvent::with_trace(
                     trace_id,
                     thought_event_data,
                 )),
@@ -200,14 +200,14 @@ impl SystemHandler {
 
             // 各エンジンにも個別にThoughtRequestedを投げる (Moderatorが拾うため)
             for engine in &self.consensus_engines {
-                let inner_thought = exiv_shared::ExivEventData::ThoughtRequested {
+                let inner_thought = cloto_shared::ClotoEventData::ThoughtRequested {
                     agent: agent.clone(),
                     engine_id: engine.clone(),
                     message: msg.clone(),
                     context: context.clone(),
                 };
                 let env = crate::EnvelopedEvent {
-                    event: Arc::new(exiv_shared::ExivEvent::with_trace(trace_id, inner_thought)),
+                    event: Arc::new(cloto_shared::ClotoEvent::with_trace(trace_id, inner_thought)),
                     issuer: None,
                     correlation_id: Some(trace_id),
                     depth: 1,
@@ -237,9 +237,9 @@ impl SystemHandler {
                     // エージェント返答もメモリに保存 (user messageと対で保存)
                     if let Some(plugin) = &memory_plugin {
                         let plugin_clone = plugin.clone();
-                        let agent_resp_msg = ExivMessage {
+                        let agent_resp_msg = ClotoMessage {
                             id: format!("{}-resp", msg.id),
-                            source: exiv_shared::MessageSource::Agent {
+                            source: cloto_shared::MessageSource::Agent {
                                 id: agent.id.clone(),
                             },
                             target_agent: Some(agent.id.clone()),
@@ -280,14 +280,14 @@ impl SystemHandler {
                         });
                     }
 
-                    let thought_response = ExivEventData::ThoughtResponse {
+                    let thought_response = ClotoEventData::ThoughtResponse {
                         agent_id: agent.id.clone(),
                         engine_id: engine_id.clone(),
                         content,
                         source_message_id: msg.id.clone(),
                     };
                     let envelope = crate::EnvelopedEvent {
-                        event: Arc::new(ExivEvent::with_trace(trace_id, thought_response)),
+                        event: Arc::new(ClotoEvent::with_trace(trace_id, thought_response)),
                         issuer: None,
                         correlation_id: None,
                         depth: 0,
@@ -308,14 +308,14 @@ impl SystemHandler {
                         "❌ Agentic loop failed"
                     );
                     // H-04: Send error response so the user's message doesn't vanish
-                    let error_response = ExivEventData::ThoughtResponse {
+                    let error_response = ClotoEventData::ThoughtResponse {
                         agent_id: agent.id.clone(),
                         engine_id: engine_id.clone(),
                         content: format!("[Error] Processing failed: {}", e),
                         source_message_id: msg.id.clone(),
                     };
                     let envelope = crate::EnvelopedEvent {
-                        event: Arc::new(ExivEvent::with_trace(trace_id, error_response)),
+                        event: Arc::new(ClotoEvent::with_trace(trace_id, error_response)),
                         issuer: None,
                         correlation_id: None,
                         depth: 0,
@@ -332,10 +332,10 @@ impl SystemHandler {
                 let manifest = plugin.manifest();
                 let has_memory_write = {
                     let perms_lock = self.registry.effective_permissions.read().await;
-                    let pid = exiv_shared::ExivId::from_name(&manifest.id);
+                    let pid = cloto_shared::ClotoId::from_name(&manifest.id);
                     perms_lock
                         .get(&pid)
-                        .is_some_and(|p| p.contains(&exiv_shared::Permission::MemoryWrite))
+                        .is_some_and(|p| p.contains(&cloto_shared::Permission::MemoryWrite))
                 };
                 if has_memory_write {
                     let agent_id = agent.id.clone();
@@ -417,10 +417,10 @@ impl SystemHandler {
         &self,
         agent: &AgentMetadata,
         engine_id: &str,
-        message: &ExivMessage,
-        context: Vec<ExivMessage>,
+        message: &ClotoMessage,
+        context: Vec<ClotoMessage>,
         agent_plugin_ids: &[String],
-        trace_id: ExivId,
+        trace_id: ClotoId,
     ) -> anyhow::Result<String> {
         // Engine Resolver: try Rust plugin first, then fall back to MCP server
         let engine_plugin = self.registry.get_engine(engine_id).await;
@@ -447,7 +447,7 @@ impl SystemHandler {
         let supports_tools = if let Some(ref plugin) = engine_plugin {
             plugin
                 .as_reasoning()
-                .is_some_and(exiv_shared::ReasoningEngine::supports_tools)
+                .is_some_and(cloto_shared::ReasoningEngine::supports_tools)
         } else if let Some(ref mcp) = mcp_engine {
             // MCP engine supports tools if it has a 'think_with_tools' tool
             mcp.has_server_tool(engine_id, "think_with_tools").await
@@ -551,7 +551,7 @@ impl SystemHandler {
                     // Emit loop completion event
                     self.emit_event(
                         trace_id,
-                        ExivEventData::AgenticLoopCompleted {
+                        ClotoEventData::AgenticLoopCompleted {
                             agent_id: agent.id.clone(),
                             engine_id: engine_id.to_string(),
                             total_iterations: iteration,
@@ -662,7 +662,7 @@ impl SystemHandler {
                         // Emit observability event
                         self.emit_event(
                             trace_id,
-                            ExivEventData::ToolInvoked {
+                            ClotoEventData::ToolInvoked {
                                 agent_id: agent.id.clone(),
                                 engine_id: engine_id.to_string(),
                                 tool_name: call.name.clone(),
@@ -701,8 +701,8 @@ impl SystemHandler {
         mcp_engine: Option<&Arc<McpClientManager>>,
         engine_id: &str,
         agent: &AgentMetadata,
-        message: &ExivMessage,
-        context: Vec<ExivMessage>,
+        message: &ClotoMessage,
+        context: Vec<ClotoMessage>,
     ) -> anyhow::Result<String> {
         if let Some(plugin) = engine_plugin {
             let engine = plugin.as_reasoning().ok_or_else(|| {
@@ -736,8 +736,8 @@ impl SystemHandler {
         mcp_engine: Option<&Arc<McpClientManager>>,
         engine_id: &str,
         agent: &AgentMetadata,
-        message: &ExivMessage,
-        context: Vec<ExivMessage>,
+        message: &ClotoMessage,
+        context: Vec<ClotoMessage>,
         tools: &[serde_json::Value],
         tool_history: &[serde_json::Value],
     ) -> anyhow::Result<ThinkResult> {
@@ -857,10 +857,10 @@ impl SystemHandler {
         ))
     }
 
-    /// Parse MCP recall() response into Vec<ExivMessage>.
+    /// Parse MCP recall() response into Vec<ClotoMessage>.
     fn parse_mcp_recall_result(
         result: &crate::managers::mcp_protocol::CallToolResult,
-    ) -> Vec<ExivMessage> {
+    ) -> Vec<ClotoMessage> {
         use crate::managers::mcp_protocol::ToolContent;
         for content in &result.content {
             if let ToolContent::Text { text } = content {
@@ -876,9 +876,9 @@ impl SystemHandler {
                                 let content = m.get("content")?.as_str()?.to_string();
                                 let source = if let Some(src) = m.get("source") {
                                     serde_json::from_value(src.clone())
-                                        .unwrap_or(exiv_shared::MessageSource::System)
+                                        .unwrap_or(cloto_shared::MessageSource::System)
                                 } else {
-                                    exiv_shared::MessageSource::System
+                                    cloto_shared::MessageSource::System
                                 };
                                 let timestamp = m
                                     .get("timestamp")
@@ -894,7 +894,7 @@ impl SystemHandler {
                                     .and_then(|i| i.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                Some(ExivMessage {
+                                Some(ClotoMessage {
                                     id,
                                     source,
                                     target_agent: None,
@@ -911,9 +911,9 @@ impl SystemHandler {
         vec![]
     }
 
-    async fn emit_event(&self, trace_id: ExivId, data: ExivEventData) {
+    async fn emit_event(&self, trace_id: ClotoId, data: ClotoEventData) {
         let envelope = crate::EnvelopedEvent {
-            event: Arc::new(ExivEvent::with_trace(trace_id, data)),
+            event: Arc::new(ClotoEvent::with_trace(trace_id, data)),
             issuer: None,
             correlation_id: Some(trace_id),
             depth: 0,
@@ -938,8 +938,8 @@ impl Plugin for SystemHandler {
             name: "Kernel System Handler".to_string(),
             description: "Internal core logic handler".to_string(),
             version: "1.0.0".to_string(),
-            category: exiv_shared::PluginCategory::System,
-            service_type: exiv_shared::ServiceType::Reasoning,
+            category: cloto_shared::PluginCategory::System,
+            service_type: cloto_shared::ServiceType::Reasoning,
             tags: vec![],
             is_active: true,
             is_configured: true,
@@ -957,11 +957,11 @@ impl Plugin for SystemHandler {
 
     async fn on_event(
         &self,
-        event: &ExivEvent,
-    ) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
-        if let exiv_shared::ExivEventData::MessageReceived(msg) = &event.data {
+        event: &ClotoEvent,
+    ) -> anyhow::Result<Option<cloto_shared::ClotoEventData>> {
+        if let cloto_shared::ClotoEventData::MessageReceived(msg) = &event.data {
             // Only trigger thinking for messages from users to prevent agent-agent loops
-            if matches!(msg.source, exiv_shared::MessageSource::User { .. }) {
+            if matches!(msg.source, cloto_shared::MessageSource::User { .. }) {
                 let msg = msg.clone();
                 self.handle_message(msg).await?;
             }

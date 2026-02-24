@@ -1,14 +1,14 @@
 //! Permission workflow tests.
 //! Tests permission grant, effective permission tracking, and validation.
 
-use exiv_core::managers::PluginRegistry;
-use exiv_shared::{ExivId, Permission};
+use cloto_core::managers::PluginRegistry;
+use cloto_shared::{ClotoId, Permission};
 use std::sync::Arc;
 
 #[tokio::test]
 async fn test_update_effective_permissions_adds_permission() {
     let registry = PluginRegistry::new(5, 10);
-    let plugin_id = ExivId::from_name("test.plugin");
+    let plugin_id = ClotoId::from_name("test.plugin");
 
     registry
         .update_effective_permissions(plugin_id, Permission::NetworkAccess)
@@ -22,7 +22,7 @@ async fn test_update_effective_permissions_adds_permission() {
 #[tokio::test]
 async fn test_update_effective_permissions_no_duplicates() {
     let registry = PluginRegistry::new(5, 10);
-    let plugin_id = ExivId::from_name("test.plugin");
+    let plugin_id = ClotoId::from_name("test.plugin");
 
     // Grant the same permission twice
     registry
@@ -40,7 +40,7 @@ async fn test_update_effective_permissions_no_duplicates() {
 #[tokio::test]
 async fn test_update_effective_permissions_multiple_types() {
     let registry = PluginRegistry::new(5, 10);
-    let plugin_id = ExivId::from_name("test.plugin");
+    let plugin_id = ClotoId::from_name("test.plugin");
 
     registry
         .update_effective_permissions(plugin_id, Permission::NetworkAccess)
@@ -59,8 +59,8 @@ async fn test_update_effective_permissions_multiple_types() {
 #[tokio::test]
 async fn test_permissions_are_isolated_between_plugins() {
     let registry = PluginRegistry::new(5, 10);
-    let plugin_a = ExivId::from_name("plugin.a");
-    let plugin_b = ExivId::from_name("plugin.b");
+    let plugin_a = ClotoId::from_name("plugin.a");
+    let plugin_b = ClotoId::from_name("plugin.b");
 
     registry
         .update_effective_permissions(plugin_a, Permission::NetworkAccess)
@@ -109,7 +109,7 @@ async fn test_db_permission_grant_roundtrip() {
     use sqlx::SqlitePool;
 
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    exiv_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:")
         .await
         .unwrap();
 
@@ -123,7 +123,7 @@ async fn test_db_permission_grant_roundtrip() {
     .unwrap();
 
     // Use AgentManager pool is separate; test the SQL directly
-    let manager = exiv_core::managers::PluginManager::new(pool.clone(), vec![], 5, 10).unwrap();
+    let manager = cloto_core::managers::PluginManager::new(pool.clone(), vec![], 5, 10).unwrap();
 
     // Grant permission via PluginManager
     manager

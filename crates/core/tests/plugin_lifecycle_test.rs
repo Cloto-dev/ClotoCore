@@ -3,8 +3,8 @@
 
 mod common;
 
-use exiv_core::managers::PluginRegistry;
-use exiv_shared::ExivId;
+use cloto_core::managers::PluginRegistry;
+use cloto_shared::ClotoId;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -12,27 +12,27 @@ async fn test_panic_plugin_does_not_crash_normal_plugin() {
     use common::{create_mock_plugin, create_panicking_plugin};
 
     let registry = PluginRegistry::new(5, 10);
-    let id_panic = ExivId::new();
-    let id_normal = ExivId::new();
+    let id_panic = ClotoId::new();
+    let id_normal = ClotoId::new();
     let (normal_plugin, received_events) = create_mock_plugin(id_normal);
 
     {
         let mut plugins = registry.plugins.write().await;
         plugins.insert(
             "panicking".into(),
-            create_panicking_plugin(id_panic) as Arc<dyn exiv_shared::Plugin>,
+            create_panicking_plugin(id_panic) as Arc<dyn cloto_shared::Plugin>,
         );
         plugins.insert(
             "normal".into(),
-            normal_plugin as Arc<dyn exiv_shared::Plugin>,
+            normal_plugin as Arc<dyn cloto_shared::Plugin>,
         );
     }
 
-    let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<exiv_core::EnvelopedEvent>(10);
-    let event = exiv_shared::ExivEvent::new(exiv_shared::ExivEventData::SystemNotification(
+    let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<cloto_core::EnvelopedEvent>(10);
+    let event = cloto_shared::ClotoEvent::new(cloto_shared::ClotoEventData::SystemNotification(
         "test".into(),
     ));
-    let envelope = exiv_core::EnvelopedEvent {
+    let envelope = cloto_core::EnvelopedEvent {
         event: Arc::new(event),
         issuer: None,
         correlation_id: None,
@@ -52,7 +52,7 @@ async fn test_panic_plugin_does_not_crash_normal_plugin() {
 
 #[tokio::test]
 async fn test_invalid_magic_seal_rejected() {
-    use exiv_shared::{Plugin, PluginCast, PluginManifest, ServiceType};
+    use cloto_shared::{Plugin, PluginCast, PluginManifest, ServiceType};
 
     struct BadSealPlugin;
     impl PluginCast for BadSealPlugin {
@@ -68,7 +68,7 @@ async fn test_invalid_magic_seal_rejected() {
                 name: "BadSeal".to_string(),
                 description: String::new(),
                 version: "1.0".to_string(),
-                category: exiv_shared::PluginCategory::Tool,
+                category: cloto_shared::PluginCategory::Tool,
                 service_type: ServiceType::Reasoning,
                 tags: vec![],
                 is_active: true,
@@ -86,8 +86,8 @@ async fn test_invalid_magic_seal_rejected() {
         }
         async fn on_event(
             &self,
-            _e: &exiv_shared::ExivEvent,
-        ) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
+            _e: &cloto_shared::ClotoEvent,
+        ) -> anyhow::Result<Option<cloto_shared::ClotoEventData>> {
             Ok(None)
         }
     }
@@ -113,21 +113,21 @@ async fn test_cascading_depth_limit_enforced() {
     use common::create_mock_plugin;
 
     let registry = PluginRegistry::new(5, 3); // depth limit = 3
-    let id = ExivId::new();
+    let id = ClotoId::new();
     let (plugin, _) = create_mock_plugin(id);
 
     {
         let mut plugins = registry.plugins.write().await;
-        plugins.insert("mock".into(), plugin as Arc<dyn exiv_shared::Plugin>);
+        plugins.insert("mock".into(), plugin as Arc<dyn cloto_shared::Plugin>);
     }
 
-    let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<exiv_core::EnvelopedEvent>(10);
-    let event = exiv_shared::ExivEvent::new(exiv_shared::ExivEventData::SystemNotification(
+    let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<cloto_core::EnvelopedEvent>(10);
+    let event = cloto_shared::ClotoEvent::new(cloto_shared::ClotoEventData::SystemNotification(
         "deep".into(),
     ));
 
     // Envelope at max depth — should be dropped without dispatch
-    let envelope = exiv_core::EnvelopedEvent {
+    let envelope = cloto_core::EnvelopedEvent {
         event: Arc::new(event),
         issuer: None,
         correlation_id: None,

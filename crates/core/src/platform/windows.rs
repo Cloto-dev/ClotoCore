@@ -3,11 +3,11 @@ use std::path::Path;
 use std::process::Command;
 use tracing::info;
 
-const SERVICE_NAME: &str = "Exiv";
+const SERVICE_NAME: &str = "Cloto";
 
-/// Register Exiv as a Windows Service via sc.exe
+/// Register Cloto as a Windows Service via sc.exe
 pub fn install_service(prefix: &Path, _user: Option<&str>) -> anyhow::Result<()> {
-    let exe_path = prefix.join("exiv_system.exe");
+    let exe_path = prefix.join("cloto_system.exe");
 
     let status = Command::new("sc.exe")
         .args([
@@ -15,7 +15,7 @@ pub fn install_service(prefix: &Path, _user: Option<&str>) -> anyhow::Result<()>
             SERVICE_NAME,
             &format!("binPath={}", exe_path.display()),
             "start=auto",
-            "DisplayName=Exiv System",
+            "DisplayName=Cloto System",
         ])
         .status()
         .context("Failed to run sc.exe (are you running as Administrator?)")?;
@@ -35,7 +35,7 @@ pub fn install_service(prefix: &Path, _user: Option<&str>) -> anyhow::Result<()>
     Ok(())
 }
 
-/// Remove Exiv Windows Service
+/// Remove Cloto Windows Service
 pub fn uninstall_service() -> anyhow::Result<()> {
     // Stop if running (ignore errors)
     let _ = Command::new("sc.exe").args(["stop", SERVICE_NAME]).status();
@@ -119,7 +119,7 @@ pub fn swap_running_binary(
 
 /// Execute binary swap after parent exits (Windows-specific subprocess mode)
 pub fn execute_swap(target: std::path::PathBuf, pid: u32) -> anyhow::Result<()> {
-    eprintln!("Exiv swap-exe: waiting for PID {} to exit...", pid);
+    eprintln!("Cloto swap-exe: waiting for PID {} to exit...", pid);
 
     // Poll until parent PID is gone (up to 30 seconds)
     for _ in 0..60 {
@@ -133,7 +133,7 @@ pub fn execute_swap(target: std::path::PathBuf, pid: u32) -> anyhow::Result<()> 
         bail!("Parent process {} did not exit within 30 seconds", pid);
     }
 
-    eprintln!("Exiv swap-exe: parent exited, performing binary swap...");
+    eprintln!("Cloto swap-exe: parent exited, performing binary swap...");
 
     let current_exe = std::env::current_exe().context("Cannot determine current exe path")?;
 
@@ -152,7 +152,7 @@ pub fn execute_swap(target: std::path::PathBuf, pid: u32) -> anyhow::Result<()> 
     std::fs::copy(&current_exe, &target)
         .with_context(|| format!("Failed to install new binary: {}", target.display()))?;
 
-    eprintln!("Exiv swap-exe: binary updated. Restarting service...");
+    eprintln!("Cloto swap-exe: binary updated. Restarting service...");
 
     // Try to restart the service
     let _ = Command::new("sc.exe")

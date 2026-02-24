@@ -7,13 +7,13 @@ pub mod plugins;
 pub mod status;
 
 use crate::cli::{Cli, Commands};
-use crate::client::ExivClient;
+use crate::client::ClotoClient;
 use crate::config::CliConfig;
 use anyhow::Result;
 
 pub async fn dispatch(cli: Cli) -> Result<()> {
     let config = CliConfig::load()?;
-    let client = ExivClient::new(&config);
+    let client = ClotoClient::new(&config);
 
     match cli.command {
         Commands::Status => status::run(&client, cli.json).await,

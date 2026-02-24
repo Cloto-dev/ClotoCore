@@ -3,15 +3,15 @@ use std::path::Path;
 use std::process::Command;
 use tracing::info;
 
-const SERVICE_NAME: &str = "exiv";
-const SERVICE_FILE: &str = "/etc/systemd/system/exiv.service";
+const SERVICE_NAME: &str = "cloto";
+const SERVICE_FILE: &str = "/etc/systemd/system/cloto.service";
 
 /// Generate systemd service unit file content
 fn service_unit(prefix: &Path, user: &str) -> String {
-    let exec_start = prefix.join("exiv_system");
+    let exec_start = prefix.join("cloto_system");
     format!(
         r"[Unit]
-Description=Exiv System
+Description=Cloto System
 After=network.target
 
 [Service]
@@ -32,7 +32,7 @@ WantedBy=multi-user.target
     )
 }
 
-/// Register Exiv as a systemd service
+/// Register Cloto as a systemd service
 pub fn install_service(prefix: &Path, user: Option<&str>) -> anyhow::Result<()> {
     let user = user.unwrap_or("root");
 
@@ -54,7 +54,7 @@ pub fn install_service(prefix: &Path, user: Option<&str>) -> anyhow::Result<()> 
     Ok(())
 }
 
-/// Remove Exiv systemd service
+/// Remove Cloto systemd service
 pub fn uninstall_service() -> anyhow::Result<()> {
     // Stop if running (ignore errors)
     let _ = run_systemctl(&["stop", SERVICE_NAME]);

@@ -2,9 +2,9 @@ use axum::{
     body::Body,
     http::{header, Request, StatusCode},
 };
-use exiv_core::handlers;
-use exiv_core::test_utils::create_test_app_state;
-use exiv_core::AppState;
+use cloto_core::handlers;
+use cloto_core::test_utils::create_test_app_state;
+use cloto_core::AppState;
 use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;

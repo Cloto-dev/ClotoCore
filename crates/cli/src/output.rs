@@ -19,7 +19,7 @@ pub fn status_dot(status: &str) -> String {
 }
 
 /// Print agents as a rich table.
-pub fn print_agents_table(agents: &[exiv_shared::AgentMetadata]) {
+pub fn print_agents_table(agents: &[cloto_shared::AgentMetadata]) {
     if agents.is_empty() {
         println!("  {}", "No agents registered.".dimmed());
         return;
@@ -63,7 +63,7 @@ pub fn print_agents_table(agents: &[exiv_shared::AgentMetadata]) {
 }
 
 /// Print plugins as a categorized table.
-pub fn print_plugins_table(plugins: &[exiv_shared::PluginManifest]) {
+pub fn print_plugins_table(plugins: &[cloto_shared::PluginManifest]) {
     if plugins.is_empty() {
         println!("  {}", "No plugins loaded.".dimmed());
         return;

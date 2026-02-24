@@ -41,20 +41,20 @@ impl AppConfig {
     #[allow(clippy::too_many_lines)]
     pub fn load() -> anyhow::Result<Self> {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            let db_path = exe_dir().join("data").join("exiv_memories.db");
+            let db_path = exe_dir().join("data").join("cloto_memories.db");
             format!("sqlite:{}", db_path.display())
         });
 
-        let admin_api_key = env::var("EXIV_API_KEY").ok();
+        let admin_api_key = env::var("CLOTO_API_KEY").ok();
 
         if let Some(ref key) = admin_api_key {
             if key.len() < 32 {
-                tracing::warn!("EXIV_API_KEY is shorter than recommended minimum (32 chars)");
+                tracing::warn!("CLOTO_API_KEY is shorter than recommended minimum (32 chars)");
             }
         }
 
         let default_agent_id =
-            env::var("DEFAULT_AGENT_ID").unwrap_or_else(|_| "agent.exiv_default".to_string());
+            env::var("DEFAULT_AGENT_ID").unwrap_or_else(|_| "agent.cloto_default".to_string());
 
         let plugin_event_timeout_secs = env::var("PLUGIN_EVENT_TIMEOUT_SECS")
             .unwrap_or_else(|_| "30".to_string())
@@ -171,33 +171,33 @@ impl AppConfig {
             );
         }
 
-        let max_agentic_iterations = env::var("EXIV_MAX_AGENTIC_ITERATIONS")
+        let max_agentic_iterations = env::var("CLOTO_MAX_AGENTIC_ITERATIONS")
             .unwrap_or_else(|_| "16".to_string())
             .parse::<u8>()
-            .context("Failed to parse EXIV_MAX_AGENTIC_ITERATIONS")?;
+            .context("Failed to parse CLOTO_MAX_AGENTIC_ITERATIONS")?;
 
         if max_agentic_iterations == 0 || max_agentic_iterations > 64 {
             anyhow::bail!(
-                "EXIV_MAX_AGENTIC_ITERATIONS must be between 1 and 64 (got {})",
+                "CLOTO_MAX_AGENTIC_ITERATIONS must be between 1 and 64 (got {})",
                 max_agentic_iterations
             );
         }
 
-        let tool_execution_timeout_secs = env::var("EXIV_TOOL_TIMEOUT_SECS")
+        let tool_execution_timeout_secs = env::var("CLOTO_TOOL_TIMEOUT_SECS")
             .unwrap_or_else(|_| "30".to_string())
             .parse::<u64>()
-            .context("Failed to parse EXIV_TOOL_TIMEOUT_SECS")?;
+            .context("Failed to parse CLOTO_TOOL_TIMEOUT_SECS")?;
 
         if tool_execution_timeout_secs == 0 || tool_execution_timeout_secs > 300 {
             anyhow::bail!(
-                "EXIV_TOOL_TIMEOUT_SECS must be between 1 and 300 (got {})",
+                "CLOTO_TOOL_TIMEOUT_SECS must be between 1 and 300 (got {})",
                 tool_execution_timeout_secs
             );
         }
 
-        let mcp_config_path = env::var("EXIV_MCP_CONFIG").ok();
-        let mcp_sdk_secret = env::var("EXIV_SDK_SECRET").ok();
-        let yolo_mode = env::var("EXIV_YOLO")
+        let mcp_config_path = env::var("CLOTO_MCP_CONFIG").ok();
+        let mcp_sdk_secret = env::var("CLOTO_SDK_SECRET").ok();
+        let yolo_mode = env::var("CLOTO_YOLO")
             .unwrap_or_else(|_| "false".to_string())
             .parse::<bool>()
             .unwrap_or(false);

@@ -1,7 +1,7 @@
-use exiv_core::events::EventProcessor;
-use exiv_core::managers::{AgentManager, PluginManager, PluginRegistry};
-use exiv_shared::{
-    ExivEvent, ExivId, Permission, Plugin, PluginCapability, PluginCast, PluginManifest,
+use cloto_core::events::EventProcessor;
+use cloto_core::managers::{AgentManager, PluginManager, PluginRegistry};
+use cloto_shared::{
+    ClotoEvent, ClotoId, Permission, Plugin, PluginCapability, PluginCast, PluginManifest,
     ServiceType,
 };
 use sqlx::SqlitePool;
@@ -37,7 +37,7 @@ impl Plugin for MockPlugin {
             name: "Mock".to_string(),
             description: String::new(),
             version: "1.0.0".to_string(),
-            category: exiv_shared::PluginCategory::Tool,
+            category: cloto_shared::PluginCategory::Tool,
             service_type: ServiceType::Skill,
             tags: vec![],
             is_active: true,
@@ -56,8 +56,8 @@ impl Plugin for MockPlugin {
 
     async fn on_event(
         &self,
-        _event: &ExivEvent,
-    ) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
+        _event: &ClotoEvent,
+    ) -> anyhow::Result<Option<cloto_shared::ClotoEventData>> {
         Ok(None)
     }
 
@@ -74,7 +74,7 @@ impl Plugin for MockPlugin {
 async fn test_dynamic_permission_elevation_flow() {
     // 1. Setup Kernel Components
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    exiv_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:")
         .await
         .unwrap();
     let registry_raw = PluginRegistry::new(5, 10);
@@ -94,7 +94,7 @@ async fn test_dynamic_permission_elevation_flow() {
 
     let registry = Arc::new(registry_raw);
 
-    let metrics = Arc::new(exiv_core::managers::SystemMetrics::new());
+    let metrics = Arc::new(cloto_core::managers::SystemMetrics::new());
     let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
 
     let processor = EventProcessor::new(
@@ -111,14 +111,14 @@ async fn test_dynamic_permission_elevation_flow() {
     let (event_tx, event_rx) = mpsc::channel(10);
 
     // 3. Verify initial state (no permission)
-    let exiv_id = ExivId::from_name(plugin_id);
+    let cloto_id = ClotoId::from_name(plugin_id);
     {
         let perms = registry.effective_permissions.read().await;
-        assert!(!perms.contains_key(&exiv_id));
+        assert!(!perms.contains_key(&cloto_id));
     }
 
     // 4. Simulate PermissionGranted Event
-    let grant_event_data = exiv_shared::ExivEventData::PermissionGranted {
+    let grant_event_data = cloto_shared::ClotoEventData::PermissionGranted {
         plugin_id: plugin_id.to_string(),
         permission: Permission::NetworkAccess,
     };
@@ -131,8 +131,8 @@ async fn test_dynamic_permission_elevation_flow() {
 
     // Send event
     event_tx
-        .send(exiv_core::EnvelopedEvent {
-            event: Arc::new(exiv_shared::ExivEvent::new(grant_event_data)),
+        .send(cloto_core::EnvelopedEvent {
+            event: Arc::new(cloto_shared::ClotoEvent::new(grant_event_data)),
             issuer: None,
             correlation_id: None,
             depth: 0,
@@ -144,9 +144,9 @@ async fn test_dynamic_permission_elevation_flow() {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     {
         let perms = registry.effective_permissions.read().await;
-        assert!(perms.contains_key(&exiv_id));
+        assert!(perms.contains_key(&cloto_id));
         assert!(perms
-            .get(&exiv_id)
+            .get(&cloto_id)
             .unwrap()
             .contains(&Permission::NetworkAccess));
     }

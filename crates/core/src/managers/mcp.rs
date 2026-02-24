@@ -1,6 +1,6 @@
 use super::mcp_protocol::{
-    CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, ExivHandshakeParams,
-    ExivHandshakeResult, InitializeParams, JsonRpcRequest, JsonRpcResponse, ListToolsResult,
+    CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, ClotoHandshakeParams,
+    ClotoHandshakeResult, InitializeParams, JsonRpcRequest, JsonRpcResponse, ListToolsResult,
     McpConfigFile, McpServerConfig, McpTool, ToolContent,
 };
 use super::mcp_transport::{self, StdioTransport};
@@ -168,7 +168,7 @@ impl McpClient {
             protocol_version: "2024-11-05".to_string(),
             capabilities: ClientCapabilities {},
             client_info: ClientInfo {
-                name: "EXIV-KERNEL".to_string(),
+                name: "CLOTO-KERNEL".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             },
         };
@@ -217,23 +217,23 @@ impl McpClient {
             .context("Failed to send notification to MCP transport")
     }
 
-    /// Perform exiv/handshake custom method.
-    pub async fn exiv_handshake(&self) -> Result<Option<ExivHandshakeResult>> {
-        let params = ExivHandshakeParams {
+    /// Perform cloto/handshake custom method.
+    pub async fn cloto_handshake(&self) -> Result<Option<ClotoHandshakeResult>> {
+        let params = ClotoHandshakeParams {
             kernel_version: env!("CARGO_PKG_VERSION").to_string(),
         };
 
         match self
-            .call("exiv/handshake", Some(serde_json::to_value(params)?))
+            .call("cloto/handshake", Some(serde_json::to_value(params)?))
             .await
         {
             Ok(val) => {
-                let result: ExivHandshakeResult = serde_json::from_value(val)?;
+                let result: ClotoHandshakeResult = serde_json::from_value(val)?;
                 Ok(Some(result))
             }
             Err(e) => {
-                // exiv/handshake is optional — non-Exiv MCP servers won't support it
-                debug!("exiv/handshake not supported: {}", e);
+                // cloto/handshake is optional — non-Cloto MCP servers won't support it
+                debug!("cloto/handshake not supported: {}", e);
                 Ok(None)
             }
         }
@@ -257,7 +257,7 @@ pub struct McpServerHandle {
     pub config: McpServerConfig,
     pub client: Option<Arc<McpClient>>,
     pub tools: Vec<McpTool>,
-    pub handshake: Option<ExivHandshakeResult>,
+    pub handshake: Option<ClotoHandshakeResult>,
     pub status: ServerStatus,
     pub source: ServerSource,
 }
@@ -295,7 +295,7 @@ pub struct McpServerInfo {
     pub status: ServerStatus,
     pub status_message: Option<String>,
     pub tools: Vec<String>,
-    pub is_exiv_sdk: bool,
+    pub is_cloto_sdk: bool,
     pub source: ServerSource,
 }
 
@@ -656,16 +656,16 @@ impl McpClientManager {
             }
         };
 
-        // Attempt exiv/handshake (optional)
-        let handshake = match client.exiv_handshake().await {
+        // Attempt cloto/handshake (optional)
+        let handshake = match client.cloto_handshake().await {
             Ok(h) => {
                 if h.is_some() {
-                    info!("Exiv handshake succeeded for [MCP] {}", id);
+                    info!("Cloto handshake succeeded for [MCP] {}", id);
                 }
                 h
             }
             Err(e) => {
-                debug!("Exiv handshake failed for [MCP] {}: {}", id, e);
+                debug!("Cloto handshake failed for [MCP] {}: {}", id, e);
                 None
             }
         };
@@ -745,7 +745,7 @@ impl McpClientManager {
                 },
                 status: h.status.clone(),
                 tools: h.tools.iter().map(|t| t.name.clone()).collect(),
-                is_exiv_sdk: h.handshake.is_some(),
+                is_cloto_sdk: h.handshake.is_some(),
                 source: h.source,
             })
             .collect()
@@ -906,7 +906,7 @@ impl McpClientManager {
     // ============================================================
 
     /// Broadcast a kernel event to all connected MCP servers as a notification.
-    pub async fn broadcast_event(&self, event: &exiv_shared::ExivEvent) {
+    pub async fn broadcast_event(&self, event: &cloto_shared::ClotoEvent) {
         let servers = self.servers.read().await;
         for handle in servers.values() {
             if handle.status != ServerStatus::Connected {
@@ -919,7 +919,7 @@ impl McpClientManager {
                 continue;
             };
             if let Err(e) = client
-                .send_notification("notifications/exiv.event", Some(event_json))
+                .send_notification("notifications/cloto.event", Some(event_json))
                 .await
             {
                 debug!(
@@ -943,7 +943,7 @@ impl McpClientManager {
                 "config": config,
             });
             if let Err(e) = client
-                .send_notification("notifications/exiv.config_updated", Some(params))
+                .send_notification("notifications/cloto.config_updated", Some(params))
                 .await
             {
                 debug!(

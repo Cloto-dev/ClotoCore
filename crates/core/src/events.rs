@@ -1,5 +1,5 @@
 use crate::managers::{AgentManager, PluginManager, PluginRegistry};
-use exiv_shared::{ExivEvent, Permission};
+use cloto_shared::{ClotoEvent, Permission};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
@@ -9,8 +9,8 @@ pub struct EventProcessor {
     registry: Arc<PluginRegistry>,
     plugin_manager: Arc<PluginManager>,
     agent_manager: AgentManager,
-    tx_internal: broadcast::Sender<Arc<ExivEvent>>,
-    history: Arc<tokio::sync::RwLock<VecDeque<Arc<ExivEvent>>>>,
+    tx_internal: broadcast::Sender<Arc<ClotoEvent>>,
+    history: Arc<tokio::sync::RwLock<VecDeque<Arc<ClotoEvent>>>>,
     metrics: Arc<crate::managers::SystemMetrics>,
     max_history_size: usize,
     event_retention_hours: u64, // M-10: Configurable retention period
@@ -23,8 +23,8 @@ impl EventProcessor {
         registry: Arc<PluginRegistry>,
         plugin_manager: Arc<PluginManager>,
         agent_manager: AgentManager,
-        tx_internal: broadcast::Sender<Arc<ExivEvent>>,
-        history: Arc<tokio::sync::RwLock<VecDeque<Arc<ExivEvent>>>>,
+        tx_internal: broadcast::Sender<Arc<ClotoEvent>>,
+        history: Arc<tokio::sync::RwLock<VecDeque<Arc<ClotoEvent>>>>,
         metrics: Arc<crate::managers::SystemMetrics>,
         max_history_size: usize,
         event_retention_hours: u64, // M-10: Configurable retention period
@@ -43,7 +43,7 @@ impl EventProcessor {
         }
     }
 
-    async fn record_event(&self, event: Arc<ExivEvent>) {
+    async fn record_event(&self, event: Arc<ClotoEvent>) {
         let mut history = self.history.write().await;
         history.push_back(event);
         // H-06: Use while loop to handle bursts that exceed capacity
@@ -159,7 +159,7 @@ impl EventProcessor {
             self.record_event(event.clone()).await;
 
             // Increment metrics based on event type
-            if let exiv_shared::ExivEventData::MessageReceived(_) = &event.data {
+            if let cloto_shared::ClotoEventData::MessageReceived(_) = &event.data {
                 self.metrics
                     .total_requests
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -173,7 +173,7 @@ impl EventProcessor {
             // 1b. Consensus Orchestrator (kernel-level, replaces core.moderator plugin)
             if let Some(ref consensus) = self.consensus {
                 if let Some(response_data) = consensus.handle_event(&event).await {
-                    let response_event = Arc::new(ExivEvent::with_trace(trace_id, response_data));
+                    let response_event = Arc::new(ClotoEvent::with_trace(trace_id, response_data));
                     let response_envelope = crate::EnvelopedEvent {
                         event: response_event,
                         issuer: None,
@@ -188,7 +188,7 @@ impl EventProcessor {
 
             // 2. 内部イベント分岐処理
             match &event.data {
-                exiv_shared::ExivEventData::ThoughtResponse {
+                cloto_shared::ClotoEventData::ThoughtResponse {
                     agent_id,
                     engine_id: _,
                     content,
@@ -203,15 +203,15 @@ impl EventProcessor {
                     let _ = self.tx_internal.send(event.clone());
 
                     // Also create a MessageReceived for plugin cascade
-                    let msg = exiv_shared::ExivMessage::new(
-                        exiv_shared::MessageSource::Agent {
+                    let msg = cloto_shared::ClotoMessage::new(
+                        cloto_shared::MessageSource::Agent {
                             id: agent_id.clone(),
                         },
                         content.clone(),
                     );
-                    let msg_received = Arc::new(exiv_shared::ExivEvent::with_trace(
+                    let msg_received = Arc::new(cloto_shared::ClotoEvent::with_trace(
                         trace_id,
-                        exiv_shared::ExivEventData::MessageReceived(msg.clone()),
+                        cloto_shared::ClotoEventData::MessageReceived(msg.clone()),
                     ));
                     let _ = self.tx_internal.send(msg_received.clone());
 
@@ -223,7 +223,7 @@ impl EventProcessor {
                     };
                     let _ = event_tx.send(system_envelope).await;
                 }
-                exiv_shared::ExivEventData::ActionRequested {
+                cloto_shared::ClotoEventData::ActionRequested {
                     requester,
                     action: _action,
                 } => {
@@ -254,7 +254,7 @@ impl EventProcessor {
                         );
                     }
                 }
-                exiv_shared::ExivEventData::PermissionGranted {
+                cloto_shared::ClotoEventData::PermissionGranted {
                     plugin_id,
                     permission,
                 } => {
@@ -266,9 +266,9 @@ impl EventProcessor {
                     );
 
                     // 1. 権限リストの更新 (In-memory)
-                    let exiv_id = exiv_shared::ExivId::from_name(plugin_id);
+                    let cloto_id = cloto_shared::ClotoId::from_name(plugin_id);
                     self.registry
-                        .update_effective_permissions(exiv_id, permission.clone())
+                        .update_effective_permissions(cloto_id, permission.clone())
                         .await;
 
                     // 2. Capability の注入
@@ -290,10 +290,10 @@ impl EventProcessor {
                     }
                     drop(plugins);
                 }
-                exiv_shared::ExivEventData::ConfigUpdated { .. } => {
+                cloto_shared::ClotoEventData::ConfigUpdated { .. } => {
                     let _ = self.tx_internal.send(event);
                 }
-                exiv_shared::ExivEventData::AgentPowerChanged {
+                cloto_shared::ClotoEventData::AgentPowerChanged {
                     ref agent_id,
                     enabled,
                 } => {
@@ -305,7 +305,7 @@ impl EventProcessor {
                     );
                     let _ = self.tx_internal.send(event);
                 }
-                exiv_shared::ExivEventData::ToolInvoked {
+                cloto_shared::ClotoEventData::ToolInvoked {
                     ref agent_id,
                     ref tool_name,
                     success,
@@ -324,7 +324,7 @@ impl EventProcessor {
                     );
                     let _ = self.tx_internal.send(event);
                 }
-                exiv_shared::ExivEventData::AgenticLoopCompleted {
+                cloto_shared::ClotoEventData::AgenticLoopCompleted {
                     ref agent_id,
                     total_iterations,
                     total_tool_calls,
@@ -347,7 +347,7 @@ impl EventProcessor {
         }
     }
 
-    async fn authorize(&self, requester_id: &exiv_shared::ExivId, required: Permission) -> bool {
+    async fn authorize(&self, requester_id: &cloto_shared::ClotoId, required: Permission) -> bool {
         let perms_lock = self.registry.effective_permissions.read().await;
         if let Some(perms) = perms_lock.get(requester_id) {
             return perms.contains(&required);

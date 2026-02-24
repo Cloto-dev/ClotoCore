@@ -8,17 +8,17 @@ pub fn display_error(err: &anyhow::Error) {
         || msg.contains("error sending request")
         || msg.contains("tcp connect error")
     {
-        eprintln!("  {} Cannot connect to Exiv kernel", "ERROR".red().bold());
+        eprintln!("  {} Cannot connect to Cloto kernel", "ERROR".red().bold());
         eprintln!(
             "        Is the kernel running? Check with: {}",
-            "systemctl status exiv".dimmed()
+            "systemctl status cloto".dimmed()
         );
-        eprintln!("        Current endpoint: {}", "exiv config show".dimmed());
+        eprintln!("        Current endpoint: {}", "cloto config show".dimmed());
     } else if msg.contains("403") || msg.contains("PermissionDenied") {
         eprintln!("  {} Authentication failed", "ERROR".red().bold());
         eprintln!(
             "        Set your API key: {}",
-            "exiv config set api_key <key>".dimmed()
+            "cloto config set api_key <key>".dimmed()
         );
     } else {
         eprintln!("  {} {}", "ERROR".red().bold(), msg);

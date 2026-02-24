@@ -183,13 +183,13 @@ mod tests {
 
     #[test]
     fn test_resolve_env_value_expansion() {
-        std::env::set_var("TEST_EXIV_VAR", "resolved_value");
-        assert_eq!(resolve_env_value("${TEST_EXIV_VAR}"), "resolved_value");
-        std::env::remove_var("TEST_EXIV_VAR");
+        std::env::set_var("TEST_CLOTO_VAR", "resolved_value");
+        assert_eq!(resolve_env_value("${TEST_CLOTO_VAR}"), "resolved_value");
+        std::env::remove_var("TEST_CLOTO_VAR");
     }
 
     #[test]
     fn test_resolve_env_value_missing() {
-        assert_eq!(resolve_env_value("${NONEXISTENT_EXIV_VAR_12345}"), "");
+        assert_eq!(resolve_env_value("${NONEXISTENT_CLOTO_VAR_12345}"), "");
     }
 }

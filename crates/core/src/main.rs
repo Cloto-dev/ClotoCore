@@ -2,7 +2,7 @@ use clap::Parser;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let cli = exiv_core::cli::Cli::parse();
+    let cli = cloto_core::cli::Cli::parse();
 
     match cli.command {
         None => {
@@ -15,11 +15,11 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             tracing_subscriber::fmt::init();
-            exiv_core::run_kernel().await
+            cloto_core::run_kernel().await
         }
         Some(cmd) => {
             tracing_subscriber::fmt::init();
-            exiv_core::cli::dispatch(cmd).await
+            cloto_core::cli::dispatch(cmd).await
         }
     }
 }

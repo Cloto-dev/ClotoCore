@@ -4,13 +4,13 @@ use serde::de::DeserializeOwned;
 
 use crate::config::CliConfig;
 
-pub struct ExivClient {
+pub struct ClotoClient {
     client: Client,
     base_url: String,
     api_key: Option<String>,
 }
 
-impl ExivClient {
+impl ClotoClient {
     pub fn new(config: &CliConfig) -> Self {
         Self {
             client: Client::new(),
@@ -41,7 +41,7 @@ impl ExivClient {
             .add_auth(req)
             .send()
             .await
-            .context("Failed to connect to Exiv kernel")?;
+            .context("Failed to connect to Cloto kernel")?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -63,7 +63,7 @@ impl ExivClient {
             .add_auth(req)
             .send()
             .await
-            .context("Failed to connect to Exiv kernel")?;
+            .context("Failed to connect to Cloto kernel")?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -75,12 +75,12 @@ impl ExivClient {
     }
 
     /// GET agents list.
-    pub async fn get_agents(&self) -> Result<Vec<exiv_shared::AgentMetadata>> {
+    pub async fn get_agents(&self) -> Result<Vec<cloto_shared::AgentMetadata>> {
         self.get("/api/agents").await
     }
 
     /// GET plugins list.
-    pub async fn get_plugins(&self) -> Result<Vec<exiv_shared::PluginManifest>> {
+    pub async fn get_plugins(&self) -> Result<Vec<cloto_shared::PluginManifest>> {
         self.get("/api/plugins").await
     }
 
@@ -109,7 +109,7 @@ impl ExivClient {
             .add_auth(req)
             .send()
             .await
-            .context("Failed to connect to Exiv kernel")?;
+            .context("Failed to connect to Cloto kernel")?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -143,7 +143,7 @@ impl ExivClient {
 
     /// POST chat message.
     #[allow(dead_code)]
-    pub async fn send_chat(&self, msg: &exiv_shared::ExivMessage) -> Result<serde_json::Value> {
+    pub async fn send_chat(&self, msg: &cloto_shared::ClotoMessage) -> Result<serde_json::Value> {
         self.post("/api/chat", msg).await
     }
 
@@ -199,7 +199,7 @@ impl ExivClient {
             .add_auth(req)
             .send()
             .await
-            .context("Failed to connect to Exiv kernel")?;
+            .context("Failed to connect to Cloto kernel")?;
         let status = resp.status();
         if !status.is_success() {
             let body: serde_json::Value = resp.json().await.unwrap_or_default();

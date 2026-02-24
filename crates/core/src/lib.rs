@@ -18,7 +18,7 @@ pub use db::{
     query_audit_logs, update_permission_request, write_audit_log, AuditLogEntry, PermissionRequest,
 };
 
-use exiv_shared::ExivEvent;
+use cloto_shared::ClotoEvent;
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -26,18 +26,18 @@ use tokio::sync::{broadcast, mpsc, Notify, RwLock};
 
 #[derive(Debug, Clone)]
 pub struct EnvelopedEvent {
-    pub event: Arc<ExivEvent>,
-    pub issuer: Option<exiv_shared::ExivId>, // None = System/Kernel
-    pub correlation_id: Option<exiv_shared::ExivId>, // 親イベントの trace_id
+    pub event: Arc<ClotoEvent>,
+    pub issuer: Option<cloto_shared::ClotoId>, // None = System/Kernel
+    pub correlation_id: Option<cloto_shared::ClotoId>, // 親イベントの trace_id
     pub depth: u8,
 }
 
 impl EnvelopedEvent {
     /// Create a system-originated event (no issuer, no correlation, depth 0)
     #[must_use]
-    pub fn system(data: exiv_shared::ExivEventData) -> Self {
+    pub fn system(data: cloto_shared::ClotoEventData) -> Self {
         Self {
-            event: Arc::new(ExivEvent::new(data)),
+            event: Arc::new(ClotoEvent::new(data)),
             issuer: None,
             correlation_id: None,
             depth: 0,
@@ -50,7 +50,7 @@ pub struct DynamicRouter {
 }
 
 pub struct AppState {
-    pub tx: broadcast::Sender<Arc<ExivEvent>>,
+    pub tx: broadcast::Sender<Arc<ClotoEvent>>,
     pub registry: Arc<managers::PluginRegistry>,
     pub event_tx: mpsc::Sender<EnvelopedEvent>,
     pub pool: SqlitePool,
@@ -59,7 +59,7 @@ pub struct AppState {
     pub mcp_manager: Arc<managers::McpClientManager>,
     pub dynamic_router: Arc<DynamicRouter>,
     pub config: config::AppConfig,
-    pub event_history: Arc<RwLock<VecDeque<Arc<ExivEvent>>>>,
+    pub event_history: Arc<RwLock<VecDeque<Arc<ClotoEvent>>>>,
     pub metrics: Arc<managers::SystemMetrics>,
     pub rate_limiter: Arc<middleware::RateLimiter>,
     pub shutdown: Arc<Notify>,
@@ -69,7 +69,7 @@ pub struct AppState {
 }
 
 pub enum AppError {
-    Exiv(exiv_shared::ExivError),
+    Cloto(cloto_shared::ClotoError),
     Internal(anyhow::Error),
     NotFound(String),
     Validation(String),
@@ -78,13 +78,13 @@ pub enum AppError {
 impl axum::response::IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         let (status, err_type, message) = match self {
-            AppError::Exiv(e) => {
+            AppError::Cloto(e) => {
                 let status = match &e {
-                    exiv_shared::ExivError::PermissionDenied(_) => {
+                    cloto_shared::ClotoError::PermissionDenied(_) => {
                         axum::http::StatusCode::FORBIDDEN
                     }
-                    exiv_shared::ExivError::PluginNotFound(_)
-                    | exiv_shared::ExivError::AgentNotFound(_) => axum::http::StatusCode::NOT_FOUND,
+                    cloto_shared::ClotoError::PluginNotFound(_)
+                    | cloto_shared::ClotoError::AgentNotFound(_) => axum::http::StatusCode::NOT_FOUND,
                     _ => axum::http::StatusCode::BAD_REQUEST,
                 };
                 (status, format!("{:?}", e), e.to_string())
@@ -124,9 +124,9 @@ impl From<anyhow::Error> for AppError {
     }
 }
 
-impl From<exiv_shared::ExivError> for AppError {
-    fn from(err: exiv_shared::ExivError) -> Self {
-        AppError::Exiv(err)
+impl From<cloto_shared::ClotoError> for AppError {
+    fn from(err: cloto_shared::ClotoError) -> Self {
+        AppError::Cloto(err)
     }
 }
 
@@ -154,7 +154,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     use tracing::info;
 
     info!("+---------------------------------------+");
-    info!("|            Exiv System Kernel         |");
+    info!("|            Cloto System Kernel         |");
     info!(
         "|             Version {:<10}      |",
         env!("CARGO_PKG_VERSION")
@@ -169,8 +169,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
 
     // Principle #5: Warn if admin API key is missing in release builds
     if config.admin_api_key.is_none() && !cfg!(debug_assertions) {
-        tracing::warn!("⚠️  EXIV_API_KEY is not set. All admin endpoints will reject requests.");
-        tracing::warn!("    Set EXIV_API_KEY in .env or environment to enable admin operations.");
+        tracing::warn!("⚠️  CLOTO_API_KEY is not set. All admin endpoints will reject requests.");
+        tracing::warn!("    Set CLOTO_API_KEY in .env or environment to enable admin operations.");
     }
 
     // 0. Ensure parent directory of DB file exists (for deployed layout)
@@ -520,7 +520,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let listener =
         tokio::net::TcpListener::bind(format!("{}:{}", config.bind_address, config.port)).await?;
     info!(
-        "🚀 Exiv System Kernel is listening on http://{}:{}",
+        "🚀 Cloto System Kernel is listening on http://{}:{}",
         config.bind_address, config.port
     );
 

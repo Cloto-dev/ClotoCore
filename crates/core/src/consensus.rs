@@ -4,7 +4,7 @@
 //! Manages multi-engine consensus sessions: collecting proposals from engines,
 //! then synthesizing a unified response via a designated synthesizer engine.
 
-use exiv_shared::{AgentMetadata, ExivEvent, ExivEventData, ExivId, ExivMessage, MessageSource};
+use cloto_shared::{AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, MessageSource};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -63,7 +63,7 @@ enum SessionState {
 // ============================================================
 
 pub struct ConsensusOrchestrator {
-    sessions: RwLock<HashMap<ExivId, SessionState>>,
+    sessions: RwLock<HashMap<ClotoId, SessionState>>,
     config: RwLock<ConsensusConfig>,
 }
 
@@ -84,9 +84,9 @@ impl ConsensusOrchestrator {
     }
 
     /// Handle a consensus-related event. Returns an optional response event.
-    pub async fn handle_event(&self, event: &ExivEvent) -> Option<ExivEventData> {
+    pub async fn handle_event(&self, event: &ClotoEvent) -> Option<ClotoEventData> {
         match &event.data {
-            ExivEventData::ConsensusRequested {
+            ClotoEventData::ConsensusRequested {
                 task: _,
                 engine_ids,
             } => {
@@ -94,7 +94,7 @@ impl ConsensusOrchestrator {
                     .await
             }
 
-            ExivEventData::ThoughtResponse {
+            ClotoEventData::ThoughtResponse {
                 agent_id, content, ..
             } => {
                 self.on_thought_response(event.trace_id, agent_id, content)
@@ -109,9 +109,9 @@ impl ConsensusOrchestrator {
 
     async fn on_consensus_requested(
         &self,
-        trace_id: ExivId,
+        trace_id: ClotoId,
         engine_ids: &[String],
-    ) -> Option<ExivEventData> {
+    ) -> Option<ClotoEventData> {
         info!(
             trace_id = %trace_id,
             "🤝 Consensus process started for {} engines",
@@ -135,10 +135,10 @@ impl ConsensusOrchestrator {
 
     async fn on_thought_response(
         &self,
-        trace_id: ExivId,
+        trace_id: ClotoId,
         agent_id: &str,
         content: &str,
-    ) -> Option<ExivEventData> {
+    ) -> Option<ClotoEventData> {
         // Ignore responses from the consensus system itself
         if agent_id == SYSTEM_CONSENSUS_AGENT {
             return None;
@@ -215,12 +215,12 @@ impl ConsensusOrchestrator {
                     };
 
                     return Some(
-                        ExivEvent::with_trace(
+                        ClotoEvent::with_trace(
                             trace_id,
-                            ExivEventData::ThoughtRequested {
+                            ClotoEventData::ThoughtRequested {
                                 agent: synthesizer_agent,
                                 engine_id: synthesizer,
-                                message: ExivMessage::new(MessageSource::System, synthesis_prompt),
+                                message: ClotoMessage::new(MessageSource::System, synthesis_prompt),
                                 context: vec![],
                             },
                         )
@@ -241,7 +241,7 @@ impl ConsensusOrchestrator {
 
                 sessions.remove(&trace_id);
 
-                Some(ExivEventData::ThoughtResponse {
+                Some(ClotoEventData::ThoughtResponse {
                     agent_id: SYSTEM_CONSENSUS_AGENT.to_string(),
                     engine_id: "consensus".to_string(),
                     content: content.to_string(),

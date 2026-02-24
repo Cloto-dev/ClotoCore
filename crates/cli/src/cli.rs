@@ -2,8 +2,8 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
-    name = "exiv",
-    about = "Exiv — AI Agent Management CLI",
+    name = "cloto",
+    about = "Cloto — AI Agent Management CLI",
     version,
     propagate_version = true
 )]

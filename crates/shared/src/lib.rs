@@ -8,33 +8,33 @@ use uuid::Uuid;
 
 pub mod llm;
 
-// Legacy re-exports removed (exiv_macros, inventory) — all plugins are now MCP servers.
+// Legacy re-exports removed (cloto_macros, inventory) — all plugins are now MCP servers.
 
 /// SDK version constant for consistent version reporting across all plugins
 /// M-14: Plugins should reference this instead of their own CARGO_PKG_VERSION
 pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Exivプラットフォーム内での一意の識別子（Agent, Plugin, Session等）
+/// Clotoプラットフォーム内での一意の識別子（Agent, Plugin, Session等）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ExivId(Uuid);
+pub struct ClotoId(Uuid);
 
-impl std::fmt::Display for ExivId {
+impl std::fmt::Display for ClotoId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
 /// L-02: Default generates a random UUID v4 (intentional design).
-/// Each default ExivId is unique, suitable for trace IDs and ephemeral identifiers.
-/// For deterministic IDs, use `ExivId::from_name()` instead.
-impl Default for ExivId {
+/// Each default ClotoId is unique, suitable for trace IDs and ephemeral identifiers.
+/// For deterministic IDs, use `ClotoId::from_name()` instead.
+impl Default for ClotoId {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ExivId {
+impl ClotoId {
     #[must_use]
     pub fn new() -> Self {
         Self(Uuid::new_v4())
@@ -93,7 +93,7 @@ impl std::fmt::Display for Permission {
 // M-13: Explicit serde tagging for consistent serialization
 #[derive(Debug, thiserror::Error, Serialize, Deserialize)]
 #[serde(tag = "type", content = "detail")]
-pub enum ExivError {
+pub enum ClotoError {
     #[error("Permission denied: {0}")]
     PermissionDenied(Permission),
     #[error("Plugin error: {id} - {message}")]
@@ -114,14 +114,14 @@ pub enum ExivError {
     ValidationError(String),
 }
 
-pub type ExivResult<T> = std::result::Result<T, ExivError>;
+pub type ClotoResult<T> = std::result::Result<T, ClotoError>;
 
 /// Kernelによって認可され、実行時に提供されるプラグインの権限・環境情報
 #[derive(Clone)]
 pub struct PluginRuntimeContext {
     pub effective_permissions: Vec<Permission>,
     pub store: Arc<dyn PluginDataStore>,
-    pub event_tx: tokio::sync::mpsc::Sender<ExivEventData>,
+    pub event_tx: tokio::sync::mpsc::Sender<ClotoEventData>,
 }
 
 /// プラグインがデータを保存するための抽象ストレージインターフェース (Principle #4: Data Sovereignty / Principle #6: SAL)
@@ -191,7 +191,7 @@ pub trait SALExt: PluginDataStore {
 
     /// 時系列順にソート可能なメモリキーを生成する (Principle #4 / Guardrail #4)
     /// 形式: mem:{agent_id}:{timestamp_nanos_padded}:{message_id}
-    fn generate_mem_key(&self, agent_id: &str, message: &ExivMessage) -> String {
+    fn generate_mem_key(&self, agent_id: &str, message: &ClotoMessage) -> String {
         let ts = message.timestamp.timestamp_nanos_opt().unwrap_or(0);
         format!("mem:{}:{:020}:{}", agent_id, ts, message.id)
     }
@@ -298,7 +298,7 @@ pub enum MessageSource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExivMessage {
+pub struct ClotoMessage {
     pub id: String,
     pub source: MessageSource,
     pub target_agent: Option<String>,
@@ -307,11 +307,11 @@ pub struct ExivMessage {
     pub metadata: HashMap<String, String>,
 }
 
-impl ExivMessage {
+impl ClotoMessage {
     #[must_use]
     pub fn new(source: MessageSource, content: String) -> Self {
         Self {
-            id: ExivId::new().to_string(),
+            id: ClotoId::new().to_string(),
             source,
             target_agent: None,
             content,
@@ -383,7 +383,7 @@ pub trait Plugin: Any + Send + Sync + PluginCast {
 
     /// システムイベントの購読（デフォルトは何もしない）
     /// 戻り値としてイベントデータを返すと、Kernelによって再配信される
-    async fn on_event(&self, _event: &ExivEvent) -> anyhow::Result<Option<ExivEventData>> {
+    async fn on_event(&self, _event: &ClotoEvent) -> anyhow::Result<Option<ClotoEventData>> {
         Ok(None)
     }
 
@@ -418,7 +418,7 @@ pub trait Tool: Plugin {
 #[async_trait]
 pub trait CommunicationAdapter: Plugin {
     fn name(&self) -> &str;
-    async fn start(&self, event_sender: tokio::sync::mpsc::Sender<ExivEvent>)
+    async fn start(&self, event_sender: tokio::sync::mpsc::Sender<ClotoEvent>)
         -> anyhow::Result<()>;
     async fn send(&self, target_user_id: &str, content: &str) -> anyhow::Result<()>;
 }
@@ -462,8 +462,8 @@ pub trait ReasoningEngine: Plugin {
     async fn think(
         &self,
         agent: &AgentMetadata,
-        message: &ExivMessage,
-        context: Vec<ExivMessage>,
+        message: &ClotoMessage,
+        context: Vec<ClotoMessage>,
     ) -> anyhow::Result<String>;
 
     /// Whether this engine supports tool use (agentic loop). Default: false.
@@ -475,8 +475,8 @@ pub trait ReasoningEngine: Plugin {
     async fn think_with_tools(
         &self,
         agent: &AgentMetadata,
-        message: &ExivMessage,
-        context: Vec<ExivMessage>,
+        message: &ClotoMessage,
+        context: Vec<ClotoMessage>,
         _tools: &[serde_json::Value],
         _tool_history: &[serde_json::Value],
     ) -> anyhow::Result<ThinkResult> {
@@ -488,21 +488,21 @@ pub trait ReasoningEngine: Plugin {
 #[async_trait]
 pub trait MemoryProvider: Plugin {
     fn name(&self) -> &str;
-    async fn store(&self, agent_id: String, message: ExivMessage) -> anyhow::Result<()>;
+    async fn store(&self, agent_id: String, message: ClotoMessage) -> anyhow::Result<()>;
     async fn recall(
         &self,
         agent_id: String,
         query: &str,
         limit: usize,
-    ) -> anyhow::Result<Vec<ExivMessage>>;
+    ) -> anyhow::Result<Vec<ClotoMessage>>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExivEvent {
-    pub trace_id: ExivId,
+pub struct ClotoEvent {
+    pub trace_id: ClotoId,
     pub timestamp: DateTime<Utc>,
     #[serde(flatten)]
-    pub data: ExivEventData,
+    pub data: ClotoEventData,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -515,14 +515,14 @@ pub struct GazeData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
-pub enum ExivEventData {
-    MessageReceived(ExivMessage),
+pub enum ClotoEventData {
+    MessageReceived(ClotoMessage),
     VisionUpdated(ColorVisionData),
     /// 視線データの更新
     GazeUpdated(GazeData),
     /// プラグインからのアクション要求（権限チェック対象）
     ActionRequested {
-        requester: ExivId,
+        requester: ClotoId,
         action: HandAction,
     },
     SystemNotification(String),
@@ -530,8 +530,8 @@ pub enum ExivEventData {
     ThoughtRequested {
         agent: AgentMetadata,
         engine_id: String,
-        message: ExivMessage,
-        context: Vec<ExivMessage>,
+        message: ClotoMessage,
+        context: Vec<ClotoMessage>,
     },
     /// プラグインからの思考結果
     ThoughtResponse {
@@ -597,18 +597,18 @@ pub enum ExivEventData {
     },
 }
 
-impl ExivEvent {
+impl ClotoEvent {
     #[must_use]
-    pub fn new(data: ExivEventData) -> Self {
+    pub fn new(data: ClotoEventData) -> Self {
         Self {
-            trace_id: ExivId::new_trace_id(),
+            trace_id: ClotoId::new_trace_id(),
             timestamp: Utc::now(),
             data,
         }
     }
 
     #[must_use]
-    pub fn with_trace(trace_id: ExivId, data: ExivEventData) -> Self {
+    pub fn with_trace(trace_id: ClotoId, data: ClotoEventData) -> Self {
         Self {
             trace_id,
             timestamp: Utc::now(),
@@ -627,7 +627,7 @@ pub struct AgentMetadata {
     pub status: String,
     pub default_engine_id: Option<String>,
     pub required_capabilities: Vec<CapabilityType>,
-    pub plugin_bindings: Vec<ExivId>,
+    pub plugin_bindings: Vec<ClotoId>,
     pub metadata: HashMap<String, String>,
 }
 

@@ -3,7 +3,7 @@ use colored::Colorize;
 use comfy_table::{presets::NOTHING, ContentArrangement, Table};
 
 use crate::cli::PermissionsCommand;
-use crate::client::ExivClient;
+use crate::client::ClotoClient;
 use crate::output;
 
 const VALID_PERMISSIONS: &[&str] = &[
@@ -18,7 +18,7 @@ const VALID_PERMISSIONS: &[&str] = &[
     "AdminAccess",
 ];
 
-pub async fn run(client: &ExivClient, cmd: PermissionsCommand, json: bool) -> Result<()> {
+pub async fn run(client: &ClotoClient, cmd: PermissionsCommand, json: bool) -> Result<()> {
     match cmd {
         PermissionsCommand::Pending => pending(client, json).await,
         PermissionsCommand::List { plugin } => list(client, &plugin, json).await,
@@ -33,7 +33,7 @@ pub async fn run(client: &ExivClient, cmd: PermissionsCommand, json: bool) -> Re
     }
 }
 
-async fn pending(client: &ExivClient, json: bool) -> Result<()> {
+async fn pending(client: &ClotoClient, json: bool) -> Result<()> {
     let requests: Vec<serde_json::Value> = client.get_pending_permissions().await?;
 
     if json {
@@ -98,14 +98,14 @@ async fn pending(client: &ExivClient, json: bool) -> Result<()> {
 
     println!("{table}");
     println!();
-    println!("  {} exiv permissions approve <ID>", "Approve:".green());
-    println!("  {} exiv permissions deny <ID>", "Deny:   ".red());
+    println!("  {} cloto permissions approve <ID>", "Approve:".green());
+    println!("  {} cloto permissions deny <ID>", "Deny:   ".red());
     println!();
 
     Ok(())
 }
 
-async fn approve(client: &ExivClient, request_id: &str, json: bool) -> Result<()> {
+async fn approve(client: &ClotoClient, request_id: &str, json: bool) -> Result<()> {
     let sp = if json {
         None
     } else {
@@ -131,7 +131,7 @@ async fn approve(client: &ExivClient, request_id: &str, json: bool) -> Result<()
     Ok(())
 }
 
-async fn deny(client: &ExivClient, request_id: &str, json: bool) -> Result<()> {
+async fn deny(client: &ClotoClient, request_id: &str, json: bool) -> Result<()> {
     let sp = if json {
         None
     } else {
@@ -157,7 +157,7 @@ async fn deny(client: &ExivClient, request_id: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
-async fn list(client: &ExivClient, plugin_id: &str, json: bool) -> Result<()> {
+async fn list(client: &ClotoClient, plugin_id: &str, json: bool) -> Result<()> {
     let sp = if json {
         None
     } else {
@@ -220,7 +220,7 @@ async fn list(client: &ExivClient, plugin_id: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
-async fn revoke(client: &ExivClient, plugin_id: &str, permission: &str, json: bool) -> Result<()> {
+async fn revoke(client: &ClotoClient, plugin_id: &str, permission: &str, json: bool) -> Result<()> {
     if !VALID_PERMISSIONS.contains(&permission) {
         anyhow::bail!(
             "Invalid permission '{}'. Valid values:\n  {}",
@@ -256,7 +256,7 @@ async fn revoke(client: &ExivClient, plugin_id: &str, permission: &str, json: bo
     Ok(())
 }
 
-async fn grant(client: &ExivClient, plugin_id: &str, permission: &str, json: bool) -> Result<()> {
+async fn grant(client: &ClotoClient, plugin_id: &str, permission: &str, json: bool) -> Result<()> {
     // Validate permission name
     if !VALID_PERMISSIONS.contains(&permission) {
         anyhow::bail!(

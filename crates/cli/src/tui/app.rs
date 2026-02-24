@@ -1,4 +1,4 @@
-use exiv_shared::{AgentMetadata, PluginManifest};
+use cloto_shared::{AgentMetadata, PluginManifest};
 
 /// Active pane in the TUI layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

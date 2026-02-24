@@ -1,12 +1,12 @@
 // Database Operations Benchmarks
 // Critical paths:
-// - exiv_core/src/db.rs:21-30 (SqliteDataStore::set_json)
-// - exiv_core/src/db.rs:32-45 (SqliteDataStore::get_json)
-// - exiv_core/src/managers.rs:274-291 (PluginManager::fetch_plugin_configs)
+// - cloto_core/src/db.rs:21-30 (SqliteDataStore::set_json)
+// - cloto_core/src/db.rs:32-45 (SqliteDataStore::get_json)
+// - cloto_core/src/managers.rs:274-291 (PluginManager::fetch_plugin_configs)
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use exiv_core::db::SqliteDataStore;
-use exiv_shared::PluginDataStore;
+use cloto_core::db::SqliteDataStore;
+use cloto_shared::PluginDataStore;
 use sqlx::SqlitePool;
 
 mod helpers;
@@ -25,14 +25,14 @@ fn json_serialization_benchmark(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("set_json", size), &json_data, |b, data| {
             b.to_async(&runtime).iter(|| async {
                 let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-                exiv_core::db::init_db(&pool, "sqlite::memory:")
+                cloto_core::db::init_db(&pool, "sqlite::memory:")
                     .await
                     .unwrap();
 
                 let store = SqliteDataStore::new(pool);
 
                 // Critical path: JSON serialization + SQLite insert
-                // From exiv_core/src/db.rs:21-30
+                // From cloto_core/src/db.rs:21-30
                 store
                     .set_json("test_plugin", "bench_key", data.clone())
                     .await
@@ -49,7 +49,7 @@ fn get_json_benchmark(c: &mut Criterion) {
     c.bench_function("db_get_json", |b| {
         b.to_async(&runtime).iter(|| async {
             let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-            exiv_core::db::init_db(&pool, "sqlite::memory:")
+            cloto_core::db::init_db(&pool, "sqlite::memory:")
                 .await
                 .unwrap();
             let store = SqliteDataStore::new(pool);
@@ -59,7 +59,7 @@ fn get_json_benchmark(c: &mut Criterion) {
             store.set_json("test_plugin", "key", data).await.unwrap();
 
             // Benchmark: get_json with deserialization
-            // From exiv_core/src/db.rs:32-45
+            // From cloto_core/src/db.rs:32-45
             let result = store.get_json("test_plugin", "key").await.unwrap();
             black_box(result);
         });
@@ -72,7 +72,7 @@ fn get_all_json_benchmark(c: &mut Criterion) {
     c.bench_function("db_get_all_json", |b| {
         b.to_async(&runtime).iter(|| async {
             let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-            exiv_core::db::init_db(&pool, "sqlite::memory:")
+            cloto_core::db::init_db(&pool, "sqlite::memory:")
                 .await
                 .unwrap();
             let store = SqliteDataStore::new(pool);
@@ -87,7 +87,7 @@ fn get_all_json_benchmark(c: &mut Criterion) {
             }
 
             // Benchmark: get_all_json with LIKE query
-            // From exiv_core/src/db.rs:47-62
+            // From cloto_core/src/db.rs:47-62
             let results = store.get_all_json("test_plugin", "mem:").await.unwrap();
             black_box(results);
         });

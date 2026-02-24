@@ -12,10 +12,10 @@ async fn test_db_init_is_idempotent() {
     let pool = fresh_pool().await;
 
     // Running init_db twice should not fail (idempotent migrations)
-    exiv_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:")
         .await
         .unwrap();
-    exiv_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:")
         .await
         .unwrap();
 }
@@ -23,7 +23,7 @@ async fn test_db_init_is_idempotent() {
 #[tokio::test]
 async fn test_migration_creates_required_tables() {
     let pool = fresh_pool().await;
-    exiv_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:")
         .await
         .unwrap();
 
@@ -54,15 +54,15 @@ async fn test_migration_creates_required_tables() {
 
 #[tokio::test]
 async fn test_plugin_data_store_basic_roundtrip() {
-    use exiv_shared::PluginDataStore;
+    use cloto_shared::PluginDataStore;
     use std::sync::Arc;
 
     let pool = fresh_pool().await;
-    exiv_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:")
         .await
         .unwrap();
 
-    let store = Arc::new(exiv_core::db::SqliteDataStore::new(pool));
+    let store = Arc::new(cloto_core::db::SqliteDataStore::new(pool));
     let value = serde_json::json!({"hello": "world", "n": 42});
 
     store
@@ -75,15 +75,15 @@ async fn test_plugin_data_store_basic_roundtrip() {
 
 #[tokio::test]
 async fn test_plugin_data_store_missing_key_returns_none() {
-    use exiv_shared::PluginDataStore;
+    use cloto_shared::PluginDataStore;
     use std::sync::Arc;
 
     let pool = fresh_pool().await;
-    exiv_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:")
         .await
         .unwrap();
 
-    let store = Arc::new(exiv_core::db::SqliteDataStore::new(pool));
+    let store = Arc::new(cloto_core::db::SqliteDataStore::new(pool));
     let result = store
         .get_json("test.plugin", "nonexistent_key")
         .await

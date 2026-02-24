@@ -34,12 +34,12 @@ fn show(config: &CliConfig) -> Result<()> {
     println!();
 
     // Show environment overrides if active
-    if std::env::var("EXIV_URL").is_ok() {
-        println!("  {} EXIV_URL environment variable is active", "ℹ".blue());
+    if std::env::var("CLOTO_URL").is_ok() {
+        println!("  {} CLOTO_URL environment variable is active", "ℹ".blue());
     }
-    if std::env::var("EXIV_API_KEY").is_ok() {
+    if std::env::var("CLOTO_API_KEY").is_ok() {
         println!(
-            "  {} EXIV_API_KEY environment variable is active",
+            "  {} CLOTO_API_KEY environment variable is active",
             "ℹ".blue()
         );
     }

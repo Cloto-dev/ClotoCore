@@ -52,7 +52,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
 
     let header = Line::from(vec![
         Span::styled(
-            "  Exiv Dashboard",
+            "  Cloto Dashboard",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),

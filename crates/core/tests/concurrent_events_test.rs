@@ -3,9 +3,9 @@
 
 mod common;
 
-use exiv_core::managers::PluginRegistry;
-use exiv_core::EnvelopedEvent;
-use exiv_shared::ExivId;
+use cloto_core::managers::PluginRegistry;
+use cloto_core::EnvelopedEvent;
+use cloto_shared::ClotoId;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -17,12 +17,12 @@ async fn test_concurrent_event_dispatch_100() {
 
     // Register 5 mock plugins
     for i in 0..5 {
-        let id = ExivId::new();
+        let id = ClotoId::new();
         let (plugin, _) = create_mock_plugin(id);
         let mut plugins = registry.plugins.write().await;
         plugins.insert(
             format!("mock_{}", i),
-            plugin as Arc<dyn exiv_shared::Plugin>,
+            plugin as Arc<dyn cloto_shared::Plugin>,
         );
     }
 
@@ -32,8 +32,8 @@ async fn test_concurrent_event_dispatch_100() {
         let registry = registry.clone();
         let event_tx = event_tx.clone();
         let handle = tokio::spawn(async move {
-            let event = exiv_shared::ExivEvent::new(
-                exiv_shared::ExivEventData::SystemNotification("concurrent".into()),
+            let event = cloto_shared::ClotoEvent::new(
+                cloto_shared::ClotoEventData::SystemNotification("concurrent".into()),
             );
             let envelope = EnvelopedEvent {
                 event: Arc::new(event),
@@ -58,16 +58,16 @@ async fn test_event_depth_limit_prevents_infinite_loop() {
     use common::create_mock_plugin;
 
     let registry = PluginRegistry::new(2, 2); // depth limit = 2
-    let id = ExivId::new();
+    let id = ClotoId::new();
     let (plugin, received) = create_mock_plugin(id);
 
     {
         let mut plugins = registry.plugins.write().await;
-        plugins.insert("mock".into(), plugin as Arc<dyn exiv_shared::Plugin>);
+        plugins.insert("mock".into(), plugin as Arc<dyn cloto_shared::Plugin>);
     }
 
     let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<EnvelopedEvent>(10);
-    let event = exiv_shared::ExivEvent::new(exiv_shared::ExivEventData::SystemNotification(
+    let event = cloto_shared::ClotoEvent::new(cloto_shared::ClotoEventData::SystemNotification(
         "depth_test".into(),
     ));
 
@@ -104,7 +104,7 @@ async fn test_dispatch_with_no_plugins_is_safe() {
     let registry = PluginRegistry::new(5, 10);
     let (event_tx, _) = tokio::sync::mpsc::channel::<EnvelopedEvent>(10);
 
-    let event = exiv_shared::ExivEvent::new(exiv_shared::ExivEventData::SystemNotification(
+    let event = cloto_shared::ClotoEvent::new(cloto_shared::ClotoEventData::SystemNotification(
         "empty_registry".into(),
     ));
     let envelope = EnvelopedEvent {

@@ -2,19 +2,19 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use futures::StreamExt;
 
-use crate::client::ExivClient;
+use crate::client::ClotoClient;
 use crate::output;
 
 #[allow(clippy::too_many_lines)]
-pub async fn run(client: &ExivClient, agent: &str, message: &str, json_mode: bool) -> Result<()> {
+pub async fn run(client: &ClotoClient, agent: &str, message: &str, json_mode: bool) -> Result<()> {
     if !json_mode {
         println!("  {}: {message}", "You".bold());
     }
 
-    // Build ExivMessage
-    let msg = exiv_shared::ExivMessage {
-        id: exiv_shared::ExivId::new().to_string(),
-        source: exiv_shared::MessageSource::User {
+    // Build ClotoMessage
+    let msg = cloto_shared::ClotoMessage {
+        id: cloto_shared::ClotoId::new().to_string(),
+        source: cloto_shared::MessageSource::User {
             id: "cli-user".to_string(),
             name: "CLI".to_string(),
         },

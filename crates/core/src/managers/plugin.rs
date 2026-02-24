@@ -5,7 +5,7 @@ use tracing::info;
 
 use super::registry::{PluginRegistry, PluginSetting};
 use crate::capabilities::SafeHttpClient;
-use exiv_shared::Permission;
+use cloto_shared::Permission;
 
 pub struct PluginManager {
     pub pool: SqlitePool,
@@ -56,28 +56,28 @@ impl PluginManager {
     pub fn get_capability_for_permission(
         &self,
         permission: &Permission,
-    ) -> Option<exiv_shared::PluginCapability> {
+    ) -> Option<cloto_shared::PluginCapability> {
         match permission {
-            Permission::NetworkAccess => Some(exiv_shared::PluginCapability::Network(
+            Permission::NetworkAccess => Some(cloto_shared::PluginCapability::Network(
                 self.http_client.clone(),
             )),
             Permission::FileRead => {
                 // Read-only sandbox: plugins can read from the data/ directory
                 let base = std::path::PathBuf::from("data/plugin_sandbox");
-                Some(exiv_shared::PluginCapability::File(std::sync::Arc::new(
+                Some(cloto_shared::PluginCapability::File(std::sync::Arc::new(
                     crate::capabilities::SandboxedFileCapability::read_only(base),
                 )))
             }
             Permission::FileWrite => {
                 // Read+write sandbox
                 let base = std::path::PathBuf::from("data/plugin_sandbox");
-                Some(exiv_shared::PluginCapability::File(std::sync::Arc::new(
+                Some(cloto_shared::PluginCapability::File(std::sync::Arc::new(
                     crate::capabilities::SandboxedFileCapability::read_write(base),
                 )))
             }
             Permission::ProcessExecution => {
                 // Empty allowlist by default — callers must configure permitted commands
-                Some(exiv_shared::PluginCapability::Process(std::sync::Arc::new(
+                Some(cloto_shared::PluginCapability::Process(std::sync::Arc::new(
                     crate::capabilities::AllowedProcessCapability::new(vec![]),
                 )))
             }
@@ -112,7 +112,7 @@ impl PluginManager {
     pub async fn list_plugins_with_settings(
         &self,
         registry: &PluginRegistry,
-    ) -> anyhow::Result<Vec<exiv_shared::PluginManifest>> {
+    ) -> anyhow::Result<Vec<cloto_shared::PluginManifest>> {
         let rows: Vec<PluginSetting> = sqlx::query_as(
             "SELECT plugin_id, is_active, allowed_permissions FROM plugin_settings LIMIT 100",
         )
@@ -150,8 +150,8 @@ impl PluginManager {
     pub async fn get_permissions(
         &self,
         plugin_id: &str,
-    ) -> anyhow::Result<Vec<exiv_shared::Permission>> {
-        let row: Option<(sqlx::types::Json<Vec<exiv_shared::Permission>>,)> =
+    ) -> anyhow::Result<Vec<cloto_shared::Permission>> {
+        let row: Option<(sqlx::types::Json<Vec<cloto_shared::Permission>>,)> =
             sqlx::query_as("SELECT allowed_permissions FROM plugin_settings WHERE plugin_id = ?")
                 .bind(plugin_id)
                 .fetch_optional(&self.pool)
@@ -163,7 +163,7 @@ impl PluginManager {
     pub async fn revoke_permission(
         &self,
         plugin_id: &str,
-        permission: &exiv_shared::Permission,
+        permission: &cloto_shared::Permission,
         registry: &PluginRegistry,
     ) -> anyhow::Result<()> {
         // Reload current list, remove the target, write back atomically
@@ -185,9 +185,9 @@ impl PluginManager {
             .await?;
 
         // Update in-memory effective permissions
-        let plugin_exiv_id = exiv_shared::ExivId::from_name(plugin_id);
+        let plugin_cloto_id = cloto_shared::ClotoId::from_name(plugin_id);
         let mut perms_lock = registry.effective_permissions.write().await;
-        if let Some(p) = perms_lock.get_mut(&plugin_exiv_id) {
+        if let Some(p) = perms_lock.get_mut(&plugin_cloto_id) {
             p.retain(|x| x != permission);
         }
         Ok(())
@@ -196,7 +196,7 @@ impl PluginManager {
     pub async fn grant_permission(
         &self,
         plugin_id: &str,
-        permission: exiv_shared::Permission,
+        permission: cloto_shared::Permission,
     ) -> anyhow::Result<()> {
         // H-08: Single atomic SQL statement to prevent TOCTOU race in permission grant
         let perm_json = serde_json::to_string(&permission)?;

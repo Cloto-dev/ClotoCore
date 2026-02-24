@@ -1,5 +1,5 @@
 [package]
-name = "exiv_shared"
+name = "cloto_shared"
 version.workspace = true
 edition.workspace = true
 

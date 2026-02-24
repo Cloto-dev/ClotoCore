@@ -2,15 +2,15 @@ use axum::{
     body::Body,
     http::{header, Request, StatusCode},
 };
-use exiv_core::handlers;
-use exiv_core::test_utils::create_test_app_state as create_test_app_state_with_key;
-use exiv_core::AppState;
-use exiv_shared::{ExivEvent, ExivEventData};
+use cloto_core::handlers;
+use cloto_core::test_utils::create_test_app_state as create_test_app_state_with_key;
+use cloto_core::AppState;
+use cloto_shared::{ClotoEvent, ClotoEventData};
 use futures::StreamExt;
 use std::sync::Arc;
 use tower::ServiceExt;
 
-async fn create_test_app_state() -> Arc<exiv_core::AppState> {
+async fn create_test_app_state() -> Arc<cloto_core::AppState> {
     create_test_app_state_with_key(None).await
 }
 
@@ -63,7 +63,7 @@ async fn test_sse_handler_streams_events() {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Send a test event
-        let event = Arc::new(ExivEvent::new(ExivEventData::SystemNotification(
+        let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(
             "Test message".to_string(),
         )));
         let _ = tx.send(event);
@@ -121,7 +121,7 @@ async fn test_sse_handler_handles_lagged_receiver() {
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         for i in 0..10 {
-            let event = Arc::new(ExivEvent::new(ExivEventData::SystemNotification(format!(
+            let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(format!(
                 "Message {}",
                 i
             ))));

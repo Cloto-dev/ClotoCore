@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use exiv_shared::PluginDataStore;
+use cloto_shared::PluginDataStore;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -1419,7 +1419,7 @@ pub fn hash_api_key(key: &str) -> String {
     let mut h = DefaultHasher::new();
     key.hash(&mut h);
     key.len().hash(&mut h);
-    b"exiv-revoke-salt-2026".hash(&mut h);
+    b"cloto-revoke-salt-2026".hash(&mut h);
     let val = h.finish();
     let mut out = String::new();
     write!(out, "{:016x}{:016x}", val, val ^ 0xdead_beef_cafe_babe).unwrap();

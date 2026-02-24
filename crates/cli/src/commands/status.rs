@@ -1,10 +1,10 @@
 use anyhow::Result;
 use colored::Colorize;
 
-use crate::client::ExivClient;
+use crate::client::ClotoClient;
 use crate::output;
 
-pub async fn run(client: &ExivClient, json_mode: bool) -> Result<()> {
+pub async fn run(client: &ClotoClient, json_mode: bool) -> Result<()> {
     let sp = if json_mode {
         None
     } else {
@@ -61,7 +61,7 @@ pub async fn run(client: &ExivClient, json_mode: bool) -> Result<()> {
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(0);
 
-    output::print_header("Exiv System Status");
+    output::print_header("Cloto System Status");
 
     println!(
         "  {}    v{} ({})",

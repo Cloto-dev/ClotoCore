@@ -90,9 +90,9 @@ pub fn run() {
 
             // --- System Tray ---
             let status_item =
-                MenuItem::with_id(app, "status", "Exiv: Online", false, None::<&str>)?;
+                MenuItem::with_id(app, "status", "Cloto: Online", false, None::<&str>)?;
             let show_item = MenuItem::with_id(app, "show", "Show Dashboard", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "Quit Exiv", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit Cloto", true, None::<&str>)?;
 
             let tray_menu = Menu::with_items(
                 app,
@@ -107,7 +107,7 @@ pub fn run() {
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Exiv System")
+                .tooltip("Cloto System")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -145,11 +145,11 @@ pub fn run() {
                 )
                 .ok();
 
-            // --- Launch the Exiv Kernel Server ---
+            // --- Launch the Cloto Kernel Server ---
             tauri::async_runtime::spawn(async move {
                 dotenvy::dotenv().ok();
-                if let Err(e) = exiv_core::run_kernel().await {
-                    eprintln!("Failed to start Exiv Kernel: {}", e);
+                if let Err(e) = cloto_core::run_kernel().await {
+                    eprintln!("Failed to start Cloto Kernel: {}", e);
                 }
             });
 
@@ -169,7 +169,7 @@ pub fn run() {
     app.run(|_app_handle, event| {
         if let tauri::RunEvent::Exit = event {
             // Clean up stale maintenance file if present
-            let maint = exiv_core::config::exe_dir().join(".maintenance");
+            let maint = cloto_core::config::exe_dir().join(".maintenance");
             let _ = std::fs::remove_file(maint);
         }
     });

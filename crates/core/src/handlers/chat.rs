@@ -72,14 +72,14 @@ pub async fn post_message(
 
     // Validate source
     if !["user", "agent", "system"].contains(&payload.source.as_str()) {
-        return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
+        return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             "source must be 'user', 'agent', or 'system'".to_string(),
         )));
     }
 
     // Validate content is a JSON array
     if !payload.content.is_array() {
-        return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
+        return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             "content must be a JSON array of ContentBlock".to_string(),
         )));
     }
@@ -91,7 +91,7 @@ pub async fn post_message(
         .as_array()
         .is_some_and(|a| a.len() > MAX_CONTENT_ITEMS)
     {
-        return Err(AppError::Exiv(exiv_shared::ExivError::ValidationError(
+        return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             format!(
                 "content array exceeds maximum of {} items",
                 MAX_CONTENT_ITEMS

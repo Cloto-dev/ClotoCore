@@ -160,8 +160,8 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "base64 0.21.7",
+ "cloto_core",
  "dotenvy",
- "exiv_core",
  "image",
  "log",
  "serde",
@@ -974,6 +974,85 @@ name = "clap_lex"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
+
+[[package]]
+name = "cloto_cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "cloto_shared",
+ "colored",
+ "comfy-table",
+ "crossterm 0.28.1",
+ "dialoguer",
+ "dirs",
+ "futures",
+ "indicatif",
+ "ratatui",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 0.8.2",
+]
+
+[[package]]
+name = "cloto_core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "async-stream",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "clap",
+ "cloto_shared",
+ "criterion",
+ "dashmap 6.1.0",
+ "dotenvy",
+ "futures",
+ "governor",
+ "http",
+ "mime_guess",
+ "rand 0.8.5",
+ "reqwest 0.12.28",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "subtle",
+ "tokio",
+ "tokio-stream",
+ "tokio-test",
+ "toml 0.8.2",
+ "tower 0.4.13",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "validator",
+]
+
+[[package]]
+name = "cloto_shared"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "color_quant"
@@ -1894,85 +1973,6 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
-]
-
-[[package]]
-name = "exiv_cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "colored",
- "comfy-table",
- "crossterm 0.28.1",
- "dialoguer",
- "dirs",
- "exiv_shared",
- "futures",
- "indicatif",
- "ratatui",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "toml 0.8.2",
-]
-
-[[package]]
-name = "exiv_core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "async-stream",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "chrono",
- "clap",
- "criterion",
- "dashmap 6.1.0",
- "dotenvy",
- "exiv_shared",
- "futures",
- "governor",
- "http",
- "mime_guess",
- "rand 0.8.5",
- "reqwest 0.12.28",
- "rust-embed",
- "serde",
- "serde_json",
- "sha2",
- "sqlx",
- "subtle",
- "tokio",
- "tokio-stream",
- "tokio-test",
- "toml 0.8.2",
- "tower 0.4.13",
- "tower-http 0.5.2",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "validator",
-]
-
-[[package]]
-name = "exiv_shared"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
 ]
 
 [[package]]

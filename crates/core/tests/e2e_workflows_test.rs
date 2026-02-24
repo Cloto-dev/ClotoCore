@@ -1,9 +1,9 @@
-use exiv_core::AppState;
-use exiv_shared::{ExivEvent, ExivEventData, ExivMessage, MessageSource};
+use cloto_core::AppState;
+use cloto_shared::{ClotoEvent, ClotoEventData, ClotoMessage, MessageSource};
 use std::sync::Arc;
 
 async fn create_test_app_state() -> Arc<AppState> {
-    exiv_core::test_utils::create_test_app_state(None).await
+    cloto_core::test_utils::create_test_app_state(None).await
 }
 
 #[tokio::test]
@@ -18,7 +18,7 @@ async fn test_user_message_to_response_flow() {
             "A test agent",
             "mind.deepseek",
             std::collections::HashMap::new(),
-            vec![exiv_shared::CapabilityType::Reasoning],
+            vec![cloto_shared::CapabilityType::Reasoning],
             None,
         )
         .await
@@ -28,7 +28,7 @@ async fn test_user_message_to_response_flow() {
     let mut rx = state.tx.subscribe();
 
     // Create and send a MessageReceived event
-    let user_message = ExivMessage {
+    let user_message = ClotoMessage {
         id: "msg-123".to_string(),
         source: MessageSource::User {
             id: "user-1".to_string(),
@@ -40,7 +40,7 @@ async fn test_user_message_to_response_flow() {
         metadata: std::collections::HashMap::new(),
     };
 
-    let event = Arc::new(ExivEvent::new(ExivEventData::MessageReceived(
+    let event = Arc::new(ClotoEvent::new(ClotoEventData::MessageReceived(
         user_message.clone(),
     )));
 
@@ -55,7 +55,7 @@ async fn test_user_message_to_response_flow() {
 
     // Verify we received the MessageReceived event
     match &received.data {
-        ExivEventData::MessageReceived(msg) => {
+        ClotoEventData::MessageReceived(msg) => {
             assert_eq!(msg.id, user_message.id);
             assert_eq!(msg.content, "Hello, agent!");
         }
@@ -83,14 +83,14 @@ async fn test_permission_grant_flow() {
     let mut rx = state.tx.subscribe();
 
     // Approve the permission
-    exiv_core::update_permission_request(&state.pool, "req-123", "approved", "admin")
+    cloto_core::update_permission_request(&state.pool, "req-123", "approved", "admin")
         .await
         .unwrap();
 
     // Send PermissionGranted event
-    let event = Arc::new(ExivEvent::new(ExivEventData::PermissionGranted {
+    let event = Arc::new(ClotoEvent::new(ClotoEventData::PermissionGranted {
         plugin_id: "test.plugin".to_string(),
-        permission: exiv_shared::Permission::NetworkAccess,
+        permission: cloto_shared::Permission::NetworkAccess,
     }));
 
     state.tx.send(event.clone()).unwrap();
@@ -103,12 +103,12 @@ async fn test_permission_grant_flow() {
 
     // Verify we received the PermissionGranted event
     match &received.data {
-        ExivEventData::PermissionGranted {
+        ClotoEventData::PermissionGranted {
             plugin_id,
             permission,
         } => {
             assert_eq!(plugin_id, "test.plugin");
-            assert_eq!(permission, &exiv_shared::Permission::NetworkAccess);
+            assert_eq!(permission, &cloto_shared::Permission::NetworkAccess);
         }
         _ => panic!("Expected PermissionGranted event"),
     }
@@ -153,7 +153,7 @@ async fn test_config_update_flow() {
     let mut config = std::collections::HashMap::new();
     config.insert("api_key".to_string(), "new_value".to_string());
 
-    let event = Arc::new(ExivEvent::new(ExivEventData::ConfigUpdated {
+    let event = Arc::new(ClotoEvent::new(ClotoEventData::ConfigUpdated {
         plugin_id: "test.plugin".to_string(),
         config,
     }));
@@ -168,7 +168,7 @@ async fn test_config_update_flow() {
 
     // Verify we received the ConfigUpdated event
     match &received.data {
-        ExivEventData::ConfigUpdated { plugin_id, config } => {
+        ClotoEventData::ConfigUpdated { plugin_id, config } => {
             assert_eq!(plugin_id, "test.plugin");
             assert_eq!(config.get("api_key").unwrap(), "new_value");
         }
@@ -201,8 +201,8 @@ async fn test_agent_creation_with_memory_context() {
             "mind.deepseek",
             std::collections::HashMap::new(),
             vec![
-                exiv_shared::CapabilityType::Reasoning,
-                exiv_shared::CapabilityType::Memory,
+                cloto_shared::CapabilityType::Reasoning,
+                cloto_shared::CapabilityType::Memory,
             ],
             None,
         )
@@ -222,7 +222,7 @@ async fn test_agent_creation_with_memory_context() {
     assert_eq!(agent.name, "Memory Test Agent");
     assert!(agent
         .required_capabilities
-        .contains(&exiv_shared::CapabilityType::Memory));
+        .contains(&cloto_shared::CapabilityType::Memory));
 
     // Verify the agent was stored in the database
     let stored_agent: (String, String) =

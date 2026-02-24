@@ -5,9 +5,9 @@ use tracing::info;
 
 #[derive(Parser)]
 #[command(
-    name = "exiv_system",
+    name = "cloto_system",
     version = env!("CARGO_PKG_VERSION"),
-    about = "Exiv System - Extensible Intelligence Virtualization"
+    about = "Cloto System - AI Agent Orchestration Platform"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -16,7 +16,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Install Exiv to a directory (self-install)
+    /// Install Cloto to a directory (self-install)
     Install {
         /// Installation directory
         #[arg(long, default_value_os_t = default_prefix())]
@@ -28,7 +28,7 @@ pub enum Commands {
         #[arg(long)]
         user: Option<String>,
     },
-    /// Uninstall Exiv
+    /// Uninstall Cloto
     Uninstall {
         /// Installation directory to remove
         #[arg(long, default_value_os_t = default_prefix())]
@@ -65,28 +65,28 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum ServiceAction {
-    /// Register Exiv as an OS service
+    /// Register Cloto as an OS service
     Install {
         #[arg(long, default_value_os_t = default_prefix())]
         prefix: PathBuf,
         #[arg(long)]
         user: Option<String>,
     },
-    /// Remove Exiv OS service
+    /// Remove Cloto OS service
     Uninstall,
-    /// Start the Exiv service
+    /// Start the Cloto service
     Start,
-    /// Stop the Exiv service
+    /// Stop the Cloto service
     Stop,
-    /// Show Exiv service status
+    /// Show Cloto service status
     Status,
 }
 
 fn default_prefix() -> PathBuf {
     if cfg!(windows) {
-        PathBuf::from(r"C:\ProgramData\Exiv")
+        PathBuf::from(r"C:\ProgramData\Cloto")
     } else {
-        PathBuf::from("/opt/exiv")
+        PathBuf::from("/opt/cloto")
     }
 }
 
@@ -98,11 +98,11 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
             service,
             user,
         } => {
-            info!("📦 Installing Exiv to {}", prefix.display());
+            info!("📦 Installing Cloto to {}", prefix.display());
             crate::installer::install(prefix, service, user).await
         }
         Commands::Uninstall { prefix } => {
-            info!("🗑️  Uninstalling Exiv from {}", prefix.display());
+            info!("🗑️  Uninstalling Cloto from {}", prefix.display());
             crate::installer::uninstall(prefix).await
         }
         Commands::Service { action } => match action {
@@ -124,7 +124,7 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
             yes,
         } => update_command(check, version, yes).await,
         Commands::Version => {
-            println!("Exiv System v{}", env!("CARGO_PKG_VERSION"));
+            println!("Cloto System v{}", env!("CARGO_PKG_VERSION"));
             println!("Build target: {}", env!("TARGET"));
             Ok(())
         }
@@ -178,16 +178,16 @@ async fn update_command(
     target_version: Option<String>,
     yes: bool,
 ) -> anyhow::Result<()> {
-    let repo = std::env::var("EXIV_UPDATE_REPO").unwrap_or_else(|_| "Exiv-ai/Exiv".to_string());
+    let repo = std::env::var("CLOTO_UPDATE_REPO").unwrap_or_else(|_| "Cloto-dev/ClotoCore".to_string());
     let current_version = env!("CARGO_PKG_VERSION");
     let target = env!("TARGET");
 
-    println!("Exiv System v{} ({})", current_version, target);
+    println!("Cloto System v{} ({})", current_version, target);
     println!("Update repository: github.com/{}", repo);
     println!();
 
     let client = reqwest::Client::new();
-    let ua = format!("Exiv-System/{}", current_version);
+    let ua = format!("Cloto-System/{}", current_version);
 
     // Resolve the release to check
     let release: GitHubRelease = if let Some(ref ver) = target_version {
@@ -260,13 +260,13 @@ async fn update_command(
 
     if check_only {
         if latest_version != current_version {
-            println!("Update available. Run `exiv_system update` to apply.");
+            println!("Update available. Run `cloto_system update` to apply.");
         }
         return Ok(());
     }
 
     // Find matching binary asset
-    let expected_name = format!("exiv_system-{}", target);
+    let expected_name = format!("cloto_system-{}", target);
     let binary_asset = release
         .assets
         .iter()
@@ -379,7 +379,7 @@ async fn update_command(
     println!("SHA256: {}", computed_hash);
     println!();
     println!("Restart the service to use the new version:");
-    println!("  exiv_system service stop && exiv_system service start");
+    println!("  cloto_system service stop && cloto_system service start");
 
     Ok(())
 }

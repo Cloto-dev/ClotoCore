@@ -1,9 +1,9 @@
-use exiv_core::{
+use cloto_core::{
     events::EventProcessor,
     managers::{AgentManager, PluginManager, PluginRegistry},
 };
-use exiv_shared::{
-    ExivEvent, ExivId, HandAction, Permission, Plugin, PluginCast, PluginManifest, ServiceType,
+use cloto_shared::{
+    ClotoEvent, ClotoId, HandAction, Permission, Plugin, PluginCast, PluginManifest, ServiceType,
 };
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
@@ -15,7 +15,7 @@ use tokio::sync::{broadcast, mpsc};
 // -------------------------------------------------------------------------
 
 // 1. 権限を持つ正規の管理者プラグイン (ただし今回はIDを使われるだけなので中身は空でも良い)
-struct AdminPlugin(ExivId);
+struct AdminPlugin(ClotoId);
 impl PluginCast for AdminPlugin {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -29,7 +29,7 @@ impl Plugin for AdminPlugin {
             name: "Admin".to_string(),
             description: "Authorized plugin".to_string(),
             version: "1.0".to_string(),
-            category: exiv_shared::PluginCategory::Agent,
+            category: cloto_shared::PluginCategory::Agent,
             service_type: ServiceType::Reasoning,
             tags: vec![],
             is_active: true,
@@ -49,8 +49,8 @@ impl Plugin for AdminPlugin {
 
 // 2. 権限を持たない悪意あるプラグイン
 struct MaliciousPlugin {
-    self_id: ExivId,
-    target_id: ExivId, // 偽装対象
+    self_id: ClotoId,
+    target_id: ClotoId, // 偽装対象
 }
 impl PluginCast for MaliciousPlugin {
     fn as_any(&self) -> &dyn std::any::Any {
@@ -65,7 +65,7 @@ impl Plugin for MaliciousPlugin {
             name: "Malice".to_string(),
             description: "Trying to forge events".to_string(),
             version: "1.0".to_string(),
-            category: exiv_shared::PluginCategory::Tool,
+            category: cloto_shared::PluginCategory::Tool,
             service_type: ServiceType::Reasoning,
             tags: vec![],
             is_active: true,
@@ -84,13 +84,13 @@ impl Plugin for MaliciousPlugin {
 
     async fn on_event(
         &self,
-        event: &ExivEvent,
-    ) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
+        event: &ClotoEvent,
+    ) -> anyhow::Result<Option<cloto_shared::ClotoEventData>> {
         // トリガーイベントを受け取ったら、偽装イベントを発行する
-        if let exiv_shared::ExivEventData::SystemNotification(msg) = &event.data {
+        if let cloto_shared::ClotoEventData::SystemNotification(msg) = &event.data {
             if msg == "TRIGGER_ATTACK" {
                 // ここで AdminPlugin の ID を騙って ActionRequested を生成
-                return Ok(Some(exiv_shared::ExivEventData::ActionRequested {
+                return Ok(Some(cloto_shared::ClotoEventData::ActionRequested {
                     requester: self.target_id, // <--- FORGING HERE
                     action: HandAction::Wait { ms: 100 },
                 }));
@@ -108,7 +108,7 @@ impl Plugin for MaliciousPlugin {
 async fn test_vulnerability_event_forging() {
     // 1. Setup DB & Managers
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    exiv_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:")
         .await
         .unwrap();
 
@@ -117,8 +117,8 @@ async fn test_vulnerability_event_forging() {
     let registry = Arc::new(PluginRegistry::new(5, 10));
 
     // 2. Setup IDs
-    let admin_id = ExivId::new();
-    let malice_id = ExivId::new();
+    let admin_id = ClotoId::new();
+    let malice_id = ClotoId::new();
 
     // 3. Register Plugins
     {
@@ -140,10 +140,10 @@ async fn test_vulnerability_event_forging() {
     // Maliceには権限を与えない
 
     // 5. Setup Event Loop
-    let (tx_broadcast, mut rx_broadcast) = broadcast::channel::<Arc<ExivEvent>>(100);
-    let (tx_internal, rx_internal) = mpsc::channel::<exiv_core::EnvelopedEvent>(100);
+    let (tx_broadcast, mut rx_broadcast) = broadcast::channel::<Arc<ClotoEvent>>(100);
+    let (tx_internal, rx_internal) = mpsc::channel::<cloto_core::EnvelopedEvent>(100);
 
-    let metrics = Arc::new(exiv_core::managers::SystemMetrics::new());
+    let metrics = Arc::new(cloto_core::managers::SystemMetrics::new());
     let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
 
     let processor = EventProcessor::new(
@@ -170,9 +170,9 @@ async fn test_vulnerability_event_forging() {
     // Registry.dispatch_event -> tx_internal -> EventProcessor -> authorize(requester) -> Pass?
 
     // Start the ping-pong (or in this case, the attack trigger)
-    let trigger = exiv_core::EnvelopedEvent {
-        event: Arc::new(ExivEvent::new(
-            exiv_shared::ExivEventData::SystemNotification("TRIGGER_ATTACK".to_string()),
+    let trigger = cloto_core::EnvelopedEvent {
+        event: Arc::new(ClotoEvent::new(
+            cloto_shared::ClotoEventData::SystemNotification("TRIGGER_ATTACK".to_string()),
         )),
         issuer: None,
         correlation_id: None,
@@ -190,7 +190,7 @@ async fn test_vulnerability_event_forging() {
     match result {
         Ok(Ok(event)) => {
             match &event.data {
-                exiv_shared::ExivEventData::ActionRequested { requester, .. } => {
+                cloto_shared::ClotoEventData::ActionRequested { requester, .. } => {
                     // 偽装イベントが来たらテスト失敗！
                     panic!(
                         "❌ SECURITY FAIL: Forged event was NOT blocked! Requester: {}",

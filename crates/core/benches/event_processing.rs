@@ -1,10 +1,10 @@
 // Event Processing Benchmarks
-// Critical path: exiv_core/src/events.rs:72-76 (EventProcessor::record_event)
+// Critical path: cloto_core/src/events.rs:72-76 (EventProcessor::record_event)
 // Measures: VecDeque operations, RwLock contention, event throughput
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 #[allow(unused_imports)]
-use exiv_shared::ExivEvent;
+use cloto_shared::ClotoEvent;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -20,7 +20,7 @@ fn event_recording_single(c: &mut Criterion) {
             let event = helpers::create_test_event("benchmark message".to_string());
 
             // Benchmark VecDeque push_back with RwLock
-            // Critical path from exiv_core/src/events.rs:72-76
+            // Critical path from cloto_core/src/events.rs:72-76
             let mut history = event_history.write().await;
             history.push_back(black_box((*event).clone()));
             if history.len() > 1000 {

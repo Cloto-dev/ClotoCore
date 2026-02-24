@@ -3,10 +3,10 @@ use colored::Colorize;
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 
 use crate::cli::AgentsCommand;
-use crate::client::ExivClient;
+use crate::client::ClotoClient;
 use crate::output;
 
-pub async fn run(client: &ExivClient, cmd: AgentsCommand, json_mode: bool) -> Result<()> {
+pub async fn run(client: &ClotoClient, cmd: AgentsCommand, json_mode: bool) -> Result<()> {
     match cmd {
         AgentsCommand::List => list(client, json_mode).await,
         AgentsCommand::Create {
@@ -46,7 +46,7 @@ pub async fn run(client: &ExivClient, cmd: AgentsCommand, json_mode: bool) -> Re
     }
 }
 
-async fn list(client: &ExivClient, json_mode: bool) -> Result<()> {
+async fn list(client: &ClotoClient, json_mode: bool) -> Result<()> {
     let sp = if json_mode {
         None
     } else {
@@ -69,7 +69,7 @@ async fn list(client: &ExivClient, json_mode: bool) -> Result<()> {
 }
 
 async fn create(
-    client: &ExivClient,
+    client: &ClotoClient,
     name: Option<String>,
     description: Option<String>,
     engine: Option<String>,
@@ -142,7 +142,7 @@ async fn create(
 
 /// Interactive agent creation wizard using dialoguer.
 async fn interactive_create_wizard(
-    client: &ExivClient,
+    client: &ClotoClient,
 ) -> Result<(String, String, String, Option<String>, Option<String>)> {
     let theme = ColorfulTheme::default();
 
@@ -195,7 +195,7 @@ async fn interactive_create_wizard(
 }
 
 /// Fetch plugins and let user select an engine.
-async fn select_engine(client: &ExivClient, agent_type: &str) -> Result<String> {
+async fn select_engine(client: &ClotoClient, agent_type: &str) -> Result<String> {
     let theme = ColorfulTheme::default();
 
     // Fetch plugins to show available engines
@@ -205,12 +205,12 @@ async fn select_engine(client: &ExivClient, agent_type: &str) -> Result<String> 
         .iter()
         .filter(|p| {
             if agent_type == "ai" {
-                matches!(p.category, exiv_shared::PluginCategory::Agent)
+                matches!(p.category, cloto_shared::PluginCategory::Agent)
                     && p.id.starts_with("mind.")
             } else {
                 // Container agents can use any non-mind engine
                 !p.id.starts_with("mind.")
-                    && !matches!(p.category, exiv_shared::PluginCategory::System)
+                    && !matches!(p.category, cloto_shared::PluginCategory::System)
             }
         })
         .map(|p| (p.id.as_str(), p.name.as_str()))
@@ -239,7 +239,7 @@ async fn select_engine(client: &ExivClient, agent_type: &str) -> Result<String> 
 }
 
 async fn power(
-    client: &ExivClient,
+    client: &ClotoClient,
     agent_id: &str,
     enabled: bool,
     password: Option<String>,
@@ -321,7 +321,7 @@ async fn power(
     }
 }
 
-async fn delete(client: &ExivClient, agent_id: &str, force: bool, json_mode: bool) -> Result<()> {
+async fn delete(client: &ClotoClient, agent_id: &str, force: bool, json_mode: bool) -> Result<()> {
     if !force && !json_mode {
         output::print_header("Delete Agent");
         println!("  Agent:   {}", agent_id.bold());

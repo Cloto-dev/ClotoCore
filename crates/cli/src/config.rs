@@ -24,11 +24,11 @@ impl Default for CliConfig {
 }
 
 impl CliConfig {
-    /// Config file path: ~/.config/exiv/cli.toml
+    /// Config file path: ~/.config/cloto/cli.toml
     pub fn path() -> Result<PathBuf> {
         let config_dir = dirs::config_dir()
             .context("Cannot determine config directory")?
-            .join("exiv");
+            .join("cloto");
         Ok(config_dir.join("cli.toml"))
     }
 
@@ -46,10 +46,10 @@ impl CliConfig {
         };
 
         // Environment variable overrides
-        if let Ok(url) = std::env::var("EXIV_URL") {
+        if let Ok(url) = std::env::var("CLOTO_URL") {
             config.url = url;
         }
-        if let Ok(key) = std::env::var("EXIV_API_KEY") {
+        if let Ok(key) = std::env::var("CLOTO_API_KEY") {
             config.api_key = Some(key);
         }
 

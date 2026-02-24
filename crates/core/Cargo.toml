@@ -1,14 +1,14 @@
 [package]
-name = "exiv_core"
+name = "cloto_core"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "exiv_system"
+name = "cloto_system"
 path = "src/main.rs"
 
 [dependencies]
-exiv_shared = { path = "../shared" }
+cloto_shared = { path = "../shared" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

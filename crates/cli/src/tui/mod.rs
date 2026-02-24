@@ -13,7 +13,7 @@ use ratatui::prelude::*;
 use std::io;
 use tokio::sync::mpsc;
 
-use crate::client::ExivClient;
+use crate::client::ClotoClient;
 use crate::config::CliConfig;
 use app::{App, AppAction};
 
@@ -28,7 +28,7 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) {
 /// Launch the TUI dashboard.
 pub async fn run() -> Result<()> {
     let config = CliConfig::load()?;
-    let client = ExivClient::new(&config);
+    let client = ClotoClient::new(&config);
     let endpoint = config.url.clone();
 
     // Setup terminal
@@ -50,7 +50,7 @@ pub async fn run() -> Result<()> {
     let (tx, mut rx) = mpsc::channel::<AppAction>(512);
 
     // Spawn background polling task (agents, plugins, metrics)
-    let poll_client = ExivClient::new(&config);
+    let poll_client = ClotoClient::new(&config);
     let poll_tx = tx.clone();
     tokio::spawn(async move {
         loop {
@@ -71,7 +71,7 @@ pub async fn run() -> Result<()> {
     });
 
     // Spawn SSE listener task
-    let sse_client = ExivClient::new(&config);
+    let sse_client = ClotoClient::new(&config);
     let sse_tx = tx.clone();
     tokio::spawn(async move {
         loop {

@@ -118,20 +118,20 @@ pub enum ToolContent {
 }
 
 // ============================================================
-// Exiv Custom MCP Extensions
+// Cloto Custom MCP Extensions
 // ============================================================
 
-/// Request params for exiv/handshake custom method
+/// Request params for cloto/handshake custom method
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ExivHandshakeParams {
+pub struct ClotoHandshakeParams {
     pub kernel_version: String,
 }
 
-/// Response from exiv/handshake
+/// Response from cloto/handshake
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ExivHandshakeResult {
+pub struct ClotoHandshakeResult {
     pub server_id: String,
     pub version: Option<String>,
     pub capabilities: Vec<String>,

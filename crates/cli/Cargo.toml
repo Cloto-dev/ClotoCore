@@ -1,16 +1,16 @@
 [package]
-name = "exiv_cli"
+name = "cloto_cli"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "exiv"
+name = "cloto"
 path = "src/main.rs"
 
 [dependencies]
-exiv_shared = { path = "../shared" }
+cloto_shared = { path = "../shared" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -1,9 +1,9 @@
-use exiv_core::{
+use cloto_core::{
     events::EventProcessor,
     managers::{AgentManager, PluginManager, PluginRegistry},
     EnvelopedEvent,
 };
-use exiv_shared::{ExivEvent, Plugin, PluginCast, PluginManifest, ServiceType};
+use cloto_shared::{ClotoEvent, Plugin, PluginCast, PluginManifest, ServiceType};
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -30,7 +30,7 @@ impl Plugin for PingPlugin {
             name: "Ping".to_string(),
             description: String::new(),
             version: "1.0".to_string(),
-            category: exiv_shared::PluginCategory::Tool,
+            category: cloto_shared::PluginCategory::Tool,
             service_type: ServiceType::Reasoning,
             tags: vec![],
             is_active: true,
@@ -49,11 +49,11 @@ impl Plugin for PingPlugin {
 
     async fn on_event(
         &self,
-        event: &ExivEvent,
-    ) -> anyhow::Result<Option<exiv_shared::ExivEventData>> {
-        if let exiv_shared::ExivEventData::SystemNotification(msg) = &event.data {
+        event: &ClotoEvent,
+    ) -> anyhow::Result<Option<cloto_shared::ClotoEventData>> {
+        if let cloto_shared::ClotoEventData::SystemNotification(msg) = &event.data {
             if msg == &format!("TO_{}", self.id) {
-                return Ok(Some(exiv_shared::ExivEventData::SystemNotification(
+                return Ok(Some(cloto_shared::ClotoEventData::SystemNotification(
                     format!("TO_{}", self.target_id),
                 )));
             }
@@ -69,7 +69,7 @@ impl Plugin for PingPlugin {
 #[tokio::test]
 async fn test_event_cascading_protection() {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    exiv_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:")
         .await
         .unwrap();
 
@@ -98,10 +98,10 @@ async fn test_event_cascading_protection() {
         );
     }
 
-    let (tx_broadcast, mut rx_broadcast) = broadcast::channel::<Arc<ExivEvent>>(1000);
+    let (tx_broadcast, mut rx_broadcast) = broadcast::channel::<Arc<ClotoEvent>>(1000);
     let (tx_internal, rx_internal) = mpsc::channel::<EnvelopedEvent>(1000);
 
-    let metrics = Arc::new(exiv_core::managers::SystemMetrics::new());
+    let metrics = Arc::new(cloto_core::managers::SystemMetrics::new());
     let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
 
     let processor = EventProcessor::new(
@@ -125,8 +125,8 @@ async fn test_event_cascading_protection() {
 
     // Start the ping-pong
     let trigger = EnvelopedEvent {
-        event: Arc::new(ExivEvent::new(
-            exiv_shared::ExivEventData::SystemNotification(format!("TO_{}", id_a)),
+        event: Arc::new(ClotoEvent::new(
+            cloto_shared::ClotoEventData::SystemNotification(format!("TO_{}", id_a)),
         )),
         issuer: None,
         correlation_id: None,

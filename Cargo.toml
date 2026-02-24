@@ -10,10 +10,10 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-authors = ["Exiv Project <exiv.project@proton.me>"]
+authors = ["ClotoCore <ClotoCore@proton.me>"]
 license = "BSL-1.1"
-repository = "https://github.com/Exiv-ai/Exiv"
-homepage = "https://github.com/Exiv-ai/Exiv"
+repository = "https://github.com/Cloto-dev/ClotoCore"
+homepage = "https://github.com/Cloto-dev/ClotoCore"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }

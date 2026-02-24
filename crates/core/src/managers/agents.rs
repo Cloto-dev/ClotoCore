@@ -2,7 +2,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use tracing::debug;
 
-use exiv_shared::AgentMetadata;
+use cloto_shared::AgentMetadata;
 
 #[derive(sqlx::FromRow)]
 struct AgentRow {
@@ -12,7 +12,7 @@ struct AgentRow {
     enabled: bool,
     last_seen: i64,
     default_engine_id: String,
-    required_capabilities: sqlx::types::Json<Vec<exiv_shared::CapabilityType>>,
+    required_capabilities: sqlx::types::Json<Vec<cloto_shared::CapabilityType>>,
     metadata: sqlx::types::Json<HashMap<String, String>>,
     power_password_hash: Option<String>,
 }
@@ -96,10 +96,10 @@ impl AgentManager {
         description: &str,
         default_engine: &str,
         metadata: HashMap<String, String>,
-        required_capabilities: Vec<exiv_shared::CapabilityType>,
+        required_capabilities: Vec<cloto_shared::CapabilityType>,
         password: Option<&str>,
     ) -> anyhow::Result<String> {
-        // K-01: Return the actual DB id_str instead of a mismatched ExivId
+        // K-01: Return the actual DB id_str instead of a mismatched ClotoId
         let id_str = format!("agent.{}", name.to_lowercase().replace(' ', "_"));
         let metadata_json = serde_json::to_string(&metadata)?;
         let capabilities_json = serde_json::to_string(&required_capabilities)?;
@@ -222,14 +222,14 @@ impl AgentManager {
         let mut memory_id: Option<String> = None;
         for (plugin_id, _, _) in plugins {
             if let Some(m) = manifests.iter().find(|m| &m.id == plugin_id) {
-                if m.service_type == exiv_shared::ServiceType::Reasoning {
+                if m.service_type == cloto_shared::ServiceType::Reasoning {
                     if llm_engine_id.is_none() && plugin_id.starts_with("mind.") {
                         llm_engine_id = Some(plugin_id.clone());
                     } else if fallback_engine_id.is_none() && !plugin_id.starts_with("mind.") {
                         fallback_engine_id = Some(plugin_id.clone());
                     }
                 }
-                if memory_id.is_none() && m.service_type == exiv_shared::ServiceType::Memory {
+                if memory_id.is_none() && m.service_type == cloto_shared::ServiceType::Memory {
                     memory_id = Some(plugin_id.clone());
                 }
             }
@@ -261,7 +261,7 @@ impl AgentManager {
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(exiv_shared::ExivError::AgentNotFound(agent_id.to_string()).into());
+            return Err(cloto_shared::ClotoError::AgentNotFound(agent_id.to_string()).into());
         }
         Ok(())
     }

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::error;
 
-use exiv_shared::{ExivId, Permission, Plugin, PluginManifest};
+use cloto_shared::{ClotoId, Permission, Plugin, PluginManifest};
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct PluginSetting {
@@ -13,7 +13,7 @@ pub struct PluginSetting {
 
 pub struct PluginRegistry {
     pub plugins: tokio::sync::RwLock<HashMap<String, Arc<dyn Plugin>>>,
-    pub effective_permissions: tokio::sync::RwLock<HashMap<ExivId, Vec<Permission>>>,
+    pub effective_permissions: tokio::sync::RwLock<HashMap<ClotoId, Vec<Permission>>>,
     pub event_timeout_secs: u64,
     pub max_event_depth: u8,
     pub event_semaphore: Arc<tokio::sync::Semaphore>,
@@ -62,7 +62,7 @@ impl PluginRegistry {
         self.mcp_manager = Some(mcp_manager);
     }
 
-    pub async fn update_effective_permissions(&self, plugin_id: ExivId, permission: Permission) {
+    pub async fn update_effective_permissions(&self, plugin_id: ClotoId, permission: Permission) {
         let mut perms_lock = self.effective_permissions.write().await;
         let perms = perms_lock.entry(plugin_id).or_default();
         if !perms.contains(&permission) {
@@ -335,8 +335,8 @@ impl PluginRegistry {
 async fn redispatch_plugin_event(
     tx: tokio::sync::mpsc::Sender<crate::EnvelopedEvent>,
     plugin_id: String,
-    trace_id: ExivId,
-    new_event_data: exiv_shared::ExivEventData,
+    trace_id: ClotoId,
+    new_event_data: cloto_shared::ClotoEventData,
     current_depth: u8,
     semaphore: Arc<tokio::sync::Semaphore>,
 ) {
@@ -347,9 +347,9 @@ async fn redispatch_plugin_event(
         );
         return;
     };
-    let issuer_id = ExivId::from_name(&plugin_id);
+    let issuer_id = ClotoId::from_name(&plugin_id);
     let envelope = crate::EnvelopedEvent {
-        event: Arc::new(exiv_shared::ExivEvent::with_trace(trace_id, new_event_data)),
+        event: Arc::new(cloto_shared::ClotoEvent::with_trace(trace_id, new_event_data)),
         issuer: Some(issuer_id),
         correlation_id: Some(trace_id),
         depth: current_depth + 1,

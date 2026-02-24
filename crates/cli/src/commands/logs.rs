@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use futures::StreamExt;
 
-use crate::client::ExivClient;
+use crate::client::ClotoClient;
 use crate::output;
 
 /// Truncate a string to at most `max_chars` characters, appending "..." if truncated.
@@ -17,7 +17,7 @@ fn truncate_preview(content: &str, max_chars: usize) -> String {
     }
 }
 
-pub async fn run(client: &ExivClient, follow: bool, limit: usize, json_mode: bool) -> Result<()> {
+pub async fn run(client: &ClotoClient, follow: bool, limit: usize, json_mode: bool) -> Result<()> {
     if follow {
         follow_stream(client, json_mode).await
     } else {
@@ -26,7 +26,7 @@ pub async fn run(client: &ExivClient, follow: bool, limit: usize, json_mode: boo
 }
 
 /// Display recent event history from the ring buffer.
-async fn show_history(client: &ExivClient, limit: usize, json_mode: bool) -> Result<()> {
+async fn show_history(client: &ClotoClient, limit: usize, json_mode: bool) -> Result<()> {
     let sp = if json_mode {
         None
     } else {
@@ -81,7 +81,7 @@ async fn show_history(client: &ExivClient, limit: usize, json_mode: bool) -> Res
 }
 
 /// Follow SSE stream and print events in real-time.
-async fn follow_stream(client: &ExivClient, json_mode: bool) -> Result<()> {
+async fn follow_stream(client: &ClotoClient, json_mode: bool) -> Result<()> {
     if !json_mode {
         output::print_header("Live Event Stream");
         println!("  {} Press {} to stop", "ℹ".dimmed(), "Ctrl+C".bold());

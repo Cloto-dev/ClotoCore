@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use exiv_shared::{
+use cloto_shared::{
     FileCapability, HttpRequest, HttpResponse, NetworkCapability, ProcessCapability,
 };
 use std::collections::HashSet;

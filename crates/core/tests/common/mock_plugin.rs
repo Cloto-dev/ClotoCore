@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use exiv_shared::{
-    ExivEvent, ExivEventData, ExivId, Plugin, PluginCast, PluginManifest, ServiceType,
+use cloto_shared::{
+    ClotoEvent, ClotoEventData, ClotoId, Plugin, PluginCast, PluginManifest, ServiceType,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,10 +9,10 @@ use tokio::sync::Mutex;
 
 pub struct MockPlugin {
     pub manifest: PluginManifest,
-    pub received_events: Arc<Mutex<Vec<ExivEvent>>>,
+    pub received_events: Arc<Mutex<Vec<ClotoEvent>>>,
     pub should_panic: bool,
     pub response_delay: Duration,
-    pub response: Option<ExivEventData>,
+    pub response: Option<ClotoEventData>,
 }
 
 impl PluginCast for MockPlugin {
@@ -26,7 +26,7 @@ impl Plugin for MockPlugin {
     fn manifest(&self) -> PluginManifest {
         self.manifest.clone()
     }
-    async fn on_event(&self, event: &ExivEvent) -> Result<Option<ExivEventData>> {
+    async fn on_event(&self, event: &ClotoEvent) -> Result<Option<ClotoEventData>> {
         self.received_events.lock().await.push(event.clone());
         assert!(!self.should_panic, "Intentional test panic");
         tokio::time::sleep(self.response_delay).await;
@@ -34,13 +34,13 @@ impl Plugin for MockPlugin {
     }
 }
 
-fn base_manifest(id: ExivId, name: &str) -> PluginManifest {
+fn base_manifest(id: ClotoId, name: &str) -> PluginManifest {
     PluginManifest {
         id: id.to_string(),
         name: name.to_string(),
         description: String::new(),
         version: "0.0.0".to_string(),
-        category: exiv_shared::PluginCategory::Tool,
+        category: cloto_shared::PluginCategory::Tool,
         service_type: ServiceType::Reasoning,
         tags: vec![],
         is_active: true,
@@ -58,7 +58,7 @@ fn base_manifest(id: ExivId, name: &str) -> PluginManifest {
 }
 
 /// Standard mock plugin: records events, returns None.
-pub fn create_mock_plugin(id: ExivId) -> (Arc<MockPlugin>, Arc<Mutex<Vec<ExivEvent>>>) {
+pub fn create_mock_plugin(id: ClotoId) -> (Arc<MockPlugin>, Arc<Mutex<Vec<ClotoEvent>>>) {
     let received_events = Arc::new(Mutex::new(Vec::new()));
     let plugin = Arc::new(MockPlugin {
         manifest: base_manifest(id, "MockPlugin"),
@@ -72,7 +72,7 @@ pub fn create_mock_plugin(id: ExivId) -> (Arc<MockPlugin>, Arc<Mutex<Vec<ExivEve
 
 /// Slow mock plugin: introduces a configurable delay before returning.
 #[allow(dead_code)]
-pub fn create_slow_plugin(id: ExivId, delay: Duration) -> Arc<MockPlugin> {
+pub fn create_slow_plugin(id: ClotoId, delay: Duration) -> Arc<MockPlugin> {
     Arc::new(MockPlugin {
         manifest: base_manifest(id, "SlowPlugin"),
         received_events: Arc::new(Mutex::new(Vec::new())),
@@ -84,7 +84,7 @@ pub fn create_slow_plugin(id: ExivId, delay: Duration) -> Arc<MockPlugin> {
 
 /// Panicking mock plugin: panics on every on_event call.
 #[allow(dead_code)]
-pub fn create_panicking_plugin(id: ExivId) -> Arc<MockPlugin> {
+pub fn create_panicking_plugin(id: ClotoId) -> Arc<MockPlugin> {
     Arc::new(MockPlugin {
         manifest: base_manifest(id, "PanickingPlugin"),
         received_events: Arc::new(Mutex::new(Vec::new())),

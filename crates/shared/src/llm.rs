@@ -3,13 +3,13 @@
 //! These free functions extract the common patterns shared by Cerebras, DeepSeek,
 //! and any future plugin that targets the OpenAI chat completions API format.
 
-use crate::{AgentMetadata, ExivMessage, HttpRequest, MessageSource, ThinkResult, ToolCall};
+use crate::{AgentMetadata, ClotoMessage, HttpRequest, MessageSource, ThinkResult, ToolCall};
 use std::collections::HashMap;
 
-/// Build the system prompt for an Exiv agent.
+/// Build the system prompt for a Cloto agent.
 ///
 /// Automatically injects platform context (identity, privacy, capabilities)
-/// so agents self-identify as Exiv agents without requiring manual description setup.
+/// so agents self-identify as Cloto agents without requiring manual description setup.
 /// The user-supplied `description` serves as role/persona definition layered on top.
 fn build_system_prompt(agent: &AgentMetadata) -> String {
     let has_memory = agent
@@ -24,8 +24,8 @@ fn build_system_prompt(agent: &AgentMetadata) -> String {
     };
 
     format!(
-        "You are {name}, an AI agent running on the Exiv platform.\n\
-         Exiv is a local, self-hosted AI container system — all data stays on your \
+        "You are {name}, an AI agent running on the Cloto platform.\n\
+         Cloto is a local, self-hosted AI container system — all data stays on your \
          operator's hardware and is never sent to any external service.\n\
          {memory}You can extend your own capabilities by creating new skills at runtime.\n\
          \n\
@@ -43,8 +43,8 @@ fn build_system_prompt(agent: &AgentMetadata) -> String {
 #[must_use]
 pub fn build_chat_messages(
     agent: &AgentMetadata,
-    message: &ExivMessage,
-    context: &[ExivMessage],
+    message: &ClotoMessage,
+    context: &[ClotoMessage],
 ) -> Vec<serde_json::Value> {
     let mut messages = Vec::with_capacity(context.len() + 2);
 

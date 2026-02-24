@@ -1,7 +1,7 @@
 // Security Operations Benchmarks
 // Critical paths:
-// - exiv_core/src/capabilities.rs:54-56 (SafeHttpClient whitelist check via send_http_request)
-// - exiv_core/src/handlers.rs:27 (constant-time comparison)
+// - cloto_core/src/capabilities.rs:54-56 (SafeHttpClient whitelist check via send_http_request)
+// - cloto_core/src/handlers.rs:27 (constant-time comparison)
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::HashSet;
@@ -59,7 +59,7 @@ fn constant_time_comparison_benchmark(c: &mut Criterion) {
             let key2 = b"test-secret-key-12345678901234567890";
 
             // Benchmark constant-time comparison (authentication)
-            // From exiv_core/src/handlers.rs:27
+            // From cloto_core/src/handlers.rs:27
             let result = key1.ct_eq(key2);
             black_box(result);
         });

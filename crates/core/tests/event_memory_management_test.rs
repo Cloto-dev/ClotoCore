@@ -1,6 +1,6 @@
-use exiv_core::events::EventProcessor;
-use exiv_core::managers::{AgentManager, PluginManager, PluginRegistry, SystemMetrics};
-use exiv_shared::{ExivEvent, ExivEventData};
+use cloto_core::events::EventProcessor;
+use cloto_core::managers::{AgentManager, PluginManager, PluginRegistry, SystemMetrics};
+use cloto_shared::{ClotoEvent, ClotoEventData};
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -9,9 +9,9 @@ use tokio::sync::{broadcast, RwLock};
 /// Helper to create EventProcessor for testing
 async fn create_test_processor(
     max_history_size: usize,
-) -> (Arc<EventProcessor>, Arc<RwLock<VecDeque<Arc<ExivEvent>>>>) {
+) -> (Arc<EventProcessor>, Arc<RwLock<VecDeque<Arc<ClotoEvent>>>>) {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    exiv_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:")
         .await
         .unwrap();
 
@@ -45,7 +45,7 @@ async fn test_event_history_size_limit() {
     {
         let mut hist = history.write().await;
         for i in 0..1500 {
-            let event = Arc::new(ExivEvent::new(ExivEventData::SystemNotification(format!(
+            let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(format!(
                 "Event {}",
                 i
             ))));
@@ -64,7 +64,7 @@ async fn test_event_history_size_limit() {
 
     // Verify the oldest event is #500 (since we added 1500 and kept last 1000)
     if let Some(oldest) = hist.front() {
-        if let ExivEventData::SystemNotification(msg) = &oldest.data {
+        if let ClotoEventData::SystemNotification(msg) = &oldest.data {
             assert!(
                 msg.contains("Event 500") || msg.contains("Event 50"),
                 "Oldest event should be around #500, got: {}",
@@ -85,7 +85,7 @@ async fn test_time_based_cleanup() {
         // Add 10 old events (25 hours ago)
         let old_time = chrono::Utc::now() - chrono::Duration::hours(25);
         for i in 0..10 {
-            let mut event = ExivEvent::new(ExivEventData::SystemNotification(format!(
+            let mut event = ClotoEvent::new(ClotoEventData::SystemNotification(format!(
                 "Old Event {}",
                 i
             )));
@@ -96,7 +96,7 @@ async fn test_time_based_cleanup() {
         // Add 10 recent events (1 hour ago)
         let recent_time = chrono::Utc::now() - chrono::Duration::hours(1);
         for i in 0..10 {
-            let mut event = ExivEvent::new(ExivEventData::SystemNotification(format!(
+            let mut event = ClotoEvent::new(ClotoEventData::SystemNotification(format!(
                 "Recent Event {}",
                 i
             )));
@@ -124,7 +124,7 @@ async fn test_time_based_cleanup() {
 
     // Verify all remaining events are recent
     for event in hist.iter() {
-        if let ExivEventData::SystemNotification(msg) = &event.data {
+        if let ClotoEventData::SystemNotification(msg) = &event.data {
             assert!(
                 msg.contains("Recent"),
                 "Only recent events should remain, found: {}",
@@ -143,7 +143,7 @@ async fn test_configurable_history_size() {
     {
         let mut hist = history.write().await;
         for i in 0..700 {
-            let event = Arc::new(ExivEvent::new(ExivEventData::SystemNotification(format!(
+            let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(format!(
                 "Event {}",
                 i
             ))));
@@ -179,7 +179,7 @@ async fn test_cleanup_task_integration() {
         let mut hist = history.write().await;
         let old_time = chrono::Utc::now() - chrono::Duration::hours(25);
         for i in 0..5 {
-            let mut event = ExivEvent::new(ExivEventData::SystemNotification(format!("Old {}", i)));
+            let mut event = ClotoEvent::new(ClotoEventData::SystemNotification(format!("Old {}", i)));
             event.timestamp = old_time;
             hist.push_back(Arc::new(event));
         }
