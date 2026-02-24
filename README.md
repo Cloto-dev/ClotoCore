@@ -7,7 +7,7 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-180%2B%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-133%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
@@ -41,7 +41,7 @@ Example: "VTuber AI" Container          Example: "Research Assistant" Container
 | **Security** | Sandboxed plugins, permission isolation, host whitelisting, DNS rebinding protection | Broad local permissions |
 | **Interface** | GUI dashboard + Tauri desktop app | Chat / CLI only |
 | **Design** | Plugin-composed AI containers | Monolithic agents |
-| **Extension** | Rust plugins + Python Bridge | Single language |
+| **Extension** | MCP server plugins (any language) | Single language |
 
 ## Architecture
 
@@ -57,22 +57,20 @@ graph TB
     EventBus --> Processor[Event Processor]
     Processor --> Manager[Plugin Manager]
 
-    Manager --> P1[Rust Plugin]
-    Manager --> P2[Python Bridge]
-    Manager --> PN[Plugin N]
+    Manager --> MCP1[MCP Server]
+    Manager --> MCPN[MCP Server N]
 
-    P1 --> Cascade[Cascade Events]
-    P2 --> Cascade
+    MCP1 --> Cascade[Cascade Events]
     Cascade --> EventBus
 
-    P2 -.->|JSON-RPC| Python[Python Subprocess]
+    MCP1 -.->|JSON-RPC stdio| Process1[Server Process]
 
     SSE[SSE Stream] --> Client
 
     style DB fill:#f0e6ff,stroke:#333
     style Processor fill:#e6f0ff,stroke:#333
     style Manager fill:#e6ffe6,stroke:#333
-    style Python fill:#fff4e6,stroke:#333
+    style Process1 fill:#fff4e6,stroke:#333
 ```
 
 **Key design principles:**
@@ -93,44 +91,30 @@ cargo run --package exiv_core
 
 The dashboard opens at **http://localhost:8081**.
 
-## Plugins
+## MCP Servers
 
-**Rust plugins** (compiled, zero-overhead):
+All plugin functionality is delivered via **MCP (Model Context Protocol)** servers:
 
-| ID | Type | Description |
-|----|------|-------------|
+| Server | Type | Description |
+|--------|------|-------------|
 | `mind.deepseek` | Reasoning | Advanced reasoning via DeepSeek API |
 | `mind.cerebras` | Reasoning | Ultra-high-speed reasoning via Cerebras API |
-| `core.ks22` | Memory | Persistent key-value memory with chronological recall |
-| `core.moderator` | Reasoning | Consensus moderator for collective intelligence |
-| `adapter.mcp` | Skill | Model Context Protocol (MCP) client adapter with dynamic server management |
-| `tool.terminal` | Skill | Sandboxed shell command execution |
+| `memory.ks22` | Memory | Persistent memory with FTS5 search + vector embedding |
+| `tool.terminal` | Tool | Sandboxed shell command execution |
+| `tool.embedding` | Tool | Vector embedding generation (OpenAI API / local ONNX) |
 
-### Writing a Plugin
-
-```rust
-#[exiv_plugin(
-    name = "my.plugin",
-    kind = "Reasoning",
-    description = "My custom reasoning engine.",
-    version = "0.1.0",
-    permissions = ["NetworkAccess"],
-    capabilities = ["Reasoning"]
-)]
-pub struct MyPlugin { /* ... */ }
-```
-
-The `#[exiv_plugin]` proc-macro generates manifests, factory boilerplate, and capability registration at compile time.
+MCP servers are configured via `mcp.toml` and can be written in any language.
+See [MCP Plugin Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) for details.
 
 ## Project Structure
 
 ```
-crates/core/        Kernel — event bus, plugin manager, HTTP API, rate limiter
-crates/shared/      SDK — traits (Plugin, ReasoningEngine, Tool) and shared types
-crates/macros/      Procedural macro for plugin manifest generation
-plugins/            Official plugins (8 crates)
+crates/core/        Kernel — event bus, MCP manager, HTTP API, rate limiter
+crates/shared/      SDK — traits and shared types
+crates/cli/         CLI client with interactive TUI
+mcp-servers/        MCP servers (Python): deepseek, cerebras, ks22, terminal, embedding
 dashboard/          React/TypeScript web UI (Tauri desktop app)
-scripts/            Python bridge runtime, build tools
+scripts/            Build tools, verification scripts
 docs/               Architecture, vision, changelog
 ```
 
@@ -167,13 +151,12 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `PLUGIN_EVENT_TIMEOUT_SECS` | `30` | Plugin event handler timeout |
 | `CORS_ORIGINS` | (none) | Allowed CORS origins (comma-separated) |
 | `ALLOWED_HOSTS` | (none) | Network whitelist for plugin access |
-| `EXIV_UPDATE_REPO` | (none) | GitHub `owner/repo` for update distribution |
 | `BIND_ADDRESS` | `127.0.0.1` | Server bind address (`0.0.0.0` for network access) |
 | `MEMORY_CONTEXT_LIMIT` | `10` | Maximum memory entries returned per recall |
 | `EVENT_HISTORY_SIZE` | `1000` | Maximum events kept in memory |
 | `EVENT_RETENTION_HOURS` | `24` | Hours to retain events before cleanup (1-720) |
-| `EXIV_AUTO_EVAL` | `true` | Enable automatic fitness evaluation |
 | `EXIV_MAX_AGENTIC_ITERATIONS` | `16` | Maximum tool-use loop iterations (1-64) |
+| `EXIV_MCP_CONFIG` | (none) | Path to mcp.toml configuration file |
 | `EXIV_TOOL_TIMEOUT_SECS` | `30` | Tool execution timeout in seconds (1-300) |
 | `HEARTBEAT_INTERVAL_SECS` | `30` | Agent heartbeat ping interval |
 
@@ -187,7 +170,6 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/system/version` | Current version info |
-| GET | `/api/system/update/check` | Check for updates |
 | GET | `/api/events` | SSE event stream |
 | GET | `/api/history` | Event history |
 | GET | `/api/metrics` | System metrics |
@@ -196,11 +178,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | GET | `/api/plugins/:id/config` | Plugin configuration |
 | GET | `/api/agents` | Agent configurations |
 | GET | `/api/permissions/pending` | Pending permission requests |
-| GET | `/api/evolution/status` | Evolution engine status |
-| GET | `/api/evolution/generations` | Generation history |
-| GET | `/api/evolution/generations/:n` | Specific generation details |
-| GET | `/api/evolution/fitness` | Fitness timeline |
-| GET | `/api/evolution/rollbacks` | Rollback history |
+| GET | `/api/mcp/access/by-agent/:agent_id` | Agent MCP tool access |
 
 </details>
 
@@ -210,7 +188,6 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/system/shutdown` | Graceful shutdown |
-| POST | `/api/system/update/apply` | Apply pending update |
 | POST | `/api/plugins/apply` | Bulk enable/disable plugins |
 | POST | `/api/plugins/:id/config` | Update plugin config |
 | POST | `/api/plugins/:id/permissions/grant` | Grant permission to plugin |
@@ -223,14 +200,17 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | POST | `/api/chat` | Send message to agent |
 | GET/POST/DELETE | `/api/chat/:agent_id/messages` | Chat message persistence |
 | GET | `/api/chat/attachments/:attachment_id` | Retrieve chat attachment |
-| POST | `/api/evolution/evaluate` | Evaluate agent fitness |
-| GET/PUT | `/api/evolution/params` | Get/update evolution parameters |
+| GET/POST | `/api/mcp/servers` | List/create MCP servers |
+| DELETE | `/api/mcp/servers/:name` | Delete MCP server |
+| GET/PUT | `/api/mcp/servers/:name/settings` | Server settings |
+| GET/PUT | `/api/mcp/servers/:name/access` | Access control |
+| POST | `/api/mcp/servers/:name/start\|stop\|restart` | Server lifecycle |
 
 </details>
 
 ## Testing
 
-180+ tests.
+133 tests.
 
 ```bash
 cargo test                              # all tests
@@ -244,7 +224,7 @@ cargo test --test '*'                   # integration tests only
 - **Append-only audit log** in SQLite for all permission decisions
 - **Minimal default permissions** — elevated permissions require human approval
 - **Network host whitelisting** with DNS rebinding protection
-- **Python sandbox** with AST-level module blocking and process isolation
+- **MCP access control** with 3-level RBAC (capability → server → tool)
 
 See [Architecture](docs/ARCHITECTURE.md) for the full security model.
 
@@ -254,7 +234,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the full security model.
 - [Project Vision](docs/PROJECT_VISION.md) — Strategic direction and roadmap
 - [Development](docs/DEVELOPMENT.md) — Coding standards, guardrails, PR process
 - [Changelog](docs/CHANGELOG.md) — Development history
-- [Plugin Macros](crates/macros/README.md) — `#[exiv_plugin]` usage
+- [MCP Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) — MCP server communication protocol
 
 ## License
 

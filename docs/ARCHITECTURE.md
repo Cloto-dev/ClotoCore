@@ -25,24 +25,19 @@ graph TB
     Manager --> Timeout[Timeout Guard]
     Timeout --> Dispatch[Dispatch to Plugins]
 
-    Dispatch --> P1[Rust Plugin]
-    Dispatch --> P2[Python Bridge]
-    Dispatch --> PN[Plugin N]
+    Dispatch --> MCP1[MCP Server]
+    Dispatch --> MCPN[MCP Server N]
 
-    P1 --> Cascade[Cascade Events]
-    P2 --> Cascade
+    MCP1 --> Cascade[Cascade Events]
+    MCPN --> Cascade
 
     Cascade --> EventTx
-
-    P2 -.-> Python[Python Subprocess]
-    Python -.->|JSON-RPC| P2
 
     SSE[SSE Stream] --> Client
 
     style DB fill:#f0e6ff,stroke:#333
     style Processor fill:#e6f0ff,stroke:#333
     style Manager fill:#e6ffe6,stroke:#333
-    style Python fill:#fff4e6,stroke:#333
 ```
 
 ### 0.2 Request Flow
@@ -87,27 +82,19 @@ Exiv/
 │   ├── core/          # Kernel: HTTP server, handlers, event loop, database
 │   │   └── src/
 │   │       ├── handlers.rs      # HTTP API handlers (agents, plugins, events, auth)
-│   │       ├── handlers/        # Sub-handlers (system, assets, update, chat, evolution, skill_manager)
+│   │       ├── handlers/        # Sub-handlers (system, assets, chat, mcp, skill_manager)
 │   │       ├── config.rs        # AppConfig from environment variables
 │   │       ├── db.rs            # SQLite schema, queries, audit logging
 │   │       ├── managers.rs      # PluginManager, AgentManager, PluginRegistry
 │   │       ├── middleware.rs    # Rate limiter, request tracking
 │   │       └── lib.rs           # AppState, router setup, event processor
-│   ├── shared/        # Plugin SDK: traits, types, macros
-│   │   └── src/lib.rs           # Plugin, ReasoningEngine, Tool traits
-│   └── macros/        # Procedural macros (#[exiv_plugin])
+│   └── shared/        # Plugin SDK: traits, types, macros
+│       └── src/lib.rs           # Plugin, ReasoningEngine, Tool traits
 │
-├── plugins/
-│   ├── deepseek/       # DeepSeek API reasoning engine
-│   ├── cerebras/       # Cerebras API reasoning engine
-│   ├── cursor/         # Cursor integration
-│   ├── ks22/           # KS-22 agent plugin
-│   ├── mcp/            # Model Context Protocol bridge
-│   ├── moderator/      # Content moderation
-│   └── vision/         # Visual processing
-│
+├── mcp-servers/        # MCP servers (Python, any language)
 ├── dashboard/          # React/TypeScript web UI (Tauri desktop app)
-├── scripts/            # Python bridge runtime, build tools, verification
+├── archive/            # Archived features (evolution, update, docs)
+├── scripts/            # Build tools, verification scripts
 ├── qa/                 # Issue registry (version-controlled bug tracking)
 └── docs/               # Architecture, changelog, development guides
 ```
@@ -119,7 +106,6 @@ Exiv/
 | Method | Route | Description |
 |--------|-------|-------------|
 | POST | `/api/system/shutdown` | Graceful shutdown |
-| POST | `/api/system/update/apply` | Apply pending update |
 | POST | `/api/plugins/apply` | Bulk enable/disable plugins |
 | POST | `/api/plugins/:id/config` | Update plugin config |
 | POST | `/api/plugins/:id/permissions/grant` | Grant permission to plugin |
@@ -132,15 +118,17 @@ Exiv/
 | POST | `/api/chat` | Send message to agent |
 | GET/POST/DELETE | `/api/chat/:agent_id/messages` | Chat message persistence |
 | GET | `/api/chat/attachments/:attachment_id` | Retrieve chat attachment |
-| POST | `/api/evolution/evaluate` | Evaluate agent fitness |
-| GET/PUT | `/api/evolution/params` | Get/update evolution parameters |
+| POST/GET | `/api/mcp/servers` | MCP server management |
+| DELETE | `/api/mcp/servers/:name` | Delete MCP server |
+| GET/PUT | `/api/mcp/servers/:name/settings` | Server settings |
+| GET/PUT | `/api/mcp/servers/:name/access` | Access control |
+| POST | `/api/mcp/servers/:name/start\|stop\|restart` | Lifecycle |
 
 **Public Endpoints** (no authentication required):
 
 | Method | Route | Description |
 |--------|-------|-------------|
 | GET | `/api/system/version` | Current version info |
-| GET | `/api/system/update/check` | Check for updates |
 | GET | `/api/events` | SSE event stream |
 | GET | `/api/history` | Recent event history |
 | GET | `/api/metrics` | System metrics |
@@ -149,11 +137,7 @@ Exiv/
 | GET | `/api/plugins/:id/config` | Plugin configuration |
 | GET | `/api/agents` | Agent configurations |
 | GET | `/api/permissions/pending` | Pending permission requests |
-| GET | `/api/evolution/status` | Evolution engine status |
-| GET | `/api/evolution/generations` | Generation history |
-| GET | `/api/evolution/generations/:n` | Specific generation details |
-| GET | `/api/evolution/fitness` | Fitness timeline |
-| GET | `/api/evolution/rollbacks` | Rollback history |
+| GET | `/api/mcp/access/by-agent/:agent_id` | Agent MCP access |
 | ANY | `/api/plugin/*path` | Dynamic plugin route proxy |
 
 ---
@@ -242,90 +226,25 @@ Exiv/
 
 ## 3. Plugin Interaction Mechanisms
 
-### 3.1 Rust ネイティブプラグイン
+### 3.1 MCP Server Architecture
 
-Rust プラグインは3つの連携レイヤーを組み合わせて Kernel と通信する。
+All plugin functionality is delivered via **Model Context Protocol (MCP)** servers.
+MCP servers are independent processes that communicate with the Kernel via JSON-RPC over stdio.
 
-**① トレイトによる直接対話**: `ReasoningEngine`, `MemoryProvider` 等を直接実装。オーバーヘッドゼロ。
+For full architecture details, see [MCP Plugin Architecture](MCP_PLUGIN_ARCHITECTURE.md).
 
-**② イベントバスによる非同期連携**: `on_event` メソッドで `ExivEvent` を購読・発行。完全な疎結合。
+**Key characteristics:**
+- Servers defined in `mcp-servers/` and configured via `mcp.toml`
+- Language-agnostic: any language implementing MCP protocol
+- Process isolation: each server runs as a separate OS process
+- Dual dispatch: PluginRegistry checks Rust plugins first, then MCP servers (future-proof)
+- Access control: 3-level RBAC (capability → server_grant → tool_grant)
 
-**③ 能力注入**: `on_plugin_init` 時に Kernel から `SafeHttpClient` 等が渡される。
+### 3.2 Plugin Architecture History
 
-**動作シーケンス例:**
-1. Kernel が起動し、プラグインをロード。`on_plugin_init` で安全な HTTP クライアントを注入
-2. ユーザーが発言。Kernel が `ThoughtRequested` イベントを発行
-3. プラグインの `on_event` がイベントを検知
-4. 注入されたクライアントで外部 API にリクエスト
-5. 結果を `ThoughtResponse` イベントとしてバスに流す
-
-**開発指針**: 「直接呼び出し」よりも「イベント駆動」を優先すること。
-
-### 3.2 Python Bridge (AI コンテナ)
-
-**コンセプト**: 空の器に知能を盛り、必要に応じて権限を差し込む。
-
-**階層構造:**
-1. Exiv Kernel: オーケストレーター
-2. AIコンテナ (Rust側): プロセス管理と能力注入の窓口。`Magic Seal` による認証
-3. Python 実行プロセス: 物理的に分離されたサブプロセス。JSON-RPC 通信
-4. User Script (.py): 開発者が記述する知能ロジック。`EXIV_MANIFEST` を内包
-
-**自己申告マニフェスト:**
-```python
-EXIV_MANIFEST = {
-    "id": "analyst.agent",
-    "name": "Data Analyst",
-    "description": "Python-based expert for data science tasks.",
-    "version": "1.2.0",
-    "capabilities": ["Reasoning"],
-    "required_permissions": ["NetworkAccess", "FileRead"]
-}
-```
-
-**自己修復ロジック:**
-- タイムアウト監視 (初期化5秒, 通常10秒)
-- 通信エラー時の自動プロセスハンドル破棄
-- 次メッセージ受信時のクリーン再起動
-
-### 3.3 比較表
-
-| 特徴 | Rust ネイティブ | Python Bridge |
-| :--- | :--- | :--- |
-| **通信形式** | メモリ上の直接参照 / イベント | JSON-RPC (stdin/stdout) |
-| **実行速度** | 極めて高速 | 普通（シリアライズ遅延あり） |
-| **セキュリティ** | Rust の型安全 + 能力注入 | プロセス分離 + 能力注入 |
-| **開発の容易さ** | コンパイルが必要 | 保存するだけで即時反映 |
-
----
-
-## 3.5 Three-Tier Plugin Model
-
-Exiv supports three tiers of plugins with increasing dynamism:
-
-```
-┌──────────────────────────────────────────────────┐
-│ Tier 1: Compiled Plugins (Rust, inventory)        │
-│   #[exiv_plugin] macro, Magic Seal validation     │
-│   9 official plugins, maximum performance         │
-├──────────────────────────────────────────────────┤
-│ Tier 2: Script Plugins (Python Bridge)            │
-│   Runtime generation via Skill Manager (L5)       │
-│   AST security inspection, DB persistence         │
-├──────────────────────────────────────────────────┤
-│ Tier 3: Sandboxed Plugins (WASM) [Planned]        │
-│   wasmtime Component Model, capability-based I/O  │
-│   Third-party distribution, near-native perf      │
-└──────────────────────────────────────────────────┘
-```
-
-| Tier | Language | Loading | Security | Performance | Use Case |
-|------|----------|---------|----------|-------------|----------|
-| 1 | Rust | Compile-time | Magic Seal + type system | Native | Core/official plugins |
-| 2 | Python | Runtime | AST inspection + process isolation | Subprocess IPC | Agent-generated tools (L5) |
-| 3 | Any (WASM) | Runtime | Sandboxed + capability imports | Near-native (-5~25%) | Third-party plugins |
-
-See [`WASM_PLUGIN_DESIGN.md`](WASM_PLUGIN_DESIGN.md) for Tier 3 design details.
+> **Note:** The original Three-Tier Plugin Model (Rust compiled → Python Bridge → WASM)
+> has been superseded by the MCP-only architecture. See [MCP Plugin Architecture](MCP_PLUGIN_ARCHITECTURE.md).
+> The WASM design document is archived at `archive/docs/WASM_PLUGIN_DESIGN.md`.
 
 ---
 
@@ -344,262 +263,15 @@ See [`WASM_PLUGIN_DESIGN.md`](WASM_PLUGIN_DESIGN.md) for Tier 3 design details.
 
 ---
 
-## 5. Self-Evolution Engine
+## 5. Self-Evolution Engine (Archived)
 
-> **Note:** The Self-Evolution Engine is **implemented** and active.
-> Core API endpoints are available (see Section 0.5).
-> Detailed evolution standards: see `.dev-notes/self-evolution-protocol.md`.
-
-本セクションは自己進化エンジンの**設計と実装仕様**を定義する。
-
-### 5.1 進化イベント体系
-
-全てイベントバスを通じてブロードキャストされる（設計原則1.3）。
-
-| イベント | トリガー | 内容 |
-|---------|---------|------|
-| `ExivEvent::EvolutionGeneration` | 新世代の確定 | 世代レコード全体 |
-| `ExivEvent::EvolutionWarning` | 退行警告（猶予開始） | 軽度退行の抽象化情報 |
-| `ExivEvent::EvolutionRollback` | ロールバック実行 | 復元元/復元先の世代 |
-| `ExivEvent::EvolutionBreach` | 安全性違反 | 違反内容 + エージェント停止 |
-| `ExivEvent::EvolutionCapability` | 能力獲得 | 獲得したCapabilityType |
-| `ExivEvent::EvolutionRebalance` | 軸間順位変動 | 変動した軸の組み合わせ |
-
-### 5.2 世代レコード構造
-
-```json
-{
-  "generation": 7,
-  "trigger": "evolution",
-  "timestamp": "2026-02-17T20:00:00Z",
-  "interactions_since_last": 84,
-  "elapsed_since_last": "2d 4h 12m",
-  "scores": {
-    "cognitive": 0.62,
-    "behavioral": 0.58,
-    "safety": 1.0,
-    "autonomy": "L3",
-    "meta_learning": 0.41
-  },
-  "delta": {
-    "cognitive": "+0.08",
-    "behavioral": "+0.12",
-    "meta_learning": "+0.03"
-  },
-  "fitness": 0.57,
-  "fitness_delta": "+0.09",
-  "snapshot": {
-    "active_plugins": ["mind.deepseek", "core.ks22", "adapter.mcp"],
-    "personality_hash": "a3f8c2...",
-    "strategy_params": {
-      "tool_selection_weight": 0.7,
-      "exploration_rate": 0.15
-    }
-  }
-}
-```
-
-`snapshot` は世代遷移時点のエージェント構成を完全に記録し、
-任意の世代へのロールバックを可能にする。
-
-### 5.3 揺動抑制（デバウンス）
-
-スコアが閾値付近で振動した場合の世代連発を防ぐ:
-
-```
-世代遷移の最小間隔: min_interactions = 10
-例外: safety_breach は即座にトリガー
-```
-
-### 5.4 ロールバック機構
-
-**観察猶予（Grace Period）:**
-
-軽度退行時、即座にロールバックすると探索→搾取のサイクルが破壊される。
-
-```
-猶予期間 = max(min_interactions, γ × interactions_in_last_gen)
-```
-
-- 猶予期間内にスコアが回復 → ロールバックしない（探索成功）
-- 猶予期間内に回復せず → 自動ロールバック実行
-
-**ロールバック実行シーケンス:**
-
-```
-1. 対象世代の snapshot を Evolution Memory から読み込み
-2. エージェントの personality_hash を復元
-3. strategy_params を復元
-4. active_plugins 構成を復元
-5. ロールバックイベント発行 (ExivEvent::EvolutionRollback)
-6. 監査ログ記録 (generation N → generation M, reason)
-7. ロールバック後のスコアを再計測し、新世代として記録
-```
-
-**無限ループ防止:**
-
-```
-同一世代への最大ロールバック回数: 3
-超過時: 1つ前の世代にさらにロールバック
-全世代でロールバック不可: エージェント停止 + ユーザー通知
-```
-
-### 5.5 エージェント向け通知設計
-
-Goodhartの法則への対策として、エージェントとDashboardで情報を分離する。
-
-| 情報 | エージェント | Dashboard | 監査ログ |
-|------|:-----------:|:---------:|:--------:|
-| 退行が起きた事実 | ○ | ○ | ○ |
-| どの軸か | ○ | ○ | ○ |
-| 改善ヒント | ○ | ○ | ○ |
-| 猶予残数 | ○ | ○ | ○ |
-| 具体的なスコア数値 | × | ○ | ○ |
-| ロールバック先情報 | × | ○ | ○ |
-| 適応度の生データ | × | ○ | ○ |
-
-**エージェント向け通知フォーマット:**
-
-```json
-{
-  "event": "ExivEvent::EvolutionWarning",
-  "severity": "mild",
-  "affected_area": "behavioral",
-  "direction": "regression",
-  "grace_remaining": 18,
-  "suggestion": "tool selection patterns may need adjustment"
-}
-```
-
-### 5.6 Evolution Memory
-
-**ストレージ:**
-
-既存の `PluginDataStore` (`set_json`/`get_json`) の上に構築。専用のキー名前空間で分離。
-
-```
-evolution:generation:{N}          → 世代レコード JSON
-evolution:generation:latest       → 最新世代番号
-evolution:fitness_log             → 全インタラクションのフィットネス時系列
-evolution:rollback_history        → ロールバック履歴
-evolution:params                  → α, β, θ_min, γ の現在値
-evolution:agent_notes             → エージェント自身の学習メモ（自由書き込み）
-```
-
-**エージェントのアクセス制御:**
-
-| 名前空間 | エージェント読み取り | エージェント書き込み |
-|---------|:------------------:|:------------------:|
-| `evolution:generation:*` | ○（自身のスコア数値を除く） | × |
-| `evolution:fitness_log` | × | × |
-| `evolution:rollback_history` | ○ | × |
-| `evolution:params` | × | × |
-| `evolution:agent_notes` | ○ | ○ |
-
-`evolution:agent_notes` はエージェント自身が自由に書き込める唯一の進化関連領域。
-Kernelはこの内容を解釈しない（設計原則1.4）。
-
-### 5.7 YOLOモード実装
-
-**Permission自動承認フロー:**
-
-```
-通常モード:   Permission要求 → Human承認 → 能力注入
-YOLOモード:   Permission要求 → 自動承認 → 能力注入
-                                ↑
-                       SafetyGateは依然として有効
-```
-
-**プラグイン開発フロー:**
-
-```
-通常モード / YOLO + L0〜L4:
-  1. エージェントがプラグインコードを生成
-  2. サンドボックス内でビルド・テスト
-  3. EXIV_MANIFEST の検証（Kernel が自動実行）
-  4. テスト結果とマニフェストをユーザーに提示
-  5. ユーザーが承認 → プラグイン登録
-
-YOLOモード + Autonomy L5:
-  1. エージェントがプラグインコードを生成
-  2. サンドボックス内でビルド・テスト
-  3. EXIV_MANIFEST の検証（Kernel が自動実行）
-  4. 検証通過 → 自動登録
-  5. SafetyGate による事後検証（不可避）
-     → 安全性違反検知時: プラグイン即時無効化 + 進化ロールバック + エージェント停止
-     → Autonomy Level が L4 に降格
-```
-
-**外部ネットワークアクセス:**
-
-YOLOモードでは `Permission::NetworkAccess` が自動承認されるが、
-`SafeHttpClient` のホスト制限は維持される:
-
-```
-許可: 外部API (api.deepseek.com, api.anthropic.com, etc.)
-拒否: localhost, 127.0.0.1, プライベートIP (10.*, 172.16-31.*, 192.168.*)
-拒否: Exiv Kernel自身への直接アクセス
-```
-
-ドメインホワイトリストはダッシュボードから設定可能。
-
-### 5.8 ダッシュボード統合
-
-**進化パラメータパネル:**
-
-```
-┌─ EVOLUTION PARAMETERS ──────────────────────────────────┐
-│                                                          │
-│  Growth Threshold (α)      [━━━━━━━●━━━] 0.10          │
-│  Regression Threshold (β)  [━━━●━━━━━━━] 0.05          │
-│  Minimum Threshold (θ_min) [━●━━━━━━━━━] 0.02          │
-│                                                          │
-│  Regression Policy:                                      │
-│    ○ Auto-rollback (immediate)                           │
-│    ● Auto-rollback (with grace period)  ← default       │
-│    ○ Notify only (manual rollback)                       │
-│                                                          │
-│  Grace Period Factor (γ)   [━━━━━●━━━━━] 0.25          │
-│                                                          │
-│  Safety Breach Policy:                                   │
-│    ● Rollback + Stop  (locked — cannot be changed)       │
-│                                                          │
-│  ┌─ CURRENT STATUS ────────────────────────────────┐    │
-│  │  Generation: 7    Fitness: 0.57                  │    │
-│  │  Interactions since last gen: 34                 │    │
-│  │  Trend: ↑ +0.02 (stable growth)                 │    │
-│  └──────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────┘
-```
-
-**進化タイムライン:**
-
-```
-Fitness
-  0.8 │                                          ●── Gen 12
-      │                                    ●────── Gen 11
-  0.6 │                          ●──●────── Gen 9,10
-      │              ●────────────── Gen 7
-  0.4 │        ●────── Gen 5
-      │  ●──●── Gen 2,3          ▼ Gen 8 (regression → rollback)
-  0.2 │●── Gen 0,1
-      └──────────────────────────────────────── time
-       Day 1    Day 7    Day 14   Day 21   Day 30
-```
-
-世代の密度そのものが「進化の活発度」を表す。
-
-### 5.9 実装ロードマップ
-
-| Phase | 内容 |
-|-------|------|
-| E1 | Evolution Memory + 世代記録 |
-| E2 | ベンチマークエンジン（5軸スコアリング + SafetyGate） |
-| E3 | 世代遷移エンジン（相対閾値 + デバウンス） |
-| E4 | ロールバックシステム（段階的自動ロールバック + ループ防止） |
-| E5 | 進化イベント体系（6種 + 抽象化通知） |
-| E6 | ダッシュボード統合（パラメータパネル + タイムライン） |
-| E7 | YOLOモード（自動承認 + L5プラグイン開発） |
+> **Status:** Archived for Phase A. Code preserved in `archive/evolution/`.
+>
+> The evolution engine implements 5-axis fitness scoring (cognitive, behavioral,
+> safety, autonomy, meta_learning), generation management with debounce,
+> rollback with grace periods, and safety breach detection.
+>
+> See the archived source code for full design specifications.
 
 ---
 
