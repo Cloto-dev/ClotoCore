@@ -1,6 +1,6 @@
 <div align="center">
 
-# Exiv
+# ClotoCore
 
 ### Build Your Own AI Partner
 
@@ -16,11 +16,11 @@ Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
 ---
 
-## What is Exiv?
+## What is ClotoCore?
 
-Exiv is a platform for building advanced AI agents — not chatbots, not assistants, but **AI partners** with personality, capabilities, and memory.
+ClotoCore is a platform for building advanced AI agents — not chatbots, not assistants, but **AI partners** with personality, capabilities, and memory.
 
-Inspired by projects like [Neuro-Sama](https://www.twitch.tv/vedal987), Exiv lets anyone construct sophisticated AI systems through a plugin architecture and GUI dashboard, without writing a single line of code.
+Inspired by projects like [Neuro-Sama](https://www.twitch.tv/vedal987), ClotoCore lets anyone construct sophisticated AI systems through a plugin architecture and GUI dashboard, without writing a single line of code.
 
 **AI Container** = Plugin Set + Personality Definition + Capability Set
 
@@ -33,9 +33,9 @@ Example: "VTuber AI" Container          Example: "Research Assistant" Container
 └── avatar: Live2D/VRM plugin
 ```
 
-## Why Exiv?
+## Why ClotoCore?
 
-|  | Exiv | Chat-based AI frameworks |
+|  | ClotoCore | Chat-based AI frameworks |
 |--|------|--------------------------|
 | **Language** | Rust — memory safe, fast, low resource | TypeScript / Python |
 | **Security** | Sandboxed plugins, permission isolation, host whitelisting, DNS rebinding protection | Broad local permissions |
@@ -83,10 +83,10 @@ graph TB
 ## Quick Start
 
 ```bash
-git clone https://github.com/Exiv-ai/Exiv.git
-cd Exiv
+git clone https://github.com/Cloto-dev/ClotoCore.git
+cd ClotoCore
 cargo build --release
-cargo run --package exiv_core
+cargo run --package cloto_core
 ```
 
 The dashboard opens at **http://localhost:8081**.
@@ -125,7 +125,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `8081` | HTTP server port |
-| `EXIV_API_KEY` | (none) | Admin API key (required in release builds) |
+| `CLOTO_API_KEY` | (none) | Admin API key (required in release builds) |
 | `DEEPSEEK_API_KEY` | (none) | DeepSeek API key |
 | `CEREBRAS_API_KEY` | (none) | Cerebras API key |
 | `BIND_ADDRESS` | `127.0.0.1` | Server bind address |
@@ -139,13 +139,13 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `8081` | HTTP server port |
-| `DATABASE_URL` | `sqlite:{exe_dir}/data/exiv_memories.db` | SQLite database path |
-| `EXIV_API_KEY` | (none) | Admin API key (required in release builds) |
+| `DATABASE_URL` | `sqlite:{exe_dir}/data/cloto_memories.db` | SQLite database path |
+| `CLOTO_API_KEY` | (none) | Admin API key (required in release builds) |
 | `DEEPSEEK_API_KEY` | (none) | DeepSeek API key |
 | `CEREBRAS_API_KEY` | (none) | Cerebras API key |
 | `CONSENSUS_ENGINES` | `mind.deepseek,mind.cerebras` | Engine IDs for consensus mode |
-| `DEFAULT_AGENT_ID` | `agent.exiv_default` | Default agent for `/api/chat` |
-| `EXIV_SKIP_ICON_EMBED` | (none) | Set to `1` to skip icon embedding during dev builds |
+| `DEFAULT_AGENT_ID` | `agent.cloto_default` | Default agent for `/api/chat` |
+| `CLOTO_SKIP_ICON_EMBED` | (none) | Set to `1` to skip icon embedding during dev builds |
 | `RUST_LOG` | `info` | Log level filter |
 | `MAX_EVENT_DEPTH` | `10` | Maximum event cascading depth |
 | `PLUGIN_EVENT_TIMEOUT_SECS` | `30` | Plugin event handler timeout |
@@ -155,9 +155,9 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `MEMORY_CONTEXT_LIMIT` | `10` | Maximum memory entries returned per recall |
 | `EVENT_HISTORY_SIZE` | `1000` | Maximum events kept in memory |
 | `EVENT_RETENTION_HOURS` | `24` | Hours to retain events before cleanup (1-720) |
-| `EXIV_MAX_AGENTIC_ITERATIONS` | `16` | Maximum tool-use loop iterations (1-64) |
-| `EXIV_MCP_CONFIG` | (none) | Path to mcp.toml configuration file |
-| `EXIV_TOOL_TIMEOUT_SECS` | `30` | Tool execution timeout in seconds (1-300) |
+| `CLOTO_MAX_AGENTIC_ITERATIONS` | `16` | Maximum tool-use loop iterations (1-64) |
+| `CLOTO_MCP_CONFIG` | (none) | Path to mcp.toml configuration file |
+| `CLOTO_TOOL_TIMEOUT_SECS` | `30` | Tool execution timeout in seconds (1-300) |
 | `HEARTBEAT_INTERVAL_SECS` | `30` | Agent heartbeat ping interval |
 
 </details>
@@ -214,7 +214,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 
 ```bash
 cargo test                              # all tests
-cargo test --package exiv_core          # kernel only
+cargo test --package cloto_core          # kernel only
 cargo test --test '*'                   # integration tests only
 ```
 
@@ -240,14 +240,14 @@ See [Architecture](docs/ARCHITECTURE.md) for the full security model.
 
 **Business Source License 1.1** — converts to **MIT** on 2028-02-14.
 
-You can freely use Exiv for plugin development, internal tools, consulting, education, and small-scale commercial projects. Large-scale commercial deployment (>$100k revenue, >1,000 users, >50 employees, or SaaS) requires prior approval. See [LICENSE](LICENSE) for the full terms.
+You can freely use ClotoCore for plugin development, internal tools, consulting, education, and small-scale commercial projects. Large-scale commercial deployment (>$100k revenue, >1,000 users, >50 employees, or SaaS) requires prior approval. See [LICENSE](LICENSE) for the full terms.
 
 ## Community
 
-- [GitHub Issues](https://github.com/Exiv-ai/Exiv/issues)
-- [GitHub Discussions](https://github.com/Exiv-ai/Exiv/discussions)
-- [X (Twitter)](https://x.com/exiv_ai)
+- [GitHub Issues](https://github.com/Cloto-dev/ClotoCore/issues)
+- [GitHub Discussions](https://github.com/Cloto-dev/ClotoCore/discussions)
+- [X (Twitter)](https://x.com/cloto_dev)
 
 ## Note
 
-Built by a solo developer from Japan. Most of the code and documentation in this project was written with the assistance of AI. If you find any issues, please open an [issue](https://github.com/Exiv-ai/Exiv/issues).
+Built by a solo developer from Japan. Most of the code and documentation in this project was written with the assistance of AI. If you find any issues, please open an [issue](https://github.com/Cloto-dev/ClotoCore/issues).

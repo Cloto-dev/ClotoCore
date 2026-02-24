@@ -14,7 +14,7 @@
 
 ## 1. Motivation
 
-Exiv's plugin system currently operates in two tiers:
+ClotoCore's plugin system currently operates in two tiers:
 
 - **Tier 1 (Compiled):** Rust plugins discovered at compile-time via `inventory`. Maximum performance, zero runtime overhead, but requires recompilation for changes.
 - **Tier 2 (Script):** Python plugins loaded at runtime via the Python Bridge. Dynamic generation and registration (L5), AST-based security, subprocess isolation.
@@ -45,7 +45,7 @@ Exiv's plugin system currently operates in two tiers:
 ┌────────────────────────────────────────────────────────┐
 │ Tier 1: Compiled Plugins (Rust, inventory)              │
 │   Performance-critical, official plugins                │
-│   #[exiv_plugin] macro, Magic Seal validation           │
+│   #[cloto_plugin] macro, Magic Seal validation           │
 ├────────────────────────────────────────────────────────┤
 │ Tier 2: Script Plugins (Python Bridge)                  │
 │   Runtime generation (L5), AST security inspection      │
@@ -66,7 +66,7 @@ Exiv's plugin system currently operates in two tiers:
 WebAssembly Interface Types (WIT) define the plugin contract:
 
 ```wit
-package exiv:plugin@0.1.0;
+package cloto:plugin@0.1.0;
 
 interface types {
     record plugin-manifest {
@@ -115,10 +115,10 @@ interface reasoning {
     think: func(agent-id: string, message: string, context: string) -> result<string, string>;
 }
 
-world exiv-plugin {
-    import exiv:host/storage;
-    import exiv:host/network;
-    import exiv:host/events;
+world cloto-plugin {
+    import cloto:host/storage;
+    import cloto:host/network;
+    import cloto:host/events;
 
     export plugin;
     export tool;

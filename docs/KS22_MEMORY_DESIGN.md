@@ -14,12 +14,12 @@
 | Version | Project | Storage | Search | Memory Extraction | Status |
 |---------|---------|---------|--------|-------------------|--------|
 | KS2.0/2.1 | ai_karin | SQLite (WAL, FTS5, vector) | FTS5 + cosine similarity + semantic cache | LLM-powered (DeepSeek Reasoner): profile extraction, episode archival | Reference implementation |
-| KS2.2 | Exiv | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Current (Rust plugin) |
-| KS2.2 MCP | Exiv | Dedicated SQLite (`data/ks22_memory.db`) | FTS5 + vector (pluggable) | Planned (Phase 2) | **This design** |
+| KS2.2 | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Current (Rust plugin) |
+| KS2.2 MCP | ClotoCore | Dedicated SQLite (`data/ks22_memory.db`) | FTS5 + vector (pluggable) | Planned (Phase 2) | **This design** |
 
 ### 1.2 KS2.1 Capabilities Lost in KS2.2
 
-KS2.2 was a deliberate simplification of KS2.1 for the initial Exiv port. The following
+KS2.2 was a deliberate simplification of KS2.1 for the initial ClotoCore port. The following
 capabilities were dropped:
 
 | Capability | KS2.1 | KS2.2 | Impact |
@@ -111,7 +111,7 @@ Store a message in agent memory.
       },
       "message": {
         "type": "object",
-        "description": "ExivMessage to store (id, content, source, timestamp, metadata)",
+        "description": "ClotoMessage to store (id, content, source, timestamp, metadata)",
         "properties": {
           "id": { "type": "string" },
           "content": { "type": "string" },
@@ -269,7 +269,7 @@ Summarize and archive a conversation episode.
 
 ## 4. Database Schema
 
-**File:** `data/ks22_memory.db` (independent from kernel's `exiv_memories.db`)
+**File:** `data/ks22_memory.db` (independent from kernel's `cloto_memories.db`)
 
 ### 4.1 memories
 
@@ -444,7 +444,7 @@ EMBEDDING_API_URL=https://...      # for API providers only
 [[servers]]
 id = "core.embedding"
 command = "python"
-args = ["-m", "exiv_mcp_embedding"]
+args = ["-m", "cloto_mcp_embedding"]
 transport = "stdio"
 auto_restart = true
 env = { EMBEDDING_PROVIDER = "onnx_miniml", EMBEDDING_HTTP_PORT = "8401" }
@@ -452,7 +452,7 @@ env = { EMBEDDING_PROVIDER = "onnx_miniml", EMBEDDING_HTTP_PORT = "8401" }
 [[servers]]
 id = "core.ks22"
 command = "python"
-args = ["-m", "exiv_mcp_ks22"]
+args = ["-m", "cloto_mcp_ks22"]
 transport = "stdio"
 auto_restart = true
 env = {
@@ -510,7 +510,7 @@ let context = if let Some(ref plugin) = memory_plugin {
     plugin.as_memory().unwrap().recall(...).await?
 } else if let Some(ref mcp) = mcp_memory {
     let result = mcp.call_tool("core.ks22", "recall", args).await?;
-    parse_recall_result(&result)?  // JSON → Vec<ExivMessage>
+    parse_recall_result(&result)?  // JSON → Vec<ClotoMessage>
 } else {
     vec![]
 };
@@ -541,26 +541,26 @@ pub async fn find_memory_server(&self) -> Option<String> {
 
 ### 8.1 From KS2.2 (plugin_data)
 
-Existing KS2.2 data lives in `exiv_memories.db` → `plugin_data` table:
+Existing KS2.2 data lives in `cloto_memories.db` → `plugin_data` table:
 
 ```
 plugin_id = 'core.ks22'
 key = 'mem:{agent_id}:{timestamp}:{hash}'
-value = JSON(ExivMessage)
+value = JSON(ClotoMessage)
 ```
 
 Migration script (`mcp-servers/ks22/migrate.py`):
 
-1. Connect to source: `data/exiv_memories.db` → `plugin_data WHERE plugin_id='core.ks22'`
+1. Connect to source: `data/cloto_memories.db` → `plugin_data WHERE plugin_id='core.ks22'`
 2. For each row, parse `key` to extract `agent_id` and `timestamp`
-3. Deserialize `value` as ExivMessage JSON
+3. Deserialize `value` as ClotoMessage JSON
 4. Insert into destination: `data/ks22_memory.db` → `memories` table
 5. Optionally compute embeddings for migrated memories
 
 ### 8.2 From KS2.1 (ai_karin)
 
 Not automated. KS2.1 used Discord-specific schemas (user_id, guild_id) that don't
-map to Exiv's agent_id model. Manual migration may be performed if needed.
+map to ClotoCore's agent_id model. Manual migration may be performed if needed.
 
 ---
 

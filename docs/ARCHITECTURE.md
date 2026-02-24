@@ -1,6 +1,6 @@
-# Exiv Architecture
+# ClotoCore Architecture
 
-Exivは、高度な柔軟性、安全性、および拡張性を備えたAIエージェント・プラットフォームです。本ドキュメントは設計原則、セキュリティフレームワーク、プラグイン通信機構、およびサブプロジェクトの仕様を統合的に定義します。
+ClotoCoreは、高度な柔軟性、安全性、および拡張性を備えたAIエージェント・プラットフォームです。本ドキュメントは設計原則、セキュリティフレームワーク、プラグイン通信機構、およびサブプロジェクトの仕様を統合的に定義します。
 
 ---
 
@@ -77,7 +77,7 @@ Client Request
 ### 0.4 Crate Structure
 
 ```
-Exiv/
+ClotoCore/
 ├── crates/
 │   ├── core/          # Kernel: HTTP server, handlers, event loop, database
 │   │   └── src/
@@ -159,7 +159,7 @@ Exiv/
 
 ### 1.3 Event-First Communication (イベントバス至上主義)
 **「直接話さず、広場に投げろ」**
-- **設計指針**: プラグイン間、あるいはKernelとプラグイン間の連携は、可能な限りイベントバス（`ExivEvent`）を介して非同期・疎結合に行う。
+- **設計指針**: プラグイン間、あるいはKernelとプラグイン間の連携は、可能な限りイベントバス（`ClotoEvent`）を介して非同期・疎結合に行う。
 - **目標**: AプラグインがBプラグインの存在を知らなくても、特定のイベントに反応するだけで機能が統合される状態を作る。
 
 ### 1.4 Data Sovereignty (データの主権はプラグインに)
@@ -206,7 +206,7 @@ Exiv/
 ### 2.2 動的権限昇格 (Human-in-the-loop)
 
 1. AI コンテナが現在の権限では実行不可能な操作を検知
-2. `ExivEvent::PermissionRequested` を発行
+2. `ClotoEvent::PermissionRequested` を発行
 3. Dashboard の Security Guard UI がユーザーに承認を要求
 4. ユーザーが承認
 5. Kernel が DB を更新し、実行中のコンテナへライブで能力を注入
@@ -277,6 +277,6 @@ For full architecture details, see [MCP Plugin Architecture](MCP_PLUGIN_ARCHITEC
 
 ## 運用
 
-この原則群は Exiv における「正解」を定義するものです。コード監査においては以下を評価基準とします:
+この原則群は ClotoCore における「正解」を定義するものです。コード監査においては以下を評価基準とします:
 1. **整合性**: 各コンポーネントが上記原則に則っているか
 2. **持続可能性**: SDKやマクロにより原則への準拠が「容易」な状態に保たれているか

@@ -1,6 +1,6 @@
-# Contributing to Exiv
+# Contributing to ClotoCore
 
-Thank you for your interest in contributing to Exiv.
+Thank you for your interest in contributing to ClotoCore.
 
 ## Getting Started
 
@@ -13,8 +13,8 @@ Thank you for your interest in contributing to Exiv.
 ## Development Setup
 
 ```bash
-git clone https://github.com/Exiv-ai/Exiv.git
-cd Exiv
+git clone https://github.com/Cloto-dev/ClotoCore.git
+cd ClotoCore
 cp .env.example .env
 cargo build
 cargo test
@@ -23,7 +23,7 @@ cargo test
 For faster development builds (skips icon embedding):
 
 ```bash
-export EXIV_SKIP_ICON_EMBED=1
+export CLOTO_SKIP_ICON_EMBED=1
 cargo build
 ```
 
@@ -43,11 +43,11 @@ cargo build
 
 ## Reporting Issues
 
-Use [GitHub Issues](https://github.com/Exiv-ai/Exiv/issues) to report bugs or request features. Include:
+Use [GitHub Issues](https://github.com/Cloto-dev/ClotoCore/issues) to report bugs or request features. Include:
 
 - Steps to reproduce (for bugs)
 - Expected vs actual behavior
-- Exiv version and OS
+- ClotoCore version and OS
 
 ## License
 

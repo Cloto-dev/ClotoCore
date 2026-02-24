@@ -10,7 +10,7 @@
 
 ### 1.1 現状の課題
 
-Exiv のプラグインシステムは当初 Three-Tier Model として設計された:
+ClotoCore のプラグインシステムは当初 Three-Tier Model として設計された:
 
 | Tier | 状態 | 保守コスト |
 |------|------|-----------|
@@ -21,7 +21,7 @@ Exiv のプラグインシステムは当初 Three-Tier Model として設計さ
 個人開発において、Rust Plugin SDK の保守負荷が大きい:
 
 - `crates/shared/` — 5 つのプラグイントレイト定義
-- `crates/macros/` — `#[exiv_plugin]` 手続きマクロ
+- `crates/macros/` — `#[cloto_plugin]` 手続きマクロ
 - `plugins/` — 6 つの Rust プラグイン実装
 - `managers/plugin.rs` — PluginManager (ファクトリ, ブートストラップ, 権限注入)
 - `managers/registry.rs` — PluginRegistry (ディスパッチ, タイムアウト, セマフォ)
@@ -124,9 +124,9 @@ Kernel Event (e.g., ConfigUpdated)
   │
   └─ MCP Client Manager → 全 MCP Server に Notification 送信
        │
-       ├─ mind.deepseek:  notifications/exiv.event { type: "ConfigUpdated", ... }
-       ├─ core.ks22:      notifications/exiv.event { type: "ConfigUpdated", ... }
-       └─ tool.terminal:  notifications/exiv.event { type: "ConfigUpdated", ... }
+       ├─ mind.deepseek:  notifications/cloto.event { type: "ConfigUpdated", ... }
+       ├─ core.ks22:      notifications/cloto.event { type: "ConfigUpdated", ... }
+       └─ tool.terminal:  notifications/cloto.event { type: "ConfigUpdated", ... }
 ```
 
 ---
@@ -135,28 +135,28 @@ Kernel Event (e.g., ConfigUpdated)
 
 ### 3.1 標準 MCP 機能の活用
 
-| MCP Primitive | Exiv での用途 |
+| MCP Primitive | ClotoCore での用途 |
 |---------------|--------------|
 | **Tools** | プラグイン機能の主要表現 (think, store, recall, execute_command) |
 | **Resources** | 読み取り専用データ公開 (metrics, status) |
 | **Prompts** | テンプレートプロンプト (将来拡張) |
 | **Notifications** | Kernel → Server イベント転送 |
 
-### 3.2 Exiv 固有拡張 (Custom Methods)
+### 3.2 ClotoCore 固有拡張 (Custom Methods)
 
-MCP 標準を最大限活用しつつ、以下の Exiv 固有メソッドを定義する:
+MCP 標準を最大限活用しつつ、以下の ClotoCore 固有メソッドを定義する:
 
 | Method | Direction | Purpose |
 |--------|-----------|---------|
-| `exiv/handshake` | Client → Server | マニフェスト交換 + Magic Seal 検証 |
-| `exiv/shutdown` | Client → Server | Graceful shutdown 要求 |
+| `cloto/handshake` | Client → Server | マニフェスト交換 + Magic Seal 検証 |
+| `cloto/shutdown` | Client → Server | Graceful shutdown 要求 |
 
 **Notification (Server → Client):**
 
 | Notification | Purpose |
 |-------------|---------|
-| `notifications/exiv.event` | Kernel イベントの転送 |
-| `notifications/exiv.config_updated` | プラグイン設定変更の通知 |
+| `notifications/cloto.event` | Kernel イベントの転送 |
+| `notifications/cloto.config_updated` | プラグイン設定変更の通知 |
 
 ### 3.3 従来トレイトの MCP Tool マッピング
 
@@ -256,7 +256,7 @@ MCP 標準を最大限活用しつつ、以下の Exiv 固有メソッドを定�
 
 ### 4.1 Manifest Structure
 
-各 MCP Server は `exiv/handshake` で以下のマニフェストを返す:
+各 MCP Server は `cloto/handshake` で以下のマニフェストを返す:
 
 ```json
 {
@@ -300,7 +300,7 @@ magic_seal: 0x56455253  // ASCII: "VERS"
 ### 5.2 新方式: HMAC 署名マニフェスト
 
 ```
-MCP Server 起動 → Kernel が exiv/handshake を呼び出し
+MCP Server 起動 → Kernel が cloto/handshake を呼び出し
                 → Server がマニフェスト + HMAC 署名を返却
                 → Kernel が HMAC を検証
                 → 検証成功 → 接続確立
@@ -311,20 +311,20 @@ MCP Server 起動 → Kernel が exiv/handshake を呼び出し
 
 ```
 seal = HMAC-SHA256(
-  key  = EXIV_SDK_SECRET,
+  key  = CLOTO_SDK_SECRET,
   data = canonical_json(manifest without "seal" field)
 )
 ```
 
-**EXIV_SDK_SECRET:**
+**CLOTO_SDK_SECRET:**
 
-- Exiv MCP SDK パッケージに埋め込み
+- ClotoCore MCP SDK パッケージに埋め込み
 - 公式 SDK を使用したことの軽量証明
 - 暗号学的な改竄防止ではなく「信頼の表明」(従来の Magic Seal と同程度)
 
 ### 5.3 Unsigned Mode
 
-開発時は `EXIV_ALLOW_UNSIGNED=true` で署名検証をスキップ可能。
+開発時は `CLOTO_ALLOW_UNSIGNED=true` で署名検証をスキップ可能。
 本番環境ではデフォルトで署名必須。
 
 ---
@@ -337,7 +337,7 @@ seal = HMAC-SHA256(
 Agent (L5 Autonomy)
   │
   ├─ 1. MCP Server コード生成
-  │      Python + exiv-mcp-sdk を使用
+  │      Python + cloto-mcp-sdk を使用
   │      Tool 定義 + ビジネスロジック
   │
   ├─ 2. Kernel がコードを検証
@@ -390,14 +390,14 @@ Agent (L5 Autonomy)
 [[mcp.servers]]
 id = "mind.deepseek"
 command = "python"
-args = ["-m", "exiv_mcp_deepseek"]
+args = ["-m", "cloto_mcp_deepseek"]
 env = { DEEPSEEK_API_KEY = "${DEEPSEEK_API_KEY}" }
 transport = "stdio"
 auto_restart = true
 
 [[mcp.servers]]
 id = "tool.terminal"
-command = "exiv-mcp-terminal"
+command = "cloto-mcp-terminal"
 transport = "stdio"
 auto_restart = true
 ```
@@ -470,7 +470,7 @@ auto_restart = true
 1. `mind.deepseek` を MCP Server として再実装
 2. Chat Pipeline を MCP Tool `think` 呼び出しに変更
 3. `think_with_tools` の MCP Tool としての動作検証
-4. Config 変更通知 (exiv/config_updated) の実装
+4. Config 変更通知 (cloto/config_updated) の実装
 
 ### Phase 3: 残り全プラグイン移行
 
@@ -509,7 +509,7 @@ auto_restart = true
 
 ## 12. Future Considerations
 
-- **Exiv MCP SDK**: Python / Node / Rust 向けの公式 SDK パッケージ提供
+- **ClotoCore MCP SDK**: Python / Node / Rust 向けの公式 SDK パッケージ提供
 - **MCP Server マーケットプレイス**: コミュニティ製 MCP Server の配布基盤
 - **MCP Sampling**: MCP 仕様の Sampling 機能成熟後、Kernel 側の推論呼び出しを標準化
 - **サードパーティ対応**: OS レベルサンドボックスの導入 (seccomp / AppArmor)

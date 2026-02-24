@@ -8,11 +8,11 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Exiv, please report it responsibly.
+If you discover a security vulnerability in ClotoCore, please report it responsibly.
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Instead, send an email to **exiv.project@proton.me** with:
+Instead, send an email to **ClotoCore@proton.me** with:
 
 - A description of the vulnerability
 - Steps to reproduce it
@@ -23,7 +23,7 @@ We will acknowledge receipt within 48 hours and provide an initial assessment wi
 
 ## Security Model
 
-Exiv uses a defense-in-depth approach:
+ClotoCore uses a defense-in-depth approach:
 
 - **Plugin sandboxing**: Plugins run with minimal permissions by default. Elevated permissions require explicit admin approval through the human-in-the-loop system.
 - **API authentication**: Admin endpoints require an API key (`X-API-Key` header). Rate limiting (10 req/s per IP, burst 20) protects against abuse.

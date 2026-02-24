@@ -1,4 +1,4 @@
-# Exiv Maintainability Report
+# ClotoCore Maintainability Report
 
 保守性の包括的スキャン結果と改善アクションリストを記録したドキュメントです。
 開発の意思決定や技術的負債の管理に役立てるため、継続的に更新してください。
@@ -11,7 +11,7 @@
 ## 1. プロジェクト構造概要
 
 ```
-Exiv/
+ClotoCore/
 ├── crates/
 │   ├── core/        # カーネル・ハンドラー・DB・イベント・進化エンジン
 │   ├── shared/      # 共有型・トレイト

@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in Exiv
+about: Report a bug in ClotoCore
 title: ''
 labels: bug
 assignees: ''
@@ -18,6 +18,6 @@ What happened?
 What should have happened?
 
 **Environment**
-- Exiv version:
+- ClotoCore version:
 - OS:
 - Rust version:

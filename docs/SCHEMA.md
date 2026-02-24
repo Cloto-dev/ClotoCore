@@ -1,9 +1,9 @@
 # Database Schema
 
-Exiv uses SQLite for persistent storage. Schema is managed via sequential migrations
+ClotoCore uses SQLite for persistent storage. Schema is managed via sequential migrations
 in `crates/core/migrations/`.
 
-**Database path:** Configured via `DATABASE_URL` (default: `sqlite:{exe_dir}/data/exiv_memories.db`)
+**Database path:** Configured via `DATABASE_URL` (default: `sqlite:{exe_dir}/data/cloto_memories.db`)
 
 ---
 
@@ -35,7 +35,7 @@ Agent definitions with heartbeat-based status resolution.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
-| `id` | TEXT | PRIMARY KEY | Agent identifier (e.g. `agent.exiv_default`) |
+| `id` | TEXT | PRIMARY KEY | Agent identifier (e.g. `agent.cloto_default`) |
 | `name` | TEXT | NOT NULL | Display name |
 | `description` | TEXT | | Human-readable description |
 | `default_engine_id` | TEXT | NOT NULL | Default reasoning engine plugin ID |

@@ -1,6 +1,6 @@
-# Exiv Documentation
+# ClotoCore Documentation
 
-Documentation for Exiv design, development, and quality management.
+Documentation for ClotoCore design, development, and quality management.
 
 ## Quick Links
 
@@ -32,32 +32,32 @@ Documentation for Exiv design, development, and quality management.
 
 | Server | Location | Description |
 |--------|----------|-------------|
-| exiv-mcp-terminal | `mcp-servers/terminal/` | Terminal tool execution with sandbox security |
-| exiv-mcp-deepseek | `mcp-servers/deepseek/` | DeepSeek reasoning engine integration |
-| exiv-mcp-cerebras | `mcp-servers/cerebras/` | Cerebras fast inference engine |
-| exiv-mcp-ks22 | `mcp-servers/ks22/` | KS2.2 persistent memory with FTS5 + vector search |
-| exiv-mcp-embedding | `mcp-servers/embedding/` | Vector embedding generation (OpenAI API / local ONNX) |
+| cloto-mcp-terminal | `mcp-servers/terminal/` | Terminal tool execution with sandbox security |
+| cloto-mcp-deepseek | `mcp-servers/deepseek/` | DeepSeek reasoning engine integration |
+| cloto-mcp-cerebras | `mcp-servers/cerebras/` | Cerebras fast inference engine |
+| cloto-mcp-ks22 | `mcp-servers/ks22/` | KS2.2 persistent memory with FTS5 + vector search |
+| cloto-mcp-embedding | `mcp-servers/embedding/` | Vector embedding generation (OpenAI API / local ONNX) |
 
 ## Getting Started
 
 ```bash
 # Clone repository
-git clone https://github.com/Exiv-ai/Exiv.git
-cd Exiv
+git clone https://github.com/Cloto-dev/ClotoCore.git
+cd ClotoCore
 
 # Build and run (development)
 cargo build
-cargo run --package exiv_core
+cargo run --package cloto_core
 
 # Build and run (release - optimized)
 cargo build --release
-cargo run --package exiv_core --release
+cargo run --package cloto_core --release
 
 # Run tests
 cargo test
 
 # Fast development builds (skip icon embedding)
-export EXIV_SKIP_ICON_EMBED=1
+export CLOTO_SKIP_ICON_EMBED=1
 cargo build
 ```
 

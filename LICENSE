@@ -4,10 +4,10 @@ Business Source License 1.1
 
 Parameters:
 
-Licensor:             Exiv Project
-Licensed Work:        Exiv (Existence x Virtual AI Platform)
+Licensor:             ClotoCore Project
+Licensed Work:        ClotoCore (Existence x Virtual AI Platform)
                       Version 0.1.0
-                      Repository: https://github.com/Exiv-ai/Exiv
+                      Repository: https://github.com/Cloto-dev/ClotoCore
 Additional Use Grant: See Section 3 below
 Change Date:          2028-02-14
 Change License:       MIT License
@@ -61,11 +61,11 @@ subject to the following provisions.
 
 The following uses are permitted without contacting the Licensor:
 
-  (a) Developing and selling plugins for the Exiv platform
-  (b) Building commercial applications using Exiv APIs
+  (a) Developing and selling plugins for the ClotoCore platform
+  (b) Building commercial applications using ClotoCore APIs
   (c) Internal use within your organization, regardless of size
   (d) Offering consulting, support, training, or integration services
-  (e) Embedding Exiv in products for small-scale commercial distribution
+  (e) Embedding ClotoCore in products for small-scale commercial distribution
   (f) Educational, academic, and research purposes
   (g) Personal projects and experimentation
 
@@ -76,15 +76,15 @@ The following uses are permitted without contacting the Licensor:
 approval before proceeding. Large-Scale Commercial Deployment means any of
 the following:
 
-  (a) Annual revenue from Exiv-based products or services exceeding
+  (a) Annual revenue from ClotoCore-based products or services exceeding
       $100,000 USD
   (b) Serving more than 1,000 active end users or customers
   (c) Deployment by organizations with more than 50 employees
-  (d) Offering Exiv as a managed service, hosted service, or SaaS platform
+  (d) Offering ClotoCore as a managed service, hosted service, or SaaS platform
 
 To request approval for Large-Scale Commercial Deployment, contact:
 
-  Email:  exiv.project@proton.me
+  Email:  ClotoCore@proton.me
   Method: Submit a request describing your intended use case, scale,
           and commercial model
 
@@ -99,8 +99,8 @@ mutually beneficial terms.
 The following uses are prohibited regardless of scale:
 
   (a) Creating a forked platform that directly competes with the official
-      Exiv ecosystem as an AI agent orchestration platform
-  (b) Rebranding Exiv as your own product without substantial differentiation
+      ClotoCore ecosystem as an AI agent orchestration platform
+  (b) Rebranding ClotoCore as your own product without substantial differentiation
   (c) Removing or obscuring copyright notices and license attributions
 
 ================================================================================

@@ -2,7 +2,7 @@
 
 > **Status:** Draft (2026-02-23)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md` Section 6, `ARCHITECTURE.md`, `SCHEMA.md`
-> **Supersedes:** Plugin Manager UI (`ExivPluginManager.tsx`, `AgentPluginWorkspace.tsx`, `PluginConfigModal.tsx`)
+> **Supersedes:** Plugin Manager UI (`ClotoPluginManager.tsx`, `AgentPluginWorkspace.tsx`, `PluginConfigModal.tsx`)
 
 ---
 
@@ -16,7 +16,7 @@ Dashboard の Plugin UI は旧 Rust Plugin SDK 時代のまま残存している
 | 問題 | 該当コンポーネント | 影響 |
 |------|---------------------|------|
 | MCP Server 管理 UI が存在しない | - | サーバーの起動/停止/設定を API 直叩きでしか行えない |
-| `magic_seal` チェックが残存 | `ExivPluginManager.tsx:205` | 旧 `0x56455253` 定数と比較、MCP HMAC 非対応 |
+| `magic_seal` チェックが残存 | `ClotoPluginManager.tsx:205` | 旧 `0x56455253` 定数と比較、MCP HMAC 非対応 |
 | `SYSTEM_ALWAYS_PLUGINS` ハードコード | `AgentPluginWorkspace.tsx:18` | 旧プラグインID をハードコード |
 | God Component (設定モーダル) | `PluginConfigModal.tsx` | 全プラグイン種別を 1 コンポーネントで処理、保守困難 |
 | Double-save パターン | `PluginConfigModal.tsx` | activate + config を別 API で保存、競合リスク |
@@ -155,7 +155,7 @@ fn resolve_access(agent_id: &str, server_id: &str, tool_name: &str) -> Permissio
   "server_id": "tool.terminal",
   "default_policy": "opt-in",
   "config": {
-    "SANDBOX_DIR": "/tmp/exiv-sandbox",
+    "SANDBOX_DIR": "/tmp/cloto-sandbox",
     "COMMAND_TIMEOUT": "120"
   },
   "auto_restart": true
@@ -180,14 +180,14 @@ fn resolve_access(agent_id: &str, server_id: &str, tool_name: &str) -> Permissio
   "entries": [
     {
       "entry_type": "server_grant",
-      "agent_id": "agent.exiv_default",
+      "agent_id": "agent.cloto_default",
       "permission": "allow",
       "granted_by": "user",
       "granted_at": "2026-02-23T10:00:00Z"
     },
     {
       "entry_type": "tool_grant",
-      "agent_id": "agent.exiv_default",
+      "agent_id": "agent.cloto_default",
       "tool_name": "execute_command",
       "permission": "deny",
       "granted_by": "user",
@@ -204,12 +204,12 @@ fn resolve_access(agent_id: &str, server_id: &str, tool_name: &str) -> Permissio
   "entries": [
     {
       "entry_type": "server_grant",
-      "agent_id": "agent.exiv_default",
+      "agent_id": "agent.cloto_default",
       "permission": "allow"
     },
     {
       "entry_type": "tool_grant",
-      "agent_id": "agent.exiv_default",
+      "agent_id": "agent.cloto_default",
       "tool_name": "execute_command",
       "permission": "deny"
     }
@@ -278,9 +278,9 @@ fn resolve_access(agent_id: &str, server_id: &str, tool_name: &str) -> Permissio
 │  │  list_processes:  2 agents allowed                     │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                                                              │
-│  Agent: [agent.exiv_default ▼]                               │
+│  Agent: [agent.cloto_default ▼]                               │
 │                                                              │
-│  ▼ agent.exiv_default                                        │
+│  ▼ agent.cloto_default                                        │
 │    ├─ 🔑 Capability: NetworkAccess          [Approved]       │
 │    ├─ 📁 Server Grant: tool.terminal        [Allow ▼]        │
 │    │   ├─ 🔧 execute_command                [Deny  ▼]        │
@@ -333,13 +333,13 @@ Access タブ上部に表示。ツール横断でエージェントのアクセ�
 │                                                              │
 │  Server Configuration                                        │
 │  ────────────────────                                        │
-│  Command:    [python -m exiv_mcp_terminal    ]               │
+│  Command:    [python -m cloto_mcp_terminal    ]               │
 │  Transport:  [stdio ▼]                                       │
 │  Auto-restart: [✓]                                           │
 │                                                              │
 │  Environment Variables                                       │
 │  ────────────────────                                        │
-│  SANDBOX_DIR     [/tmp/exiv-sandbox          ]               │
+│  SANDBOX_DIR     [/tmp/cloto-sandbox          ]               │
 │  COMMAND_TIMEOUT [120                        ]               │
 │                                         [+ Add Variable]     │
 │                                                              │
@@ -380,7 +380,7 @@ components/mcp/
 
 | 旧コンポーネント | 状態 | 代替 |
 |-----------------|------|------|
-| `ExivPluginManager.tsx` | 削除 | `McpServerList.tsx` + `McpServerDetail.tsx` |
+| `ClotoPluginManager.tsx` | 削除 | `McpServerList.tsx` + `McpServerDetail.tsx` |
 | `AgentPluginWorkspace.tsx` | 削除 | `McpAccessControlTab.tsx` |
 | `PluginConfigModal.tsx` | 削除 | `McpServerSettingsTab.tsx` |
 
@@ -406,7 +406,7 @@ components/mcp/
 
 ### Phase C: クリーンアップ
 
-1. 旧 Plugin UI コンポーネント削除 (`ExivPluginManager.tsx`, `AgentPluginWorkspace.tsx`, `PluginConfigModal.tsx`)
+1. 旧 Plugin UI コンポーネント削除 (`ClotoPluginManager.tsx`, `AgentPluginWorkspace.tsx`, `PluginConfigModal.tsx`)
 2. `types.ts` から `magic_seal`, `sdk_version` 等の旧フィールド削除
 3. `permission_requests` テーブル削除 (migration)
 4. ドキュメント更新 (`SCHEMA.md`, `CHANGELOG.md`)

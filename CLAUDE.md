@@ -1,11 +1,11 @@
-# Exiv Development Rules
+# ClotoCore Development Rules
 
 ## Project Vision (MANDATORY)
 
 **You MUST read `docs/PROJECT_VISION.md` at the start of every session.**
 
 This document defines the core identity, competitive positioning, target users,
-and strategic direction of the Exiv Project. All development decisions — feature
+and strategic direction of the ClotoCore Project. All development decisions — feature
 additions, architectural changes, plugin development, UI work — must align with
 the vision described in this document.
 
@@ -16,7 +16,7 @@ If a proposed change conflicts with the project vision, flag it to the user befo
 **You MUST read `docs/ARCHITECTURE.md` before making any structural or code-level changes.**
 
 This document defines the system architecture, security framework, plugin communication
-protocols, and design principles of Exiv. Any code modification — new features, refactoring,
+protocols, and design principles of ClotoCore. Any code modification — new features, refactoring,
 plugin development, API changes — must conform to the architectural constraints described here.
 
 If a proposed change violates an architectural principle, flag it to the user before proceeding.
@@ -129,11 +129,11 @@ This script is the mechanical verification engine that prevents hallucination an
 ## GitHub Policy
 
 - **NEVER link to binary/executable files directly from README.md or other documentation files.** This includes `.exe`, `.msi`, `.dmg`, `.AppImage`, installer scripts (`curl | bash`, `irm | iex`), and any other downloadable executables.
-- Binary and executable files MUST be distributed exclusively through the [GitHub Releases](https://github.com/Exiv-ai/Exiv/releases) page.
-- README.md may link to the Releases page itself (e.g., `[Releases](https://github.com/Exiv-ai/Exiv/releases/latest)`), but MUST NOT contain direct download URLs for binaries or piped install commands.
+- Binary and executable files MUST be distributed exclusively through the [GitHub Releases](https://github.com/Cloto-dev/ClotoCore/releases) page.
+- README.md may link to the Releases page itself (e.g., `[Releases](https://github.com/Cloto-dev/ClotoCore/releases/latest)`), but MUST NOT contain direct download URLs for binaries or piped install commands.
 
 ## Git Rules
 
 - Commit messages in English
-- Git author: `Exiv Project <exiv.project@proton.me>`
+- Git author: `ClotoCore Project <ClotoCore@proton.me>`
 - Do NOT push without explicit user permission
