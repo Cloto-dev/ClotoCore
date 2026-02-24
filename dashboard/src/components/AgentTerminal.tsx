@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { ChevronRight, Puzzle, Activity, Zap, Plus, Lock, Trash2 } from 'lucide-react';
+import { Users, Puzzle, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings } from 'lucide-react';
 import { AgentMetadata, PluginManifest } from '../types';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { useEventStream } from '../hooks/useEventStream';
-import { AgentIcon, agentColor, AgentTypeIcon, agentTypeColor, isAiAgent, statusBadgeClass } from '../lib/agentIdentity';
+import { AgentIcon, agentColor, AgentTypeIcon, agentTypeColor, isAiAgent } from '../lib/agentIdentity';
 import { isLlmPlugin } from '../lib/pluginUtils';
 import { useAgentCreation } from '../hooks/useAgentCreation';
 import { PowerToggleModal } from './PowerToggleModal';
@@ -67,17 +67,8 @@ export function AgentTerminal({
     }
   });
 
-  const handlePowerToggle = async (agent: AgentMetadata) => {
-    if (agent.metadata?.has_power_password === 'true') {
-      setPowerTarget(agent);
-    } else {
-      try {
-        await api.toggleAgentPower(agent.id, !agent.enabled, apiKey);
-        onRefresh();
-      } catch (err) {
-        console.error('Failed to toggle power:', err);
-      }
-    }
+  const handlePowerToggle = (agent: AgentMetadata) => {
+    setPowerTarget(agent);
   };
 
   if (configuringAgent) {
@@ -110,9 +101,11 @@ export function AgentTerminal({
   const allMemories = plugins.filter(p => (p.service_type === 'Memory' || p.category === 'Memory') && p.is_active);
   const memories = allMemories.filter(p => newAgent.type === 'ai' ? true : !isLlmPlugin(p));
 
+  const activeCount = agents.filter(a => a.enabled).length;
+
   return (
-    <div className="relative flex h-full bg-glass-subtle backdrop-blur-sm overflow-hidden">
-      {/* Password Modal */}
+    <div className="relative flex h-full overflow-hidden">
+      {/* Power Toggle Modal */}
       {powerTarget && (
         <PowerToggleModal
           agent={powerTarget}
@@ -121,7 +114,7 @@ export function AgentTerminal({
         />
       )}
 
-      {/* Delete confirmation modal */}
+      {/* Delete Confirmation Modal */}
       {deleteTarget && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm">
           <div className="bg-surface-primary border border-edge rounded-2xl shadow-xl p-6 w-80 space-y-4">
@@ -163,98 +156,129 @@ export function AgentTerminal({
         </div>
       )}
 
-      {/* Main content */}
+      {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="p-6 flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-black tracking-tight text-content-primary uppercase">Agent Management</h2>
-            <p className="text-[10px] text-content-tertiary font-mono tracking-widest uppercase mt-1">
-              EXIV-SYSTEM / Registered Instances
-            </p>
-          </div>
-          <div className="px-3 py-1 rounded-full bg-surface-secondary text-[10px] font-bold text-content-secondary">
-            {agents.filter(a => a.enabled).length} / {agents.length} ACTIVE
-          </div>
-        </div>
+        <div className="flex-1 overflow-y-auto no-scrollbar p-6 md:p-8">
+          {/* Header — MemoryCore pattern */}
+          <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-glass-subtle backdrop-blur-sm rounded-md flex items-center justify-center shadow-sm border border-edge">
+                <Users className="text-brand" size={24} strokeWidth={2} />
+              </div>
+              <div>
+                <h1 className="text-2xl font-black tracking-tighter text-content-primary uppercase">Agent Hub</h1>
+                <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em] flex items-center gap-2">
+                  <span className="inline-block w-1.5 h-1.5 bg-brand rounded-full animate-pulse"></span>
+                  Registered Instances
+                </p>
+              </div>
+            </div>
+            <div className="bg-glass-subtle backdrop-blur-sm px-4 py-2 rounded-md flex items-center gap-3 shadow-sm border border-edge">
+              <div className="flex flex-col items-end">
+                <span className="text-[9px] uppercase font-bold text-content-tertiary tracking-widest">Agents</span>
+                <span className="text-sm font-mono font-bold text-content-primary">{activeCount} / {agents.length} Active</span>
+              </div>
+              <Activity className="text-brand" size={18} />
+            </div>
+          </header>
 
-        {/* Agent List */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-3 no-scrollbar bg-gradient-to-b from-surface-primary/40 from-25% via-surface-primary/20 via-65% to-brand/[0.05]">
+          {/* Section: Agents */}
+          <div className="flex items-center gap-3 mb-4 border-b border-edge pb-2">
+            <Users className="text-brand" size={16} />
+            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Agents</h2>
+          </div>
+
+          {/* Agent Cards Grid */}
           {agents.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-content-muted space-y-4">
-              <Zap size={32} strokeWidth={1} className="opacity-20" />
-              <p className="text-[10px] font-mono tracking-[0.2em] uppercase">No agents registered</p>
+            <div className="py-12 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
+              No agents registered. Create one to get started.
             </div>
           ) : (
-            agents.map((agent) => (
-              <div
-                key={agent.id}
-                className="group p-4 bg-surface-primary border border-edge rounded-xl shadow-sm flex items-center gap-4 cursor-pointer"
-                onClick={() => onSelectAgent(agent)}
-              >
-                <div className="p-2.5 rounded-xl shrink-0" style={{ backgroundColor: `${agentColor(agent)}12`, color: agentColor(agent) }}>
-                  <AgentIcon agent={agent} size={22} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-content-primary text-sm truncate">{agent.name}</h3>
-                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold ${statusBadgeClass(agent.status)}`}>
-                      {agent.metadata?.has_power_password === 'true' && <Lock size={7} />}
-                      {agent.status.toUpperCase()}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-content-secondary mt-0.5 truncate">{agent.description}</p>
-                  <div className="flex gap-2 mt-2">
-                    <span className="text-[9px] bg-surface-secondary px-1.5 py-0.5 rounded text-content-tertiary font-mono">
-                      ENGINE: {agent.default_engine_id || 'DEFAULT'}
-                    </span>
-                    <span className="text-[9px] bg-surface-secondary px-1.5 py-0.5 rounded text-content-tertiary font-mono">
-                      MEM: {agent.metadata?.preferred_memory || 'DEFAULT'}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <AgentPowerButton agent={agent} onPowerToggle={handlePowerToggle} />
-                  <button
-                    title="Manage Plugins"
-                    className="p-2 rounded-lg border border-edge-subtle text-content-tertiary hover:text-brand hover:border-brand/30 hover:bg-brand/5 transition-all"
-                    onClick={(e) => { e.stopPropagation(); setConfiguringAgent(agent); }}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {agents.map((agent) => {
+                const color = agentColor(agent);
+                const isAi = isAiAgent(agent);
+                return (
+                  <div
+                    key={agent.id}
+                    className="bg-glass-strong backdrop-blur-sm p-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group cursor-pointer"
+                    onClick={() => onSelectAgent(agent)}
                   >
-                    <Puzzle size={16} />
-                  </button>
-                  {agent.id === DEFAULT_AGENT_ID ? (
-                    <div title="Default agent is protected" className="p-2 text-content-muted opacity-30">
-                      <Lock size={15} />
+                    {/* Row 1: Status + Name + Power */}
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className={`w-3 h-3 rounded-full flex-shrink-0 ${agent.enabled ? 'bg-emerald-500' : 'bg-content-muted'}`} />
+                      <h3 className="font-bold text-content-primary text-sm flex-1 truncate">{agent.name}</h3>
+                      <AgentPowerButton agent={agent} onPowerToggle={handlePowerToggle} />
                     </div>
-                  ) : (
-                    <button
-                      title="Delete agent"
-                      className="p-2 rounded-lg border border-edge-subtle text-content-tertiary hover:text-red-500 hover:border-red-500/30 hover:bg-red-500/10 transition-all"
-                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(agent); setDeleteError(null); }}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
-                  <ChevronRight size={18} className="text-content-muted group-hover:text-content-secondary transition-colors" />
-                </div>
-              </div>
-            ))
+
+                    {/* Row 2: Type + Engine */}
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] font-mono text-content-tertiary">
+                        {isAi ? 'AI Agent' : 'Container'} · {agent.default_engine_id || 'No engine'}
+                      </span>
+                    </div>
+
+                    {/* Row 3: Memory */}
+                    {agent.metadata?.preferred_memory && (
+                      <div className="text-[10px] font-mono text-content-muted mb-2">
+                        {agent.metadata.preferred_memory}
+                      </div>
+                    )}
+
+                    {/* Divider + Actions */}
+                    <div className="mt-2 pt-2 border-t border-edge-subtle flex items-center justify-between">
+                      <span className="text-[9px] text-content-tertiary font-mono">
+                        {agent.metadata?.has_power_password === 'true' && <Lock size={8} className="inline mr-1" />}
+                        {agent.id}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {isAi && (
+                          <button
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold text-brand hover:bg-brand/10 transition-all"
+                            onClick={(e) => { e.stopPropagation(); onSelectAgent(agent); }}
+                          >
+                            <MessageSquare size={10} /> Chat
+                          </button>
+                        )}
+                        <button
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+                          onClick={(e) => { e.stopPropagation(); setConfiguringAgent(agent); }}
+                        >
+                          <Settings size={10} /> Config
+                        </button>
+                        {agent.id !== DEFAULT_AGENT_ID && (
+                          <button
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all"
+                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(agent); setDeleteError(null); }}
+                          >
+                            <Trash2 size={10} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
 
       {/* Right Sidebar: Create Form */}
-      <div className="w-[380px] shrink-0 border-l border-[var(--border-strong)] bg-surface-base/30 overflow-y-auto no-scrollbar hidden lg:flex flex-col">
-        <div className="p-5">
-          <h3 className="text-[11px] font-black text-content-secondary uppercase tracking-[0.15em]">Initialize New Agent</h3>
-        </div>
-        <div className="p-5 flex-1">
+      <div className="w-[340px] shrink-0 border-l border-[var(--border-strong)] bg-surface-base/30 overflow-y-auto no-scrollbar hidden lg:flex flex-col">
+        <div className="p-6">
+          {/* Section header */}
+          <div className="flex items-center gap-3 mb-6 border-b border-edge pb-2">
+            <Zap className="text-brand" size={16} />
+            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Create Agent</h2>
+          </div>
+
           <div className="space-y-4">
             {/* Agent Type Selector */}
             <div>
-              <label className="block text-xs font-bold text-content-secondary mb-2">Agent Type</label>
-              <div className="grid grid-cols-2 gap-3">
-                {([['ai', 'AI Agent', 'LLM-powered reasoning'], ['container', 'Container', 'Script / bridge process']] as const).map(([type, label, desc]) => {
+              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-2">Type</label>
+              <div className="grid grid-cols-2 gap-2">
+                {([['ai', 'AI Agent', 'LLM-powered'], ['container', 'Container', 'Bridge / Script']] as const).map(([type, label, desc]) => {
                   const selected = newAgent.type === type;
                   const color = agentTypeColor(type);
                   return (
@@ -262,17 +286,16 @@ export function AgentTerminal({
                       key={type}
                       type="button"
                       onClick={() => handleTypeChange(type)}
-                      className={`flex items-center gap-2.5 p-3 rounded-xl border-2 transition-all text-left ${
-                        selected ? 'bg-surface-primary shadow-md' : 'bg-surface-primary/50 border-edge hover:border-edge'
+                      className={`flex items-center gap-2 p-2.5 rounded-lg border transition-all text-left ${
+                        selected ? 'bg-glass-strong shadow-sm border-brand' : 'bg-glass border-edge hover:border-edge'
                       }`}
-                      style={selected ? { borderColor: color } : undefined}
                     >
-                      <div className="p-1.5 rounded-lg text-white shrink-0" style={{ backgroundColor: selected ? color : '#94a3b8' }}>
-                        <AgentTypeIcon type={type} size={16} />
+                      <div className="p-1 rounded shrink-0" style={{ backgroundColor: selected ? `${color}20` : undefined, color: selected ? color : '#94a3b8' }}>
+                        <AgentTypeIcon type={type} size={14} />
                       </div>
                       <div>
-                        <div className="text-[11px] font-bold text-content-primary">{label}</div>
-                        <div className="text-[8px] text-content-tertiary">{desc}</div>
+                        <div className="text-[10px] font-bold text-content-primary">{label}</div>
+                        <div className="text-[8px] text-content-muted">{desc}</div>
                       </div>
                     </button>
                   );
@@ -281,28 +304,28 @@ export function AgentTerminal({
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-content-secondary mb-1">Agent Name</label>
+              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">Name</label>
               <input
                 type="text"
                 value={newAgent.name}
                 onChange={e => updateField('name', e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-edge text-sm focus:outline-none focus:border-brand bg-surface-primary"
+                className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
                 placeholder="e.g. Mike"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-content-secondary mb-1">Description / System Prompt</label>
+              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">Description</label>
               <textarea
                 value={newAgent.desc}
                 onChange={e => updateField('desc', e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-edge text-sm focus:outline-none focus:border-brand bg-surface-primary h-16 resize-none"
-                placeholder="Briefly describe the agent's role."
+                className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary h-16 resize-none"
+                placeholder="Describe the agent's role"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-content-secondary mb-1">
+              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
                 {newAgent.type === 'ai' ? 'LLM Engine' : 'Bridge Engine'}
               </label>
               {filteredEngines.length > 0 ? (
@@ -311,26 +334,26 @@ export function AgentTerminal({
                   onChange={e => updateField('engine', e.target.value)}
                   className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
                 >
-                  <option value="">Select Engine...</option>
+                  <option value="">Select...</option>
                   {filteredEngines.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
               ) : (
                 <div className="w-full px-2 py-1.5 rounded-lg border border-dashed border-content-muted text-[10px] text-content-tertiary font-mono text-center">
-                  No {newAgent.type === 'ai' ? 'LLM' : 'bridge'} engines available
+                  No engines available
                 </div>
               )}
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-content-secondary mb-1">Memory Engine</label>
+              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">Memory</label>
               <select
                 value={newAgent.memory}
                 onChange={e => updateField('memory', e.target.value)}
                 className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
               >
-                <option value="">Select Memory...</option>
+                <option value="">Select...</option>
                 {memories.map(p => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
@@ -338,33 +361,32 @@ export function AgentTerminal({
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-content-secondary mb-1">
-                Power Password <span className="text-content-muted font-normal">(optional)</span>
+              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
+                Password <span className="text-content-muted font-normal normal-case">(optional)</span>
               </label>
               <div className="relative">
-                <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
+                <Lock size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
                 <input
                   type="password"
                   value={newAgent.password}
                   onChange={e => updateField('password', e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-edge text-sm focus:outline-none focus:border-brand bg-surface-primary"
-                  placeholder="Leave empty for no password"
+                  className="w-full pl-8 pr-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
+                  placeholder="Power toggle password"
                 />
               </div>
-              <p className="text-[9px] text-content-tertiary mt-1">Require password to toggle power on/off</p>
             </div>
 
             {createError && (
-              <p className="text-xs text-red-400 text-center px-1">{createError}</p>
+              <p className="text-[10px] text-red-400 text-center">{createError}</p>
             )}
             <button
               onClick={handleCreate}
               disabled={!newAgent.name || !newAgent.desc || !newAgent.engine || isCreating}
-              className="w-full mt-2 text-white py-2.5 rounded-xl text-sm font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full text-white py-2 rounded-lg text-xs font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
               style={{ backgroundColor: agentTypeColor(newAgent.type) }}
             >
-              {isCreating ? <Activity size={16} className="animate-spin" /> : <Plus size={16} />}
-              {newAgent.type === 'ai' ? 'CREATE AI AGENT' : 'CREATE CONTAINER'}
+              {isCreating ? <Activity size={14} className="animate-spin" /> : <Plus size={14} />}
+              Create {newAgent.type === 'ai' ? 'AI Agent' : 'Container'}
             </button>
           </div>
         </div>

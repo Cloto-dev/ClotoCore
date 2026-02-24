@@ -48,7 +48,7 @@ function SystemView() {
       <div className="flex-1 flex flex-col p-6 font-mono text-[10px] overflow-hidden">
         <div className="flex items-center gap-2 mb-4 border-b border-edge pb-2">
           <Cpu size={14} />
-          <span className="font-black tracking-widest">KERNEL_LIVE_LOG</span>
+          <span className="font-black tracking-widest">SYSTEM LOG</span>
         </div>
         <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-1 no-scrollbar">
           {logs.length === 0 && <div className="opacity-30">AWAITING_SIGNAL...</div>}

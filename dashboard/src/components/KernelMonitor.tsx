@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cpu, Database, MousePointer2, Globe } from 'lucide-react';
+import { Cpu, Database, MousePointer2, Globe, ArrowLeft } from 'lucide-react';
 import { ServiceTypeIcon } from '../lib/pluginUtils';
 import { usePlugins } from '../hooks/usePlugins';
 import { useAgents } from '../hooks/useAgents';
@@ -24,15 +24,26 @@ export const KernelMonitor: React.FC<KernelMonitorProps> = ({ onClose }) => {
 
   return (
     <div className="flex flex-col h-full bg-glass backdrop-blur-3xl p-6 overflow-hidden animate-in fade-in duration-300">
-      <div className="mb-8 px-4 flex justify-between items-start">
-        <div>
-          <h2 className="text-2xl font-black tracking-tighter text-content-primary uppercase leading-none">Kernel Monitor</h2>
-          <p className="text-[10px] text-content-tertiary font-mono tracking-[0.3em] uppercase mt-2">Exiv System Core Status</p>
+      <header className="mb-8 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={onClose}
+            className="p-2.5 rounded-full bg-glass-subtle backdrop-blur-sm border border-edge hover:border-brand hover:text-brand transition-all"
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <div className="w-10 h-10 bg-glass-subtle backdrop-blur-sm rounded-md flex items-center justify-center shadow-sm border border-edge">
+            <Cpu className="text-brand" size={20} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-black tracking-tighter text-content-primary uppercase">Kernel Monitor</h1>
+            <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em]">System Core Status</p>
+          </div>
         </div>
-        <div className="px-3 py-1 bg-brand/10 text-brand rounded-full text-[9px] font-bold font-mono">
-          v{__APP_VERSION__}
+        <div className="bg-glass-subtle backdrop-blur-sm px-4 py-2 rounded-md shadow-sm border border-edge">
+          <span className="text-sm font-mono font-bold text-brand">v{__APP_VERSION__}</span>
         </div>
-      </div>
+      </header>
 
       <div className="grid grid-cols-4 gap-4 px-4 mb-8">
         {[
@@ -99,13 +110,7 @@ export const KernelMonitor: React.FC<KernelMonitorProps> = ({ onClose }) => {
         </section>
       </div>
 
-      <div className="px-4 py-4 border-t border-edge-subtle mt-4">
-        <button
-          onClick={onClose}
-          className="w-full py-3 bg-surface-secondary text-brand rounded-xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-brand hover:text-white transition-all shadow-sm active:scale-95"
-        >
-          CLOSE KERNEL MONITOR
-        </button>
+      <div className="px-4 py-4 mt-4">
       </div>
     </div>
   );

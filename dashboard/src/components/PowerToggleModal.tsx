@@ -16,11 +16,13 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  const needsPassword = agent.metadata?.has_power_password === 'true';
+
   const handleConfirm = async () => {
     setIsLoading(true);
     setError('');
     try {
-      await api.toggleAgentPower(agent.id, !agent.enabled, apiKey, password);
+      await api.toggleAgentPower(agent.id, !agent.enabled, apiKey, needsPassword ? password : undefined);
       onClose();
       onSuccess();
     } catch (err: any) {
@@ -41,21 +43,25 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
             <h3 className="text-sm font-bold text-content-primary">
               {agent.enabled ? 'Power Off' : 'Power On'} {agent.name}
             </h3>
-            <p className="text-[10px] text-content-tertiary">Enter power password to continue</p>
+            <p className="text-[10px] text-content-tertiary">
+              {needsPassword ? 'Enter power password to continue' : `Are you sure you want to ${agent.enabled ? 'stop' : 'start'} this agent?`}
+            </p>
           </div>
         </div>
-        <div className="relative">
-          <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && password && handleConfirm()}
-            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-edge text-sm focus:outline-none focus:border-brand"
-            placeholder="Password"
-            autoFocus
-          />
-        </div>
+        {needsPassword && (
+          <div className="relative">
+            <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && password && handleConfirm()}
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-edge text-sm focus:outline-none focus:border-brand"
+              placeholder="Password"
+              autoFocus
+            />
+          </div>
+        )}
         {error && (
           <p className="text-[10px] text-red-500 font-medium">{error}</p>
         )}
@@ -69,7 +75,7 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={!password || isLoading}
+            disabled={(needsPassword && !password) || isLoading}
             className={`flex-1 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-50 ${
               agent.enabled ? 'bg-red-500 hover:bg-red-600' : 'bg-emerald-500 hover:bg-emerald-600'
             }`}

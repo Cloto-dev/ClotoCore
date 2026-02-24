@@ -35,19 +35,32 @@ export function AgentWorkspace() {
   const selectedAgent = agents.find(a => a.id === selectedAgentId) || null;
 
   return (
-    <div className="flex w-full h-full bg-transparent overflow-hidden">
-      {/* Sidebar - Window Native Style */}
-      <WindowAgentNavigator
-        agents={agents}
-        activeAgentId={selectedAgentId || undefined}
-        onSelectAgent={handleSelectAgent}
-        onSelectSystem={handleSelectSystem}
-        onAddAgent={handleAddAgent}
-        systemActive={systemActive}
+    <div className="flex w-full h-full bg-surface-base overflow-hidden relative">
+      {/* Background grid — matches MemoryCore aesthetic */}
+      <div
+        className="absolute inset-0 z-0 opacity-30 pointer-events-none"
+        style={{
+          backgroundImage: `linear-gradient(to right, var(--canvas-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--canvas-grid) 1px, transparent 1px)`,
+          backgroundSize: '40px 40px',
+          maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
+        }}
       />
 
+      {/* Sidebar - Window Native Style */}
+      <div className="relative z-10">
+        <WindowAgentNavigator
+          agents={agents}
+          activeAgentId={selectedAgentId || undefined}
+          onSelectAgent={handleSelectAgent}
+          onSelectSystem={handleSelectSystem}
+          onAddAgent={handleAddAgent}
+          systemActive={systemActive}
+        />
+      </div>
+
       {/* Main Content Area */}
-      <div className="flex-1 h-full overflow-hidden relative">
+      <div className="flex-1 h-full overflow-hidden relative z-10">
          {systemActive ? (
            <KernelMonitor onClose={() => setSystemActive(false)} />
          ) : (

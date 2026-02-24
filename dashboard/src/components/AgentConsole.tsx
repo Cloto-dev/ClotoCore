@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Activity, Send, Zap, User as UserIcon, RotateCcw } from 'lucide-react';
+import { Activity, Send, Zap, User as UserIcon, RotateCcw, ArrowLeft } from 'lucide-react';
 import { AgentMetadata, ExivMessage, ChatMessage } from '../types';
 import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
@@ -247,29 +247,27 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
   return (
     <div className="flex flex-col h-full bg-glass backdrop-blur-3xl animate-in fade-in duration-500">
-      {/* Console Header */}
+      {/* Header */}
       <div className="p-4 border-b border-edge-subtle flex items-center justify-between bg-glass-strong">
         <div className="flex items-center gap-3">
-          <div className="p-2 text-white rounded-lg shadow-lg" style={{ backgroundColor: agentColor(agent), boxShadow: `0 10px 15px -3px ${agentColor(agent)}33` }}>
+          <button
+            onClick={onBack}
+            className="p-2 rounded-full bg-glass-subtle border border-edge hover:border-brand hover:text-brand transition-all"
+          >
+            <ArrowLeft size={16} />
+          </button>
+          <div className="p-2 text-white rounded-md shadow-sm" style={{ backgroundColor: agentColor(agent) }}>
             <AgentIcon agent={agent} size={18} />
           </div>
           <div>
-            <h2 className="text-sm font-black text-content-primary tracking-tight uppercase">{agent.name} Console</h2>
+            <h2 className="text-xl font-black text-content-primary tracking-tighter uppercase">{agent.name}</h2>
             <div className="flex items-center gap-2">
               <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-              <span className="text-[8px] font-mono text-content-tertiary uppercase tracking-widest">Neural Link Active</span>
+              <span className="text-[10px] font-mono text-content-tertiary uppercase tracking-[0.2em]">Connected</span>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <LongPressResetButton onReset={handleReset} />
-          <button
-            onClick={onBack}
-            className="px-4 py-1.5 rounded-full border border-edge text-[9px] font-bold text-content-tertiary hover:text-brand hover:border-brand/30 transition-all uppercase tracking-widest"
-          >
-            Disconnect
-          </button>
-        </div>
+        <LongPressResetButton onReset={handleReset} />
       </div>
 
       {/* Message Stream */}

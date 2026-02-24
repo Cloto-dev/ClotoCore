@@ -1,6 +1,6 @@
-import { Puzzle, Cpu, Terminal, Lock } from 'lucide-react';
+import { Puzzle, Cpu, Terminal, Lock, ArrowLeft } from 'lucide-react';
 import { AgentMetadata, PluginManifest } from '../types';
-import { AgentIcon, agentColor, statusBadgeClass, statusDotColor } from '../lib/agentIdentity';
+import { AgentIcon, agentColor, statusDotColor } from '../lib/agentIdentity';
 import { AgentPowerButton } from './AgentPowerButton';
 
 export function ContainerDashboard({ agent, plugins, onBack, onConfigure, onPowerToggle }: {
@@ -16,31 +16,29 @@ export function ContainerDashboard({ agent, plugins, onBack, onConfigure, onPowe
 
   return (
     <div className="flex flex-col h-full bg-glass backdrop-blur-3xl animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="p-4 border-b border-edge-subtle flex items-center justify-between bg-glass-strong">
+      {/* Header — MemoryCore pattern */}
+      <div className="p-4 border-b border-edge flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2 text-white rounded-lg shadow-lg" style={{ backgroundColor: color, boxShadow: `0 10px 15px -3px ${color}33` }}>
+          <button
+            onClick={onBack}
+            className="p-2 rounded-full bg-glass-subtle border border-edge hover:border-brand hover:text-brand transition-all"
+          >
+            <ArrowLeft size={16} />
+          </button>
+          <div className="p-2 text-white rounded-md shadow-sm" style={{ backgroundColor: color }}>
             <AgentIcon agent={agent} size={18} />
           </div>
           <div>
-            <h2 className="text-sm font-black text-content-primary tracking-tight uppercase">{agent.name}</h2>
+            <h2 className="text-xl font-black text-content-primary tracking-tighter uppercase">{agent.name}</h2>
             <div className="flex items-center gap-2">
               <span className={`w-1.5 h-1.5 rounded-full ${statusDotColor(agent.status)}`} />
-              <span className="text-[8px] font-mono text-content-tertiary uppercase tracking-widest">
-                Container Process {agent.enabled ? '· Running' : '· Stopped'}
+              <span className="text-[10px] font-mono text-content-tertiary uppercase tracking-[0.2em]">
+                Container · {agent.enabled ? 'Running' : 'Stopped'}
               </span>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <AgentPowerButton agent={agent} onPowerToggle={onPowerToggle} />
-          <button
-            onClick={onBack}
-            className="px-4 py-1.5 rounded-full border border-edge text-[9px] font-bold text-content-tertiary hover:text-content-secondary hover:border-edge transition-all uppercase tracking-widest"
-          >
-            Back
-          </button>
-        </div>
+        <AgentPowerButton agent={agent} onPowerToggle={onPowerToggle} />
       </div>
 
       {/* Content */}
