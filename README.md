@@ -7,7 +7,7 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-133%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-90%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
@@ -210,7 +210,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 
 ## Testing
 
-133 tests.
+90 tests.
 
 ```bash
 cargo test                              # all tests

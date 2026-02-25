@@ -25,13 +25,13 @@ Rust製オープンソースプラットフォームである。
 | **UI** | メッセージングプラットフォーム (WhatsApp, Discord等) | GUI ダッシュボード + Tauri デスクトップ |
 | **設計思想** | チャットベースのパーソナルアシスタント | プラグイン構成型AIコンテナ |
 | **セキュリティ** | 広範なローカル権限 | サンドボックス・パーミッション分離 |
-| **拡張** | TypeScript / WASM / Skills | Rust プラグイン + Python Bridge |
+| **拡張** | TypeScript / WASM / Skills | MCP server plugins (any language) |
 | **ライセンス** | Apache 2.0 | BSL 1.1 → MIT (2028) |
 
 ### ClotoCoreの差別化ポイント
 
 1. **Rust** — パフォーマンス、メモリ安全性、低リソース
-2. **セキュリティファースト** — SafeHttpClient、Pythonサンドボックス、パーミッション分離
+2. **セキュリティファースト** — SafeHttpClient、MCPプロセス隔離、パーミッション分離
 3. **GUIファースト** — ダッシュボードで非技術者も操作可能
 4. **AIコンテナ** — パッケージ化された人格・能力セットという独自概念
 
@@ -66,8 +66,7 @@ GPT-4oを好んでいた、AIパートナーを求めるユーザー。
 - プラグイン開発の自由度
 
 **ClotoCoreが提供するもの:**
-- Rustプラグイン SDK
-- Python Bridge（既存AIエコシステムとの接続）
+- MCP (Model Context Protocol) ベースの拡張モデル（任意言語で MCP Server を記述可能）
 - イベント駆動アーキテクチャ
 - セキュリティサンドボックス
 
@@ -168,4 +167,4 @@ ClotoCoreは、ビジュアル・音声・人格を持つAIを、
 ---
 
 *Document created: 2026-02-16*
-*Last updated: 2026-02-16*
+*Last updated: 2026-02-26*

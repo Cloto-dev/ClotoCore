@@ -77,7 +77,7 @@ ClotoCore のプラグインシステムは当初 Three-Tier Model として設�
 │  │  - MCP Tool "store" / "recall" (従来の MemoryProvider)│
 │  └──────────────────────────────────────────────────┘ │
 │  ┌──────────────────────────────────────────────────┐ │
-│  │ Evolution Engine (変更なし)                        │ │
+│  │ Evolution Engine (archived)                         │ │
 │  └──────────────────────────────────────────────────┘ │
 └───────────────────────┬──────────────────────────────┘
                         │
@@ -87,10 +87,10 @@ ClotoCore のプラグインシステムは当初 Three-Tier Model として設�
 │  Layer 2: MCP Servers (任意言語)                       │
 │                                                        │
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐ │
-│  │ mind.*      │ │ core.*      │ │ tool.*          │ │
+│  │ mind.*      │ │ memory.*    │ │ tool.*          │ │
 │  │ (Reasoning) │ │ (Memory)    │ │ (Execution)     │ │
 │  │ deepseek    │ │ ks22        │ │ terminal        │ │
-│  │ cerebras    │ │ moderator   │ │ (user plugins)  │ │
+│  │ cerebras    │ │             │ │ (user plugins)  │ │
 │  └─────────────┘ └─────────────┘ └─────────────────┘ │
 └──────────────────────────────────────────────────────┘
 ```
@@ -108,7 +108,7 @@ User Message
   │    │    │    └─ JSON-RPC: {"method": "tools/call", "params": {"name": "think", ...}}
   │    │    │    └─ Response: {"result": {"content": [{"type": "text", "text": "..."}]}}
   │    │    │
-  │    │    ├─ MCP Client Manager → core.ks22 の "store" Tool 呼び出し
+  │    │    ├─ MCP Client Manager → memory.ks22 の "store" Tool 呼び出し
   │    │    │
   │    │    └─ Event Bus → SSE broadcast
   │    │
@@ -125,7 +125,7 @@ Kernel Event (e.g., ConfigUpdated)
   └─ MCP Client Manager → 全 MCP Server に Notification 送信
        │
        ├─ mind.deepseek:  notifications/cloto.event { type: "ConfigUpdated", ... }
-       ├─ core.ks22:      notifications/cloto.event { type: "ConfigUpdated", ... }
+       ├─ memory.ks22:    notifications/cloto.event { type: "ConfigUpdated", ... }
        └─ tool.terminal:  notifications/cloto.event { type: "ConfigUpdated", ... }
 ```
 
@@ -280,8 +280,8 @@ MCP 標準を最大限活用しつつ、以下の ClotoCore 固有メソッド�
 | Namespace | 用途 | 例 |
 |-----------|------|-----|
 | `mind.*` | 推論エンジン (LLM) | `mind.deepseek`, `mind.cerebras` |
-| `core.*` | コアシステム (記憶, 制御) | `core.ks22`, `core.moderator` |
-| `tool.*` | ツール実行 | `tool.terminal`, `tool.web-search` |
+| `memory.*` | 記憶・知識管理 | `memory.ks22` |
+| `tool.*` | ツール実行 | `tool.terminal`, `tool.embedding`, `tool.web-search` |
 | `adapter.*` | 外部プロトコルブリッジ | `adapter.discord`, `adapter.slack` |
 | `vision.*` | 視覚/知覚 | `vision.screen`, `vision.gaze` |
 | `hal.*` | ハードウェア抽象化 | `hal.audio`, `hal.gpio` |
@@ -439,13 +439,13 @@ auto_restart = true
 | Component | Path | Reason |
 |-----------|------|--------|
 | Plugin SDK | `crates/shared/src/lib.rs` (Plugin, ReasoningEngine, Tool, MemoryProvider, CommunicationAdapter traits) | MCP に置換 |
-| Plugin Macros | `crates/macros/` | MCP マニフェストに置換 |
-| Plugin Implementations | `plugins/deepseek/`, `plugins/cerebras/`, `plugins/ks22/`, `plugins/moderator/`, `plugins/terminal/`, `plugins/mcp/` | MCP Server として再実装 |
+| Plugin Macros | `crates/macros/` | MCP マニフェストに置換 — **Completed** (deleted) |
+| Plugin Implementations | `plugins/deepseek/`, `plugins/cerebras/`, `plugins/ks22/`, `plugins/moderator/`, `plugins/terminal/`, `plugins/mcp/` | MCP Server として再実装 — **Completed** (deleted) |
 | PluginManager | `crates/core/src/managers/plugin.rs` | MCP Client Manager に置換 |
 | PluginRegistry | `crates/core/src/managers/registry.rs` | MCP Client Manager に統合 |
 | PluginFactory pattern | `crates/shared/` | 不要 |
 | PluginCast | `crates/shared/` | 不要 |
-| inventory crate | `Cargo.toml` | 不要 |
+| inventory crate | `Cargo.toml` | 不要 — **Completed** (removed) |
 | Capability Injection | `crates/core/src/capabilities.rs` | MCP Server 自前管理 |
 | Magic Seal 0x56455253 | `crates/shared/`, `crates/core/` | HMAC 署名に置換 |
 | WASM Plugin Design | `docs/WASM_PLUGIN_DESIGN.md` | Historical reference として残存 |
@@ -475,8 +475,7 @@ auto_restart = true
 ### Phase 3: 残り全プラグイン移行
 
 1. `mind.cerebras` → MCP Server
-2. `core.ks22` → MCP Server (store/recall Tools)
-3. `core.moderator` → Kernel 内ロジック吸収 or MCP Server
+2. `memory.ks22` → MCP Server (store/recall Tools)
 
 ### Phase 4: Rust Plugin SDK 削除
 

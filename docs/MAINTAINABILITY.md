@@ -15,16 +15,15 @@ ClotoCore/
 ├── crates/
 │   ├── core/        # カーネル・ハンドラー・DB・イベント・進化エンジン
 │   ├── shared/      # 共有型・トレイト
-│   ├── macros/      # 手続きマクロ
 │   └── cli/         # CLIツール
-├── plugins/         # 6プラグイン (ks22, deepseek, cerebras, mcp, moderator, terminal)
+├── mcp-servers/     # 5 MCP servers (cerebras, deepseek, embedding, ks22, terminal)
 ├── dashboard/       # React + TypeScript + Tauri 2.x
 ├── scripts/         # ユーティリティスクリプト
 ├── qa/              # issue-registry.json（バグ検証の真実の源泉）
 └── .dev-notes/      # 保守ノート（gitignore対象・補足資料）
 ```
 
-**技術スタック**: Rust（ワークスペース 14 クレート）/ TypeScript + React / Python
+**技術スタック**: Rust（ワークスペース 4 クレート）/ TypeScript + React / Python
 
 ---
 
@@ -34,18 +33,17 @@ ClotoCore/
 
 | ファイル | 行数 | 状態 |
 |---|---|---|
-| `crates/core/src/evolution.rs` | 1907 | ⚠️ 分割推奨 |
-| `crates/core/src/handlers.rs` | 936 | ⚠️ 監視中 |
-| `crates/core/src/managers.rs` | 863 | ⚠️ 分割推奨（後述） |
-| `crates/core/src/db.rs` | 839 | ⚠️ 監視中 |
-| `crates/shared/src/lib.rs` | 662 | 許容範囲 |
-| `crates/core/src/capabilities.rs` | 285 | 良好 |
+| `crates/core/src/handlers.rs` | 1668 | ⚠️ 監視中 |
+| `crates/core/src/db.rs` | 1658 | ⚠️ 監視中 |
+| `crates/shared/src/lib.rs` | 654 | 許容範囲 |
+| `crates/core/src/capabilities.rs` | 464 | 良好 |
+| `crates/core/src/managers/` | (ディレクトリ) | 分割済み |
 
 ### テスト規模
 
 | 項目 | 数値 |
 |---|---|
-| テスト関数総数（`#[test]` + `#[tokio::test]`） | 189 |
+| テスト関数総数（`#[test]` + `#[tokio::test]`） | ~90 |
 | `#[cfg(test)]` ブロックを持つファイル | 15 |
 | 統合テストファイル（`crates/core/tests/`） | 16 |
 | 推定カバレッジ | ~35% |
@@ -264,8 +262,8 @@ if history.len() > MAX_EVENT_HISTORY {
 
 ### 1ヶ月以内
 
-- [ ] `evolution.rs`（1907行）を `evolution/` ディレクトリに分割
-- [ ] `managers.rs`（863行）に `AgentManager` 分離を追加
+- [x] `evolution.rs` — archived (moved to `archive/evolution/`, file deleted)
+- [x] `managers.rs` — split into `managers/` directory (mod.rs, agents.rs, plugin.rs, registry.rs, mcp.rs, mcp_protocol.rs, mcp_transport.rs)
 - [ ] `MockPlugin` 実装（`crates/core/tests/mocks/mod.rs`）
 - [ ] `db::get_all_json()` に `LIMIT` 追加
 - [ ] グレースフルシャットダウン実装（JoinHandle の保存）

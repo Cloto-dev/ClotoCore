@@ -241,8 +241,8 @@ fn resolve_access(agent_id: &str, server_id: &str, tool_name: &str) -> Permissio
 │  ● tool.terminal │                                           │
 │  ● mind.deepseek │  Status: ● Running                        │
 │  ● mind.cerebras │  Uptime: 2h 34m                           │
-│  ○ core.ks22     │  Tools: 2 registered                      │
-│  ● core.embedding│                                           │
+│  ○ memory.ks22   │  Tools: 2 registered                      │
+│  ● tool.embedding│                                           │
 │                  │  [Start] [Stop] [Restart]                  │
 │                  │                                           │
 │  ● = Running     │  ┌─ Settings ─┬─ Access ─┬─ Logs ─┐      │
@@ -381,7 +381,7 @@ components/mcp/
 | 旧コンポーネント | 状態 | 代替 |
 |-----------------|------|------|
 | `ClotoPluginManager.tsx` | 削除 | `McpServerList.tsx` + `McpServerDetail.tsx` |
-| `AgentPluginWorkspace.tsx` | 削除 | `McpAccessControlTab.tsx` |
+| `AgentPluginWorkspace.tsx` | Retained (agent plugin management) | `McpAccessControlTab.tsx` |
 | `PluginConfigModal.tsx` | 削除 | `McpServerSettingsTab.tsx` |
 
 ---

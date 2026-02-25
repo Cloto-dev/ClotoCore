@@ -130,14 +130,14 @@
 | Quality | Unit Tests: handlers, db, capabilities, middleware, validation, config | Done |
 | Quality | Input validation モジュール (エージェント作成・設定更新) | Done |
 | Quality | Atomic file writes (.maintenance ファイル) | Done |
-| Feature | Self-Healing Python Bridge (自動再起動、最大3回) | Done |
+| Feature | Self-Healing Python Bridge (自動再起動、最大3回) | Done (archived — Python Bridge removed in MCP migration) |
 | Feature | Build Optimization (`CLOTO_SKIP_ICON_EMBED=1`) | Done |
 | Feature | 全コメント英語化 (国際アクセシビリティ) | Done |
 | Feature | Windows GUI インストーラー (Inno Setup) | Done |
 | Feature | GitHub Pages ランディングページ (OS自動検出) | Done |
 | Infra | GitHub Actions リリースワークフロー (5プラットフォーム + インストーラー) | Done |
 
-**Test Count:** 133 tests
+**Test Count:** 90 tests
 **Audit Score:** 90+/100
 
 ### Remaining Items (Next Phase)
@@ -156,7 +156,7 @@ ClotoCore uses a phase-based versioning scheme with three stages.
 | Phase | Display | Cargo (Semver) | Git Tag | Status |
 |-------|---------|---------------|---------|--------|
 | Alpha | A1, A2, ... | `0.0.1`, `0.0.2`, ... | `vA1` | Completed (A1–A7) |
-| Beta | βX.Y | `0.X.Y` | `v0.X.Y` | **Current (β1 = 0.1.0)** |
+| Beta | βX.Y | `0.X.Y` | `v0.X.Y` | **Current (β2 = 0.2.0)** |
 | Stable | 1.X.Y | `1.X.Y` | `v1.X.Y` | Future |
 
 - **Alpha (A)**: Rapid prototyping. Breaking changes expected on every release.
@@ -168,7 +168,7 @@ ClotoCore uses a phase-based versioning scheme with three stages.
 | Component | Versioning | Source of Truth |
 |-----------|-----------|----------------|
 | System (kernel, SDK, macros) | Unified workspace version | `Cargo.toml` → `workspace.package.version` |
-| Plugins | Independent per plugin | `#[cloto_plugin(version = "...")]` in each plugin's `lib.rs` |
+| Plugins | Independent per plugin | MCP server manifest (`version` field in `cloto/handshake` response) |
 | Dashboard | Matches system version | `dashboard/package.json` |
 
 Plugins maintain their own version numbers because they can evolve independently of the kernel. When creating a new plugin, start at `0.1.0`.

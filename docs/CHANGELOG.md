@@ -23,10 +23,19 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 - All `cargo clippy --workspace` warnings resolved
 - All 90 tests passing, 0 ignored
 
+### Security
+
+- Install and run `cargo audit` — 0 vulnerabilities, 16 warnings (all GTK3 indirect deps, Linux-only)
+
 ### Documentation
 
 - Rewrite CHANGELOG to version-based format (Keep a Changelog)
 - Add v0.2.0 release scope document
+- Fix 12 HIGH, 14 MEDIUM documentation inconsistencies across 9 files
+- Align ARCHITECTURE.md, DEVELOPMENT.md, PROJECT_VISION.md with MCP-only architecture
+- Update SCHEMA.md with 3 missing tables (runtime_plugins, revoked_keys, agent_plugins)
+- Update MAINTAINABILITY.md metrics (crate count, file sizes, test count)
+- Correct MCP server naming convention (core.ks22 → memory.ks22)
 - Clean up commit history (157 → 1 commit, author unified)
 
 ---
