@@ -7,11 +7,27 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
-## [Unreleased] — β2 (0.2.0)
+## [0.2.0] — 2026-02-26 (β2)
 
 > Theme: Bug fixes, security hardening, performance improvements, documentation, and refinements
 
-(Work in progress)
+### Bug Fixes
+
+- Resolve all open issues in issue registry (115/115 closed)
+- Update 5 obsolete bug entries referencing deleted components
+- Add error context to test assertions (`unwrap()` → `expect()`)
+
+### Code Quality
+
+- Suppress `clippy::too_many_lines` for Tauri entry point
+- All `cargo clippy --workspace` warnings resolved
+- All 90 tests passing, 0 ignored
+
+### Documentation
+
+- Rewrite CHANGELOG to version-based format (Keep a Changelog)
+- Add v0.2.0 release scope document
+- Clean up commit history (157 → 1 commit, author unified)
 
 ---
 
