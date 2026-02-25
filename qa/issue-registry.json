@@ -377,7 +377,7 @@
     },
     {
       "id": "bug-045",
-      "summary": "build_chat_messages system prompt has no Exiv platform context; agents cannot identify themselves as Exiv agents",
+      "summary": "build_chat_messages system prompt has no ClotoCore platform context; agents cannot identify themselves as ClotoCore agents",
       "severity": "HIGH",
       "discovered": "2026-02-19T18:45:00Z",
       "version": "0.1.0",
@@ -509,7 +509,7 @@
     },
     {
       "id": "bug-056",
-      "summary": "Hardcoded #1e3bb3 in ExivPluginManager (should use CSS variable)",
+      "summary": "Hardcoded #1e3bb3 in PluginManager (should use CSS variable) [component deleted]",
       "severity": "MEDIUM",
       "discovered": "2026-02-22T00:00:00Z",
       "version": "0.1.0",
@@ -517,7 +517,7 @@
       "file": "dashboard/src/components/ExivPluginManager.tsx",
       "pattern": "#1e3bb3",
       "expected": "absent",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-057",
@@ -569,7 +569,7 @@
     },
     {
       "id": "bug-061",
-      "summary": "ConfigModal not extracted from ExivPluginManager (544-line file)",
+      "summary": "ConfigModal not extracted from PluginManager (544-line file) [component deleted]",
       "severity": "MEDIUM",
       "discovered": "2026-02-22T12:00:00Z",
       "version": "0.1.0",
@@ -577,7 +577,7 @@
       "file": "dashboard/src/components/ExivPluginManager.tsx",
       "pattern": "function ConfigModal",
       "expected": "absent",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-062",
