@@ -50,11 +50,11 @@ async fn test_create_agent_success() {
                 .uri("/api/agents")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("X-API-Key", "test-key")
-                .body(Body::from(serde_json::to_string(&payload).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .expect("build request"),
         )
         .await
-        .unwrap();
+        .expect("send request");
 
     assert_eq!(response.status(), StatusCode::OK);
 }
@@ -76,11 +76,11 @@ async fn test_create_agent_invalid_payload() {
                 .uri("/api/agents")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("X-API-Key", "test-key")
-                .body(Body::from(serde_json::to_string(&payload).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .expect("build request"),
         )
         .await
-        .unwrap();
+        .expect("send request");
 
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
@@ -98,7 +98,7 @@ async fn test_update_plugin_config_success() {
     .bind("old_value")
     .execute(&state.pool)
     .await
-    .unwrap();
+    .expect("insert test plugin config");
 
     let app = create_test_router(state);
 
@@ -114,11 +114,11 @@ async fn test_update_plugin_config_success() {
                 .uri("/api/plugins/test.plugin/config")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("X-API-Key", "test-key")
-                .body(Body::from(serde_json::to_string(&payload).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .expect("build request"),
         )
         .await
-        .unwrap();
+        .expect("send request");
 
     assert_eq!(response.status(), StatusCode::OK);
 }
@@ -140,11 +140,11 @@ async fn test_update_plugin_config_nonexistent_plugin() {
                 .uri("/api/plugins/nonexistent/config")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("X-API-Key", "test-key")
-                .body(Body::from(serde_json::to_string(&payload).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .expect("build request"),
         )
         .await
-        .unwrap();
+        .expect("send request");
 
     // Should succeed even if plugin doesn't exist (creates new config)
     assert_eq!(response.status(), StatusCode::OK);
@@ -164,7 +164,7 @@ async fn test_chat_handler_routes_to_agent() {
         .bind("{}")
         .execute(&state.pool)
         .await
-        .unwrap();
+        .expect("insert test agent");
 
     let app = create_test_router(state);
 
@@ -187,11 +187,11 @@ async fn test_chat_handler_routes_to_agent() {
                 .method("POST")
                 .uri("/api/chat")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::to_string(&payload).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .expect("build request"),
         )
         .await
-        .unwrap();
+        .expect("send request");
 
     // Chat handler should accept the request (or fail gracefully with 500 due to event channel issues in test)
     // In test environment, event_tx channel may not have receiver, causing send failure
@@ -216,11 +216,11 @@ async fn test_grant_permission_requires_auth() {
                 .method("POST")
                 .uri("/api/permissions/test-id/approve")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::to_string(&payload).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .expect("build request"),
         )
         .await
-        .unwrap();
+        .expect("send request");
 
     // PermissionDenied maps to 403 Forbidden
     assert!(
@@ -244,7 +244,7 @@ async fn test_grant_permission_success() {
         .bind(chrono::Utc::now().to_rfc3339())
         .execute(&state.pool)
         .await
-        .unwrap();
+        .expect("insert test permission request");
 
     let app = create_test_router(state);
 
@@ -259,11 +259,11 @@ async fn test_grant_permission_success() {
                 .uri("/api/permissions/req-123/approve")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("X-API-Key", "test-key")
-                .body(Body::from(serde_json::to_string(&payload).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .expect("build request"),
         )
         .await
-        .unwrap();
+        .expect("send request");
 
     assert_eq!(response.status(), StatusCode::OK);
 }

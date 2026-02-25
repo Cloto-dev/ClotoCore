@@ -12,8 +12,8 @@
       "commit": "fcb13b1",
       "file": "crates/core/tests/handlers_http_test.rs",
       "pattern": "\\.unwrap\\(\\)",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-015",
@@ -589,7 +589,7 @@
       "file": "dashboard/src/components/EvolutionCore.tsx",
       "pattern": "function FitnessChart",
       "expected": "absent",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-063",
@@ -601,7 +601,7 @@
       "file": "dashboard/src/components/EvolutionCore.tsx",
       "pattern": "function ParamEditModal",
       "expected": "absent",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-064",
@@ -649,7 +649,7 @@
       "file": "dashboard/src/components/EvolutionCore.tsx",
       "pattern": "#1a1a2e",
       "expected": "absent",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-068",
@@ -673,7 +673,7 @@
       "file": "dashboard/src/components/EvolutionCore.tsx",
       "pattern": "bg-white/",
       "expected": "absent",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-070",
@@ -865,7 +865,7 @@
       "file": "dashboard/src/components/FitnessChart.tsx",
       "pattern": "rgba[(]255",
       "expected": "absent",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-086",

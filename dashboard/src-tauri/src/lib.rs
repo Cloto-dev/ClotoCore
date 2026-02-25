@@ -49,6 +49,7 @@ fn select_script_file(base_dir: String) -> Result<Option<String>, String> {
     Ok(None)
 }
 
+#[allow(clippy::too_many_lines)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Tauri desktop mode: bind kernel to loopback only for security
