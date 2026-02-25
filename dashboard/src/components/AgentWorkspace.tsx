@@ -1,0 +1,85 @@
+import { useState } from 'react';
+import { AgentTerminal } from './AgentTerminal';
+import { WindowAgentNavigator } from './WindowAgentNavigator';
+import { KernelMonitor } from './KernelMonitor';
+import { usePlugins } from '../hooks/usePlugins';
+import { useAgents } from '../hooks/useAgents';
+
+export function AgentWorkspace() {
+  const { agents, refetch: refetchAgents } = useAgents();
+  const { plugins, refetch: refetchPlugins } = usePlugins();
+
+  const fetchInitialData = () => {
+    refetchAgents();
+    refetchPlugins();
+  };
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [systemActive, setSystemActive] = useState(false);
+
+  const handleSelectAgent = (id: string) => {
+    setSelectedAgentId(id);
+    setSystemActive(false);
+  };
+
+  const handleSelectSystem = () => {
+    setSystemActive(!systemActive);
+    setSelectedAgentId(null);
+  };
+
+  const handleAddAgent = () => {
+    // Deselect current agent to show the management view (which includes the creation form)
+    setSelectedAgentId(null);
+    setSystemActive(false);
+  };
+
+  const selectedAgent = agents.find(a => a.id === selectedAgentId) || null;
+
+  return (
+    <div className="flex w-full h-full bg-surface-base overflow-hidden relative">
+      {/* Background grid — matches MemoryCore aesthetic */}
+      <div
+        className="absolute inset-0 z-0 opacity-30 pointer-events-none"
+        style={{
+          backgroundImage: `linear-gradient(to right, var(--canvas-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--canvas-grid) 1px, transparent 1px)`,
+          backgroundSize: '40px 40px',
+          maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
+        }}
+      />
+
+      {/* Sidebar - Window Native Style */}
+      <div className="relative z-10">
+        <WindowAgentNavigator
+          agents={agents}
+          activeAgentId={selectedAgentId || undefined}
+          onSelectAgent={handleSelectAgent}
+          onSelectSystem={handleSelectSystem}
+          onAddAgent={handleAddAgent}
+          systemActive={systemActive}
+        />
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 h-full overflow-hidden relative z-10">
+         {systemActive ? (
+           <KernelMonitor onClose={() => setSystemActive(false)} />
+         ) : (
+           <AgentTerminal
+             agents={agents}
+             plugins={plugins}
+             selectedAgent={selectedAgent}
+             onRefresh={fetchInitialData}
+             onSelectAgent={(agent) => {
+               if (agent) {
+                 handleSelectAgent(agent.id);
+               } else {
+                 setSelectedAgentId(null);
+                 setSystemActive(false);
+               }
+             }}
+           />
+         )}
+      </div>
+    </div>
+  );
+}
