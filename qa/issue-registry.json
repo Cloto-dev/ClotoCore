@@ -1226,6 +1226,90 @@
       "pattern": "source:\\s*ServerSource",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-116",
+      "summary": "Benchmark build error: AppState references deleted evolution_engine/fitness_collector fields",
+      "severity": "CRITICAL",
+      "discovered": "2026-02-26T18:00:00Z",
+      "version": "0.2.0",
+      "commit": "b4affa0",
+      "file": "crates/core/benches/helpers/mod.rs",
+      "pattern": "evolution_engine",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-117",
+      "summary": "useNeuralNetwork: window mousemove/mouseup listeners never removed on unmount — FALSE POSITIVE: cleanup exists at line 311-312",
+      "severity": "CRITICAL",
+      "discovered": "2026-02-26T18:00:00Z",
+      "version": "0.2.0",
+      "commit": "b4affa0",
+      "file": "dashboard/src/hooks/useNeuralNetwork.ts",
+      "pattern": "window\\.removeEventListener\\('mousemove'",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-118",
+      "summary": "AgentConsole useEffect missing apiKey in dependency array",
+      "severity": "CRITICAL",
+      "discovered": "2026-02-26T18:00:00Z",
+      "version": "0.2.0",
+      "commit": "b4affa0",
+      "file": "dashboard/src/components/AgentConsole.tsx",
+      "pattern": "\\}, \\[agent\\.id\\]\\);",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-119",
+      "summary": "Gaze engine background thread crash not propagated to caller — start_tracking reports success",
+      "severity": "CRITICAL",
+      "discovered": "2026-02-26T18:00:00Z",
+      "version": "0.2.0",
+      "commit": "b4affa0",
+      "file": "mcp-servers/gaze/gaze_engine.py",
+      "pattern": "self\\._error = err_msg",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-120",
+      "summary": "Gaze engine model download has no retry or timeout — network failure crashes thread",
+      "severity": "HIGH",
+      "discovered": "2026-02-26T18:00:00Z",
+      "version": "0.2.0",
+      "commit": "b4affa0",
+      "file": "mcp-servers/gaze/gaze_engine.py",
+      "pattern": "MODEL_DOWNLOAD_RETRIES",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-121",
+      "summary": "Gaze engine output values not clamped to [0,1] — One Euro Filter can exceed range",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-26T18:00:00Z",
+      "version": "0.2.0",
+      "commit": "b4affa0",
+      "file": "mcp-servers/gaze/gaze_engine.py",
+      "pattern": "clamped_x = max\\(0\\.0, min\\(1\\.0",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-122",
+      "summary": "Gaze engine is_running property not protected by lock — data race on bool read",
+      "severity": "HIGH",
+      "discovered": "2026-02-26T18:00:00Z",
+      "version": "0.2.0",
+      "commit": "b4affa0",
+      "file": "mcp-servers/gaze/gaze_engine.py",
+      "pattern": "with self\\._lock:.*# bug-122",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }

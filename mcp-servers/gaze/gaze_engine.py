@@ -177,6 +177,10 @@ def _extract_gaze_ratios(
     return raw_x, raw_y
 
 
+MODEL_DOWNLOAD_TIMEOUT = 30  # seconds
+MODEL_DOWNLOAD_RETRIES = 3
+
+
 class GazeEngine:
     """Background gaze tracking engine. Thread-safe read access to latest result."""
 
@@ -184,6 +188,7 @@ class GazeEngine:
         self._lock = threading.Lock()
         self._result = GazeResult()
         self._running = False
+        self._error: str | None = None  # bug-119: propagate thread errors
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._fps = 0.0
@@ -191,9 +196,11 @@ class GazeEngine:
 
     def start(self) -> str:
         """Start camera capture and gaze tracking. Returns status message."""
-        if self._running:
-            return "already_running"
+        with self._lock:  # bug-122: protect is_running reads
+            if self._running:
+                return "already_running"
 
+        self._error = None
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -201,8 +208,9 @@ class GazeEngine:
 
     def stop(self) -> str:
         """Stop camera capture and release resources."""
-        if not self._running:
-            return "not_running"
+        with self._lock:
+            if not self._running:
+                return "not_running"
 
         self._stop_event.set()
         if self._thread is not None:
@@ -217,7 +225,14 @@ class GazeEngine:
 
     @property
     def is_running(self) -> bool:
-        return self._running
+        with self._lock:  # bug-122: thread-safe read
+            return self._running
+
+    @property
+    def error(self) -> str | None:
+        """Returns error message if background thread crashed."""
+        with self._lock:
+            return self._error
 
     def get_gaze(self) -> GazeResult:
         with self._lock:
@@ -236,6 +251,7 @@ class GazeEngine:
                 "fps": round(self._fps, 1),
                 "camera_resolution": list(self._camera_resolution),
                 "face_detected": self._result.face_detected,
+                "error": self._error,
             }
 
     def _run(self) -> None:
@@ -245,9 +261,10 @@ class GazeEngine:
 
         try:
             # Initialize MediaPipe FaceLandmarker
+            model_data = self._download_model()
             base_options = mp.tasks.BaseOptions(
                 model_asset_path=None,
-                model_asset_buffer=self._download_model(),
+                model_asset_buffer=model_data,
             )
             options = mp.tasks.vision.FaceLandmarkerOptions(
                 base_options=base_options,
@@ -306,10 +323,14 @@ class GazeEngine:
                         smooth_x = filter_x.filter(raw_x, now)
                         smooth_y = filter_y.filter(raw_y, now)
 
+                        # bug-121: clamp to [0, 1] range
+                        clamped_x = max(0.0, min(1.0, smooth_x))
+                        clamped_y = max(0.0, min(1.0, smooth_y))
+
                         with self._lock:
                             self._result = GazeResult(
-                                gaze_x=smooth_x,
-                                gaze_y=smooth_y,
+                                gaze_x=clamped_x,
+                                gaze_y=clamped_y,
                                 face_detected=True,
                                 confidence=0.85,
                                 timestamp=now,
@@ -340,8 +361,12 @@ class GazeEngine:
                     time.sleep(sleep_time)
 
         except Exception as e:
+            # bug-119: propagate error to caller via shared state
             import sys
-            print(f"GazeEngine error: {e}", file=sys.stderr)
+            err_msg = f"GazeEngine error: {e}"
+            print(err_msg, file=sys.stderr)
+            with self._lock:
+                self._error = err_msg
         finally:
             if cap is not None:
                 cap.release()
@@ -352,12 +377,21 @@ class GazeEngine:
 
     @staticmethod
     def _download_model() -> bytes:
-        """Download MediaPipe FaceLandmarker model. Cached by mediapipe internally."""
+        """Download MediaPipe FaceLandmarker model with retry and timeout."""
         import urllib.request
         import sys
 
-        print("Downloading FaceLandmarker model...", file=sys.stderr)
-        with urllib.request.urlopen(FACE_MODEL_URL) as resp:
-            data = resp.read()
-        print(f"Model downloaded ({len(data)} bytes)", file=sys.stderr)
-        return data
+        for attempt in range(1, MODEL_DOWNLOAD_RETRIES + 1):
+            try:
+                print(f"Downloading FaceLandmarker model (attempt {attempt}/{MODEL_DOWNLOAD_RETRIES})...", file=sys.stderr)
+                req = urllib.request.Request(FACE_MODEL_URL)
+                with urllib.request.urlopen(req, timeout=MODEL_DOWNLOAD_TIMEOUT) as resp:
+                    data = resp.read()
+                print(f"Model downloaded ({len(data)} bytes)", file=sys.stderr)
+                return data
+            except Exception as e:
+                print(f"Model download failed (attempt {attempt}): {e}", file=sys.stderr)
+                if attempt == MODEL_DOWNLOAD_RETRIES:
+                    raise RuntimeError(f"Failed to download model after {MODEL_DOWNLOAD_RETRIES} attempts: {e}") from e
+                time.sleep(2 * attempt)  # backoff
+        raise RuntimeError("Unreachable")

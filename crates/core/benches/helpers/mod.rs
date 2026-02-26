@@ -57,8 +57,6 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         metrics,
         rate_limiter,
         shutdown: Arc::new(Notify::new()),
-        evolution_engine: None,
-        fitness_collector: None,
         revoked_keys: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
     })
 }

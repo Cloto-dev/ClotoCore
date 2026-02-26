@@ -129,8 +129,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     elif name == "get_gaze":
         if not engine.is_running:
+            err = engine.error
             return [TextContent(type="text", text=json.dumps({
-                "error": "Tracker not running. Call start_tracking first.",
+                "error": err or "Tracker not running. Call start_tracking first.",
             }))]
 
         gaze = engine.get_gaze()

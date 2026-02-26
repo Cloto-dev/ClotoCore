@@ -94,7 +94,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       }
     };
     loadMessages();
-  }, [agent.id]);
+  }, [agent.id, apiKey]);
 
   // Scroll to bottom on initial load and new messages
   useEffect(() => {
