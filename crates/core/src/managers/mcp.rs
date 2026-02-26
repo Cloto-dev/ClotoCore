@@ -776,7 +776,20 @@ impl McpClientManager {
             "type": "function",
             "function": {
                 "name": "create_mcp_server",
-                "description": "Create a new MCP server from Python code. The code is safety-validated before execution (blocked imports, dangerous calls, size limits). Returns the list of discovered tools from the new server.",
+                "description": concat!(
+                    "Create a new MCP server from Python code. ",
+                    "The code is safety-validated before execution. ",
+                    "Returns the list of discovered tools from the new server.\n\n",
+                    "Auto-provided (do NOT include): imports (asyncio, json, mcp.server.Server, ",
+                    "mcp.types.TextContent/Tool), `app = Server(name)`, main() entrypoint, stdio transport.\n\n",
+                    "Blocked imports: subprocess, shutil, socket, ctypes, multiprocessing, signal, ",
+                    "pty, fcntl, resource, importlib, code, codeop, compileall, py_compile.\n",
+                    "Blocked patterns: eval(), exec(), __import__(), compile(), open(), globals(), locals(), ",
+                    "os.system, os.popen, os.spawn, os.exec, os.remove, os.unlink, os.rmdir, os.makedirs, ",
+                    "subprocess., __builtins__, getattr(), setattr(), delattr().\n",
+                    "Max code size: 10KB. Allowed imports: json, asyncio, httpx, os, datetime, time, ",
+                    "math, re, hashlib, base64, urllib.request, typing.",
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -790,7 +803,19 @@ impl McpClientManager {
                         },
                         "code": {
                             "type": "string",
-                            "description": "Python code defining MCP tools. Use @app.list_tools() and @app.call_tool() decorators. The 'app' Server instance and boilerplate are auto-generated."
+                            "description": concat!(
+                                "Python code body defining MCP tool handlers. You MUST define exactly two decorated functions:\n\n",
+                                "1. @app.list_tools()\\nasync def list_tools() -> list[Tool]:\\n",
+                                "    return [Tool(name=\"tool_name\", description=\"...\", ",
+                                "inputSchema={\"type\": \"object\", \"properties\": {...}, \"required\": [...]})]\n\n",
+                                "2. @app.call_tool()\\nasync def call_tool(name: str, arguments: dict) -> list[TextContent]:\\n",
+                                "    if name == \"tool_name\":\\n",
+                                "        result = ...  # your logic\\n",
+                                "        return [TextContent(type=\"text\", text=json.dumps(result))]\\n",
+                                "    raise ValueError(f\"Unknown tool: {name}\")\n\n",
+                                "You may add helper functions and use httpx for HTTP requests. ",
+                                "Do not include imports already provided (asyncio, json, mcp.server, mcp.types).",
+                            )
                         }
                     },
                     "required": ["name", "description", "code"]
@@ -823,9 +848,10 @@ impl McpClientManager {
     }
 
     /// Collect tool schemas filtered by server IDs.
+    /// Always includes kernel-native tools (create_mcp_server) regardless of filter.
     pub async fn collect_tool_schemas_for(&self, server_ids: &[String]) -> Vec<Value> {
         let servers = self.servers.read().await;
-        let mut schemas = Vec::new();
+        let mut schemas = vec![Self::kernel_tool_schema()];
         for id in server_ids {
             if let Some(handle) = servers.get(id) {
                 if handle.status != ServerStatus::Connected {
@@ -1400,8 +1426,22 @@ impl McpClientManager {
         if let Err(violations) = validate_mcp_code(code) {
             return Ok(serde_json::json!({
                 "status": "rejected",
-                "reason": "Code safety validation failed",
+                "reason": "Code validation failed — review violations and use hints to fix",
                 "violations": violations,
+                "hints": {
+                    "blocked_imports": BLOCKED_IMPORTS,
+                    "blocked_patterns": BLOCKED_PATTERNS,
+                    "max_code_size_bytes": MAX_CODE_SIZE,
+                    "auto_provided_imports": [
+                        "asyncio", "json", "mcp.server.Server",
+                        "mcp.server.stdio.stdio_server",
+                        "mcp.types.TextContent", "mcp.types.Tool"
+                    ],
+                    "allowed_additional_imports": [
+                        "httpx", "os", "datetime", "time", "math",
+                        "re", "hashlib", "base64", "urllib.request", "typing"
+                    ],
+                }
             }));
         }
 

@@ -1310,6 +1310,54 @@
       "pattern": "with self\\._lock:.*# bug-122",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-123",
+      "summary": "collect_tool_schemas_for excludes kernel tools — agents with restricted plugins cannot see create_mcp_server",
+      "severity": "CRITICAL",
+      "discovered": "2026-02-26T22:00:00Z",
+      "version": "0.2.0",
+      "commit": "8066958",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "let mut schemas = Vec::new\\(\\);",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-124",
+      "summary": "create_mcp_server tool description too vague — no example, no constraints, agents cannot generate correct code",
+      "severity": "HIGH",
+      "discovered": "2026-02-26T22:00:00Z",
+      "version": "0.2.0",
+      "commit": "8066958",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "The 'app' Server instance and boilerplate are auto-generated",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-125",
+      "summary": "Code validation rejection response lacks constraint guidance — agents cannot iterate on blocked code",
+      "severity": "HIGH",
+      "discovered": "2026-02-26T22:00:00Z",
+      "version": "0.2.0",
+      "commit": "8066958",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "Code safety validation failed",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-126",
+      "summary": "System prompt mentions skill creation without tool guidance — agents unaware of create_mcp_server mechanism",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-26T22:00:00Z",
+      "version": "0.2.0",
+      "commit": "8066958",
+      "file": "mcp-servers/deepseek/server.py",
+      "pattern": "creating new skills at runtime",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

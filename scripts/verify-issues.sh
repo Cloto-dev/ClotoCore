@@ -90,9 +90,12 @@ while IFS='|' read -r id severity file pattern expected status summary; do
         continue
     fi
 
-    # Count grep matches (use -P for Perl regex, -c for count)
+    # Count grep matches (prefer -P for Perl regex, fall back to -E for environments
+    # where grep -P is unavailable, e.g. GNU grep 3.0 on Git for Windows/MSYS2)
     # Note: grep -c returns exit code 1 when count is 0, so we handle it explicitly
-    match_count=$(grep -cP "$pattern" "$full_path" 2>/dev/null) || match_count=0
+    match_count=$(grep -cP "$pattern" "$full_path" 2>/dev/null) || \
+    match_count=$(grep -cE "$pattern" "$full_path" 2>/dev/null) || \
+    match_count=0
 
     if [[ "$expected" == "present" ]]; then
         if [[ "$match_count" -gt 0 ]]; then

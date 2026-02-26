@@ -50,7 +50,8 @@ def build_system_prompt(agent: dict) -> str:
         f"Cloto is a local, self-hosted AI container system — all data stays on your "
         f"operator's hardware and is never sent to any external service.\n"
         f"{memory_line}"
-        f"You can extend your own capabilities by creating new skills at runtime.\n"
+        f"You can extend your capabilities at runtime using the create_mcp_server tool "
+        f"to build new Python-based MCP tools when your current toolset is insufficient.\n"
         f"\n"
         f"{description}"
     )
