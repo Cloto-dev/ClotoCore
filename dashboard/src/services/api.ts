@@ -50,6 +50,11 @@ export const api = {
   getMemories: () => fetchJson<Memory[]>('/memories', 'fetch memories'),
   getEpisodes: () => fetchJson<Episode[]>('/episodes', 'fetch episodes'),
   getHistory: () => fetchJson<StrictSystemEvent[]>('/history', 'fetch history'),
+  fetchJson: <T>(path: string, apiKey: string) =>
+    fetch(`${API_BASE}${path}`, { headers: { 'X-API-Key': apiKey } })
+      .then(r => { if (!r.ok) throw new Error(`${r.statusText}`); return r.json() as Promise<T>; }),
+  put: (path: string, body: unknown, apiKey: string) =>
+    mutate(path, 'PUT', path, body, { 'X-API-Key': apiKey }).then(r => r.json()),
   applyPluginSettings: (settings: { id: string, is_active: boolean }[], apiKey: string) =>
     mutate('/plugins/apply', 'POST', 'apply plugin settings', settings, { 'X-API-Key': apiKey }).then(() => {}),
   updatePluginConfig: (id: string, payload: { key: string, value: string }, apiKey: string) =>

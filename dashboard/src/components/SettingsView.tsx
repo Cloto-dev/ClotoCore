@@ -1,16 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
-import { Sun, Moon, Monitor, Eye, EyeOff, MousePointer, ScrollText, Info, Shield, AlertTriangle } from 'lucide-react';
+import { Sun, Moon, Monitor, Eye, EyeOff, MousePointer, ScrollText, Info, Shield, AlertTriangle, Zap } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { useEventStream } from '../hooks/useEventStream';
 import { EVENTS_URL, api } from '../services/api';
 
-type Section = 'general' | 'security' | 'display' | 'log' | 'about';
+type Section = 'general' | 'security' | 'display' | 'advanced' | 'log' | 'about';
 
 const NAV_ITEMS: { id: Section; label: string; icon: typeof Sun }[] = [
   { id: 'general', label: 'GENERAL', icon: Sun },
   { id: 'security', label: 'SECURITY', icon: Shield },
   { id: 'display', label: 'DISPLAY', icon: MousePointer },
+  { id: 'advanced', label: 'ADVANCED', icon: Zap },
   { id: 'log', label: 'LOG', icon: ScrollText },
   { id: 'about', label: 'ABOUT', icon: Info },
 ];
@@ -57,6 +58,7 @@ export function SettingsView() {
         {activeSection === 'general' && <GeneralSection />}
         {activeSection === 'security' && <SecuritySection />}
         {activeSection === 'display' && <DisplaySection />}
+        {activeSection === 'advanced' && <AdvancedSection />}
         {activeSection === 'log' && <LogSection />}
         {activeSection === 'about' && <AboutSection />}
       </div>
@@ -284,6 +286,55 @@ function LogSection() {
         ))}
       </div>
     </SectionCard>
+  );
+}
+
+/* ======================== ADVANCED ======================== */
+
+function AdvancedSection() {
+  const { apiKey } = useApiKey();
+  const [yoloEnabled, setYoloEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.fetchJson<{ enabled: boolean }>('/settings/yolo', apiKey)
+      .then(data => setYoloEnabled(data.enabled))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [apiKey]);
+
+  const handleToggle = async () => {
+    const next = !yoloEnabled;
+    try {
+      await api.put('/settings/yolo', { enabled: next }, apiKey);
+      setYoloEnabled(next);
+    } catch (err) {
+      console.error('Failed to toggle YOLO mode:', err);
+    }
+  };
+
+  return (
+    <>
+      <SectionCard title="YOLO Mode">
+        <div className="space-y-4">
+          {!loading && (
+            <Toggle enabled={yoloEnabled} onToggle={handleToggle} label="Auto-approve MCP permissions" />
+          )}
+          {yoloEnabled && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+              <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Warning</p>
+                <p className="text-[10px] text-content-muted">MCP server permissions are auto-approved without manual review. SafetyGate and code validation remain active.</p>
+              </div>
+            </div>
+          )}
+          {!yoloEnabled && (
+            <p className="text-[10px] text-content-muted">When enabled, MCP server permission requests are automatically approved. SafetyGate post-validation remains active as a safety net.</p>
+          )}
+        </div>
+      </SectionCard>
+    </>
   );
 }
 

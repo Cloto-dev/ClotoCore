@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use tracing::{debug, error, info, warn};
@@ -308,8 +308,9 @@ pub struct McpClientManager {
     pool: SqlitePool,
     /// Tool name → server ID index for fast routing
     tool_index: RwLock<HashMap<String, String>>,
-    /// YOLO mode: auto-approve all MCP server permissions (ARCHITECTURE.md §5.7)
-    yolo_mode: bool,
+    /// YOLO mode: auto-approve all MCP server permissions (ARCHITECTURE.md §5.7).
+    /// Arc<AtomicBool> allows runtime toggle via API without restart.
+    pub yolo_mode: Arc<AtomicBool>,
     /// Preserved configs from stopped servers, enabling restart for config-loaded servers
     stopped_configs: RwLock<HashMap<String, (McpServerConfig, ServerSource)>>,
 }
@@ -321,7 +322,7 @@ impl McpClientManager {
             servers: RwLock::new(HashMap::new()),
             pool,
             tool_index: RwLock::new(HashMap::new()),
-            yolo_mode,
+            yolo_mode: Arc::new(AtomicBool::new(yolo_mode)),
             stopped_configs: RwLock::new(HashMap::new()),
         }
     }
@@ -512,7 +513,7 @@ impl McpClientManager {
 
         // ──── Permission Gate (D): Check required_permissions ────
         if !config.required_permissions.is_empty() {
-            if self.yolo_mode {
+            if self.yolo_mode.load(Ordering::Relaxed) {
                 // YOLO mode: auto-approve all permissions
                 for perm in &config.required_permissions {
                     let already_approved = crate::db::is_permission_approved(&self.pool, &id, perm)
@@ -769,10 +770,40 @@ impl McpClientManager {
     // Tool Routing (used by PluginRegistry in Phase 1+)
     // ============================================================
 
+    /// Kernel-native tool schema: create_mcp_server
+    fn kernel_tool_schema() -> Value {
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "create_mcp_server",
+                "description": "Create a new MCP server from Python code. The code is safety-validated before execution (blocked imports, dangerous calls, size limits). Returns the list of discovered tools from the new server.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "Server name (1-64 chars, alphanumeric + underscore/hyphen)"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Short description of the server's purpose"
+                        },
+                        "code": {
+                            "type": "string",
+                            "description": "Python code defining MCP tools. Use @app.list_tools() and @app.call_tool() decorators. The 'app' Server instance and boilerplate are auto-generated."
+                        }
+                    },
+                    "required": ["name", "description", "code"]
+                }
+            }
+        })
+    }
+
     /// Collect tool schemas from all MCP servers in OpenAI function format.
+    /// Includes kernel-native tools (create_mcp_server).
     pub async fn collect_tool_schemas(&self) -> Vec<Value> {
         let servers = self.servers.read().await;
-        let mut schemas = Vec::new();
+        let mut schemas = vec![Self::kernel_tool_schema()];
         for handle in servers.values() {
             if handle.status != ServerStatus::Connected {
                 continue;
@@ -816,8 +847,14 @@ impl McpClientManager {
     }
 
     /// Execute a tool by name, routing to the correct MCP server.
+    /// Handles kernel-native tools (create_mcp_server) internally.
     /// Applies kernel-side validation (A) before forwarding to the MCP server.
     pub async fn execute_tool(&self, tool_name: &str, args: Value) -> Result<Value> {
+        // Kernel-native tool: create_mcp_server
+        if tool_name == "create_mcp_server" {
+            return self.execute_create_mcp_server(args).await;
+        }
+
         let server_id = {
             let index = self.tool_index.read().await;
             index
@@ -1257,4 +1294,178 @@ fn validate_sandbox_args(_tool_name: &str, args: &Value) -> Result<()> {
     }
 
     Ok(())
+}
+
+// ============================================================
+// Code Validator — safety checks for agent-generated MCP code
+// ============================================================
+
+/// Blocked imports that could enable system access or code execution.
+const BLOCKED_IMPORTS: &[&str] = &[
+    "subprocess", "shutil", "socket", "ctypes", "multiprocessing",
+    "signal", "pty", "fcntl", "resource", "importlib", "code",
+    "codeop", "compileall", "py_compile",
+];
+
+/// Blocked function/attribute patterns.
+const BLOCKED_PATTERNS: &[&str] = &[
+    "eval(", "exec(", "__import__(", "compile(",
+    "open(", "globals(", "locals(",
+    "os.system", "os.popen", "os.spawn", "os.exec",
+    "os.remove", "os.unlink", "os.rmdir", "os.makedirs",
+    "subprocess.", "__builtins__",
+    "getattr(", "setattr(", "delattr(",
+];
+
+/// Maximum allowed code size in bytes.
+const MAX_CODE_SIZE: usize = 10_000;
+
+/// Validate agent-generated Python code for safety.
+/// Returns Ok(()) if code is safe, Err with list of violations otherwise.
+fn validate_mcp_code(code: &str) -> std::result::Result<(), Vec<String>> {
+    let mut errors = Vec::new();
+
+    // L1: Size limit
+    if code.len() > MAX_CODE_SIZE {
+        errors.push(format!(
+            "Code too large: {} bytes (max {})",
+            code.len(),
+            MAX_CODE_SIZE
+        ));
+    }
+
+    // Normalize for pattern matching (lowercase for import checks)
+    let code_lower = code.to_lowercase();
+
+    // L2: Blocked imports
+    for &blocked in BLOCKED_IMPORTS {
+        // Match "import subprocess", "from subprocess", "import subprocess,"
+        let import_pattern = format!("import {blocked}");
+        let from_pattern = format!("from {blocked}");
+        if code_lower.contains(&import_pattern) || code_lower.contains(&from_pattern) {
+            errors.push(format!("Blocked import: '{blocked}'"));
+        }
+    }
+
+    // L3: Blocked function/attribute patterns
+    for &pattern in BLOCKED_PATTERNS {
+        if code.contains(pattern) {
+            errors.push(format!("Blocked pattern: '{pattern}'"));
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+// ============================================================
+// Kernel Tool: create_mcp_server
+// ============================================================
+
+impl McpClientManager {
+    /// Execute the kernel-native create_mcp_server tool.
+    async fn execute_create_mcp_server(&self, args: Value) -> Result<Value> {
+        let name = args
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: name"))?;
+        let description = args
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Agent-generated MCP server");
+        let code = args
+            .get("code")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: code"))?;
+
+        // Validate name (same rules as handlers.rs)
+        if name.is_empty() || name.len() > 64 {
+            return Err(anyhow::anyhow!(
+                "Server name must be 1-64 characters"
+            ));
+        }
+        let valid_name = name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        if !valid_name {
+            return Err(anyhow::anyhow!(
+                "Server name must contain only alphanumeric, underscore, or hyphen"
+            ));
+        }
+
+        // Code safety validation (Layer 5)
+        if let Err(violations) = validate_mcp_code(code) {
+            return Ok(serde_json::json!({
+                "status": "rejected",
+                "reason": "Code safety validation failed",
+                "violations": violations,
+            }));
+        }
+
+        // Generate script from template
+        let script = format!(
+            r#""""MCP Server: {name} — {desc}"""
+import asyncio
+import json
+
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import TextContent, Tool
+
+app = Server("{name}")
+
+{code}
+
+async def main():
+    async with stdio_server() as (read, write):
+        await app.run(read, write, app.create_initialization_options())
+
+if __name__ == "__main__":
+    asyncio.run(main())
+"#,
+            name = name,
+            desc = description.replace('"', r#"\""#),
+            code = code,
+        );
+
+        // Write script file
+        let scripts_dir = std::path::Path::new("scripts");
+        if !scripts_dir.exists() {
+            std::fs::create_dir_all(scripts_dir)
+                .map_err(|e| anyhow::anyhow!("Failed to create scripts directory: {}", e))?;
+        }
+        let script_path = scripts_dir.join(format!("mcp_{name}.py"));
+        std::fs::write(&script_path, &script)
+            .map_err(|e| anyhow::anyhow!("Failed to write script: {}", e))?;
+
+        // Register and connect the server
+        let server_id = format!("agent.{name}");
+        let tool_names = self
+            .add_dynamic_server(
+                server_id.clone(),
+                "python".to_string(),
+                vec![script_path.to_string_lossy().to_string()],
+                Some(script),
+                Some(description.to_string()),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to start server: {}", e))?;
+
+        info!(
+            "Agent created MCP server '{}' with {} tool(s): {:?}",
+            server_id,
+            tool_names.len(),
+            tool_names
+        );
+
+        Ok(serde_json::json!({
+            "status": "created",
+            "server_id": server_id,
+            "tools": tool_names,
+            "script_path": script_path.to_string_lossy(),
+        }))
+    }
 }

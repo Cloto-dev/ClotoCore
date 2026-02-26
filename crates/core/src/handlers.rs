@@ -1689,3 +1689,57 @@ mod tests {
         assert!(result.is_err(), "API key should be case-sensitive");
     }
 }
+
+// ============================================================
+// YOLO Mode API
+// ============================================================
+
+/// GET /api/settings/yolo
+pub async fn get_yolo_mode(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    let enabled = state
+        .mcp_manager
+        .yolo_mode
+        .load(std::sync::atomic::Ordering::Relaxed);
+    Ok(Json(serde_json::json!({ "enabled": enabled })))
+}
+
+/// PUT /api/settings/yolo
+pub async fn set_yolo_mode(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    state
+        .mcp_manager
+        .yolo_mode
+        .store(enabled, std::sync::atomic::Ordering::Relaxed);
+
+    if enabled {
+        tracing::warn!("YOLO mode enabled via API");
+    } else {
+        tracing::info!("YOLO mode disabled via API");
+    }
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        "YOLO_MODE_CHANGED",
+        "system".to_string(),
+        format!("YOLO mode set to {}", enabled),
+        None,
+        None,
+        None,
+    );
+
+    Ok(Json(
+        serde_json::json!({ "status": "ok", "enabled": enabled }),
+    ))
+}

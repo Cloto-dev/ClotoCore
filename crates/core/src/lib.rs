@@ -468,6 +468,11 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         )
         .route("/mcp/servers/:name/start", post(handlers::start_mcp_server))
         .route("/mcp/servers/:name/stop", post(handlers::stop_mcp_server))
+        // Settings
+        .route(
+            "/settings/yolo",
+            get(handlers::get_yolo_mode).put(handlers::set_yolo_mode),
+        )
         // API key invalidation
         .route("/system/invalidate-key", post(handlers::invalidate_api_key))
         .layer(axum::middleware::from_fn_with_state(
