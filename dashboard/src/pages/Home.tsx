@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useRef, useState, useMemo } from 'react';
 import { Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Activity, Database, MessageSquare, Puzzle, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, LucideIcon } from 'lucide-react';
@@ -11,7 +11,6 @@ import { useApiKey } from '../contexts/ApiKeyContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 
 const ClotoWorkspace = lazy(() => import('../components/AgentWorkspace').then(m => ({ default: m.AgentWorkspace })));
-const GazeTracker = lazy(() => import('../components/GazeTracker').then(m => ({ default: m.GazeTracker })));
 
 export function Home() {
   const { apiKey } = useApiKey();
@@ -19,7 +18,6 @@ export function Home() {
   const navigate = useNavigate();
 
   const [activeMainView, setActiveMainView] = useState<string | null>(null);
-  const [isGazeActive, setIsGazeActive] = useState(false);
   const { plugins } = usePlugins();
 
   const handleItemClick = async (item: any) => {
@@ -28,11 +26,6 @@ export function Home() {
       try {
         await api.post(`/plugin/${item.pluginId}/action/${command}`, {}, apiKey);
         console.log(`Action ${command} executed for ${item.pluginId}`);
-        // Handle gaze tracking toggle (flexible ID check)
-        if (item.pluginId === 'vision.gaze_webcam' && command === 'toggle') {
-          console.log("Toggling GazeTracker component...");
-          setIsGazeActive(prev => !prev);
-        }
       } catch (err) {
         console.error(`Failed to execute action ${command}:`, err);
       }
@@ -92,7 +85,7 @@ export function Home() {
       className="min-h-screen bg-surface-base flex flex-col items-center justify-center p-8 overflow-hidden relative font-sans text-content-primary select-none"
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-surface-primary via-surface-secondary to-edge opacity-90 pointer-events-none" />
-      
+
       <InteractiveGrid />
 
       {/* Main View Overlay */}
@@ -100,7 +93,7 @@ export function Home() {
         <div className="fixed inset-0 z-40 bg-surface-base animate-in fade-in duration-300">
           <div className="absolute top-0 left-0 right-0 h-16 border-b border-[var(--border-strong)] flex items-center justify-between px-8 bg-surface-primary z-50">
             <div className="flex items-center gap-6">
-               <button 
+               <button
                  onClick={() => setActiveMainView(null)}
                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-surface-primary border border-edge shadow-sm text-[10px] font-bold text-content-secondary hover:text-brand transition-all hover:shadow-md active:scale-95"
                >
@@ -120,7 +113,7 @@ export function Home() {
             <div className="flex-1 overflow-hidden animate-in fade-in duration-300">
               <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">SYNCHRONIZING...</div>}>
                 {activeMainView === 'sandbox' && <ClotoWorkspace />}
-                {activeMainView === 'settings' && <SettingsView isGazeActive={isGazeActive} onGazeToggle={() => setIsGazeActive(prev => !prev)} />}
+                {activeMainView === 'settings' && <SettingsView />}
               </Suspense>
             </div>
           </div>
@@ -166,7 +159,6 @@ export function Home() {
           ))}
         </div>
       </div>
-      {isGazeActive && <Suspense fallback={null}><GazeTracker /></Suspense>}
     </div>
   );
 }

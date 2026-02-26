@@ -1382,11 +1382,12 @@ pub async fn get_mcp_server_settings(
 }
 
 /// Update MCP server default_policy.
+/// Returns the number of rows affected (0 if server not in DB).
 pub async fn update_mcp_server_default_policy(
     pool: &SqlitePool,
     name: &str,
     default_policy: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<u64> {
     timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
         let result = sqlx::query("UPDATE mcp_servers SET default_policy = ? WHERE name = ?")
             .bind(default_policy)
@@ -1395,13 +1396,37 @@ pub async fn update_mcp_server_default_policy(
             .await
             .map_err(|e| anyhow::anyhow!("Failed to update default policy: {}", e))?;
 
-        if result.rows_affected() == 0 {
-            return Err(anyhow::anyhow!("MCP server '{}' not found", name));
-        }
-        Ok(())
+        Ok(result.rows_affected())
     })
     .await
     .map_err(|_| anyhow::anyhow!("Database timeout updating default policy"))?
+}
+
+/// Insert a config-loaded MCP server into the DB so its settings can be persisted.
+pub async fn ensure_mcp_server_in_db(
+    pool: &SqlitePool,
+    name: &str,
+    command: &str,
+    args: &str,
+    default_policy: &str,
+) -> anyhow::Result<()> {
+    timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        sqlx::query(
+            "INSERT INTO mcp_servers (name, command, args, created_at, is_active, default_policy) \
+             VALUES (?, ?, ?, unixepoch(), 1, ?) \
+             ON CONFLICT(name) DO UPDATE SET default_policy = excluded.default_policy"
+        )
+        .bind(name)
+        .bind(command)
+        .bind(args)
+        .bind(default_policy)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to upsert MCP server: {}", e))?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout upserting MCP server"))?
 }
 
 // ============================================================

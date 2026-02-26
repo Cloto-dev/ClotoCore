@@ -1365,9 +1365,32 @@ pub async fn update_mcp_server_settings(
                 "default_policy must be 'opt-in' or 'opt-out'".into(),
             ));
         }
-        crate::db::update_mcp_server_default_policy(&state.pool, &name, policy)
+        let rows = crate::db::update_mcp_server_default_policy(&state.pool, &name, policy)
             .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+
+        if rows == 0 {
+            // Config-loaded server (from mcp.toml) — not yet in DB.
+            // Look up in-memory server info and persist it.
+            let servers = state.mcp_manager.list_servers().await;
+            if let Some(server) = servers.iter().find(|s| s.id == name) {
+                let args_json = serde_json::to_string(&server.args).unwrap_or_else(|_| "[]".to_string());
+                crate::db::ensure_mcp_server_in_db(
+                    &state.pool,
+                    &name,
+                    &server.command,
+                    &args_json,
+                    policy,
+                )
+                .await
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+            } else {
+                return Err(AppError::Validation(format!(
+                    "MCP server '{}' not found",
+                    name
+                )));
+            }
+        }
     }
 
     spawn_admin_audit(

@@ -76,16 +76,6 @@ export type ServiceType =
   | 'HAL';
 
 
-export interface GazeData {
-  x: number;
-  y: number;
-  confidence: number;
-  fixated: boolean;
-}
-
-export type TrackerStatus = 'loading' | 'requesting' | 'active' | 'denied' | 'error' | 'stopped';
-export type DelegateMode = 'gpu' | 'cpu' | 'cpu-fallback';
-
 // Event types for SSE stream and history
 export interface StrictSystemEvent {
   type: string;

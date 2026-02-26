@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Sun, Moon, Monitor, Eye, EyeOff, MousePointer, ScanEye, Key, ScrollText, Info, Shield, AlertTriangle, Cpu } from 'lucide-react';
+import { Sun, Moon, Monitor, Eye, EyeOff, MousePointer, ScrollText, Info, Shield, AlertTriangle } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { useEventStream } from '../hooks/useEventStream';
@@ -29,12 +29,7 @@ function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggle: () =
   );
 }
 
-interface SettingsViewProps {
-  isGazeActive: boolean;
-  onGazeToggle: () => void;
-}
-
-export function SettingsView({ isGazeActive, onGazeToggle }: SettingsViewProps) {
+export function SettingsView() {
   const [activeSection, setActiveSection] = useState<Section>('general');
 
   return (
@@ -61,7 +56,7 @@ export function SettingsView({ isGazeActive, onGazeToggle }: SettingsViewProps) 
       <div className="flex-1 overflow-y-auto p-8">
         {activeSection === 'general' && <GeneralSection />}
         {activeSection === 'security' && <SecuritySection />}
-        {activeSection === 'display' && <DisplaySection isGazeActive={isGazeActive} onGazeToggle={onGazeToggle} />}
+        {activeSection === 'display' && <DisplaySection />}
         {activeSection === 'log' && <LogSection />}
         {activeSection === 'about' && <AboutSection />}
       </div>
@@ -159,13 +154,11 @@ function SecuritySection() {
     <>
       <SectionCard title="API Key">
         <div className="space-y-4">
-          {/* Status */}
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${apiKey ? 'bg-green-500' : 'bg-amber-500'}`} />
             <span className="text-xs text-content-secondary">{apiKey ? 'Configured' : 'Not configured'}</span>
           </div>
 
-          {/* Input */}
           <div className="flex gap-2">
             <div className="relative flex-1">
               <input
@@ -198,14 +191,12 @@ function SecuritySection() {
             </div>
           )}
 
-          {/* Persistence toggle */}
           <Toggle
             enabled={isPersisted}
             onToggle={() => setPersist(!isPersisted)}
             label="Save to this device"
           />
 
-          {/* Invalidate */}
           {apiKey && (
             <div className="pt-3 border-t border-edge">
               {!confirmInvalidate ? (
@@ -232,7 +223,7 @@ function SecuritySection() {
 
 /* ======================== DISPLAY ======================== */
 
-function DisplaySection({ isGazeActive, onGazeToggle }: { isGazeActive: boolean; onGazeToggle: () => void }) {
+function DisplaySection() {
   const [cursorEnabled, setCursorEnabled] = useState(() => localStorage.getItem('cloto-cursor') !== 'off');
 
   const handleCursorToggle = () => {
@@ -243,24 +234,12 @@ function DisplaySection({ isGazeActive, onGazeToggle }: { isGazeActive: boolean;
   };
 
   return (
-    <>
-      <SectionCard title="Cursor">
-        <div className="space-y-4">
-          <Toggle enabled={cursorEnabled} onToggle={handleCursorToggle} label="Custom animated cursor" />
-          <p className="text-[10px] text-content-muted">Replaces the native cursor with an animated trail effect using canvas rendering.</p>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Gaze Tracking">
-        <div className="space-y-4">
-          <Toggle enabled={isGazeActive} onToggle={onGazeToggle} label="Eye tracking via webcam" />
-          <div className="flex items-start gap-2">
-            <ScanEye size={12} className="text-content-muted mt-0.5 shrink-0" />
-            <p className="text-[10px] text-content-muted">Uses MediaPipe FaceLandmarker to track eye gaze direction. Requires camera access. Processing is done locally in the browser.</p>
-          </div>
-        </div>
-      </SectionCard>
-    </>
+    <SectionCard title="Cursor">
+      <div className="space-y-4">
+        <Toggle enabled={cursorEnabled} onToggle={handleCursorToggle} label="Custom animated cursor" />
+        <p className="text-[10px] text-content-muted">Replaces the native cursor with an animated trail effect using canvas rendering.</p>
+      </div>
+    </SectionCard>
   );
 }
 

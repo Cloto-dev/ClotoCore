@@ -44,3 +44,10 @@ transport = "stdio"
 auto_restart = true
 [servers.env]
 EMBEDDING_API_KEY = "${EMBEDDING_API_KEY}"
+
+[[servers]]
+id = "vision.gaze_webcam"
+command = "python"
+args = ["mcp-servers/gaze/server.py"]
+transport = "stdio"
+auto_restart = false
