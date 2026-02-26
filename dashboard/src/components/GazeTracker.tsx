@@ -36,16 +36,12 @@ export const GazeTracker: React.FC = () => {
         </div>
       )}
 
+      {/* Hidden video element — required by MediaPipe as input source */}
       <video
         ref={videoRef}
-        width={640}
-        height={480}
         playsInline
         muted
-        className={status === 'active'
-          ? 'w-32 h-24 rounded border-2 border-white/50 bg-black opacity-60'
-          : 'hidden'
-        }
+        className="hidden"
       />
     </div>
   );

@@ -4,64 +4,14 @@ import { useNavigate } from 'react-router-dom';
 import { Activity, Database, MessageSquare, Puzzle, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, LucideIcon } from 'lucide-react';
 import { InteractiveGrid } from '../components/InteractiveGrid';
 import { SecurityGuard } from '../components/SecurityGuard';
-import { useEventStream } from '../hooks/useEventStream';
+import { SettingsView } from '../components/SettingsView';
 import { usePlugins } from '../hooks/usePlugins';
-import { api, EVENTS_URL } from '../services/api';
+import { api } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 
 const ClotoWorkspace = lazy(() => import('../components/AgentWorkspace').then(m => ({ default: m.AgentWorkspace })));
 const GazeTracker = lazy(() => import('../components/GazeTracker').then(m => ({ default: m.GazeTracker })));
-
-function SystemView() {
-  const [logs, setLogs] = useState<string[]>([]);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const pendingLogs = useRef<string[]>([]);
-  const rafId = useRef<number>(0);
-
-  useEventStream(EVENTS_URL, (event) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const logLine = `[${timestamp}] ${event.type}: ${JSON.stringify(event.data).slice(0, 100)}...`;
-    pendingLogs.current.push(logLine);
-    if (!rafId.current) {
-      rafId.current = requestAnimationFrame(() => {
-        const batch = pendingLogs.current;
-        pendingLogs.current = [];
-        rafId.current = 0;
-        setLogs(prev => [...prev, ...batch].slice(-50));
-      });
-    }
-  });
-
-  useEffect(() => {
-    return () => { if (rafId.current) cancelAnimationFrame(rafId.current); };
-  }, []);
-
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [logs]);
-
-  return (
-    <div className="flex-1 flex flex-col bg-surface-base text-content-secondary overflow-hidden">
-      {/* Update Section */}
-      {/* Live Log Section */}
-      <div className="flex-1 flex flex-col p-6 font-mono text-[10px] overflow-hidden">
-        <div className="flex items-center gap-2 mb-4 border-b border-edge pb-2">
-          <Cpu size={14} />
-          <span className="font-black tracking-widest">SYSTEM LOG</span>
-        </div>
-        <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-1 no-scrollbar">
-          {logs.length === 0 && <div className="opacity-30">AWAITING_SIGNAL...</div>}
-          {logs.map((log, i) => (
-            <div key={i} className="animate-in fade-in slide-in-from-left-1 duration-300">
-              <span className="opacity-50 mr-2">&gt;</span>{log}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export function Home() {
   const { apiKey } = useApiKey();
@@ -133,7 +83,7 @@ export function Home() {
         pluginId: p.id
       }));
 
-    return [...baseItems, ...pluginItems, { id: 'system', label: 'SYSTEM', path: '#', icon: Settings, disabled: false }];
+    return [...baseItems, ...pluginItems, { id: 'settings', label: 'SETTINGS', path: '#', icon: Settings, disabled: false }];
   }, [plugins]);
 
   return (
@@ -170,7 +120,7 @@ export function Home() {
             <div className="flex-1 overflow-hidden animate-in fade-in duration-300">
               <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">SYNCHRONIZING...</div>}>
                 {activeMainView === 'sandbox' && <ClotoWorkspace />}
-                {activeMainView === 'system' && <SystemView />}
+                {activeMainView === 'settings' && <SettingsView isGazeActive={isGazeActive} onGazeToggle={() => setIsGazeActive(prev => !prev)} />}
               </Suspense>
             </div>
           </div>

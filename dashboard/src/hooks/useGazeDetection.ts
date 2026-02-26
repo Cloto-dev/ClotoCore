@@ -11,18 +11,30 @@ const FACE_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_lan
 // --- Detection constants ---
 const FACE_DETECTED_CONFIDENCE = 0.85;
 const GPU_DETECT_INTERVAL = 33;   // ~30 FPS
-const CPU_DETECT_INTERVAL = 250;  // ~4 FPS
-const MAX_GPU_ERRORS = 3;
+const CPU_DETECT_INTERVAL = 66;   // ~15 FPS
+const MAX_GPU_ERRORS = 6;
 const MAX_CPU_ERRORS = 5;
-const GPU_ALPHA = 0.5;
-const CPU_ALPHA = 0.4;
-const CPU_CANVAS_WIDTH = 320;
-const CPU_CANVAS_HEIGHT = 240;
+const CPU_CANVAS_WIDTH = 640;
+const CPU_CANVAS_HEIGHT = 480;
 const INIT_DELAY_GPU = 1500;
 const INIT_DELAY_CPU = 2000;
-const ERROR_LOGGING_THRESHOLD = 3;  // Log errors only for first N occurrences
-const FIXATION_CENTER_DISTANCE_THRESHOLD = 0.08;  // Normalized distance from center (0-1)
-const ZERO_DIVISION_EPSILON = 0.0001;  // Eye landmark coordinates are normalized [0,1]
+const ERROR_LOGGING_THRESHOLD = 3;
+const ZERO_DIVISION_EPSILON = 0.0001;
+
+// --- One Euro Filter parameters ---
+// mincutoff: minimum cutoff frequency (Hz). Lower = less jitter at rest, more lag.
+// beta: speed coefficient. Higher = less lag during fast eye movement.
+// dcutoff: derivative cutoff frequency (Hz). Rarely needs tuning.
+const ONE_EURO_MINCUTOFF = 1.0;
+const ONE_EURO_BETA = 0.5;
+const ONE_EURO_DCUTOFF = 1.0;
+const ONE_EURO_INITIAL_FREQ = 15; // Hz, auto-adjusts based on actual frame timing
+
+// --- Gaze mapping parameters ---
+const GAIN_X = 1.5;
+const GAIN_Y = 1.5;
+const DEAD_ZONE_PX = 50; // Pixels — cursor won't move if gaze shifts less than this
+const SACCADE_VELOCITY_THRESHOLD = 0.15; // Normalized units/sec — above this = saccade
 
 // --- Iris landmark indices (MediaPipe 478-point model) ---
 const RIGHT_IRIS_CENTER = 468;
@@ -54,58 +66,123 @@ const GPU_WARNLIST: RegExp[] = [
 ];
 
 // ============================================================
+// One Euro Filter — adaptive low-pass filter for noisy signals
+// Reference: Casiez et al., CHI 2012
+// https://gery.casiez.net/1euro/
+// ============================================================
+
+class LowPassFilter {
+  private s = 0;
+  private initialized = false;
+  private raw = 0;
+
+  hasLastRaw(): boolean { return this.initialized; }
+  lastRaw(): number { return this.raw; }
+
+  filter(value: number, alpha: number): number {
+    this.raw = value;
+    if (this.initialized) {
+      this.s = alpha * value + (1 - alpha) * this.s;
+    } else {
+      this.s = value;
+      this.initialized = true;
+    }
+    return this.s;
+  }
+}
+
+class OneEuroFilter {
+  private freq: number;
+  private mincutoff: number;
+  private beta: number;
+  private dcutoff: number;
+  private xFilt = new LowPassFilter();
+  private dxFilt = new LowPassFilter();
+  private lastTime = -1;
+
+  constructor(freq: number, mincutoff: number, beta: number, dcutoff: number) {
+    this.freq = freq;
+    this.mincutoff = mincutoff;
+    this.beta = beta;
+    this.dcutoff = dcutoff;
+  }
+
+  private alpha(cutoff: number): number {
+    const te = 1.0 / this.freq;
+    const tau = 1.0 / (2 * Math.PI * cutoff);
+    return 1.0 / (1.0 + tau / te);
+  }
+
+  filter(value: number, timestamp: number): number {
+    // Auto-adjust frequency from timestamps
+    if (this.lastTime >= 0) {
+      const dt = timestamp - this.lastTime;
+      if (dt > 0) this.freq = 1.0 / dt;
+    }
+    this.lastTime = timestamp;
+
+    // Estimate derivative
+    const dvalue = this.xFilt.hasLastRaw()
+      ? (value - this.xFilt.lastRaw()) * this.freq
+      : 0;
+    const edvalue = this.dxFilt.filter(dvalue, this.alpha(this.dcutoff));
+
+    // Adaptive cutoff: low when still (jitter removal), high when moving (low lag)
+    const cutoff = this.mincutoff + this.beta * Math.abs(edvalue);
+    return this.xFilt.filter(value, this.alpha(cutoff));
+  }
+}
+
+// ============================================================
 // Pure helper functions
 // ============================================================
 
 /**
  * Detects GPU capability for MediaPipe GPU delegate.
  *
- * Strategy:
- * 1. Create WebGL2 context with high-performance preference
- * 2. Query GPU renderer name via WEBGL_debug_renderer_info extension
- * 3. Match against blocklist (software renderers) and warnlist (legacy GPUs)
- * 4. Release WebGL context to avoid resource conflicts with MediaPipe
- *
- * Why this is needed:
- * - MediaPipe GPU delegate uses WebGL internally
- * - Older GPUs (GCN 1.0, Mali-T) crash with GPU delegate due to driver bugs
- * - Software renderers (SwiftShader, llvmpipe) are too slow for real-time tracking
- *
- * Returns:
- * - canUseGPU: true if GPU is compatible with MediaPipe GPU delegate
- * - renderer: GPU renderer name (e.g., "ANGLE (AMD Radeon RX 6800)")
- * - reason: Human-readable explanation of the decision
+ * Uses a SEPARATE canvas for probing to avoid resource conflicts with MediaPipe.
+ * After probing, the canvas is discarded (GC handles context cleanup).
+ * We do NOT call WEBGL_lose_context because:
+ * - It is asynchronous and can race with MediaPipe's WebGL context creation
+ * - Discarding the canvas element achieves the same cleanup without race conditions
  */
-function detectGPUCapability(): { canUseGPU: boolean; renderer: string; reason: string } {
+async function detectGPUCapability(): Promise<{ canUseGPU: boolean; renderer: string; reason: string }> {
   const result = { canUseGPU: false, renderer: 'unknown', reason: '' };
 
-  const canvas = document.createElement('canvas');
+  // Use a separate canvas that will be GC'd after this function
+  const probeCanvas = document.createElement('canvas');
+  probeCanvas.width = 1;
+  probeCanvas.height = 1;
   let gl: WebGL2RenderingContext | null = null;
+  let performanceCaveat = false;
 
+  // Try with failIfMajorPerformanceCaveat to detect software/slow GPUs.
+  // If it fails, we still allow GPU — the smoke test and runtime fallback
+  // provide additional safety layers. This avoids incorrectly blocking
+  // capable GPUs like RDNA3 that report false performance caveats on ANGLE/D3D11.
   try {
-    gl = canvas.getContext('webgl2', {
+    gl = probeCanvas.getContext('webgl2', {
       failIfMajorPerformanceCaveat: true,
       powerPreference: 'high-performance',
     });
   } catch {
-    result.reason = 'WebGL2 context creation failed';
-    return result;
+    // Some browsers throw instead of returning null
   }
 
   if (!gl) {
-    // Retry without failIfMajorPerformanceCaveat
-    // Some GPUs (RDNA3, etc) report performance caveat even though they're fast
-    try { gl = canvas.getContext('webgl2'); } catch { /* ignore */ }
+    performanceCaveat = true;
+    // Retry on a fresh canvas without the caveat flag
+    const fallbackCanvas = document.createElement('canvas');
+    fallbackCanvas.width = 1;
+    fallbackCanvas.height = 1;
+    try { gl = fallbackCanvas.getContext('webgl2'); } catch { /* ignore */ }
     if (!gl) {
       result.reason = 'WebGL 2.0 not available';
       return result;
     }
-    // WebGL2 available but with performance caveat - still try to use GPU
-    // We'll validate renderer name below to filter out software renderers
   }
 
-  // Try WEBGL_debug_renderer_info first, fall back to gl.RENDERER
-  // Firefox deprecated the extension and returns privacy-approximated names
+  // Query renderer name
   const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
   if (debugInfo) {
     result.renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || 'unknown';
@@ -113,14 +190,9 @@ function detectGPUCapability(): { canUseGPU: boolean; renderer: string; reason: 
     result.renderer = gl.getParameter(gl.RENDERER) || 'unknown';
   }
 
-  // Release WebGL context before MediaPipe init to avoid resource conflicts
-  const loseCtx = gl.getExtension('WEBGL_lose_context');
-  if (loseCtx) loseCtx.loseContext();
+  // Do NOT call loseContext() — let GC handle cleanup to avoid async race with MediaPipe.
+  // The probeCanvas goes out of scope and gets collected.
 
-  // Firefox privacy: renderer names ending with "or similar" are approximations
-  // e.g., RX 7900 XTX (RDNA3) is reported as "Radeon R9 200 Series ... or similar"
-  // In this case, only apply blocklist (software renderers), skip warnlist (legacy GPUs)
-  // because the reported name does not reflect the actual hardware.
   const isApproximated = /or similar/i.test(result.renderer);
 
   for (const pattern of GPU_BLOCKLIST) {
@@ -140,25 +212,13 @@ function detectGPUCapability(): { canUseGPU: boolean; renderer: string; reason: 
   }
 
   result.canUseGPU = true;
+  const caveatNote = performanceCaveat ? ' (performance caveat reported, proceeding anyway)' : '';
   result.reason = isApproximated
-    ? `GPU allowed (Firefox privacy-approximated name): ${result.renderer}`
-    : `Compatible GPU: ${result.renderer}`;
+    ? `GPU allowed (Firefox privacy-approximated name): ${result.renderer}${caveatNote}`
+    : `Compatible GPU: ${result.renderer}${caveatNote}`;
   return result;
 }
 
-/**
- * Safe division with fallback for degenerate eye geometry.
- *
- * MediaPipe landmarks are normalized to [0,1] range. When eye is closed or
- * landmarks are unstable, denominators can approach zero, causing:
- * - Division by zero (Infinity)
- * - Extreme ratios that break screen coordinate mapping
- *
- * We use ZERO_DIVISION_EPSILON = 0.0001 because:
- * - Typical eye width in normalized coords is ~0.05-0.1
- * - Values < 0.0001 indicate degenerate geometry (closed eye, detection error)
- * - Fallback to 0.5 (screen center) is the safest neutral position
- */
 function safeRatio(numerator: number, denominator: number, fallback = 0.5): number {
   if (Math.abs(denominator) < ZERO_DIVISION_EPSILON) return fallback;
   const r = numerator / denominator;
@@ -166,26 +226,13 @@ function safeRatio(numerator: number, denominator: number, fallback = 0.5): numb
 }
 
 /**
- * Converts MediaPipe face landmarks to gaze coordinates.
- *
- * Algorithm:
- * 1. Extract iris centers (landmarks 468, 473) for both eyes
- * 2. Compute gaze ratio: (iris - outer_corner) / (inner_corner - outer_corner)
- * 3. Average left/right eyes to get binocular gaze direction
- * 4. Apply exponential smoothing to reduce jitter (alpha = 0.4-0.5)
- * 5. Map normalized [0,1] coords to screen pixels
- * 6. Detect fixation: distance from center < threshold
- *
- * MediaPipe 478-point model landmark indices:
- * - Right iris center: 468
- * - Left iris center: 473
- * - Eye corners: used to normalize iris position within eye bounds
+ * Extracts raw gaze ratios from MediaPipe face landmarks.
+ * Returns normalized [0,1] ratios for X and Y axes.
+ * No smoothing or screen mapping — pure geometric extraction.
  */
-function processLandmarks(
+function extractGazeRatios(
   lm: { x: number; y: number }[],
-  prevGaze: { x: number; y: number },
-  alpha: number,
-): { gazeData: GazeData; smoothX: number; smoothY: number } | null {
+): { rawX: number; rawY: number } | null {
   if (lm.length < MIN_LANDMARKS_FOR_IRIS) return null;
 
   const rightGazeX = safeRatio(
@@ -205,28 +252,48 @@ function processLandmarks(
     lm[LEFT_EYE_BOTTOM].y - lm[LEFT_EYE_TOP].y,
   );
 
-  const rawX = (rightGazeX + leftGazeX) / 2;
+  // Left eye X ratio runs opposite to right eye due to mirrored geometry
+  const rawX = (rightGazeX + (1 - leftGazeX)) / 2;
   const rawY = (rightGazeY + leftGazeY) / 2;
 
-  const smoothX = prevGaze.x * (1 - alpha) + rawX * alpha;
-  const smoothY = prevGaze.y * (1 - alpha) + rawY * alpha;
+  return { rawX, rawY };
+}
+
+/**
+ * Maps filtered gaze ratios to screen coordinates with dead zone.
+ *
+ * Pipeline:
+ * 1. Apply GAIN to expand the usable ratio range to full screen
+ * 2. Map to screen pixel coordinates
+ * 3. Apply dead zone: if new position is within DEAD_ZONE_PX of current,
+ *    keep the current position to eliminate residual jitter
+ */
+function mapGazeToScreen(
+  smoothX: number,
+  smoothY: number,
+  lastPos: { x: number; y: number },
+): GazeData {
+  const expandedX = 0.5 + (smoothX - 0.5) * GAIN_X;
+  const expandedY = 0.5 + (smoothY - 0.5) * GAIN_Y;
 
   const screenW = window.innerWidth;
   const screenH = window.innerHeight;
-  const clampedX = Math.max(0, Math.min(screenW - 1, Math.round((1 - smoothX) * screenW)));
-  const clampedY = Math.max(0, Math.min(screenH - 1, Math.round(smoothY * screenH)));
+  // X: mirror because raw webcam image is not flipped — user's right appears on image left
+  // Y: direct mapping — looking down increases both rawY and screen Y
+  const candidateX = Math.max(0, Math.min(screenW - 1, Math.round((1 - expandedX) * screenW)));
+  const candidateY = Math.max(0, Math.min(screenH - 1, Math.round(expandedY * screenH)));
 
-  const centerDist = Math.sqrt((smoothX - 0.5) ** 2 + (smoothY - 0.5) ** 2);
+  // Dead zone: suppress micro-movements within threshold
+  const dx = candidateX - lastPos.x;
+  const dy = candidateY - lastPos.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const insideDeadZone = dist < DEAD_ZONE_PX && lastPos.x >= 0;
 
   return {
-    gazeData: {
-      x: clampedX,
-      y: clampedY,
-      confidence: FACE_DETECTED_CONFIDENCE,
-      fixated: centerDist < FIXATION_CENTER_DISTANCE_THRESHOLD,
-    },
-    smoothX,
-    smoothY,
+    x: insideDeadZone ? lastPos.x : candidateX,
+    y: insideDeadZone ? lastPos.y : candidateY,
+    confidence: FACE_DETECTED_CONFIDENCE,
+    fixated: insideDeadZone,
   };
 }
 
@@ -261,7 +328,7 @@ function noFaceGaze(): GazeData {
 }
 
 // ============================================================
-// Detection loop config — unifies GPU and CPU loops (DRY)
+// Detection loop config
 // ============================================================
 
 const EMPTY_RESULT: FaceLandmarkerResult = {
@@ -274,16 +341,17 @@ interface DetectionLoopRefs {
   landmarkerRef: React.MutableRefObject<FaceLandmarker | null>;
   timerRef: React.MutableRefObject<number>;
   errorCountRef: React.MutableRefObject<number>;
-  prevGazeRef: React.MutableRefObject<{ x: number; y: number }>;
   cancelledRef: React.MutableRefObject<boolean>;
   lastTimestampRef: React.MutableRefObject<number>;
   lastVideoTimeRef: React.MutableRefObject<number>;
+  filterXRef: React.MutableRefObject<OneEuroFilter>;
+  filterYRef: React.MutableRefObject<OneEuroFilter>;
+  lastScreenPosRef: React.MutableRefObject<{ x: number; y: number }>;
 }
 
 interface DetectionConfig {
   interval: number;
   maxErrors: number;
-  alpha: number;
   initDelay: number;
   detect: (landmarker: FaceLandmarker) => FaceLandmarkerResult;
   onMaxErrors: () => void;
@@ -308,16 +376,29 @@ function startDetectionLoop(refs: DetectionLoopRefs, config: DetectionConfig) {
         const nextInterval = Math.max(config.interval, elapsed * 1.5);
 
         if (result.faceLandmarks && result.faceLandmarks.length > 0) {
-          const processed = processLandmarks(
-            result.faceLandmarks[0],
-            refs.prevGazeRef.current,
-            config.alpha,
-          );
-          if (processed) {
+          const raw = extractGazeRatios(result.faceLandmarks[0]);
+          if (raw) {
             refs.errorCountRef.current = 0;
-            refs.prevGazeRef.current = { x: processed.smoothX, y: processed.smoothY };
-            config.onResult(processed.gazeData);
-            dispatchGaze(processed.gazeData);
+
+            // One Euro Filter: adaptive smoothing (timestamp in seconds)
+            const now = performance.now() / 1000;
+            const smoothX = refs.filterXRef.current.filter(raw.rawX, now);
+            const smoothY = refs.filterYRef.current.filter(raw.rawY, now);
+
+            // Map to screen with dead zone
+            const gazeData = mapGazeToScreen(
+              smoothX,
+              smoothY,
+              refs.lastScreenPosRef.current,
+            );
+
+            // Update anchor only when cursor actually moved (outside dead zone)
+            if (!gazeData.fixated) {
+              refs.lastScreenPosRef.current = { x: gazeData.x, y: gazeData.y };
+            }
+
+            config.onResult(gazeData);
+            dispatchGaze(gazeData);
           }
         } else {
           config.onNoFace();
@@ -351,13 +432,18 @@ export function useGazeDetection() {
   const lastTimestampRef = useRef<number>(0);
   const lastVideoTimeRef = useRef<number>(-1);
   const initRef = useRef(false);
-  const prevGazeRef = useRef<{ x: number; y: number }>({ x: 0.5, y: 0.5 });
   const offCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const offCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const delegateModeRef = useRef<DelegateMode>('cpu');
   const streamRef = useRef<MediaStream | null>(null);
   const cancelledRef = useRef(false);
   const filesetRef = useRef<VisionFileset | null>(null);
+
+  // One Euro Filter instances (one per axis)
+  const filterXRef = useRef(new OneEuroFilter(ONE_EURO_INITIAL_FREQ, ONE_EURO_MINCUTOFF, ONE_EURO_BETA, ONE_EURO_DCUTOFF));
+  const filterYRef = useRef(new OneEuroFilter(ONE_EURO_INITIAL_FREQ, ONE_EURO_MINCUTOFF, ONE_EURO_BETA, ONE_EURO_DCUTOFF));
+  // Dead zone anchor: last committed screen position
+  const lastScreenPosRef = useRef<{ x: number; y: number }>({ x: -1, y: -1 });
 
   const [gaze, setGaze] = useState<GazeData | null>(null);
   const [status, setStatus] = useState<TrackerStatus>('loading');
@@ -369,12 +455,14 @@ export function useGazeDetection() {
       landmarkerRef,
       timerRef,
       errorCountRef,
-      prevGazeRef,
       cancelledRef,
       lastTimestampRef,
       lastVideoTimeRef,
+      filterXRef,
+      filterYRef,
+      lastScreenPosRef,
     }),
-    [] // Refs never change, so empty dependency array
+    [],
   );
 
   const buildCpuDetectFn = (video: HTMLVideoElement) => {
@@ -419,7 +507,6 @@ export function useGazeDetection() {
     startDetectionLoop(loopRefs, {
       interval: CPU_DETECT_INTERVAL,
       maxErrors: MAX_CPU_ERRORS,
-      alpha: CPU_ALPHA,
       initDelay: INIT_DELAY_CPU,
       detect: buildCpuDetectFn(video),
       onMaxErrors: onMaxErrors ?? (() => {
@@ -466,7 +553,6 @@ export function useGazeDetection() {
     startDetectionLoop(loopRefs, {
       interval: GPU_DETECT_INTERVAL,
       maxErrors: MAX_GPU_ERRORS,
-      alpha: GPU_ALPHA,
       initDelay: INIT_DELAY_GPU,
       detect: buildGpuDetectFn(video),
       onMaxErrors: () => {
@@ -486,7 +572,7 @@ export function useGazeDetection() {
     const init = async () => {
       try {
         // Step 1: Detect GPU capability
-        const gpuInfo = detectGPUCapability();
+        const gpuInfo = await detectGPUCapability();
         console.debug(`GPU detection: canUseGPU=${gpuInfo.canUseGPU}, renderer="${gpuInfo.renderer}", reason="${gpuInfo.reason}"`);
 
         // Step 2: Load WASM fileset
@@ -505,31 +591,42 @@ export function useGazeDetection() {
             landmarker = await createLandmarker(fileset, 'GPU', 'VIDEO');
             if (cancelledRef.current) { landmarker.close(); return; }
 
-            // Smoke test: Verify GPU delegate actually works at runtime
-            //
-            // Why we use detect() on a VIDEO-mode landmarker:
-            // - MediaPipe's detect() is a convenience method that works in any mode
-            // - It internally processes the image as a single frame (IMAGE mode behavior)
-            // - detectForVideo() requires a live video stream, which we don't have yet
-            // - This tests GPU initialization without requiring camera access first
-            //
-            // Note: Some GPUs pass createFromOptions() but crash on first detect() call
-            // (e.g., GCN 1.0 GPUs with certain driver versions). This catches those cases.
+            // Smoke test: use detectForVideo() (correct API for VIDEO mode).
+            // Previous code used detect() which is IMAGE mode API — this caused
+            // false failures on GPU delegates that only support VIDEO mode operations.
             const testCanvas = document.createElement('canvas');
             testCanvas.width = 320;
             testCanvas.height = 240;
             const testCtx = testCanvas.getContext('2d');
             if (testCtx) testCtx.fillRect(0, 0, 320, 240);
-            landmarker.detect(testCanvas);
-            console.debug('GPU smoke test passed.');
+            landmarker.detectForVideo(testCanvas, performance.now());
+            console.debug('GPU smoke test passed (detectForVideo).');
             useGpu = true;
           } catch (err) {
-            console.warn('GPU delegate failed during init/smoke test, falling back to CPU:', err);
-            try { landmarker!.close(); } catch { /* ignore */ }
-            landmarker = await createLandmarker(fileset, 'CPU', 'IMAGE');
-            if (cancelledRef.current) { landmarker.close(); return; }
-            delegateModeRef.current = 'cpu-fallback';
-            setDelegateLabel('CPU fallback');
+            console.warn('GPU delegate failed during init/smoke test:', err);
+            // Retry once — transient WebGL init failures are common on ANGLE/AMD
+            try {
+              console.debug('Retrying GPU delegate...');
+              try { landmarker!.close(); } catch { /* ignore */ }
+              await new Promise(r => setTimeout(r, 200));
+              landmarker = await createLandmarker(fileset, 'GPU', 'VIDEO');
+              if (cancelledRef.current) { landmarker.close(); return; }
+              const retryCanvas = document.createElement('canvas');
+              retryCanvas.width = 320;
+              retryCanvas.height = 240;
+              const retryCtx = retryCanvas.getContext('2d');
+              if (retryCtx) retryCtx.fillRect(0, 0, 320, 240);
+              landmarker.detectForVideo(retryCanvas, performance.now());
+              console.debug('GPU smoke test passed on retry.');
+              useGpu = true;
+            } catch (retryErr) {
+              console.warn('GPU delegate failed on retry, falling back to CPU:', retryErr);
+              try { landmarker!.close(); } catch { /* ignore */ }
+              landmarker = await createLandmarker(fileset, 'CPU', 'IMAGE');
+              if (cancelledRef.current) { landmarker.close(); return; }
+              delegateModeRef.current = 'cpu-fallback';
+              setDelegateLabel('CPU fallback');
+            }
           }
         } else {
           console.debug(`GPU blocked: ${gpuInfo.reason}. Using CPU delegate.`);
@@ -552,8 +649,8 @@ export function useGazeDetection() {
         // Step 4: Request camera
         setStatus('requesting');
         console.debug('Requesting camera access...');
-        const cameraWidth = useGpu ? 640 : 320;
-        const cameraHeight = useGpu ? 480 : 240;
+        const cameraWidth = useGpu ? 960 : 640;
+        const cameraHeight = useGpu ? 720 : 480;
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: cameraWidth }, height: { ideal: cameraHeight }, facingMode: 'user' },
         });
@@ -562,7 +659,6 @@ export function useGazeDetection() {
 
         const video = videoRef.current;
         if (!video) {
-          // Fix stream leak: stop tracks if video element is gone
           stream.getTracks().forEach(t => t.stop());
           return;
         }
@@ -608,7 +704,7 @@ export function useGazeDetection() {
     };
   }, []);
 
-  const fpsLabel = delegateModeRef.current === 'gpu' ? '~30fps' : '~4fps';
+  const fpsLabel = delegateModeRef.current === 'gpu' ? '~30fps' : '~15fps';
 
   return { videoRef, gaze, status, errorMsg, delegateLabel, fpsLabel };
 }
