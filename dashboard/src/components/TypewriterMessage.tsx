@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useTypewriter } from '../hooks/useTypewriter';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
@@ -9,10 +9,20 @@ interface TypewriterMessageProps {
 }
 
 export function TypewriterMessage({ text, onComplete, onCodeBlock }: TypewriterMessageProps) {
+  const onCodeBlockRef = useRef(onCodeBlock);
+  onCodeBlockRef.current = onCodeBlock;
+
+  // Final scan before completion: extract code blocks from the full text
+  const handleComplete = useCallback(() => {
+    // Trigger a final scan with the full text by deferring onComplete
+    // so MarkdownRenderer has one render cycle with onCodeBlock enabled
+    requestAnimationFrame(() => onComplete());
+  }, [onComplete]);
+
   const { displayText, isAnimating, skip } = useTypewriter({
     text,
     speed: 5,
-    onComplete,
+    onComplete: handleComplete,
   });
 
   // Skip on Enter key
@@ -29,12 +39,13 @@ export function TypewriterMessage({ text, onComplete, onCodeBlock }: TypewriterM
     if (isAnimating) skip();
   }, [isAnimating, skip]);
 
+  // Always pass onCodeBlock — MarkdownRenderer deduplicates via useArtifacts
   return (
     <div onClick={handleClick} className={isAnimating ? 'cursor-pointer' : ''}>
       <MarkdownRenderer
         content={displayText}
         incremental={isAnimating}
-        onCodeBlock={isAnimating ? undefined : onCodeBlock}
+        onCodeBlock={onCodeBlock}
       />
       {isAnimating && (
         <span className="inline-block w-[2px] h-[1em] bg-current animate-blink ml-0.5 align-text-bottom" />
