@@ -34,6 +34,7 @@ export function McpServerSettingsTab({ server, apiKey, onRefresh }: Props) {
       const entries = Object.entries(env).map(([key, value]) => ({ key, value }));
       setEnvEntries(entries);
       setInitialEnvKeys(new Set(Object.keys(env)));
+      setInitialEnvValues({ ...env });
       setVisibleKeys(new Set());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings');
@@ -96,6 +97,9 @@ export function McpServerSettingsTab({ server, apiKey, onRefresh }: Props) {
     });
   };
 
+  // Track initial values to detect actual changes
+  const [initialEnvValues, setInitialEnvValues] = useState<Record<string, string>>({});
+
   // Detect changes
   const envChanged = (() => {
     if (!settings) return false;
@@ -104,8 +108,7 @@ export function McpServerSettingsTab({ server, apiKey, onRefresh }: Props) {
     for (const key of initialEnvKeys) {
       if (!currentKeys.has(key)) return true;
     }
-    // Check if any values were changed (not "***")
-    return envEntries.some(e => e.value !== '***');
+    return envEntries.some(e => e.value !== (initialEnvValues[e.key] ?? ''));
   })();
 
   const hasChanges = (settings && defaultPolicy !== settings.default_policy) || envChanged;
@@ -153,9 +156,9 @@ export function McpServerSettingsTab({ server, apiKey, onRefresh }: Props) {
               <div className="relative flex-1">
                 <input
                   type={visibleKeys.has(entry.key) ? 'text' : 'password'}
-                  value={entry.value}
-                  onChange={e => updateEnvValue(entry.key, e.target.value)}
-                  placeholder={initialEnvKeys.has(entry.key) ? 'Unchanged' : ''}
+                  value={entry.value === '***' ? '' : entry.value}
+                  onChange={e => updateEnvValue(entry.key, e.target.value || '***')}
+                  placeholder={entry.value === '***' ? '••••••• (saved)' : ''}
                   className="w-full text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 pr-7 text-content-primary placeholder:text-content-muted focus:outline-none focus:border-brand transition-colors"
                 />
                 <button
