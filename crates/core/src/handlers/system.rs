@@ -73,16 +73,6 @@ impl SystemHandler {
             .await
             .ok();
 
-        // 1b. エージェントに割り当てられたプラグインIDを取得
-        let agent_plugin_ids: Vec<String> = self
-            .agent_manager
-            .get_agent_plugins(&target_agent_id)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|r| r.plugin_id)
-            .collect();
-
         // 2. メモリからのコンテキスト取得 (Dual Dispatch: Rust Plugin → MCP Server)
         let memory_plugin = if let Some(preferred_id) = agent.metadata.get("preferred_memory") {
             self.registry.get_engine(preferred_id).await
@@ -246,7 +236,7 @@ impl SystemHandler {
                     &engine_id,
                     &msg,
                     context,
-                    &agent_plugin_ids,
+                    &granted_server_ids,
                     trace_id,
                 )
                 .await
