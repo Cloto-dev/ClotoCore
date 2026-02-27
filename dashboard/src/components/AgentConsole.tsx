@@ -73,11 +73,12 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const [isLoading, setIsLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [pendingResponse, setPendingResponse] = useState<{ id: string; text: string } | null>(null);
+  const [pendingResponse, setPendingResponse] = useState<{ id: string; text: string; elapsedSecs: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
   const isScrolledToBottom = useRef(true);
+  const sendTimestampRef = useRef<number>(0);
   const artifactPanel = useArtifacts();
 
   // Load initial messages from server
@@ -176,6 +177,9 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     if (event.type === 'ThoughtResponse' && event.data.agent_id === agent.id) {
       setIsTyping(false);
       const msgId = event.data.source_message_id + "-resp";
+      const elapsedSecs = sendTimestampRef.current > 0
+        ? Math.round((Date.now() - sendTimestampRef.current) / 100) / 10
+        : 0;
 
       // If a previous typewriter is still running, finalize it immediately
       setPendingResponse(prev => {
@@ -184,11 +188,12 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             id: prev.id, agent_id: agent.id, user_id: 'default',
             source: 'agent',
             content: [{ type: 'text', text: prev.text }],
+            metadata: { elapsed_secs: prev.elapsedSecs },
             created_at: Date.now(),
           };
           setMessages(msgs => [...msgs, prevMsg]);
         }
-        return { id: msgId, text: event.data.content };
+        return { id: msgId, text: event.data.content, elapsedSecs };
       });
 
       // Persist agent response to server (fire-and-forget)
@@ -208,6 +213,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         id: prev.id, agent_id: agent.id, user_id: 'default',
         source: 'agent',
         content: [{ type: 'text', text: prev.text }],
+        metadata: { elapsed_secs: prev.elapsedSecs },
         created_at: Date.now(),
       };
       setMessages(msgs => [...msgs, agentMsg]);
@@ -238,6 +244,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsTyping(true);
+    sendTimestampRef.current = Date.now();
 
     try {
       // Persist user message first — cancel send if this fails
@@ -359,6 +366,11 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                     : 'pt-1 text-content-primary'
                 }`}>
                   <MessageContent content={msg.content} />
+                  {!isUser && msg.metadata?.elapsed_secs != null && (
+                    <div className="mt-1 text-[10px] font-mono text-content-muted">
+                      {msg.metadata.elapsed_secs}s
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -377,6 +389,11 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                 onComplete={handleTypewriterComplete}
                 onCodeBlock={handleCodeBlockExtracted}
               />
+              {pendingResponse.elapsedSecs > 0 && (
+                <div className="mt-1 text-[10px] font-mono text-content-muted">
+                  {pendingResponse.elapsedSecs}s
+                </div>
+              )}
             </div>
           </div>
         )}
