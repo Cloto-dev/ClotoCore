@@ -92,8 +92,13 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
         const { messages: loaded, has_more } = await api.getChatMessages(agent.id, apiKey, undefined, 50);
         // API returns newest-first; reverse for display (oldest at top)
-        setMessages(loaded.reverse());
+        const reversed = loaded.reverse();
+        setMessages(reversed);
         setHasMore(has_more);
+        // Restore typing state: if last message is from user, agent is likely still processing
+        if (reversed.length > 0 && reversed[reversed.length - 1].source === 'user') {
+          setIsTyping(true);
+        }
       } catch (err) {
         console.error('Failed to load chat messages:', err);
       } finally {

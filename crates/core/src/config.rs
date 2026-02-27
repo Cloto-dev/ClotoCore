@@ -57,7 +57,7 @@ impl AppConfig {
             env::var("DEFAULT_AGENT_ID").unwrap_or_else(|_| "agent.cloto_default".to_string());
 
         let plugin_event_timeout_secs = env::var("PLUGIN_EVENT_TIMEOUT_SECS")
-            .unwrap_or_else(|_| "30".to_string())
+            .unwrap_or_else(|_| "120".to_string())
             .parse::<u64>()
             .context("Failed to parse PLUGIN_EVENT_TIMEOUT_SECS")?;
 
