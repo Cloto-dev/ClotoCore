@@ -1,11 +1,12 @@
 import { ContentBlock } from '../types';
 import { api } from '../services/api';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
 /** Render a single ContentBlock */
 export function ContentBlockView({ block }: { block: ContentBlock }) {
   switch (block.type) {
     case 'text':
-      return <span>{block.text}</span>;
+      return <MarkdownRenderer content={block.text || ''} />;
     case 'image':
       return (
         <img

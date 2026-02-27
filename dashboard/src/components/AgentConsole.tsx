@@ -7,6 +7,10 @@ import { useLongPress } from '../hooks/useLongPress';
 import { MessageContent } from './ContentBlockView';
 import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
+import { SkeletonThinking } from './SkeletonThinking';
+import { TypewriterMessage } from './TypewriterMessage';
+import { ArtifactPanel } from './ArtifactPanel';
+import { useArtifacts } from '../hooks/useArtifacts';
 
 // Legacy localStorage key prefix for migration
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
@@ -69,9 +73,12 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const [isLoading, setIsLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [pendingResponse, setPendingResponse] = useState<{ id: string; text: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
+  const isScrolledToBottom = useRef(true);
+  const artifactPanel = useArtifacts();
 
   // Load initial messages from server
   useEffect(() => {
@@ -96,12 +103,18 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     loadMessages();
   }, [agent.id, apiKey]);
 
-  // Scroll to bottom on initial load and new messages
+  // Scroll to bottom on initial load and new messages (only if user is at bottom)
   useEffect(() => {
-    if (!isLoading && scrollRef.current) {
+    if (!isLoading && isScrolledToBottom.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages.length, isLoading]);
+  }, [messages.length, isLoading, pendingResponse]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    isScrolledToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+  }, []);
 
   // Lazy load older messages on scroll to top
   useEffect(() => {
@@ -157,27 +170,55 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   useEventStream(EVENTS_URL, (event) => {
     if (event.type === 'ThoughtResponse' && event.data.agent_id === agent.id) {
       setIsTyping(false);
-      const agentMsg: ChatMessage = {
-        id: event.data.source_message_id + "-resp",
-        agent_id: agent.id,
-        user_id: 'default',
-        source: 'agent',
-        content: [{ type: 'text', text: event.data.content }],
-        created_at: Date.now(),
-      };
-      setMessages(prev => [...prev, agentMsg]);
+      const msgId = event.data.source_message_id + "-resp";
+
+      // If a previous typewriter is still running, finalize it immediately
+      setPendingResponse(prev => {
+        if (prev) {
+          const prevMsg: ChatMessage = {
+            id: prev.id, agent_id: agent.id, user_id: 'default',
+            source: 'agent',
+            content: [{ type: 'text', text: prev.text }],
+            created_at: Date.now(),
+          };
+          setMessages(msgs => [...msgs, prevMsg]);
+        }
+        return { id: msgId, text: event.data.content };
+      });
 
       // Persist agent response to server (fire-and-forget)
       api.postChatMessage(agent.id, {
-        id: agentMsg.id,
+        id: msgId,
         source: 'agent',
-        content: agentMsg.content,
+        content: [{ type: 'text', text: event.data.content }],
       }, apiKey).catch(err => console.error('Failed to persist agent response:', err));
     }
   });
 
+  // Typewriter completion: move pending response to static messages
+  const handleTypewriterComplete = useCallback(() => {
+    setPendingResponse(prev => {
+      if (!prev) return null;
+      const agentMsg: ChatMessage = {
+        id: prev.id, agent_id: agent.id, user_id: 'default',
+        source: 'agent',
+        content: [{ type: 'text', text: prev.text }],
+        created_at: Date.now(),
+      };
+      setMessages(msgs => [...msgs, agentMsg]);
+      return null;
+    });
+  }, [agent.id]);
+
+  const handleCodeBlockExtracted = useCallback((code: string, language: string, lineCount: number) => {
+    if (lineCount >= 15) {
+      artifactPanel.addArtifact({ code, language, lineCount });
+    }
+  }, [artifactPanel.addArtifact]);
+
   const sendMessage = async () => {
-    if (!input.trim() || isTyping) return;
+    if (!input.trim() || isTyping || pendingResponse) return;
+    artifactPanel.clearArtifacts();
 
     const msgId = Date.now().toString();
     const userMsg: ChatMessage = {
@@ -237,7 +278,9 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const handleReset = async () => {
     setMessages([]);
     setIsTyping(false);
+    setPendingResponse(null);
     setHasMore(false);
+    artifactPanel.clearArtifacts();
     try {
       await api.deleteChatMessages(agent.id, apiKey);
     } catch (err) {
@@ -270,8 +313,12 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         <LongPressResetButton onReset={handleReset} />
       </div>
 
+      {/* Content area: chat + optional artifact panel */}
+      <div className="flex flex-1 overflow-hidden">
+      {/* Chat column */}
+      <div className="flex flex-col flex-1 min-w-0">
       {/* Message Stream */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
         {/* Sentinel for lazy loading older messages */}
         {hasMore && <div ref={sentinelRef} className="h-1" />}
         {isLoadingMore && (
@@ -285,7 +332,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             <Activity size={24} className="animate-pulse" />
             <p className="text-[10px] font-mono tracking-[0.2em] uppercase">Loading session...</p>
           </div>
-        ) : messages.length === 0 ? (
+        ) : messages.length === 0 && !pendingResponse && !isTyping ? (
           <div className="h-full flex flex-col items-center justify-center text-content-muted space-y-4">
             <Zap size={32} strokeWidth={1} className="opacity-20" />
             <p className="text-[10px] font-mono tracking-[0.2em] uppercase">Ready for instructions</p>
@@ -311,15 +358,29 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             );
           })
         )}
-        {isTyping && (
-          <div className="flex items-start gap-3 animate-pulse">
-            <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0" style={{ backgroundColor: agentColor(agent) }}>
-              <Activity size={14} />
+        {/* Typewriter animation for current response */}
+        {pendingResponse && (
+          <div className="flex items-start gap-3 message-enter">
+            <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm"
+                 style={{ backgroundColor: agentColor(agent) }}>
+              <AgentIcon agent={agent} size={14} />
             </div>
-            <div className="bg-surface-secondary text-content-tertiary p-3 rounded-2xl rounded-tl-none text-[10px] font-mono">
-              THINKING...
+            <div className="max-w-[80%] p-4 rounded-2xl text-xs leading-relaxed shadow-sm select-text text-white rounded-tl-none"
+                 style={{ backgroundColor: agentColor(agent) }}>
+              <TypewriterMessage
+                text={pendingResponse.text}
+                onComplete={handleTypewriterComplete}
+                onCodeBlock={handleCodeBlockExtracted}
+              />
             </div>
           </div>
+        )}
+        {/* Skeleton (waiting for SSE response) */}
+        {isTyping && (
+          <SkeletonThinking
+            agentColor={agentColor(agent)}
+            agentIcon={<AgentIcon agent={agent} size={14} />}
+          />
         )}
       </div>
 
@@ -331,19 +392,30 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-            disabled={isTyping}
-            placeholder={isTyping ? "PROCESSING..." : "ENTER COMMAND..."}
+            disabled={isTyping || !!pendingResponse}
+            placeholder={isTyping || pendingResponse ? "PROCESSING..." : "ENTER COMMAND..."}
             className="w-full bg-surface-primary border border-edge rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none focus:border-brand transition-colors placeholder:text-content-muted disabled:opacity-50 shadow-inner"
           />
           <button
             onClick={sendMessage}
-            disabled={isTyping || !input.trim()}
+            disabled={isTyping || !!pendingResponse || !input.trim()}
             className="absolute right-2 p-2 bg-brand text-white rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:grayscale disabled:scale-100 shadow-lg shadow-brand/20"
           >
             <Send size={16} />
           </button>
         </div>
       </div>
+      </div>{/* end chat column */}
+
+      {/* Artifact Panel */}
+      <ArtifactPanel
+        artifacts={artifactPanel.artifacts}
+        activeIndex={artifactPanel.activeIndex}
+        onTabChange={artifactPanel.setActiveIndex}
+        isOpen={artifactPanel.isOpen}
+        onClose={artifactPanel.closePanel}
+      />
+      </div>{/* end content area */}
     </div>
   );
 }

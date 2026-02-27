@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import 'highlight.js/styles/github-dark.css';
+
 @layer base {
   :root {
     /* Surfaces */
@@ -85,3 +87,80 @@ body.neural-cursor-active * {
   83%  { opacity: 1; }  /* hold until 25s */
   100% { opacity: 0; }  /* fade-out over last 5s */
 }
+
+/* ============================================================
+   v0.3.0 Chat UX
+   ============================================================ */
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer-line {
+  background: linear-gradient(90deg, rgba(0,0,0,0.06) 25%, rgba(0,0,0,0.12) 50%, rgba(0,0,0,0.06) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+.dark .shimmer-line {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Typewriter cursor */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.animate-blink {
+  animation: blink 0.8s step-end infinite;
+}
+
+/* Chat markdown prose */
+.chat-markdown p { margin-bottom: 0.5em; }
+.chat-markdown p:last-child { margin-bottom: 0; }
+.chat-markdown ul, .chat-markdown ol { margin: 0.5em 0; padding-left: 1.5em; }
+.chat-markdown ul { list-style: disc; }
+.chat-markdown ol { list-style: decimal; }
+.chat-markdown li { margin-bottom: 0.25em; }
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3, .chat-markdown h4 {
+  font-weight: 700; margin: 0.75em 0 0.25em;
+}
+.chat-markdown h1 { font-size: 1.25em; }
+.chat-markdown h2 { font-size: 1.1em; }
+.chat-markdown h3 { font-size: 1em; }
+.chat-markdown blockquote {
+  border-left: 2px solid currentColor; padding-left: 0.75em;
+  opacity: 0.8; margin: 0.5em 0;
+}
+.chat-markdown code:not(pre code) {
+  background: rgba(255,255,255,0.1); padding: 0.1em 0.4em;
+  border-radius: 0.25em; font-size: 0.9em;
+}
+.chat-markdown a { text-decoration: underline; opacity: 0.9; }
+.chat-markdown pre.hljs-code-block {
+  margin: 0.5em 0; border-radius: 0.5em; overflow-x: auto;
+  background: #0d1117 !important;
+}
+.chat-markdown table { border-collapse: collapse; margin: 0.5em 0; width: 100%; }
+.chat-markdown th, .chat-markdown td {
+  border: 1px solid rgba(255,255,255,0.15); padding: 0.3em 0.6em; text-align: left; font-size: 0.9em;
+}
+.chat-markdown th { font-weight: 700; }
+
+/* Artifact placeholder (inline in chat for code blocks >= 15 lines) */
+.artifact-placeholder {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.75em 1em; margin: 0.5em 0;
+  background: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.2);
+  border-radius: 0.5em; cursor: pointer; transition: background 0.2s;
+}
+.artifact-placeholder:hover { background: rgba(255,255,255,0.1); }
+
+/* Message entry animation */
+@keyframes messageIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.message-enter { animation: messageIn 300ms ease-out; }
