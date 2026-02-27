@@ -367,7 +367,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                 }`}>
                   <MessageContent content={msg.content} />
                   {!isUser && msg.metadata?.elapsed_secs != null && (
-                    <div className="mt-1 text-[10px] font-mono text-content-muted">
+                    <div className="mt-2 text-xs font-mono text-content-tertiary">
                       {msg.metadata.elapsed_secs}s
                     </div>
                   )}
