@@ -280,6 +280,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     setIsTyping(false);
     setPendingResponse(null);
     setHasMore(false);
+    initialLoadDone.current = false;
     artifactPanel.clearArtifacts();
     try {
       await api.deleteChatMessages(agent.id, apiKey);
