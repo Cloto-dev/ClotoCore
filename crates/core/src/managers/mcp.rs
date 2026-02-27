@@ -1447,7 +1447,15 @@ fn validate_mcp_code(code: &str) -> std::result::Result<(), Vec<String>> {
 
 impl McpClientManager {
     /// Execute the kernel-native create_mcp_server tool.
+    /// Requires YOLO mode to be enabled — autonomous server creation is a privileged operation.
     async fn execute_create_mcp_server(&self, args: Value) -> Result<Value> {
+        if !self.yolo_mode.load(Ordering::Relaxed) {
+            return Ok(serde_json::json!({
+                "status": "rejected",
+                "reason": "Autonomous MCP server creation requires YOLO mode to be enabled. Ask the operator to enable it in Settings.",
+            }));
+        }
+
         let name = args
             .get("name")
             .and_then(|v| v.as_str())
