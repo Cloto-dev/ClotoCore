@@ -929,14 +929,15 @@ pub struct McpServerRecord {
     pub description: Option<String>,
     pub created_at: i64,
     pub is_active: bool,
+    pub env: String, // JSON-serialized HashMap<String, String>
 }
 
 pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> anyhow::Result<()> {
     tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
         sqlx::query(
             "INSERT OR REPLACE INTO mcp_servers \
-             (name, command, args, script_content, description, created_at, is_active) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (name, command, args, script_content, description, created_at, is_active, env) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&record.name)
         .bind(&record.command)
@@ -945,6 +946,7 @@ pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> any
         .bind(&record.description)
         .bind(record.created_at)
         .bind(record.is_active)
+        .bind(&record.env)
         .execute(pool)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to save MCP server: {}", e))?;
@@ -966,9 +968,10 @@ pub async fn load_active_mcp_servers(pool: &SqlitePool) -> anyhow::Result<Vec<Mc
                 Option<String>,
                 i64,
                 bool,
+                String,
             ),
         >(
-            "SELECT name, command, args, script_content, description, created_at, is_active \
+            "SELECT name, command, args, script_content, description, created_at, is_active, env \
              FROM mcp_servers WHERE is_active = 1 ORDER BY created_at ASC",
         )
         .fetch_all(pool)
@@ -978,7 +981,7 @@ pub async fn load_active_mcp_servers(pool: &SqlitePool) -> anyhow::Result<Vec<Mc
         Ok(rows
             .into_iter()
             .map(
-                |(name, command, args, script_content, description, created_at, is_active)| {
+                |(name, command, args, script_content, description, created_at, is_active, env)| {
                     McpServerRecord {
                         name,
                         command,
@@ -987,6 +990,7 @@ pub async fn load_active_mcp_servers(pool: &SqlitePool) -> anyhow::Result<Vec<Mc
                         description,
                         created_at,
                         is_active,
+                        env,
                     }
                 },
             )
@@ -1342,8 +1346,8 @@ pub async fn get_mcp_server_settings(
     name: &str,
 ) -> anyhow::Result<Option<(McpServerRecord, String)>> {
     let result = timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
-        sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, i64, bool, String)>(
-            "SELECT name, command, args, script_content, description, created_at, is_active, default_policy \
+        sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, i64, bool, String, String)>(
+            "SELECT name, command, args, script_content, description, created_at, is_active, default_policy, env \
              FROM mcp_servers WHERE name = ?",
         )
         .bind(name)
@@ -1364,6 +1368,7 @@ pub async fn get_mcp_server_settings(
             created_at,
             is_active,
             default_policy,
+            env,
         )| {
             (
                 McpServerRecord {
@@ -1374,6 +1379,7 @@ pub async fn get_mcp_server_settings(
                     description,
                     created_at,
                     is_active,
+                    env,
                 },
                 default_policy,
             )
@@ -1400,6 +1406,26 @@ pub async fn update_mcp_server_default_policy(
     })
     .await
     .map_err(|_| anyhow::anyhow!("Database timeout updating default policy"))?
+}
+
+/// Update MCP server environment variables (JSON-serialized HashMap).
+pub async fn update_mcp_server_env(
+    pool: &SqlitePool,
+    name: &str,
+    env_json: &str,
+) -> anyhow::Result<u64> {
+    timeout(Duration::from_secs(DB_TIMEOUT_SECS), async {
+        let result = sqlx::query("UPDATE mcp_servers SET env = ? WHERE name = ?")
+            .bind(env_json)
+            .bind(name)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to update env: {}", e))?;
+
+        Ok(result.rows_affected())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database timeout updating env"))?
 }
 
 /// Insert a config-loaded MCP server into the DB so its settings can be persisted.

@@ -219,6 +219,7 @@ export interface McpServerSettings {
   server_id: string;
   default_policy: DefaultPolicy;
   config: Record<string, string>;
+  env?: Record<string, string>;
   auto_restart: boolean;
   command: string;
   args: string[];

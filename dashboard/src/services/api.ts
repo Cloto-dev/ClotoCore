@@ -184,7 +184,7 @@ export const api = {
     return res.json();
   },
 
-  updateMcpServerSettings: (name: string, settings: { default_policy?: string }, apiKey: string) =>
+  updateMcpServerSettings: (name: string, settings: { default_policy?: string; env?: Record<string, string> }, apiKey: string) =>
     mutate(`/mcp/servers/${encodeURIComponent(name)}/settings`, 'PUT', 'update server settings', settings, { 'X-API-Key': apiKey }).then(() => {}),
 
   getMcpServerAccess: async (name: string, apiKey: string): Promise<AccessTreeResponse> => {

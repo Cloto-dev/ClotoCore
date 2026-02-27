@@ -432,11 +432,13 @@ impl McpClientManager {
 
         for record in records {
             let args: Vec<String> = serde_json::from_str(&record.args).unwrap_or_default();
+            let db_env: HashMap<String, String> =
+                serde_json::from_str(&record.env).unwrap_or_default();
             let config = McpServerConfig {
                 id: record.name.clone(),
                 command: record.command,
                 args,
-                env: HashMap::new(),
+                env: db_env,
                 transport: "stdio".to_string(),
                 auto_restart: false,
                 required_permissions: Vec::new(),
@@ -1053,6 +1055,7 @@ impl McpClientManager {
             description,
             created_at: chrono::Utc::now().timestamp(),
             is_active: true,
+            env: "{}".to_string(),
         };
         crate::db::save_mcp_server(&self.pool, &record).await?;
 
@@ -1167,6 +1170,28 @@ impl McpClientManager {
         // Stop if running (ignore error if already stopped)
         let _ = self.stop_server(id).await;
         self.start_server(id).await
+    }
+
+    /// Update a server's environment variables, persist to DB, and restart.
+    pub async fn update_server_env(
+        &self,
+        id: &str,
+        env: HashMap<String, String>,
+    ) -> Result<()> {
+        let env_json = serde_json::to_string(&env)?;
+        crate::db::update_mcp_server_env(&self.pool, id, &env_json).await?;
+
+        // Update in-memory config
+        {
+            let mut servers = self.servers.write().await;
+            if let Some(handle) = servers.get_mut(id) {
+                handle.config.env = env;
+            }
+        }
+
+        // Restart to apply new env
+        let _ = self.restart_server(id).await;
+        Ok(())
     }
 
     /// Get a reference to the database pool (for access control queries).

@@ -1315,15 +1315,20 @@ pub async fn get_mcp_server_settings(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
 
     if let Some((record, default_policy)) = settings {
-        // Get env config from running server if available
-        let config: HashMap<String, String> = HashMap::new();
-        let auto_restart = false;
+        // Return env keys with masked values for security
+        let db_env: HashMap<String, String> =
+            serde_json::from_str(&record.env).unwrap_or_default();
+        let masked_env: HashMap<String, String> = db_env
+            .keys()
+            .map(|k| (k.clone(), "***".to_string()))
+            .collect();
 
         Ok(Json(serde_json::json!({
             "server_id": record.name,
             "default_policy": default_policy,
-            "config": config,
-            "auto_restart": auto_restart,
+            "config": {},
+            "env": masked_env,
+            "auto_restart": false,
             "command": record.command,
             "args": serde_json::from_str::<Vec<String>>(&record.args).unwrap_or_default(),
             "description": record.description,
@@ -1336,6 +1341,7 @@ pub async fn get_mcp_server_settings(
                 "server_id": server.id,
                 "default_policy": "opt-in",
                 "config": {},
+                "env": {},
                 "auto_restart": false,
                 "command": server.command,
                 "args": server.args,
@@ -1390,6 +1396,78 @@ pub async fn update_mcp_server_settings(
                     name
                 )));
             }
+        }
+    }
+
+    // Handle env updates
+    if let Some(env_obj) = body.get("env").and_then(|v| v.as_object()) {
+        // Load existing env from DB to preserve unchanged values (sent as "***")
+        let existing_env: HashMap<String, String> = if let Ok(Some((record, _))) =
+            crate::db::get_mcp_server_settings(&state.pool, &name).await
+        {
+            serde_json::from_str(&record.env).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+
+        let mut merged_env: HashMap<String, String> = HashMap::new();
+        for (key, value) in env_obj {
+            if let Some(val_str) = value.as_str() {
+                if val_str == "***" {
+                    // Preserve existing value
+                    if let Some(existing_val) = existing_env.get(key) {
+                        merged_env.insert(key.clone(), existing_val.clone());
+                    }
+                } else if !val_str.is_empty() {
+                    // New or updated value
+                    merged_env.insert(key.clone(), val_str.to_string());
+                }
+                // Empty string = remove the key (omit from merged_env)
+            }
+        }
+
+        // Ensure server is in DB before updating env
+        let rows = crate::db::update_mcp_server_env(
+            &state.pool,
+            &name,
+            &serde_json::to_string(&merged_env).unwrap_or_else(|_| "{}".to_string()),
+        )
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+
+        if rows == 0 {
+            // Config-loaded server not yet in DB — persist it first
+            let servers = state.mcp_manager.list_servers().await;
+            if let Some(server) = servers.iter().find(|s| s.id == name) {
+                let args_json =
+                    serde_json::to_string(&server.args).unwrap_or_else(|_| "[]".to_string());
+                crate::db::ensure_mcp_server_in_db(
+                    &state.pool,
+                    &name,
+                    &server.command,
+                    &args_json,
+                    "opt-in",
+                )
+                .await
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+                // Retry env update
+                crate::db::update_mcp_server_env(
+                    &state.pool,
+                    &name,
+                    &serde_json::to_string(&merged_env).unwrap_or_else(|_| "{}".to_string()),
+                )
+                .await
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+            }
+        }
+
+        // Update in-memory config and restart server
+        if let Err(e) = state
+            .mcp_manager
+            .update_server_env(&name, merged_env)
+            .await
+        {
+            tracing::warn!("Failed to restart server after env update: {}", e);
         }
     }
 
