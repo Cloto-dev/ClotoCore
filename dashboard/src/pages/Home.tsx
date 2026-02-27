@@ -8,7 +8,7 @@ import { SettingsView } from '../components/SettingsView';
 import { usePlugins } from '../hooks/usePlugins';
 import { api } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
-import { ThemeToggle } from '../components/ThemeToggle';
+
 
 const ClotoWorkspace = lazy(() => import('../components/AgentWorkspace').then(m => ({ default: m.AgentWorkspace })));
 
@@ -91,29 +91,11 @@ export function Home() {
       {/* Main View Overlay */}
       {activeMainView && (
         <div className="fixed inset-0 z-40 bg-surface-base animate-in fade-in duration-300">
-          <div className="absolute top-0 left-0 right-0 h-16 border-b border-[var(--border-strong)] flex items-center justify-between px-8 bg-surface-primary z-50">
-            <div className="flex items-center gap-6">
-               <button
-                 onClick={() => setActiveMainView(null)}
-                 className="flex items-center gap-2 px-4 py-2 rounded-full bg-surface-primary border border-edge shadow-sm text-[10px] font-bold text-content-secondary hover:text-brand transition-all hover:shadow-md active:scale-95"
-               >
-                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
-                 <span className="tracking-widest">BACK</span>
-               </button>
-               <div className="h-4 w-[1px] bg-edge mx-2" />
-               <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-brand animate-pulse" />
-                  <h2 className="text-[11px] font-black tracking-[0.4em] text-content-primary uppercase">{activeMainView}</h2>
-               </div>
-            </div>
-            <ThemeToggle />
-          </div>
-
-          <div className="absolute inset-0 top-16 flex flex-col">
+          <div className="absolute inset-0 flex flex-col">
             <div className="flex-1 overflow-hidden animate-in fade-in duration-300">
               <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">SYNCHRONIZING...</div>}>
-                {activeMainView === 'sandbox' && <ClotoWorkspace />}
-                {activeMainView === 'settings' && <SettingsView />}
+                {activeMainView === 'sandbox' && <ClotoWorkspace onBack={() => setActiveMainView(null)} />}
+                {activeMainView === 'settings' && <SettingsView onBack={() => setActiveMainView(null)} />}
               </Suspense>
             </div>
           </div>

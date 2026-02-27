@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Sun, Moon, Monitor, Eye, EyeOff, MousePointer, ScrollText, Info, Shield, AlertTriangle, Zap } from 'lucide-react';
+import { Sun, Moon, Monitor, Eye, EyeOff, MousePointer, ScrollText, Info, Shield, AlertTriangle, Zap, ArrowLeft, Settings } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { useEventStream } from '../hooks/useEventStream';
@@ -30,11 +30,33 @@ function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggle: () =
   );
 }
 
-export function SettingsView() {
+export function SettingsView({ onBack }: { onBack?: () => void }) {
   const [activeSection, setActiveSection] = useState<Section>('general');
 
   return (
-    <div className="flex h-full bg-surface-base text-content-primary">
+    <div className="flex flex-col h-full bg-surface-base text-content-primary">
+      {/* Header — MemoryCore design language */}
+      {onBack && (
+        <header className="flex items-center gap-6 px-6 py-4 border-b border-edge bg-surface-primary">
+          <button onClick={onBack} className="p-3 rounded-full bg-glass-subtle backdrop-blur-sm border border-edge hover:border-brand hover:text-brand transition-all shadow-sm group">
+            <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+          </button>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-glass-subtle backdrop-blur-sm rounded-md flex items-center justify-center shadow-sm border border-edge">
+              <Settings className="text-brand" size={24} strokeWidth={2} />
+            </div>
+            <div>
+              <h1 className="text-2xl font-black tracking-tighter text-content-primary uppercase">Settings</h1>
+              <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em] flex items-center gap-2">
+                <span className="inline-block w-1.5 h-1.5 bg-brand rounded-full animate-pulse"></span>
+                System Configuration
+              </p>
+            </div>
+          </div>
+        </header>
+      )}
+
+      <div className="flex flex-1 overflow-hidden">
       {/* Sidebar Navigation */}
       <nav className="w-44 border-r border-edge bg-surface-primary flex flex-col py-4">
         {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
@@ -61,6 +83,7 @@ export function SettingsView() {
         {activeSection === 'advanced' && <AdvancedSection />}
         {activeSection === 'log' && <LogSection />}
         {activeSection === 'about' && <AboutSection />}
+      </div>
       </div>
     </div>
   );

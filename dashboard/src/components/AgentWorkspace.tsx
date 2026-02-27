@@ -5,7 +5,7 @@ import { KernelMonitor } from './KernelMonitor';
 import { usePlugins } from '../hooks/usePlugins';
 import { useAgents } from '../hooks/useAgents';
 
-export function AgentWorkspace() {
+export function AgentWorkspace({ onBack }: { onBack?: () => void }) {
   const { agents, refetch: refetchAgents } = useAgents();
   const { plugins, refetch: refetchPlugins } = usePlugins();
 
@@ -69,6 +69,7 @@ export function AgentWorkspace() {
              plugins={plugins}
              selectedAgent={selectedAgent}
              onRefresh={fetchInitialData}
+             onBack={onBack}
              onSelectAgent={(agent) => {
                if (agent) {
                  handleSelectAgent(agent.id);

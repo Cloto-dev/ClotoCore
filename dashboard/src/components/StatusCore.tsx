@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, memo } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Activity } from 'lucide-react';
 import { NeuralNetwork } from '../components/NeuralNetwork';
 import { useMetrics } from '../hooks/useMetrics';
 import { useStatusManager, ThoughtLine } from '../hooks/useStatusManager';
@@ -92,6 +92,7 @@ function TimelinePins({ events, startTime, endTime, onPinClick }: {
 export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { isWindowMode?: boolean }) {
   const [seekTime, setSeekTime] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [immersive, setImmersive] = useState(false);
   const { metrics, fetchMetrics } = useMetrics();
   const { eventHistory, thoughtLines } = useStatusManager(fetchMetrics);
   const { colors } = useTheme();
@@ -158,8 +159,45 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
       }}
       className={`${isWindowMode ? 'bg-transparent h-full w-full rounded-md' : 'bg-surface-base min-h-screen'} flex flex-col items-center justify-center overflow-hidden relative font-sans text-content-primary`}
     >
+      {/* Header — MemoryCore design language (document flow, not absolute) */}
+      {!isWindowMode && !immersive && (
+        <header className="absolute top-0 left-0 right-0 z-20 p-6 md:p-12">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-6">
+              <Link to="/" className="p-3 rounded-full bg-glass-subtle backdrop-blur-sm border border-edge hover:border-brand hover:text-brand transition-all shadow-sm group">
+                <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+              </Link>
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-glass-subtle backdrop-blur-sm rounded-md flex items-center justify-center shadow-sm border border-edge">
+                  <Activity className="text-brand" size={24} strokeWidth={2} />
+                </div>
+                <div
+                  onClick={() => setImmersive(true)}
+                  className="cursor-pointer select-none group/title"
+                >
+                  <h1 className="text-3xl font-black tracking-tighter text-content-primary uppercase group-hover/title:text-brand transition-colors">Status Core</h1>
+                  <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em] flex items-center gap-2">
+                    <span className="inline-block w-1.5 h-1.5 bg-brand rounded-full animate-pulse"></span>
+                    Real-time Telemetry Active
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+      )}
+
+      {/* Immersive mode: invisible hit area spanning the full header region */}
+      {!isWindowMode && immersive && (
+        <button
+          onClick={() => setImmersive(false)}
+          className="absolute top-0 left-0 right-0 h-24 z-20 cursor-pointer"
+          aria-label="Show UI"
+        />
+      )}
+
       {/* Archive Indicator */}
-      {seekTime !== null && (
+      {seekTime !== null && !immersive && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 px-4 py-1 bg-blue-600 text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-full animate-pulse shadow-lg shadow-blue-500/20">
           REPLAYING: {new Date(seekTime).toLocaleTimeString()}
         </div>
@@ -183,14 +221,14 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
         )}
       </div>
 
-      {/* 2. Static Grid Background */}
-      <div 
+      {/* 2. Static Grid Background (bottom-fade, inherited from MemoryCore) */}
+      <div
         className="absolute inset-0 z-0 opacity-30 pointer-events-none"
         style={{
           backgroundImage: `linear-gradient(to right, var(--canvas-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--canvas-grid) 1px, transparent 1px)`,
           backgroundSize: '40px 40px',
-          maskImage: 'radial-gradient(circle at center, black, transparent 80%)',
-          WebkitMaskImage: 'radial-gradient(circle at center, black, transparent 80%)'
+          maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)'
         }}
       />
 
@@ -201,21 +239,8 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
         seekTime={seekTime}
       />
 
-      {/* UI Overlays */}
-      {!isWindowMode && (
-        <div className="absolute top-8 left-8 right-8 flex justify-between items-start z-20">
-          <Link to="/" className="flex items-center gap-2 px-4 py-2 rounded-full bg-glass-subtle backdrop-blur-sm border border-edge shadow-sm text-xs font-bold text-content-secondary hover:text-brand transition-colors">
-            <ArrowLeft size={16} /> BACK TO INTERFACE
-          </Link>
-          <div className="text-right">
-            <h2 className="text-2xl font-black tracking-tighter text-content-primary uppercase">Status: Connected</h2>
-            <p className="text-[10px] font-mono text-content-tertiary uppercase tracking-widest">Real-time Telemetry Active</p>
-          </div>
-        </div>
-      )}
-
       {/* Time Seek Bar */}
-      <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 bg-glass-strong backdrop-blur-md border border-glass p-2 px-4 rounded-full shadow-lg transition-all ${isWindowMode ? 'scale-75 origin-bottom' : ''}`}>
+      <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 bg-glass-strong backdrop-blur-md border border-glass p-2 px-4 rounded-full shadow-lg transition-all ${isWindowMode ? 'scale-75 origin-bottom' : ''} ${immersive && !isWindowMode ? 'opacity-0 pointer-events-none' : ''}`}>
         <button 
           onClick={() => setSeekTime(null)}
           className={`px-3 py-1 rounded-full text-[9px] font-black transition-all ${seekTime === null ? 'bg-brand text-white' : 'bg-surface-secondary text-content-tertiary hover:bg-surface-secondary'}`}
@@ -229,14 +254,12 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
             endTime={endTime} 
             onPinClick={setSeekTime} 
           />
-          <input 
+          <input
             type="range"
             min={startTime}
             max={endTime}
             value={currentEffectiveTime}
-            onInput={(e) => setSeekTime(parseInt((e.target as HTMLInputElement).value) || 0)}
-            onMouseUp={handleSeekChange}
-            onTouchEnd={handleSeekChange}
+            onChange={handleSeekChange}
             className="w-48 h-1 bg-edge rounded-lg appearance-none cursor-pointer accent-brand relative z-10"
           />
         </div>
@@ -245,7 +268,7 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
         </div>
       </div>
 
-      {!isWindowMode && (
+      {!isWindowMode && !immersive && (
         <div className="absolute bottom-8 left-8 flex flex-col gap-1 z-20">
           <div className="flex items-center gap-2 text-[10px] font-mono text-content-tertiary">
             <span className="w-2 h-2 rounded-full bg-brand animate-pulse"></span> SYSTEM SYNCHRONIZED
@@ -254,7 +277,7 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
       )}
 
       {/* Metrics Overlay */}
-      {metrics && (
+      {metrics && !immersive && (
         <div className={`absolute z-20 flex flex-col gap-2 pointer-events-none ${isWindowMode ? 'bottom-2 right-2 items-end' : 'bottom-8 right-8 text-right'}`}>
            <div className={`${isWindowMode ? 'bg-glass-subtle p-2' : 'bg-glass-subtle backdrop-blur-sm p-3'} border border-edge rounded-lg shadow-sm transition-all`}>
               <div className="text-[10px] font-mono text-content-tertiary uppercase tracking-widest mb-1">System Load</div>

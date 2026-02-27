@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Users, Puzzle, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings } from 'lucide-react';
+import { Users, Puzzle, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings, ArrowLeft } from 'lucide-react';
 import { AgentMetadata, PluginManifest } from '../types';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor, AgentTypeIcon, agentTypeColor, isAiAgent } from '../lib/agentIdentity';
-import { isLlmPlugin } from '../lib/pluginUtils';
+
 import { useAgentCreation } from '../hooks/useAgentCreation';
 import { PowerToggleModal } from './PowerToggleModal';
 import { AgentConsole } from './AgentConsole';
@@ -13,6 +13,7 @@ import { AgentPowerButton } from './AgentPowerButton';
 
 import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
+import { useMcpServers } from '../hooks/useMcpServers';
 
 export interface AgentTerminalProps {
   agents: AgentMetadata[];
@@ -20,6 +21,7 @@ export interface AgentTerminalProps {
   selectedAgent: AgentMetadata | null;
   onSelectAgent: (agent: AgentMetadata | null) => void;
   onRefresh: () => void;
+  onBack?: () => void;
 }
 
 export function AgentTerminal({
@@ -28,6 +30,7 @@ export function AgentTerminal({
   selectedAgent,
   onSelectAgent,
   onRefresh,
+  onBack,
 }: AgentTerminalProps) {
   const { apiKey } = useApiKey();
   const [configuringAgent, setConfiguringAgent] = useState<AgentMetadata | null>(null);
@@ -96,10 +99,10 @@ export function AgentTerminal({
     );
   }
 
-  const allEngines = plugins.filter(p => p.service_type === 'Reasoning' && p.is_active && p.category === 'Agent');
-  const filteredEngines = allEngines.filter(p => newAgent.type === 'ai' ? isLlmPlugin(p) : !isLlmPlugin(p));
-  const allMemories = plugins.filter(p => (p.service_type === 'Memory' || p.category === 'Memory') && p.is_active);
-  const memories = allMemories.filter(p => newAgent.type === 'ai' ? true : !isLlmPlugin(p));
+  // MCP-based engine/memory discovery (mind.* = reasoning engines, memory.* = memory backends)
+  const { servers: mcpServers } = useMcpServers(apiKey);
+  const mcpEngines = mcpServers.filter(s => s.id.startsWith('mind.') && s.status === 'Connected');
+  const mcpMemories = mcpServers.filter(s => s.id.startsWith('memory.') && s.status === 'Connected');
 
   const activeCount = agents.filter(a => a.enabled).length;
 
@@ -159,9 +162,14 @@ export function AgentTerminal({
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto no-scrollbar p-6 md:p-8">
-          {/* Header — MemoryCore pattern */}
+          {/* Header — MemoryCore design language */}
           <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-6">
+              {onBack && (
+                <button onClick={onBack} className="p-3 rounded-full bg-glass-subtle backdrop-blur-sm border border-edge hover:border-brand hover:text-brand transition-all shadow-sm group">
+                  <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+                </button>
+              )}
               <div className="w-12 h-12 bg-glass-subtle backdrop-blur-sm rounded-md flex items-center justify-center shadow-sm border border-edge">
                 <Users className="text-brand" size={24} strokeWidth={2} />
               </div>
@@ -328,15 +336,15 @@ export function AgentTerminal({
               <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
                 {newAgent.type === 'ai' ? 'LLM Engine' : 'Bridge Engine'}
               </label>
-              {filteredEngines.length > 0 ? (
+              {mcpEngines.length > 0 ? (
                 <select
                   value={newAgent.engine}
                   onChange={e => updateField('engine', e.target.value)}
                   className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
                 >
                   <option value="">Select...</option>
-                  {filteredEngines.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
+                  {mcpEngines.map(s => (
+                    <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
                   ))}
                 </select>
               ) : (
@@ -353,9 +361,9 @@ export function AgentTerminal({
                 onChange={e => updateField('memory', e.target.value)}
                 className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
               >
-                <option value="">Select...</option>
-                {memories.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                <option value="">None</option>
+                {mcpMemories.map(s => (
+                  <option key={s.id} value={s.id}>{s.id.replace('memory.', '')}</option>
                 ))}
               </select>
             </div>
