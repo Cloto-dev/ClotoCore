@@ -14,10 +14,8 @@ export function SkeletonThinking({ agentColor, agentIcon }: SkeletonThinkingProp
       >
         {agentIcon}
       </div>
-      <div className="max-w-[80%] p-4 rounded-2xl rounded-tl-none bg-surface-secondary space-y-2">
-        <div className="shimmer-line h-3 rounded-full w-full" />
-        <div className="shimmer-line h-3 rounded-full w-4/5" />
-        <div className="shimmer-line h-3 rounded-full w-3/5" />
+      <div className="pt-2 text-sm text-content-tertiary font-mono animate-pulse">
+        Thinking...
       </div>
     </div>
   );
