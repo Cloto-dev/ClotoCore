@@ -38,7 +38,7 @@ impl Drop for McpClient {
 
 impl McpClient {
     const MAX_PENDING_REQUESTS: usize = 100;
-    const REQUEST_TIMEOUT_SECS: u64 = 30;
+    const REQUEST_TIMEOUT_SECS: u64 = 120;
 
     pub async fn connect(
         command: &str,
