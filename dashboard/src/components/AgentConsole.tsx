@@ -347,7 +347,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                 }`} style={!isUser ? { backgroundColor: agentColor(agent) } : undefined}>
                   {isUser ? <UserIcon size={14} /> : <AgentIcon agent={agent} size={14} />}
                 </div>
-                <div className={`max-w-[80%] text-xs leading-relaxed select-text ${
+                <div className={`max-w-[80%] text-base leading-7 select-text ${
                   isUser
                     ? 'p-4 rounded-2xl rounded-tr-none shadow-sm bg-surface-primary text-content-primary'
                     : 'pt-1 text-content-primary'
@@ -365,7 +365,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                  style={{ backgroundColor: agentColor(agent) }}>
               <AgentIcon agent={agent} size={14} />
             </div>
-            <div className="max-w-[80%] pt-1 text-xs leading-relaxed select-text text-content-primary">
+            <div className="max-w-[80%] pt-1 text-base leading-7 select-text text-content-primary">
               <TypewriterMessage
                 text={pendingResponse.text}
                 onComplete={handleTypewriterComplete}
