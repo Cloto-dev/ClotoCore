@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Users, Puzzle, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings } from 'lucide-react';
-import { AgentMetadata, PluginManifest } from '../types';
+import { Users, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings } from 'lucide-react';
+import { AgentMetadata } from '../types';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor, AgentTypeIcon, agentTypeColor, isAiAgent } from '../lib/agentIdentity';
@@ -17,7 +17,6 @@ import { useMcpServers } from '../hooks/useMcpServers';
 
 export interface AgentTerminalProps {
   agents: AgentMetadata[];
-  plugins: PluginManifest[];
   selectedAgent: AgentMetadata | null;
   onSelectAgent: (agent: AgentMetadata | null) => void;
   onRefresh: () => void;
@@ -26,7 +25,6 @@ export interface AgentTerminalProps {
 
 export function AgentTerminal({
   agents,
-  plugins,
   selectedAgent,
   onSelectAgent,
   onRefresh,
@@ -42,6 +40,12 @@ export function AgentTerminal({
   const [deleteTarget, setDeleteTarget] = useState<AgentMetadata | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // MCP-based engine/memory discovery (mind.* = reasoning engines, memory.* = memory backends)
+  // Must be called before any conditional returns to satisfy React's Rules of Hooks
+  const { servers: mcpServers } = useMcpServers(apiKey);
+  const mcpEngines = mcpServers.filter(s => s.id.startsWith('mind.') && s.status === 'Connected');
+  const mcpMemories = mcpServers.filter(s => s.id.startsWith('memory.') && s.status === 'Connected');
 
   const DEFAULT_AGENT_ID = 'agent.cloto_default';
 
@@ -78,7 +82,6 @@ export function AgentTerminal({
     return (
       <AgentPluginWorkspace
         agent={configuringAgent}
-        availablePlugins={plugins.filter(p => p.is_active)}
         onBack={() => { setConfiguringAgent(null); onRefresh(); }}
       />
     );
@@ -91,19 +94,12 @@ export function AgentTerminal({
     return (
       <ContainerDashboard
         agent={selectedAgent}
-        plugins={plugins}
         onBack={() => onSelectAgent(null)}
         onConfigure={() => setConfiguringAgent(selectedAgent)}
         onPowerToggle={handlePowerToggle}
       />
     );
   }
-
-  // MCP-based engine/memory discovery (mind.* = reasoning engines, memory.* = memory backends)
-  const { servers: mcpServers } = useMcpServers(apiKey);
-  const mcpEngines = mcpServers.filter(s => s.id.startsWith('mind.') && s.status === 'Connected');
-  const mcpMemories = mcpServers.filter(s => s.id.startsWith('memory.') && s.status === 'Connected');
-
 
   return (
     <div className="relative flex h-full overflow-hidden">

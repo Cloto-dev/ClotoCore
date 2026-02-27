@@ -4,16 +4,13 @@ import { AgentTerminal } from './AgentTerminal';
 import { ViewHeader } from './ViewHeader';
 import { WindowAgentNavigator } from './WindowAgentNavigator';
 import { KernelMonitor } from './KernelMonitor';
-import { usePlugins } from '../hooks/usePlugins';
 import { useAgents } from '../hooks/useAgents';
 
 export function AgentWorkspace({ onBack }: { onBack?: () => void }) {
   const { agents, refetch: refetchAgents } = useAgents();
-  const { plugins, refetch: refetchPlugins } = usePlugins();
 
   const fetchInitialData = () => {
     refetchAgents();
-    refetchPlugins();
   };
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [systemActive, setSystemActive] = useState(false);
@@ -80,7 +77,6 @@ export function AgentWorkspace({ onBack }: { onBack?: () => void }) {
          ) : (
            <AgentTerminal
              agents={agents}
-             plugins={plugins}
              selectedAgent={selectedAgent}
              onRefresh={fetchInitialData}
              onBack={onBack}

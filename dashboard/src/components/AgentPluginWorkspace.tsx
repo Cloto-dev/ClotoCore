@@ -1,89 +1,137 @@
-import React, { useState, useEffect } from 'react';
-import { Puzzle, ArrowLeft, Plus, X, Save, Lock, Shield, Wrench, Activity } from 'lucide-react';
-import { PluginManifest, AgentMetadata, InstalledConfig } from '../types';
+import { useState, useEffect, useRef } from 'react';
+import { Server, ArrowLeft, Plus, X, Save, Activity, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
+import { AgentMetadata, McpServerInfo, AccessControlEntry } from '../types';
 import { api } from '../services/api';
-import { AgentIcon, agentColor, isAiAgent } from '../lib/agentIdentity';
-import { isLlmPlugin, ServiceTypeIcon } from '../lib/pluginUtils';
+import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { useApiKey } from '../contexts/ApiKeyContext';
+import { useMcpServers } from '../hooks/useMcpServers';
 
 interface Props {
   agent: AgentMetadata;
-  availablePlugins: PluginManifest[];
   onBack: () => void;
 }
 
-const SYSTEM_ALWAYS_PLUGINS = ['core.moderator'];
+const StatusIcon = ({ status }: { status: McpServerInfo['status'] }) => {
+  switch (status) {
+    case 'Connected': return <Wifi size={12} className="text-emerald-500" />;
+    case 'Disconnected': return <WifiOff size={12} className="text-content-muted" />;
+    case 'Error': return <AlertTriangle size={12} className="text-red-500" />;
+  }
+};
 
-export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props) {
+export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const { apiKey } = useApiKey();
-  const [configs, setConfigs] = useState<InstalledConfig[]>([]);
+  const { servers } = useMcpServers(apiKey);
+
+  const [grantedIds, setGrantedIds] = useState<Set<string>>(new Set());
+  const initialGrantedRef = useRef<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [saveError, setSaveError] = useState('');
 
+  // Load current access entries for this agent
   useEffect(() => {
-    if (!apiKey) { setIsLoading(false); return; }
-    api.getAgentPlugins(agent.id, apiKey)
-      .then(rows => {
-        setConfigs(rows.map(r => ({ pluginId: r.plugin_id, x: r.pos_x, y: r.pos_y })));
+    api.getAgentAccess(agent.id)
+      .then(data => {
+        const granted = new Set(
+          data.entries
+            .filter(e => e.entry_type === 'server_grant' && e.permission === 'allow')
+            .map(e => e.server_id)
+        );
+        setGrantedIds(granted);
+        initialGrantedRef.current = new Set(granted);
       })
       .catch(e => {
-        console.error('Failed to load agent plugins:', e);
-        if (agent.metadata.plugin_layout) {
-          try {
-            const layout = JSON.parse(agent.metadata.plugin_layout);
-            setConfigs(layout);
-          } catch {}
-        }
+        console.error('Failed to load agent access:', e);
       })
       .finally(() => setIsLoading(false));
-  }, [agent.id, apiKey]);
+  }, [agent.id]);
+
+  const grantServer = (serverId: string) => {
+    setGrantedIds(prev => new Set([...prev, serverId]));
+  };
+
+  const revokeServer = (serverId: string) => {
+    setGrantedIds(prev => {
+      const next = new Set(prev);
+      next.delete(serverId);
+      return next;
+    });
+  };
 
   const handleSave = async () => {
-    if (!apiKey) {
-      setSaveError('API Key is not set.');
-      return;
-    }
+    if (!apiKey) { setSaveError('API Key is not set.'); return; }
     setIsSaving(true);
     setSaveError('');
+
     try {
-      await api.setAgentPlugins(
+      const initial = initialGrantedRef.current;
+      const added = [...grantedIds].filter(id => !initial.has(id));
+      const removed = [...initial].filter(id => !grantedIds.has(id));
+
+      const now = new Date().toISOString();
+
+      // Process added servers
+      for (const serverId of added) {
+        const tree = await api.getMcpServerAccess(serverId, apiKey);
+        const existing = tree.entries.filter(
+          e => !(e.agent_id === agent.id && e.entry_type === 'server_grant')
+        );
+        const newEntry: AccessControlEntry = {
+          entry_type: 'server_grant',
+          agent_id: agent.id,
+          server_id: serverId,
+          permission: 'allow',
+          granted_by: 'admin',
+          granted_at: now,
+        };
+        await api.putMcpServerAccess(serverId, [...existing, newEntry], apiKey);
+      }
+
+      // Process removed servers
+      for (const serverId of removed) {
+        const tree = await api.getMcpServerAccess(serverId, apiKey);
+        const filtered = tree.entries.filter(
+          e => !(e.agent_id === agent.id && e.entry_type === 'server_grant')
+        );
+        await api.putMcpServerAccess(serverId, filtered, apiKey);
+      }
+
+      // Derive default_engine_id and preferred_memory from granted servers
+      const grantedServers = servers.filter(s => grantedIds.has(s.id));
+      const engineServer = grantedServers.find(s => s.id.startsWith('mind.'));
+      const memoryServer = grantedServers.find(s => s.id.startsWith('memory.'));
+
+      const metadata: Record<string, string> = { ...agent.metadata };
+      if (memoryServer) {
+        metadata.preferred_memory = memoryServer.id;
+      } else {
+        delete metadata.preferred_memory;
+      }
+
+      await api.updateAgent(
         agent.id,
-        configs.map(c => ({ plugin_id: c.pluginId, pos_x: 0, pos_y: 0 })),
-        apiKey
+        {
+          default_engine_id: engineServer?.id,
+          metadata,
+        },
+        apiKey,
       );
+
       onBack();
     } catch (err: any) {
-      setSaveError(err?.message || 'Failed to save plugin configuration');
+      setSaveError(err?.message || 'Failed to save configuration');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const ai = isAiAgent(agent);
-  const assignedPluginIds = new Set(configs.map(c => c.pluginId));
-  const libraryPlugins = availablePlugins.filter(p => {
-    if (SYSTEM_ALWAYS_PLUGINS.includes(p.id)) return false;
-    if (assignedPluginIds.has(p.id)) return false;
-    if (p.category === 'Memory') return ai ? true : !isLlmPlugin(p);
-    if (p.category === 'Agent') return ai ? isLlmPlugin(p) : !isLlmPlugin(p);
-    return false;
-  });
-  const systemPlugins = availablePlugins.filter(p => SYSTEM_ALWAYS_PLUGINS.includes(p.id));
-
-  const addPlugin = (pluginId: string) => {
-    setConfigs(prev => [...prev, { pluginId, x: 0, y: 0 }]);
-  };
-
-  const removePlugin = (pluginId: string) => {
-    setConfigs(prev => prev.filter(c => c.pluginId !== pluginId));
-  };
-
-  const getPluginById = (id: string) => availablePlugins.find(p => p.id === id);
+  const grantedServers = servers.filter(s => grantedIds.has(s.id));
+  const availableServers = servers.filter(s => !grantedIds.has(s.id));
 
   return (
     <div className="flex flex-col h-full overflow-hidden animate-in fade-in duration-500">
-      {/* Header — MemoryCore pattern */}
+      {/* Header */}
       <header className="p-6 flex items-center justify-between border-b border-edge">
         <div className="flex items-center gap-4">
           <button
@@ -96,12 +144,12 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
             <AgentIcon agent={agent} size={20} />
           </div>
           <div>
-            <h1 className="text-xl font-black tracking-tighter text-content-primary uppercase">{agent.name} · Plugins</h1>
-            <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em]">Plugin Configuration</p>
+            <h1 className="text-xl font-black tracking-tighter text-content-primary uppercase">{agent.name} · MCP Access</h1>
+            <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em]">Server Access Control</p>
           </div>
         </div>
         <div className="bg-glass-subtle backdrop-blur-sm px-4 py-2 rounded-md flex items-center gap-3 shadow-sm border border-edge">
-          <span className="text-[9px] uppercase font-bold text-content-tertiary tracking-widest">{configs.length} assigned</span>
+          <span className="text-[9px] uppercase font-bold text-content-tertiary tracking-widest">{grantedIds.size} granted</span>
         </div>
       </header>
 
@@ -111,96 +159,79 @@ export function AgentPluginWorkspace({ agent, availablePlugins, onBack }: Props)
           <div className="py-12 text-center text-content-muted font-mono text-xs animate-pulse">Loading...</div>
         ) : (
           <>
-            {/* Assigned Plugins */}
+            {/* Granted Servers */}
             <section>
               <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
-                <Puzzle className="text-brand" size={16} />
-                <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Assigned Plugins</h2>
+                <Server className="text-brand" size={16} />
+                <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Granted Servers</h2>
               </div>
-              {configs.length === 0 ? (
+              {grantedServers.length === 0 ? (
                 <div className="py-8 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
-                  No plugins assigned. Add from the list below.
+                  No servers granted. Add from the list below.
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {configs.map(config => {
-                    const plugin = getPluginById(config.pluginId);
-                    if (!plugin) return null;
-                    return (
-                      <div key={config.pluginId} className="bg-glass-strong backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-brand transition-all flex items-center gap-3 group">
-                        <div className="p-1.5 rounded-md" style={{ backgroundColor: `${agentColor(agent)}15`, color: agentColor(agent) }}>
-                          <ServiceTypeIcon type={plugin.service_type} size={16} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-xs font-bold text-content-primary">{plugin.name}</span>
-                          <span className="text-[10px] text-content-muted ml-2 font-mono">{plugin.id}</span>
-                        </div>
-                        <span className="text-[9px] font-bold text-content-tertiary uppercase tracking-wider px-2 py-0.5 bg-surface-secondary rounded">
-                          {plugin.service_type}
-                        </span>
-                        <button
-                          onClick={() => removePlugin(config.pluginId)}
-                          className="p-1.5 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                          title="Remove"
-                        >
-                          <X size={14} />
-                        </button>
+                  {grantedServers.map(server => (
+                    <div key={server.id} className="bg-glass-strong backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-brand transition-all flex items-center gap-3 group">
+                      <div className="p-1.5 rounded-md" style={{ backgroundColor: `${agentColor(agent)}15`, color: agentColor(agent) }}>
+                        <Server size={16} />
                       </div>
-                    );
-                  })}
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs font-bold text-content-primary">{server.id}</span>
+                        <span className="text-[10px] text-content-muted ml-2 font-mono">{server.tools.length} tools</span>
+                      </div>
+                      <StatusIcon status={server.status} />
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                        server.status === 'Connected' ? 'bg-emerald-500/10 text-emerald-500' :
+                        server.status === 'Error' ? 'bg-red-500/10 text-red-500' :
+                        'bg-surface-secondary text-content-tertiary'
+                      }`}>
+                        {server.status}
+                      </span>
+                      <button
+                        onClick={() => revokeServer(server.id)}
+                        className="p-1.5 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+                        title="Revoke"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </section>
 
-            {/* Available Plugins */}
-            {libraryPlugins.length > 0 && (
+            {/* Available Servers */}
+            {availableServers.length > 0 && (
               <section>
                 <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
                   <Plus className="text-brand" size={16} />
                   <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Available</h2>
                 </div>
                 <div className="space-y-2">
-                  {libraryPlugins.map(plugin => (
-                    <div key={plugin.id} className="bg-glass backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-brand/50 transition-all flex items-center gap-3 group">
+                  {availableServers.map(server => (
+                    <div key={server.id} className="bg-glass backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-brand/50 transition-all flex items-center gap-3 group">
                       <div className="p-1.5 rounded-md text-content-muted">
-                        <ServiceTypeIcon type={plugin.service_type} size={16} />
+                        <Server size={16} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="text-xs font-medium text-content-secondary">{plugin.name}</span>
-                        <span className="text-[10px] text-content-muted ml-2 font-mono">{plugin.id}</span>
+                        <span className="text-xs font-medium text-content-secondary">{server.id}</span>
+                        <span className="text-[10px] text-content-muted ml-2 font-mono">{server.tools.length} tools</span>
                       </div>
-                      <span className="text-[9px] font-bold text-content-muted uppercase tracking-wider px-2 py-0.5 bg-surface-secondary/50 rounded">
-                        {plugin.service_type}
+                      <StatusIcon status={server.status} />
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                        server.status === 'Connected' ? 'bg-emerald-500/10 text-emerald-500' :
+                        server.status === 'Error' ? 'bg-red-500/10 text-red-500' :
+                        'bg-surface-secondary text-content-tertiary'
+                      }`}>
+                        {server.status}
                       </span>
                       <button
-                        onClick={() => addPlugin(plugin.id)}
+                        onClick={() => grantServer(server.id)}
                         className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold text-brand hover:bg-brand/10 transition-all opacity-0 group-hover:opacity-100"
                       >
-                        <Plus size={10} /> Add
+                        <Plus size={10} /> Grant
                       </button>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* System Plugins */}
-            {systemPlugins.length > 0 && (
-              <section>
-                <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
-                  <Shield className="text-content-muted" size={16} />
-                  <h2 className="font-bold text-xs text-content-muted uppercase tracking-widest">System (always active)</h2>
-                </div>
-                <div className="space-y-2">
-                  {systemPlugins.map(plugin => (
-                    <div key={plugin.id} className="bg-glass backdrop-blur-sm px-4 py-3 rounded-lg border border-edge/50 flex items-center gap-3 opacity-60">
-                      <div className="p-1.5 rounded-md text-content-muted">
-                        <Shield size={16} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-xs text-content-secondary">{plugin.name}</span>
-                      </div>
-                      <Lock size={10} className="text-content-muted" />
                     </div>
                   ))}
                 </div>

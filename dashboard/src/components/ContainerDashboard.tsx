@@ -1,18 +1,15 @@
 import { Puzzle, Cpu, Terminal, Lock, ArrowLeft } from 'lucide-react';
-import { AgentMetadata, PluginManifest } from '../types';
+import { AgentMetadata } from '../types';
 import { AgentIcon, agentColor, statusDotColor } from '../lib/agentIdentity';
 import { AgentPowerButton } from './AgentPowerButton';
 
-export function ContainerDashboard({ agent, plugins, onBack, onConfigure, onPowerToggle }: {
+export function ContainerDashboard({ agent, onBack, onConfigure, onPowerToggle }: {
   agent: AgentMetadata;
-  plugins: PluginManifest[];
   onBack: () => void;
   onConfigure: () => void;
   onPowerToggle: (agent: AgentMetadata) => void;
 }) {
   const color = agentColor(agent);
-  const enginePlugin = plugins.find(p => p.id === agent.default_engine_id);
-  const memoryPlugin = plugins.find(p => p.id === agent.metadata?.preferred_memory);
 
   return (
     <div className="flex flex-col h-full bg-glass backdrop-blur-3xl animate-in fade-in duration-500">
@@ -62,11 +59,11 @@ export function ContainerDashboard({ agent, plugins, onBack, onConfigure, onPowe
               </div>
               <div className="flex items-center justify-between py-2 border-b border-edge-subtle">
                 <span className="text-[11px] font-bold text-content-secondary">Bridge Engine</span>
-                <span className="text-[11px] font-mono text-content-tertiary">{enginePlugin?.name || agent.default_engine_id || 'None'}</span>
+                <span className="text-[11px] font-mono text-content-tertiary">{agent.default_engine_id || 'None'}</span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-edge-subtle">
                 <span className="text-[11px] font-bold text-content-secondary">Memory</span>
-                <span className="text-[11px] font-mono text-content-tertiary">{memoryPlugin?.name || agent.metadata?.preferred_memory || 'None'}</span>
+                <span className="text-[11px] font-mono text-content-tertiary">{agent.metadata?.preferred_memory || 'None'}</span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-edge-subtle">
                 <span className="text-[11px] font-bold text-content-secondary">Type</span>
