@@ -736,7 +736,9 @@ impl McpClientManager {
     /// List all registered MCP servers with status.
     pub async fn list_servers(&self) -> Vec<McpServerInfo> {
         let servers = self.servers.read().await;
-        servers
+        let stopped = self.stopped_configs.read().await;
+
+        let mut result: Vec<McpServerInfo> = servers
             .values()
             .map(|h| McpServerInfo {
                 id: h.id.clone(),
@@ -751,7 +753,25 @@ impl McpClientManager {
                 is_cloto_sdk: h.handshake.is_some(),
                 source: h.source,
             })
-            .collect()
+            .collect();
+
+        // Include stopped servers as Disconnected
+        for (id, (config, source)) in stopped.iter() {
+            if !servers.contains_key(id) {
+                result.push(McpServerInfo {
+                    id: id.clone(),
+                    command: config.command.clone(),
+                    args: config.args.clone(),
+                    status_message: Some("Stopped".to_string()),
+                    status: ServerStatus::Disconnected,
+                    tools: Vec::new(),
+                    is_cloto_sdk: false,
+                    source: *source,
+                });
+            }
+        }
+
+        result
     }
 
     /// Check if a server with the given ID is registered.
@@ -1170,6 +1190,15 @@ impl McpClientManager {
         // Stop if running (ignore error if already stopped)
         let _ = self.stop_server(id).await;
         self.start_server(id).await
+    }
+
+    /// Get a server's in-memory environment variables (from config or runtime).
+    pub async fn get_server_env(&self, id: &str) -> HashMap<String, String> {
+        let servers = self.servers.read().await;
+        servers
+            .get(id)
+            .map(|h| h.config.env.clone())
+            .unwrap_or_default()
     }
 
     /// Update a server's environment variables, persist to DB, and restart.

@@ -11,7 +11,7 @@ export function McpServersPage() {
   const { apiKey } = useApiKey();
   // Allow empty apiKey — debug backend skips auth when CLOTO_API_KEY is unset
   const effectiveKey = apiKey || '';
-  const { servers, isLoading, refetch } = useMcpServers(effectiveKey);
+  const { servers, isLoading, error: fetchError, refetch } = useMcpServers(effectiveKey);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
 
@@ -108,6 +108,7 @@ export function McpServersPage() {
             onAdd={() => setAddModalOpen(true)}
             onRefresh={refetch}
             isLoading={isLoading}
+            error={fetchError}
           />
         </div>
 

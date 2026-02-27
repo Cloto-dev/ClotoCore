@@ -21,7 +21,9 @@ const StatusIcon = ({ status }: { status: McpServerInfo['status'] }) => {
 
 export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const { apiKey } = useApiKey();
-  const { servers } = useMcpServers(apiKey);
+  // Allow empty apiKey — debug backend skips auth when CLOTO_API_KEY is unset
+  const effectiveKey = apiKey || '';
+  const { servers } = useMcpServers(effectiveKey);
 
   const [grantedIds, setGrantedIds] = useState<Set<string>>(new Set());
   const initialGrantedRef = useRef<Set<string>>(new Set());
@@ -60,7 +62,6 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   };
 
   const handleSave = async () => {
-    if (!apiKey) { setSaveError('API Key is not set.'); return; }
     setIsSaving(true);
     setSaveError('');
 
@@ -73,7 +74,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
 
       // Process added servers
       for (const serverId of added) {
-        const tree = await api.getMcpServerAccess(serverId, apiKey);
+        const tree = await api.getMcpServerAccess(serverId, effectiveKey);
         const existing = tree.entries.filter(
           e => !(e.agent_id === agent.id && e.entry_type === 'server_grant')
         );
@@ -85,16 +86,16 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
           granted_by: 'admin',
           granted_at: now,
         };
-        await api.putMcpServerAccess(serverId, [...existing, newEntry], apiKey);
+        await api.putMcpServerAccess(serverId, [...existing, newEntry], effectiveKey);
       }
 
       // Process removed servers
       for (const serverId of removed) {
-        const tree = await api.getMcpServerAccess(serverId, apiKey);
+        const tree = await api.getMcpServerAccess(serverId, effectiveKey);
         const filtered = tree.entries.filter(
           e => !(e.agent_id === agent.id && e.entry_type === 'server_grant')
         );
-        await api.putMcpServerAccess(serverId, filtered, apiKey);
+        await api.putMcpServerAccess(serverId, filtered, effectiveKey);
       }
 
       // Derive default_engine_id and preferred_memory from granted servers
@@ -115,7 +116,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
           default_engine_id: engineServer?.id,
           metadata,
         },
-        apiKey,
+        effectiveKey,
       );
 
       onBack();

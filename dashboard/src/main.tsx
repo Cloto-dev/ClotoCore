@@ -5,6 +5,7 @@ import { Home } from './pages/Home'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ThemeProvider } from './components/ThemeProvider'
 import { ApiKeyProvider } from './contexts/ApiKeyContext'
+import { ConnectionProvider } from './contexts/ConnectionContext'
 import { CustomCursor } from './components/CustomCursor'
 import './compiled-tailwind.css'
 
@@ -41,7 +42,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <ThemeProvider>
         <ApiKeyProvider>
-          <App />
+          <ConnectionProvider>
+            <App />
+          </ConnectionProvider>
         </ApiKeyProvider>
       </ThemeProvider>
     </ErrorBoundary>

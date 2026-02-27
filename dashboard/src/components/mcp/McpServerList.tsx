@@ -1,5 +1,5 @@
 import { McpServerInfo } from '../../types';
-import { Server, Plus, RefreshCw } from 'lucide-react';
+import { Server, Plus, RefreshCw, AlertTriangle } from 'lucide-react';
 
 interface Props {
   servers: McpServerInfo[];
@@ -8,6 +8,7 @@ interface Props {
   onAdd: () => void;
   onRefresh: () => void;
   isLoading: boolean;
+  error?: string | null;
 }
 
 function statusIndicator(status: McpServerInfo['status']) {
@@ -18,7 +19,7 @@ function statusIndicator(status: McpServerInfo['status']) {
   }
 }
 
-export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh, isLoading }: Props) {
+export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh, isLoading, error }: Props) {
   const running = servers.filter(s => s.status === 'Connected').length;
   const stopped = servers.filter(s => s.status !== 'Connected').length;
 
@@ -37,9 +38,17 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
         </div>
       </div>
 
+      {/* Connection error */}
+      {error && (
+        <div className="mx-2 mt-1 px-2 py-1.5 rounded bg-red-500/10 border border-red-500/20 flex items-center gap-1.5">
+          <AlertTriangle size={10} className="text-red-500 shrink-0" />
+          <span className="text-[9px] font-mono text-red-400 leading-tight">Backend unreachable</span>
+        </div>
+      )}
+
       {/* Server list */}
       <div className="flex-1 overflow-y-auto py-1">
-        {servers.length === 0 && !isLoading && (
+        {servers.length === 0 && !isLoading && !error && (
           <div className="px-3 py-4 text-center text-[10px] text-content-muted font-mono">NO SERVERS</div>
         )}
         {servers.map(server => (

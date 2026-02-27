@@ -25,14 +25,20 @@ async function fetchCached(apiKey: string): Promise<McpServerInfo[]> {
 export function useMcpServers(apiKey: string) {
   const [data, setData] = useState<McpServerInfo[]>(cache?.data ?? []);
   const [isLoading, setIsLoading] = useState(!cache);
+  const [error, setError] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
     cache = null; // invalidate
     setIsLoading(true);
+    setError(null);
+    // Guarantee minimum spin duration so the user sees feedback
+    const minSpin = new Promise(r => setTimeout(r, 400));
     try {
-      const result = await fetchCached(apiKey);
+      const [result] = await Promise.all([fetchCached(apiKey), minSpin]);
       setData(result);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to connect';
+      setError(msg);
       console.error('Failed to fetch MCP servers:', err);
     } finally {
       setIsLoading(false);
@@ -41,10 +47,14 @@ export function useMcpServers(apiKey: string) {
 
   useEffect(() => {
     fetchCached(apiKey)
-      .then(setData)
-      .catch(err => console.error('Failed to fetch MCP servers:', err))
+      .then(d => { setData(d); setError(null); })
+      .catch(err => {
+        const msg = err instanceof Error ? err.message : 'Failed to connect';
+        setError(msg);
+        console.error('Failed to fetch MCP servers:', err);
+      })
       .finally(() => setIsLoading(false));
   }, [apiKey]);
 
-  return { servers: data, isLoading, refetch };
+  return { servers: data, isLoading, error, refetch };
 }

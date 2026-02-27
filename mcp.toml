@@ -30,6 +30,16 @@ auto_restart = true
 CEREBRAS_API_KEY = "${CEREBRAS_API_KEY}"
 
 [[servers]]
+id = "mind.ollama"
+command = "python"
+args = ["mcp-servers/ollama/server.py"]
+transport = "stdio"
+auto_restart = true
+[servers.env]
+OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_MODEL = "glm-4.7-flash"
+
+[[servers]]
 id = "memory.ks22"
 command = "python"
 args = ["mcp-servers/ks22/server.py"]

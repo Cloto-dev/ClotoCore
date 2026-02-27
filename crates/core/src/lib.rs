@@ -483,6 +483,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // Public/read endpoints (no rate limiting)
     let api_routes = Router::new()
         .route("/system/version", get(handlers::version_handler))
+        .route("/system/health", get(handlers::health_handler))
         .route("/events", get(handlers::sse_handler))
         .route("/history", get(handlers::get_history))
         .route("/metrics", get(handlers::get_metrics))

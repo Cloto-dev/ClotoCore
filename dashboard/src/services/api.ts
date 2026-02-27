@@ -36,6 +36,12 @@ async function mutate(
 }
 
 export const api = {
+  getHealth: async (): Promise<{ status: string }> => {
+    const res = await fetch(`${API_BASE}/system/health`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(res.statusText);
+    return res.json();
+  },
+
   getAgents: () => fetchJson<AgentMetadata[]>('/agents', 'fetch agents'),
   getPlugins: () => fetchJson<PluginManifest[]>('/plugins', 'fetch plugins'),
   getPluginConfig: (id: string, apiKey: string) => {

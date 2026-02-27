@@ -11,6 +11,13 @@ pub async fn version_handler() -> axum::Json<serde_json::Value> {
     }))
 }
 
+/// GET /api/system/health — lightweight liveness check (no auth required)
+pub async fn health_handler() -> axum::Json<serde_json::Value> {
+    axum::Json(serde_json::json!({
+        "status": "ok"
+    }))
+}
+
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -1314,13 +1321,29 @@ pub async fn get_mcp_server_settings(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
 
+    // Get in-memory config env (from mcp.toml or runtime) as defaults
+    let config_env = state.mcp_manager.get_server_env(&name).await;
+
     if let Some((record, default_policy)) = settings {
-        // Return env keys with masked values for security
+        // Merge: in-memory config env as base, DB env overrides
         let db_env: HashMap<String, String> =
             serde_json::from_str(&record.env).unwrap_or_default();
-        let masked_env: HashMap<String, String> = db_env
-            .keys()
-            .map(|k| (k.clone(), "***".to_string()))
+        let mut merged = config_env;
+        for (k, v) in &db_env {
+            merged.insert(k.clone(), v.clone());
+        }
+        // Mask only sensitive values (KEY, SECRET, TOKEN, PASSWORD)
+        let masked_env: HashMap<String, String> = merged
+            .iter()
+            .map(|(k, v)| {
+                let upper = k.to_uppercase();
+                let is_secret = upper.contains("KEY")
+                    || upper.contains("SECRET")
+                    || upper.contains("TOKEN")
+                    || upper.contains("PASSWORD")
+                    || upper.contains("CREDENTIAL");
+                (k.clone(), if is_secret { "***".to_string() } else { v.clone() })
+            })
             .collect();
 
         Ok(Json(serde_json::json!({
@@ -1334,14 +1357,26 @@ pub async fn get_mcp_server_settings(
             "description": record.description,
         })))
     } else {
-        // Fallback: check in-memory servers (config-loaded servers aren't persisted to DB)
+        // Fallback: config-loaded servers not yet in DB — use in-memory env
         let servers = state.mcp_manager.list_servers().await;
         if let Some(server) = servers.iter().find(|s| s.id == name) {
+            let masked_env: HashMap<String, String> = config_env
+                .iter()
+                .map(|(k, v)| {
+                    let upper = k.to_uppercase();
+                    let is_secret = upper.contains("KEY")
+                        || upper.contains("SECRET")
+                        || upper.contains("TOKEN")
+                        || upper.contains("PASSWORD")
+                        || upper.contains("CREDENTIAL");
+                    (k.clone(), if is_secret { "***".to_string() } else { v.clone() })
+                })
+                .collect();
             Ok(Json(serde_json::json!({
                 "server_id": server.id,
                 "default_policy": "opt-in",
                 "config": {},
-                "env": {},
+                "env": masked_env,
                 "auto_restart": false,
                 "command": server.command,
                 "args": server.args,
