@@ -70,6 +70,20 @@ pub async fn post_message(
 ) -> AppResult<Json<serde_json::Value>> {
     super::check_auth(&state, &headers)?;
 
+    // Block messages to disabled agents
+    let (agent, _) = state
+        .agent_manager
+        .get_agent_config(&agent_id)
+        .await
+        .map_err(|_| AppError::Cloto(cloto_shared::ClotoError::ValidationError(
+            format!("Agent '{}' not found", agent_id),
+        )))?;
+    if !agent.enabled {
+        return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
+            format!("Agent '{}' is powered off", agent_id),
+        )));
+    }
+
     // Validate source
     if !["user", "agent", "system"].contains(&payload.source.as_str()) {
         return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(

@@ -60,9 +60,10 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
   return (
     <div className={`${isWindowMode ? 'bg-transparent p-4' : 'bg-surface-base min-h-screen'} relative font-sans text-content-primary overflow-x-hidden h-full animate-in fade-in duration-500`}>
       {!isWindowMode && (
-        <div 
-          className="fixed inset-0 z-0 opacity-30 pointer-events-none"
+        <div
+          className="fixed left-0 right-0 bottom-0 z-0 opacity-30 pointer-events-none"
           style={{
+            top: '41px',
             backgroundImage: `linear-gradient(to right, var(--canvas-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--canvas-grid) 1px, transparent 1px)`,
             backgroundSize: '40px 40px',
             maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
