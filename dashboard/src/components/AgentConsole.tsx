@@ -347,11 +347,11 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                 }`} style={!isUser ? { backgroundColor: agentColor(agent) } : undefined}>
                   {isUser ? <UserIcon size={14} /> : <AgentIcon agent={agent} size={14} />}
                 </div>
-                <div className={`max-w-[80%] p-4 rounded-2xl text-xs leading-relaxed shadow-sm select-text ${
+                <div className={`max-w-[80%] text-xs leading-relaxed select-text ${
                   isUser
-                    ? 'bg-surface-primary text-content-primary rounded-tr-none'
-                    : 'text-white rounded-tl-none'
-                }`} style={!isUser ? { backgroundColor: agentColor(agent) } : undefined}>
+                    ? 'p-4 rounded-2xl rounded-tr-none shadow-sm bg-surface-primary text-content-primary'
+                    : 'pt-1 text-content-primary'
+                }`}>
                   <MessageContent content={msg.content} />
                 </div>
               </div>
@@ -365,8 +365,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                  style={{ backgroundColor: agentColor(agent) }}>
               <AgentIcon agent={agent} size={14} />
             </div>
-            <div className="max-w-[80%] p-4 rounded-2xl text-xs leading-relaxed shadow-sm select-text text-white rounded-tl-none"
-                 style={{ backgroundColor: agentColor(agent) }}>
+            <div className="max-w-[80%] pt-1 text-xs leading-relaxed select-text text-content-primary">
               <TypewriterMessage
                 text={pendingResponse.text}
                 onComplete={handleTypewriterComplete}
