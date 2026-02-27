@@ -196,6 +196,19 @@ impl AgentManager {
             .is_ok())
     }
 
+    /// Return the set of MCP server IDs this agent has access to (server_grant + allow).
+    pub async fn get_granted_server_ids(
+        &self,
+        agent_id: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        let entries = crate::db::get_access_entries_for_agent(&self.pool, agent_id).await?;
+        Ok(entries
+            .into_iter()
+            .filter(|e| e.entry_type == "server_grant" && e.permission == "allow")
+            .map(|e| e.server_id)
+            .collect())
+    }
+
     /// Return the plugin list for an agent from the agent_plugins table.
     pub async fn get_agent_plugins(
         &self,

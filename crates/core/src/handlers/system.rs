@@ -91,11 +91,29 @@ impl SystemHandler {
         };
 
         // MCP fallback: find MCP server with store+recall tools
+        // 🔐 Only use memory server if agent has access to it (checked via mcp_access_control)
+        let granted_server_ids: Vec<String> = self
+            .agent_manager
+            .get_granted_server_ids(&target_agent_id)
+            .await
+            .unwrap_or_default();
+
         let mcp_memory: Option<(Arc<McpClientManager>, String)> = if memory_plugin.is_none() {
             if let Some(ref mcp) = self.registry.mcp_manager {
                 mcp.find_memory_server()
                     .await
-                    .map(|server_id| (mcp.clone(), server_id))
+                    .and_then(|server_id| {
+                        if granted_server_ids.contains(&server_id) {
+                            Some((mcp.clone(), server_id))
+                        } else {
+                            tracing::info!(
+                                agent_id = %target_agent_id,
+                                server_id = %server_id,
+                                "🔐 Agent lacks access to memory server — memory skipped"
+                            );
+                            None
+                        }
+                    })
             } else {
                 None
             }
