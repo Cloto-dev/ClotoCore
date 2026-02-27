@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Puzzle, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings, ArrowLeft } from 'lucide-react';
+import { Users, Puzzle, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings } from 'lucide-react';
 import { AgentMetadata, PluginManifest } from '../types';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { useEventStream } from '../hooks/useEventStream';
@@ -104,7 +104,6 @@ export function AgentTerminal({
   const mcpEngines = mcpServers.filter(s => s.id.startsWith('mind.') && s.status === 'Connected');
   const mcpMemories = mcpServers.filter(s => s.id.startsWith('memory.') && s.status === 'Connected');
 
-  const activeCount = agents.filter(a => a.enabled).length;
 
   return (
     <div className="relative flex h-full overflow-hidden">
@@ -162,33 +161,6 @@ export function AgentTerminal({
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto no-scrollbar p-6 md:p-8">
-          {/* Header — MemoryCore design language */}
-          <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-            <div className="flex items-center gap-6">
-              {onBack && (
-                <button onClick={onBack} className="p-3 rounded-full bg-glass-subtle backdrop-blur-sm border border-edge hover:border-brand hover:text-brand transition-all shadow-sm group">
-                  <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-                </button>
-              )}
-              <div className="w-12 h-12 bg-glass-subtle backdrop-blur-sm rounded-md flex items-center justify-center shadow-sm border border-edge">
-                <Users className="text-brand" size={24} strokeWidth={2} />
-              </div>
-              <div>
-                <h1 className="text-2xl font-black tracking-tighter text-content-primary uppercase">Agent Hub</h1>
-                <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em] flex items-center gap-2">
-                  <span className="inline-block w-1.5 h-1.5 bg-brand rounded-full animate-pulse"></span>
-                  Registered Instances
-                </p>
-              </div>
-            </div>
-            <div className="bg-glass-subtle backdrop-blur-sm px-4 py-2 rounded-md flex items-center gap-3 shadow-sm border border-edge">
-              <div className="flex flex-col items-end">
-                <span className="text-[9px] uppercase font-bold text-content-tertiary tracking-widest">Agents</span>
-                <span className="text-sm font-mono font-bold text-content-primary">{activeCount} / {agents.length} Active</span>
-              </div>
-              <Activity className="text-brand" size={18} />
-            </div>
-          </header>
 
           {/* Section: Agents */}
           <div className="flex items-center gap-3 mb-4 border-b border-edge pb-2">

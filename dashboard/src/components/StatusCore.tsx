@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, memo } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowLeft, Activity } from 'lucide-react';
+import { Activity, Maximize2 } from 'lucide-react';
+import { ViewHeader } from './ViewHeader';
 import { NeuralNetwork } from '../components/NeuralNetwork';
 import { useMetrics } from '../hooks/useMetrics';
 import { useStatusManager, ThoughtLine } from '../hooks/useStatusManager';
@@ -159,39 +159,27 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
       }}
       className={`${isWindowMode ? 'bg-transparent h-full w-full rounded-md' : 'bg-surface-base min-h-screen'} flex flex-col items-center justify-center overflow-hidden relative font-sans text-content-primary`}
     >
-      {/* Header — MemoryCore design language (document flow, not absolute) */}
+      {/* Header */}
       {!isWindowMode && !immersive && (
-        <header className="absolute top-0 left-0 right-0 z-20 p-6 md:p-12">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-6">
-              <Link to="/" className="p-3 rounded-full bg-glass-subtle backdrop-blur-sm border border-edge hover:border-brand hover:text-brand transition-all shadow-sm group">
-                <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-              </Link>
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-glass-subtle backdrop-blur-sm rounded-md flex items-center justify-center shadow-sm border border-edge">
-                  <Activity className="text-brand" size={24} strokeWidth={2} />
-                </div>
-                <div
-                  onClick={() => setImmersive(true)}
-                  className="cursor-pointer select-none group/title"
-                >
-                  <h1 className="text-3xl font-black tracking-tighter text-content-primary uppercase group-hover/title:text-brand transition-colors">Status Core</h1>
-                  <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em] flex items-center gap-2">
-                    <span className="inline-block w-1.5 h-1.5 bg-brand rounded-full animate-pulse"></span>
-                    Real-time Telemetry Active
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </header>
+        <div className="absolute top-0 left-0 right-0 z-20">
+          <ViewHeader
+            icon={Activity}
+            title="Status Core"
+            onBack="/"
+            right={
+              <button onClick={() => setImmersive(true)} className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors" title="Immersive mode">
+                <Maximize2 size={14} />
+              </button>
+            }
+          />
+        </div>
       )}
 
-      {/* Immersive mode: invisible hit area spanning the full header region */}
+      {/* Immersive mode: invisible hit area spanning the header region */}
       {!isWindowMode && immersive && (
         <button
           onClick={() => setImmersive(false)}
-          className="absolute top-0 left-0 right-0 h-24 z-20 cursor-pointer"
+          className="absolute top-0 left-0 right-0 h-10 z-20 cursor-pointer"
           aria-label="Show UI"
         />
       )}

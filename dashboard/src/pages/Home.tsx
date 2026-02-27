@@ -3,6 +3,7 @@ import { Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Activity, Database, MessageSquare, Puzzle, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, LucideIcon } from 'lucide-react';
 import { InteractiveGrid } from '../components/InteractiveGrid';
+import { ViewHeader } from '../components/ViewHeader';
 import { SecurityGuard } from '../components/SecurityGuard';
 import { SettingsView } from '../components/SettingsView';
 import { usePlugins } from '../hooks/usePlugins';
@@ -82,8 +83,10 @@ export function Home() {
   return (
     <div
       ref={containerRef}
-      className="min-h-screen bg-surface-base flex flex-col items-center justify-center p-8 overflow-hidden relative font-sans text-content-primary select-none"
+      className="min-h-screen bg-surface-base flex flex-col overflow-hidden relative font-sans text-content-primary select-none"
     >
+      <ViewHeader icon={Cpu} title="Cloto System" />
+      <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-surface-primary via-surface-secondary to-edge opacity-90 pointer-events-none" />
 
       <InteractiveGrid />
@@ -140,6 +143,7 @@ export function Home() {
             </div>
           ))}
         </div>
+      </div>
       </div>
     </div>
   );

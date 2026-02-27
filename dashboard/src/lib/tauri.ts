@@ -26,3 +26,23 @@ export async function openFileDialog(options?: {
   if (Array.isArray(result)) return result[0] ?? null;
   return result;
 }
+
+// ── Window Controls ──
+
+export async function minimizeWindow() {
+  if (!isTauri) return;
+  const { getCurrentWindow } = await import('@tauri-apps/api/window');
+  await getCurrentWindow().minimize();
+}
+
+export async function toggleMaximizeWindow() {
+  if (!isTauri) return;
+  const { getCurrentWindow } = await import('@tauri-apps/api/window');
+  await getCurrentWindow().toggleMaximize();
+}
+
+export async function closeWindow() {
+  if (!isTauri) return;
+  const { getCurrentWindow } = await import('@tauri-apps/api/window');
+  await getCurrentWindow().close();
+}

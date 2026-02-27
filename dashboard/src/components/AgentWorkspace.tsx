@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { Users } from 'lucide-react';
 import { AgentTerminal } from './AgentTerminal';
+import { ViewHeader } from './ViewHeader';
 import { WindowAgentNavigator } from './WindowAgentNavigator';
 import { KernelMonitor } from './KernelMonitor';
 import { usePlugins } from '../hooks/usePlugins';
@@ -34,22 +36,34 @@ export function AgentWorkspace({ onBack }: { onBack?: () => void }) {
 
   const selectedAgent = agents.find(a => a.id === selectedAgentId) || null;
 
+  const activeCount = agents.filter(a => a.enabled).length;
+
   return (
-    <div className="flex w-full h-full bg-surface-base overflow-hidden relative">
-      {/* Background grid — matches MemoryCore aesthetic */}
-      <div
-        className="absolute inset-0 z-0 opacity-30 pointer-events-none"
-        style={{
-          backgroundImage: `linear-gradient(to right, var(--canvas-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--canvas-grid) 1px, transparent 1px)`,
-          backgroundSize: '40px 40px',
-          maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
-          WebkitMaskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
-        }}
+    <div className="flex flex-col w-full h-full bg-surface-base overflow-hidden relative">
+      {/* Full-width header */}
+      <ViewHeader
+        icon={Users}
+        title="Agent Hub"
+        onBack={onBack}
+        right={<span className="text-[10px] font-mono text-content-tertiary">{activeCount} / {agents.length} Active</span>}
       />
 
-      {/* Sidebar - Window Native Style */}
-      <div className="relative z-10">
-        <WindowAgentNavigator
+      {/* Body: sidebar + content */}
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Background grid — matches MemoryCore aesthetic */}
+        <div
+          className="absolute inset-0 z-0 opacity-30 pointer-events-none"
+          style={{
+            backgroundImage: `linear-gradient(to right, var(--canvas-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--canvas-grid) 1px, transparent 1px)`,
+            backgroundSize: '40px 40px',
+            maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
+            WebkitMaskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
+          }}
+        />
+
+        {/* Sidebar - Window Native Style */}
+        <div className="relative z-10">
+          <WindowAgentNavigator
           agents={agents}
           activeAgentId={selectedAgentId || undefined}
           onSelectAgent={handleSelectAgent}
@@ -80,6 +94,7 @@ export function AgentWorkspace({ onBack }: { onBack?: () => void }) {
              }}
            />
          )}
+      </div>
       </div>
     </div>
   );

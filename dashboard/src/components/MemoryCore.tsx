@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { memo } from 'react';
-import { Brain, Sparkles, History, Activity, User, ArrowLeft } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Brain, Sparkles, History, User } from 'lucide-react';
+import { ViewHeader } from './ViewHeader';
 import { Memory, Episode } from '../types';
 import { SystemHistory } from './SystemHistory';
 import { useEventStream } from '../hooks/useEventStream';
@@ -71,36 +71,16 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
         />
       )}
 
+      {!isWindowMode && (
+        <ViewHeader
+          icon={Brain}
+          title="Memory Core"
+          onBack="/"
+          right={<span className="text-[10px] font-mono text-content-tertiary">{metrics.ram_usage} / {metrics.total_memories} OBJS</span>}
+        />
+      )}
+
       <div className={`relative z-10 ${isWindowMode ? '' : 'p-6 md:p-12'}`}>
-        {!isWindowMode && (
-          <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
-            <div className="flex items-center gap-6">
-              <Link to="/" className="p-3 rounded-full bg-glass-subtle backdrop-blur-sm border border-edge hover:border-brand hover:text-brand transition-all shadow-sm group">
-                <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-              </Link>
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-glass-subtle backdrop-blur-sm rounded-md flex items-center justify-center shadow-sm border border-edge">
-                  <Brain className="text-brand" size={24} strokeWidth={2} />
-                </div>
-                <div>
-                  <h1 className="text-3xl font-black tracking-tighter text-content-primary uppercase">Memory Core</h1>
-                  <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em] flex items-center gap-2">
-                    <span className="inline-block w-1.5 h-1.5 bg-brand rounded-full animate-pulse"></span>
-                    KS2.1 Storage Interface
-                  </p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-glass-subtle backdrop-blur-sm px-6 py-3 rounded-md flex items-center gap-6 shadow-sm border border-edge">
-              <div className="flex flex-col items-end">
-                <span className="text-[9px] uppercase font-bold text-content-tertiary tracking-widest">System Load</span>
-                <span className="text-sm font-mono font-bold text-content-primary">{metrics.ram_usage} / {metrics.total_memories} OBJS</span>
-              </div>
-              <Activity className="text-brand" size={20} />
-            </div>
-          </header>
-        )}
 
         <main className={`grid grid-cols-1 ${isWindowMode ? 'gap-4' : 'lg:grid-cols-3 gap-8'}`}>
           <section className={`${isWindowMode ? '' : 'lg:col-span-2'} space-y-4`}>

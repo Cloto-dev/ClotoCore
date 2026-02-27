@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowLeft, Server } from 'lucide-react';
+import { Server } from 'lucide-react';
+import { ViewHeader } from '../components/ViewHeader';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { McpServerList } from '../components/mcp/McpServerList';
@@ -88,14 +88,7 @@ export function McpServersPage() {
 
   return (
     <div className="min-h-screen bg-surface-base flex flex-col">
-      {/* Top bar */}
-      <header className="flex items-center gap-3 px-4 py-2 border-b border-edge bg-surface-primary">
-        <Link to="/" className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors">
-          <ArrowLeft size={16} />
-        </Link>
-        <Server size={14} className="text-brand" />
-        <h1 className="text-xs font-mono uppercase tracking-widest text-content-primary">MCP Server Management</h1>
-      </header>
+      <ViewHeader icon={Server} title="MCP Server Management" onBack="/" />
 
       {/* Action error banner */}
       {actionError && (
