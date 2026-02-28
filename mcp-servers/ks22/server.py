@@ -846,7 +846,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
 async def do_list_memories(agent_id: str, limit: int) -> dict:
     """List recent memories for dashboard display."""
-    db = await _get_db()
+    db = await get_db()
     if agent_id:
         rows = await db.execute_fetchall(
             "SELECT id, agent_id, msg_id, content, source, timestamp, created_at "
@@ -879,7 +879,7 @@ async def do_list_memories(agent_id: str, limit: int) -> dict:
 
 async def do_list_episodes(agent_id: str, limit: int) -> dict:
     """List archived episodes for dashboard display."""
-    db = await _get_db()
+    db = await get_db()
     if agent_id:
         rows = await db.execute_fetchall(
             "SELECT id, agent_id, summary, keywords, start_time, end_time, created_at "
