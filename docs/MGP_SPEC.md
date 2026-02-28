@@ -1,6 +1,6 @@
 # MGP — Model General Protocol
 
-**Version:** 0.5.0-draft
+**Version:** 0.5.1-draft
 **Status:** Draft
 **Authors:** ClotoCore Project
 **Date:** 2026-02-28
@@ -286,7 +286,7 @@ During the pre-1.0 development period:
 MGP will be declared 1.0.0 (stable) when all of the following criteria are met:
 
 1. At least **two independent implementations** (client and/or server) exist
-2. A **conformance test suite** covers all Tiers (1-4) as defined in `MGP_ADOPTION.md`
+2. A **conformance test suite** covers all Tiers (1-4) as defined in §8.5
 3. The specification has been in draft status for at least **6 months** without
    breaking changes to the core protocol (§2-7)
 4. The `mgp-validate` tool can verify compliance at all Tiers
@@ -603,7 +603,7 @@ Revoke an existing access grant.
 
 MGP defines a standard **audit event format** and **trace ID propagation** at the protocol
 level. The storage, querying, and analysis of audit events is delegated to an Audit MGP
-server (see `MGP_PATTERNS.md`).
+server (see §10.4).
 
 This separation ensures that the protocol defines **what** audit events look like, while
 **how** they are stored and processed remains an implementation concern.
@@ -615,9 +615,9 @@ This separation ensures that the protocol defines **what** audit events look lik
 | Audit event format (structure, fields) | **Protocol** | This section |
 | Standard event types | **Protocol** | This section |
 | Trace ID propagation | **Protocol** | This section |
-| Audit event storage and persistence | **Server** | `MGP_PATTERNS.md` |
-| Audit event querying and search | **Server** | `MGP_PATTERNS.md` |
-| Audit analytics and alerting | **Server** | `MGP_PATTERNS.md` |
+| Audit event storage and persistence | **Server** | §10.4 |
+| Audit event querying and search | **Server** | §10.4 |
+| Audit analytics and alerting | **Server** | §10.4 |
 
 ### 6.3 Audit Event Format
 
@@ -2170,35 +2170,297 @@ map to MGP specifications:
 | §15 Discovery | 4 | `mcp.toml`, `add_dynamic_server()` | `managers/mcp.rs` |
 | §16 Tool Discovery | 4 | — (not yet implemented) | — |
 
+### 8.4 License and Distribution Strategy
+
+| Component | License | Repository |
+|-----------|---------|------------|
+| MGP Specification | MIT | `mgp-spec` (independent) |
+| MGP SDK (Python / TypeScript) | MIT | `mgp-sdk` (independent) |
+| MGP Validation Tool | MIT | `mgp-sdk` (bundled) |
+| ClotoCore (Reference Implementation) | BSL 1.1 → MIT (2028) | `ClotoCore` (existing) |
+
+MGP specification and SDKs are fully separated from ClotoCore and published under MIT.
+Any project can adopt MGP regardless of ClotoCore's commercial protection period.
+
+### 8.5 Staged Adoption Path
+
+MGP does not require implementing all extensions at once. Both clients and servers can
+adopt incrementally. Each Tier includes all previous Tiers.
+
+```
+Tier 1 ──── Tier 2 ──── Tier 3 ──── Tier 4
+ Hours       1 week      2-4 weeks    1-2 months
+ Minimal     Security    Communication Full
+```
+
+**Layer Mapping:** Tier 1-2 primarily use Layer 1 (Metadata) and Layer 2 (Notifications).
+Tier 3-4 additionally use Layer 3 (Protocol Methods) and Layer 4 (Kernel Tools).
+Kernel Tools (Layer 4) require no server-side implementation — the kernel provides them.
+
+**Tier 1 — Minimal (hours):** Add `mgp` to `initialize` capabilities + `security` metadata
+on `tools/list`. ~80 lines of code for clients, ~70 lines for servers.
+
+```python
+# Server: 3 lines to add MGP Tier 1 support
+from mgp import enable_mgp
+enable_mgp(server, permissions=["network.outbound"], trust_level="standard")
+```
+
+**Tier 2 — Security (1 week):** Permission approval flow (§3), audit events (§6),
+structured error handling (§14), access control (§5).
+
+**Tier 3 — Communication (2-4 weeks):** Lifecycle management (§11), streaming (§12),
+bidirectional communication (§13).
+
+**Tier 4 — Full (1-2 months):** Dynamic tool discovery (§16 Mode A+B), context budget
+management, session tool cache. Semantic search is OPTIONAL — keyword + category is
+sufficient for Tier 4 compliance.
+
+### 8.6 Implementation Difficulty Matrix
+
+#### Client/Kernel Implementation
+
+| Extension | Tier | Lines (est.) | Difficulty | Dependencies |
+|-----------|------|-------------|------------|-------------|
+| §2 Negotiation | 1 | ~50 | Very Low | None |
+| §4 Security Metadata | 1 | ~30 | Very Low | §2 |
+| §3 Permission Approval | 2 | ~200 | Low | §2 |
+| §14 Error Handling | 2 | ~100 | Low | None |
+| §6 Audit | 2 | ~80 | Low | §2 |
+| §5 Access Control (Kernel Tool) | 2 | ~300 (kernel) | Medium | §2 |
+| §11 Lifecycle (Kernel Tool) | 3 | ~200 (kernel) | Low-Med | §2 |
+| §12 Streaming | 3 | ~400 | Medium | §2 |
+| §13 Bidirectional | 3 | ~500 | Medium | §2 |
+| §15 Discovery (Kernel Tool) | 3 | ~150 (kernel) | Low | §2 |
+| §16 Tool Discovery (Kernel Tool) | 4 | ~800-1500 (kernel) | Med-High | §2, §15 |
+
+#### Server Implementation
+
+| Extension | Tier | Lines (est.) | Difficulty |
+|-----------|------|-------------|------------|
+| §2 Negotiation Response | 1 | ~40 | Very Low |
+| §4 Security Metadata Declaration | 1 | ~20/tool | Very Low |
+| §3 Permission Declaration | 1 | ~10 | Very Low |
+| §11 Health Check Response | 3 | ~80 | Low |
+| §12 Streaming Emission | 3 | ~200 | Medium |
+| §13 Event Publishing | 3 | ~150 | Low-Med |
+
+**Server Tier 1 total: ~70 lines.** Just declare `security` fields on tools.
+
+### 8.7 SDK Design
+
+**Principles:** Zero-config, gradual extensions, non-invasive MCP wrapping, type-safe.
+
+**Python SDK:** `mgp/` — `__init__.py`, `types.py`, `negotiate.py`, `security.py`,
+`lifecycle.py`, `streaming.py`, `discovery.py`, `audit.py`, `errors.py`, `server.py`
+
+**TypeScript SDK:** `@mgp/sdk/src/` — `index.ts`, `types.ts`, `client.ts`, `server.ts`,
+`security.ts`, `lifecycle.ts`, `streaming.ts`, `discovery.ts`, `audit.ts`, `errors.ts`
+
+### 8.8 Validation Tool — mgp-validate
+
+`mgp-validate` tests MGP compliance for servers and clients.
+
+**"5 minutes to MGP-compatible server":** Using `mgp-validate` and the minimal sample
+server (`examples/minimal-server/`), a developer can have a working MGP server and pass
+compliance tests within 5 minutes.
+
+```bash
+mgp-validate server ./my-server.py
+# ✓ Tier 1: Capability negotiation ... PASS
+# ✓ Tier 1: Security metadata on tools ... PASS
+# ✓ Tier 2: Permission declarations ... PASS
+# ✗ Tier 3: Health check response ... MISSING
+# Result: Tier 2 compliant (6/11 extensions)
+```
+
+Compliance badges: `[MGP Tier 1]` `[MGP Tier 2]` `[MGP Tier 3]` `[MGP Tier 4]`
+
+### 8.9 Ecosystem Relationships
+
+| Project | Relationship to MGP |
+|---------|-------------------|
+| MCP (Anthropic) | Base protocol. MGP is a strict superset of MCP |
+| Claude Code | Standard MCP client. MGP Tier 1 enables security metadata |
+| Cursor | 40-tool limit. MGP §16 effectively removes this limitation |
+| LangChain / LlamaIndex | Tool frameworks. MGP SDK integrates as an adapter |
+
+### 8.10 Roadmap
+
+| Phase | Deliverable | Status |
+|-------|-----------|--------|
+| Phase 0 | MGP Specification | Draft complete |
+| Phase 1 | Python SDK (Tier 1-2) | Concept |
+| Phase 2 | TypeScript SDK (Tier 1-2) | Concept |
+| Phase 3 | Validation Tool | Concept |
+| Phase 4 | SDK Tier 3-4 Extensions | Concept |
+| Phase 5 | Independent repo + npm/PyPI publish | Concept |
+| Phase 6 | ClotoCore as MGP reference implementation | Concept |
+
 ---
 
-## 9. Version History
+## 9. Version History & Review Response
+
+### 9.1 Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
 | 0.1.0-draft | 2026-02-27 | Initial draft — Security layer (§2-7) |
 | 0.2.0-draft | 2026-02-27 | Communication & Lifecycle layer (§11-15) |
 | 0.3.0-draft | 2026-02-27 | Intelligence layer — Dynamic Tool Discovery & Active Tool Request (§16) |
-| 0.4.0-draft | 2026-02-28 | Review response: Migration policy (§1.7), versioning rules (§2.5), permission method rename (§3.4-3.6), audit transport clarification (§6.3), tool creation safety (§16.6), semantic search optional (§16.4), MCP Sampling comparison (§13.4) |
-| 0.5.0-draft | 2026-02-28 | Selective Minimalism: 16 protocol methods moved to Kernel Tool Layer (§5, §11, §13, §15, §16); protocol reduced from 25 to 9 primitives (4 methods + 5 notifications); 3-layer architecture (§1.6) |
+| 0.4.0-draft | 2026-02-28 | Expert review response (see §9.2) |
+| 0.5.0-draft | 2026-02-28 | Selective Minimalism (see §9.3) |
+| 0.5.1-draft | 2026-02-28 | Document consolidation: merged MGP_PATTERNS.md, MGP_ADOPTION.md, MGP_REVIEW_RESPONSE.md into single specification |
+
+### 9.2 Expert Review Response (0.3.0 → 0.4.0)
+
+Expert review of 0.3.0-draft identified 6 concerns and 3 strategic recommendations:
+
+| Concern | Resolution | Sections |
+|---------|-----------|----------|
+| **MCP superset political vulnerability** | Added §1.7 Migration Policy with deprecation timeline and migration categories | §1.7 |
+| **Permission method naming** | Renamed `mgp/permission/request` → `await`, `response` → `grant` | §3.4-3.6 |
+| **Semantic search embedding dependency** | Marked `embedding` as OPTIONAL; keyword + category sufficient for compliance | §16.4 |
+| **Versioning strategy undefined** | Added §2.5 with 0.x rules and 1.0 stability criteria | §2.5 |
+| **Audit event transport** | Explicitly documented kernel as MCP client for notification delivery | §6.3 |
+| **`creating` status security risk** | Disabled by default, 6 safety guardrails, ephemeral tools, `TOOL_CREATED_DYNAMIC` event | §16.6, §6.4 |
+
+Strategic additions: §1.7 Migration Policy, §16.1 differentiator emphasis, "5 minutes to
+MGP-compatible server" experience in §8.8.
+
+### 9.3 Selective Minimalism (0.4.0 → 0.5.0)
+
+Structural analysis revealed that 16 of 25 protocol methods are kernel-side operations
+that do not require bidirectional protocol agreement. Converting these to standard MCP
+tools via `tools/call` preserves all functionality while reducing protocol surface area
+by 64%.
+
+**Result:** 25 → 9 protocol primitives (4 methods + 5 notifications).
+
+- **Layer 1 (Metadata):** `_mgp` fields on existing MCP messages — 0 new methods
+- **Layer 2 (Notifications):** 5 protocol notifications
+- **Layer 3 (Methods):** 4 irreducible methods (permission/await, permission/grant,
+  callback/respond, stream/cancel)
+- **Layer 4 (Kernel Tools):** 16 methods converted to standard MCP tools with `mgp.*`
+  naming convention
+
+Security guarantees and MCP structural limitation breakthroughs are fully maintained
+because the kernel remains the sole enforcement point regardless of invocation mechanism.
 
 ---
 
-## 10. Application Patterns & Future Extensions
-
-### 10.1 Application Patterns
+## 10. Application Patterns
 
 The following capabilities are intentionally **not part of the MGP protocol specification**.
 They can be fully implemented as MGP servers using the existing protocol primitives
-(§2-7, §11-15, §16). See `docs/MGP_PATTERNS.md` for reference architectures.
+(§2-7, §11-16). Each pattern can be deployed independently.
 
-| Pattern | Implementation | MGP Primitives Used |
-|---------|---------------|---------------------|
-| Multi-Agent Coordination | Coordination MGP server | Tool calls, Discovery (§16), Access Control (§5) |
-| Context Management | Summarization + Memory MGP servers | Tool calls, Context Budget (§16.8) |
-| Federation | Proxy MGP server | Discovery (§15, §16), Lifecycle (§11) |
+| Pattern | Implementation | Complexity |
+|---------|---------------|------------|
+| Multi-Agent Coordination | Coordination MGP server | Low |
+| Context Management | Summarizer + Memory MGP servers | Medium |
+| Federation | Proxy MGP server | High |
+| Audit Service | Dedicated Audit MGP server | Low |
 
-### 10.2 Future Protocol Extensions
+### 10.1 Multi-Agent Coordination
+
+Multiple agents collaborate — delegating tasks, sharing results, and coordinating
+work — through a Coordinator MGP server that exposes coordination tools.
+
+```
+┌─────────────┐     ┌─────────────────────────┐     ┌─────────────┐
+│   Agent A   │────>│   MGP Kernel            │────>│   Agent B   │
+│             │     │                         │     │             │
+│  tools/call │     │  ┌───────────────────┐  │     │  think()    │
+│  delegate() │────>│  │  Coordinator      │  │────>│  store()    │
+│             │     │  │  MGP Server       │  │     │  recall()   │
+│  discover() │     │  │                   │  │     │             │
+│             │     │  │  - delegate_task  │  │     │             │
+└─────────────┘     │  │  - query_agents   │  │     └─────────────┘
+                    │  │  - collect_results│  │
+                    │  └───────────────────┘  │
+                    └─────────────────────────┘
+```
+
+**Coordination Patterns:**
+
+- **Fan-Out / Fan-In**: Distribute subtasks to multiple agents, collect all results
+- **Chain**: Sequential delegation (translate → summarize → format)
+- **Specialist Routing**: `query_agents(capabilities)` → delegate to best match
+
+**MGP Primitives Used:** Tool calls (MCP base), Access Control (§5), Tool Discovery (§16),
+Audit Trail (§6), Streaming (§12)
+
+### 10.2 Context Management
+
+Conversations accumulate context from chat history, file contents, and tool outputs.
+A three-tier context management architecture prevents context window overflow.
+
+```
+┌──────────────────────────────────────────┐
+│          Context Manager                  │
+│  ┌─────────┐  ┌──────────┐  ┌─────────┐ │
+│  │ Active  │  │ Summary  │  │ Evicted │ │
+│  │ Context │  │ Buffer   │  │ Archive │ │
+│  │ (60%)   │  │ (25%)    │  │ (ext.)  │ │
+│  └─────────┘  └──────────┘  └─────────┘ │
+└──────────────────────────────────────────┘
+```
+
+| Tier | Content | Eviction |
+|------|---------|----------|
+| **Active** | Current turn messages, active tool schemas | Never (current turn) |
+| **Summary** | Compressed older messages | Re-summarize when full |
+| **Archive** | Full history in memory server (KS22 etc.) | Never (persistent) |
+
+**MGP Primitives Used:** Tool calls, Context Budget (§16.8), Tool Discovery (§16),
+Lifecycle (§11)
+
+### 10.3 Federation
+
+Multiple MGP-compatible systems share servers and tools across network boundaries
+through a Federation Proxy MGP server.
+
+```
+┌──────────────────┐           ┌──────────────────┐
+│  Instance A      │  HTTPS    │  Instance B      │
+│  ┌────────────┐  │◄────────►│  ┌────────────┐  │
+│  │ Federation │  │           │  │ Federation │  │
+│  │ Proxy      │  │           │  │ Proxy      │  │
+│  └─────┬──────┘  │           │  └─────┬──────┘  │
+│  ┌─────▼──────┐  │           │  ┌─────▼──────┐  │
+│  │   Kernel   │  │           │  │   Kernel   │  │
+│  └────────────┘  │           │  └────────────┘  │
+└──────────────────┘           └──────────────────┘
+```
+
+Transparent federation via `mgp.discovery.register`: remote tools appear local.
+
+**Security:** TLS + API key validation, local access control (§5) applies, audit events
+(§6) include remote instance in `target` field.
+
+**MGP Primitives Used:** Discovery (§15, §16), Security (§3, §4), Lifecycle (§11),
+Streaming (§12), Error Handling (§14)
+
+### 10.4 Audit Service
+
+The protocol defines the audit event **format** (§6), but storage and querying are
+implementation concerns handled by a dedicated Audit MGP server.
+
+```
+Kernel (MCP Client) ─── notifications/mgp.audit ──► Audit MGP Server
+                                                      │
+                                                      ├─ query_audit_log
+                                                      ├─ get_audit_stats
+                                                      └─ export_audit
+```
+
+**Retention Policies:** `keep_all`, `time_based` (N days), `size_based` (N MB), `tiered`
+
+**MGP Primitives Used:** Audit Event Format (§6.3), Trace ID (§6.5), Tool Discovery (§16),
+Access Control (§5)
+
+### 10.5 Future Protocol Extensions
 
 The following MAY be added to the MGP protocol in future versions if they cannot be
 adequately expressed as application-layer patterns:
