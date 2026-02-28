@@ -1,6 +1,6 @@
 # MGP — Model General Protocol
 
-**Version:** 0.5.1-draft
+**Version:** 0.5.2-draft
 **Status:** Draft
 **Authors:** ClotoCore Project
 **Date:** 2026-02-28
@@ -60,7 +60,7 @@ MGP-specific methods use the `mgp/` prefix. MGP-specific notifications use the
 
 ### 1.6 Protocol Architecture — Selective Minimalism
 
-MGP extends MCP with only **9 protocol primitives** organized in three layers. All
+MGP extends MCP with only **10 protocol primitives** (4 methods + 6 notifications) organized in three layers. All
 other functionality is provided as standard MCP tools exposed by the kernel.
 
 ```
@@ -68,12 +68,13 @@ other functionality is provided as standard MCP tools exposed by the kernel.
 │  Layer 1: Metadata Extensions (0 new methods)            │
 │  └─ _mgp fields on initialize, tools/list, tools/call   │
 ├──────────────────────────────────────────────────────────┤
-│  Layer 2: Protocol Notifications (5)                     │
+│  Layer 2: Protocol Notifications (6)                     │
 │  ├─ notifications/mgp.audit                              │
 │  ├─ notifications/mgp.stream.chunk                       │
 │  ├─ notifications/mgp.stream.progress                    │
 │  ├─ notifications/mgp.lifecycle                          │
-│  └─ notifications/mgp.callback.request                   │
+│  ├─ notifications/mgp.callback.request                   │
+│  └─ notifications/mgp.event                              │
 ├──────────────────────────────────────────────────────────┤
 │  Layer 3: Protocol Methods (4 — irreducible)             │
 │  ├─ mgp/permission/await                                 │
@@ -109,7 +110,7 @@ They do NOT require new protocol methods because:
    tools defined in §5, §11, §13, §15, and §16. The tool schemas are standardized
    even though the invocation mechanism is `tools/call` rather than a dedicated method.
 
-This architecture reduces MGP's protocol surface area by 64% (25 → 9 primitives)
+This architecture reduces MGP's protocol surface area by 60% (25 → 10 primitives)
 while maintaining full security guarantees and MCP structural limitation breakthroughs.
 
 ### 1.7 Relationship to MCP & Migration Policy
@@ -128,7 +129,7 @@ When MCP officially adopts functionality equivalent to an MGP extension, MGP wil
 2. **Deprecate the MGP-specific extension** with at least one minor version of overlap
    (e.g., if MCP adds security in MGP 0.6, the MGP `security` extension remains
    supported through 0.7 and is removed in 0.8)
-3. **Document the migration path** in the Version History (§9) with concrete
+3. **Document the migration path** in the Version History (§18) with concrete
    before/after examples
 
 #### Extension Migration Categories
@@ -214,6 +215,7 @@ servers will ignore it.
 | `bidirectional` | 2+3+4 (All) | Callbacks, events, subscriptions | §13 |
 | `discovery` | 4 (Kernel Tool) | Server registration, deregistration | §15 |
 | `tool_discovery` | 4 (Kernel Tool) | Dynamic tool search, active tool request | §16 |
+| `error_handling` | 1 (Metadata) | Structured error categories and recovery hints | §14 |
 
 Negotiating a Layer 4 extension means the kernel exposes the corresponding standard
 MCP tools (see §1.6). Layer 1-3 extensions activate protocol-level behavior.
@@ -278,7 +280,7 @@ During the pre-1.0 development period:
 - **Patch** version changes (e.g., 0.4.0 → 0.4.1) **MUST NOT** contain breaking changes
 - Implementations SHOULD log a warning when connecting to a peer with a different
   minor version (e.g., client 0.3 ↔ server 0.4) but SHOULD still attempt connection
-- Breaking changes in minor versions MUST be documented in the Version History (§9)
+- Breaking changes in minor versions MUST be documented in the Version History (§18)
   with migration guidance
 
 #### 1.0.0 Stability Milestone
@@ -286,7 +288,7 @@ During the pre-1.0 development period:
 MGP will be declared 1.0.0 (stable) when all of the following criteria are met:
 
 1. At least **two independent implementations** (client and/or server) exist
-2. A **conformance test suite** covers all Tiers (1-4) as defined in §8.5
+2. A **conformance test suite** covers all Tiers (1-4) as defined in §17.5
 3. The specification has been in draft status for at least **6 months** without
    breaking changes to the core protocol (§2-7)
 4. The `mgp-validate` tool can verify compliance at all Tiers
@@ -603,7 +605,7 @@ Revoke an existing access grant.
 
 MGP defines a standard **audit event format** and **trace ID propagation** at the protocol
 level. The storage, querying, and analysis of audit events is delegated to an Audit MGP
-server (see §10.4).
+server (see §19.4).
 
 This separation ensures that the protocol defines **what** audit events look like, while
 **how** they are stored and processed remains an implementation concern.
@@ -615,9 +617,9 @@ This separation ensures that the protocol defines **what** audit events look lik
 | Audit event format (structure, fields) | **Protocol** | This section |
 | Standard event types | **Protocol** | This section |
 | Trace ID propagation | **Protocol** | This section |
-| Audit event storage and persistence | **Server** | §10.4 |
-| Audit event querying and search | **Server** | §10.4 |
-| Audit analytics and alerting | **Server** | §10.4 |
+| Audit event storage and persistence | **Server** | §19.4 |
+| Audit event querying and search | **Server** | §19.4 |
+| Audit analytics and alerting | **Server** | §19.4 |
 
 ### 6.3 Audit Event Format
 
@@ -1314,92 +1316,24 @@ credentials and routes requests to the appropriate provider based on `model_hint
 }
 ```
 
-#### Comparison with MCP `sampling/createMessage`
+#### Relationship to MCP `sampling/createMessage`
 
-MCP defines `sampling/createMessage` as a dedicated method for the same purpose: servers
-requesting LLM completions from the client. MGP's `llm_completion` callback type achieves
-the same goal through a different architectural approach. The table below compares the two.
+MCP defines `sampling/createMessage` as a dedicated method for the same purpose. MGP's
+`llm_completion` callback achieves the same goal through the generic callback mechanism
+(§13.4), with the following key differences:
 
-##### Feature Comparison
+| Aspect | MCP Sampling | MGP `llm_completion` |
+|--------|-------------|----------------------|
+| Mechanism | Dedicated protocol method | Callback type (extensible) |
+| Streaming | Not supported (atomic) | §12 chunk delivery |
+| Timeout / Cancel | Not defined | `timeout_ms` + `mgp/stream/cancel` |
+| Audit | None | §6 audit with trace_id |
+| Access control | None | §5 hierarchy |
+| Error handling | 2 codes (`-1`, `-32602`) | §14 structured codes with recovery |
+| Extensibility | New method per feature | New callback type, no protocol change |
 
-| Feature | MCP `sampling/createMessage` | MGP `llm_completion` Callback |
-|---------|------------------------------|-------------------------------|
-| **Mechanism** | Dedicated protocol method | Callback type within generic §13.4 |
-| **Direction** | Server → Client | Server → Kernel (same) |
-| **Streaming** | Not supported (atomic request-response) | Combines with §12 Streaming for token-by-token delivery |
-| **Timeout** | Not defined (implementation-dependent) | Explicit `timeout_ms` parameter |
-| **Cancellation** | Not defined | `mgp/stream/cancel` (§12.7) |
-| **Token usage tracking** | Field exists but returns 0 in practice | `usage` field with actual values |
-| **Model selection** | `modelPreferences` (advisory hints + priorities) | `model_hints` (speed/intelligence/provider) |
-| **Hard model requirements** | None (all preferences are advisory) | `provider` field for explicit routing |
-| **Client modification** | Client MAY silently modify systemPrompt, temperature, etc. | Kernel processes transparently |
-| **Tool support** | Added in SEP-1577 (2025-11) | Included from initial design |
-| **Extensibility** | New features require new protocol methods | New callback types without protocol changes |
-
-##### Security Comparison
-
-| Security Feature | MCP Sampling | MGP `llm_completion` |
-|-----------------|-------------|----------------------|
-| **Audit trail** | None | §6 `notifications/mgp.audit` with trace_id |
-| **Access control** | None | §5 hierarchy (tool_grant > server_grant > default) |
-| **Permission management** | None | §3 `mgp/permission/await` / `grant` |
-| **Human-in-the-loop** | SHOULD (recommended, not enforced) | §3.3 policy enforcement (`interactive` / `auto_approve` / `deny_all`) |
-| **Prompt injection defense** | None (3 attack vectors reported by Palo Alto Unit 42) | §7 Code Safety Framework for generated code |
-| **Cost control** | Not possible (no usage tracking) | §14 `RATE_LIMITED` (3000) / `QUOTA_EXCEEDED` (3002) |
-
-##### Error Handling Comparison
-
-| Error Scenario | MCP Sampling | MGP §14 |
-|---------------|-------------|---------|
-| User rejected request | `-1` | `1000` PERMISSION_DENIED + reason |
-| Invalid parameters | `-32602` | `4000` INVALID_TOOL_ARGS + details |
-| Model unavailable | Not defined | `5002` UPSTREAM_UNAVAILABLE |
-| Rate limit exceeded | Not defined | `3000` RATE_LIMITED + `retry_after_ms` |
-| Request timeout | Not defined | `3003` TIMEOUT |
-| Provider error | Not defined | `5000` UPSTREAM_ERROR + recovery hints |
-| Context too large | Not defined | `3001` RESOURCE_EXHAUSTED |
-| Retry strategy | Not defined | `exponential_backoff` / `fixed_delay` + `max_retries` |
-
-MCP Sampling defines **2 error codes**. MGP defines **18 structured error codes** with
-recovery hints, retry strategies, and fallback tool suggestions.
-
-##### Streaming Integration
-
-MCP Sampling is atomic — the server sends a request and waits for the complete response:
-
-```
-MCP:   Server → sampling/createMessage → Client → (wait) → Complete response
-```
-
-MGP's `llm_completion` can combine with §12 Streaming for progressive token delivery:
-
-```
-MGP:   Server → callback.request (llm_completion) → Kernel
-       Kernel → notifications/mgp.stream.chunk (token 1) → Server
-       Kernel → notifications/mgp.stream.chunk (token 2) → Server
-       Kernel → notifications/mgp.stream.chunk (token N) → Server
-       Kernel → mgp/callback/respond (complete response + usage) → Server
-```
-
-This enables real-time UI updates while the LLM generates its response.
-
-##### Architectural Advantages
-
-1. **Generic callback mechanism**: MCP requires a dedicated `sampling/createMessage`
-   method. MGP uses the generic callback system (§13.4), meaning new callback types
-   (e.g., `image_generation`, `speech_synthesis`) can be added without protocol changes.
-
-2. **End-to-end observability**: Every `llm_completion` callback is tracked via §6 Audit
-   Trail with `trace_id` propagation across the full request chain. MCP Sampling provides
-   no observability primitives.
-
-3. **Integration with Dynamic Tool Discovery**: MGP servers can combine `llm_completion`
-   with §16 Active Tool Request — acquiring new tools and reasoning about them in a
-   single unified flow. This is not possible with MCP's separated primitives.
-
-4. **Migration path**: Per §1.6 (Migration Policy), if MCP Sampling evolves to match
-   MGP's capabilities, MGP will provide a compatibility layer mapping between the two
-   method formats during a transition period.
+Per §1.7 (Migration Policy), if MCP Sampling evolves to match these capabilities, MGP
+will provide a compatibility layer during the transition period.
 
 ### 13.5 Standard Event Channels
 
@@ -2101,6 +2035,27 @@ When the budget is exceeded, the kernel automatically evicts the least-recently-
 cached tools. Pinned tools are never evicted. Discovery results that would exceed the
 budget are truncated (fewer results returned).
 
+#### Kernel Tool Visibility
+
+Layer 4 Kernel Tools (`mgp.access.*`, `mgp.health.*`, `mgp.events.*`, etc.) are
+management tools intended for operators and administrative agents. They SHOULD NOT be
+included in the LLM's tool context by default:
+
+| Kernel Tool Category | `tools/list` | LLM Context | Rationale |
+|---------------------|-------------|------------|-----------|
+| `mgp.tools.discover` | Yes | Yes (as meta-tool) | LLM needs this for dynamic discovery |
+| `mgp.tools.request` | Yes | Yes (as meta-tool) | LLM needs this for active tool request |
+| `mgp.access.*` | Yes | No | Administrative — operator/API only |
+| `mgp.health.*` | Yes | No | Administrative — monitoring only |
+| `mgp.lifecycle.*` | Yes | No | Administrative — operator only |
+| `mgp.events.*` | Yes | No | Administrative — subscription mgmt |
+| `mgp.discovery.*` | Yes | No | Administrative — server registration |
+| `mgp.tools.session*` | Yes | Optional | Context management — LLM MAY use |
+
+Kernel tools appear in `tools/list` responses (for API discoverability) but are excluded
+from the LLM context budget unless explicitly pinned. Only `mgp.tools.discover` and
+`mgp.tools.request` are injected into the LLM context as meta-tools.
+
 ### 16.9 Comparison with Existing Approaches
 
 | Approach | Discovery | Multi-Step | Protocol Standard | Context Reduction |
@@ -2116,9 +2071,9 @@ as first-class protocol methods, with session management and context budgeting b
 
 ---
 
-## 8. Implementation Notes
+## 17. Implementation & Adoption Guide
 
-### 8.1 For Server Implementors
+### 17.1 For Server Implementors
 
 1. **Minimal MGP support**: Include `mgp` in your `initialize` response capabilities.
    Even supporting just the `security` extension (tool security metadata) adds significant
@@ -2134,7 +2089,7 @@ as first-class protocol methods, with session management and context budgeting b
    §13 events, §15, §16). These are exposed by the kernel. Servers only need to respond
    to health checks and lifecycle commands when the kernel invokes them.
 
-### 8.2 For Client/Kernel Implementors
+### 17.2 For Client/Kernel Implementors
 
 1. **Discovery**: Check for `mgp` in the server's `initialize` response. If absent,
    treat as standard MCP.
@@ -2150,7 +2105,7 @@ as first-class protocol methods, with session management and context budgeting b
    (e.g., `mgp.access.query`, `mgp.tools.discover`). This ensures discoverability and
    avoids naming conflicts with server-provided tools.
 
-### 8.3 Relationship to ClotoCore
+### 17.3 Relationship to ClotoCore
 
 ClotoCore is the reference implementation of MGP. The following ClotoCore components
 map to MGP specifications:
@@ -2170,7 +2125,7 @@ map to MGP specifications:
 | §15 Discovery | 4 | `mcp.toml`, `add_dynamic_server()` | `managers/mcp.rs` |
 | §16 Tool Discovery | 4 | — (not yet implemented) | — |
 
-### 8.4 License and Distribution Strategy
+### 17.4 License and Distribution Strategy
 
 | Component | License | Repository |
 |-----------|---------|------------|
@@ -2182,7 +2137,7 @@ map to MGP specifications:
 MGP specification and SDKs are fully separated from ClotoCore and published under MIT.
 Any project can adopt MGP regardless of ClotoCore's commercial protection period.
 
-### 8.5 Staged Adoption Path
+### 17.5 Staged Adoption Path
 
 MGP does not require implementing all extensions at once. Both clients and servers can
 adopt incrementally. Each Tier includes all previous Tiers.
@@ -2216,7 +2171,7 @@ bidirectional communication (§13).
 management, session tool cache. Semantic search is OPTIONAL — keyword + category is
 sufficient for Tier 4 compliance.
 
-### 8.6 Implementation Difficulty Matrix
+### 17.6 Implementation Difficulty Matrix
 
 #### Client/Kernel Implementation
 
@@ -2247,7 +2202,7 @@ sufficient for Tier 4 compliance.
 
 **Server Tier 1 total: ~70 lines.** Just declare `security` fields on tools.
 
-### 8.7 SDK Design
+### 17.7 SDK Design
 
 **Principles:** Zero-config, gradual extensions, non-invasive MCP wrapping, type-safe.
 
@@ -2257,7 +2212,7 @@ sufficient for Tier 4 compliance.
 **TypeScript SDK:** `@mgp/sdk/src/` — `index.ts`, `types.ts`, `client.ts`, `server.ts`,
 `security.ts`, `lifecycle.ts`, `streaming.ts`, `discovery.ts`, `audit.ts`, `errors.ts`
 
-### 8.8 Validation Tool — mgp-validate
+### 17.8 Validation Tool — mgp-validate
 
 `mgp-validate` tests MGP compliance for servers and clients.
 
@@ -2276,7 +2231,7 @@ mgp-validate server ./my-server.py
 
 Compliance badges: `[MGP Tier 1]` `[MGP Tier 2]` `[MGP Tier 3]` `[MGP Tier 4]`
 
-### 8.9 Ecosystem Relationships
+### 17.9 Ecosystem Relationships
 
 | Project | Relationship to MGP |
 |---------|-------------------|
@@ -2285,7 +2240,7 @@ Compliance badges: `[MGP Tier 1]` `[MGP Tier 2]` `[MGP Tier 3]` `[MGP Tier 4]`
 | Cursor | 40-tool limit. MGP §16 effectively removes this limitation |
 | LangChain / LlamaIndex | Tool frameworks. MGP SDK integrates as an adapter |
 
-### 8.10 Roadmap
+### 17.10 Roadmap
 
 | Phase | Deliverable | Status |
 |-------|-----------|--------|
@@ -2299,20 +2254,21 @@ Compliance badges: `[MGP Tier 1]` `[MGP Tier 2]` `[MGP Tier 3]` `[MGP Tier 4]`
 
 ---
 
-## 9. Version History & Review Response
+## 18. Version History & Review Response
 
-### 9.1 Version History
+### 18.1 Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
 | 0.1.0-draft | 2026-02-27 | Initial draft — Security layer (§2-7) |
 | 0.2.0-draft | 2026-02-27 | Communication & Lifecycle layer (§11-15) |
 | 0.3.0-draft | 2026-02-27 | Intelligence layer — Dynamic Tool Discovery & Active Tool Request (§16) |
-| 0.4.0-draft | 2026-02-28 | Expert review response (see §9.2) |
-| 0.5.0-draft | 2026-02-28 | Selective Minimalism (see §9.3) |
+| 0.4.0-draft | 2026-02-28 | Expert review response (see §18.2) |
+| 0.5.0-draft | 2026-02-28 | Selective Minimalism (see §18.3) |
 | 0.5.1-draft | 2026-02-28 | Document consolidation: merged MGP_PATTERNS.md, MGP_ADOPTION.md, MGP_REVIEW_RESPONSE.md into single specification |
+| 0.5.2-draft | 2026-02-28 | Second review response: sequential section numbering (§17-19), `notifications/mgp.event` added to Layer 2, kernel tool visibility rules (§16.8), §14 Layer classification, MCP comparison compressed |
 
-### 9.2 Expert Review Response (0.3.0 → 0.4.0)
+### 18.2 Expert Review Response (0.3.0 → 0.4.0)
 
 Expert review of 0.3.0-draft identified 6 concerns and 3 strategic recommendations:
 
@@ -2326,19 +2282,19 @@ Expert review of 0.3.0-draft identified 6 concerns and 3 strategic recommendatio
 | **`creating` status security risk** | Disabled by default, 6 safety guardrails, ephemeral tools, `TOOL_CREATED_DYNAMIC` event | §16.6, §6.4 |
 
 Strategic additions: §1.7 Migration Policy, §16.1 differentiator emphasis, "5 minutes to
-MGP-compatible server" experience in §8.8.
+MGP-compatible server" experience in §17.8.
 
-### 9.3 Selective Minimalism (0.4.0 → 0.5.0)
+### 18.3 Selective Minimalism (0.4.0 → 0.5.0)
 
 Structural analysis revealed that 16 of 25 protocol methods are kernel-side operations
 that do not require bidirectional protocol agreement. Converting these to standard MCP
 tools via `tools/call` preserves all functionality while reducing protocol surface area
 by 64%.
 
-**Result:** 25 → 9 protocol primitives (4 methods + 5 notifications).
+**Result:** 25 → 10 protocol primitives (4 methods + 6 notifications).
 
 - **Layer 1 (Metadata):** `_mgp` fields on existing MCP messages — 0 new methods
-- **Layer 2 (Notifications):** 5 protocol notifications
+- **Layer 2 (Notifications):** 6 protocol notifications
 - **Layer 3 (Methods):** 4 irreducible methods (permission/await, permission/grant,
   callback/respond, stream/cancel)
 - **Layer 4 (Kernel Tools):** 16 methods converted to standard MCP tools with `mgp.*`
@@ -2349,7 +2305,7 @@ because the kernel remains the sole enforcement point regardless of invocation m
 
 ---
 
-## 10. Application Patterns
+## 19. Application Patterns
 
 The following capabilities are intentionally **not part of the MGP protocol specification**.
 They can be fully implemented as MGP servers using the existing protocol primitives
@@ -2362,7 +2318,7 @@ They can be fully implemented as MGP servers using the existing protocol primiti
 | Federation | Proxy MGP server | High |
 | Audit Service | Dedicated Audit MGP server | Low |
 
-### 10.1 Multi-Agent Coordination
+### 19.1 Multi-Agent Coordination
 
 Multiple agents collaborate — delegating tasks, sharing results, and coordinating
 work — through a Coordinator MGP server that exposes coordination tools.
@@ -2391,7 +2347,7 @@ work — through a Coordinator MGP server that exposes coordination tools.
 **MGP Primitives Used:** Tool calls (MCP base), Access Control (§5), Tool Discovery (§16),
 Audit Trail (§6), Streaming (§12)
 
-### 10.2 Context Management
+### 19.2 Context Management
 
 Conversations accumulate context from chat history, file contents, and tool outputs.
 A three-tier context management architecture prevents context window overflow.
@@ -2416,7 +2372,7 @@ A three-tier context management architecture prevents context window overflow.
 **MGP Primitives Used:** Tool calls, Context Budget (§16.8), Tool Discovery (§16),
 Lifecycle (§11)
 
-### 10.3 Federation
+### 19.3 Federation
 
 Multiple MGP-compatible systems share servers and tools across network boundaries
 through a Federation Proxy MGP server.
@@ -2442,7 +2398,7 @@ Transparent federation via `mgp.discovery.register`: remote tools appear local.
 **MGP Primitives Used:** Discovery (§15, §16), Security (§3, §4), Lifecycle (§11),
 Streaming (§12), Error Handling (§14)
 
-### 10.4 Audit Service
+### 19.4 Audit Service
 
 The protocol defines the audit event **format** (§6), but storage and querying are
 implementation concerns handled by a dedicated Audit MGP server.
@@ -2460,7 +2416,7 @@ Kernel (MCP Client) ─── notifications/mgp.audit ──► Audit MGP Server
 **MGP Primitives Used:** Audit Event Format (§6.3), Trace ID (§6.5), Tool Discovery (§16),
 Access Control (§5)
 
-### 10.5 Future Protocol Extensions
+### 19.5 Future Protocol Extensions
 
 The following MAY be added to the MGP protocol in future versions if they cannot be
 adequately expressed as application-layer patterns:
