@@ -53,8 +53,14 @@ export const api = {
   getPendingPermissions: () => fetchJson<PermissionRequest[]>('/permissions/pending', 'fetch pending permissions'),
   getVersion: () => fetchJson<{ version: string; build_target: string }>('/system/version', 'fetch version'),
   getMetrics: () => fetchJson<Metrics>('/metrics', 'fetch metrics'),
-  getMemories: () => fetchJson<Memory[]>('/memories', 'fetch memories'),
-  getEpisodes: () => fetchJson<Episode[]>('/episodes', 'fetch episodes'),
+  getMemories: async (): Promise<Memory[]> => {
+    const data = await fetchJson<{ memories: Memory[]; count: number }>('/memories', 'fetch memories');
+    return data.memories ?? [];
+  },
+  getEpisodes: async (): Promise<Episode[]> => {
+    const data = await fetchJson<{ episodes: Episode[]; count: number }>('/episodes', 'fetch episodes');
+    return data.episodes ?? [];
+  },
   getHistory: () => fetchJson<StrictSystemEvent[]>('/history', 'fetch history'),
   fetchJson: <T>(path: string, apiKey: string) =>
     fetch(`${API_BASE}${path}`, { headers: { 'X-API-Key': apiKey } })

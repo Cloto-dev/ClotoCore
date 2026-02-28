@@ -893,7 +893,7 @@ pub async fn get_metrics(State(state): State<Arc<AppState>>) -> AppResult<Json<s
     })))
 }
 
-/// Get stored agent memories from the database.
+/// Get stored agent memories via KS22 MCP server.
 ///
 /// **Route:** `GET /api/memories`
 ///
@@ -901,31 +901,59 @@ pub async fn get_metrics(State(state): State<Arc<AppState>>) -> AppResult<Json<s
 /// No authentication required (read-only).
 ///
 /// # Response
-/// Returns up to 100 most recent memory entries (key prefix `mem:`),
-/// ordered by key descending. Each entry is parsed from stored JSON.
-/// Malformed entries are silently skipped with a debug log.
+/// Returns recent memories from KS22 memory server.
 pub async fn get_memories(
     State(state): State<Arc<AppState>>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT key, value FROM plugin_data WHERE key LIKE 'mem:%' ORDER BY key DESC LIMIT 100",
-    )
-    .fetch_all(&state.pool)
-    .await?;
+    let args = serde_json::json!({ "agent_id": "", "limit": 100 });
+    match state
+        .mcp_manager
+        .call_server_tool("memory.ks22", "list_memories", args)
+        .await
+    {
+        Ok(result) => {
+            if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) = result.content.first() {
+                if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
+                    return Ok(Json(data));
+                }
+            }
+            Ok(Json(serde_json::json!({ "memories": [], "count": 0 })))
+        }
+        Err(e) => {
+            tracing::warn!("KS22 list_memories failed: {}", e);
+            Ok(Json(serde_json::json!({ "memories": [], "count": 0 })))
+        }
+    }
+}
 
-    let memories: Vec<serde_json::Value> = rows
-        .into_iter()
-        .filter_map(|(_k, v)| {
-            serde_json::from_str(&v)
-                .map_err(|e| {
-                    tracing::debug!("Skipping malformed memory entry: {}", e);
-                    e
-                })
-                .ok()
-        })
-        .collect();
-
-    Ok(Json(serde_json::json!(memories)))
+/// Get archived episodes via KS22 MCP server.
+///
+/// **Route:** `GET /api/episodes`
+///
+/// # Response
+/// Returns recent episodes from KS22 memory server.
+pub async fn get_episodes(
+    State(state): State<Arc<AppState>>,
+) -> AppResult<Json<serde_json::Value>> {
+    let args = serde_json::json!({ "agent_id": "", "limit": 50 });
+    match state
+        .mcp_manager
+        .call_server_tool("memory.ks22", "list_episodes", args)
+        .await
+    {
+        Ok(result) => {
+            if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) = result.content.first() {
+                if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
+                    return Ok(Json(data));
+                }
+            }
+            Ok(Json(serde_json::json!({ "episodes": [], "count": 0 })))
+        }
+        Err(e) => {
+            tracing::warn!("KS22 list_episodes failed: {}", e);
+            Ok(Json(serde_json::json!({ "episodes": [], "count": 0 })))
+        }
+    }
 }
 
 /// Get pending permission requests awaiting human approval.

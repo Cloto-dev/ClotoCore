@@ -92,18 +92,18 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
             
             <div className={`grid ${isWindowMode ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'} gap-4`}>
               {memories.length > 0 ? memories.map((mem) => (
-                <div key={`${mem.user_id}-${mem.guild_id}`} className="bg-glass-strong backdrop-blur-sm p-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group">
+                <div key={mem.id} className="bg-glass-strong backdrop-blur-sm p-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group">
                   <div className="flex items-center gap-3 mb-2">
                     <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-brand/10 transition-colors">
                       <User size={12} className="text-content-tertiary group-hover:text-brand" />
                     </div>
-                    <span className="text-[10px] font-mono text-content-tertiary">UID: {mem.user_id.slice(-6)}</span>
+                    <span className="text-[10px] font-mono text-content-tertiary">{mem.agent_id}</span>
                   </div>
                   <div className="text-xs font-medium leading-relaxed text-content-secondary whitespace-pre-wrap line-clamp-6 font-mono">
                     {mem.content}
                   </div>
                   <div className="mt-2 pt-2 border-t border-edge-subtle flex justify-between items-center">
-                    <span className="text-[9px] text-content-tertiary font-bold uppercase tracking-widest">{mem.updated_at}</span>
+                    <span className="text-[9px] text-content-tertiary font-bold uppercase tracking-widest">{mem.created_at}</span>
                     <Sparkles size={12} className="text-content-muted group-hover:text-brand" />
                   </div>
                 </div>
@@ -125,9 +125,12 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
               {episodes.length > 0 ? episodes.map((epi) => (
                 <div key={epi.id} className="bg-glass-strong backdrop-blur-sm p-3 rounded-lg border-l-2 border-brand shadow-sm hover:translate-x-1 transition-transform group">
                   <div className="text-[10px] font-black text-brand mb-1 uppercase tracking-wider flex justify-between">
-                    <span>{epi.start_time || "LOG: RECENT"}</span>
-                    {epi.channel_id && <span className="text-content-muted font-mono">#{epi.channel_id}</span>}
+                    <span>{epi.created_at || "LOG: RECENT"}</span>
+                    <span className="text-content-muted font-mono">{epi.agent_id}</span>
                   </div>
+                  {epi.keywords && (
+                    <div className="text-[9px] font-mono text-content-muted mb-1">{epi.keywords}</div>
+                  )}
                   <p className="text-xs text-content-secondary line-clamp-3 font-mono leading-relaxed group-hover:text-content-primary">
                     {epi.summary}
                   </p>

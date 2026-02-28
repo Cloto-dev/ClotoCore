@@ -484,6 +484,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/history", get(handlers::get_history))
         .route("/metrics", get(handlers::get_metrics))
         .route("/memories", get(handlers::get_memories))
+        .route("/episodes", get(handlers::get_episodes))
         .route("/plugins", get(handlers::get_plugins))
         .route("/plugins/:id/config", get(handlers::get_plugin_config))
         .route("/agents", get(handlers::get_agents))

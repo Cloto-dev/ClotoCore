@@ -759,6 +759,44 @@ async def list_tools() -> list[Tool]:
                 "required": ["agent_id", "history"],
             },
         ),
+        Tool(
+            name="list_memories",
+            description="List recent memories for an agent (for dashboard display).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Agent identifier (empty for all agents)",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max memories to return",
+                        "default": 100,
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="list_episodes",
+            description="List archived episodes for an agent (for dashboard display).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Agent identifier (empty for all agents)",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max episodes to return",
+                        "default": 50,
+                    },
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -786,6 +824,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 arguments.get("agent_id", ""),
                 arguments.get("history", []),
             )
+        elif name == "list_memories":
+            result = await do_list_memories(
+                arguments.get("agent_id", ""),
+                arguments.get("limit", 100),
+            )
+        elif name == "list_episodes":
+            result = await do_list_episodes(
+                arguments.get("agent_id", ""),
+                arguments.get("limit", 50),
+            )
         else:
             result = {"error": f"Unknown tool: {name}"}
 
@@ -794,6 +842,68 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [
             TextContent(type="text", text=json.dumps({"error": str(e)}))
         ]
+
+
+async def do_list_memories(agent_id: str, limit: int) -> dict:
+    """List recent memories for dashboard display."""
+    db = await _get_db()
+    if agent_id:
+        rows = await db.execute_fetchall(
+            "SELECT id, agent_id, msg_id, content, source, timestamp, created_at "
+            "FROM memories WHERE agent_id = ? ORDER BY created_at DESC LIMIT ?",
+            (agent_id, min(limit, 500)),
+        )
+    else:
+        rows = await db.execute_fetchall(
+            "SELECT id, agent_id, msg_id, content, source, timestamp, created_at "
+            "FROM memories ORDER BY created_at DESC LIMIT ?",
+            (min(limit, 500),),
+        )
+    memories = []
+    for row in rows:
+        source = {}
+        try:
+            source = json.loads(row[4]) if row[4] else {}
+        except (json.JSONDecodeError, TypeError):
+            pass
+        memories.append({
+            "id": row[0],
+            "agent_id": row[1],
+            "content": row[3],
+            "source": source,
+            "timestamp": row[5],
+            "created_at": row[6],
+        })
+    return {"memories": memories, "count": len(memories)}
+
+
+async def do_list_episodes(agent_id: str, limit: int) -> dict:
+    """List archived episodes for dashboard display."""
+    db = await _get_db()
+    if agent_id:
+        rows = await db.execute_fetchall(
+            "SELECT id, agent_id, summary, keywords, start_time, end_time, created_at "
+            "FROM episodes WHERE agent_id = ? ORDER BY created_at DESC LIMIT ?",
+            (agent_id, min(limit, 200)),
+        )
+    else:
+        rows = await db.execute_fetchall(
+            "SELECT id, agent_id, summary, keywords, start_time, end_time, created_at "
+            "FROM episodes ORDER BY created_at DESC LIMIT ?",
+            (min(limit, 200),),
+        )
+    episodes = []
+    for row in rows:
+        episodes.append({
+            "id": row[0],
+            "agent_id": row[1],
+            "summary": row[2],
+            "keywords": row[3],
+            "start_time": row[4],
+            "end_time": row[5],
+            "created_at": row[6],
+        })
+    return {"episodes": episodes, "count": len(episodes)}
 
 
 async def main():

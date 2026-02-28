@@ -159,17 +159,22 @@ export interface Metrics {
 }
 
 export interface Memory {
-  user_id: string;
-  guild_id: string;
+  id: number;
+  agent_id: string;
   content: string;
-  updated_at: string;
+  source: Record<string, string>;
+  timestamp: string;
+  created_at: string;
 }
 
 export interface Episode {
   id: number;
+  agent_id: string;
   summary: string;
-  start_time: string;
-  channel_id?: string;
+  keywords: string;
+  start_time?: string;
+  end_time?: string;
+  created_at: string;
 }
 
 export interface InstalledConfig {
