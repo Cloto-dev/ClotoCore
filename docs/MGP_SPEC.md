@@ -1,9 +1,9 @@
 # MGP — Model General Protocol
 
-**Version:** 0.2.0-draft
+**Version:** 0.5.0-draft
 **Status:** Draft
 **Authors:** ClotoCore Project
-**Date:** 2026-02-27
+**Date:** 2026-02-28
 
 ---
 
@@ -58,6 +58,105 @@ MGP uses JSON-RPC 2.0, identical to MCP:
 MGP-specific methods use the `mgp/` prefix. MGP-specific notifications use the
 `notifications/mgp.` prefix. Standard MCP methods remain unchanged.
 
+### 1.6 Protocol Architecture — Selective Minimalism
+
+MGP extends MCP with only **9 protocol primitives** organized in three layers. All
+other functionality is provided as standard MCP tools exposed by the kernel.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Layer 1: Metadata Extensions (0 new methods)            │
+│  └─ _mgp fields on initialize, tools/list, tools/call   │
+├──────────────────────────────────────────────────────────┤
+│  Layer 2: Protocol Notifications (5)                     │
+│  ├─ notifications/mgp.audit                              │
+│  ├─ notifications/mgp.stream.chunk                       │
+│  ├─ notifications/mgp.stream.progress                    │
+│  ├─ notifications/mgp.lifecycle                          │
+│  └─ notifications/mgp.callback.request                   │
+├──────────────────────────────────────────────────────────┤
+│  Layer 3: Protocol Methods (4 — irreducible)             │
+│  ├─ mgp/permission/await                                 │
+│  ├─ mgp/permission/grant                                 │
+│  ├─ mgp/callback/respond                                 │
+│  └─ mgp/stream/cancel                                    │
+├──────────────────────────────────────────────────────────┤
+│  Layer 4: Kernel Tools (16 — standard tools/call)        │
+│  ├─ mgp.access.*    (query, grant, revoke)       — §5   │
+│  ├─ mgp.health.*    (ping, status)               — §11  │
+│  ├─ mgp.lifecycle.* (shutdown)                   — §11  │
+│  ├─ mgp.events.*    (subscribe, unsubscribe)     — §13  │
+│  ├─ mgp.discovery.* (list, register, deregister) — §15  │
+│  └─ mgp.tools.*     (discover, request, session) — §16  │
+└──────────────────────────────────────────────────────────┘
+```
+
+#### Design Rationale
+
+**Layers 1-3** are protocol-level primitives. All MGP implementations MUST support
+these. They are irreducible: each requires bidirectional agreement or fire-and-forget
+notification that cannot be expressed as a tool call.
+
+**Layer 4** tools are exposed by the kernel as standard MCP tools via `tools/call`.
+They do NOT require new protocol methods because:
+
+1. **The kernel is the enforcement point.** Access control, health checks, and tool
+   discovery are kernel-side operations. Whether invoked via a protocol method or a
+   tool call, the kernel enforces the same rules.
+2. **Servers cannot bypass kernel tools.** In the MGP architecture, the kernel is the
+   MCP client. Servers cannot call kernel tools — only agents and operators can.
+3. **No interoperability loss.** Compliant kernels SHOULD expose the standard kernel
+   tools defined in §5, §11, §13, §15, and §16. The tool schemas are standardized
+   even though the invocation mechanism is `tools/call` rather than a dedicated method.
+
+This architecture reduces MGP's protocol surface area by 64% (25 → 9 primitives)
+while maintaining full security guarantees and MCP structural limitation breakthroughs.
+
+### 1.7 Relationship to MCP & Migration Policy
+
+MGP is a strict superset of MCP. As MCP evolves, some features currently unique to
+MGP may be adopted into MCP itself. MGP's migration policy ensures continuity for
+implementors.
+
+#### Migration Commitment
+
+When MCP officially adopts functionality equivalent to an MGP extension, MGP will:
+
+1. **Provide a compatibility layer** that maps between MGP method names/formats and
+   the MCP equivalents, allowing existing MGP implementations to work with both
+   protocols during a transition period
+2. **Deprecate the MGP-specific extension** with at least one minor version of overlap
+   (e.g., if MCP adds security in MGP 0.6, the MGP `security` extension remains
+   supported through 0.7 and is removed in 0.8)
+3. **Document the migration path** in the Version History (§9) with concrete
+   before/after examples
+
+#### Extension Migration Categories
+
+| Category | MGP Extensions | Migration Likelihood | Notes |
+|----------|---------------|---------------------|-------|
+| Security | §3-5, §7 | Medium | MCP has discussed auth; MGP will adapt |
+| Observability | §6 | Medium | OpenTelemetry integration is common |
+| Lifecycle | §11 | Low | MCP has no lifecycle primitives planned |
+| Communication | §12, §13 | Low-Medium | MCP Streamable HTTP addresses some |
+| Discovery | §15 | Low | Static config is MCP's current approach |
+| **Intelligence** | **§16** | **Very Low** | **No MCP equivalent planned or proposed** |
+
+#### Strategic Differentiation
+
+MGP's unique value lies in the **Intelligence Layer** (§16). While security and
+lifecycle features are natural candidates for eventual MCP adoption, Dynamic Tool
+Discovery (§16) addresses a structural limitation of the MCP architecture:
+
+- MCP requires all tool definitions in the LLM context before use
+- This fundamentally limits scalability and prevents autonomous tool acquisition
+- §16 solves this at the protocol level with discovery, active request, and session
+  management — capabilities that require a kernel/orchestrator role not present in
+  MCP's direct client-server model
+
+Even if MCP adds all security features, MGP §16 alone justifies the protocol's
+existence for any system managing more than ~20 tools.
+
 ---
 
 ## 2. Capability Negotiation
@@ -104,17 +203,20 @@ servers will ignore it.
 
 **Standard Extensions:**
 
-| Extension | Description | Spec |
-|-----------|-------------|------|
-| `security` | Permission declarations and tool security metadata | §3, §4 |
-| `access_control` | Agent-scoped tool access control protocol | §5 |
-| `audit` | Structured audit trail notifications | §6 |
-| `code_safety` | Code execution safety framework | §7 |
-| `lifecycle` | Health checks, graceful shutdown, state management | §11 |
-| `streaming` | Streaming tool responses, progress, cancellation | §12 |
-| `bidirectional` | Server→Client notifications, event subscriptions, callbacks | §13 |
-| `discovery` | Server advertisement, registration, deregistration | §15 |
-| `tool_discovery` | Dynamic tool search, active tool request, session cache | §16 |
+| Extension | Layer | Description | Spec |
+|-----------|-------|-------------|------|
+| `security` | 1+3 (Metadata + Method) | Permission declarations and tool security metadata | §3, §4 |
+| `access_control` | 4 (Kernel Tool) | Agent-scoped tool access control | §5 |
+| `audit` | 2 (Notification) | Structured audit trail notifications | §6 |
+| `code_safety` | 1 (Metadata) | Code execution safety framework | §7 |
+| `lifecycle` | 2+4 (Notification + Kernel Tool) | State transitions, health checks, shutdown | §11 |
+| `streaming` | 2+3 (Notification + Method) | Stream chunks, progress, cancellation | §12 |
+| `bidirectional` | 2+3+4 (All) | Callbacks, events, subscriptions | §13 |
+| `discovery` | 4 (Kernel Tool) | Server registration, deregistration | §15 |
+| `tool_discovery` | 4 (Kernel Tool) | Dynamic tool search, active tool request | §16 |
+
+Negotiating a Layer 4 extension means the kernel exposes the corresponding standard
+MCP tools (see §1.6). Layer 1-3 extensions activate protocol-level behavior.
 
 ### 2.3 Server → Client (initialize response)
 
@@ -159,6 +261,35 @@ servers will ignore it.
 3. If the client did not include `mgp` in its request, the server MUST NOT include `mgp`
    in its response
 4. Version compatibility uses semver: major version must match, minor is backward compatible
+
+### 2.5 Versioning Policy
+
+#### Stable Releases (1.0.0+)
+
+Standard semantic versioning:
+- **Major** version changes indicate breaking protocol changes
+- **Minor** version changes add new extensions or features; backward compatible
+- **Patch** version changes fix errata or clarify wording; no behavioral changes
+
+#### Pre-1.0 Period (0.x.y)
+
+During the pre-1.0 development period:
+- **Minor** version changes (e.g., 0.3 → 0.4) **MAY** contain breaking changes
+- **Patch** version changes (e.g., 0.4.0 → 0.4.1) **MUST NOT** contain breaking changes
+- Implementations SHOULD log a warning when connecting to a peer with a different
+  minor version (e.g., client 0.3 ↔ server 0.4) but SHOULD still attempt connection
+- Breaking changes in minor versions MUST be documented in the Version History (§9)
+  with migration guidance
+
+#### 1.0.0 Stability Milestone
+
+MGP will be declared 1.0.0 (stable) when all of the following criteria are met:
+
+1. At least **two independent implementations** (client and/or server) exist
+2. A **conformance test suite** covers all Tiers (1-4) as defined in `MGP_ADOPTION.md`
+3. The specification has been in draft status for at least **6 months** without
+   breaking changes to the core protocol (§2-7)
+4. The `mgp-validate` tool can verify compliance at all Tiers
 
 ---
 
@@ -209,27 +340,36 @@ Server                          Client
   │                               │
   │                               │ (client checks policy)
   │                               │
-  │  mgp/permission/request       │
-  │<──────────────────────────────│  (if interactive)
+  │  mgp/permission/await         │
+  │<──────────────────────────────│  (if interactive: "await my decision")
   │                               │
-  │  mgp/permission/response      │
-  │──────────────────────────────>│
+  │                               │ (operator approves/denies)
+  │                               │
+  │  mgp/permission/grant         │
+  │<──────────────────────────────│  (delivers decision to server)
   │                               │
   │  initialize result            │
   │<──────────────────────────────│  (connection proceeds or is rejected)
 ```
 
-### 3.5 Permission Request Method
+Both methods flow Client → Server, consistent with MCP's transport model where
+the client (kernel) is always the initiator.
 
-**Method:** `mgp/permission/request`
+### 3.5 Permission Await Method
 
-Direction: Client → Server (the client asks the server to wait for approval)
+**Method:** `mgp/permission/await`
+
+Direction: Client → Server
+
+The client instructs the server to wait while the operator reviews the requested
+permissions. The server MUST NOT proceed with restricted operations until a
+corresponding `mgp/permission/grant` is received.
 
 ```json
 {
   "jsonrpc": "2.0",
   "id": 2,
-  "method": "mgp/permission/request",
+  "method": "mgp/permission/await",
   "params": {
     "request_id": "perm-001",
     "permissions": ["shell.execute", "filesystem.read"],
@@ -239,17 +379,21 @@ Direction: Client → Server (the client asks the server to wait for approval)
 }
 ```
 
-### 3.6 Permission Response Method
+### 3.6 Permission Grant Method
 
-**Method:** `mgp/permission/response`
+**Method:** `mgp/permission/grant`
 
-Direction: Server → Client (after operator decision)
+Direction: Client → Server
+
+The client delivers the operator's decision to the server. This completes the
+permission flow initiated by `mgp/permission/await`.
 
 ```json
 {
   "jsonrpc": "2.0",
-  "id": 2,
-  "result": {
+  "id": 3,
+  "method": "mgp/permission/grant",
+  "params": {
     "request_id": "perm-001",
     "grants": {
       "shell.execute": "approved",
@@ -339,13 +483,16 @@ This provides defense-in-depth: even a compromised server cannot bypass kernel v
 
 ---
 
-## 5. Access Control Protocol
+## 5. Access Control — Kernel Tool Layer
 
 ### 5.1 Overview
 
-MGP defines protocol-level methods for managing agent-to-tool access control. This replaces
-implementation-specific access control (database tables, config files) with a standardized
-protocol that any MGP-compatible system can implement.
+The kernel exposes standard MCP tools for managing agent-to-tool access control.
+These are **Layer 4 kernel tools** (see §1.6) — invoked via standard `tools/call`,
+not dedicated protocol methods.
+
+The enforcement point is always the kernel. Servers cannot bypass access control
+regardless of how the tools are invoked.
 
 ### 5.2 Access Control Hierarchy
 
@@ -363,79 +510,81 @@ Priority (highest to lowest):
 | `server_grant` | All tools on a server | Agent has access to entire server |
 | `tool_grant` | Single tool | Agent has access to specific tool |
 
-### 5.4 Methods
+### 5.4 Kernel Tools
 
-#### mgp/access/query
+#### mgp.access.query
+
+**Tool Name:** `mgp.access.query`
+**Category:** Kernel Tool (Layer 4)
 
 Query the current access state for an agent-tool combination.
 
-**Request:**
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 3,
-  "method": "mgp/access/query",
-  "params": {
-    "agent_id": "agent.cloto_default",
-    "server_id": "mind.cerebras",
-    "tool_name": "think"
-  }
+  "type": "object",
+  "properties": {
+    "agent_id": { "type": "string", "description": "Agent identifier" },
+    "server_id": { "type": "string", "description": "Target server" },
+    "tool_name": { "type": "string", "description": "Target tool (optional)" }
+  },
+  "required": ["agent_id", "server_id"]
 }
 ```
 
-**Response:**
+**Output:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 3,
-  "result": {
-    "permission": "allow",
-    "source": "server_grant",
-    "granted_by": "admin",
-    "granted_at": "2026-02-27T12:00:00Z",
-    "expires_at": null
-  }
+  "permission": "allow",
+  "source": "server_grant",
+  "granted_by": "admin",
+  "granted_at": "2026-02-27T12:00:00Z",
+  "expires_at": null
 }
 ```
 
-#### mgp/access/grant
+#### mgp.access.grant
 
-Grant access to an agent.
+**Tool Name:** `mgp.access.grant`
+**Category:** Kernel Tool (Layer 4)
 
-**Request:**
+Grant access to an agent. Requires operator-level permissions.
+
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 4,
-  "method": "mgp/access/grant",
-  "params": {
-    "entry_type": "server_grant",
-    "agent_id": "agent.cloto_default",
-    "server_id": "mind.cerebras",
-    "tool_name": null,
-    "permission": "allow",
-    "granted_by": "admin",
-    "justification": "Required for agent reasoning",
-    "expires_at": null
-  }
+  "type": "object",
+  "properties": {
+    "entry_type": { "type": "string", "enum": ["server_grant", "tool_grant"] },
+    "agent_id": { "type": "string" },
+    "server_id": { "type": "string" },
+    "tool_name": { "type": "string", "description": "Required for tool_grant" },
+    "permission": { "type": "string", "enum": ["allow", "deny"] },
+    "justification": { "type": "string" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["entry_type", "agent_id", "server_id", "permission"]
 }
 ```
 
-#### mgp/access/revoke
+#### mgp.access.revoke
+
+**Tool Name:** `mgp.access.revoke`
+**Category:** Kernel Tool (Layer 4)
 
 Revoke an existing access grant.
 
-**Request:**
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 5,
-  "method": "mgp/access/revoke",
-  "params": {
-    "agent_id": "agent.cloto_default",
-    "server_id": "mind.cerebras",
-    "entry_type": "server_grant"
-  }
+  "type": "object",
+  "properties": {
+    "agent_id": { "type": "string" },
+    "server_id": { "type": "string" },
+    "entry_type": { "type": "string", "enum": ["server_grant", "tool_grant"] },
+    "tool_name": { "type": "string" }
+  },
+  "required": ["agent_id", "server_id", "entry_type"]
 }
 ```
 
@@ -503,8 +652,24 @@ use this format for interoperability.
 }
 ```
 
-The kernel MAY forward these notifications to a connected Audit MGP server for persistence.
-If no Audit server is connected, the kernel SHOULD log events locally.
+#### Audit Event Delivery
+
+The kernel acts as an **MCP client** to all connected servers, including the Audit server.
+This means audit event delivery uses the standard MCP Client → Server notification mechanism:
+
+```
+Kernel (MCP Client)                    Audit MGP Server
+  │                                      │
+  │  notifications/mgp.audit             │
+  │─────────────────────────────────────>│  (standard Client → Server notification)
+  │                                      │
+  │  notifications/mgp.audit             │
+  │─────────────────────────────────────>│  (each event is a separate notification)
+```
+
+The kernel SHOULD forward `notifications/mgp.audit` to all connected servers that
+declared `audit` in their negotiated extensions (§2). If no Audit server is connected,
+the kernel SHOULD log events locally.
 
 ### 6.4 Standard Event Types
 
@@ -521,6 +686,7 @@ If no Audit server is connected, the kernel SHOULD log events locally.
 | `SERVER_DISCONNECTED` | A server disconnected |
 | `VALIDATION_FAILED` | Kernel-side validation rejected a tool call |
 | `CODE_REJECTED` | Code safety framework rejected submitted code |
+| `TOOL_CREATED_DYNAMIC` | A tool was dynamically generated via Active Tool Request (§16.6) |
 
 Implementations MAY define custom event types using reverse-domain notation
 (e.g., `com.example.custom_event`).
@@ -602,13 +768,17 @@ This format enables AI agents to self-correct their code without human intervent
 
 ---
 
-## 11. Lifecycle Management
+## 11. Lifecycle Management — Notification + Kernel Tool Layer
 
 ### 11.1 Overview
 
-MGP defines standard lifecycle methods for managing server health, state transitions, and
-restart behavior. MCP provides no lifecycle primitives — servers are either running or not,
-with no protocol-level health monitoring or graceful shutdown.
+MGP defines lifecycle management through a combination of **protocol notifications**
+(Layer 2) and **kernel tools** (Layer 4). MCP provides no lifecycle primitives —
+servers are either running or not, with no protocol-level health monitoring or
+graceful shutdown.
+
+- **Layer 2:** `notifications/mgp.lifecycle` — state transition notifications
+- **Layer 4:** `mgp.health.ping`, `mgp.health.status`, `mgp.lifecycle.shutdown` — kernel tools
 
 ### 11.2 Server State Machine
 
@@ -645,35 +815,33 @@ with no protocol-level health monitoring or graceful shutdown.
 | `error` | Connection failed or runtime error |
 | `restarting` | Server is being stopped and restarted |
 
-### 11.3 Health Check Protocol
+### 11.3 Health Check — Kernel Tools
 
-#### mgp/health/ping
+#### mgp.health.ping
+
+**Tool Name:** `mgp.health.ping`
+**Category:** Kernel Tool (Layer 4)
 
 A lightweight liveness check. Servers MUST respond within 5 seconds.
 
-**Request:**
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 10,
-  "method": "mgp/health/ping",
-  "params": {
-    "timestamp": "2026-02-27T12:00:00.000Z"
-  }
+  "type": "object",
+  "properties": {
+    "server_id": { "type": "string", "description": "Target server to check" }
+  },
+  "required": ["server_id"]
 }
 ```
 
-**Response:**
+**Output:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 10,
-  "result": {
-    "status": "healthy",
-    "timestamp": "2026-02-27T12:00:00.005Z",
-    "uptime_secs": 3600,
-    "server_id": "mind.cerebras"
-  }
+  "status": "healthy",
+  "timestamp": "2026-02-27T12:00:00.005Z",
+  "uptime_secs": 3600,
+  "server_id": "mind.cerebras"
 }
 ```
 
@@ -685,40 +853,40 @@ A lightweight liveness check. Servers MUST respond within 5 seconds.
 | `degraded` | Server is running but some capabilities are limited |
 | `unhealthy` | Server is experiencing errors but still responding |
 
-#### mgp/health/status
+#### mgp.health.status
+
+**Tool Name:** `mgp.health.status`
+**Category:** Kernel Tool (Layer 4)
 
 Detailed readiness check including resource usage and capability status.
 
-**Request:**
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 11,
-  "method": "mgp/health/status",
-  "params": {}
+  "type": "object",
+  "properties": {
+    "server_id": { "type": "string", "description": "Target server to check" }
+  },
+  "required": ["server_id"]
 }
 ```
 
-**Response:**
+**Output:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 11,
-  "result": {
-    "status": "healthy",
-    "uptime_secs": 3600,
-    "tools_available": 3,
-    "tools_total": 3,
-    "pending_requests": 0,
-    "resources": {
-      "memory_bytes": 52428800,
-      "open_connections": 2
-    },
-    "checks": {
-      "api_key_configured": true,
-      "model_reachable": true,
-      "database_connected": true
-    }
+  "status": "healthy",
+  "uptime_secs": 3600,
+  "tools_available": 3,
+  "tools_total": 3,
+  "pending_requests": 0,
+  "resources": {
+    "memory_bytes": 52428800,
+    "open_connections": 2
+  },
+  "checks": {
+    "api_key_configured": true,
+    "model_reachable": true,
+    "database_connected": true
   }
 }
 ```
@@ -726,52 +894,44 @@ Detailed readiness check including resource usage and capability status.
 The `resources` and `checks` objects are server-defined. Clients SHOULD NOT depend on specific
 keys being present.
 
-### 11.4 Graceful Shutdown
+### 11.4 Graceful Shutdown — Kernel Tool
 
-#### mgp/lifecycle/shutdown
+#### mgp.lifecycle.shutdown
+
+**Tool Name:** `mgp.lifecycle.shutdown`
+**Category:** Kernel Tool (Layer 4)
 
 Request a server to shut down gracefully. The server finishes in-flight requests, transitions
 to `draining` state, and then closes the transport.
 
-**Request:**
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 12,
-  "method": "mgp/lifecycle/shutdown",
-  "params": {
-    "reason": "operator_request",
-    "timeout_ms": 30000
-  }
+  "type": "object",
+  "properties": {
+    "server_id": { "type": "string", "description": "Target server" },
+    "reason": { "type": "string", "enum": ["operator_request", "configuration_change", "resource_limit", "idle_timeout", "kernel_shutdown"] },
+    "timeout_ms": { "type": "number", "description": "Max drain time in milliseconds" }
+  },
+  "required": ["server_id", "reason"]
 }
 ```
 
-**Response:**
+**Output:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 12,
-  "result": {
-    "accepted": true,
-    "pending_requests": 2,
-    "estimated_drain_ms": 5000
-  }
+  "accepted": true,
+  "pending_requests": 2,
+  "estimated_drain_ms": 5000
 }
 ```
 
-**Shutdown Reasons:**
-
-| Reason | Description |
-|--------|-------------|
-| `operator_request` | Human-initiated shutdown |
-| `configuration_change` | Configuration updated, restart needed |
-| `resource_limit` | Server exceeded resource limits |
-| `idle_timeout` | Server has been idle beyond threshold |
-| `kernel_shutdown` | Entire kernel is shutting down |
+### 11.5 Lifecycle Notifications — Protocol Layer
 
 #### notifications/mgp.lifecycle
 
-State transition notification emitted by the server.
+State transition notification emitted by the server. This is a **Layer 2 protocol
+notification**, not a kernel tool.
 
 ```json
 {
@@ -787,7 +947,7 @@ State transition notification emitted by the server.
 }
 ```
 
-### 11.5 Restart Policies
+### 11.6 Restart Policies
 
 Defined in the server configuration (not negotiated at runtime).
 
@@ -985,55 +1145,68 @@ Standard MCP is primarily unidirectional: the client calls tools on the server. 
 standardized patterns for server-initiated communication — event subscriptions, push
 notifications, and callback requests.
 
-### 13.2 Event Subscription
+- **Layer 2 (Protocol Notifications):** `notifications/mgp.callback.request` — server requests
+  information from the kernel during tool execution
+- **Layer 3 (Protocol Methods):** `mgp/callback/respond` — kernel responds to callback requests
+- **Layer 4 (Kernel Tools):** `mgp.events.subscribe`, `mgp.events.unsubscribe` — event
+  subscription management
 
-Clients can subscribe to server-defined event channels:
+### 13.2 Event Subscription — Kernel Tools
 
-#### mgp/events/subscribe
+#### mgp.events.subscribe
 
+**Tool Name:** `mgp.events.subscribe`
+**Category:** Kernel Tool (Layer 4)
+
+Subscribe to server-defined event channels.
+
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 30,
-  "method": "mgp/events/subscribe",
-  "params": {
-    "channels": ["model.token_usage", "system.error"],
+  "type": "object",
+  "properties": {
+    "channels": { "type": "array", "items": { "type": "string" }, "description": "Event channels to subscribe to" },
     "filter": {
-      "min_severity": "warning"
+      "type": "object",
+      "properties": {
+        "min_severity": { "type": "string", "enum": ["info", "warning", "error"] }
+      }
     }
-  }
+  },
+  "required": ["channels"]
 }
 ```
 
-**Response:**
+**Output:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 30,
-  "result": {
-    "subscribed": ["model.token_usage", "system.error"],
-    "unsupported": [],
-    "subscription_id": "sub-001"
-  }
+  "subscribed": ["model.token_usage", "system.error"],
+  "unsupported": [],
+  "subscription_id": "sub-001"
 }
 ```
 
-#### mgp/events/unsubscribe
+#### mgp.events.unsubscribe
 
+**Tool Name:** `mgp.events.unsubscribe`
+**Category:** Kernel Tool (Layer 4)
+
+Cancel an existing event subscription.
+
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 31,
-  "method": "mgp/events/unsubscribe",
-  "params": {
-    "subscription_id": "sub-001"
-  }
+  "type": "object",
+  "properties": {
+    "subscription_id": { "type": "string" }
+  },
+  "required": ["subscription_id"]
 }
 ```
 
-### 13.3 Server Push Notifications
+### 13.3 Server Push Notifications — Protocol Layer
 
-After subscription, the server emits events as notifications:
+After subscription, the server emits events as **Layer 2 protocol notifications**:
 
 ```json
 {
@@ -1100,6 +1273,133 @@ Client → Server:
 | `input` | Request additional input from the user |
 | `selection` | Present options for the user to choose from |
 | `notification` | Informational — no response required |
+| `llm_completion` | Request LLM completion from the host (MCP Sampling equivalent) |
+
+The `llm_completion` callback type enables MCP servers to request LLM completions
+from the kernel without holding API keys. This is the MGP equivalent of
+MCP's `sampling/createMessage` primitive. The kernel holds all LLM provider
+credentials and routes requests to the appropriate provider based on `model_hints`.
+
+**llm_completion request params:**
+
+```json
+{
+  "callback_id": "llm-001",
+  "type": "llm_completion",
+  "messages": [
+    { "role": "system", "content": "..." },
+    { "role": "user", "content": "..." }
+  ],
+  "model_hints": {
+    "speed_priority": 0.7,
+    "intelligence_priority": 0.5,
+    "provider": "deepseek"
+  },
+  "tools": [],
+  "timeout_ms": 120000
+}
+```
+
+**llm_completion response:**
+
+```json
+{
+  "callback_id": "llm-001",
+  "response": {
+    "content": "...",
+    "model": "deepseek-chat",
+    "usage": { "prompt_tokens": 25, "completion_tokens": 10 },
+    "tool_calls": []
+  }
+}
+```
+
+#### Comparison with MCP `sampling/createMessage`
+
+MCP defines `sampling/createMessage` as a dedicated method for the same purpose: servers
+requesting LLM completions from the client. MGP's `llm_completion` callback type achieves
+the same goal through a different architectural approach. The table below compares the two.
+
+##### Feature Comparison
+
+| Feature | MCP `sampling/createMessage` | MGP `llm_completion` Callback |
+|---------|------------------------------|-------------------------------|
+| **Mechanism** | Dedicated protocol method | Callback type within generic §13.4 |
+| **Direction** | Server → Client | Server → Kernel (same) |
+| **Streaming** | Not supported (atomic request-response) | Combines with §12 Streaming for token-by-token delivery |
+| **Timeout** | Not defined (implementation-dependent) | Explicit `timeout_ms` parameter |
+| **Cancellation** | Not defined | `mgp/stream/cancel` (§12.7) |
+| **Token usage tracking** | Field exists but returns 0 in practice | `usage` field with actual values |
+| **Model selection** | `modelPreferences` (advisory hints + priorities) | `model_hints` (speed/intelligence/provider) |
+| **Hard model requirements** | None (all preferences are advisory) | `provider` field for explicit routing |
+| **Client modification** | Client MAY silently modify systemPrompt, temperature, etc. | Kernel processes transparently |
+| **Tool support** | Added in SEP-1577 (2025-11) | Included from initial design |
+| **Extensibility** | New features require new protocol methods | New callback types without protocol changes |
+
+##### Security Comparison
+
+| Security Feature | MCP Sampling | MGP `llm_completion` |
+|-----------------|-------------|----------------------|
+| **Audit trail** | None | §6 `notifications/mgp.audit` with trace_id |
+| **Access control** | None | §5 hierarchy (tool_grant > server_grant > default) |
+| **Permission management** | None | §3 `mgp/permission/await` / `grant` |
+| **Human-in-the-loop** | SHOULD (recommended, not enforced) | §3.3 policy enforcement (`interactive` / `auto_approve` / `deny_all`) |
+| **Prompt injection defense** | None (3 attack vectors reported by Palo Alto Unit 42) | §7 Code Safety Framework for generated code |
+| **Cost control** | Not possible (no usage tracking) | §14 `RATE_LIMITED` (3000) / `QUOTA_EXCEEDED` (3002) |
+
+##### Error Handling Comparison
+
+| Error Scenario | MCP Sampling | MGP §14 |
+|---------------|-------------|---------|
+| User rejected request | `-1` | `1000` PERMISSION_DENIED + reason |
+| Invalid parameters | `-32602` | `4000` INVALID_TOOL_ARGS + details |
+| Model unavailable | Not defined | `5002` UPSTREAM_UNAVAILABLE |
+| Rate limit exceeded | Not defined | `3000` RATE_LIMITED + `retry_after_ms` |
+| Request timeout | Not defined | `3003` TIMEOUT |
+| Provider error | Not defined | `5000` UPSTREAM_ERROR + recovery hints |
+| Context too large | Not defined | `3001` RESOURCE_EXHAUSTED |
+| Retry strategy | Not defined | `exponential_backoff` / `fixed_delay` + `max_retries` |
+
+MCP Sampling defines **2 error codes**. MGP defines **18 structured error codes** with
+recovery hints, retry strategies, and fallback tool suggestions.
+
+##### Streaming Integration
+
+MCP Sampling is atomic — the server sends a request and waits for the complete response:
+
+```
+MCP:   Server → sampling/createMessage → Client → (wait) → Complete response
+```
+
+MGP's `llm_completion` can combine with §12 Streaming for progressive token delivery:
+
+```
+MGP:   Server → callback.request (llm_completion) → Kernel
+       Kernel → notifications/mgp.stream.chunk (token 1) → Server
+       Kernel → notifications/mgp.stream.chunk (token 2) → Server
+       Kernel → notifications/mgp.stream.chunk (token N) → Server
+       Kernel → mgp/callback/respond (complete response + usage) → Server
+```
+
+This enables real-time UI updates while the LLM generates its response.
+
+##### Architectural Advantages
+
+1. **Generic callback mechanism**: MCP requires a dedicated `sampling/createMessage`
+   method. MGP uses the generic callback system (§13.4), meaning new callback types
+   (e.g., `image_generation`, `speech_synthesis`) can be added without protocol changes.
+
+2. **End-to-end observability**: Every `llm_completion` callback is tracked via §6 Audit
+   Trail with `trace_id` propagation across the full request chain. MCP Sampling provides
+   no observability primitives.
+
+3. **Integration with Dynamic Tool Discovery**: MGP servers can combine `llm_completion`
+   with §16 Active Tool Request — acquiring new tools and reasoning about them in a
+   single unified flow. This is not possible with MCP's separated primitives.
+
+4. **Migration path**: Per §1.6 (Migration Policy), if MCP Sampling evolves to match
+   MGP's capabilities, MGP will provide a compatibility layer mapping between the two
+   method formats during a transition period.
 
 ### 13.5 Standard Event Channels
 
@@ -1111,7 +1411,7 @@ Client → Server:
 | `security.*` | Security events (access denied, validation failed) |
 
 Servers define their own channels within these patterns. Clients SHOULD NOT assume specific
-channels exist — use `mgp/events/subscribe` to discover available channels.
+channels exist — use the `mgp.events.subscribe` kernel tool to discover available channels.
 
 ---
 
@@ -1215,16 +1515,17 @@ When `retryable` is `false`, the client MUST NOT retry and SHOULD report the err
 
 ---
 
-## 15. Discovery
+## 15. Discovery — Configuration + Kernel Tool Layer
 
 ### 15.1 Overview
 
-MGP defines a standard mechanism for server advertisement and discovery. This enables
-clients to automatically find available servers without manual configuration.
+MGP defines server discovery through **static configuration** (protocol-level concept)
+and **runtime registry tools** (Layer 4 kernel tools).
 
 ### 15.2 Server Advertisement
 
-MGP servers MAY advertise themselves via a well-known configuration file or registry endpoint.
+MGP servers MAY advertise themselves via a well-known configuration file or registry
+kernel tools.
 
 #### Configuration File Discovery
 
@@ -1257,96 +1558,106 @@ The `[servers.mgp]` section is OPTIONAL. If omitted, the server is treated as st
 The file format is backward compatible with MCP configuration files — the `mgp` section
 is ignored by MCP-only clients.
 
-#### Registry Endpoint Discovery
+### 15.3 Capability Advertisement
 
-For distributed environments, clients can query a registry:
+Connected servers advertise their capabilities via the `initialize` response (§2). For
+pre-connection discovery, the `mgp.toml` configuration provides the same information
+without establishing a transport connection.
 
-**Method:** `mgp/discovery/list`
+### 15.4 Registry — Kernel Tools
 
+For distributed environments and runtime discovery, the kernel exposes registry tools.
+
+#### mgp.discovery.list
+
+**Tool Name:** `mgp.discovery.list`
+**Category:** Kernel Tool (Layer 4)
+
+Query connected and registered servers.
+
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 40,
-  "method": "mgp/discovery/list",
-  "params": {
+  "type": "object",
+  "properties": {
     "filter": {
-      "extensions": ["streaming"],
-      "permissions": ["network.outbound"],
-      "status": "connected"
+      "type": "object",
+      "properties": {
+        "extensions": { "type": "array", "items": { "type": "string" } },
+        "permissions": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "enum": ["connected", "disconnected", "all"] }
+      }
     }
   }
 }
 ```
 
-**Response:**
+**Output:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 40,
-  "result": {
-    "servers": [
-      {
-        "id": "mind.cerebras",
-        "status": "connected",
-        "mgp_version": "0.1.0",
-        "extensions": ["security", "lifecycle", "streaming"],
-        "tools": ["think", "analyze"],
-        "trust_level": "standard"
-      }
-    ]
-  }
+  "servers": [
+    {
+      "id": "mind.cerebras",
+      "status": "connected",
+      "mgp_version": "0.1.0",
+      "extensions": ["security", "lifecycle", "streaming"],
+      "tools": ["think", "analyze"],
+      "trust_level": "standard"
+    }
+  ]
 }
 ```
 
-### 15.3 Capability Advertisement
+#### mgp.discovery.register
 
-Connected servers advertise their capabilities via the `initialize` response (§2). For
-pre-connection discovery, the `mgp.toml` configuration or registry provides the same
-information without establishing a transport connection.
+**Tool Name:** `mgp.discovery.register`
+**Category:** Kernel Tool (Layer 4)
 
-### 15.4 Dynamic Registration
+Register a server created at runtime (e.g., by agents).
 
-Servers created at runtime (e.g., by agents) register themselves with the kernel:
-
-**Method:** `mgp/discovery/register`
-
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 41,
-  "method": "mgp/discovery/register",
-  "params": {
-    "id": "dynamic.custom_tool",
-    "command": "python",
-    "args": ["scripts/mcp_custom.py"],
-    "transport": "stdio",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "description": "Server identifier" },
+    "command": { "type": "string" },
+    "args": { "type": "array", "items": { "type": "string" } },
+    "transport": { "type": "string", "enum": ["stdio", "http"] },
     "mgp": {
-      "extensions": ["security"],
-      "permissions_required": ["network.outbound"],
-      "trust_level": "sandboxed"
+      "type": "object",
+      "properties": {
+        "extensions": { "type": "array", "items": { "type": "string" } },
+        "permissions_required": { "type": "array", "items": { "type": "string" } },
+        "trust_level": { "type": "string", "enum": ["trusted", "standard", "sandboxed"] }
+      }
     },
-    "created_by": "agent.cloto_default",
-    "justification": "Agent needs custom data processing tool"
-  }
+    "created_by": { "type": "string" },
+    "justification": { "type": "string" }
+  },
+  "required": ["id", "command", "transport"]
 }
 ```
 
 Dynamic registrations with `trust_level: "sandboxed"` are subject to stricter validation
 (code safety framework, limited permissions) than `standard` or `trusted` servers.
 
-### 15.5 Deregistration
+#### mgp.discovery.deregister
 
-**Method:** `mgp/discovery/deregister`
+**Tool Name:** `mgp.discovery.deregister`
+**Category:** Kernel Tool (Layer 4)
 
+Remove a dynamically registered server.
+
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 42,
-  "method": "mgp/discovery/deregister",
-  "params": {
-    "id": "dynamic.custom_tool",
-    "reason": "no_longer_needed"
-  }
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "description": "Server to deregister" },
+    "reason": { "type": "string" }
+  },
+  "required": ["id"]
 }
 ```
 
@@ -1356,7 +1667,7 @@ Dynamic registrations with `trust_level: "sandboxed"` are subject to stricter va
 
 ---
 
-## 16. Dynamic Tool Discovery & Active Tool Request
+## 16. Dynamic Tool Discovery & Active Tool Request — Kernel Tool Layer
 
 ### 16.1 Overview
 
@@ -1380,6 +1691,13 @@ MGP solves both problems at the protocol level with two complementary mechanisms
 Together, these reduce context usage by up to 99% while enabling fully autonomous tool
 acquisition without explicit user instruction.
 
+**Strategic Significance:** Dynamic Tool Discovery is MGP's primary structural
+differentiator from MCP (see §1.6 Migration Policy). MCP's architecture requires all
+tool schemas to be injected into the LLM context before use and has no planned mechanism
+for runtime tool search or autonomous tool acquisition. This structural gap is unlikely
+to be addressed by MCP in the near term because it requires a kernel/orchestrator layer
+that is not part of MCP's direct client-server model.
+
 ### 16.2 Capability Declaration
 
 ```json
@@ -1392,7 +1710,7 @@ acquisition without explicit user instruction.
 ```
 
 When `tool_discovery` is negotiated, the client MAY omit most tool definitions from the
-LLM context. Instead, the LLM receives a single meta-tool (`mgp/tools/discover`) and
+LLM context. Instead, the LLM receives a single meta-tool (`mgp.tools.discover`) and
 optionally a small set of pinned core tools.
 
 ### 16.3 Context Reduction Model
@@ -1424,7 +1742,7 @@ contains:
     "risk_level": "moderate",
     "permissions_required": ["filesystem.read"]
   },
-  "embedding": [0.012, -0.034, ...]
+  "embedding": [0.012, -0.034, ...]   // OPTIONAL — see below
 }
 ```
 
@@ -1436,71 +1754,98 @@ The index supports three search strategies:
 | Semantic | Embedding vector similarity | Natural language intent |
 | Category | Hierarchical category filtering | Browsing available capabilities |
 
+#### Semantic Search is Optional
+
+The `embedding` field in the Tool Index is **OPTIONAL**. Implementations that do not
+provide embedding vectors cannot use the `semantic` search strategy, but this does not
+affect protocol compliance.
+
+**Keyword + Category search alone is sufficient for `tool_discovery` extension
+compliance.** A conforming implementation MUST support at least keyword search and
+category filtering. Semantic search is an enhancement for improved natural-language
+matching but is not required.
+
+For implementations that want semantic search without running a local embedding model:
+
+| Approach | Description |
+|----------|-------------|
+| **Server-side** | Each MGP server generates embeddings for its own tools and includes them in `tools/list` responses |
+| **Dedicated service** | An Embedding MGP server (e.g., `tool.embedding`) generates embeddings on demand via a tool call |
+| **Pre-computed** | Embeddings are computed at build/deploy time and stored in the tool index configuration |
+| **None** | Keyword + category search only. No embedding model required. |
+
+When `strategy: "semantic"` is requested but the kernel has no embeddings available,
+it SHOULD fall back to keyword search and include `"fallback_strategy": "keyword"` in
+the response metadata.
+
 ### 16.5 Mode A: Dynamic Tool Discovery
 
 The LLM searches for tools based on a natural language description of what it needs.
 This is the **user-intent-driven** mode — the LLM translates the user's request into a
 tool search.
 
-#### mgp/tools/discover
+#### mgp.tools.discover
 
-**Request:**
+**Tool Name:** `mgp.tools.discover`
+**Category:** Kernel Tool (Layer 4)
+
+Search for tools based on natural language description.
+
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 50,
-  "method": "mgp/tools/discover",
-  "params": {
-    "query": "read file contents from disk",
-    "strategy": "semantic",
-    "max_results": 5,
+  "type": "object",
+  "properties": {
+    "query": { "type": "string", "description": "Natural language description of needed capability" },
+    "strategy": { "type": "string", "enum": ["keyword", "semantic", "category"], "default": "keyword" },
+    "max_results": { "type": "number", "default": 5 },
     "filter": {
-      "categories": ["filesystem"],
-      "risk_level_max": "moderate",
-      "status": "connected"
+      "type": "object",
+      "properties": {
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "risk_level_max": { "type": "string", "enum": ["safe", "moderate", "dangerous"] },
+        "status": { "type": "string", "enum": ["connected", "all"] }
+      }
     }
-  }
+  },
+  "required": ["query"]
 }
 ```
 
-**Response:**
+**Output:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 50,
-  "result": {
-    "tools": [
-      {
-        "name": "read_file",
-        "server_id": "tool.terminal",
-        "description": "Read the contents of a file at the given path",
-        "relevance_score": 0.95,
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "path": { "type": "string", "description": "File path to read" }
-          },
-          "required": ["path"]
+  "tools": [
+    {
+      "name": "read_file",
+      "server_id": "tool.terminal",
+      "description": "Read the contents of a file at the given path",
+      "relevance_score": 0.95,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "File path to read" }
         },
-        "security": {
-          "risk_level": "moderate",
-          "permissions_required": ["filesystem.read"],
-          "validator": "sandbox"
-        }
+        "required": ["path"]
       },
-      {
-        "name": "grep",
-        "server_id": "tool.terminal",
-        "description": "Search file contents using pattern matching",
-        "relevance_score": 0.72,
-        "inputSchema": { "..." : "..." },
-        "security": { "..." : "..." }
+      "security": {
+        "risk_level": "moderate",
+        "permissions_required": ["filesystem.read"],
+        "validator": "sandbox"
       }
-    ],
-    "total_available": 47,
-    "search_strategy": "semantic",
-    "query_time_ms": 12
-  }
+    },
+    {
+      "name": "grep",
+      "server_id": "tool.terminal",
+      "description": "Search file contents using pattern matching",
+      "relevance_score": 0.72,
+      "inputSchema": { "..." : "..." },
+      "security": { "..." : "..." }
+    }
+  ],
+  "total_available": 47,
+  "search_strategy": "keyword",
+  "query_time_ms": 12
 }
 ```
 
@@ -1513,13 +1858,13 @@ immediately call any discovered tool without a second round trip.
 User: "このファイルの中身を見せて"
   │
   ▼
-LLM context: [mgp/tools/discover meta-tool] + [user message]
+LLM context: [mgp.tools.discover meta-tool] + [user message]
   │
   ▼ LLM decides it needs file-reading capability
   │
-  ▼ tools/call → mgp/tools/discover({ query: "read file contents" })
+  ▼ tools/call → mgp.tools.discover({ query: "read file contents" })
   │
-  ▼ Kernel searches tool index (semantic)
+  ▼ Kernel searches tool index
   │
   ▼ Returns: read_file (0.95), grep (0.72), cat (0.68)
   │
@@ -1537,34 +1882,38 @@ Unlike Mode A (which responds to user intent), Mode B enables proactive behavior
 the agent recognizes "I cannot complete this step with my current tools" and initiates
 tool acquisition independently.
 
-#### mgp/tools/request
+#### mgp.tools.request
 
-**Request:**
+**Tool Name:** `mgp.tools.request`
+**Category:** Kernel Tool (Layer 4)
+
+Request tools to fill a capability gap during task execution.
+
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 51,
-  "method": "mgp/tools/request",
-  "params": {
-    "reason": "capability_gap",
-    "context": "Processing CSV data but need statistical analysis functions",
+  "type": "object",
+  "properties": {
+    "reason": { "type": "string", "enum": ["capability_gap", "performance", "preference"] },
+    "context": { "type": "string", "description": "Why the tool is needed" },
     "requirements": {
-      "capabilities": ["data_analysis", "statistics"],
-      "input_types": ["csv", "tabular_data"],
-      "output_types": ["numeric", "chart"],
-      "preferred_risk_level": "safe"
+      "type": "object",
+      "properties": {
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "input_types": { "type": "array", "items": { "type": "string" } },
+        "output_types": { "type": "array", "items": { "type": "string" } },
+        "preferred_risk_level": { "type": "string", "enum": ["safe", "moderate", "dangerous"] }
+      }
     },
-    "task_trace_id": "550e8400-e29b-41d4-a716-446655440000"
-  }
+    "task_trace_id": { "type": "string", "description": "Trace ID for audit" }
+  },
+  "required": ["reason", "context", "requirements"]
 }
 ```
 
-**Response:**
+**Output:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 51,
-  "result": {
     "status": "fulfilled",
     "tools_loaded": [
       {
@@ -1593,20 +1942,61 @@ tool acquisition independently.
 | `partial` | Some requirements met, others unavailable |
 | `unavailable` | No matching tools found |
 | `pending_approval` | Tools found but require permission approval (§3) |
-| `creating` | No existing tools match — agent-generated tool creation initiated (§7) |
+| `creating` | No existing tools match — tool creation initiated if enabled (§7) |
 
 #### The `creating` Status — Autonomous Tool Generation
 
+**Default: DISABLED.** The `creating` status is only available when explicitly opted
+in during capability negotiation:
+
+```json
+{
+  "mgp": {
+    "version": "0.4.0",
+    "extensions": ["tool_discovery"],
+    "tool_creation": { "enabled": true }
+  }
+}
+```
+
 When `status: "creating"` is returned, the kernel has determined that no existing tool
-satisfies the requirement. If the agent has `code_execution` permission and the system
-is in `auto_approve` policy, the kernel MAY:
+satisfies the requirement and tool creation is enabled. The following safety guardrails
+apply:
 
-1. Instruct the agent to generate tool code via the Code Safety Framework (§7)
-2. Validate and register the new tool via Dynamic Registration (§15.4)
-3. Return the newly created tool in a follow-up response
+##### Safety Guardrails
 
-This closes the loop: **discover → request → create → use** — fully autonomous tool
-lifecycle without human intervention.
+1. **Opt-in required**: The client MUST declare `tool_creation: { enabled: true }` in
+   the capability negotiation (§2). Without this, `creating` status is never returned.
+
+2. **Ephemeral by default**: Generated tools are **session-scoped** and automatically
+   deregistered when the session ends. They are NOT persisted to the tool index.
+
+3. **Trust level**: Generated tools always receive `trust_level: "experimental"`.
+   They MUST NOT inherit the trust level of the requesting agent or server.
+
+4. **Code safety validation**: All generated tool code MUST pass Code Safety Framework
+   (§7) validation at the `strict` level before registration.
+
+5. **Approval policy applies**: Under `interactive` policy, the operator MUST approve
+   the generated tool before it becomes available. Under `auto_approve`, the tool is
+   registered immediately after passing safety validation.
+
+6. **Audit trail**: A `TOOL_CREATED_DYNAMIC` audit event (§6.4) MUST be emitted for
+   every dynamically generated tool, including the generating agent, tool code hash,
+   and safety validation result.
+
+##### Flow
+
+When all guardrails pass, the kernel:
+
+1. Instructs the agent to generate tool code via the Code Safety Framework (§7)
+2. Validates the code at `strict` safety level
+3. Registers the tool via Dynamic Registration (§15.4) as ephemeral
+4. Emits `TOOL_CREATED_DYNAMIC` audit event
+5. Returns the newly created tool in a follow-up response
+
+This closes the loop: **discover → request → create → use** — autonomous tool
+lifecycle with mandatory safety controls.
 
 #### Flow Diagram
 
@@ -1621,7 +2011,7 @@ LLM executing multi-step task
   │    │
   │    ▼ LLM detects capability gap
   │    │
-  │    ▼ tools/call → mgp/tools/request({
+  │    ▼ tools/call → mgp.tools.request({
   │    │     reason: "capability_gap",
   │    │     context: "need statistical analysis",
   │    │     requirements: { capabilities: ["statistics"] }
@@ -1648,47 +2038,47 @@ To avoid repeated discovery calls, the kernel maintains a per-session tool cache
 | **Session cache** | Tools used in current session — retained until session ends |
 | **Discovery results** | Cached for the duration of the request — discarded after use |
 
-#### mgp/tools/session
+#### mgp.tools.session
 
-Query the current session's loaded tools:
+**Tool Name:** `mgp.tools.session`
+**Category:** Kernel Tool (Layer 4)
 
-**Request:**
+Query the current session's loaded tools.
+
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 52,
-  "method": "mgp/tools/session",
-  "params": {}
+  "type": "object",
+  "properties": {}
 }
 ```
 
-**Response:**
+**Output:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 52,
-  "result": {
-    "pinned": ["think", "store", "recall"],
-    "cached": ["read_file", "analyze_csv"],
-    "total_tokens": 2100,
-    "max_tokens": 8000
-  }
+  "pinned": ["think", "store", "recall"],
+  "cached": ["read_file", "analyze_csv"],
+  "total_tokens": 2100,
+  "max_tokens": 8000
 }
 ```
 
-#### mgp/tools/session/evict
+#### mgp.tools.session.evict
 
-Remove tools from the session cache to free context space:
+**Tool Name:** `mgp.tools.session.evict`
+**Category:** Kernel Tool (Layer 4)
 
+Remove tools from the session cache to free context space.
+
+**Input Schema:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 53,
-  "method": "mgp/tools/session/evict",
-  "params": {
-    "tools": ["analyze_csv"],
-    "reason": "no_longer_needed"
-  }
+  "type": "object",
+  "properties": {
+    "tools": { "type": "array", "items": { "type": "string" }, "description": "Tool names to evict" },
+    "reason": { "type": "string" }
+  },
+  "required": ["tools"]
 }
 ```
 
@@ -1740,7 +2130,11 @@ as first-class protocol methods, with session management and context budgeting b
 3. **Permission declarations**: List all permissions your server needs in
    `permissions_required`. Clients may deny startup if permissions are not granted.
 
-### 8.2 For Client Implementors
+4. **Layer 4 tools are kernel-provided**: Servers do NOT implement kernel tools (§5, §11,
+   §13 events, §15, §16). These are exposed by the kernel. Servers only need to respond
+   to health checks and lifecycle commands when the kernel invokes them.
+
+### 8.2 For Client/Kernel Implementors
 
 1. **Discovery**: Check for `mgp` in the server's `initialize` response. If absent,
    treat as standard MCP.
@@ -1748,29 +2142,33 @@ as first-class protocol methods, with session management and context budgeting b
 2. **Fallback validators**: Even without MGP server support, clients SHOULD apply kernel-side
    validators (sandbox, code_safety) based on tool names and server configuration.
 
-3. **Access control**: Implement access control at the client/kernel level. The protocol
-   methods (`mgp/access/*`) are for inter-system communication; the enforcement point is
-   always the client.
+3. **Kernel tools**: Expose Layer 4 tools (§5, §11, §13 events, §15, §16) as standard
+   MCP tools via `tools/call`. These tools are invoked by operators and agents, not by
+   servers. The kernel is the enforcement point for all access control decisions.
+
+4. **Standard tool names**: Use the `mgp.*` naming convention for kernel tools
+   (e.g., `mgp.access.query`, `mgp.tools.discover`). This ensures discoverability and
+   avoids naming conflicts with server-provided tools.
 
 ### 8.3 Relationship to ClotoCore
 
 ClotoCore is the reference implementation of MGP. The following ClotoCore components
 map to MGP specifications:
 
-| MGP Spec | ClotoCore Component | File |
-|----------|-------------------|------|
-| §2 Capability Negotiation | `cloto/handshake` | `managers/mcp.rs` |
-| §3 Permission Declarations | Permission Gate (D) | `managers/mcp.rs` |
-| §4 Tool Security Metadata | `tool_validators` config | `managers/mcp_protocol.rs` |
-| §5 Access Control | `mcp_access_control` table | `db.rs`, `handlers.rs` |
-| §6 Audit Trail | `audit_logs` table | `handlers.rs` |
-| §7 Code Safety | `validate_mcp_code()` | `managers/mcp.rs` |
-| §11 Lifecycle | `ServerStatus`, `auto_restart`, `restart_server()` | `managers/mcp.rs` |
-| §12 Streaming | — (not yet implemented) | — |
-| §13 Bidirectional | `notifications/cloto.event`, SSE event bus | `handlers.rs`, `lib.rs` |
-| §14 Error Handling | `JsonRpcError` | `managers/mcp_protocol.rs` |
-| §15 Discovery | `mcp.toml`, `add_dynamic_server()` | `managers/mcp.rs` |
-| §16 Tool Discovery | — (not yet implemented) | — |
+| MGP Spec | Layer | ClotoCore Component | File |
+|----------|-------|-------------------|------|
+| §2 Capability Negotiation | 1 | `cloto/handshake` | `managers/mcp.rs` |
+| §3 Permission Declarations | 3 | Permission Gate (D) | `managers/mcp.rs` |
+| §4 Tool Security Metadata | 1 | `tool_validators` config | `managers/mcp_protocol.rs` |
+| §5 Access Control | 4 | `mcp_access_control` table | `db.rs`, `handlers.rs` |
+| §6 Audit Trail | 2 | `audit_logs` table | `handlers.rs` |
+| §7 Code Safety | 1 | `validate_mcp_code()` | `managers/mcp.rs` |
+| §11 Lifecycle | 2+4 | `ServerStatus`, `auto_restart` | `managers/mcp.rs` |
+| §12 Streaming | 2+3 | — (not yet implemented) | — |
+| §13 Bidirectional | 2+3+4 | SSE event bus, callbacks | `handlers.rs`, `lib.rs` |
+| §14 Error Handling | — | `JsonRpcError` | `managers/mcp_protocol.rs` |
+| §15 Discovery | 4 | `mcp.toml`, `add_dynamic_server()` | `managers/mcp.rs` |
+| §16 Tool Discovery | 4 | — (not yet implemented) | — |
 
 ---
 
@@ -1781,6 +2179,8 @@ map to MGP specifications:
 | 0.1.0-draft | 2026-02-27 | Initial draft — Security layer (§2-7) |
 | 0.2.0-draft | 2026-02-27 | Communication & Lifecycle layer (§11-15) |
 | 0.3.0-draft | 2026-02-27 | Intelligence layer — Dynamic Tool Discovery & Active Tool Request (§16) |
+| 0.4.0-draft | 2026-02-28 | Review response: Migration policy (§1.7), versioning rules (§2.5), permission method rename (§3.4-3.6), audit transport clarification (§6.3), tool creation safety (§16.6), semantic search optional (§16.4), MCP Sampling comparison (§13.4) |
+| 0.5.0-draft | 2026-02-28 | Selective Minimalism: 16 protocol methods moved to Kernel Tool Layer (§5, §11, §13, §15, §16); protocol reduced from 25 to 9 primitives (4 methods + 5 notifications); 3-layer architecture (§1.6) |
 
 ---
 

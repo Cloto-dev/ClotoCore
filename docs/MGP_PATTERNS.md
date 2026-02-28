@@ -1,7 +1,7 @@
 # MGP Application Patterns
 
 **Companion to:** `MGP_SPEC.md`
-**Date:** 2026-02-27
+**Date:** 2026-02-28
 
 This document describes reference architectures for building higher-level capabilities
 on top of MGP protocol primitives. These patterns are **not part of the MGP specification** —
@@ -514,10 +514,10 @@ Federation proxy starts
   │
   ├─ Fetch remote tool lists
   │
-  ├─ Register each remote tool locally via mgp/discovery/register
+  ├─ Register each remote tool locally via mgp.discovery.register
   │    with server_id prefix: "remote.instance_b.tool.browser"
   │
-  └─ Local agents discover remote tools via mgp/tools/discover
+  └─ Local agents discover remote tools via mgp.tools.discover
      as if they were local (federation is transparent)
 ```
 
@@ -584,7 +584,10 @@ Audit storage and analysis are implementation concerns:
 ```
 
 The kernel forwards `notifications/mgp.audit` events to the Audit server via the standard
-MCP notification mechanism. The Audit server persists them and exposes query tools.
+MCP notification mechanism. Since the kernel acts as an **MCP client** to all connected
+servers (including the Audit server), audit event delivery follows the standard
+Client → Server notification path — no special transport or relay mechanism is required.
+The Audit server persists them and exposes query tools.
 
 ### 4.4 Audit Server Tools
 
