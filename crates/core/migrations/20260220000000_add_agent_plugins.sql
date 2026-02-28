@@ -24,10 +24,7 @@ INSERT OR IGNORE INTO agent_plugins (agent_id, plugin_id, pos_x, pos_y)
     SELECT 'agent.deepseek_test', 'mind.deepseek', 0, 0
     WHERE EXISTS (SELECT 1 FROM agents WHERE id = 'agent.deepseek_test');
 
--- Seed default Exiv agent with system capabilities.
+-- Seed default agent with memory server.
 INSERT OR IGNORE INTO agent_plugins (agent_id, plugin_id, pos_x, pos_y)
-    SELECT 'agent.exiv_default', 'core.ks22', 1, 0
-    WHERE EXISTS (SELECT 1 FROM agents WHERE id = 'agent.exiv_default');
-INSERT OR IGNORE INTO agent_plugins (agent_id, plugin_id, pos_x, pos_y)
-    SELECT 'agent.exiv_default', 'core.skill_manager', 2, 0
+    SELECT 'agent.exiv_default', 'memory.ks22', 1, 0
     WHERE EXISTS (SELECT 1 FROM agents WHERE id = 'agent.exiv_default');

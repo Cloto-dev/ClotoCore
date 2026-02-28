@@ -627,7 +627,6 @@ pub struct AgentMetadata {
     pub status: String,
     pub default_engine_id: Option<String>,
     pub required_capabilities: Vec<CapabilityType>,
-    pub plugin_bindings: Vec<ClotoId>,
     pub metadata: HashMap<String, String>,
 }
 

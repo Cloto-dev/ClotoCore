@@ -210,7 +210,6 @@ impl ConsensusOrchestrator {
                         status: "online".to_string(),
                         default_engine_id: Some(synthesizer.clone()),
                         required_capabilities: vec![],
-                        plugin_bindings: vec![],
                         metadata: HashMap::new(),
                     };
 

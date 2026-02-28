@@ -942,7 +942,7 @@ impl PluginCast for SystemHandler {
 impl Plugin for SystemHandler {
     fn manifest(&self) -> PluginManifest {
         PluginManifest {
-            id: "core.system".to_string(),
+            id: "kernel.system".to_string(),
             name: "Kernel System Handler".to_string(),
             description: "Internal core logic handler".to_string(),
             version: "1.0.0".to_string(),

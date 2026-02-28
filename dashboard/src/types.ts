@@ -46,6 +46,7 @@ export type CapabilityType =
 
 export type PluginCategory = 'Agent' | 'Tool' | 'Memory' | 'System' | 'Other';
 
+/** @deprecated Legacy plugin type — retained for Home/KernelMonitor display only */
 export interface PluginManifest {
   id: ClotoId;
   name: string;

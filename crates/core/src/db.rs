@@ -307,7 +307,7 @@ pub async fn init_db(pool: &SqlitePool, database_url: &str) -> anyhow::Result<()
     info!("Applying runtime configurations...");
 
     // Configs that depend on runtime environment
-    sqlx::query("INSERT OR REPLACE INTO plugin_configs (plugin_id, config_key, config_value) VALUES ('core.ks22', 'database_url', ?)")
+    sqlx::query("INSERT OR REPLACE INTO plugin_configs (plugin_id, config_key, config_value) VALUES ('memory.ks22', 'database_url', ?)")
         .bind(database_url)
         .execute(pool).await?;
 
@@ -1503,62 +1503,6 @@ pub async fn load_revoked_key_hashes(pool: &SqlitePool) -> anyhow::Result<Vec<St
     })
     .await
     .map_err(|_| anyhow::anyhow!("Database timeout loading revoked keys"))?
-}
-
-// ── Agent Plugins ────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone)]
-pub struct AgentPluginRow {
-    pub plugin_id: String,
-    pub pos_x: i32,
-    pub pos_y: i32,
-}
-
-/// Return the ordered plugin list for an agent.
-pub async fn get_agent_plugins(
-    pool: &SqlitePool,
-    agent_id: &str,
-) -> anyhow::Result<Vec<AgentPluginRow>> {
-    let rows: Vec<(String, i32, i32)> = sqlx::query_as(
-        "SELECT plugin_id, pos_x, pos_y FROM agent_plugins WHERE agent_id = ? ORDER BY pos_y, pos_x"
-    )
-    .bind(agent_id)
-    .fetch_all(pool)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(plugin_id, pos_x, pos_y)| AgentPluginRow {
-            plugin_id,
-            pos_x,
-            pos_y,
-        })
-        .collect())
-}
-
-/// Replace an agent's entire plugin list atomically.
-pub async fn set_agent_plugins(
-    pool: &SqlitePool,
-    agent_id: &str,
-    plugins: &[(String, i32, i32)], // (plugin_id, pos_x, pos_y)
-) -> anyhow::Result<()> {
-    let mut tx = pool.begin().await?;
-    sqlx::query("DELETE FROM agent_plugins WHERE agent_id = ?")
-        .bind(agent_id)
-        .execute(&mut *tx)
-        .await?;
-    for (plugin_id, pos_x, pos_y) in plugins {
-        sqlx::query(
-            "INSERT INTO agent_plugins (agent_id, plugin_id, pos_x, pos_y) VALUES (?, ?, ?, ?)",
-        )
-        .bind(agent_id)
-        .bind(plugin_id)
-        .bind(pos_x)
-        .bind(pos_y)
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
-    Ok(())
 }
 
 pub async fn is_api_key_revoked(pool: &SqlitePool, key: &str) -> anyhow::Result<bool> {

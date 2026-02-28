@@ -68,23 +68,6 @@ export const api = {
   updateAgent: (id: string, payload: { default_engine_id?: string, metadata: Record<string, string> }, apiKey: string) =>
     mutate(`/agents/${id}`, 'POST', 'update agent', payload, { 'X-API-Key': apiKey }).then(() => {}),
 
-  getAgentPlugins: async (agentId: string, apiKey: string): Promise<{ plugin_id: string; pos_x: number; pos_y: number }[]> => {
-    const res = await fetch(`${API_BASE}/agents/${agentId}/plugins`, {
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-    });
-    if (!res.ok) throw new Error(`Failed to get agent plugins: ${res.statusText}`);
-    const data = await res.json();
-    return data.plugins ?? [];
-  },
-
-  setAgentPlugins: async (agentId: string, plugins: { plugin_id: string; pos_x: number; pos_y: number }[], apiKey: string): Promise<void> => {
-    const res = await fetch(`${API_BASE}/agents/${agentId}/plugins`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-      body: JSON.stringify({ plugins }),
-    });
-    await throwIfNotOk(res, 'set agent plugins');
-  },
   getPluginPermissions: async (pluginId: string, apiKey: string): Promise<string[]> => {
     const res = await fetch(`${API_BASE}/plugins/${pluginId}/permissions`, {
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },

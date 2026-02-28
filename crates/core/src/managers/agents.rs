@@ -46,7 +46,6 @@ impl AgentManager {
             status: String::new(),
             default_engine_id: Some(row.default_engine_id),
             required_capabilities: row.required_capabilities.0,
-            plugin_bindings: vec![],
             metadata: meta,
         };
         agent.resolve_status(Self::HEARTBEAT_THRESHOLD_MS);
@@ -207,57 +206,6 @@ impl AgentManager {
             .filter(|e| e.entry_type == "server_grant" && e.permission == "allow")
             .map(|e| e.server_id)
             .collect())
-    }
-
-    /// Return the plugin list for an agent from the agent_plugins table.
-    pub async fn get_agent_plugins(
-        &self,
-        agent_id: &str,
-    ) -> anyhow::Result<Vec<crate::db::AgentPluginRow>> {
-        crate::db::get_agent_plugins(&self.pool, agent_id).await
-    }
-
-    /// Replace an agent's plugin list. Also updates default_engine_id and preferred_memory
-    /// by inspecting the plugin manifests via the provided registry.
-    pub async fn set_agent_plugins(
-        &self,
-        agent_id: &str,
-        plugins: &[(String, i32, i32)],
-        registry: &crate::managers::PluginRegistry,
-    ) -> anyhow::Result<()> {
-        crate::db::set_agent_plugins(&self.pool, agent_id, plugins).await?;
-
-        // Derive default_engine_id and preferred_memory from the new plugin list.
-        // Priority for default_engine_id: mind.* LLM engines > other Reasoning engines.
-        let manifests = registry.list_plugins().await;
-        let mut llm_engine_id: Option<String> = None; // mind.* preferred
-        let mut fallback_engine_id: Option<String> = None;
-        let mut memory_id: Option<String> = None;
-        for (plugin_id, _, _) in plugins {
-            if let Some(m) = manifests.iter().find(|m| &m.id == plugin_id) {
-                if m.service_type == cloto_shared::ServiceType::Reasoning {
-                    if llm_engine_id.is_none() && plugin_id.starts_with("mind.") {
-                        llm_engine_id = Some(plugin_id.clone());
-                    } else if fallback_engine_id.is_none() && !plugin_id.starts_with("mind.") {
-                        fallback_engine_id = Some(plugin_id.clone());
-                    }
-                }
-                if memory_id.is_none() && m.service_type == cloto_shared::ServiceType::Memory {
-                    memory_id = Some(plugin_id.clone());
-                }
-            }
-        }
-        let engine_id = llm_engine_id.or(fallback_engine_id);
-
-        // Update agents table
-        let (meta, _) = self.get_agent_config(agent_id).await?;
-        let mut metadata = meta.metadata.clone();
-        if let Some(ref mid) = memory_id {
-            metadata.insert("preferred_memory".to_string(), mid.clone());
-        }
-        self.update_agent_config(agent_id, engine_id, metadata)
-            .await?;
-        Ok(())
     }
 
     /// Delete an agent and all associated data (chat messages, attachments via cascade).

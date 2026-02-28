@@ -285,66 +285,6 @@ pub async fn update_agent(
     Ok(Json(serde_json::json!({ "status": "success" })))
 }
 
-/// Get the plugin list for an agent.
-///
-/// **Route:** `GET /api/agents/:id/plugins`
-pub async fn get_agent_plugins(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> AppResult<Json<serde_json::Value>> {
-    check_auth(&state, &headers)?;
-    let rows = state.agent_manager.get_agent_plugins(&id).await?;
-    let plugins: Vec<serde_json::Value> = rows
-        .iter()
-        .map(|r| {
-            serde_json::json!({
-                "plugin_id": r.plugin_id,
-                "pos_x": r.pos_x,
-                "pos_y": r.pos_y,
-            })
-        })
-        .collect();
-    Ok(Json(serde_json::json!({ "plugins": plugins })))
-}
-
-#[derive(Deserialize)]
-pub struct SetPluginsRequest {
-    pub plugins: Vec<PluginPlacement>,
-}
-
-#[derive(Deserialize)]
-pub struct PluginPlacement {
-    pub plugin_id: String,
-    pub pos_x: i32,
-    pub pos_y: i32,
-}
-
-/// Replace the plugin list for an agent.
-///
-/// **Route:** `PUT /api/agents/:id/plugins`
-///
-/// Atomically replaces the agent's plugin assignments and updates
-/// default_engine_id / preferred_memory derived from the new list.
-pub async fn set_agent_plugins(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Json(payload): Json<SetPluginsRequest>,
-) -> AppResult<Json<serde_json::Value>> {
-    check_auth(&state, &headers)?;
-    let placements: Vec<(String, i32, i32)> = payload
-        .plugins
-        .iter()
-        .map(|p| (p.plugin_id.clone(), p.pos_x, p.pos_y))
-        .collect();
-    state
-        .agent_manager
-        .set_agent_plugins(&id, &placements, &state.registry)
-        .await?;
-    Ok(Json(serde_json::json!({ "status": "success" })))
-}
-
 /// Delete an agent and all its data.
 ///
 /// **Route:** `DELETE /api/agents/:id`

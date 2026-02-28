@@ -255,7 +255,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
 
     {
         let mut plugins = registry_arc.plugins.write().await;
-        plugins.insert("core.system".to_string(), system_handler);
+        plugins.insert("kernel.system".to_string(), system_handler);
     }
 
     // Load MCP servers from config file (mcp.toml)
@@ -418,10 +418,6 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route(
             "/agents/:id",
             post(handlers::update_agent).delete(handlers::delete_agent),
-        )
-        .route(
-            "/agents/:id/plugins",
-            get(handlers::get_agent_plugins).put(handlers::set_agent_plugins),
         )
         .route("/agents/:id/power", post(handlers::power_toggle))
         .route("/events/publish", post(handlers::post_event_handler))
