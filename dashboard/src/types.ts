@@ -231,3 +231,23 @@ export interface McpServerSettings {
   args: string[];
   description?: string;
 }
+
+// Cron Job Scheduler (Layer 2: Autonomous Trigger)
+export type ScheduleType = 'interval' | 'cron' | 'once';
+
+export interface CronJob {
+  id: string;
+  agent_id: string;
+  name: string;
+  enabled: boolean;
+  schedule_type: ScheduleType;
+  schedule_value: string;
+  engine_id?: string;
+  message: string;
+  next_run_at: number;
+  last_run_at?: number;
+  last_status?: 'success' | 'error';
+  last_error?: string;
+  max_iterations?: number;
+  created_at: string;
+}

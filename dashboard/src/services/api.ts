@@ -210,4 +210,23 @@ export const api = {
 
   deleteMcpServer: (name: string, apiKey: string) =>
     mutate(`/mcp/servers/${encodeURIComponent(name)}`, 'DELETE', 'delete MCP server', undefined, { 'X-API-Key': apiKey }).then(() => {}),
+
+  // Cron Job Management (Layer 2: Autonomous Trigger)
+  listCronJobs: (apiKey: string, agentId?: string): Promise<{ jobs: import('../types').CronJob[]; count: number }> => {
+    const qs = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : '';
+    return fetch(`${API_BASE}/cron/jobs${qs}`, { headers: { 'X-API-Key': apiKey } })
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
+  },
+
+  createCronJob: (payload: { agent_id: string; name: string; schedule_type: string; schedule_value: string; message: string; engine_id?: string; max_iterations?: number }, apiKey: string) =>
+    mutate('/cron/jobs', 'POST', 'create cron job', payload, { 'X-API-Key': apiKey }).then(r => r.json()),
+
+  deleteCronJob: (jobId: string, apiKey: string) =>
+    mutate(`/cron/jobs/${encodeURIComponent(jobId)}`, 'DELETE', 'delete cron job', undefined, { 'X-API-Key': apiKey }).then(() => {}),
+
+  toggleCronJob: (jobId: string, enabled: boolean, apiKey: string) =>
+    mutate(`/cron/jobs/${encodeURIComponent(jobId)}/toggle`, 'POST', 'toggle cron job', { enabled }, { 'X-API-Key': apiKey }).then(() => {}),
+
+  runCronJobNow: (jobId: string, apiKey: string) =>
+    mutate(`/cron/jobs/${encodeURIComponent(jobId)}/run`, 'POST', 'run cron job', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
 };

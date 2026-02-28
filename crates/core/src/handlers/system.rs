@@ -229,7 +229,12 @@ impl SystemHandler {
             }
         } else {
             // 通常モード: エージェントループで処理
-            let engine_id = default_engine_id;
+            // Cron jobs can override the default engine via metadata
+            let engine_id = msg
+                .metadata
+                .get("engine_override")
+                .cloned()
+                .unwrap_or(default_engine_id);
             match self
                 .run_agentic_loop(
                     &agent,

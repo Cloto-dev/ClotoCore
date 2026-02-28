@@ -147,7 +147,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     use crate::handlers::{self, system::SystemHandler};
     use crate::managers::{AgentManager, PluginManager};
     use axum::{
-        routing::{any, get, post},
+        routing::{any, delete, get, post},
         Router,
     };
     use tower_http::cors::CorsLayer;
@@ -369,6 +369,16 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         app_state.shutdown.clone(),
     );
 
+    // 6c. Cron job scheduler (Layer 2: Autonomous Trigger)
+    if config.cron_enabled {
+        managers::scheduler::spawn_cron_task(
+            pool.clone(),
+            event_tx.clone(),
+            config.cron_check_interval_secs,
+            app_state.shutdown.clone(),
+        );
+    }
+
     let event_tx_clone = event_tx.clone();
     let processor_clone = processor.clone();
     let shutdown_clone = app_state.shutdown.clone();
@@ -421,6 +431,11 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         )
         .route("/agents/:id/power", post(handlers::power_toggle))
         .route("/events/publish", post(handlers::post_event_handler))
+        // Cron job management (Layer 2: Autonomous Trigger)
+        .route("/cron/jobs", get(handlers::list_cron_jobs).post(handlers::create_cron_job))
+        .route("/cron/jobs/:id", delete(handlers::delete_cron_job))
+        .route("/cron/jobs/:id/toggle", post(handlers::toggle_cron_job))
+        .route("/cron/jobs/:id/run", post(handlers::run_cron_job_now))
         .route(
             "/permissions/:id/approve",
             post(handlers::approve_permission),

@@ -35,6 +35,10 @@ pub struct AppConfig {
     /// YOLO mode: auto-approve all permission requests (ARCHITECTURE.md §5.7).
     /// SafetyGate remains active even in YOLO mode.
     pub yolo_mode: bool,
+    /// Enable cron job scheduler (Layer 2: Autonomous Trigger).
+    pub cron_enabled: bool,
+    /// How often (seconds) the scheduler checks for due jobs.
+    pub cron_check_interval_secs: u64,
 }
 
 impl AppConfig {
@@ -206,6 +210,16 @@ impl AppConfig {
             tracing::warn!("YOLO mode enabled: MCP server permissions will be auto-approved");
         }
 
+        let cron_enabled = env::var("CLOTO_CRON_ENABLED")
+            .unwrap_or_else(|_| "true".to_string())
+            .parse::<bool>()
+            .unwrap_or(true);
+        let cron_check_interval_secs = env::var("CLOTO_CRON_INTERVAL")
+            .unwrap_or_else(|_| "60".to_string())
+            .parse::<u64>()
+            .unwrap_or(60)
+            .max(10); // minimum 10 seconds
+
         Ok(Self {
             database_url,
             port,
@@ -225,6 +239,8 @@ impl AppConfig {
             mcp_config_path,
             mcp_sdk_secret,
             yolo_mode,
+            cron_enabled,
+            cron_check_interval_secs,
         })
     }
 }

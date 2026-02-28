@@ -4,6 +4,7 @@ pub mod mcp_protocol;
 pub mod mcp_transport;
 mod plugin;
 mod registry;
+pub mod scheduler;
 
 pub use agents::AgentManager;
 pub use mcp::McpClientManager;

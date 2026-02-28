@@ -1,7 +1,7 @@
 import { useRef, useState, useMemo } from 'react';
 import { Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, Database, MessageSquare, Puzzle, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, LucideIcon } from 'lucide-react';
+import { Activity, Database, MessageSquare, Puzzle, Clock, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, LucideIcon } from 'lucide-react';
 import { InteractiveGrid } from '../components/InteractiveGrid';
 import { ViewHeader } from '../components/ViewHeader';
 import { SecurityGuard } from '../components/SecurityGuard';
@@ -63,6 +63,7 @@ export function Home() {
       { id: 'memory', label: 'MEMORY', path: '/dashboard', icon: Database, disabled: false },
       { id: 'sandbox', label: 'CLOTO', path: '#', icon: MessageSquare, disabled: false },
       { id: 'mcp', label: 'MCP', path: '/mcp-servers', icon: Puzzle, disabled: false },
+      { id: 'cron', label: 'CRON', path: '/cron', icon: Clock, disabled: false },
     ];
 
     // Dynamic Plugin Actions (Principle #6: SDK-driven UX)
