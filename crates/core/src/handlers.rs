@@ -988,12 +988,7 @@ pub async fn get_pending_permissions(
 /// - **200 OK:** `{ "status": "success", "message": "Permission request approved" }`
 /// - **403 Forbidden:** Invalid or missing API key
 #[derive(Deserialize)]
-pub struct PermissionDecisionPayload {
-    // Accepted for backwards compatibility but not used for audit trail
-    // (actor identity determined from auth, not user-supplied value)
-    #[allow(dead_code)]
-    approved_by: String,
-}
+pub struct PermissionDecisionPayload {}
 
 pub async fn approve_permission(
     State(state): State<Arc<AppState>>,

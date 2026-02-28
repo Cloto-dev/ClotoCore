@@ -10,6 +10,18 @@ use tracing::info;
 // Bug #7: Database operation timeout to prevent indefinite hangs
 const DB_TIMEOUT_SECS: u64 = 10;
 
+/// Execute a database operation with standard timeout and error handling.
+/// Consolidates the repeated timeout+error pattern (bug-148).
+async fn db_timeout<T, F>(future: F) -> anyhow::Result<T>
+where
+    F: std::future::Future<Output = Result<T, sqlx::Error>>,
+{
+    timeout(Duration::from_secs(DB_TIMEOUT_SECS), future)
+        .await
+        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
+        .map_err(|e| anyhow::anyhow!("Database operation failed: {}", e))
+}
+
 pub struct SqliteDataStore {
     pool: SqlitePool,
 }
@@ -55,20 +67,7 @@ impl PluginDataStore for SqliteDataStore {
         .bind(val_str)
         .execute(&self.pool);
 
-        // Bug A: Fixed error handling pattern - single ? operator after map_err
-        timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
-            })?
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to save key '{}' for plugin '{}': {}",
-                    key,
-                    plugin_id,
-                    e
-                )
-            })?;
+        db_timeout(query_future).await?;
 
         Ok(())
     }
@@ -101,20 +100,7 @@ impl PluginDataStore for SqliteDataStore {
         .bind(key)
         .fetch_optional(&self.pool);
 
-        // Bug A: Fixed error handling pattern - single ? operator after each map_err
-        let row: Option<(String,)> = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
-            })?
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to get key '{}' for plugin '{}': {}",
-                    key,
-                    plugin_id,
-                    e
-                )
-            })?;
+        let row: Option<(String,)> = db_timeout(query_future).await?;
 
         if let Some((val_str,)) = row {
             let val = serde_json::from_str(&val_str)?;
@@ -156,21 +142,7 @@ impl PluginDataStore for SqliteDataStore {
         .bind(DEFAULT_MAX_RESULTS + 1)
         .fetch_all(&self.pool);
 
-        // Bug A: Fixed error handling pattern - single ? operator after each map_err
-        let mut rows: Vec<(String, String)> =
-            timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-                .await
-                .map_err(|_| {
-                    anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
-                })?
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "Failed to list keys with prefix '{}' for plugin '{}': {}",
-                        key_prefix,
-                        plugin_id,
-                        e
-                    )
-                })?;
+        let mut rows: Vec<(String, String)> = db_timeout(query_future).await?;
 
         if rows.len() > DEFAULT_MAX_RESULTS as usize {
             rows.truncate(DEFAULT_MAX_RESULTS as usize);
@@ -219,19 +191,7 @@ impl PluginDataStore for SqliteDataStore {
             .bind(key)
             .fetch_one(&self.pool);
 
-        let (val_str,) = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
-            })?
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to increment counter '{}' for plugin '{}': {}",
-                    key,
-                    plugin_id,
-                    e
-                )
-            })?;
+        let (val_str,) = db_timeout(query_future).await?;
 
         val_str
             .parse::<i64>()
@@ -353,11 +313,7 @@ pub async fn write_audit_log(pool: &SqlitePool, entry: AuditLogEntry) -> anyhow:
     .bind(&entry.trace_id)
     .execute(pool);
 
-    // Bug A: Fixed error handling pattern - single ? operator after each map_err
-    timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database operation failed: {}", e))?;
+    db_timeout(query_future).await?;
 
     Ok(())
 }
@@ -397,11 +353,7 @@ pub async fn query_audit_logs(pool: &SqlitePool, limit: i64) -> anyhow::Result<V
         .bind(limit)
         .fetch_all(pool);
 
-    // Bug A: Fixed error handling pattern - single ? operator after each map_err
-    let rows = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
+    let rows = db_timeout(query_future).await?;
 
     let mut logs = Vec::new();
     for (timestamp, event_type, actor, target, perm, result, reason, metadata, trace) in rows {
@@ -462,11 +414,7 @@ pub async fn create_permission_request(
     .bind(&metadata_str)
     .execute(pool);
 
-    // Bug A: Fixed error handling pattern - single ? operator after each map_err
-    timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database operation failed: {}", e))?;
+    db_timeout(query_future).await?;
 
     Ok(())
 }
@@ -485,11 +433,7 @@ pub async fn get_pending_permission_requests(
         )
         .fetch_all(pool);
 
-    // Bug A: Fixed error handling pattern - single ? operator after each map_err
-    let rows = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
+    let rows = db_timeout(query_future).await?;
 
     let mut requests = Vec::new();
     for (
@@ -562,11 +506,7 @@ pub async fn update_permission_request(
     .bind(request_id)
     .execute(pool);
 
-    // Bug A: Fixed error handling pattern - single ? operator after each map_err
-    let result = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database operation failed: {}", e))?;
+    let result = db_timeout(query_future).await?;
 
     if result.rows_affected() == 0 {
         return Err(anyhow::anyhow!(
@@ -594,10 +534,7 @@ pub async fn is_permission_approved(
     .bind(permission_type)
     .fetch_one(pool);
 
-    let count = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
+    let count = db_timeout(query_future).await?;
 
     Ok(count > 0)
 }
@@ -644,10 +581,7 @@ pub async fn save_chat_message(pool: &SqlitePool, msg: &ChatMessageRow) -> anyho
     .bind(msg.created_at)
     .execute(pool);
 
-    timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database operation failed: {}", e))?;
+    db_timeout(query_future).await?;
 
     Ok(())
 }
@@ -679,12 +613,7 @@ pub async fn get_chat_messages(
         .bind(limit)
         .fetch_all(pool);
 
-        timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
-            })?
-            .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?
+        db_timeout(query_future).await?
     } else {
         let query_future = sqlx::query_as::<_, ChatMessageTuple>(
             "SELECT id, agent_id, user_id, source, content, metadata, created_at
@@ -698,12 +627,7 @@ pub async fn get_chat_messages(
         .bind(limit)
         .fetch_all(pool);
 
-        timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS)
-            })?
-            .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?
+        db_timeout(query_future).await?
     };
 
     let messages = rows
@@ -738,10 +662,8 @@ pub async fn delete_chat_messages(
     .bind(user_id)
     .fetch_all(pool);
 
-    let msg_ids: Vec<String> = timeout(Duration::from_secs(DB_TIMEOUT_SECS), ids_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?
+    let msg_ids: Vec<String> = db_timeout(ids_future)
+        .await?
         .into_iter()
         .map(|(id,)| id)
         .collect();
@@ -755,10 +677,7 @@ pub async fn delete_chat_messages(
         .bind(user_id)
         .execute(pool);
 
-    let result = timeout(Duration::from_secs(DB_TIMEOUT_SECS), delete_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database operation failed: {}", e))?;
+    let result = db_timeout(delete_future).await?;
 
     // Clean up disk files (best-effort)
     for path in disk_paths {
@@ -785,10 +704,7 @@ pub async fn save_attachment(pool: &SqlitePool, att: &AttachmentRow) -> anyhow::
     .bind(att.created_at)
     .execute(pool);
 
-    timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database operation failed: {}", e))?;
+    db_timeout(query_future).await?;
 
     Ok(())
 }
@@ -806,10 +722,7 @@ pub async fn get_attachments_for_message(
     .bind(message_id)
     .fetch_all(pool);
 
-    let rows = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
+    let rows = db_timeout(query_future).await?;
 
     let attachments = rows
         .into_iter()
@@ -856,10 +769,7 @@ pub async fn get_attachment_by_id(
     .bind(attachment_id)
     .fetch_optional(pool);
 
-    let row = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query_future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
+    let row = db_timeout(query_future).await?;
 
     Ok(row.map(
         |(
@@ -908,10 +818,7 @@ async fn get_disk_attachment_paths(
         query = query.bind(id);
     }
 
-    let rows = timeout(Duration::from_secs(DB_TIMEOUT_SECS), query.fetch_all(pool))
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
-        .map_err(|e| anyhow::anyhow!("Database query failed: {}", e))?;
+    let rows = db_timeout(query.fetch_all(pool)).await?;
 
     Ok(rows.into_iter().map(|(path,)| path).collect())
 }

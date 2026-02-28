@@ -42,8 +42,6 @@ impl Default for ConsensusConfig {
 // ============================================================
 
 struct Proposal {
-    #[allow(dead_code)]
-    engine_id: String,
     content: String,
 }
 
@@ -157,7 +155,6 @@ impl ConsensusOrchestrator {
             } => {
                 // 1. Collect proposal
                 proposals.push(Proposal {
-                    engine_id: agent_id.to_string(),
                     content: content.to_string(),
                 });
 

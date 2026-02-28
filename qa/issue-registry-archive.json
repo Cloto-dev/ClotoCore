@@ -1,0 +1,161 @@
+{
+    "description": "Archived obsolete issues from issue-registry.json",
+    "issues": [
+        {
+            "id": "bug-016",
+            "summary": "Resource cleanup on timeout incomplete",
+            "severity": "LOW",
+            "discovered": "2026-02-16T09:00:00Z",
+            "version": "0.1.0",
+            "commit": "fcb13b1",
+            "file": "plugins/python_bridge/src/ipc.rs",
+            "pattern": "pending_calls\\.remove\\(&id\\)",
+            "expected": "absent",
+            "status": "obsolete"
+        },
+        {
+            "id": "bug-019",
+            "summary": "Python sandbox FORBIDDEN_MODULES missing critical modules",
+            "severity": "CRITICAL",
+            "discovered": "2026-02-16T15:00:00Z",
+            "version": "0.1.0",
+            "commit": "bc5a647",
+            "file": "scripts/bridge_runtime.py",
+            "pattern": "'socket'\\}",
+            "expected": "absent",
+            "status": "obsolete"
+        },
+        {
+            "id": "bug-021",
+            "summary": "DeepSeek plugin silently accepts empty API key at startup",
+            "severity": "HIGH",
+            "discovered": "2026-02-16T15:30:00Z",
+            "version": "0.1.0",
+            "commit": "19c19da",
+            "file": "plugins/deepseek/src/lib.rs",
+            "pattern": "DeepSeek plugin.*No API key configured",
+            "expected": "absent",
+            "status": "obsolete"
+        },
+        {
+            "id": "bug-022",
+            "summary": "Cerebras plugin silently accepts empty API key at startup",
+            "severity": "HIGH",
+            "discovered": "2026-02-16T15:30:00Z",
+            "version": "0.1.0",
+            "commit": "19c19da",
+            "file": "plugins/cerebras/src/lib.rs",
+            "pattern": "Cerebras plugin.*No API key configured",
+            "expected": "absent",
+            "status": "obsolete"
+        },
+        {
+            "id": "bug-041",
+            "summary": "Cerebras plugin claims supports_tools=true but Cerebras API rejects JSON schema in tools",
+            "severity": "HIGH",
+            "discovered": "2026-02-19T17:32:00Z",
+            "version": "0.1.0",
+            "commit": "1050f34",
+            "file": "plugins/cerebras/src/lib.rs",
+            "pattern": "fn supports_tools.*true",
+            "expected": "absent",
+            "status": "obsolete"
+        },
+        {
+            "id": "bug-044",
+            "summary": "DeepSeek plugin supports_tools=true but deepseek-reasoner model rejects tool schemas",
+            "severity": "HIGH",
+            "discovered": "2026-02-19T18:30:00Z",
+            "version": "0.1.0",
+            "commit": "06edbf6",
+            "file": "plugins/deepseek/src/lib.rs",
+            "pattern": "fn supports_tools.*true",
+            "expected": "absent",
+            "status": "obsolete"
+        },
+        {
+            "id": "bug-056",
+            "summary": "Hardcoded #1e3bb3 in PluginManager (should use CSS variable) [component deleted]",
+            "severity": "MEDIUM",
+            "discovered": "2026-02-22T00:00:00Z",
+            "version": "0.1.0",
+            "commit": "e647833",
+            "file": "dashboard/src/components/ExivPluginManager.tsx",
+            "pattern": "#1e3bb3",
+            "expected": "absent",
+            "status": "obsolete"
+        },
+        {
+            "id": "bug-061",
+            "summary": "ConfigModal not extracted from PluginManager (544-line file) [component deleted]",
+            "severity": "MEDIUM",
+            "discovered": "2026-02-22T12:00:00Z",
+            "version": "0.1.0",
+            "commit": "b717b15",
+            "file": "dashboard/src/components/ExivPluginManager.tsx",
+            "pattern": "function ConfigModal",
+            "expected": "absent",
+            "status": "obsolete"
+        },
+        {
+            "id": "bug-062",
+            "summary": "FitnessChart not extracted from EvolutionCore (698-line file)",
+            "severity": "MEDIUM",
+            "discovered": "2026-02-22T12:00:00Z",
+            "version": "0.1.0",
+            "commit": "b717b15",
+            "file": "dashboard/src/components/EvolutionCore.tsx",
+            "pattern": "function FitnessChart",
+            "expected": "absent",
+            "status": "obsolete"
+        },
+        {
+            "id": "bug-063",
+            "summary": "ParamEditModal not extracted from EvolutionCore",
+            "severity": "MEDIUM",
+            "discovered": "2026-02-22T12:00:00Z",
+            "version": "0.1.0",
+            "commit": "b717b15",
+            "file": "dashboard/src/components/EvolutionCore.tsx",
+            "pattern": "function ParamEditModal",
+            "expected": "absent",
+            "status": "obsolete"
+        },
+        {
+            "id": "bug-067",
+            "summary": "Hardcoded bg-[#1a1a2e] in ParamEditModal",
+            "severity": "MEDIUM",
+            "discovered": "2026-02-22T12:00:00Z",
+            "version": "0.1.0",
+            "commit": "b717b15",
+            "file": "dashboard/src/components/EvolutionCore.tsx",
+            "pattern": "#1a1a2e",
+            "expected": "absent",
+            "status": "obsolete"
+        },
+        {
+            "id": "bug-069",
+            "summary": "bg-white/X and border-white/X in EvolutionCore (23+ occurrences)",
+            "severity": "MEDIUM",
+            "discovered": "2026-02-22T12:00:00Z",
+            "version": "0.1.0",
+            "commit": "b717b15",
+            "file": "dashboard/src/components/EvolutionCore.tsx",
+            "pattern": "bg-white/",
+            "expected": "absent",
+            "status": "obsolete"
+        },
+        {
+            "id": "bug-085",
+            "summary": "Hardcoded rgba(255,255,255) in FitnessChart canvas drawing",
+            "severity": "LOW",
+            "discovered": "2026-02-22T14:00:00Z",
+            "version": "0.1.0",
+            "commit": "b717b15",
+            "file": "dashboard/src/components/FitnessChart.tsx",
+            "pattern": "rgba[(]255",
+            "expected": "absent",
+            "status": "obsolete"
+        }
+    ]
+}
