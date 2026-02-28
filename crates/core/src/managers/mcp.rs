@@ -1256,7 +1256,16 @@ impl McpClientManager {
     /// where no workspace marker exists.
     fn detect_project_root(from: &std::path::Path) -> Option<std::path::PathBuf> {
         let start = if from.is_file() { from.parent()? } else { from };
-        let mut dir = std::fs::canonicalize(start).ok()?;
+        let canonical = std::fs::canonicalize(start).ok()?;
+        // Strip Windows UNC prefix (\\?\) that canonicalize() adds — Python cannot handle it
+        let mut dir = {
+            let s = canonical.to_string_lossy();
+            if s.starts_with(r"\\?\") {
+                std::path::PathBuf::from(&s[4..])
+            } else {
+                canonical
+            }
+        };
         for _ in 0..10 {
             if dir.join("Cargo.toml").exists() {
                 return Some(dir);

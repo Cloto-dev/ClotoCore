@@ -12,7 +12,10 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Resolve parent directory for common module import.
+# Handle Windows UNC paths (\\?\...) that Python may receive from the kernel.
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.normpath(os.path.join(_script_dir, "..")))
 
 from common.llm_provider import (
     ProviderConfig,
