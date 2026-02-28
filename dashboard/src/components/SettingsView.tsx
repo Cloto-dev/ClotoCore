@@ -151,7 +151,7 @@ function SecuritySection() {
     setSaving(true);
     setError('');
     try {
-      await api.applyPluginSettings([], newKey.trim());
+      await api.listCronJobs(newKey.trim());
       setApiKey(newKey.trim());
       setNewKey('');
     } catch {

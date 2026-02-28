@@ -1,4 +1,4 @@
-import { AgentMetadata, PluginManifest, ContentBlock, ChatMessage, ClotoMessage, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry } from '../types';
+import { AgentMetadata, ContentBlock, ChatMessage, ClotoMessage, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry } from '../types';
 import { isTauri } from '../lib/tauri';
 
 // In Tauri mode, window.location.origin returns "tauri://localhost" which cannot reach
@@ -43,13 +43,6 @@ export const api = {
   },
 
   getAgents: () => fetchJson<AgentMetadata[]>('/agents', 'fetch agents'),
-  getPlugins: () => fetchJson<PluginManifest[]>('/plugins', 'fetch plugins'),
-  getPluginConfig: (id: string, apiKey: string) => {
-    const res = fetch(`${API_BASE}/plugins/${id}/config`, {
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-    });
-    return res.then(r => { if (!r.ok) throw new Error(`Failed to get plugin config: ${r.statusText}`); return r.json() as Promise<Record<string, string>>; });
-  },
   getPendingPermissions: () => fetchJson<PermissionRequest[]>('/permissions/pending', 'fetch pending permissions'),
   getVersion: () => fetchJson<{ version: string; build_target: string }>('/system/version', 'fetch version'),
   getMetrics: () => fetchJson<Metrics>('/metrics', 'fetch metrics'),
@@ -67,10 +60,6 @@ export const api = {
       .then(r => { if (!r.ok) throw new Error(`${r.statusText}`); return r.json() as Promise<T>; }),
   put: (path: string, body: unknown, apiKey: string) =>
     mutate(path, 'PUT', path, body, { 'X-API-Key': apiKey }).then(r => r.json()),
-  applyPluginSettings: (settings: { id: string, is_active: boolean }[], apiKey: string) =>
-    mutate('/plugins/apply', 'POST', 'apply plugin settings', settings, { 'X-API-Key': apiKey }).then(() => {}),
-  updatePluginConfig: (id: string, payload: { key: string, value: string }, apiKey: string) =>
-    mutate(`/plugins/${id}/config`, 'POST', 'update plugin config', payload, { 'X-API-Key': apiKey }).then(() => {}),
   updateAgent: (id: string, payload: { default_engine_id?: string, metadata: Record<string, string> }, apiKey: string) =>
     mutate(`/agents/${id}`, 'POST', 'update agent', payload, { 'X-API-Key': apiKey }).then(() => {}),
 

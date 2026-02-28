@@ -369,6 +369,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         app_state.shutdown.clone(),
     );
 
+    // 6b. MCP health monitor — auto-restart dead servers (bug-142)
+    Arc::clone(&mcp_manager).spawn_health_monitor(app_state.shutdown.clone());
+
     // 6c. Cron job scheduler (Layer 2: Autonomous Trigger)
     if config.cron_enabled {
         managers::scheduler::spawn_cron_task(

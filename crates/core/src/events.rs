@@ -3,7 +3,7 @@ use cloto_shared::{ClotoEvent, Permission};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 pub struct EventProcessor {
     registry: Arc<PluginRegistry>,
@@ -15,6 +15,8 @@ pub struct EventProcessor {
     max_history_size: usize,
     event_retention_hours: u64, // M-10: Configurable retention period
     consensus: Option<Arc<crate::consensus::ConsensusOrchestrator>>,
+    /// Per-plugin rate limiter for InputControl actions (bug-143: Guardrail 1.6)
+    action_rate_limiter: Arc<dashmap::DashMap<String, governor::DefaultDirectRateLimiter>>,
 }
 
 impl EventProcessor {
@@ -40,6 +42,7 @@ impl EventProcessor {
             max_history_size,
             event_retention_hours,
             consensus,
+            action_rate_limiter: Arc::new(dashmap::DashMap::new()),
         }
     }
 
@@ -244,6 +247,10 @@ impl EventProcessor {
                     }
 
                     if self.authorize(requester, Permission::InputControl).await {
+                        if !self.check_action_rate(&requester.to_string()) {
+                            warn!(trace_id = %trace_id, requester_id = %requester, "⚡ InputControl rate limit exceeded");
+                            continue;
+                        }
                         info!(trace_id = %trace_id, requester_id = %requester, "✅ Action authorized");
                         let _ = self.tx_internal.send(event.clone());
                     } else {
@@ -345,6 +352,24 @@ impl EventProcessor {
                 }
             }
         }
+    }
+
+    /// Per-plugin rate limiting for InputControl actions (bug-143: Guardrail 1.6).
+    /// Returns `true` if the action is within rate limits, `false` if rate-limited.
+    fn check_action_rate(&self, requester_id: &str) -> bool {
+        use governor::{Quota, RateLimiter};
+        use std::num::NonZeroU32;
+
+        let limiter = self
+            .action_rate_limiter
+            .entry(requester_id.to_string())
+            .or_insert_with(|| {
+                RateLimiter::direct(
+                    Quota::per_second(NonZeroU32::new(10).unwrap())
+                        .allow_burst(NonZeroU32::new(20).unwrap()),
+                )
+            });
+        limiter.check().is_ok()
     }
 
     async fn authorize(&self, requester_id: &cloto_shared::ClotoId, required: Permission) -> bool {

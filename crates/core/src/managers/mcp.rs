@@ -440,7 +440,7 @@ impl McpClientManager {
                 args,
                 env: db_env,
                 transport: "stdio".to_string(),
-                auto_restart: false,
+                auto_restart: true,
                 required_permissions: Vec::new(),
                 tool_validators: HashMap::new(),
             };
@@ -1067,7 +1067,7 @@ impl McpClientManager {
             args: args.clone(),
             env: HashMap::new(),
             transport: "stdio".to_string(),
-            auto_restart: false,
+            auto_restart: true,
             required_permissions: Vec::new(),
             tool_validators: HashMap::new(),
         };
@@ -1185,7 +1185,7 @@ impl McpClientManager {
             args,
             env: HashMap::new(),
             transport: "stdio".to_string(),
-            auto_restart: false,
+            auto_restart: true,
             required_permissions: Vec::new(),
             tool_validators: HashMap::new(),
         };
@@ -1266,6 +1266,81 @@ impl McpClientManager {
             }
         }
         None
+    }
+
+    // ============================================================
+    // Health Monitor — auto-restart dead MCP servers (bug-142)
+    // ============================================================
+
+    /// Spawn a background task that periodically checks for dead MCP servers
+    /// and auto-restarts them if `auto_restart` is enabled in their config.
+    /// Follows the `tokio::select!` + `Arc<Notify>` shutdown pattern from events.rs.
+    pub fn spawn_health_monitor(self: Arc<Self>, shutdown: Arc<tokio::sync::Notify>) {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                tokio::select! {
+                    () = shutdown.notified() => {
+                        info!("MCP health monitor shutting down");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        self.check_and_restart_dead_servers().await;
+                    }
+                }
+            }
+        });
+    }
+
+    /// Scan all registered MCP servers and restart any that have died
+    /// (process exited / channel closed) if their config has `auto_restart: true`.
+    async fn check_and_restart_dead_servers(&self) {
+        let dead_servers: Vec<String> = {
+            let servers = self.servers.read().await;
+            servers
+                .iter()
+                .filter_map(|(id, handle)| {
+                    if !handle.config.auto_restart {
+                        return None;
+                    }
+                    let is_dead = match &handle.client {
+                        Some(client) => !client.is_alive(),
+                        None => matches!(handle.status, ServerStatus::Error(_)),
+                    };
+                    if is_dead {
+                        Some(id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
+        for server_id in dead_servers {
+            warn!(server_id = %server_id, "MCP server died, attempting auto-restart");
+            match self.restart_server(&server_id).await {
+                Ok(tools) => {
+                    info!(
+                        server_id = %server_id,
+                        tools = tools.len(),
+                        "MCP server auto-restarted successfully"
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        server_id = %server_id,
+                        error = %e,
+                        "MCP server auto-restart failed"
+                    );
+                    // Update status to Error so the UI reflects the failure
+                    let mut servers = self.servers.write().await;
+                    if let Some(handle) = servers.get_mut(&server_id) {
+                        handle.status =
+                            ServerStatus::Error(format!("Auto-restart failed: {}", e));
+                    }
+                }
+            }
+        }
     }
 }
 

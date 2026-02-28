@@ -6,7 +6,6 @@ import { InteractiveGrid } from '../components/InteractiveGrid';
 import { ViewHeader } from '../components/ViewHeader';
 import { SecurityGuard } from '../components/SecurityGuard';
 import { SettingsView } from '../components/SettingsView';
-import { usePlugins } from '../hooks/usePlugins';
 import { api } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
 
@@ -19,7 +18,6 @@ export function Home() {
   const navigate = useNavigate();
 
   const [activeMainView, setActiveMainView] = useState<string | null>(null);
-  const { plugins } = usePlugins();
 
   const handleItemClick = async (item: any) => {
     if (item.path.startsWith('api:')) {
@@ -57,29 +55,14 @@ export function Home() {
     'RefreshCw': RefreshCw,
   };
 
-  const menuItems = useMemo(() => {
-    const baseItems = [
-      { id: 'status', label: 'STATUS', path: '/status', icon: Activity, disabled: false },
-      { id: 'memory', label: 'MEMORY', path: '/dashboard', icon: Database, disabled: false },
-      { id: 'sandbox', label: 'CLOTO', path: '#', icon: MessageSquare, disabled: false },
-      { id: 'mcp', label: 'MCP', path: '/mcp-servers', icon: Puzzle, disabled: false },
-      { id: 'cron', label: 'CRON', path: '/cron', icon: Clock, disabled: false },
-    ];
-
-    // Dynamic Plugin Actions (Principle #6: SDK-driven UX)
-    const pluginItems = plugins
-      .filter(p => p.is_active && p.action_icon && p.action_target)
-      .map(p => ({
-        id: p.id,
-        label: p.name.split('.').pop()?.toUpperCase() || p.name.toUpperCase(),
-        path: (p.action_target?.includes(':') || p.action_target?.startsWith('/')) ? p.action_target : '#',
-        icon: iconMap[p.action_icon || 'Puzzle'] || Puzzle,
-        disabled: false,
-        pluginId: p.id
-      }));
-
-    return [...baseItems, ...pluginItems, { id: 'settings', label: 'SETTINGS', path: '#', icon: Settings, disabled: false }];
-  }, [plugins]);
+  const menuItems = useMemo(() => [
+    { id: 'status', label: 'STATUS', path: '/status', icon: Activity, disabled: false },
+    { id: 'memory', label: 'MEMORY', path: '/dashboard', icon: Database, disabled: false },
+    { id: 'sandbox', label: 'CLOTO', path: '#', icon: MessageSquare, disabled: false },
+    { id: 'mcp', label: 'MCP', path: '/mcp-servers', icon: Puzzle, disabled: false },
+    { id: 'cron', label: 'CRON', path: '/cron', icon: Clock, disabled: false },
+    { id: 'settings', label: 'SETTINGS', path: '#', icon: Settings, disabled: false },
+  ], []);
 
   return (
     <div

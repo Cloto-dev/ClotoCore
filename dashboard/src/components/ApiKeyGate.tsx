@@ -46,7 +46,7 @@ export function ApiKeyGate() {
     setValidationError('');
     try {
       // Validate by calling an admin endpoint with this key
-      await api.applyPluginSettings([], key);
+      await api.listCronJobs(key);
       setApiKey(key);
       setOpen(false);
     } catch {

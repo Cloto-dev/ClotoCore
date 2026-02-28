@@ -1476,8 +1476,8 @@
       "commit": "aad2980",
       "file": "dashboard/src/types.ts",
       "pattern": "interface PluginManifest",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-137",
@@ -1500,8 +1500,8 @@
       "commit": "aad2980",
       "file": "dashboard/src/lib/pluginUtils.tsx",
       "pattern": "isLlmPlugin",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-139",
@@ -1536,6 +1536,42 @@
       "commit": "aad2980",
       "file": "docs/KS22_MEMORY_DESIGN.md",
       "pattern": "core\\.ks22",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-142",
+      "summary": "MCP auto_restart field unused, no failure recovery (Principle 1.9)",
+      "severity": "HIGH",
+      "discovered": "2026-02-28T12:00:00Z",
+      "version": "0.4.0",
+      "commit": "c85b20e",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "auto_restart: false",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-143",
+      "summary": "InputControl has no rate limiting after permission grant (Guardrail 1.6)",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-28T12:00:00Z",
+      "version": "0.4.0",
+      "commit": "c85b20e",
+      "file": "crates/core/src/events.rs",
+      "pattern": "check_action_rate",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-144",
+      "summary": "mcp.rs exceeds 1500 lines, needs refactoring into separate modules",
+      "severity": "MEDIUM",
+      "discovered": "2026-02-28T12:00:00Z",
+      "version": "0.4.0",
+      "commit": "c85b20e",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "pub struct McpClientManager",
       "expected": "present",
       "status": "open"
     }
