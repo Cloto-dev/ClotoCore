@@ -218,4 +218,15 @@ export const api = {
 
   runCronJobNow: (jobId: string, apiKey: string) =>
     mutate(`/cron/jobs/${encodeURIComponent(jobId)}/run`, 'POST', 'run cron job', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
+
+  // LLM Provider Management (MGP §13.4)
+  listLlmProviders: (apiKey: string): Promise<{ providers: Array<{ id: string; display_name: string; api_url: string; has_key: boolean; model_id: string; timeout_secs: number; enabled: boolean }> }> =>
+    fetch(`${API_BASE}/llm/providers`, { headers: { 'X-API-Key': apiKey } })
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); }),
+
+  setLlmProviderKey: (providerId: string, apiKey: string, providerApiKey: string) =>
+    mutate(`/llm/providers/${encodeURIComponent(providerId)}/key`, 'POST', 'set provider key', { api_key: providerApiKey }, { 'X-API-Key': apiKey }).then(() => {}),
+
+  deleteLlmProviderKey: (providerId: string, apiKey: string) =>
+    mutate(`/llm/providers/${encodeURIComponent(providerId)}/key`, 'DELETE', 'delete provider key', undefined, { 'X-API-Key': apiKey }).then(() => {}),
 };

@@ -382,6 +382,13 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         );
     }
 
+    // 6d. Internal LLM Proxy (MGP §13.4 — centralized API key management)
+    managers::llm_proxy::spawn_llm_proxy(
+        pool.clone(),
+        config.llm_proxy_port,
+        app_state.shutdown.clone(),
+    );
+
     let event_tx_clone = event_tx.clone();
     let processor_clone = processor.clone();
     let shutdown_clone = app_state.shutdown.clone();
@@ -439,6 +446,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/cron/jobs/:id", delete(handlers::delete_cron_job))
         .route("/cron/jobs/:id/toggle", post(handlers::toggle_cron_job))
         .route("/cron/jobs/:id/run", post(handlers::run_cron_job_now))
+        // LLM Provider management (MGP §13.4 — centralized key management)
+        .route("/llm/providers", get(handlers::list_llm_providers))
+        .route("/llm/providers/:id/key", post(handlers::set_llm_provider_key).delete(handlers::delete_llm_provider_key))
         .route(
             "/permissions/:id/approve",
             post(handlers::approve_permission),

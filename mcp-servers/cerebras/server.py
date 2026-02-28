@@ -20,12 +20,13 @@ from mcp.types import TextContent, Tool
 # Configuration (from environment variables)
 # ============================================================
 
-API_KEY = os.environ.get("CEREBRAS_API_KEY", "")
+# API key is managed by kernel LLM proxy (MGP §13.4).
+PROVIDER_ID = os.environ.get("CEREBRAS_PROVIDER", "cerebras")
 MODEL_ID = os.environ.get("CEREBRAS_MODEL", "llama3.1-70b")
 API_URL = os.environ.get(
-    "CEREBRAS_API_URL", "https://api.cerebras.ai/v1/chat/completions"
+    "CEREBRAS_API_URL", "http://127.0.0.1:8082/v1/chat/completions"
 )
-REQUEST_TIMEOUT = int(os.environ.get("CEREBRAS_TIMEOUT_SECS", "60"))
+REQUEST_TIMEOUT = int(os.environ.get("CEREBRAS_TIMEOUT_SECS", "120"))
 
 # ============================================================
 # LLM Utilities (ported from crates/shared/src/llm.rs)
@@ -107,13 +108,10 @@ def parse_chat_content(response_data: dict) -> str:
 
 
 async def call_cerebras_api(messages: list[dict]) -> dict:
-    """Send a request to the Cerebras API and return the response.
+    """Send a request via the kernel LLM proxy (MGP §13.4).
 
     Note: Cerebras does not support tool schemas, so no tools parameter.
     """
-    if not API_KEY:
-        raise ValueError("Cerebras API Key not configured (CEREBRAS_API_KEY)")
-
     body: dict = {
         "model": MODEL_ID,
         "messages": messages,
@@ -125,7 +123,7 @@ async def call_cerebras_api(messages: list[dict]) -> dict:
             API_URL,
             json=body,
             headers={
-                "Authorization": f"Bearer {API_KEY}",
+                "X-LLM-Provider": PROVIDER_ID,
                 "Content-Type": "application/json",
             },
         )

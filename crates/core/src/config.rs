@@ -39,6 +39,8 @@ pub struct AppConfig {
     pub cron_enabled: bool,
     /// How often (seconds) the scheduler checks for due jobs.
     pub cron_check_interval_secs: u64,
+    /// Port for internal LLM proxy (MGP §13.4).
+    pub llm_proxy_port: u16,
 }
 
 impl AppConfig {
@@ -220,6 +222,11 @@ impl AppConfig {
             .unwrap_or(60)
             .max(10); // minimum 10 seconds
 
+        let llm_proxy_port = env::var("CLOTO_LLM_PROXY_PORT")
+            .unwrap_or_else(|_| "8082".to_string())
+            .parse::<u16>()
+            .unwrap_or(8082);
+
         Ok(Self {
             database_url,
             port,
@@ -241,6 +248,7 @@ impl AppConfig {
             yolo_mode,
             cron_enabled,
             cron_check_interval_secs,
+            llm_proxy_port,
         })
     }
 }

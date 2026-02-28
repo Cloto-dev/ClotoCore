@@ -18,7 +18,9 @@ args = ["mcp-servers/deepseek/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
-DEEPSEEK_API_KEY = "${DEEPSEEK_API_KEY}"
+# API key managed by kernel LLM proxy (MGP §13.4)
+DEEPSEEK_API_URL = "http://127.0.0.1:8082/v1/chat/completions"
+DEEPSEEK_PROVIDER = "deepseek"
 
 [[servers]]
 id = "mind.cerebras"
@@ -27,7 +29,9 @@ args = ["mcp-servers/cerebras/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
-CEREBRAS_API_KEY = "${CEREBRAS_API_KEY}"
+# API key managed by kernel LLM proxy (MGP §13.4)
+CEREBRAS_API_URL = "http://127.0.0.1:8082/v1/chat/completions"
+CEREBRAS_PROVIDER = "cerebras"
 
 [[servers]]
 id = "mind.ollama"

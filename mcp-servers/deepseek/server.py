@@ -17,12 +17,14 @@ from mcp.types import TextContent, Tool
 # Configuration (from environment variables)
 # ============================================================
 
-API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+# API key is managed by kernel LLM proxy (MGP §13.4).
+# This server no longer needs DEEPSEEK_API_KEY directly.
+PROVIDER_ID = os.environ.get("DEEPSEEK_PROVIDER", "deepseek")
 MODEL_ID = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 API_URL = os.environ.get(
-    "DEEPSEEK_API_URL", "https://api.deepseek.com/chat/completions"
+    "DEEPSEEK_API_URL", "http://127.0.0.1:8082/v1/chat/completions"
 )
-REQUEST_TIMEOUT = int(os.environ.get("DEEPSEEK_TIMEOUT_SECS", "60"))
+REQUEST_TIMEOUT = int(os.environ.get("DEEPSEEK_TIMEOUT_SECS", "120"))
 
 # ============================================================
 # LLM Utilities (ported from crates/shared/src/llm.rs)
@@ -181,10 +183,7 @@ def parse_chat_think_result(response_data: dict) -> dict:
 async def call_deepseek_api(
     messages: list[dict], tools: list[dict] | None = None
 ) -> dict:
-    """Send a request to the DeepSeek API and return the response."""
-    if not API_KEY:
-        raise ValueError("DeepSeek API Key not configured (DEEPSEEK_API_KEY)")
-
+    """Send a request via the kernel LLM proxy (MGP §13.4)."""
     body: dict = {
         "model": MODEL_ID,
         "messages": messages,
@@ -199,7 +198,7 @@ async def call_deepseek_api(
             API_URL,
             json=body,
             headers={
-                "Authorization": f"Bearer {API_KEY}",
+                "X-LLM-Provider": PROVIDER_ID,
                 "Content-Type": "application/json",
             },
         )
