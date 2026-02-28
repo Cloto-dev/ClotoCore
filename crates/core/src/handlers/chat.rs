@@ -279,6 +279,41 @@ pub async fn get_attachment(
     Ok((headers, Bytes::from(data)))
 }
 
+/// Send a chat message into the system.
+///
+/// **Route:** `POST /api/chat`
+///
+/// # Authentication
+/// Requires valid API key in `X-API-Key` header.
+///
+/// # Request Body
+/// An `ClotoMessage` JSON object containing the message content,
+/// sender information, and optional metadata.
+///
+/// # Behavior
+/// Wraps the message as a `MessageReceived` event and publishes
+/// it to the event bus for processing by agents and plugins.
+///
+/// # Response
+/// - **200 OK:** `{ "status": "accepted" }`
+/// - **403 Forbidden:** Invalid or missing API key
+/// - **500 Internal Server Error:** Event bus send failure
+pub async fn chat_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(msg): Json<cloto_shared::ClotoMessage>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let envelope = crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::MessageReceived(msg));
+    if let Err(e) = state.event_tx.send(envelope).await {
+        error!("Failed to send chat message event: {}", e);
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "Failed to accept message"
+        )));
+    }
+    Ok(Json(serde_json::json!({ "status": "accepted" })))
+}
+
 // --- Helpers ---
 
 fn base64_decode(input: &str) -> Result<Vec<u8>, ()> {
