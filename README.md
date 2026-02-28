@@ -85,6 +85,12 @@ graph TB
 ```bash
 git clone https://github.com/Cloto-dev/ClotoCore.git
 cd ClotoCore
+# build dashboard first
+cd dashboard/
+npm i
+npm run build
+# back to root
+cd ..
 cargo build --release
 cargo run --package cloto_core
 ```
