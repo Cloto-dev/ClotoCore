@@ -149,7 +149,7 @@ ClotoCore は「Neuro-Sama for Everyone」を5つのレイヤーで段階的に�
 | **L2: 自律トリガー** | 設計済み | `tokio::interval` + CronジョブDB | 最小限 (イベント型+スケジューラ追加) |
 | **L3: リアルタイム駆動** | 部分実装 | MCP サーバー追加 | なし |
 | **L4: 感情エンジン** | 未着手 | MCP サーバー追加 | なし |
-| **L5: アバター連携** | 未着手 | MCP サーバー追加 | なし |
+| **L5: アバター連携** | 設計済み | MCP サーバー追加 (Sapphy V2 VRM) | なし |
 
 ### 設計原則：MCP によるレイヤー拡張
 
@@ -168,7 +168,7 @@ Kernel (Rust)
   ├── MCP: sense.voice       (STT 音声入力)          ← L3
   ├── MCP: persona.emotion   (感情状態管理)          ← L4
   ├── MCP: output.tts        (音声合成)             ← L5
-  └── MCP: output.avatar     (Live2D/VRM 制御)      ← L5
+  └── MCP: output.avatar     (VRM 制御 — Sapphy V2)  ← L5
 ```
 
 この設計により:
@@ -257,5 +257,68 @@ ClotoCoreは、ビジュアル・音声・人格を持つAIを、
 
 ---
 
+## 9. Layer 5 アバターシステム：Sapphy V2
+
+### 採用モデル
+
+- **モデル名**: サフィー (Sapphy) V2
+- **作者**: Yueou / 仮想VoidCat
+- **入手先**: https://booth.pm/ja/items/3939858
+- **価格**: ¥5,480 (ユーザーが個別に購入)
+- **形式**: VRM, FBX (Perfect Sync 対応)
+- **ライセンス**: VN3 (個人営利利用可、法人は要問い合わせ)
+
+### モデル選定理由
+
+| 観点 | 評価 |
+|------|------|
+| **世界観** | 白銀髪 + シアンアクセント + SF/サイバネティック — ClotoCore ダッシュボードの glass morphism + シアンカラーと一致 |
+| **技術適合** | VRM 形式、ARKit BlendShape 52種、Lipsync 15ビセム、67,542ポリゴン — three.js + @pixiv/three-vrm で WebGL 描画可能 |
+| **表情制御** | 403 BlendShape — MCP ツール `set_expression()` で豊富な表情制御が可能 |
+| **ライセンス** | 個人利用で営利可、改変可、クレジット不要 — ClotoCore BSL 期間中の開発・デモに問題なし |
+
+### アーキテクチャ
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Tauri WebView (three.js + @pixiv/three-vrm)        │
+│  └─ VRM モデル描画 (60fps WebGL)                     │
+│     ├─ BlendShape → 表情・口パク                     │
+│     ├─ SpringBone → 髪・衣装の物理                   │
+│     └─ Gaze → 視線追従                              │
+├─────────────────────────────────────────────────────┤
+│  avatar.vrm (MCP Server — Layer 5)                  │
+│  Tools:                                              │
+│    ├─ set_expression(emotion, intensity)             │
+│    ├─ set_mouth_shape(viseme)                        │
+│    ├─ set_gaze(x, y)                                │
+│    ├─ play_animation(name)                           │
+│    └─ set_idle_behavior(mode)                        │
+├─────────────────────────────────────────────────────┤
+│  連携 MCP サーバー                                    │
+│    ├─ persona.emotion (L4) → 感情 → set_expression  │
+│    ├─ output.tts (L5)     → 音素 → set_mouth_shape  │
+│    └─ vision.gaze_webcam  → 視線 → set_gaze         │
+└─────────────────────────────────────────────────────┘
+```
+
+### 配布方針
+
+モデルファイルは有料アセットのため、リポジトリに同梱しない:
+
+1. ユーザーが BOOTH から Sapphy V2 を購入
+2. VRM ファイルを `data/avatar/` に配置
+3. ClotoCore が自動検出してアバター描画を有効化
+
+`data/avatar/` は `.gitignore` に追加。README にセットアップ手順を記載。
+
+### 将来の拡張
+
+- 任意の VRM モデルに差し替え可能（Sapphy V2 は推奨モデル、唯一の選択肢ではない）
+- コミュニティが独自のアバター MCP サーバーを開発可能
+- Live2D 対応は別の MCP サーバー (`avatar.live2d`) として追加可能
+
+---
+
 *Document created: 2026-02-16*
-*Last updated: 2026-02-28*
+*Last updated: 2026-03-01*
