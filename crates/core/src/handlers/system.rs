@@ -632,19 +632,32 @@ impl SystemHandler {
 
                         let start = std::time::Instant::now();
 
+                        // 🔐 Anti-spoofing: force agent_id in tool arguments
+                        // Prevents LLM from specifying a different agent's ID
+                        // to access their memory or profile
+                        let mut safe_args = call.arguments.clone();
+                        if let Some(obj) = safe_args.as_object_mut() {
+                            if obj.contains_key("agent_id") {
+                                obj.insert(
+                                    "agent_id".to_string(),
+                                    serde_json::Value::String(agent.id.clone()),
+                                );
+                            }
+                        }
+
                         let tool_result = tokio::time::timeout(
                             Duration::from_secs(self.tool_execution_timeout_secs),
                             async {
                                 if agent_plugin_ids.is_empty() {
                                     self.registry
-                                        .execute_tool(&call.name, call.arguments.clone())
+                                        .execute_tool(&call.name, safe_args)
                                         .await
                                 } else {
                                     self.registry
                                         .execute_tool_for(
                                             agent_plugin_ids,
                                             &call.name,
-                                            call.arguments.clone(),
+                                            safe_args,
                                         )
                                         .await
                                 }
