@@ -91,10 +91,11 @@ export const api = {
     mutate(`/permissions/${requestId}/approve`, 'POST', 'approve permission', { approved_by: approvedBy }, { 'X-API-Key': apiKey }).then(() => {}),
   denyPermission: (requestId: string, approvedBy: string, apiKey: string) =>
     mutate(`/permissions/${requestId}/deny`, 'POST', 'deny permission', { approved_by: approvedBy }, { 'X-API-Key': apiKey }).then(() => {}),
-  async deleteAgent(agentId: string, apiKey: string): Promise<void> {
+  async deleteAgent(agentId: string, apiKey: string, password?: string): Promise<void> {
     const res = await fetch(`${API_BASE}/agents/${agentId}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      ...(password ? { body: JSON.stringify({ password }) } : {}),
     });
     await throwIfNotOk(res, 'delete agent');
   },

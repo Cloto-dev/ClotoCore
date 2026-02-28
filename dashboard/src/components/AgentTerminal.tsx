@@ -40,6 +40,7 @@ export function AgentTerminal({
   const [deleteTarget, setDeleteTarget] = useState<AgentMetadata | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletePassword, setDeletePassword] = useState('');
 
   // MCP-based engine/memory discovery (mind.* = reasoning engines, memory.* = memory backends)
   // Must be called before any conditional returns to satisfy React's Rules of Hooks
@@ -54,8 +55,10 @@ export function AgentTerminal({
     setIsDeleting(true);
     setDeleteError(null);
     try {
-      await api.deleteAgent(deleteTarget.id, apiKey);
+      const hasPassword = deleteTarget.metadata?.has_password === 'true';
+      await api.deleteAgent(deleteTarget.id, apiKey, hasPassword ? deletePassword : undefined);
       setDeleteTarget(null);
+      setDeletePassword('');
       onRefresh();
     } catch (e) {
       setDeleteError(e instanceof Error ? e.message : 'Unknown error');
@@ -130,12 +133,21 @@ export function AgentTerminal({
             <p className="text-xs text-content-secondary">
               All chat history for this agent will be permanently deleted. This cannot be undone.
             </p>
+            {deleteTarget.metadata?.has_password === 'true' && (
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={e => setDeletePassword(e.target.value)}
+                placeholder="Enter agent password to confirm"
+                className="w-full bg-surface-base border border-edge rounded-xl px-3 py-2 text-xs font-mono text-content-primary placeholder:text-content-muted"
+              />
+            )}
             {deleteError && (
               <p className="text-xs text-red-400">{deleteError}</p>
             )}
             <div className="flex gap-2 pt-1">
               <button
-                onClick={() => { setDeleteTarget(null); setDeleteError(null); }}
+                onClick={() => { setDeleteTarget(null); setDeleteError(null); setDeletePassword(''); }}
                 disabled={isDeleting}
                 className="flex-1 py-2 rounded-xl border border-edge text-xs font-bold text-content-secondary hover:bg-surface-secondary transition-all disabled:opacity-50"
               >
@@ -143,7 +155,7 @@ export function AgentTerminal({
               </button>
               <button
                 onClick={handleDeleteConfirm}
-                disabled={isDeleting}
+                disabled={isDeleting || (deleteTarget.metadata?.has_password === 'true' && !deletePassword)}
                 className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
               >
                 {isDeleting ? <Activity size={12} className="animate-spin" /> : <Trash2 size={12} />}

@@ -203,6 +203,7 @@ pub async fn delete_agent(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Path(id): Path<String>,
+    body: Option<Json<serde_json::Value>>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
 
@@ -211,6 +212,29 @@ pub async fn delete_agent(
             "Cannot delete the default agent '{}'",
             id
         )));
+    }
+
+    // If agent has a password, require it for deletion
+    let password_hash = state.agent_manager.get_password_hash(&id).await?;
+    if let Some(ref hash) = password_hash {
+        let password = body
+            .as_ref()
+            .and_then(|b| b.get("password"))
+            .and_then(|v| v.as_str());
+        match password {
+            Some(pw) => {
+                if !crate::managers::AgentManager::verify_password(pw, hash)? {
+                    return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                        cloto_shared::Permission::AdminAccess,
+                    )));
+                }
+            }
+            None => {
+                return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
+                    "Password required to delete this agent".to_string(),
+                )));
+            }
+        }
     }
 
     state.agent_manager.delete_agent(&id).await?;
