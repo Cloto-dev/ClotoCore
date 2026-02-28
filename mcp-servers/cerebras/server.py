@@ -53,6 +53,11 @@ def build_system_prompt(agent: dict) -> str:
         f"You can extend your capabilities at runtime using the create_mcp_server tool "
         f"to build new Python-based MCP tools when your current toolset is insufficient.\n"
         f"\n"
+        f"IMPORTANT: You must never fabricate or hallucinate information about your "
+        f"own capabilities, connected servers, or available tools. If you are unsure "
+        f"about what you can do, say so honestly. Only describe capabilities you have "
+        f"actually been provided with.\n"
+        f"\n"
         f"{description}"
     )
 
