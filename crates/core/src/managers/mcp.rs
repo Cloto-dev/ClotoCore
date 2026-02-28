@@ -847,10 +847,14 @@ impl McpClientManager {
     }
 
     /// Collect tool schemas from all MCP servers in OpenAI function format.
-    /// Includes kernel-native tools (create_mcp_server).
+    /// Includes kernel-native tools (create_mcp_server) only when YOLO mode is enabled.
     pub async fn collect_tool_schemas(&self) -> Vec<Value> {
         let servers = self.servers.read().await;
-        let mut schemas = vec![Self::kernel_tool_schema()];
+        let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
+            vec![Self::kernel_tool_schema()]
+        } else {
+            vec![]
+        };
         for handle in servers.values() {
             if handle.status != ServerStatus::Connected {
                 continue;
@@ -870,10 +874,14 @@ impl McpClientManager {
     }
 
     /// Collect tool schemas filtered by server IDs.
-    /// Always includes kernel-native tools (create_mcp_server) regardless of filter.
+    /// Includes kernel-native tools (create_mcp_server) only when YOLO mode is enabled.
     pub async fn collect_tool_schemas_for(&self, server_ids: &[String]) -> Vec<Value> {
         let servers = self.servers.read().await;
-        let mut schemas = vec![Self::kernel_tool_schema()];
+        let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
+            vec![Self::kernel_tool_schema()]
+        } else {
+            vec![]
+        };
         for id in server_ids {
             if let Some(handle) = servers.get(id) {
                 if handle.status != ServerStatus::Connected {
