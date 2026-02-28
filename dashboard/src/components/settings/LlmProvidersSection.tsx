@@ -10,15 +10,14 @@ export function LlmProvidersSection() {
   const [saving, setSaving] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!apiKey) return;
-    api.listLlmProviders(apiKey).then(d => setProviders(d.providers)).catch(() => {});
+    api.listLlmProviders(apiKey || '').then(d => setProviders(d.providers)).catch(() => {});
   }, [apiKey]);
 
   const handleSave = async (providerId: string) => {
-    if (!apiKey || !keyInputs[providerId]?.trim()) return;
+    if (!keyInputs[providerId]?.trim()) return;
     setSaving(providerId);
     try {
-      await api.setLlmProviderKey(providerId, apiKey, keyInputs[providerId].trim());
+      await api.setLlmProviderKey(providerId, apiKey || '', keyInputs[providerId].trim());
       setKeyInputs(prev => ({ ...prev, [providerId]: '' }));
       const d = await api.listLlmProviders(apiKey);
       setProviders(d.providers);
@@ -27,9 +26,8 @@ export function LlmProvidersSection() {
   };
 
   const handleDelete = async (providerId: string) => {
-    if (!apiKey) return;
-    await api.deleteLlmProviderKey(providerId, apiKey);
-    const d = await api.listLlmProviders(apiKey);
+    await api.deleteLlmProviderKey(providerId, apiKey || '');
+    const d = await api.listLlmProviders(apiKey || '');
     setProviders(d.providers);
   };
 
