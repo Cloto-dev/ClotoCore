@@ -7,6 +7,7 @@ import { ThemeProvider } from './components/ThemeProvider'
 import { ApiKeyProvider } from './contexts/ApiKeyContext'
 import { ConnectionProvider } from './contexts/ConnectionContext'
 import { CustomCursor } from './components/CustomCursor'
+import { isTauri } from './lib/tauri'
 import './compiled-tailwind.css'
 
 const StatusCore = lazy(() => import('./components/StatusCore').then(m => ({ default: m.StatusCore })));
@@ -23,8 +24,29 @@ function App() {
     return () => window.removeEventListener('cloto-cursor-toggle', handler);
   }, []);
 
+  const [bannerDismissed, setBannerDismissed] = useState(() => sessionStorage.getItem('cloto-browser-banner-dismissed') === '1');
+
+  const dismissBanner = () => {
+    sessionStorage.setItem('cloto-browser-banner-dismissed', '1');
+    setBannerDismissed(true);
+  };
+
   return (
     <Router>
+      {!isTauri && !bannerDismissed && (
+        <div className="bg-amber-900/80 border-b border-amber-700 px-4 py-2 flex items-center justify-between font-mono text-xs text-amber-200">
+          <span>
+            Browser access is deprecated. Please use the{' '}
+            <a href="https://github.com/Cloto-dev/ClotoCore/releases/latest" target="_blank" rel="noopener noreferrer" className="underline text-amber-100 hover:text-white">
+              Cloto desktop app
+            </a>{' '}
+            for the full experience.
+          </span>
+          <button onClick={dismissBanner} className="ml-4 text-amber-400 hover:text-white" aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      )}
       <Suspense fallback={<div className="min-h-screen bg-surface-base flex items-center justify-center font-mono text-xs text-content-tertiary">LOADING CLOTO...</div>}>
         <Routes>
           <Route path="/" element={<Home />} />
