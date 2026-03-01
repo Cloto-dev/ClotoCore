@@ -374,6 +374,29 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // 6b. MCP health monitor — auto-restart dead servers (bug-142)
     Arc::clone(&mcp_manager).spawn_health_monitor(app_state.shutdown.clone());
 
+    // 6b2. MCP notification listener — forward Server→Kernel notifications to event bus
+    if let Some(mut notif_rx) = mcp_manager.take_notification_receiver().await {
+        let notif_event_tx = event_tx.clone();
+        tokio::spawn(async move {
+            while let Some(notif) = notif_rx.recv().await {
+                info!(
+                    server = %notif.server_id,
+                    method = %notif.method,
+                    "📨 MCP server notification received"
+                );
+                let event_data = cloto_shared::ClotoEventData::McpNotification {
+                    server_id: notif.server_id,
+                    method: notif.method,
+                    params: notif.params.unwrap_or(serde_json::Value::Null),
+                };
+                let envelope = EnvelopedEvent::system(event_data);
+                if let Err(e) = notif_event_tx.send(envelope).await {
+                    tracing::warn!("Failed to forward MCP notification: {}", e);
+                }
+            }
+        });
+    }
+
     // 6c. Cron job scheduler (Layer 2: Autonomous Trigger)
     if config.cron_enabled {
         managers::scheduler::spawn_cron_task(
