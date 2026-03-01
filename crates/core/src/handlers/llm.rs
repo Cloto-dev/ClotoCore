@@ -13,7 +13,7 @@ pub async fn list_llm_providers(
     check_auth(&state, &headers)?;
     let providers = crate::db::list_llm_providers(&state.pool)
         .await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
     // Mask API keys in response
     let masked: Vec<serde_json::Value> = providers
         .iter()
@@ -59,7 +59,7 @@ pub async fn delete_llm_provider_key(
     check_auth(&state, &headers)?;
     crate::db::delete_llm_provider_key(&state.pool, &provider_id)
         .await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
     tracing::info!(provider = %provider_id, "LLM provider API key deleted");
     Ok(Json(serde_json::json!({ "status": "deleted" })))
 }
