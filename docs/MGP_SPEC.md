@@ -1,9 +1,9 @@
 # MGP — Model General Protocol
 
-**Version:** 0.5.2-draft
+**Version:** 0.5.3-draft
 **Status:** Draft
 **Authors:** ClotoCore Project
-**Date:** 2026-02-28
+**Date:** 2026-03-01
 
 ---
 
@@ -39,8 +39,15 @@ All four patterns are functional. No configuration changes are required.
 
 ### 1.4 Transport
 
-MGP inherits MCP's transport layer. All transports supported by MCP (stdio, HTTP+SSE) are
-supported by MGP. MGP does not define new transports.
+MGP inherits MCP's transport layer. All transports supported by MCP (stdio, Streamable HTTP)
+are supported by MGP. MGP additionally defines optional transport extensions that can be
+negotiated via §2. These optional transports are never required — every MGP server MUST
+support at least one MCP-standard transport as fallback.
+
+**Implementation Note:** MGP Kernel implementations MUST handle Server→Client JSON-RPC
+notifications (messages without `id`) on all transports. This is required by the JSON-RPC
+2.0 specification and MCP, but is commonly unimplemented in practice. Without this capability,
+MGP §13 (Bidirectional Communication) and §19.6 (External Event Bridge) cannot function.
 
 ### 1.5 Message Format
 
@@ -2303,6 +2310,28 @@ by 64%.
 Security guarantees and MCP structural limitation breakthroughs are fully maintained
 because the kernel remains the sole enforcement point regardless of invocation mechanism.
 
+### 18.4 Transport Layer Analysis (0.5.2 → 0.5.3)
+
+Discord Bridge implementation revealed a structural gap in MCP's transport model.
+MCP transports assume the Kernel (Client) is the initiator; external event-driven
+servers (Discord, Slack, IoT) invert this assumption.
+
+**Key finding:** JSON-RPC notifications (Server→Client) are protocol-legal on all
+transports, but most MCP client implementations only handle request-response pairs.
+This is a specification-implementation gap affecting the entire MCP ecosystem.
+
+**Changes:**
+
+| Section | Change |
+|---------|--------|
+| §1.4 | Added: MGP may define optional transport extensions; notification handling is MUST |
+| §19.5 | Added `transport_websocket` (Medium priority) with rationale and design constraints |
+| §19.6 | New: External Event Bridge Pattern — recommended architecture for event-driven servers |
+
+**Design decision:** Two-phase approach. Phase 1 standardizes the Bridge Pattern (§19.6)
+and requires Kernel notification handling. Phase 2 (future) introduces `transport_websocket`
+as an optional extension informed by Phase 1 operational experience.
+
 ---
 
 ## 19. Application Patterns
@@ -2423,8 +2452,126 @@ adequately expressed as application-layer patterns:
 
 | Extension | Description | Priority |
 |-----------|-------------|----------|
+| `transport_websocket` | Full-duplex WebSocket transport for event-driven servers | Medium |
 | `observability` | OpenTelemetry-compatible metrics and traces | Low |
 | `versioning` | Tool schema versioning and migration | Low |
 
-These will follow the same design principle: optional extensions negotiated during
-`initialize`, with full backward compatibility to both MCP and earlier MGP versions.
+#### `transport_websocket` — Rationale
+
+The Discord Bridge implementation (§19.6) demonstrated that MCP's existing transports
+have a structural limitation for **external event-driven servers**:
+
+| Transport | Event-driven server support |
+|-----------|---------------------------|
+| stdio | Server can write notifications to stdout, but long-running external connections (WebSocket, MQTT) conflict with stdout for logging and concurrency |
+| Streamable HTTP | Server must be an HTTP server; incompatible with servers that are WebSocket *clients* to external systems |
+| WebSocket (proposed) | True full-duplex; single process can maintain external connections and MCP communication simultaneously |
+
+The `transport_websocket` extension would allow the Kernel to connect to an MCP/MGP
+server via WebSocket, enabling bidirectional JSON-RPC messaging without process separation.
+The transport is selected via configuration (pre-connection), not negotiated at `initialize`
+time, since the connection is already established when `initialize` is sent.
+
+```json
+// initialize response — transport field is informational, not negotiated
+{
+  "mgp": {
+    "version": "0.6.0",
+    "extensions": ["security", "bidirectional"],
+    "transport": "websocket"
+  }
+}
+```
+
+**Design constraint:** Every MGP server using `transport_websocket` MUST also support
+at least one MCP-standard transport (stdio or Streamable HTTP) as fallback, ensuring
+backward compatibility with standard MCP clients.
+
+Phase 2 design will be informed by operational experience from the External Event Bridge
+Pattern (§19.6).
+
+These extensions will follow the same design principle: optional extensions negotiated
+during `initialize`, with full backward compatibility to both MCP and earlier MGP versions.
+
+### 19.6 External Event Bridge Pattern
+
+External systems (Discord, Slack, Telegram, MQTT, Webhooks, etc.) generate events that
+should be processed by MGP agents. These systems maintain persistent connections
+(WebSocket, long-polling) that conflict with MCP's stdio model.
+
+#### Problem: MCP's Initiator Model
+
+MCP transports assume the Kernel (Client) is the initiator:
+
+```
+stdio:           Kernel starts Server subprocess, writes to stdin
+Streamable HTTP: Kernel connects to Server's HTTP endpoint
+```
+
+External event sources invert this: the **Server** detects events and needs to
+**push** them to the Kernel. While JSON-RPC notifications (Server→Client) are
+protocol-legal, most MCP client implementations only handle request-response pairs.
+
+#### Recommended Architecture: Two-Process Bridge
+
+Until `transport_websocket` (§19.5) is available, the following architecture is
+the recommended pattern for external event-driven MGP servers:
+
+```
+┌──────────────────┐      ┌─────────────────────┐      ┌──────────┐
+│ External System  │      │ Bridge Process       │      │ MGP      │
+│ (Discord, Slack) │─WS──►│ (persistent daemon)  │─HTTP─►│ Kernel   │
+│                  │      │                      │      │          │
+│                  │      │  - External WS conn  │      │          │
+│                  │      │  - SSE/MGP listener   │◄─SSE─│          │
+│                  │      │  - Internal HTTP API  │      │          │
+│                  │      └──────────┬───────────┘      │          │
+│                  │                 │ HTTP              │          │
+│                  │      ┌──────────▼───────────┐      │          │
+│                  │      │ MCP Server           │─stdio─►│          │
+│                  │      │ (tool provider)      │      │          │
+│                  │      │                      │      │          │
+│                  │      │  - send_message      │      │          │
+│                  │      │  - list_channels     │      │          │
+│                  │      │  - get_history       │      │          │
+│                  │      └──────────────────────┘      └──────────┘
+```
+
+**Bridge Process** handles external connections and Kernel API communication.
+**MCP Server** provides tools for agent-initiated actions, delegating to Bridge
+via internal HTTP API. This separation ensures stdio is never contaminated by
+external connection traffic.
+
+#### Implementation Requirements
+
+1. **Kernel notification handling (MUST):** The Kernel's MCP client implementation
+   MUST process Server→Client JSON-RPC notifications (messages without `id`).
+   This is a prerequisite for receiving `notifications/mgp.event` and is required
+   by the JSON-RPC 2.0 specification but commonly unimplemented.
+
+2. **Bridge Process:** Maintains persistent external connections, forwards
+   external events to Kernel via `POST /api/message`, and receives responses
+   via SSE or `notifications/mgp.event` subscription.
+
+3. **MCP Server:** Pure tool provider connected to Kernel via stdio. Delegates
+   external system operations to Bridge via internal HTTP API (localhost only).
+
+4. **Security:** Bridge internal HTTP API MUST bind to localhost only. External
+   system credentials (bot tokens, API keys) MUST be held exclusively by the
+   Bridge Process, never passed to the MCP Server.
+
+#### Migration Path
+
+When `transport_websocket` becomes available, this two-process architecture can
+be collapsed into a single process:
+
+```
+Before (Bridge Pattern):  2 processes + IPC
+After  (WebSocket):       1 process, WebSocket to Kernel + WebSocket to external
+```
+
+The MCP tool interface remains identical — only the transport and process
+topology change.
+
+**MGP Primitives Used:** Event Subscription (§13.2), Push Notifications (§13.3),
+Lifecycle (§11), Access Control (§5), Audit (§6)
