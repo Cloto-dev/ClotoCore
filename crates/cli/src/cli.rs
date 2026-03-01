@@ -57,6 +57,28 @@ pub enum Commands {
 
     /// Launch interactive TUI dashboard
     Tui,
+
+    /// Manage MCP servers
+    #[command(subcommand)]
+    Mcp(McpCommand),
+
+    /// Manage cron jobs
+    #[command(subcommand)]
+    Cron(CronCommand),
+
+    /// Manage LLM providers
+    #[command(subcommand)]
+    Llm(LlmCommand),
+
+    /// System operations
+    #[command(subcommand)]
+    System(SystemCommand),
+
+    /// View stored memories
+    Memories,
+
+    /// View episode archives
+    Episodes,
 }
 
 #[derive(Subcommand)]
@@ -109,6 +131,189 @@ pub enum AgentsCommand {
 pub enum PluginsCommand {
     /// List all plugins
     List,
+    /// Get or set plugin configuration
+    #[command(subcommand)]
+    Config(PluginConfigCommand),
+}
+
+#[derive(Subcommand)]
+pub enum PluginConfigCommand {
+    /// Show plugin configuration
+    Get {
+        /// Plugin ID
+        plugin: String,
+    },
+    /// Update a plugin configuration value
+    Set {
+        /// Plugin ID
+        plugin: String,
+        /// Configuration key
+        #[arg(long)]
+        key: String,
+        /// Configuration value
+        #[arg(long)]
+        value: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum McpCommand {
+    /// List connected MCP servers
+    List,
+    /// Create a dynamic MCP server
+    Create {
+        /// Server name (alphanumeric, underscore, hyphen)
+        #[arg(long)]
+        name: String,
+        /// Command to run
+        #[arg(long)]
+        command: String,
+        /// Command arguments
+        #[arg(long)]
+        args: Vec<String>,
+        /// Server description
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// Delete an MCP server
+    Delete {
+        /// Server name
+        name: String,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
+    /// Start a stopped MCP server
+    Start {
+        /// Server name
+        name: String,
+    },
+    /// Stop a running MCP server
+    Stop {
+        /// Server name
+        name: String,
+    },
+    /// Restart an MCP server
+    Restart {
+        /// Server name
+        name: String,
+    },
+    /// Show MCP server settings
+    Settings {
+        /// Server name
+        name: String,
+    },
+    /// Show MCP server access control
+    Access {
+        /// Server name
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CronCommand {
+    /// List cron jobs
+    List {
+        /// Filter by agent ID
+        #[arg(long)]
+        agent_id: Option<String>,
+    },
+    /// Create a cron job
+    Create {
+        /// Target agent ID
+        #[arg(long)]
+        agent_id: String,
+        /// Job name
+        #[arg(long)]
+        name: String,
+        /// Schedule type: interval, cron, or once
+        #[arg(long)]
+        schedule_type: String,
+        /// Schedule value (e.g., "300" for interval, "0 */6 * * *" for cron)
+        #[arg(long)]
+        schedule_value: String,
+        /// Message to dispatch
+        #[arg(long)]
+        message: String,
+        /// Engine ID override
+        #[arg(long)]
+        engine_id: Option<String>,
+        /// Max agentic iterations
+        #[arg(long)]
+        max_iterations: Option<u32>,
+    },
+    /// Delete a cron job
+    Delete {
+        /// Job ID
+        id: String,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
+    /// Enable or disable a cron job
+    Toggle {
+        /// Job ID
+        id: String,
+        /// Enable the job
+        #[arg(long, conflicts_with = "disable")]
+        enable: bool,
+        /// Disable the job
+        #[arg(long, conflicts_with = "enable")]
+        disable: bool,
+    },
+    /// Run a cron job immediately
+    Run {
+        /// Job ID
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum LlmCommand {
+    /// List LLM providers
+    List,
+    /// Set API key for a provider
+    SetKey {
+        /// Provider ID
+        provider: String,
+        /// API key (omit for interactive prompt)
+        #[arg(long)]
+        key: Option<String>,
+    },
+    /// Remove API key from a provider
+    DeleteKey {
+        /// Provider ID
+        provider: String,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SystemCommand {
+    /// Show kernel version
+    Version,
+    /// Health check
+    Health,
+    /// Graceful shutdown
+    Shutdown {
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
+    /// Revoke current API key
+    InvalidateKey {
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
+    /// Toggle YOLO mode (skip permission prompts)
+    Yolo {
+        /// Set YOLO mode (omit to show current state)
+        #[arg(long)]
+        enable: Option<bool>,
+    },
 }
 
 #[derive(Subcommand)]
