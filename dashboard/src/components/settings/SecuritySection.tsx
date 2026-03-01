@@ -6,7 +6,7 @@ import { useApiKey } from '../../contexts/ApiKeyContext';
 import { api } from '../../services/api';
 
 export function SecuritySection() {
-  const { apiKey, isPersisted, setApiKey, setPersist, forgetApiKey } = useApiKey();
+  const { apiKey, setApiKey, forgetApiKey } = useApiKey();
   const [newKey, setNewKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState('');
@@ -79,12 +79,6 @@ export function SecuritySection() {
               {error}
             </div>
           )}
-
-          <Toggle
-            enabled={isPersisted}
-            onToggle={() => setPersist(!isPersisted)}
-            label="Save to this device"
-          />
 
           {apiKey && (
             <div className="pt-3 border-t border-edge">

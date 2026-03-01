@@ -1,8 +1,9 @@
 import { useNeuralNetwork } from '../hooks/useNeuralNetwork';
+import type { StrictSystemEvent } from '../types';
 
 export function NeuralNetwork({ mouseRef, events, onEventProcessed, seekTime }: {
   mouseRef: React.MutableRefObject<{ x: number, y: number }>,
-  events: any[],
+  events: StrictSystemEvent[],
   onEventProcessed?: (timestamp: number) => void,
   seekTime?: number | null
 }) {
@@ -11,7 +12,7 @@ export function NeuralNetwork({ mouseRef, events, onEventProcessed, seekTime }: 
   const activeNode = nodes.current.find(n => n.id === selectedModal?.nodeId);
   const coreNode = nodes.current.find(n => n.id === 'cloto');
 
-  const onModalMouseDown = (e: any) => {
+  const onModalMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
     longPressTimer.current = window.setTimeout(() => {

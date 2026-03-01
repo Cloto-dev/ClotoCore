@@ -25,14 +25,18 @@ async function fetchCached(): Promise<AgentMetadata[]> {
 export function useAgents() {
   const [data, setData] = useState<AgentMetadata[]>(cache?.data ?? []);
   const [isLoading, setIsLoading] = useState(!cache);
+  const [error, setError] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
     cache = null; // invalidate
     setIsLoading(true);
+    setError(null);
     try {
       const result = await fetchCached();
       setData(result);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to fetch agents';
+      setError(msg);
       console.error('Failed to fetch agents:', err);
     } finally {
       setIsLoading(false);
@@ -42,9 +46,13 @@ export function useAgents() {
   useEffect(() => {
     fetchCached()
       .then(setData)
-      .catch(err => console.error('Failed to fetch agents:', err))
+      .catch(err => {
+        const msg = err instanceof Error ? err.message : 'Failed to fetch agents';
+        setError(msg);
+        console.error('Failed to fetch agents:', err);
+      })
       .finally(() => setIsLoading(false));
   }, []);
 
-  return { agents: data, isLoading, refetch };
+  return { agents: data, isLoading, error, refetch };
 }

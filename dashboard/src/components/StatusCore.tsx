@@ -134,7 +134,7 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
     return () => clearInterval(interval);
   }, [seekTime]);
 
-  const handleSeekChange = (e: any) => {
+  const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseInt(e.target.value) || 0;
     
     // Snap logic: Find closest event within +/- 5 seconds window
@@ -203,7 +203,7 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
         {thoughtLines.length === 0 ? (
            <div className="text-[2vw] font-mono opacity-20">AWAITING NEURAL SIGNALS...</div>
         ) : (
-          thoughtLines.map((line: any) => (
+          thoughtLines.map((line: ThoughtLine) => (
             <ThoughtLineDisplay key={line.id} line={line} />
           ))
         )}

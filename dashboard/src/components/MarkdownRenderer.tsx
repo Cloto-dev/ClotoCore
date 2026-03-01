@@ -1,4 +1,5 @@
 import { useMemo, useRef, useEffect } from 'react';
+import DOMPurify from 'dompurify';
 import { renderMarkdown, renderMarkdownIncremental } from '../lib/markdown';
 
 interface MarkdownRendererProps {
@@ -48,7 +49,7 @@ export function MarkdownRenderer({ content, incremental = false, onCodeBlock, cl
   return (
     <div
       className={`chat-markdown ${className}`}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
     />
   );
 }

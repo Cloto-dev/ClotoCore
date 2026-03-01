@@ -9,6 +9,11 @@ const API_URL = import.meta.env.VITE_API_URL
 export const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
 export const EVENTS_URL = `${API_BASE}/events`;
 
+/** Safely parse JSON, returning fallback on failure */
+function safeJsonParse<T>(str: string, fallback: T): T {
+  try { return JSON.parse(str); } catch { return fallback; }
+}
+
 /** Throw with detailed error message from JSON body if available */
 async function throwIfNotOk(res: Response, ctx: string): Promise<void> {
   if (res.ok) return;
@@ -141,8 +146,8 @@ export const api = {
     return {
       messages: data.messages.map((m: any) => ({
         ...m,
-        content: typeof m.content === 'string' ? JSON.parse(m.content) : m.content,
-        metadata: m.metadata ? (typeof m.metadata === 'string' ? JSON.parse(m.metadata) : m.metadata) : undefined,
+        content: typeof m.content === 'string' ? safeJsonParse(m.content, m.content) : m.content,
+        metadata: m.metadata ? (typeof m.metadata === 'string' ? safeJsonParse(m.metadata, {}) : m.metadata) : undefined,
       })),
       has_more: data.has_more,
     };

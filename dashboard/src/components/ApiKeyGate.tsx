@@ -4,7 +4,7 @@ import { useApiKey } from '../contexts/ApiKeyContext';
 import { api } from '../services/api';
 
 export function ApiKeyGate() {
-  const { apiKey, isPersisted, setApiKey, setPersist, forgetApiKey } = useApiKey();
+  const { apiKey, setApiKey, forgetApiKey } = useApiKey();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [show, setShow] = useState(false);
@@ -92,7 +92,6 @@ export function ApiKeyGate() {
       >
         {isSet ? <Key size={11} /> : <Lock size={11} />}
         {isSet ? '●●●●●●●●' : 'API Key'}
-        {isPersisted && <span className="text-[9px] opacity-60">SAVED</span>}
       </button>
 
       {/* Dropdown panel */}
@@ -126,17 +125,6 @@ export function ApiKeyGate() {
               {show ? <EyeOff size={12} /> : <Eye size={12} />}
             </button>
           </div>
-
-          {/* Persist toggle */}
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <div
-              onClick={() => setPersist(!isPersisted)}
-              className={`w-8 h-4 rounded-full transition-colors ${isPersisted ? 'bg-brand' : 'bg-surface-secondary'} relative`}
-            >
-              <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${isPersisted ? 'translate-x-4' : 'translate-x-0.5'}`} />
-            </div>
-            <span className="text-[10px] text-content-secondary">この端末で記憶する (localStorage)</span>
-          </label>
 
           {/* Validation error */}
           {validationError && (

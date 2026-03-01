@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
+import DOMPurify from 'dompurify';
 import { Copy, Check, Download } from 'lucide-react';
 import { hljs } from '../lib/markdown';
 
@@ -72,7 +73,7 @@ export function CodeBlock({ code, language, showHeader = true, maxHeight = 'none
         <pre className="p-3 m-0 text-[11px] leading-relaxed font-mono">
           <code
             className={`hljs language-${language}`}
-            dangerouslySetInnerHTML={{ __html: highlighted }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(highlighted, { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] }) }}
           />
         </pre>
       </div>
