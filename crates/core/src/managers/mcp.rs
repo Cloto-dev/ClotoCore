@@ -50,6 +50,7 @@ impl McpClient {
     const REQUEST_TIMEOUT_SECS: u64 = 120;
 
     pub async fn connect(
+        server_id: &str,
         command: &str,
         args: &[String],
         env: &HashMap<String, String>,
@@ -66,18 +67,19 @@ impl McpClient {
             notification_tx,
         };
 
-        client.start_response_loop();
+        client.start_response_loop(server_id);
         client.initialize().await?;
 
         Ok(client)
     }
 
-    fn start_response_loop(&mut self) {
+    fn start_response_loop(&mut self, server_id: &str) {
         use super::mcp_protocol::JsonRpcMessage;
 
         let transport = self.transport.clone();
         let pending = self.pending_requests.clone();
         let notif_tx = self.notification_tx.clone();
+        let server_id_owned = server_id.to_string();
 
         let handle = tokio::spawn(async move {
             loop {
@@ -121,15 +123,23 @@ impl McpClient {
                             }
                         }
                         Ok(JsonRpcMessage::Notification(notif)) => {
-                            let _ = notif_tx
+                            if notif_tx
                                 .try_send(McpNotification {
-                                    server_id: String::new(), // filled by McpClientManager
+                                    server_id: server_id_owned.clone(),
                                     method: notif.method,
                                     params: notif.params,
-                                });
+                                })
+                                .is_err()
+                            {
+                                debug!("Notification channel full, dropping");
+                            }
                         }
-                        Err(_) => {
-                            debug!("Received unparseable message: {}", line);
+                        Err(e) => {
+                            debug!(
+                                error = %e,
+                                "Received unparseable message: {}",
+                                &line[..line.len().min(200)]
+                            );
                         }
                     }
                 } else {
@@ -655,7 +665,7 @@ impl McpClientManager {
             let mut result: Option<McpClient> = None;
             let mut last_err = None;
             for attempt in 1..=3u32 {
-                match McpClient::connect(&config.command, &config.args, &config.env, self.notification_tx.clone()).await {
+                match McpClient::connect(&id, &config.command, &config.args, &config.env, self.notification_tx.clone()).await {
                     Ok(c) => {
                         result = Some(c);
                         break;
