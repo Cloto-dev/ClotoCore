@@ -74,6 +74,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [pendingResponse, setPendingResponse] = useState<{ id: string; text: string; elapsedSecs: number } | null>(null);
+  const [thinkingSteps, setThinkingSteps] = useState<Array<{ id: number; icon: string; text: string; ts: number }>>([]);
+  const thinkingIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
@@ -174,8 +176,48 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
   // Subscribe to system-wide events
   useEventStream(EVENTS_URL, (event) => {
+    // Thinking process visualization
+    if (event.data?.agent_id === agent.id || event.data?.engine_id?.startsWith('mind.')) {
+      if (event.type === 'ToolInvoked' && event.data.agent_id === agent.id) {
+        const tool = event.data.tool_name || 'unknown';
+        const success = event.data.success;
+        const duration = event.data.duration_ms;
+        const icon = tool.includes('search') || tool.includes('research') ? '🔍'
+          : tool.includes('think') ? '🧠'
+          : tool.includes('store') || tool.includes('recall') ? '💾'
+          : tool.includes('execute') ? '⚡'
+          : '🔧';
+        const status = success ? `${duration}ms` : '❌ failed';
+        setThinkingSteps(prev => [...prev, {
+          id: thinkingIdRef.current++,
+          icon,
+          text: `${tool} (${status})`,
+          ts: Date.now(),
+        }]);
+      }
+      if (event.type === 'AgenticLoopCompleted' && event.data.agent_id === agent.id) {
+        const iters = event.data.total_iterations || 0;
+        const calls = event.data.total_tool_calls || 0;
+        setThinkingSteps(prev => [...prev, {
+          id: thinkingIdRef.current++,
+          icon: '✅',
+          text: `Complete (${iters} iterations, ${calls} tool calls)`,
+          ts: Date.now(),
+        }]);
+      }
+      if (event.type === 'Thought' && event.payload?.content) {
+        setThinkingSteps(prev => [...prev, {
+          id: thinkingIdRef.current++,
+          icon: '💭',
+          text: event.payload.content.slice(0, 120),
+          ts: Date.now(),
+        }]);
+      }
+    }
+
     if (event.type === 'ThoughtResponse' && event.data.agent_id === agent.id) {
       setIsTyping(false);
+      setThinkingSteps([]);
       const msgId = event.data.source_message_id + "-resp";
       const elapsedSecs = sendTimestampRef.current > 0
         ? Math.round((Date.now() - sendTimestampRef.current) / 100) / 10
@@ -244,6 +286,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsTyping(true);
+    setThinkingSteps([]);
     sendTimestampRef.current = Date.now();
 
     try {
@@ -394,6 +437,23 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                   {pendingResponse.elapsedSecs}s
                 </div>
               )}
+            </div>
+          </div>
+        )}
+        {/* Thinking process steps (real-time tool invocations) */}
+        {isTyping && thinkingSteps.length > 0 && (
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm opacity-60"
+                 style={{ backgroundColor: agentColor(agent) }}>
+              <AgentIcon agent={agent} size={14} />
+            </div>
+            <div className="flex-1 space-y-1 py-1">
+              {thinkingSteps.map(step => (
+                <div key={step.id} className="flex items-center gap-2 text-[10px] font-mono text-content-muted animate-in fade-in slide-in-from-left-2 duration-300">
+                  <span>{step.icon}</span>
+                  <span className="text-content-tertiary">{step.text}</span>
+                </div>
+              ))}
             </div>
           </div>
         )}
