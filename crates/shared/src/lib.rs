@@ -597,6 +597,12 @@ pub enum ClotoEventData {
         total_tool_calls: u32,
         source_message_id: String,
     },
+    /// MCP server-initiated notification (Server→Kernel, MGP §13/§19.6)
+    McpNotification {
+        server_id: String,
+        method: String,
+        params: serde_json::Value,
+    },
 }
 
 impl ClotoEvent {

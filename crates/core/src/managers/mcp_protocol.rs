@@ -32,6 +32,23 @@ pub struct JsonRpcError {
     pub data: Option<Value>,
 }
 
+/// Server→Client notification (JSON-RPC 2.0 notification: no `id`, has `method`)
+#[derive(Debug, Clone, Deserialize)]
+pub struct JsonRpcNotification {
+    pub method: String,
+    #[serde(default)]
+    pub params: Option<Value>,
+}
+
+/// Unified Server→Client message parser.
+/// Tries Response first (has `id`), then Notification (has `method`).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum JsonRpcMessage {
+    Response(JsonRpcResponse),
+    Notification(JsonRpcNotification),
+}
+
 impl JsonRpcRequest {
     #[must_use]
     pub fn new(id: i64, method: &str, params: Option<Value>) -> Self {
