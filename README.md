@@ -101,9 +101,13 @@ All plugin functionality is delivered via **MCP (Model Context Protocol)** serve
 |--------|------|-------------|
 | `mind.deepseek` | Reasoning | Advanced reasoning via DeepSeek API |
 | `mind.cerebras` | Reasoning | Ultra-high-speed reasoning via Cerebras API |
+| `mind.ollama` | Reasoning | Local model inference via Ollama |
 | `memory.ks22` | Memory | Persistent memory with FTS5 search + vector embedding |
 | `tool.terminal` | Tool | Sandboxed shell command execution |
 | `tool.embedding` | Tool | Vector embedding generation (OpenAI API / local ONNX) |
+| `tool.websearch` | Tool | Web search via Tavily or SearXNG |
+| `tool.research` | Tool | Multi-engine research synthesis pipeline |
+| `vision.gaze_webcam` | Vision | Eye gaze tracking via MediaPipe |
 
 MCP servers are configured via `mcp.toml` and can be written in any language.
 See [MCP Plugin Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) for details.
@@ -112,12 +116,13 @@ See [MCP Plugin Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) for details.
 
 ```
 crates/core/        Kernel — event bus, MCP manager, HTTP API, rate limiter
-crates/shared/      SDK — traits and shared types
+crates/shared/      Plugin SDK — traits, capability injection, event types, LLM utilities
 crates/cli/         CLI client with interactive TUI
-mcp-servers/        MCP servers (Python): deepseek, cerebras, ks22, terminal, embedding
+mcp-servers/        MCP servers (Python): deepseek, cerebras, ollama, ks22, terminal,
+                    embedding, websearch, research, gaze
 dashboard/          React/TypeScript web UI (Tauri desktop app)
 scripts/            Build tools, verification scripts
-docs/               Architecture, vision, changelog
+docs/               Architecture, vision, specs, design documents
 ```
 
 ## Configuration
@@ -130,6 +135,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `CLOTO_API_KEY` | (none) | Admin API key (required in release builds) |
 | `DEEPSEEK_API_KEY` | (none) | DeepSeek API key |
 | `CEREBRAS_API_KEY` | (none) | Cerebras API key |
+| `EMBEDDING_API_KEY` | (none) | Embedding API key (OpenAI-compatible) |
 | `BIND_ADDRESS` | `127.0.0.1` | Server bind address |
 | `ALLOWED_HOSTS` | (none) | Network whitelist for plugin HTTP access |
 | `MAX_EVENT_DEPTH` | `10` | Maximum event cascading depth |
@@ -147,11 +153,12 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `CEREBRAS_API_KEY` | (none) | Cerebras API key |
 | `CONSENSUS_ENGINES` | `mind.deepseek,mind.cerebras` | Engine IDs for consensus mode |
 | `DEFAULT_AGENT_ID` | `agent.cloto_default` | Default agent for `/api/chat` |
+| `EMBEDDING_API_KEY` | (none) | Embedding API key (OpenAI-compatible) |
 | `CLOTO_SKIP_ICON_EMBED` | (none) | Set to `1` to skip icon embedding during dev builds |
 | `RUST_LOG` | `info` | Log level filter |
 | `MAX_EVENT_DEPTH` | `10` | Maximum event cascading depth |
-| `PLUGIN_EVENT_TIMEOUT_SECS` | `30` | Plugin event handler timeout |
-| `CORS_ORIGINS` | (none) | Allowed CORS origins (comma-separated) |
+| `PLUGIN_EVENT_TIMEOUT_SECS` | `120` | Plugin event handler timeout (1-300) |
+| `CORS_ORIGINS` | `localhost:5173` | Allowed CORS origins (comma-separated) |
 | `ALLOWED_HOSTS` | (none) | Network whitelist for plugin access |
 | `BIND_ADDRESS` | `127.0.0.1` | Server bind address (`0.0.0.0` for network access) |
 | `MEMORY_CONTEXT_LIMIT` | `10` | Maximum memory entries returned per recall |
@@ -161,6 +168,14 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `CLOTO_MCP_CONFIG` | (none) | Path to mcp.toml configuration file |
 | `CLOTO_TOOL_TIMEOUT_SECS` | `30` | Tool execution timeout in seconds (1-300) |
 | `HEARTBEAT_INTERVAL_SECS` | `30` | Agent heartbeat ping interval |
+| `CLOTO_SDK_SECRET` | (none) | MCP SDK authentication secret |
+| `CLOTO_YOLO` | `false` | Skip permission confirmations (dev/testing) |
+| `CLOTO_CRON_ENABLED` | `true` | Enable cron job scheduler |
+| `CLOTO_CRON_INTERVAL` | `60` | Cron check interval in seconds |
+| `CLOTO_LLM_PROXY_PORT` | `8082` | LLM API proxy port |
+| `CONSENSUS_SYNTHESIZER` | (none) | Consensus synthesis engine ID |
+| `CONSENSUS_MIN_PROPOSALS` | `2` | Minimum proposals before synthesis |
+| `CONSENSUS_SESSION_TIMEOUT_SECS` | `60` | Consensus session timeout |
 
 </details>
 
@@ -172,10 +187,12 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/system/version` | Current version info |
+| GET | `/api/system/health` | Lightweight health check |
 | GET | `/api/events` | SSE event stream |
 | GET | `/api/history` | Event history |
 | GET | `/api/metrics` | System metrics |
 | GET | `/api/memories` | Memory entries |
+| GET | `/api/episodes` | Episode archive entries |
 | GET | `/api/plugins` | Plugin list with manifests |
 | GET | `/api/plugins/:id/config` | Plugin configuration |
 | GET | `/api/agents` | Agent configurations |
@@ -190,11 +207,15 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/system/shutdown` | Graceful shutdown |
+| POST | `/api/system/invalidate-key` | Revoke API key |
 | POST | `/api/plugins/apply` | Bulk enable/disable plugins |
 | POST | `/api/plugins/:id/config` | Update plugin config |
+| GET | `/api/plugins/:id/permissions` | Query plugin permissions |
 | POST | `/api/plugins/:id/permissions/grant` | Grant permission to plugin |
+| DELETE | `/api/plugins/:id/permissions` | Revoke plugin permission |
 | POST | `/api/agents` | Create agent |
 | POST | `/api/agents/:id` | Update agent |
+| DELETE | `/api/agents/:id` | Delete agent |
 | POST | `/api/agents/:id/power` | Toggle agent power state |
 | POST | `/api/events/publish` | Publish event to bus |
 | POST | `/api/permissions/:id/approve` | Approve a request |
@@ -202,11 +223,19 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | POST | `/api/chat` | Send message to agent |
 | GET/POST/DELETE | `/api/chat/:agent_id/messages` | Chat message persistence |
 | GET | `/api/chat/attachments/:attachment_id` | Retrieve chat attachment |
+| GET/POST | `/api/cron/jobs` | List/create cron jobs |
+| DELETE | `/api/cron/jobs/:id` | Delete cron job |
+| POST | `/api/cron/jobs/:id/toggle` | Enable/disable cron job |
+| POST | `/api/cron/jobs/:id/run` | Manually trigger cron job |
+| GET | `/api/llm/providers` | List LLM providers |
+| POST | `/api/llm/providers/:id/key` | Set LLM provider API key |
+| DELETE | `/api/llm/providers/:id/key` | Remove LLM provider API key |
 | GET/POST | `/api/mcp/servers` | List/create MCP servers |
 | DELETE | `/api/mcp/servers/:name` | Delete MCP server |
 | GET/PUT | `/api/mcp/servers/:name/settings` | Server settings |
 | GET/PUT | `/api/mcp/servers/:name/access` | Access control |
 | POST | `/api/mcp/servers/:name/start\|stop\|restart` | Server lifecycle |
+| GET/PUT | `/api/settings/yolo` | YOLO mode (skip permission prompts) |
 
 </details>
 
@@ -235,8 +264,12 @@ See [Architecture](docs/ARCHITECTURE.md) for the full security model.
 - [Architecture](docs/ARCHITECTURE.md) — Design principles, event flow, security model
 - [Project Vision](docs/PROJECT_VISION.md) — Strategic direction and roadmap
 - [Development](docs/DEVELOPMENT.md) — Coding standards, guardrails, PR process
-- [Changelog](docs/CHANGELOG.md) — Development history
+- [MGP Spec](docs/MGP_SPEC.md) — Model Gateway Protocol specification
 - [MCP Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) — MCP server communication protocol
+- [KS22 Memory](docs/KS22_MEMORY_DESIGN.md) — Memory system design
+- [Discord Bridge](docs/DISCORD_BRIDGE_DESIGN.md) — Discord integration design
+- [Database Schema](docs/SCHEMA.md) — SQLite schema reference
+- [Changelog](docs/CHANGELOG.md) — Development history
 
 ## License
 
