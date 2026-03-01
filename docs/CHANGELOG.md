@@ -7,6 +7,34 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.4.8] — 2026-03-01
+
+### Added
+- Engine routing: rule-based 3-layer engine selection (override > routing rules > default)
+- MCP access control: wire up `resolve_tool_access()` 3-level priority resolution
+- Episode auto-archival: `maybe_archive_episode()` triggers after 10+ unarchived messages
+- McpClient notification handling: Server→Kernel JSON-RPC notification support (MGP §13 foundation)
+- CI: `verify-issues` job in GitHub Actions
+- CI: Branch Protection with required status checks
+- Discord Bridge design document (`docs/DISCORD_BRIDGE_DESIGN.md`)
+- MGP spec §19.5 `transport_websocket` extension, §19.6 External Event Bridge Pattern
+
+### Fixed
+- XSS: DOMPurify sanitization on `dangerouslySetInnerHTML`
+- API key storage moved from localStorage to sessionStorage
+- Unsafe `any` types replaced with proper React event types
+- JSON parse guard (`safeJsonParse`) in api.ts
+- Error state exposed from useAgents hook
+- All clippy errors resolved (18 fixes)
+- Test baseline updated, dashboard `--passWithNoTests`
+
+### Security
+- `default_policy` changed from `opt-in` to `opt-out` for MCP servers
+- `save_mcp_server()` preserves `default_policy` on reconnect
+- rollup HIGH severity path traversal fix
+
+---
+
 ## [0.2.0] — 2026-02-26 (β2)
 
 > Theme: Bug fixes, security hardening, performance improvements, documentation, and refinements
