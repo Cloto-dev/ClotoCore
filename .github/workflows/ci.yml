@@ -90,6 +90,14 @@ jobs:
       - name: Test count ratchet
         run: bash scripts/check-test-count.sh
 
+  verify-issues:
+    name: Issue Registry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
+      - name: Verify issue registry
+        run: bash scripts/verify-issues.sh
+
   sentinel:
     name: Sentinel
     runs-on: ubuntu-latest

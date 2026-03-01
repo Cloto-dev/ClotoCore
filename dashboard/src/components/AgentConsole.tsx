@@ -172,7 +172,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     } finally {
       setIsLoadingMore(false);
     }
-  }, [agent.id, messages, isLoadingMore, hasMore]);
+  }, [agent.id, apiKey, messages, isLoadingMore, hasMore]);
 
   // Subscribe to system-wide events
   useEventStream(EVENTS_URL, (event) => {

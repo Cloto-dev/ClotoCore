@@ -60,7 +60,7 @@
             "commit": "19c19da",
             "file": "crates/core/src/handlers.rs",
             "pattern": "metadata\\.len\\(\\) > 50",
-            "expected": "present",
+            "expected": "absent",
             "status": "fixed"
         },
         {
@@ -696,8 +696,8 @@
             "commit": "b717b15",
             "file": "dashboard/src/components/ContainerDashboard.tsx",
             "pattern": "border-b border-edge-subtle flex items-center justify-between bg-glass-strong",
-            "expected": "present",
-            "status": "wontfix"
+            "expected": "absent",
+            "status": "fixed"
         },
         {
             "id": "bug-084",
@@ -732,8 +732,8 @@
             "commit": "b717b15",
             "file": "dashboard/src/components/MemoryCore.tsx",
             "pattern": "KS2",
-            "expected": "present",
-            "status": "wontfix"
+            "expected": "absent",
+            "status": "fixed"
         },
         {
             "id": "bug-088",
@@ -863,8 +863,8 @@
             "version": "0.1.0",
             "commit": "2cbab0d",
             "file": "crates/core/src/managers/mcp.rs",
-            "pattern": "PartialEq, Eq, serde::Serialize\\)",
-            "expected": "absent",
+            "pattern": "serialize_str\\(\"Error\"\\)",
+            "expected": "present",
             "status": "fixed"
         },
         {
@@ -1103,8 +1103,8 @@
             "version": "0.2.0",
             "commit": "b4affa0",
             "file": "dashboard/src/components/AgentConsole.tsx",
-            "pattern": "\\}, \\[agent\\.id\\]\\);",
-            "expected": "absent",
+            "pattern": "apiKey.*messages.*isLoadingMore.*hasMore",
+            "expected": "present",
             "status": "fixed"
         },
         {
@@ -1345,7 +1345,7 @@
             "file": "dashboard/src/lib/pluginUtils.tsx",
             "pattern": "isLlmPlugin",
             "expected": "absent",
-            "status": "fixed"
+            "status": "obsolete"
         },
         {
             "id": "bug-139",
@@ -1453,7 +1453,7 @@
             "file": "dashboard/src/components/__tests__/GazeTracker.test.tsx",
             "pattern": "GazeTracker",
             "expected": "absent",
-            "status": "fixed"
+            "status": "obsolete"
         },
         {
             "id": "bug-148",
