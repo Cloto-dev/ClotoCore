@@ -76,23 +76,20 @@ async fn proxy_handler(
     let provider_id = headers
         .get("X-LLM-Provider")
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .or_else(|| {
             body.get("provider")
                 .and_then(|v| v.as_str())
                 .map(String::from)
         });
 
-    let provider_id = match provider_id {
-        Some(id) => id,
-        None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": { "message": "Missing X-LLM-Provider header or 'provider' field" }
-                })),
-            );
-        }
+    let Some(provider_id) = provider_id else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": { "message": "Missing X-LLM-Provider header or 'provider' field" }
+            })),
+        );
     };
 
     // Look up provider config

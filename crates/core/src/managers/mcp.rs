@@ -1,7 +1,7 @@
 use super::mcp_protocol::{
     CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, ClotoHandshakeParams,
-    ClotoHandshakeResult, InitializeParams, JsonRpcRequest, ListToolsResult,
-    McpConfigFile, McpServerConfig, McpTool, ToolContent,
+    ClotoHandshakeResult, InitializeParams, JsonRpcRequest, ListToolsResult, McpConfigFile,
+    McpServerConfig, McpTool, ToolContent,
 };
 use super::mcp_transport::{self, StdioTransport};
 use anyhow::{Context, Result};
@@ -113,10 +113,7 @@ impl McpClient {
                                             .send(Ok(response.result.unwrap_or(Value::Null)))
                                             .is_err()
                                         {
-                                            debug!(
-                                                "Response receiver dropped for request {}",
-                                                id
-                                            );
+                                            debug!("Response receiver dropped for request {}", id);
                                         }
                                     }
                                 }
@@ -376,9 +373,7 @@ impl McpClientManager {
 
     /// Take the notification receiver (can only be called once).
     /// The Kernel event loop uses this to forward MCP notifications to the event bus.
-    pub async fn take_notification_receiver(
-        &self,
-    ) -> Option<mpsc::Receiver<McpNotification>> {
+    pub async fn take_notification_receiver(&self) -> Option<mpsc::Receiver<McpNotification>> {
         self.notification_rx.lock().await.take()
     }
 
@@ -665,7 +660,15 @@ impl McpClientManager {
             let mut result: Option<McpClient> = None;
             let mut last_err = None;
             for attempt in 1..=3u32 {
-                match McpClient::connect(&id, &config.command, &config.args, &config.env, self.notification_tx.clone()).await {
+                match McpClient::connect(
+                    &id,
+                    &config.command,
+                    &config.args,
+                    &config.env,
+                    self.notification_tx.clone(),
+                )
+                .await
+                {
                     Ok(c) => {
                         result = Some(c);
                         break;
@@ -1371,8 +1374,8 @@ impl McpClientManager {
         // Strip Windows UNC prefix (\\?\) that canonicalize() adds — Python cannot handle it
         let mut dir = {
             let s = canonical.to_string_lossy();
-            if s.starts_with(r"\\?\") {
-                std::path::PathBuf::from(&s[4..])
+            if let Some(stripped) = s.strip_prefix(r"\\?\") {
+                std::path::PathBuf::from(stripped)
             } else {
                 canonical
             }
@@ -1675,6 +1678,7 @@ fn validate_mcp_code(code: &str) -> std::result::Result<(), Vec<String>> {
 impl McpClientManager {
     /// Execute the kernel-native create_mcp_server tool.
     /// Requires YOLO mode to be enabled — autonomous server creation is a privileged operation.
+    #[allow(clippy::too_many_lines)]
     async fn execute_create_mcp_server(&self, args: Value) -> Result<Value> {
         if !self.yolo_mode.load(Ordering::Relaxed) {
             return Ok(serde_json::json!({

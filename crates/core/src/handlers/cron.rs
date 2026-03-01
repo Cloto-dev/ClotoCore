@@ -7,6 +7,7 @@ use crate::{AppError, AppResult, AppState};
 use super::check_auth;
 
 /// GET /api/cron/jobs[?agent_id=X]
+#[allow(clippy::implicit_hasher)]
 pub async fn list_cron_jobs(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -18,7 +19,7 @@ pub async fn list_cron_jobs(
     } else {
         crate::db::list_cron_jobs(&state.pool).await
     }
-    .map_err(|e| AppError::Internal(e))?;
+    .map_err(AppError::Internal)?;
     Ok(Json(
         serde_json::json!({ "jobs": jobs, "count": jobs.len() }),
     ))
@@ -76,7 +77,7 @@ pub async fn create_cron_job(
 
     crate::db::create_cron_job(&state.pool, &job)
         .await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
 
     info!(job_id = %job_id, agent_id = %agent_id, name = %name, "Cron job created");
 
@@ -129,7 +130,7 @@ pub async fn run_cron_job_now(
     // Fetch the job
     let jobs = crate::db::list_cron_jobs(&state.pool)
         .await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
     let job = jobs
         .into_iter()
         .find(|j| j.id == job_id)
