@@ -3,9 +3,7 @@
 //! These free functions extract the common patterns shared by Cerebras, DeepSeek,
 //! and any future plugin that targets the OpenAI chat completions API format.
 
-use crate::{AgentMetadata, ClotoMessage, HttpRequest, MessageSource, ThinkResult, ToolCall};
-use std::collections::HashMap;
-
+use crate::{AgentMetadata, ClotoMessage, MessageSource, ThinkResult, ToolCall};
 /// Build the system prompt for a Cloto agent.
 ///
 /// Automatically injects platform context (identity, privacy, capabilities)
@@ -64,91 +62,6 @@ pub fn build_chat_messages(
 
     messages.push(serde_json::json!({ "role": "user", "content": message.content }));
     messages
-}
-
-/// Build an `HttpRequest` for an OpenAI-compatible chat completions endpoint.
-///
-/// When `tools` is `Some` and non-empty, the `"tools"` field is included in the body.
-#[must_use]
-pub fn build_chat_request(
-    url: &str,
-    api_key: &str,
-    model_id: &str,
-    messages: Vec<serde_json::Value>,
-    tools: Option<&[serde_json::Value]>,
-) -> HttpRequest {
-    let mut body = serde_json::json!({
-        "model": model_id,
-        "messages": messages,
-        "stream": false
-    });
-
-    if let Some(t) = tools {
-        if !t.is_empty() {
-            body["tools"] = serde_json::json!(t);
-        }
-    }
-
-    let mut headers = HashMap::new();
-    headers.insert("Authorization".to_string(), format!("Bearer {}", api_key));
-    headers.insert("Content-Type".to_string(), "application/json".to_string());
-
-    HttpRequest {
-        method: "POST".to_string(),
-        url: url.to_string(),
-        headers,
-        body: Some(body.to_string()),
-    }
-}
-
-/// Parse a chat completions response body, extracting the text content.
-///
-/// Returns an error if the API returned an error object or the response is malformed.
-pub fn parse_chat_content(response_body: &str, provider_name: &str) -> anyhow::Result<String> {
-    let json: serde_json::Value = serde_json::from_str(response_body).map_err(|e| {
-        anyhow::anyhow!(
-            "{} API response is not valid JSON: {} | body: {}",
-            provider_name,
-            e,
-            &response_body[..response_body.len().min(500)]
-        )
-    })?;
-
-    // Standard OpenAI error format: {"error": {"message": "..."}}
-    if let Some(error) = json.get("error") {
-        let msg = error
-            .get("message")
-            .and_then(|m| m.as_str())
-            .unwrap_or_else(|| error.as_str().unwrap_or("Unknown error"));
-        return Err(anyhow::anyhow!("{} API Error: {}", provider_name, msg));
-    }
-    // Cerebras non-standard error format: {"type": "invalid_request_error", "message": "..."}
-    if json
-        .get("type")
-        .and_then(|t| t.as_str())
-        .is_some_and(|t| t.contains("error"))
-    {
-        let msg = json
-            .get("message")
-            .and_then(|m| m.as_str())
-            .unwrap_or("Unknown error");
-        return Err(anyhow::anyhow!("{} API Error: {}", provider_name, msg));
-    }
-
-    json.get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("message"))
-        .and_then(|m| m.get("content"))
-        .and_then(|v| v.as_str())
-        .map(std::string::ToString::to_string)
-        .ok_or_else(|| {
-            tracing::error!(provider = %provider_name, body = %response_body, "Unexpected API response structure");
-            anyhow::anyhow!(
-                "Invalid {} API response: missing choices[0].message.content | body: {}",
-                provider_name,
-                &response_body[..response_body.len().min(500)]
-            )
-        })
 }
 
 /// Parse a chat completions response body, returning either final text or tool calls.
