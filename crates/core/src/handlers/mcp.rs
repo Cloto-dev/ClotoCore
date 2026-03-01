@@ -563,6 +563,7 @@ pub async fn get_mcp_server_settings(
 }
 
 /// PUT /api/mcp/servers/:name/settings
+#[allow(clippy::too_many_lines)]
 pub async fn update_mcp_server_settings(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
@@ -920,7 +921,7 @@ pub async fn set_yolo_mode(
     check_auth(&state, &headers)?;
     let enabled = body
         .get("enabled")
-        .and_then(|v| v.as_bool())
+        .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
     state
         .mcp_manager

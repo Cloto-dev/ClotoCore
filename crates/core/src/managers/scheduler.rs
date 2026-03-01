@@ -133,7 +133,7 @@ fn calculate_next_run(job: &CronJobRow, now_ms: i64) -> (i64, bool) {
     match job.schedule_type.as_str() {
         "interval" => {
             let interval_secs: u64 = job.schedule_value.parse().unwrap_or(3600);
-            let next = now_ms + (interval_secs as i64 * 1000);
+            let next = now_ms + (interval_secs.cast_signed() * 1000);
             (next, true)
         }
         "once" => {
@@ -141,13 +141,14 @@ fn calculate_next_run(job: &CronJobRow, now_ms: i64) -> (i64, bool) {
             (i64::MAX, false)
         }
         "cron" => match cron::Schedule::from_str(&job.schedule_value) {
-            Ok(schedule) => match schedule.upcoming(Utc).next() {
-                Some(next_time) => (next_time.timestamp_millis(), true),
-                None => {
+            Ok(schedule) => {
+                if let Some(next_time) = schedule.upcoming(Utc).next() {
+                    (next_time.timestamp_millis(), true)
+                } else {
                     warn!(job_id = %job.id, "Cron expression has no future occurrences");
                     (i64::MAX, false)
                 }
-            },
+            }
             Err(e) => {
                 error!(job_id = %job.id, error = %e, "Invalid cron expression: {}", job.schedule_value);
                 (i64::MAX, false)
@@ -174,7 +175,7 @@ pub fn calculate_initial_next_run(
             if interval_secs < 60 {
                 return Err(anyhow::anyhow!("Minimum interval is 60 seconds"));
             }
-            Ok(now_ms + (interval_secs as i64 * 1000))
+            Ok(now_ms + (interval_secs.cast_signed() * 1000))
         }
         "once" => {
             let dt = chrono::DateTime::parse_from_rfc3339(schedule_value)

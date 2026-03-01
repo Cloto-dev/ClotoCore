@@ -1019,7 +1019,7 @@ impl SystemHandler {
         const THRESHOLD: usize = 10;
 
         // 1. Fetch recent memories
-        let mem_result = match tokio::time::timeout(
+        let Ok(Ok(mem_result)) = tokio::time::timeout(
             std::time::Duration::from_secs(5),
             mcp.call_server_tool(
                 server_id,
@@ -1028,14 +1028,12 @@ impl SystemHandler {
             ),
         )
         .await
-        {
-            Ok(Ok(r)) => r,
-            _ => return,
+        else {
+            return;
         };
 
-        let mem_json = match Self::extract_tool_json(&mem_result) {
-            Some(j) => j,
-            None => return,
+        let Some(mem_json) = Self::extract_tool_json(&mem_result) else {
+            return;
         };
         let memories = match mem_json.get("memories").and_then(|m| m.as_array()) {
             Some(m) if m.len() >= THRESHOLD => m,
@@ -1043,7 +1041,7 @@ impl SystemHandler {
         };
 
         // 2. Get last episode timestamp
-        let ep_result = match tokio::time::timeout(
+        let Ok(Ok(ep_result)) = tokio::time::timeout(
             std::time::Duration::from_secs(5),
             mcp.call_server_tool(
                 server_id,
@@ -1052,9 +1050,8 @@ impl SystemHandler {
             ),
         )
         .await
-        {
-            Ok(Ok(r)) => r,
-            _ => return,
+        else {
+            return;
         };
 
         let last_ep_time = Self::extract_tool_json(&ep_result).and_then(|j| {
