@@ -36,8 +36,6 @@ compiled-tailwind.css
 .claude/
 
 # Build artifacts
-vers_bin_release/
-cloto_guardian
 installer/output/
 
 # Python
