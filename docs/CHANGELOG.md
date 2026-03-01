@@ -79,7 +79,7 @@ a Rust kernel with MCP-based plugin architecture.
 - MCP (Model Context Protocol) as the sole plugin interface
 - 5 MCP servers: Cerebras, DeepSeek, Embedding, KS22 Memory, Terminal
 - ConsensusOrchestrator for multi-engine LLM coordination
-- SQLite persistence with 21 migrations
+- SQLite persistence with 24 migrations
 - Rate limiting, audit logging, and permission isolation
 
 ### Dashboard
