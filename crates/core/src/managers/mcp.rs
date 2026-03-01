@@ -1,6 +1,6 @@
 use super::mcp_protocol::{
     CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, ClotoHandshakeParams,
-    ClotoHandshakeResult, InitializeParams, JsonRpcRequest, JsonRpcResponse, ListToolsResult,
+    ClotoHandshakeResult, InitializeParams, JsonRpcRequest, ListToolsResult,
     McpConfigFile, McpServerConfig, McpTool, ToolContent,
 };
 use super::mcp_transport::{self, StdioTransport};
@@ -17,6 +17,14 @@ use tracing::{debug, error, info, warn};
 // McpClient — JSON-RPC client for a single MCP server
 // ============================================================
 
+/// MCP server-initiated notification (Server→Kernel).
+#[derive(Debug, Clone)]
+pub struct McpNotification {
+    pub server_id: String,
+    pub method: String,
+    pub params: Option<Value>,
+}
+
 pub struct McpClient {
     transport: Arc<Mutex<StdioTransport>>,
     /// Cloned sender for lock-free request dispatch.
@@ -26,6 +34,7 @@ pub struct McpClient {
     pending_requests: Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>>,
     next_id: Arc<AtomicI64>,
     response_task: Option<tokio::task::JoinHandle<()>>,
+    notification_tx: mpsc::Sender<McpNotification>,
 }
 
 impl Drop for McpClient {
@@ -44,6 +53,7 @@ impl McpClient {
         command: &str,
         args: &[String],
         env: &HashMap<String, String>,
+        notification_tx: mpsc::Sender<McpNotification>,
     ) -> Result<Self> {
         let transport = StdioTransport::start(command, args, env).await?;
         let sender = transport.sender();
@@ -53,6 +63,7 @@ impl McpClient {
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicI64::new(1)),
             response_task: None,
+            notification_tx,
         };
 
         client.start_response_loop();
@@ -62,8 +73,11 @@ impl McpClient {
     }
 
     fn start_response_loop(&mut self) {
+        use super::mcp_protocol::JsonRpcMessage;
+
         let transport = self.transport.clone();
         let pending = self.pending_requests.clone();
+        let notif_tx = self.notification_tx.clone();
 
         let handle = tokio::spawn(async move {
             loop {
@@ -73,33 +87,50 @@ impl McpClient {
                 };
 
                 if let Some(line) = msg_opt {
-                    if let Ok(response) = serde_json::from_str::<JsonRpcResponse>(&line) {
-                        if let Some(id_val) = response.id {
-                            if let Some(id) = id_val.as_i64() {
-                                let mut map = pending.lock().await;
-                                if let Some(tx) = map.remove(&id) {
-                                    if let Some(error) = response.error {
-                                        if tx
-                                            .send(Err(anyhow::anyhow!(
-                                                "RPC Error {}: {}",
-                                                error.code,
-                                                error.message
-                                            )))
+                    match serde_json::from_str::<JsonRpcMessage>(&line) {
+                        Ok(JsonRpcMessage::Response(response)) => {
+                            if let Some(id_val) = response.id {
+                                if let Some(id) = id_val.as_i64() {
+                                    let mut map = pending.lock().await;
+                                    if let Some(tx) = map.remove(&id) {
+                                        if let Some(error) = response.error {
+                                            if tx
+                                                .send(Err(anyhow::anyhow!(
+                                                    "RPC Error {}: {}",
+                                                    error.code,
+                                                    error.message
+                                                )))
+                                                .is_err()
+                                            {
+                                                debug!(
+                                                    "Response receiver dropped for request {}",
+                                                    id
+                                                );
+                                            }
+                                        } else if tx
+                                            .send(Ok(response.result.unwrap_or(Value::Null)))
                                             .is_err()
                                         {
-                                            debug!("Response receiver dropped for request {}", id);
+                                            debug!(
+                                                "Response receiver dropped for request {}",
+                                                id
+                                            );
                                         }
-                                    } else if tx
-                                        .send(Ok(response.result.unwrap_or(Value::Null)))
-                                        .is_err()
-                                    {
-                                        debug!("Response receiver dropped for request {}", id);
                                     }
                                 }
                             }
                         }
-                    } else {
-                        debug!("Received non-response message: {}", line);
+                        Ok(JsonRpcMessage::Notification(notif)) => {
+                            let _ = notif_tx
+                                .try_send(McpNotification {
+                                    server_id: String::new(), // filled by McpClientManager
+                                    method: notif.method,
+                                    params: notif.params,
+                                });
+                        }
+                        Err(_) => {
+                            debug!("Received unparseable message: {}", line);
+                        }
                     }
                 } else {
                     error!("MCP Connection closed.");
@@ -313,18 +344,32 @@ pub struct McpClientManager {
     pub yolo_mode: Arc<AtomicBool>,
     /// Preserved configs from stopped servers, enabling restart for config-loaded servers
     stopped_configs: RwLock<HashMap<String, (McpServerConfig, ServerSource)>>,
+    /// Shared notification channel — all MCP servers' notifications are collected here
+    notification_tx: mpsc::Sender<McpNotification>,
+    notification_rx: Mutex<Option<mpsc::Receiver<McpNotification>>>,
 }
 
 impl McpClientManager {
     #[must_use]
     pub fn new(pool: SqlitePool, yolo_mode: bool) -> Self {
+        let (notification_tx, notification_rx) = mpsc::channel(256);
         Self {
             servers: RwLock::new(HashMap::new()),
             pool,
             tool_index: RwLock::new(HashMap::new()),
             yolo_mode: Arc::new(AtomicBool::new(yolo_mode)),
             stopped_configs: RwLock::new(HashMap::new()),
+            notification_tx,
+            notification_rx: Mutex::new(Some(notification_rx)),
         }
+    }
+
+    /// Take the notification receiver (can only be called once).
+    /// The Kernel event loop uses this to forward MCP notifications to the event bus.
+    pub async fn take_notification_receiver(
+        &self,
+    ) -> Option<mpsc::Receiver<McpNotification>> {
+        self.notification_rx.lock().await.take()
     }
 
     /// Load server configs from mcp.toml file (if exists) and connect.
@@ -610,7 +655,7 @@ impl McpClientManager {
             let mut result: Option<McpClient> = None;
             let mut last_err = None;
             for attempt in 1..=3u32 {
-                match McpClient::connect(&config.command, &config.args, &config.env).await {
+                match McpClient::connect(&config.command, &config.args, &config.env, self.notification_tx.clone()).await {
                     Ok(c) => {
                         result = Some(c);
                         break;
