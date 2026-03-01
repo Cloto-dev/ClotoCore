@@ -774,6 +774,16 @@ impl McpClientManager {
         result
     }
 
+    /// Return IDs of connected mind.* servers (reasoning engines).
+    pub async fn list_connected_mind_servers(&self) -> Vec<String> {
+        let servers = self.servers.read().await;
+        servers
+            .iter()
+            .filter(|(id, h)| id.starts_with("mind.") && h.status == ServerStatus::Connected)
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
     /// Check if a server with the given ID is registered.
     pub async fn has_server(&self, id: &str) -> bool {
         let servers = self.servers.read().await;
@@ -900,6 +910,67 @@ impl McpClientManager {
             }
         }
         schemas
+    }
+
+    /// Collect tool schemas for a specific agent using `resolve_tool_access()`.
+    /// Iterates all connected servers and includes only tools the agent is allowed to use.
+    pub async fn collect_tool_schemas_for_agent(&self, agent_id: &str) -> Vec<Value> {
+        let servers = self.servers.read().await;
+        let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
+            vec![Self::kernel_tool_schema()]
+        } else {
+            vec![]
+        };
+        for (server_id, handle) in servers.iter() {
+            if handle.status != ServerStatus::Connected {
+                continue;
+            }
+            for tool in &handle.tools {
+                match crate::db::resolve_tool_access(
+                    &self.pool,
+                    agent_id,
+                    server_id,
+                    &tool.name,
+                )
+                .await
+                {
+                    Ok(ref perm) if perm == "allow" => {
+                        schemas.push(serde_json::json!({
+                            "type": "function",
+                            "function": {
+                                "name": tool.name,
+                                "description": tool.description.as_deref().unwrap_or(""),
+                                "parameters": tool.input_schema,
+                            }
+                        }));
+                    }
+                    _ => {} // deny or error → skip
+                }
+            }
+        }
+        schemas
+    }
+
+    /// Look up which server provides a given tool.
+    pub async fn get_tool_server_id(&self, tool_name: &str) -> Option<String> {
+        let index = self.tool_index.read().await;
+        index.get(tool_name).cloned()
+    }
+
+    /// Check tool access for a specific agent via `resolve_tool_access()`.
+    pub async fn check_tool_access(
+        &self,
+        agent_id: &str,
+        tool_name: &str,
+    ) -> anyhow::Result<String> {
+        let server_id = {
+            let index = self.tool_index.read().await;
+            index
+                .get(tool_name)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("MCP tool '{}' not found", tool_name))?
+        };
+        crate::db::resolve_tool_access(&self.pool, agent_id, &server_id, tool_name).await
     }
 
     /// Execute a tool by name, routing to the correct MCP server.

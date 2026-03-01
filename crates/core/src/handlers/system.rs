@@ -10,6 +10,59 @@ use cloto_shared::{
     PluginManifest, ThinkResult, ToolCall,
 };
 
+// ── Engine Routing Rules ──
+
+#[derive(serde::Deserialize)]
+struct RoutingRule {
+    #[serde(rename = "match")]
+    condition: String,
+    engine: String,
+}
+
+impl RoutingRule {
+    fn matches(&self, message: &str) -> bool {
+        if self.condition == "default" {
+            return true;
+        }
+        if let Some(kw) = self.condition.strip_prefix("contains:") {
+            return message.to_lowercase().contains(&kw.to_lowercase());
+        }
+        if let Some(len) = self.condition.strip_prefix("length:>") {
+            if let Ok(n) = len.parse::<usize>() {
+                return message.len() > n;
+            }
+        }
+        if self.condition == "tools_likely" {
+            let tool_keywords = [
+                "調べ", "検索", "実行", "ファイル", "search", "run", "execute", "find", "research",
+            ];
+            return tool_keywords
+                .iter()
+                .any(|k| message.to_lowercase().contains(k));
+        }
+        false
+    }
+}
+
+fn evaluate_engine_routing(
+    message: &str,
+    metadata: &std::collections::HashMap<String, String>,
+    connected_servers: &[String],
+) -> Option<String> {
+    let rules_json = metadata.get("engine_routing")?;
+    let rules: Vec<RoutingRule> = serde_json::from_str(rules_json).ok()?;
+
+    for rule in &rules {
+        if !connected_servers.contains(&rule.engine) {
+            continue;
+        }
+        if rule.matches(message) {
+            return Some(rule.engine.clone());
+        }
+    }
+    None
+}
+
 pub struct SystemHandler {
     registry: Arc<PluginRegistry>,
     agent_manager: AgentManager,
@@ -229,12 +282,17 @@ impl SystemHandler {
             }
         } else {
             // 通常モード: エージェントループで処理
-            // Cron jobs can override the default engine via metadata
-            let engine_id = msg
-                .metadata
-                .get("engine_override")
-                .cloned()
-                .unwrap_or(default_engine_id);
+            // 3-layer engine selection: override > routing rules > default
+            let engine_id = if let Some(ov) = msg.metadata.get("engine_override") {
+                ov.clone()
+            } else if let Some(ref mcp) = self.registry.mcp_manager {
+                let connected = mcp.list_connected_mind_servers().await;
+                evaluate_engine_routing(&msg.content, &agent.metadata, &connected)
+                    .unwrap_or(default_engine_id)
+            } else {
+                evaluate_engine_routing(&msg.content, &agent.metadata, &[])
+                    .unwrap_or(default_engine_id)
+            };
             match self
                 .run_agentic_loop(
                     &agent,
@@ -394,6 +452,12 @@ impl SystemHandler {
                 "source": { "type": "User", "id": "", "name": "" },
                 "timestamp": msg.timestamp.to_rfc3339(),
             });
+
+            // Clone for episode archival (before mcp/server_id are moved)
+            let ep_mcp = mcp.clone();
+            let ep_server_id = server_id.clone();
+            let ep_agent_id = agent_id.clone();
+
             tokio::spawn(async move {
                 let store_args = serde_json::json!({
                     "agent_id": agent_id,
@@ -417,6 +481,11 @@ impl SystemHandler {
                         error!(agent_id = %agent_id, "❌ MCP memory store timed out (5s)");
                     }
                 }
+            });
+
+            // Episode auto-archival check (background, non-blocking)
+            tokio::spawn(async move {
+                Self::maybe_archive_episode(&ep_mcp, &ep_server_id, &ep_agent_id).await;
             });
         }
 
@@ -487,7 +556,7 @@ impl SystemHandler {
             self.registry.collect_tool_schemas().await
         } else {
             self.registry
-                .collect_tool_schemas_for(agent_plugin_ids)
+                .collect_tool_schemas_for_agent(agent_plugin_ids, &agent.id)
                 .await
         };
         if tools.is_empty() {
@@ -659,8 +728,9 @@ impl SystemHandler {
                                         .await
                                 } else {
                                     self.registry
-                                        .execute_tool_for(
+                                        .execute_tool_for_agent(
                                             agent_plugin_ids,
+                                            &agent.id,
                                             &call.name,
                                             safe_args,
                                         )
@@ -935,6 +1005,128 @@ impl SystemHandler {
             }
         }
         vec![]
+    }
+
+    /// Auto-archive episode when enough unarchived memories accumulate.
+    async fn maybe_archive_episode(
+        mcp: &Arc<McpClientManager>,
+        server_id: &str,
+        agent_id: &str,
+    ) {
+        const THRESHOLD: usize = 10;
+
+        // 1. Fetch recent memories
+        let mem_result = match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            mcp.call_server_tool(
+                server_id,
+                "list_memories",
+                serde_json::json!({"agent_id": agent_id, "limit": THRESHOLD + 5}),
+            ),
+        )
+        .await
+        {
+            Ok(Ok(r)) => r,
+            _ => return,
+        };
+
+        let mem_json = match Self::extract_tool_json(&mem_result) {
+            Some(j) => j,
+            None => return,
+        };
+        let memories = match mem_json.get("memories").and_then(|m| m.as_array()) {
+            Some(m) if m.len() >= THRESHOLD => m,
+            _ => return,
+        };
+
+        // 2. Get last episode timestamp
+        let ep_result = match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            mcp.call_server_tool(
+                server_id,
+                "list_episodes",
+                serde_json::json!({"agent_id": agent_id, "limit": 1}),
+            ),
+        )
+        .await
+        {
+            Ok(Ok(r)) => r,
+            _ => return,
+        };
+
+        let last_ep_time = Self::extract_tool_json(&ep_result)
+            .and_then(|j| {
+                j.get("episodes")?
+                    .as_array()?
+                    .first()?
+                    .get("created_at")?
+                    .as_str()
+                    .map(String::from)
+            });
+
+        // 3. Count unarchived memories
+        let unarchived: Vec<&serde_json::Value> = if let Some(ref ep_time) = last_ep_time {
+            memories
+                .iter()
+                .filter(|m| {
+                    m.get("created_at")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        > ep_time.as_str()
+                })
+                .collect()
+        } else {
+            memories.iter().collect()
+        };
+
+        if unarchived.len() < THRESHOLD {
+            return;
+        }
+
+        // 4. Archive
+        let history: Vec<serde_json::Value> = unarchived
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "content": m.get("content"),
+                    "source": m.get("source"),
+                    "timestamp": m.get("timestamp"),
+                })
+            })
+            .collect();
+
+        match mcp
+            .call_server_tool(
+                server_id,
+                "archive_episode",
+                serde_json::json!({"agent_id": agent_id, "history": history}),
+            )
+            .await
+        {
+            Ok(_) => {
+                info!(
+                    agent_id = %agent_id,
+                    message_count = unarchived.len(),
+                    "📚 Auto-archived episode"
+                );
+            }
+            Err(e) => {
+                warn!(agent_id = %agent_id, error = %e, "⚠️ Episode archival failed");
+            }
+        }
+    }
+
+    /// Extract JSON from an MCP CallToolResult's first text content.
+    fn extract_tool_json(
+        result: &crate::managers::mcp_protocol::CallToolResult,
+    ) -> Option<serde_json::Value> {
+        use crate::managers::mcp_protocol::ToolContent;
+        for content in &result.content {
+            if let ToolContent::Text { text } = content {
+                return serde_json::from_str(text).ok();
+            }
+        }
+        None
     }
 
     async fn emit_event(&self, trace_id: ClotoId, data: ClotoEventData) {

@@ -237,6 +237,104 @@ impl PluginRegistry {
         ))
     }
 
+    /// Collect tool schemas for a specific agent.
+    /// Rust plugins: filtered by `allowed_plugin_ids` (same as `collect_tool_schemas_for`).
+    /// MCP tools: filtered by `resolve_tool_access()` (3-level priority resolution).
+    pub async fn collect_tool_schemas_for_agent(
+        &self,
+        allowed_plugin_ids: &[String],
+        agent_id: &str,
+    ) -> Vec<serde_json::Value> {
+        let mut schemas: Vec<serde_json::Value> = {
+            let plugins = self.plugins.read().await;
+            plugins
+                .iter()
+                .filter_map(|(id, p)| {
+                    if !allowed_plugin_ids.contains(id) {
+                        return None;
+                    }
+                    let tool = p.as_tool()?;
+                    Some(serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": tool.name(),
+                            "description": tool.description(),
+                            "parameters": tool.parameters_schema(),
+                        }
+                    }))
+                })
+                .collect()
+        };
+
+        // MCP tools: resolve_tool_access per-tool
+        if let Some(ref mcp) = self.mcp_manager {
+            schemas.extend(mcp.collect_tool_schemas_for_agent(agent_id).await);
+        }
+
+        schemas
+    }
+
+    /// Execute a tool for a specific agent with access control.
+    /// Rust plugins: checked against `allowed_plugin_ids`.
+    /// MCP tools: checked via `resolve_tool_access()`.
+    pub async fn execute_tool_for_agent(
+        &self,
+        allowed_plugin_ids: &[String],
+        agent_id: &str,
+        tool_name: &str,
+        args: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        // 1. Try Rust plugins first (same gate as execute_tool_for)
+        let tool_plugin = {
+            let plugins = self.plugins.read().await;
+            plugins.iter().find_map(|(id, p)| {
+                if !allowed_plugin_ids.contains(id) {
+                    return None;
+                }
+                let tool = p.as_tool()?;
+                if tool.name() == tool_name {
+                    Some(p.clone())
+                } else {
+                    None
+                }
+            })
+        }; // read lock dropped here
+        if let Some(plugin) = tool_plugin {
+            if let Some(tool) = plugin.as_tool() {
+                return tool.execute(args).await;
+            }
+        }
+
+        // 2. MCP servers: check access via resolve_tool_access, then execute
+        if let Some(ref mcp) = self.mcp_manager {
+            let access = mcp.check_tool_access(agent_id, tool_name).await;
+            match access {
+                Ok(ref perm) if perm == "allow" => {
+                    return mcp.execute_tool(tool_name, args).await;
+                }
+                Ok(_) => {
+                    return Err(anyhow::anyhow!(
+                        "Access denied: agent '{}' cannot use tool '{}'",
+                        agent_id,
+                        tool_name
+                    ));
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!(
+                        "Access check failed for tool '{}': {}",
+                        tool_name,
+                        e
+                    ));
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "Tool '{}' not found or not available for this agent",
+            tool_name
+        ))
+    }
+
     /// 全てのアクティブなプラグインにイベントを配信する
     pub async fn dispatch_event(
         &self,

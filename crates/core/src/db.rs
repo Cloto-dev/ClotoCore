@@ -842,9 +842,16 @@ pub struct McpServerRecord {
 pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> anyhow::Result<()> {
     tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
         sqlx::query(
-            "INSERT OR REPLACE INTO mcp_servers \
-             (name, command, args, script_content, description, created_at, is_active, env) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mcp_servers \
+             (name, command, args, script_content, description, created_at, is_active, env, default_policy) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'opt-out') \
+             ON CONFLICT(name) DO UPDATE SET \
+               command = excluded.command, \
+               args = excluded.args, \
+               script_content = excluded.script_content, \
+               description = excluded.description, \
+               is_active = excluded.is_active, \
+               env = excluded.env",
         )
         .bind(&record.name)
         .bind(&record.command)

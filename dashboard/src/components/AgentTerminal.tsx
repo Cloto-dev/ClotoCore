@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings } from 'lucide-react';
+import { Users, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings, X, Route } from 'lucide-react';
 import { AgentMetadata } from '../types';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { useEventStream } from '../hooks/useEventStream';
@@ -68,7 +68,10 @@ export function AgentTerminal({
   };
 
   // Creation form
-  const { form: newAgent, updateField, handleTypeChange, handleCreate, isCreating, createError } = useAgentCreation(onRefresh);
+  const {
+    form: newAgent, updateField, handleTypeChange, handleCreate, isCreating, createError,
+    addRoutingRule, updateRoutingRule, removeRoutingRule,
+  } = useAgentCreation(onRefresh);
 
   // Listen for AgentPowerChanged events to auto-refresh
   useEventStream(EVENTS_URL, (event) => {
@@ -363,6 +366,58 @@ export function AgentTerminal({
                 />
               </div>
             </div>
+
+            {/* Engine Routing Rules */}
+            {newAgent.type === 'ai' && mcpEngines.length > 1 && (
+              <div>
+                <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-2">
+                  <Route size={10} className="inline mr-1" />
+                  Engine Routing
+                  <span className="text-content-muted font-normal normal-case ml-1">(optional)</span>
+                </label>
+                <div className="space-y-1.5">
+                  {newAgent.routingRules.map((rule, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={rule.match}
+                        onChange={e => updateRoutingRule(i, 'match', e.target.value)}
+                        placeholder="contains:keyword"
+                        className="flex-1 px-2 py-1 rounded border border-edge text-[10px] font-mono bg-surface-primary focus:outline-none focus:border-brand min-w-0"
+                      />
+                      <span className="text-[10px] text-content-muted shrink-0">&rarr;</span>
+                      <select
+                        value={rule.engine}
+                        onChange={e => updateRoutingRule(i, 'engine', e.target.value)}
+                        className="w-28 px-1 py-1 rounded border border-edge text-[10px] font-mono bg-surface-primary focus:outline-none focus:border-brand"
+                      >
+                        <option value="">Select...</option>
+                        {mcpEngines.map(s => (
+                          <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => removeRoutingRule(i)}
+                        className="p-0.5 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all shrink-0"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addRoutingRule}
+                    className="w-full py-1 rounded border border-dashed border-edge text-[10px] font-bold text-content-tertiary hover:text-brand hover:border-brand transition-all flex items-center justify-center gap-1"
+                  >
+                    <Plus size={10} /> Add Rule
+                  </button>
+                </div>
+                <p className="text-[8px] text-content-muted mt-1 font-mono">
+                  Conditions: contains:keyword, length:&gt;N, tools_likely, default
+                </p>
+              </div>
+            )}
 
             {createError && (
               <p className="text-[10px] text-red-400 text-center">{createError}</p>

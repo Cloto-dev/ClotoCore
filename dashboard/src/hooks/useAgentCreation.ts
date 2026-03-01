@@ -3,6 +3,11 @@ import { api } from '../services/api';
 import { AgentType } from '../lib/agentIdentity';
 import { useApiKey } from '../contexts/ApiKeyContext';
 
+export interface RoutingRuleEntry {
+  match: string;
+  engine: string;
+}
+
 interface CreationForm {
   name: string;
   desc: string;
@@ -10,6 +15,7 @@ interface CreationForm {
   memory: string;
   type: AgentType;
   password: string;
+  routingRules: RoutingRuleEntry[];
 }
 
 const INITIAL_FORM: CreationForm = {
@@ -19,6 +25,7 @@ const INITIAL_FORM: CreationForm = {
   memory: '',
   type: 'ai',
   password: '',
+  routingRules: [],
 };
 
 export function useAgentCreation(onCreated: () => void) {
@@ -41,11 +48,18 @@ export function useAgentCreation(onCreated: () => void) {
     setIsCreating(true);
     setCreateError(null);
     try {
+      const metadata: Record<string, string> = {
+        preferred_memory: form.memory,
+        agent_type: form.type,
+      };
+      if (form.routingRules.length > 0) {
+        metadata.engine_routing = JSON.stringify(form.routingRules);
+      }
       await api.createAgent({
         name: form.name,
         description: form.desc,
         default_engine: form.engine,
-        metadata: { preferred_memory: form.memory, agent_type: form.type },
+        metadata,
         password: form.password || undefined
       }, apiKey);
       setForm(INITIAL_FORM);
@@ -59,5 +73,30 @@ export function useAgentCreation(onCreated: () => void) {
     }
   };
 
-  return { form, updateField, handleTypeChange, handleCreate, isCreating, createError };
+  const addRoutingRule = () => {
+    setForm(prev => ({
+      ...prev,
+      routingRules: [...prev.routingRules, { match: 'default', engine: '' }],
+    }));
+  };
+
+  const updateRoutingRule = (index: number, field: keyof RoutingRuleEntry, value: string) => {
+    setForm(prev => {
+      const rules = [...prev.routingRules];
+      rules[index] = { ...rules[index], [field]: value };
+      return { ...prev, routingRules: rules };
+    });
+  };
+
+  const removeRoutingRule = (index: number) => {
+    setForm(prev => ({
+      ...prev,
+      routingRules: prev.routingRules.filter((_, i) => i !== index),
+    }));
+  };
+
+  return {
+    form, updateField, handleTypeChange, handleCreate, isCreating, createError,
+    addRoutingRule, updateRoutingRule, removeRoutingRule,
+  };
 }
