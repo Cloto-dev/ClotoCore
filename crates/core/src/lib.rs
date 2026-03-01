@@ -379,19 +379,30 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         let notif_event_tx = event_tx.clone();
         tokio::spawn(async move {
             while let Some(notif) = notif_rx.recv().await {
-                info!(
-                    server = %notif.server_id,
-                    method = %notif.method,
-                    "📨 MCP server notification received"
-                );
-                let event_data = cloto_shared::ClotoEventData::McpNotification {
-                    server_id: notif.server_id,
-                    method: notif.method,
-                    params: notif.params.unwrap_or(serde_json::Value::Null),
-                };
-                let envelope = EnvelopedEvent::system(event_data);
-                if let Err(e) = notif_event_tx.send(envelope).await {
-                    tracing::warn!("Failed to forward MCP notification: {}", e);
+                // Method-based filtering: MGP notifications → event bus, others → log only
+                if notif.method.starts_with("notifications/mgp.")
+                    || notif.method.starts_with("notifications/cloto.")
+                {
+                    info!(
+                        server = %notif.server_id,
+                        method = %notif.method,
+                        "📨 MCP server notification received"
+                    );
+                    let event_data = cloto_shared::ClotoEventData::McpNotification {
+                        server_id: notif.server_id,
+                        method: notif.method,
+                        params: notif.params.unwrap_or(serde_json::Value::Null),
+                    };
+                    let envelope = EnvelopedEvent::system(event_data);
+                    if let Err(e) = notif_event_tx.send(envelope).await {
+                        tracing::warn!("Failed to forward MCP notification: {}", e);
+                    }
+                } else {
+                    tracing::debug!(
+                        server = %notif.server_id,
+                        method = %notif.method,
+                        "MCP notification received (not forwarded)"
+                    );
                 }
             }
         });
