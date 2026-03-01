@@ -926,13 +926,8 @@ impl McpClientManager {
                 continue;
             }
             for tool in &handle.tools {
-                match crate::db::resolve_tool_access(
-                    &self.pool,
-                    agent_id,
-                    server_id,
-                    &tool.name,
-                )
-                .await
+                match crate::db::resolve_tool_access(&self.pool, agent_id, server_id, &tool.name)
+                    .await
                 {
                     Ok(ref perm) if perm == "allow" => {
                         schemas.push(serde_json::json!({
@@ -1238,15 +1233,9 @@ impl McpClientManager {
 
         // 2. Fall back to DB (dynamic servers that were never stopped in this session)
         let records = crate::db::load_active_mcp_servers(&self.pool).await?;
-        let record = records
-            .into_iter()
-            .find(|r| r.name == id)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Server '{}' not found in stopped configs or database",
-                    id
-                )
-            })?;
+        let record = records.into_iter().find(|r| r.name == id).ok_or_else(|| {
+            anyhow::anyhow!("Server '{}' not found in stopped configs or database", id)
+        })?;
 
         let args: Vec<String> = serde_json::from_str(&record.args).unwrap_or_default();
 
@@ -1281,11 +1270,7 @@ impl McpClientManager {
     }
 
     /// Update a server's environment variables, persist to DB, and restart.
-    pub async fn update_server_env(
-        &self,
-        id: &str,
-        env: HashMap<String, String>,
-    ) -> Result<()> {
+    pub async fn update_server_env(&self, id: &str, env: HashMap<String, String>) -> Result<()> {
         let env_json = serde_json::to_string(&env)?;
         crate::db::update_mcp_server_env(&self.pool, id, &env_json).await?;
 
@@ -1415,8 +1400,7 @@ impl McpClientManager {
                     // Update status to Error so the UI reflects the failure
                     let mut servers = self.servers.write().await;
                     if let Some(handle) = servers.get_mut(&server_id) {
-                        handle.status =
-                            ServerStatus::Error(format!("Auto-restart failed: {}", e));
+                        handle.status = ServerStatus::Error(format!("Auto-restart failed: {}", e));
                     }
                 }
             }
@@ -1545,19 +1529,44 @@ fn validate_sandbox_args(_tool_name: &str, args: &Value) -> Result<()> {
 
 /// Blocked imports that could enable system access or code execution.
 const BLOCKED_IMPORTS: &[&str] = &[
-    "subprocess", "shutil", "socket", "ctypes", "multiprocessing",
-    "signal", "pty", "fcntl", "resource", "importlib", "code",
-    "codeop", "compileall", "py_compile",
+    "subprocess",
+    "shutil",
+    "socket",
+    "ctypes",
+    "multiprocessing",
+    "signal",
+    "pty",
+    "fcntl",
+    "resource",
+    "importlib",
+    "code",
+    "codeop",
+    "compileall",
+    "py_compile",
 ];
 
 /// Blocked function/attribute patterns.
 const BLOCKED_PATTERNS: &[&str] = &[
-    "eval(", "exec(", "__import__(", "compile(",
-    "open(", "globals(", "locals(",
-    "os.system", "os.popen", "os.spawn", "os.exec",
-    "os.remove", "os.unlink", "os.rmdir", "os.makedirs",
-    "subprocess.", "__builtins__",
-    "getattr(", "setattr(", "delattr(",
+    "eval(",
+    "exec(",
+    "__import__(",
+    "compile(",
+    "open(",
+    "globals(",
+    "locals(",
+    "os.system",
+    "os.popen",
+    "os.spawn",
+    "os.exec",
+    "os.remove",
+    "os.unlink",
+    "os.rmdir",
+    "os.makedirs",
+    "subprocess.",
+    "__builtins__",
+    "getattr(",
+    "setattr(",
+    "delattr(",
 ];
 
 /// Maximum allowed code size in bytes.
@@ -1634,9 +1643,7 @@ impl McpClientManager {
 
         // Validate name (same rules as handlers.rs)
         if name.is_empty() || name.len() > 64 {
-            return Err(anyhow::anyhow!(
-                "Server name must be 1-64 characters"
-            ));
+            return Err(anyhow::anyhow!("Server name must be 1-64 characters"));
         }
         let valid_name = name
             .chars()

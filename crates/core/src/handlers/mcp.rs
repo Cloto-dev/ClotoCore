@@ -484,8 +484,7 @@ pub async fn get_mcp_server_settings(
 
     if let Some((record, default_policy)) = settings {
         // Merge: in-memory config env as base, DB env overrides
-        let db_env: HashMap<String, String> =
-            serde_json::from_str(&record.env).unwrap_or_default();
+        let db_env: HashMap<String, String> = serde_json::from_str(&record.env).unwrap_or_default();
         let mut merged = config_env;
         for (k, v) in &db_env {
             merged.insert(k.clone(), v.clone());
@@ -500,7 +499,14 @@ pub async fn get_mcp_server_settings(
                     || upper.contains("TOKEN")
                     || upper.contains("PASSWORD")
                     || upper.contains("CREDENTIAL");
-                (k.clone(), if is_secret { "***".to_string() } else { v.clone() })
+                (
+                    k.clone(),
+                    if is_secret {
+                        "***".to_string()
+                    } else {
+                        v.clone()
+                    },
+                )
             })
             .collect();
 
@@ -527,7 +533,14 @@ pub async fn get_mcp_server_settings(
                         || upper.contains("TOKEN")
                         || upper.contains("PASSWORD")
                         || upper.contains("CREDENTIAL");
-                    (k.clone(), if is_secret { "***".to_string() } else { v.clone() })
+                    (
+                        k.clone(),
+                        if is_secret {
+                            "***".to_string()
+                        } else {
+                            v.clone()
+                        },
+                    )
                 })
                 .collect();
             Ok(Json(serde_json::json!({
@@ -573,7 +586,8 @@ pub async fn update_mcp_server_settings(
             // Look up in-memory server info and persist it.
             let servers = state.mcp_manager.list_servers().await;
             if let Some(server) = servers.iter().find(|s| s.id == name) {
-                let args_json = serde_json::to_string(&server.args).unwrap_or_else(|_| "[]".to_string());
+                let args_json =
+                    serde_json::to_string(&server.args).unwrap_or_else(|_| "[]".to_string());
                 crate::db::ensure_mcp_server_in_db(
                     &state.pool,
                     &name,
@@ -655,11 +669,7 @@ pub async fn update_mcp_server_settings(
         }
 
         // Update in-memory config and restart server
-        if let Err(e) = state
-            .mcp_manager
-            .update_server_env(&name, merged_env)
-            .await
-        {
+        if let Err(e) = state.mcp_manager.update_server_env(&name, merged_env).await {
             tracing::warn!("Failed to restart server after env update: {}", e);
         }
     }

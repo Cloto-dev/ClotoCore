@@ -77,9 +77,9 @@ impl PluginManager {
             }
             Permission::ProcessExecution => {
                 // Empty allowlist by default — callers must configure permitted commands
-                Some(cloto_shared::PluginCapability::Process(std::sync::Arc::new(
-                    crate::capabilities::AllowedProcessCapability::new(vec![]),
-                )))
+                Some(cloto_shared::PluginCapability::Process(
+                    std::sync::Arc::new(crate::capabilities::AllowedProcessCapability::new(vec![])),
+                ))
             }
             _ => None,
         }

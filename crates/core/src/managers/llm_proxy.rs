@@ -77,7 +77,11 @@ async fn proxy_handler(
         .get("X-LLM-Provider")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
-        .or_else(|| body.get("provider").and_then(|v| v.as_str()).map(String::from));
+        .or_else(|| {
+            body.get("provider")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        });
 
     let provider_id = match provider_id {
         Some(id) => id,
@@ -152,7 +156,8 @@ async fn proxy_handler(
                             "LLM provider returned error"
                         );
                         (
-                            StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY),
+                            StatusCode::from_u16(status.as_u16())
+                                .unwrap_or(StatusCode::BAD_GATEWAY),
                             Json(resp_body),
                         )
                     }

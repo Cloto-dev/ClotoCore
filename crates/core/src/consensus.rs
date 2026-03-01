@@ -4,7 +4,9 @@
 //! Manages multi-engine consensus sessions: collecting proposals from engines,
 //! then synthesizing a unified response via a designated synthesizer engine.
 
-use cloto_shared::{AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, MessageSource};
+use cloto_shared::{
+    AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, MessageSource,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;

@@ -2,9 +2,9 @@
 // Critical path: cloto_core/src/events.rs:72-76 (EventProcessor::record_event)
 // Measures: VecDeque operations, RwLock contention, event throughput
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 #[allow(unused_imports)]
 use cloto_shared::ClotoEvent;
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::RwLock;

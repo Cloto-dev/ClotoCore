@@ -1,8 +1,4 @@
-use axum::{
-    extract::State,
-    http::HeaderMap,
-    Json,
-};
+use axum::{extract::State, http::HeaderMap, Json};
 use serde::Deserialize;
 use std::sync::Arc;
 

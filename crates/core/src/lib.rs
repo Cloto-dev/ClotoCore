@@ -84,7 +84,9 @@ impl axum::response::IntoResponse for AppError {
                         axum::http::StatusCode::FORBIDDEN
                     }
                     cloto_shared::ClotoError::PluginNotFound(_)
-                    | cloto_shared::ClotoError::AgentNotFound(_) => axum::http::StatusCode::NOT_FOUND,
+                    | cloto_shared::ClotoError::AgentNotFound(_) => {
+                        axum::http::StatusCode::NOT_FOUND
+                    }
                     _ => axum::http::StatusCode::BAD_REQUEST,
                 };
                 (status, format!("{:?}", e), e.to_string())
@@ -442,13 +444,19 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/agents/:id/power", post(handlers::power_toggle))
         .route("/events/publish", post(handlers::post_event_handler))
         // Cron job management (Layer 2: Autonomous Trigger)
-        .route("/cron/jobs", get(handlers::list_cron_jobs).post(handlers::create_cron_job))
+        .route(
+            "/cron/jobs",
+            get(handlers::list_cron_jobs).post(handlers::create_cron_job),
+        )
         .route("/cron/jobs/:id", delete(handlers::delete_cron_job))
         .route("/cron/jobs/:id/toggle", post(handlers::toggle_cron_job))
         .route("/cron/jobs/:id/run", post(handlers::run_cron_job_now))
         // LLM Provider management (MGP §13.4 — centralized key management)
         .route("/llm/providers", get(handlers::list_llm_providers))
-        .route("/llm/providers/:id/key", post(handlers::set_llm_provider_key).delete(handlers::delete_llm_provider_key))
+        .route(
+            "/llm/providers/:id/key",
+            post(handlers::set_llm_provider_key).delete(handlers::delete_llm_provider_key),
+        )
         .route(
             "/permissions/:id/approve",
             post(handlers::approve_permission),

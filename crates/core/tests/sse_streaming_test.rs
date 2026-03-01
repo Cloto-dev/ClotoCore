@@ -121,10 +121,9 @@ async fn test_sse_handler_handles_lagged_receiver() {
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         for i in 0..10 {
-            let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(format!(
-                "Message {}",
-                i
-            ))));
+            let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(
+                format!("Message {}", i),
+            )));
             let _ = tx.send(event);
         }
     });

@@ -1354,7 +1354,7 @@ pub async fn ensure_mcp_server_in_db(
         sqlx::query(
             "INSERT INTO mcp_servers (name, command, args, created_at, is_active, default_policy) \
              VALUES (?, ?, ?, unixepoch(), 1, ?) \
-             ON CONFLICT(name) DO UPDATE SET default_policy = excluded.default_policy"
+             ON CONFLICT(name) DO UPDATE SET default_policy = excluded.default_policy",
         )
         .bind(name)
         .bind(command)
@@ -1593,7 +1593,10 @@ pub async fn list_cron_jobs(pool: &SqlitePool) -> anyhow::Result<Vec<CronJobRow>
     Ok(rows)
 }
 
-pub async fn list_cron_jobs_for_agent(pool: &SqlitePool, agent_id: &str) -> anyhow::Result<Vec<CronJobRow>> {
+pub async fn list_cron_jobs_for_agent(
+    pool: &SqlitePool,
+    agent_id: &str,
+) -> anyhow::Result<Vec<CronJobRow>> {
     let rows = sqlx::query_as::<_, CronJobRow>(
         "SELECT id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, last_run_at, last_status, last_error, max_iterations, created_at FROM cron_jobs WHERE agent_id = ? ORDER BY created_at DESC"
     ).bind(agent_id).fetch_all(pool).await?;
@@ -1660,7 +1663,11 @@ pub async fn delete_cron_job(pool: &SqlitePool, id: &str) -> anyhow::Result<()> 
     Ok(())
 }
 
-pub async fn set_cron_job_enabled(pool: &SqlitePool, id: &str, enabled: bool) -> anyhow::Result<()> {
+pub async fn set_cron_job_enabled(
+    pool: &SqlitePool,
+    id: &str,
+    enabled: bool,
+) -> anyhow::Result<()> {
     let result = sqlx::query("UPDATE cron_jobs SET enabled = ? WHERE id = ?")
         .bind(enabled)
         .bind(id)
@@ -1700,7 +1707,11 @@ pub async fn get_llm_provider(pool: &SqlitePool, id: &str) -> anyhow::Result<Llm
     row.ok_or_else(|| anyhow::anyhow!("LLM provider '{}' not found", id))
 }
 
-pub async fn set_llm_provider_key(pool: &SqlitePool, id: &str, api_key: &str) -> anyhow::Result<()> {
+pub async fn set_llm_provider_key(
+    pool: &SqlitePool,
+    id: &str,
+    api_key: &str,
+) -> anyhow::Result<()> {
     let result = sqlx::query("UPDATE llm_providers SET api_key = ? WHERE id = ?")
         .bind(api_key)
         .bind(id)

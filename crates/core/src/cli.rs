@@ -178,7 +178,8 @@ async fn update_command(
     target_version: Option<String>,
     yes: bool,
 ) -> anyhow::Result<()> {
-    let repo = std::env::var("CLOTO_UPDATE_REPO").unwrap_or_else(|_| "Cloto-dev/ClotoCore".to_string());
+    let repo =
+        std::env::var("CLOTO_UPDATE_REPO").unwrap_or_else(|_| "Cloto-dev/ClotoCore".to_string());
     let current_version = env!("CARGO_PKG_VERSION");
     let target = env!("TARGET");
 

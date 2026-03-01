@@ -418,8 +418,10 @@ pub trait Tool: Plugin {
 #[async_trait]
 pub trait CommunicationAdapter: Plugin {
     fn name(&self) -> &str;
-    async fn start(&self, event_sender: tokio::sync::mpsc::Sender<ClotoEvent>)
-        -> anyhow::Result<()>;
+    async fn start(
+        &self,
+        event_sender: tokio::sync::mpsc::Sender<ClotoEvent>,
+    ) -> anyhow::Result<()>;
     async fn send(&self, target_user_id: &str, content: &str) -> anyhow::Result<()>;
 }
 

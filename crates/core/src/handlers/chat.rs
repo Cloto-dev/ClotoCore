@@ -75,9 +75,12 @@ pub async fn post_message(
         .agent_manager
         .get_agent_config(&agent_id)
         .await
-        .map_err(|_| AppError::Cloto(cloto_shared::ClotoError::ValidationError(
-            format!("Agent '{}' not found", agent_id),
-        )))?;
+        .map_err(|_| {
+            AppError::Cloto(cloto_shared::ClotoError::ValidationError(format!(
+                "Agent '{}' not found",
+                agent_id
+            )))
+        })?;
     if !agent.enabled {
         return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             format!("Agent '{}' is powered off", agent_id),
@@ -304,7 +307,8 @@ pub async fn chat_handler(
     Json(msg): Json<cloto_shared::ClotoMessage>,
 ) -> AppResult<Json<serde_json::Value>> {
     super::check_auth(&state, &headers)?;
-    let envelope = crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::MessageReceived(msg));
+    let envelope =
+        crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::MessageReceived(msg));
     if let Err(e) = state.event_tx.send(envelope).await {
         error!("Failed to send chat message event: {}", e);
         return Err(AppError::Internal(anyhow::anyhow!(

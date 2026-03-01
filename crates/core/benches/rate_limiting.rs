@@ -2,8 +2,8 @@
 // Critical path: cloto_core/src/middleware.rs:41-47 (RateLimiter::check)
 // Measures: DashMap contention, token bucket operations, cleanup performance
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use cloto_core::middleware::RateLimiter;
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::net::IpAddr;
 
 mod helpers;

@@ -45,10 +45,9 @@ async fn test_event_history_size_limit() {
     {
         let mut hist = history.write().await;
         for i in 0..1500 {
-            let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(format!(
-                "Event {}",
-                i
-            ))));
+            let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(
+                format!("Event {}", i),
+            )));
             hist.push_back(event);
 
             // Apply size limit
@@ -143,10 +142,9 @@ async fn test_configurable_history_size() {
     {
         let mut hist = history.write().await;
         for i in 0..700 {
-            let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(format!(
-                "Event {}",
-                i
-            ))));
+            let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(
+                format!("Event {}", i),
+            )));
             hist.push_back(event);
 
             // Apply size limit (500)
@@ -179,7 +177,8 @@ async fn test_cleanup_task_integration() {
         let mut hist = history.write().await;
         let old_time = chrono::Utc::now() - chrono::Duration::hours(25);
         for i in 0..5 {
-            let mut event = ClotoEvent::new(ClotoEventData::SystemNotification(format!("Old {}", i)));
+            let mut event =
+                ClotoEvent::new(ClotoEventData::SystemNotification(format!("Old {}", i)));
             event.timestamp = old_time;
             hist.push_back(Arc::new(event));
         }

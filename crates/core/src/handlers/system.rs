@@ -34,7 +34,15 @@ impl RoutingRule {
         }
         if self.condition == "tools_likely" {
             let tool_keywords = [
-                "調べ", "検索", "実行", "ファイル", "search", "run", "execute", "find", "research",
+                "調べ",
+                "検索",
+                "実行",
+                "ファイル",
+                "search",
+                "run",
+                "execute",
+                "find",
+                "research",
             ];
             return tool_keywords
                 .iter()
@@ -143,20 +151,18 @@ impl SystemHandler {
 
         let mcp_memory: Option<(Arc<McpClientManager>, String)> = if memory_plugin.is_none() {
             if let Some(ref mcp) = self.registry.mcp_manager {
-                mcp.find_memory_server()
-                    .await
-                    .and_then(|server_id| {
-                        if granted_server_ids.contains(&server_id) {
-                            Some((mcp.clone(), server_id))
-                        } else {
-                            tracing::info!(
-                                agent_id = %target_agent_id,
-                                server_id = %server_id,
-                                "🔐 Agent lacks access to memory server — memory skipped"
-                            );
-                            None
-                        }
-                    })
+                mcp.find_memory_server().await.and_then(|server_id| {
+                    if granted_server_ids.contains(&server_id) {
+                        Some((mcp.clone(), server_id))
+                    } else {
+                        tracing::info!(
+                            agent_id = %target_agent_id,
+                            server_id = %server_id,
+                            "🔐 Agent lacks access to memory server — memory skipped"
+                        );
+                        None
+                    }
+                })
             } else {
                 None
             }
@@ -268,7 +274,10 @@ impl SystemHandler {
                     context: context.clone(),
                 };
                 let env = crate::EnvelopedEvent {
-                    event: Arc::new(cloto_shared::ClotoEvent::with_trace(trace_id, inner_thought)),
+                    event: Arc::new(cloto_shared::ClotoEvent::with_trace(
+                        trace_id,
+                        inner_thought,
+                    )),
                     issuer: None,
                     correlation_id: Some(trace_id),
                     depth: 1,
@@ -723,9 +732,7 @@ impl SystemHandler {
                             Duration::from_secs(self.tool_execution_timeout_secs),
                             async {
                                 if agent_plugin_ids.is_empty() {
-                                    self.registry
-                                        .execute_tool(&call.name, safe_args)
-                                        .await
+                                    self.registry.execute_tool(&call.name, safe_args).await
                                 } else {
                                     self.registry
                                         .execute_tool_for_agent(
@@ -1008,11 +1015,7 @@ impl SystemHandler {
     }
 
     /// Auto-archive episode when enough unarchived memories accumulate.
-    async fn maybe_archive_episode(
-        mcp: &Arc<McpClientManager>,
-        server_id: &str,
-        agent_id: &str,
-    ) {
+    async fn maybe_archive_episode(mcp: &Arc<McpClientManager>, server_id: &str, agent_id: &str) {
         const THRESHOLD: usize = 10;
 
         // 1. Fetch recent memories
@@ -1054,25 +1057,21 @@ impl SystemHandler {
             _ => return,
         };
 
-        let last_ep_time = Self::extract_tool_json(&ep_result)
-            .and_then(|j| {
-                j.get("episodes")?
-                    .as_array()?
-                    .first()?
-                    .get("created_at")?
-                    .as_str()
-                    .map(String::from)
-            });
+        let last_ep_time = Self::extract_tool_json(&ep_result).and_then(|j| {
+            j.get("episodes")?
+                .as_array()?
+                .first()?
+                .get("created_at")?
+                .as_str()
+                .map(String::from)
+        });
 
         // 3. Count unarchived memories
         let unarchived: Vec<&serde_json::Value> = if let Some(ref ep_time) = last_ep_time {
             memories
                 .iter()
                 .filter(|m| {
-                    m.get("created_at")
-                        .and_then(|t| t.as_str())
-                        .unwrap_or("")
-                        > ep_time.as_str()
+                    m.get("created_at").and_then(|t| t.as_str()).unwrap_or("") > ep_time.as_str()
                 })
                 .collect()
         } else {

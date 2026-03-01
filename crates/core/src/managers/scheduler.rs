@@ -26,7 +26,10 @@ pub fn spawn_cron_task(
 ) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(check_interval_secs));
-        info!("Cron scheduler started (check interval: {}s)", check_interval_secs);
+        info!(
+            "Cron scheduler started (check interval: {}s)",
+            check_interval_secs
+        );
 
         loop {
             tokio::select! {
@@ -44,10 +47,7 @@ pub fn spawn_cron_task(
     });
 }
 
-async fn tick(
-    pool: &SqlitePool,
-    event_tx: &mpsc::Sender<EnvelopedEvent>,
-) -> anyhow::Result<()> {
+async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> anyhow::Result<()> {
     let now_ms = Utc::now().timestamp_millis();
     let due_jobs = db::get_due_cron_jobs(pool, now_ms).await?;
 
@@ -88,7 +88,17 @@ async fn tick(
 
         if let Err(e) = event_tx.send(envelope).await {
             error!("Cron scheduler: failed to dispatch job '{}': {}", job.id, e);
-            db::update_cron_job_run(pool, &job.id, now_ms, "error", Some(&e.to_string()), job.next_run_at, job.enabled).await.ok();
+            db::update_cron_job_run(
+                pool,
+                &job.id,
+                now_ms,
+                "error",
+                Some(&e.to_string()),
+                job.next_run_at,
+                job.enabled,
+            )
+            .await
+            .ok();
             continue;
         }
 
@@ -101,7 +111,17 @@ async fn tick(
 
         // Calculate next run and update job status
         let (next_run, still_enabled) = calculate_next_run(job, now_ms);
-        db::update_cron_job_run(pool, &job.id, now_ms, "success", None, next_run, still_enabled).await.ok();
+        db::update_cron_job_run(
+            pool,
+            &job.id,
+            now_ms,
+            "success",
+            None,
+            next_run,
+            still_enabled,
+        )
+        .await
+        .ok();
     }
 
     Ok(())
@@ -120,23 +140,19 @@ fn calculate_next_run(job: &CronJobRow, now_ms: i64) -> (i64, bool) {
             // One-shot: disable after execution
             (i64::MAX, false)
         }
-        "cron" => {
-            match cron::Schedule::from_str(&job.schedule_value) {
-                Ok(schedule) => {
-                    match schedule.upcoming(Utc).next() {
-                        Some(next_time) => (next_time.timestamp_millis(), true),
-                        None => {
-                            warn!(job_id = %job.id, "Cron expression has no future occurrences");
-                            (i64::MAX, false)
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!(job_id = %job.id, error = %e, "Invalid cron expression: {}", job.schedule_value);
+        "cron" => match cron::Schedule::from_str(&job.schedule_value) {
+            Ok(schedule) => match schedule.upcoming(Utc).next() {
+                Some(next_time) => (next_time.timestamp_millis(), true),
+                None => {
+                    warn!(job_id = %job.id, "Cron expression has no future occurrences");
                     (i64::MAX, false)
                 }
+            },
+            Err(e) => {
+                error!(job_id = %job.id, error = %e, "Invalid cron expression: {}", job.schedule_value);
+                (i64::MAX, false)
             }
-        }
+        },
         other => {
             error!(job_id = %job.id, "Unknown schedule type: {}", other);
             (i64::MAX, false)
@@ -145,11 +161,15 @@ fn calculate_next_run(job: &CronJobRow, now_ms: i64) -> (i64, bool) {
 }
 
 /// Calculate the initial next_run_at for a new cron job.
-pub fn calculate_initial_next_run(schedule_type: &str, schedule_value: &str) -> anyhow::Result<i64> {
+pub fn calculate_initial_next_run(
+    schedule_type: &str,
+    schedule_value: &str,
+) -> anyhow::Result<i64> {
     let now_ms = Utc::now().timestamp_millis();
     match schedule_type {
         "interval" => {
-            let interval_secs: u64 = schedule_value.parse()
+            let interval_secs: u64 = schedule_value
+                .parse()
                 .map_err(|_| anyhow::anyhow!("Invalid interval: must be seconds (integer)"))?;
             if interval_secs < 60 {
                 return Err(anyhow::anyhow!("Minimum interval is 60 seconds"));
@@ -173,6 +193,8 @@ pub fn calculate_initial_next_run(schedule_type: &str, schedule_value: &str) -> 
                 None => Err(anyhow::anyhow!("Cron expression has no future occurrences")),
             }
         }
-        _ => Err(anyhow::anyhow!("Unknown schedule_type: must be 'interval', 'cron', or 'once'")),
+        _ => Err(anyhow::anyhow!(
+            "Unknown schedule_type: must be 'interval', 'cron', or 'once'"
+        )),
     }
 }

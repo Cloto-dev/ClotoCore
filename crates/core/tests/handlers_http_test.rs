@@ -50,7 +50,9 @@ async fn test_create_agent_success() {
                 .uri("/api/agents")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("X-API-Key", "test-key")
-                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .body(Body::from(
+                    serde_json::to_string(&payload).expect("serialize JSON"),
+                ))
                 .expect("build request"),
         )
         .await
@@ -76,7 +78,9 @@ async fn test_create_agent_invalid_payload() {
                 .uri("/api/agents")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("X-API-Key", "test-key")
-                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .body(Body::from(
+                    serde_json::to_string(&payload).expect("serialize JSON"),
+                ))
                 .expect("build request"),
         )
         .await
@@ -114,7 +118,9 @@ async fn test_update_plugin_config_success() {
                 .uri("/api/plugins/test.plugin/config")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("X-API-Key", "test-key")
-                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .body(Body::from(
+                    serde_json::to_string(&payload).expect("serialize JSON"),
+                ))
                 .expect("build request"),
         )
         .await
@@ -140,7 +146,9 @@ async fn test_update_plugin_config_nonexistent_plugin() {
                 .uri("/api/plugins/nonexistent/config")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("X-API-Key", "test-key")
-                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .body(Body::from(
+                    serde_json::to_string(&payload).expect("serialize JSON"),
+                ))
                 .expect("build request"),
         )
         .await
@@ -187,7 +195,9 @@ async fn test_chat_handler_routes_to_agent() {
                 .method("POST")
                 .uri("/api/chat")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .body(Body::from(
+                    serde_json::to_string(&payload).expect("serialize JSON"),
+                ))
                 .expect("build request"),
         )
         .await
@@ -216,7 +226,9 @@ async fn test_grant_permission_requires_auth() {
                 .method("POST")
                 .uri("/api/permissions/test-id/approve")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .body(Body::from(
+                    serde_json::to_string(&payload).expect("serialize JSON"),
+                ))
                 .expect("build request"),
         )
         .await
@@ -259,7 +271,9 @@ async fn test_grant_permission_success() {
                 .uri("/api/permissions/req-123/approve")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("X-API-Key", "test-key")
-                .body(Body::from(serde_json::to_string(&payload).expect("serialize JSON")))
+                .body(Body::from(
+                    serde_json::to_string(&payload).expect("serialize JSON"),
+                ))
                 .expect("build request"),
         )
         .await

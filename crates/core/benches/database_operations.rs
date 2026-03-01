@@ -4,9 +4,9 @@
 // - cloto_core/src/db.rs:32-45 (SqliteDataStore::get_json)
 // - cloto_core/src/managers.rs:274-291 (PluginManager::fetch_plugin_configs)
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use cloto_core::db::SqliteDataStore;
 use cloto_shared::PluginDataStore;
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use sqlx::SqlitePool;
 
 mod helpers;

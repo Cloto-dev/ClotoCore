@@ -35,9 +35,9 @@ async fn test_capability_injection_logic() {
 
 #[tokio::test]
 async fn test_panic_isolation() {
-    use common::{create_mock_plugin, create_panicking_plugin};
     use cloto_core::managers::PluginRegistry;
     use cloto_shared::ClotoId;
+    use common::{create_mock_plugin, create_panicking_plugin};
 
     let registry = PluginRegistry::new(5, 10);
     let id_panic = ClotoId::new();

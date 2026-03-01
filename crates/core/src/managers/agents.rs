@@ -196,10 +196,7 @@ impl AgentManager {
     }
 
     /// Return the set of MCP server IDs this agent has access to (server_grant + allow).
-    pub async fn get_granted_server_ids(
-        &self,
-        agent_id: &str,
-    ) -> anyhow::Result<Vec<String>> {
+    pub async fn get_granted_server_ids(&self, agent_id: &str) -> anyhow::Result<Vec<String>> {
         let entries = crate::db::get_access_entries_for_agent(&self.pool, agent_id).await?;
         Ok(entries
             .into_iter()

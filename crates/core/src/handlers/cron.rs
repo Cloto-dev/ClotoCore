@@ -1,7 +1,4 @@
-use axum::{
-    extract::State,
-    Json,
-};
+use axum::{extract::State, Json};
 use std::sync::Arc;
 use tracing::info;
 
@@ -22,7 +19,9 @@ pub async fn list_cron_jobs(
         crate::db::list_cron_jobs(&state.pool).await
     }
     .map_err(|e| AppError::Internal(e))?;
-    Ok(Json(serde_json::json!({ "jobs": jobs, "count": jobs.len() })))
+    Ok(Json(
+        serde_json::json!({ "jobs": jobs, "count": jobs.len() }),
+    ))
 }
 
 /// POST /api/cron/jobs
@@ -33,20 +32,26 @@ pub async fn create_cron_job(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
 
-    let agent_id = payload["agent_id"].as_str()
+    let agent_id = payload["agent_id"]
+        .as_str()
         .ok_or_else(|| AppError::Validation("agent_id is required".into()))?;
-    let name = payload["name"].as_str()
+    let name = payload["name"]
+        .as_str()
         .ok_or_else(|| AppError::Validation("name is required".into()))?;
-    let schedule_type = payload["schedule_type"].as_str()
-        .ok_or_else(|| AppError::Validation("schedule_type is required (interval|cron|once)".into()))?;
-    let schedule_value = payload["schedule_value"].as_str()
+    let schedule_type = payload["schedule_type"].as_str().ok_or_else(|| {
+        AppError::Validation("schedule_type is required (interval|cron|once)".into())
+    })?;
+    let schedule_value = payload["schedule_value"]
+        .as_str()
         .ok_or_else(|| AppError::Validation("schedule_value is required".into()))?;
-    let message = payload["message"].as_str()
+    let message = payload["message"]
+        .as_str()
         .ok_or_else(|| AppError::Validation("message is required".into()))?;
 
     // Validate schedule and compute initial next_run_at
-    let next_run_at = crate::managers::scheduler::calculate_initial_next_run(schedule_type, schedule_value)
-        .map_err(|e| AppError::Validation(e.to_string()))?;
+    let next_run_at =
+        crate::managers::scheduler::calculate_initial_next_run(schedule_type, schedule_value)
+            .map_err(|e| AppError::Validation(e.to_string()))?;
 
     let job_id = format!("cron.{}.{}", agent_id, cloto_shared::ClotoId::new());
     let engine_id = payload["engine_id"].as_str().map(String::from);
@@ -69,12 +74,15 @@ pub async fn create_cron_job(
         created_at: String::new(), // set by DB default
     };
 
-    crate::db::create_cron_job(&state.pool, &job).await
+    crate::db::create_cron_job(&state.pool, &job)
+        .await
         .map_err(|e| AppError::Internal(e))?;
 
     info!(job_id = %job_id, agent_id = %agent_id, name = %name, "Cron job created");
 
-    Ok(Json(serde_json::json!({ "id": job_id, "next_run_at": next_run_at })))
+    Ok(Json(
+        serde_json::json!({ "id": job_id, "next_run_at": next_run_at }),
+    ))
 }
 
 /// DELETE /api/cron/jobs/:id
@@ -84,7 +92,8 @@ pub async fn delete_cron_job(
     axum::extract::Path(job_id): axum::extract::Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-    crate::db::delete_cron_job(&state.pool, &job_id).await
+    crate::db::delete_cron_job(&state.pool, &job_id)
+        .await
         .map_err(|e| AppError::Validation(e.to_string()))?;
     info!(job_id = %job_id, "Cron job deleted");
     Ok(Json(serde_json::json!({ "status": "deleted" })))
@@ -98,11 +107,15 @@ pub async fn toggle_cron_job(
     Json(payload): Json<serde_json::Value>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-    let enabled = payload["enabled"].as_bool()
+    let enabled = payload["enabled"]
+        .as_bool()
         .ok_or_else(|| AppError::Validation("enabled (bool) is required".into()))?;
-    crate::db::set_cron_job_enabled(&state.pool, &job_id, enabled).await
+    crate::db::set_cron_job_enabled(&state.pool, &job_id, enabled)
+        .await
         .map_err(|e| AppError::Validation(e.to_string()))?;
-    Ok(Json(serde_json::json!({ "status": "ok", "enabled": enabled })))
+    Ok(Json(
+        serde_json::json!({ "status": "ok", "enabled": enabled }),
+    ))
 }
 
 /// POST /api/cron/jobs/:id/run — trigger immediate execution
@@ -114,9 +127,12 @@ pub async fn run_cron_job_now(
     check_auth(&state, &headers)?;
 
     // Fetch the job
-    let jobs = crate::db::list_cron_jobs(&state.pool).await
+    let jobs = crate::db::list_cron_jobs(&state.pool)
+        .await
         .map_err(|e| AppError::Internal(e))?;
-    let job = jobs.into_iter().find(|j| j.id == job_id)
+    let job = jobs
+        .into_iter()
+        .find(|j| j.id == job_id)
         .ok_or_else(|| AppError::NotFound(format!("Cron job '{}' not found", job_id)))?;
 
     // Build and dispatch the message immediately
@@ -137,11 +153,13 @@ pub async fn run_cron_job_now(
         metadata,
     };
 
-    let envelope = crate::EnvelopedEvent::system(
-        cloto_shared::ClotoEventData::MessageReceived(msg),
-    );
+    let envelope =
+        crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::MessageReceived(msg));
 
-    state.event_tx.send(envelope).await
+    state
+        .event_tx
+        .send(envelope)
+        .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to dispatch: {}", e)))?;
 
     info!(job_id = %job_id, "Cron job manually triggered");

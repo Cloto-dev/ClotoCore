@@ -447,7 +447,10 @@ async fn redispatch_plugin_event(
     };
     let issuer_id = ClotoId::from_name(&plugin_id);
     let envelope = crate::EnvelopedEvent {
-        event: Arc::new(cloto_shared::ClotoEvent::with_trace(trace_id, new_event_data)),
+        event: Arc::new(cloto_shared::ClotoEvent::with_trace(
+            trace_id,
+            new_event_data,
+        )),
         issuer: Some(issuer_id),
         correlation_id: Some(trace_id),
         depth: current_depth + 1,
