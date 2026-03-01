@@ -116,14 +116,6 @@ pub enum ClotoError {
 
 pub type ClotoResult<T> = std::result::Result<T, ClotoError>;
 
-/// Kernelによって認可され、実行時に提供されるプラグインの権限・環境情報
-#[derive(Clone)]
-pub struct PluginRuntimeContext {
-    pub effective_permissions: Vec<Permission>,
-    pub store: Arc<dyn PluginDataStore>,
-    pub event_tx: tokio::sync::mpsc::Sender<ClotoEventData>,
-}
-
 /// プラグインがデータを保存するための抽象ストレージインターフェース (Principle #4: Data Sovereignty / Principle #6: SAL)
 #[async_trait]
 pub trait PluginDataStore: Send + Sync {
@@ -163,41 +155,6 @@ pub trait PluginDataStore: Send + Sync {
         Ok(new_val)
     }
 }
-
-/// SALを型安全に利用するための拡張トレイト
-#[async_trait]
-pub trait SALExt: PluginDataStore {
-    async fn save<T: Serialize + Sync>(
-        &self,
-        plugin_id: &str,
-        key: &str,
-        value: &T,
-    ) -> anyhow::Result<()> {
-        self.set_json(plugin_id, key, serde_json::to_value(value)?)
-            .await
-    }
-
-    async fn load<T: for<'de> Deserialize<'de>>(
-        &self,
-        plugin_id: &str,
-        key: &str,
-    ) -> anyhow::Result<Option<T>> {
-        if let Some(json) = self.get_json(plugin_id, key).await? {
-            Ok(Some(serde_json::from_value(json)?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// 時系列順にソート可能なメモリキーを生成する (Principle #4 / Guardrail #4)
-    /// 形式: mem:{agent_id}:{timestamp_nanos_padded}:{message_id}
-    fn generate_mem_key(&self, agent_id: &str, message: &ClotoMessage) -> String {
-        let ts = message.timestamp.timestamp_nanos_opt().unwrap_or(0);
-        format!("mem:{}:{:020}:{}", agent_id, ts, message.id)
-    }
-}
-
-impl<T: PluginDataStore + ?Sized> SALExt for T {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpRequest {
@@ -332,28 +289,10 @@ pub enum HandAction {
     ClickElement { label: String },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ColorVisionData {
-    pub captured_at: DateTime<Utc>,
-    pub detected_elements: Vec<DetectedElement>,
-    pub image_ref: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DetectedElement {
-    pub label: String,
-    pub bounds: (i32, i32, i32, i32), // x, y, w, h
-    pub confidence: f32,
-    pub attributes: HashMap<String, String>,
-}
-
 /// プラグインのダウンキャストを補助するためのトレイト
 pub trait PluginCast {
     fn as_any(&self) -> &dyn Any;
     fn as_tool(&self) -> Option<&dyn Tool> {
-        None
-    }
-    fn as_communication(&self) -> Option<&dyn CommunicationAdapter> {
         None
     }
     fn as_reasoning(&self) -> Option<&dyn ReasoningEngine> {
@@ -362,24 +301,12 @@ pub trait PluginCast {
     fn as_memory(&self) -> Option<&dyn MemoryProvider> {
         None
     }
-    fn as_web(&self) -> Option<&dyn WebPlugin> {
-        None
-    }
 }
 
 /// 全てのプラグインが実装するベースとなるマーカートレイト
 #[async_trait]
 pub trait Plugin: Any + Send + Sync + PluginCast {
     fn manifest(&self) -> PluginManifest;
-
-    /// プラグイン自体の初期化（権限の割り当てなど）
-    async fn on_plugin_init(
-        &self,
-        _context: PluginRuntimeContext,
-        _network: Option<Arc<dyn NetworkCapability>>,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
 
     /// システムイベントの購読（デフォルトは何もしない）
     /// 戻り値としてイベントデータを返すと、Kernelによって再配信される
@@ -398,13 +325,6 @@ pub trait Plugin: Any + Send + Sync + PluginCast {
     }
 }
 
-pub trait WebPlugin: Plugin {
-    fn register_routes(
-        &self,
-        router: axum::Router<Arc<dyn Any + Send + Sync>>,
-    ) -> axum::Router<Arc<dyn Any + Send + Sync>>;
-}
-
 #[async_trait]
 pub trait Tool: Plugin {
     fn name(&self) -> &str;
@@ -413,16 +333,6 @@ pub trait Tool: Plugin {
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({})
     }
-}
-
-#[async_trait]
-pub trait CommunicationAdapter: Plugin {
-    fn name(&self) -> &str;
-    async fn start(
-        &self,
-        event_sender: tokio::sync::mpsc::Sender<ClotoEvent>,
-    ) -> anyhow::Result<()>;
-    async fn send(&self, target_user_id: &str, content: &str) -> anyhow::Result<()>;
 }
 
 // ── Agentic Loop Types ──
@@ -447,14 +357,6 @@ pub struct ToolCall {
     pub name: String,
     /// JSON arguments to pass to the tool.
     pub arguments: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolResult {
-    pub call_id: String,
-    pub tool_name: String,
-    pub success: bool,
-    pub content: String,
 }
 
 #[async_trait]
@@ -517,9 +419,14 @@ pub struct GazeData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
+#[allow(clippy::large_enum_variant)]
 pub enum ClotoEventData {
     MessageReceived(ClotoMessage),
-    VisionUpdated(ColorVisionData),
+    VisionUpdated {
+        captured_at: DateTime<Utc>,
+        detected_elements: Vec<serde_json::Value>,
+        image_ref: Option<String>,
+    },
     /// 視線データの更新
     GazeUpdated(GazeData),
     /// プラグインからのアクション要求（権限チェック対象）
@@ -542,36 +449,20 @@ pub enum ClotoEventData {
         content: String,
         source_message_id: String,
     },
-    /// 複数プラグインによる合意形成の開始 (Prototype)
+    /// 複数プラグインによる合意形成の開始
     ConsensusRequested {
         task: String,
         engine_ids: Vec<String>,
-    },
-    /// 各プラグインからの合意形成用提案 (Prototype)
-    ConsensusProposal {
-        engine_id: String,
-        content: String,
     },
     /// プラグインの設定が更新された通知
     ConfigUpdated {
         plugin_id: String,
         config: std::collections::HashMap<String, String>,
     },
-    /// プラグインからの権限要求
-    PermissionRequested {
-        plugin_id: String,
-        permission: Permission,
-        reason: String,
-    },
     /// 権限が承認された通知
     PermissionGranted {
         plugin_id: String,
         permission: Permission,
-    },
-    /// マニフェストが更新された通知
-    ManifestUpdated {
-        plugin_id: String,
-        new_manifest: PluginManifest,
     },
     /// エージェントの電源状態が変更された通知
     AgentPowerChanged {
@@ -653,9 +544,4 @@ impl AgentMetadata {
             }
         };
     }
-}
-
-pub struct PluginConfig {
-    pub id: String,
-    pub config_values: std::collections::HashMap<String, String>,
 }

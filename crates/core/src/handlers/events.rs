@@ -37,7 +37,7 @@ pub async fn post_event_handler(
         // H-15: Only allow safe event types from external sources
         // SystemNotification removed - external callers should not inject system notifications
         cloto_shared::ClotoEventData::MessageReceived(_)
-        | cloto_shared::ClotoEventData::VisionUpdated(_)
+        | cloto_shared::ClotoEventData::VisionUpdated { .. }
         | cloto_shared::ClotoEventData::GazeUpdated(_) => {
             // これらは許可
         }
