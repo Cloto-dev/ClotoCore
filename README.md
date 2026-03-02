@@ -67,10 +67,10 @@ graph TB
 
     SSE[SSE Stream] --> Client
 
-    style DB fill:#f0e6ff,stroke:#333
-    style Processor fill:#e6f0ff,stroke:#333
-    style Manager fill:#e6ffe6,stroke:#333
-    style Process1 fill:#fff4e6,stroke:#333
+    style DB fill:#f0e6ff,stroke:#333,color:#000
+    style Processor fill:#e6f0ff,stroke:#333,color:#000
+    style Manager fill:#e6ffe6,stroke:#333,color:#000
+    style Process1 fill:#fff4e6,stroke:#333,color:#000
 ```
 
 **Key design principles:**
