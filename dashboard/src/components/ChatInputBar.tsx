@@ -44,6 +44,27 @@ export function ChatInputBar({ onSend, disabled }: ChatInputBarProps) {
     setAttachment(null);
   };
 
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          setAttachment({ file, preview: dataUrl, dataUrl });
+        };
+        reader.readAsDataURL(file);
+        break;
+      }
+    }
+  }, []);
+
   const handleFileSelect = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
@@ -145,6 +166,7 @@ export function ChatInputBar({ onSend, disabled }: ChatInputBarProps) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          onPaste={handlePaste}
           disabled={disabled}
           placeholder={disabled ? "PROCESSING..." : "ENTER COMMAND..."}
           className="flex-1 bg-surface-primary border border-edge rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none focus:border-brand transition-colors placeholder:text-content-muted disabled:opacity-50 shadow-inner"

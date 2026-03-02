@@ -23,7 +23,22 @@ export function CustomCursor() {
     const handleMouseMove = (e: MouseEvent) => {
       localMouse.current = { x: e.clientX, y: e.clientY };
     };
+    const handleMouseLeave = () => {
+      localMouse.current = { x: -1000, y: -1000 };
+      // Clear canvas immediately
+      if (tctx) {
+        tctx.clearRect(0, 0, tctx.canvas.width, tctx.canvas.height);
+      }
+      isIdle = false;
+      prevDirtyX = 0;
+      prevDirtyY = 0;
+      prevDirtyW = 0;
+      prevDirtyH = 0;
+    };
+
     window.addEventListener('mousemove', handleMouseMove, { passive: true });
+    document.addEventListener('mouseleave', handleMouseLeave);
+    window.addEventListener('blur', handleMouseLeave);
 
     let rafId: number;
     let tctx: CanvasRenderingContext2D | null = null;
@@ -236,6 +251,8 @@ export function CustomCursor() {
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseleave', handleMouseLeave);
+      window.removeEventListener('blur', handleMouseLeave);
       cancelAnimationFrame(rafId);
     };
   }, []);

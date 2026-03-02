@@ -9,7 +9,10 @@ pub mod permissions;
 pub mod system;
 
 // Re-export all handler functions so that existing `handlers::*` paths in lib.rs continue to work.
-pub use agents::{create_agent, delete_agent, get_agents, power_toggle, update_agent};
+pub use agents::{
+    create_agent, delete_agent, delete_avatar, get_agents, get_avatar, power_toggle,
+    update_agent, upload_avatar,
+};
 pub use chat::chat_handler;
 pub use cron::{
     create_cron_job, delete_cron_job, list_cron_jobs, run_cron_job_now, toggle_cron_job,

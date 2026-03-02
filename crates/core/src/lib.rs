@@ -193,9 +193,12 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         }
     }
 
-    // 0b. Ensure attachment storage directory exists
+    // 0b. Ensure storage directories exist
     if let Err(e) = std::fs::create_dir_all("data/attachments") {
         tracing::warn!("Failed to create data/attachments directory: {}", e);
+    }
+    if let Err(e) = std::fs::create_dir_all("data/avatars") {
+        tracing::warn!("Failed to create data/avatars directory: {}", e);
     }
 
     // 1. データベースの初期化
@@ -476,6 +479,12 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             post(handlers::update_agent).delete(handlers::delete_agent),
         )
         .route("/agents/:id/power", post(handlers::power_toggle))
+        .route(
+            "/agents/:id/avatar",
+            get(handlers::get_avatar)
+                .post(handlers::upload_avatar)
+                .delete(handlers::delete_avatar),
+        )
         .route("/events/publish", post(handlers::post_event_handler))
         // Cron job management (Layer 2: Autonomous Trigger)
         .route(

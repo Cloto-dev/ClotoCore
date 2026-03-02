@@ -1,11 +1,13 @@
 use axum::{
+    body::Bytes,
     extract::{Path, State},
-    http::HeaderMap,
+    http::{HeaderMap, HeaderValue, StatusCode},
+    response::IntoResponse,
     Json,
 };
 use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{AppError, AppResult, AppState};
 
@@ -29,6 +31,8 @@ pub struct PowerToggleRequest {
 
 #[derive(Deserialize)]
 pub struct UpdateAgentRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
     pub default_engine_id: Option<String>,
     pub metadata: HashMap<String, String>,
 }
@@ -178,9 +182,33 @@ pub async fn update_agent(
     Json(payload): Json<UpdateAgentRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
+
+    if let Some(ref name) = payload.name {
+        if name.is_empty() || name.len() > 200 {
+            return Err(AppError::Validation(format!(
+                "Agent name must be 1-200 characters (got {})",
+                name.len()
+            )));
+        }
+    }
+    if let Some(ref desc) = payload.description {
+        if desc.is_empty() || desc.len() > 1000 {
+            return Err(AppError::Validation(format!(
+                "Agent description must be 1-1000 characters (got {})",
+                desc.len()
+            )));
+        }
+    }
+
     state
         .agent_manager
-        .update_agent_config(&id, payload.default_engine_id, payload.metadata)
+        .update_agent_config(
+            &id,
+            payload.name.as_deref(),
+            payload.description.as_deref(),
+            payload.default_engine_id,
+            payload.metadata,
+        )
         .await?;
     Ok(Json(serde_json::json!({ "status": "success" })))
 }
@@ -309,4 +337,187 @@ pub async fn power_toggle(
         "status": "success",
         "enabled": payload.enabled
     })))
+}
+
+// ============================================================
+// Avatar Management
+// ============================================================
+
+const MAX_AVATAR_SIZE: usize = 5 * 1024 * 1024; // 5 MB
+
+fn mime_to_ext(mime: &str) -> Option<&'static str> {
+    match mime {
+        "image/png" => Some("png"),
+        "image/jpeg" => Some("jpg"),
+        "image/gif" => Some("gif"),
+        "image/webp" => Some("webp"),
+        _ => None,
+    }
+}
+
+fn ext_to_mime(ext: &str) -> &'static str {
+    match ext {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Upload an avatar image for an agent.
+///
+/// **Route:** `POST /api/agents/:id/avatar`
+///
+/// Accepts raw image bytes with Content-Type header.
+/// Optionally analyzes the image via vision.capture MCP server.
+pub async fn upload_avatar(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    if body.len() > MAX_AVATAR_SIZE {
+        return Err(AppError::Validation(format!(
+            "Avatar image too large ({} bytes, max {} bytes)",
+            body.len(),
+            MAX_AVATAR_SIZE
+        )));
+    }
+
+    let content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/png");
+
+    let ext = mime_to_ext(content_type).ok_or_else(|| {
+        AppError::Validation(format!(
+            "Unsupported image type '{}'. Supported: png, jpeg, gif, webp",
+            content_type
+        ))
+    })?;
+
+    // Verify agent exists
+    state.agent_manager.get_agent_config(&id).await?;
+
+    // Save to disk
+    let avatar_path = format!("data/avatars/{}.{}", id, ext);
+    tokio::fs::write(&avatar_path, &body).await.map_err(|e| {
+        AppError::Internal(anyhow::anyhow!("Failed to write avatar file: {}", e))
+    })?;
+
+    // Attempt vision analysis (graceful degradation)
+    let avatar_description = analyze_avatar(&state, &avatar_path).await;
+
+    state
+        .agent_manager
+        .set_avatar(&id, &avatar_path, avatar_description.as_deref())
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "avatar_path": avatar_path,
+        "avatar_description": avatar_description,
+    })))
+}
+
+/// Analyze avatar image via vision.capture MCP server.
+/// Returns None if vision server is unavailable or analysis fails.
+async fn analyze_avatar(state: &AppState, avatar_path: &str) -> Option<String> {
+    let abs_path = std::env::current_dir()
+        .ok()?
+        .join(avatar_path)
+        .to_string_lossy()
+        .to_string();
+
+    let args = serde_json::json!({
+        "file_path": abs_path,
+        "prompt": "Describe this character/avatar image concisely. \
+                   Focus on appearance, style, colors, and mood. \
+                   This will be used as the agent's visual identity description."
+    });
+
+    match state
+        .mcp_manager
+        .call_server_tool("vision.capture", "analyze_image", args)
+        .await
+    {
+        Ok(result) => {
+            for content in &result.content {
+                if let crate::managers::mcp_protocol::ToolContent::Text { text } = content {
+                    // Try parsing JSON response
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
+                        if let Some(response) = json.get("response").and_then(|r| r.as_str()) {
+                            return Some(response.to_string());
+                        }
+                    }
+                    return Some(text.clone());
+                }
+            }
+            None
+        }
+        Err(e) => {
+            warn!(error = %e, "Avatar vision analysis unavailable, storing without description");
+            None
+        }
+    }
+}
+
+/// Serve an agent's avatar image.
+///
+/// **Route:** `GET /api/agents/:id/avatar`
+///
+/// No authentication required (read-only).
+pub async fn get_avatar(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let avatar_path = state
+        .agent_manager
+        .get_avatar_path(&id)
+        .await?
+        .ok_or_else(|| AppError::Validation("No avatar set".to_string()))?;
+
+    let data = tokio::fs::read(&avatar_path).await.map_err(|e| {
+        AppError::Internal(anyhow::anyhow!("Failed to read avatar file: {}", e))
+    })?;
+
+    let ext = avatar_path.rsplit('.').next().unwrap_or("png");
+    let mime = ext_to_mime(ext);
+
+    Ok((
+        StatusCode::OK,
+        [
+            (
+                axum::http::header::CONTENT_TYPE,
+                HeaderValue::from_static(mime),
+            ),
+            (
+                axum::http::header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=3600"),
+            ),
+        ],
+        data,
+    ))
+}
+
+/// Delete an agent's avatar.
+///
+/// **Route:** `DELETE /api/agents/:id/avatar`
+pub async fn delete_avatar(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    if let Ok(Some(path)) = state.agent_manager.get_avatar_path(&id).await {
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    state.agent_manager.clear_avatar(&id).await?;
+
+    Ok(Json(serde_json::json!({ "status": "success" })))
 }
