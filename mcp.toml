@@ -89,3 +89,43 @@ command = "python"
 args = ["mcp-servers/gaze/server.py"]
 transport = "stdio"
 auto_restart = false
+
+# ── Multimodal Servers (manual start) ──
+
+[[servers]]
+id = "vision.capture"
+command = "python"
+args = ["mcp-servers/capture/server.py"]
+transport = "stdio"
+auto_restart = false
+[servers.env]
+VISION_OLLAMA_URL = "http://localhost:11434"
+VISION_MODEL = "llava"
+
+[[servers]]
+id = "tool.imagegen"
+command = "python"
+args = ["mcp-servers/imagegen/server.py"]
+transport = "stdio"
+auto_restart = false
+[servers.env]
+SD_API_URL = "http://127.0.0.1:7860"
+
+[[servers]]
+id = "voice.stt"
+command = "python"
+args = ["mcp-servers/stt/server.py"]
+transport = "stdio"
+auto_restart = false
+[servers.env]
+STT_MODEL = "base"
+STT_LANGUAGE = "ja"
+
+[[servers]]
+id = "voice.tts"
+command = "python"
+args = ["mcp-servers/tts/server.py"]
+transport = "stdio"
+auto_restart = false
+[servers.env]
+TTS_RATE = "150"
