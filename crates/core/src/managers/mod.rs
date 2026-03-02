@@ -3,6 +3,7 @@ pub mod llm_proxy;
 pub mod mcp;
 pub mod mcp_protocol;
 pub mod mcp_transport;
+pub mod mcp_venv;
 mod plugin;
 mod registry;
 pub mod scheduler;
