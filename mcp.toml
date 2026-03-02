@@ -49,6 +49,11 @@ command = "python"
 args = ["mcp-servers/ks22/server.py"]
 transport = "stdio"
 auto_restart = true
+[servers.env]
+KS22_EMBEDDING_MODE = "http"
+KS22_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
+KS22_LLM_PROVIDER = "cerebras"
+KS22_LLM_MODEL = "gpt-oss-120b"
 
 [[servers]]
 id = "tool.embedding"
@@ -57,7 +62,8 @@ args = ["mcp-servers/embedding/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
-EMBEDDING_API_KEY = "${EMBEDDING_API_KEY}"
+EMBEDDING_PROVIDER = "onnx_miniml"
+EMBEDDING_HTTP_PORT = "8401"
 
 [[servers]]
 id = "tool.websearch"

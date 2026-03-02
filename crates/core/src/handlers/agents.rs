@@ -402,23 +402,27 @@ pub async fn upload_avatar(
     // Verify agent exists
     state.agent_manager.get_agent_config(&id).await?;
 
-    // Save to disk
-    let avatar_path = format!("data/avatars/{}.{}", id, ext);
+    // Save to disk (use data_dir for Tauri compatibility)
+    let avatar_path = state
+        .data_dir
+        .join("avatars")
+        .join(format!("{}.{}", id, ext));
+    let avatar_path_str = avatar_path.to_string_lossy().to_string();
     tokio::fs::write(&avatar_path, &body).await.map_err(|e| {
         AppError::Internal(anyhow::anyhow!("Failed to write avatar file: {}", e))
     })?;
 
     // Attempt vision analysis (graceful degradation)
-    let avatar_description = analyze_avatar(&state, &avatar_path).await;
+    let avatar_description = analyze_avatar(&state, &avatar_path_str).await;
 
     state
         .agent_manager
-        .set_avatar(&id, &avatar_path, avatar_description.as_deref())
+        .set_avatar(&id, &avatar_path_str, avatar_description.as_deref())
         .await?;
 
     Ok(Json(serde_json::json!({
         "status": "success",
-        "avatar_path": avatar_path,
+        "avatar_path": avatar_path_str,
         "avatar_description": avatar_description,
     })))
 }
