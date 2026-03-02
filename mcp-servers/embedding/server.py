@@ -158,17 +158,20 @@ class OnnxMiniLMProvider(EmbeddingProvider):
         model_path = os.path.join(self._model_dir, "model.onnx")
         tokenizer_path = os.path.join(self._model_dir, "tokenizer.json")
 
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(
-                f"ONNX model not found at {model_path}. "
-                f"Download with: python mcp-servers/embedding/download_model.py"
-            )
-
-        if not os.path.exists(tokenizer_path):
-            raise FileNotFoundError(
-                f"Tokenizer not found at {tokenizer_path}. "
-                f"Download with: python mcp-servers/embedding/download_model.py"
-            )
+        # Auto-download model if missing
+        if not os.path.exists(model_path) or not os.path.exists(tokenizer_path):
+            logger.info("ONNX model not found, downloading automatically...")
+            try:
+                from download_model import download
+                if not download():
+                    raise FileNotFoundError(
+                        f"Failed to download ONNX model to {self._model_dir}"
+                    )
+            except ImportError:
+                raise FileNotFoundError(
+                    f"ONNX model not found at {model_path}. "
+                    f"Download with: python mcp-servers/embedding/download_model.py"
+                )
 
         # Try DirectML (AMD GPU), fall back to CPU
         providers = []

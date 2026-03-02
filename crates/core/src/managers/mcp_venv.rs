@@ -7,28 +7,11 @@
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
-/// Resolve the project root by walking up from the current exe directory
-/// looking for `Cargo.toml` (workspace root).
+/// Resolve the project root using McpClientManager's existing detection logic.
 fn resolve_project_root() -> Option<PathBuf> {
-    // Try current working directory first
-    if let Ok(cwd) = std::env::current_dir() {
-        if cwd.join("Cargo.toml").exists() {
-            return Some(cwd);
-        }
-    }
-
-    // Walk up from executable directory
-    if let Ok(exe) = std::env::current_exe() {
-        let mut dir = exe.parent().map(Path::to_path_buf);
-        while let Some(d) = dir {
-            if d.join("Cargo.toml").exists() {
-                return Some(d);
-            }
-            dir = d.parent().map(Path::to_path_buf);
-        }
-    }
-
-    None
+    let exe = std::env::current_exe().ok()?;
+    let root = super::McpClientManager::detect_project_root(&exe)?;
+    Some(root)
 }
 
 /// Get the path to the shared venv directory.

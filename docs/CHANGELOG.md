@@ -7,6 +7,22 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.4.15] — 2026-03-02
+
+### Added
+- KS2.2 Phase 2: Vector embedding search (ONNX MiniLM, cosine similarity) activated via mcp.toml config
+- KS2.2 Phase 3: LLM-powered memory extraction — profile fact mining and episode summarization via Cerebras
+- Auto-download ONNX model on first embedding server startup
+- Memory/episode delete API (`DELETE /api/memories/:id`, `DELETE /api/episodes/:id`)
+- Memory Core dashboard: delete buttons on memory cards and episode entries
+- Auto `update_profile` trigger after episode archival
+
+### Fixed
+- Tauri: `mcp.toml` not found due to absolute path fallback not resolving to project root
+- Tauri: venv Python not resolved due to `detect_project_root` not shared across modules
+
+---
+
 ## [0.4.14] — 2026-03-02
 
 ### Added

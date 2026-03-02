@@ -275,13 +275,16 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 .to_string_lossy()
                 .to_string()
         });
-        // Resolve relative config paths against the project root (handles
+        // Resolve config path against the project root (handles
         // cargo tauri dev where CWD differs from project root).
         let config_path = {
             let p = std::path::Path::new(&config_path);
-            if p.is_relative() && !p.exists() {
+            if !p.exists() {
                 // Walk up from exe_dir to find the workspace root (Cargo.toml)
-                managers::McpClientManager::resolve_project_path(p).unwrap_or(config_path)
+                // and resolve mcp.toml relative to it.
+                let fallback = std::path::Path::new("mcp.toml");
+                managers::McpClientManager::resolve_project_path(fallback)
+                    .unwrap_or(config_path)
             } else {
                 config_path
             }
@@ -566,7 +569,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/history", get(handlers::get_history))
         .route("/metrics", get(handlers::get_metrics))
         .route("/memories", get(handlers::get_memories))
+        .route("/memories/:id", delete(handlers::delete_memory))
         .route("/episodes", get(handlers::get_episodes))
+        .route("/episodes/:id", delete(handlers::delete_episode))
         .route("/plugins", get(handlers::get_plugins))
         .route("/plugins/:id/config", get(handlers::get_plugin_config))
         .route("/agents", get(handlers::get_agents))
