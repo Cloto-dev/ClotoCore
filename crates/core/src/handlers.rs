@@ -45,7 +45,7 @@ pub async fn health_handler() -> axum::Json<serde_json::Value> {
 }
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::HeaderMap,
     response::sse::{Event, Sse},
     Json,
@@ -339,6 +339,58 @@ pub async fn get_episodes(
             Ok(Json(serde_json::json!({ "episodes": [], "count": 0 })))
         }
     }
+}
+
+/// Delete a memory by ID via KS22 MCP server.
+///
+/// **Route:** `DELETE /api/memories/:id`
+pub async fn delete_memory(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    let args = serde_json::json!({ "memory_id": id });
+    let result = state
+        .mcp_manager
+        .call_server_tool("memory.ks22", "delete_memory", args)
+        .await
+        .map_err(AppError::Internal)?;
+
+    if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) =
+        result.content.first()
+    {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
+            return Ok(Json(data));
+        }
+    }
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// Delete an episode by ID via KS22 MCP server.
+///
+/// **Route:** `DELETE /api/episodes/:id`
+pub async fn delete_episode(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    let args = serde_json::json!({ "episode_id": id });
+    let result = state
+        .mcp_manager
+        .call_server_tool("memory.ks22", "delete_episode", args)
+        .await
+        .map_err(AppError::Internal)?;
+
+    if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) =
+        result.content.first()
+    {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
+            return Ok(Json(data));
+        }
+    }
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 // ============================================================

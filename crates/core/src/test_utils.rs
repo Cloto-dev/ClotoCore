@@ -45,6 +45,7 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
         mcp_manager,
         dynamic_router,
         config,
+        data_dir: std::path::PathBuf::from("data"),
         event_history,
         metrics,
         rate_limiter,
