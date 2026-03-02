@@ -59,6 +59,7 @@ pub struct AppState {
     pub mcp_manager: Arc<managers::McpClientManager>,
     pub dynamic_router: Arc<DynamicRouter>,
     pub config: config::AppConfig,
+    pub data_dir: std::path::PathBuf,
     pub event_history: Arc<RwLock<VecDeque<Arc<ClotoEvent>>>>,
     pub metrics: Arc<managers::SystemMetrics>,
     pub rate_limiter: Arc<middleware::RateLimiter>,
@@ -193,13 +194,15 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         }
     }
 
-    // 0b. Ensure storage directories exist
-    if let Err(e) = std::fs::create_dir_all("data/attachments") {
+    // 0b. Ensure storage directories exist (relative to exe_dir for Tauri compatibility)
+    let data_dir = config::exe_dir().join("data");
+    if let Err(e) = std::fs::create_dir_all(data_dir.join("attachments")) {
         tracing::warn!("Failed to create data/attachments directory: {}", e);
     }
-    if let Err(e) = std::fs::create_dir_all("data/avatars") {
+    if let Err(e) = std::fs::create_dir_all(data_dir.join("avatars")) {
         tracing::warn!("Failed to create data/avatars directory: {}", e);
     }
+    tracing::info!("📁 Data directory: {}", data_dir.display());
 
     // 0c. Ensure Python MCP venv exists (auto-setup on first run)
     managers::mcp_venv::ensure_mcp_venv().await;
@@ -275,13 +278,16 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 .to_string_lossy()
                 .to_string()
         });
-        // Resolve relative config paths against the project root (handles
+        // Resolve config path against the project root (handles
         // cargo tauri dev where CWD differs from project root).
         let config_path = {
             let p = std::path::Path::new(&config_path);
-            if p.is_relative() && !p.exists() {
+            if !p.exists() {
                 // Walk up from exe_dir to find the workspace root (Cargo.toml)
-                managers::McpClientManager::resolve_project_path(p).unwrap_or(config_path)
+                // and resolve mcp.toml relative to it.
+                let fallback = std::path::Path::new("mcp.toml");
+                managers::McpClientManager::resolve_project_path(fallback)
+                    .unwrap_or(config_path)
             } else {
                 config_path
             }
@@ -325,6 +331,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         mcp_manager: mcp_manager.clone(),
         dynamic_router: dynamic_router.clone(),
         config: config.clone(),
+        data_dir: data_dir.clone(),
         event_history: event_history.clone(),
         metrics: metrics.clone(),
         rate_limiter: rate_limiter.clone(),
@@ -566,7 +573,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/history", get(handlers::get_history))
         .route("/metrics", get(handlers::get_metrics))
         .route("/memories", get(handlers::get_memories))
+        .route("/memories/:id", delete(handlers::delete_memory))
         .route("/episodes", get(handlers::get_episodes))
+        .route("/episodes/:id", delete(handlers::delete_episode))
         .route("/plugins", get(handlers::get_plugins))
         .route("/plugins/:id/config", get(handlers::get_plugin_config))
         .route("/agents", get(handlers::get_agents))
