@@ -7,6 +7,19 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.4.14] — 2026-03-02
+
+### Added
+- Auto-setup MCP Python venv on first kernel startup (`mcp_venv.rs`)
+- Auto-resolve `python` command to venv Python in MCP transport (no venv activation needed)
+- Cerebras tool calling: `gpt-oss-120b` now exposes `think_with_tools`
+- Missing `pyproject.toml` for ollama, websearch, research MCP servers
+
+### Fixed
+- Agents using Cerebras engine could not use MCP tools (terminal, etc.) due to `supports_tools=False`
+
+---
+
 ## [0.4.13] — 2026-03-02
 
 ### Added

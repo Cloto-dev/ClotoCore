@@ -9,6 +9,22 @@ use tracing::{error, info, warn};
 /// Allowed commands for MCP server execution (security whitelist)
 const ALLOWED_COMMANDS: &[&str] = &["npx", "node", "python", "python3", "deno", "bun"];
 
+/// If command is python/python3, resolve to venv Python if available.
+/// Returns (resolved_command, is_venv) tuple.
+fn resolve_python_command(command: &str) -> (String, bool) {
+    if command != "python" && command != "python3" {
+        return (command.to_string(), false);
+    }
+
+    if let Some(venv_python) = super::mcp_venv::resolve_venv_python() {
+        let path_str = venv_python.to_string_lossy().to_string();
+        info!("Resolved {} → {}", command, path_str);
+        return (path_str, true);
+    }
+
+    (command.to_string(), false)
+}
+
 /// Validate command against whitelist (bare command names only, no paths)
 pub fn validate_command(command: &str) -> Result<String> {
     if command.contains('/') || command.contains('\\') {
@@ -50,9 +66,15 @@ impl StdioTransport {
     ) -> Result<Self> {
         info!("Starting MCP Server: {} {:?}", command, args);
 
-        let validated_command = validate_command(command).context("Command validation failed")?;
+        // Resolve python/python3 to venv Python if available
+        let (resolved, is_venv) = resolve_python_command(command);
+        let final_command = if is_venv {
+            resolved // Venv path is internally generated — skip whitelist validation
+        } else {
+            validate_command(command).context("Command validation failed")?
+        };
 
-        let mut cmd = Command::new(validated_command);
+        let mut cmd = Command::new(&final_command);
         cmd.args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
