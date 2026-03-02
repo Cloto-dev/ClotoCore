@@ -1,16 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { memo } from 'react';
-import { Brain, Sparkles, History, User } from 'lucide-react';
+import { Brain, Sparkles, History, User, Trash2 } from 'lucide-react';
 import { ViewHeader } from './ViewHeader';
 import { Memory, Episode } from '../types';
 import { SystemHistory } from './SystemHistory';
 import { useEventStream } from '../hooks/useEventStream';
 import { useMetrics, Metrics } from '../hooks/useMetrics';
+import { useApiKey } from '../contexts/ApiKeyContext';
 import { api, EVENTS_URL } from '../services/api';
 
 export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { isWindowMode?: boolean }) {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const { apiKey } = useApiKey();
+  const effectiveKey = apiKey || '';
   const { metrics: hookMetrics } = useMetrics();
   const metrics: Metrics = hookMetrics ?? { ram_usage: 'N/A', total_memories: 0, total_requests: 0, total_episodes: 0 };
 
@@ -49,6 +52,24 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const handleDeleteMemory = async (id: number) => {
+    try {
+      await api.deleteMemory(id, effectiveKey);
+      setMemories(prev => prev.filter(m => m.id !== id));
+    } catch (e) {
+      console.error('Failed to delete memory:', e);
+    }
+  };
+
+  const handleDeleteEpisode = async (id: number) => {
+    try {
+      await api.deleteEpisode(id, effectiveKey);
+      setEpisodes(prev => prev.filter(e => e.id !== id));
+    } catch (e) {
+      console.error('Failed to delete episode:', e);
+    }
+  };
 
   useEventStream(EVENTS_URL, (data) => {
     if (data.type === 'MessageReceived' || data.type === 'VisionUpdated' || data.type === 'SystemNotification') {
@@ -104,7 +125,13 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                   </div>
                   <div className="mt-2 pt-2 border-t border-edge-subtle flex justify-between items-center">
                     <span className="text-[9px] text-content-tertiary font-bold uppercase tracking-widest">{mem.created_at}</span>
-                    <Sparkles size={12} className="text-content-muted group-hover:text-brand" />
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteMemory(mem.id); }}
+                      className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+                      title="Delete memory"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 </div>
               )) : (
@@ -124,9 +151,18 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
             <div className="space-y-3">
               {episodes.length > 0 ? episodes.map((epi) => (
                 <div key={epi.id} className="bg-glass-strong backdrop-blur-sm p-3 rounded-lg border-l-2 border-brand shadow-sm hover:translate-x-1 transition-transform group">
-                  <div className="text-[10px] font-black text-brand mb-1 uppercase tracking-wider flex justify-between">
+                  <div className="text-[10px] font-black text-brand mb-1 uppercase tracking-wider flex justify-between items-center">
                     <span>{epi.created_at || "LOG: RECENT"}</span>
-                    <span className="text-content-muted font-mono">{epi.agent_id}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-content-muted font-mono">{epi.agent_id}</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteEpisode(epi.id); }}
+                        className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+                        title="Delete episode"
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                    </div>
                   </div>
                   {epi.keywords && (
                     <div className="text-[9px] font-mono text-content-muted mb-1">{epi.keywords}</div>

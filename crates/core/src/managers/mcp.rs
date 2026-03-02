@@ -1368,7 +1368,7 @@ impl McpClientManager {
     /// Walk up from the given path to find the project root (directory
     /// containing `Cargo.toml`).  Returns `None` in production deployments
     /// where no workspace marker exists.
-    fn detect_project_root(from: &std::path::Path) -> Option<std::path::PathBuf> {
+    pub(crate) fn detect_project_root(from: &std::path::Path) -> Option<std::path::PathBuf> {
         let start = if from.is_file() { from.parent()? } else { from };
         let canonical = std::fs::canonicalize(start).ok()?;
         // Strip Windows UNC prefix (\\?\) that canonicalize() adds — Python cannot handle it
