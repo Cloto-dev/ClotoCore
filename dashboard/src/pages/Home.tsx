@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Activity, Database, MessageSquare, Puzzle, Clock, Settings, Cpu, Brain, Zap, Shield, Eye, Power, Play, Pause, RefreshCw, LucideIcon } from 'lucide-react';
 import { InteractiveGrid } from '../components/InteractiveGrid';
 import { ViewHeader } from '../components/ViewHeader';
+import { HelpModal } from '../components/HelpModal';
 import { SecurityGuard } from '../components/SecurityGuard';
 import { SettingsView } from '../components/SettingsView';
 import { api } from '../services/api';
@@ -18,6 +19,7 @@ export function Home() {
   const navigate = useNavigate();
 
   const [activeMainView, setActiveMainView] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const handleItemClick = async (item: any) => {
     if (item.path.startsWith('api:')) {
@@ -69,7 +71,7 @@ export function Home() {
       ref={containerRef}
       className="min-h-screen bg-surface-base flex flex-col overflow-hidden relative font-sans text-content-primary select-none"
     >
-      <ViewHeader icon={Cpu} title="Cloto System" />
+      <ViewHeader icon={Cpu} title="Cloto System" onHelp={() => setHelpOpen(true)} />
       <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-surface-primary via-surface-secondary to-edge opacity-90 pointer-events-none" />
 
@@ -87,6 +89,17 @@ export function Home() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Help Modal */}
+      {helpOpen && (
+        <HelpModal
+          onClose={() => setHelpOpen(false)}
+          onAskAgent={() => {
+            setHelpOpen(false);
+            setActiveMainView('sandbox');
+          }}
+        />
       )}
 
       {/* Security Layer */}
