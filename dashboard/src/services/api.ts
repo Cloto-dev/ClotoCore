@@ -65,7 +65,7 @@ export const api = {
       .then(r => { if (!r.ok) throw new Error(`${r.statusText}`); return r.json() as Promise<T>; }),
   put: (path: string, body: unknown, apiKey: string) =>
     mutate(path, 'PUT', path, body, { 'X-API-Key': apiKey }).then(r => r.json()),
-  updateAgent: (id: string, payload: { default_engine_id?: string, metadata: Record<string, string> }, apiKey: string) =>
+  updateAgent: (id: string, payload: { name?: string, description?: string, default_engine_id?: string, metadata: Record<string, string> }, apiKey: string) =>
     mutate(`/agents/${id}`, 'POST', 'update agent', payload, { 'X-API-Key': apiKey }).then(() => {}),
 
   getPluginPermissions: async (pluginId: string, apiKey: string): Promise<string[]> => {
@@ -235,4 +235,22 @@ export const api = {
 
   deleteLlmProviderKey: (providerId: string, apiKey: string) =>
     mutate(`/llm/providers/${encodeURIComponent(providerId)}/key`, 'DELETE', 'delete provider key', undefined, { 'X-API-Key': apiKey }).then(() => {}),
+
+  // Avatar Management
+  async uploadAvatar(agentId: string, file: File, apiKey: string): Promise<{ avatar_description?: string }> {
+    const res = await fetch(`${API_BASE}/agents/${encodeURIComponent(agentId)}/avatar`, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type, 'X-API-Key': apiKey },
+      body: file,
+    });
+    await throwIfNotOk(res, 'upload avatar');
+    return res.json();
+  },
+
+  deleteAvatar: (agentId: string, apiKey: string) =>
+    mutate(`/agents/${encodeURIComponent(agentId)}/avatar`, 'DELETE', 'delete avatar', undefined, { 'X-API-Key': apiKey }).then(() => {}),
+
+  getAvatarUrl(agentId: string): string {
+    return `${API_BASE}/agents/${encodeURIComponent(agentId)}/avatar`;
+  },
 };

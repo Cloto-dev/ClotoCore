@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { User, Cpu } from 'lucide-react';
 import { AgentMetadata } from '../types';
+import { api } from '../services/api';
 
 export type AgentType = 'ai' | 'container';
 
@@ -31,8 +33,21 @@ export function agentTypeColor(type: AgentType): string {
   return type === 'ai' ? getBrandHex() : CONTAINER_COLOR;
 }
 
-/** Render the appropriate icon for an agent */
+/** Render the appropriate icon for an agent (avatar image or fallback icon) */
 export function AgentIcon({ agent, size = 20 }: { agent: AgentMetadata; size?: number }) {
+  const [imgError, setImgError] = useState(false);
+
+  if (agent.metadata?.has_avatar === 'true' && !imgError) {
+    return (
+      <img
+        src={api.getAvatarUrl(agent.id)}
+        alt={agent.name}
+        className="rounded-full object-cover"
+        style={{ width: size, height: size }}
+        onError={() => setImgError(true)}
+      />
+    );
+  }
   return isAiAgent(agent) ? <User size={size} /> : <Cpu size={size} />;
 }
 

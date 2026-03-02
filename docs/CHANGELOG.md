@@ -7,6 +7,25 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.4.13] — 2026-03-02
+
+### Added
+- Agent avatar: image upload/serve/delete API (`POST/GET/DELETE /api/agents/:id/avatar`)
+- Avatar vision analysis: auto-analyze via vision.capture MCP, description injected into LLM system prompt
+- Agent rename: editable name/description fields in agent settings UI
+- Clipboard paste: Ctrl+V image attachment support in chat input
+- Window maximize on startup (Tauri)
+- DB migration: `avatar_path`, `avatar_description` columns on agents table
+
+### Fixed
+- Cursor dot remnant when mouse leaves window (add `mouseleave`/`blur` handlers)
+- Mermaid diagram text visibility on GitHub dark theme (`color:#333`)
+
+### Quality
+- YOLO mode issues registered (bug-170, 171, 172)
+
+---
+
 ## [0.4.8] — 2026-03-01
 
 ### Added
