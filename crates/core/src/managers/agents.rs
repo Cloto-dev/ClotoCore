@@ -109,7 +109,19 @@ impl AgentManager {
         password: Option<&str>,
     ) -> anyhow::Result<String> {
         // K-01: Return the actual DB id_str instead of a mismatched ClotoId
-        let id_str = format!("agent.{}", name.to_lowercase().replace(' ', "_"));
+        // Sanitize: keep alphanumeric, CJK, underscores, hyphens; replace everything else
+        let sanitized: String = name
+            .to_lowercase()
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' || c == '-' || c > '\u{2E7F}' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let id_str = format!("agent.{}", sanitized);
         let metadata_json = serde_json::to_string(&metadata)?;
         let capabilities_json = serde_json::to_string(&required_capabilities)?;
         let now_ms = chrono::Utc::now().timestamp_millis();
