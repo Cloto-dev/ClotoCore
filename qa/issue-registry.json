@@ -218,6 +218,42 @@
       "pattern": "def do_store",
       "expected": "present",
       "status": "open"
+    },
+    {
+      "id": "bug-170",
+      "summary": "No test coverage for YOLO mode functionality",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-02T00:00:00Z",
+      "version": "0.4.12",
+      "commit": "bc2ea54",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "AtomicBool::new\\(yolo",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-171",
+      "summary": "YOLO mode state not persisted across kernel restarts (in-memory only)",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-02T00:00:00Z",
+      "version": "0.4.12",
+      "commit": "bc2ea54",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "AtomicBool::new\\(yolo",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-172",
+      "summary": "YOLO dashboard warning does not clarify scope (MCP connection only, not tool execution)",
+      "severity": "LOW",
+      "discovered": "2026-03-02T00:00:00Z",
+      "version": "0.4.12",
+      "commit": "bc2ea54",
+      "file": "dashboard/src/components/settings/AdvancedSection.tsx",
+      "pattern": "auto-approved without manual review",
+      "expected": "present",
+      "status": "open"
     }
   ]
 }
