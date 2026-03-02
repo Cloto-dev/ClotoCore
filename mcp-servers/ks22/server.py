@@ -3,8 +3,9 @@ Cloto MCP Server: KS2.2 Memory
 Persistent memory with FTS5 full-text search and pluggable vector embedding.
 Ported from plugins/ks22/src/lib.rs + ai_karin KS2.1 architecture.
 
-Phase 1: store, recall (FTS5 + keyword), update_profile (stub), archive_episode (simple)
-Phase 2: Vector embedding integration (cosine similarity search)
+Phase 1: store, recall (FTS5 + keyword) — COMPLETE
+Phase 2: Vector embedding integration (cosine similarity search) — COMPLETE
+Phase 3: LLM-powered memory extraction (profile + episode summarization) — COMPLETE
 """
 
 import asyncio
@@ -17,6 +18,7 @@ import hashlib
 from datetime import datetime, timezone
 
 import aiosqlite
+import httpx
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
@@ -42,6 +44,13 @@ EMBEDDING_MODEL = os.environ.get("KS22_EMBEDDING_MODEL", "text-embedding-3-small
 
 # Vector search threshold (cosine similarity, 0.0-1.0)
 VECTOR_MIN_SIMILARITY = float(os.environ.get("KS22_VECTOR_MIN_SIMILARITY", "0.3"))
+
+# LLM proxy configuration (for Phase 3: memory extraction)
+LLM_PROXY_URL = os.environ.get(
+    "KS22_LLM_PROXY_URL", "http://127.0.0.1:8082/v1/chat/completions"
+)
+LLM_PROVIDER = os.environ.get("KS22_LLM_PROVIDER", "cerebras")
+LLM_MODEL = os.environ.get("KS22_LLM_MODEL", "gpt-oss-120b")
 
 # ============================================================
 # Embedding Client
@@ -148,6 +157,61 @@ class EmbeddingClient:
 
 
 _embedding_client: EmbeddingClient | None = None
+
+
+# ============================================================
+# LLM Proxy (Phase 3: Memory Extraction)
+# ============================================================
+
+
+async def call_llm_proxy(prompt: str, system: str = "You are a memory extraction assistant.") -> str | None:
+    """Call the kernel LLM proxy for memory extraction tasks.
+
+    Returns the LLM response text, or None on failure (graceful degradation).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                LLM_PROXY_URL,
+                json={
+                    "model": LLM_MODEL,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "stream": False,
+                },
+                headers={
+                    "X-LLM-Provider": LLM_PROVIDER,
+                    "Content-Type": "application/json",
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.warning("LLM proxy call failed: %s", e)
+        return None
+
+
+def _format_history(history: list[dict]) -> str:
+    """Format conversation history into readable text for LLM prompts."""
+    lines = []
+    for msg in history:
+        content = msg.get("content", "")
+        if not content:
+            continue
+        source = msg.get("source", {})
+        if isinstance(source, str):
+            try:
+                source = json.loads(source)
+            except (json.JSONDecodeError, TypeError):
+                source = {}
+        if isinstance(source, dict) and ("User" in source or "user" in source):
+            lines.append(f"[User] {content}")
+        else:
+            lines.append(f"[Agent] {content}")
+    return "\n".join(lines)
+
 
 # ============================================================
 # Database
@@ -561,27 +625,47 @@ async def _search_memories_keyword(
 
 
 async def do_update_profile(agent_id: str, history: list[dict]) -> dict:
-    """Phase 1 stub: store raw summary as profile (no LLM extraction)."""
+    """Extract user facts from conversation via LLM and merge into profile."""
     db = await get_db()
 
     if not history:
         return {"ok": True, "profiles_updated": 0}
 
-    # Simple: concatenate user messages as profile content
-    user_lines = []
-    for msg in history:
-        source = msg.get("source", {})
-        if isinstance(source, str):
-            source = _try_parse_json(source)
-        if "User" in source or "user" in source:
-            content = msg.get("content", "")
-            if content:
-                user_lines.append(content)
-
-    if not user_lines:
+    conversation = _format_history(history)
+    if not conversation.strip():
         return {"ok": True, "profiles_updated": 0}
 
-    profile_content = "\n".join(user_lines[-10:])  # Keep last 10 messages
+    # Fetch existing profile
+    row = await db.execute_fetchone(
+        "SELECT content FROM profiles WHERE agent_id = ? AND user_id = ''",
+        (agent_id,),
+    )
+    existing = row[0] if row else ""
+
+    # LLM-driven fact extraction and merge
+    prompt = (
+        "Extract facts about the user from the following conversation.\n"
+        "Output a concise profile in bullet-point format.\n"
+        "MERGE with existing facts — keep all existing information unless explicitly contradicted.\n\n"
+        f"Existing profile:\n{existing or '(none)'}\n\n"
+        f"Conversation:\n{conversation}"
+    )
+    result = await call_llm_proxy(prompt)
+
+    if result is None:
+        # LLM unavailable — fallback to simple concatenation
+        user_lines = []
+        for msg in history:
+            source = msg.get("source", {})
+            if isinstance(source, str):
+                source = _try_parse_json(source)
+            if isinstance(source, dict) and ("User" in source or "user" in source):
+                content = msg.get("content", "")
+                if content:
+                    user_lines.append(content)
+        if not user_lines:
+            return {"ok": True, "profiles_updated": 0}
+        result = "\n".join(user_lines[-10:])
 
     await db.execute(
         """INSERT INTO profiles (agent_id, user_id, content, updated_at)
@@ -589,54 +673,70 @@ async def do_update_profile(agent_id: str, history: list[dict]) -> dict:
            ON CONFLICT(agent_id, user_id) DO UPDATE SET
                content = excluded.content,
                updated_at = excluded.updated_at""",
-        (agent_id, profile_content),
+        (agent_id, result),
     )
     await db.commit()
     return {"ok": True, "profiles_updated": 1}
 
 
 async def do_archive_episode(agent_id: str, history: list[dict]) -> dict:
-    """Simple concatenation summary + keyword extraction (no LLM)."""
+    """Summarize conversation via LLM and archive as episode with keywords + embedding."""
     db = await get_db()
 
     if not history:
         return {"ok": True, "episode_id": None}
 
-    # Build text and extract simple keywords
-    lines = []
-    word_freq: dict[str, int] = {}
-    for msg in history:
-        content = msg.get("content", "")
-        if content:
-            source = msg.get("source", {})
-            if isinstance(source, str):
-                source = _try_parse_json(source)
-            speaker = "User" if ("User" in source or "user" in source) else "Agent"
-            lines.append(f"[{speaker}] {content}")
-            # Simple word frequency for keywords
-            for word in re.findall(r'\b\w{3,}\b', content.lower()):
-                word_freq[word] = word_freq.get(word, 0) + 1
-
-    if not lines:
+    conversation = _format_history(history)
+    if not conversation.strip():
         return {"ok": True, "episode_id": None}
 
-    # Summary: first and last lines + total count
-    summary_parts = []
-    if len(lines) <= 5:
-        summary_parts = lines
-    else:
-        summary_parts = lines[:2] + [f"... ({len(lines) - 4} messages) ..."] + lines[-2:]
-    summary = "\n".join(summary_parts)
-
-    # Keywords: top 10 by frequency (excluding common words)
-    stopwords = {"the", "and", "for", "that", "this", "with", "are", "was", "has", "have",
-                 "not", "but", "you", "your", "can", "will", "from", "they", "been", "more"}
-    sorted_words = sorted(
-        ((w, c) for w, c in word_freq.items() if w not in stopwords),
-        key=lambda x: x[1],
-        reverse=True,
+    # LLM-driven summarization
+    summary_prompt = (
+        "Summarize the following conversation concisely (800-1200 characters).\n"
+        "Preserve proper nouns, dates, decisions, and key technical details.\n\n"
+        f"{conversation}"
     )
-    keywords = " ".join(w for w, _ in sorted_words[:10])
+    summary = await call_llm_proxy(summary_prompt)
+
+    if summary is None:
+        # LLM unavailable — fallback to simple concatenation
+        lines = []
+        for msg in history:
+            content = msg.get("content", "")
+            if content:
+                source = msg.get("source", {})
+                if isinstance(source, str):
+                    source = _try_parse_json(source)
+                speaker = "User" if isinstance(source, dict) and ("User" in source or "user" in source) else "Agent"
+                lines.append(f"[{speaker}] {content}")
+        if len(lines) <= 5:
+            summary = "\n".join(lines)
+        else:
+            summary = "\n".join(lines[:2] + [f"... ({len(lines) - 4} messages) ..."] + lines[-2:])
+
+    # LLM-driven keyword extraction
+    keyword_prompt = (
+        "Extract 5-10 search keywords from the following summary.\n"
+        "Choose words suitable for full-text search (FTS5). Output space-separated keywords only.\n\n"
+        f"{summary}"
+    )
+    keywords_result = await call_llm_proxy(keyword_prompt)
+
+    if keywords_result is None:
+        # Fallback: word frequency
+        word_freq: dict[str, int] = {}
+        for msg in history:
+            for word in re.findall(r'\b\w{3,}\b', msg.get("content", "").lower()):
+                word_freq[word] = word_freq.get(word, 0) + 1
+        stopwords = {"the", "and", "for", "that", "this", "with", "are", "was", "has", "have",
+                     "not", "but", "you", "your", "can", "will", "from", "they", "been", "more"}
+        sorted_words = sorted(
+            ((w, c) for w, c in word_freq.items() if w not in stopwords),
+            key=lambda x: x[1], reverse=True,
+        )
+        keywords = " ".join(w for w, _ in sorted_words[:10])
+    else:
+        keywords = keywords_result.strip()
 
     # Timestamps
     timestamps = [msg.get("timestamp", "") for msg in history if msg.get("timestamp")]
@@ -797,6 +897,34 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="delete_memory",
+            description="Delete a single memory by ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "memory_id": {
+                        "type": "integer",
+                        "description": "Memory ID to delete",
+                    },
+                },
+                "required": ["memory_id"],
+            },
+        ),
+        Tool(
+            name="delete_episode",
+            description="Delete a single episode by ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "episode_id": {
+                        "type": "integer",
+                        "description": "Episode ID to delete",
+                    },
+                },
+                "required": ["episode_id"],
+            },
+        ),
     ]
 
 
@@ -833,6 +961,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = await do_list_episodes(
                 arguments.get("agent_id", ""),
                 arguments.get("limit", 50),
+            )
+        elif name == "delete_memory":
+            result = await do_delete_memory(
+                arguments.get("memory_id", 0),
+            )
+        elif name == "delete_episode":
+            result = await do_delete_episode(
+                arguments.get("episode_id", 0),
             )
         else:
             result = {"error": f"Unknown tool: {name}"}
@@ -904,6 +1040,26 @@ async def do_list_episodes(agent_id: str, limit: int) -> dict:
             "created_at": row[6],
         })
     return {"episodes": episodes, "count": len(episodes)}
+
+
+async def do_delete_memory(memory_id: int) -> dict:
+    """Delete a single memory by ID."""
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+    await db.commit()
+    if cursor.rowcount == 0:
+        return {"error": f"Memory {memory_id} not found"}
+    return {"ok": True, "deleted_id": memory_id}
+
+
+async def do_delete_episode(episode_id: int) -> dict:
+    """Delete a single episode by ID (FTS5 triggers handle index cleanup)."""
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
+    await db.commit()
+    if cursor.rowcount == 0:
+        return {"error": f"Episode {episode_id} not found"}
+    return {"ok": True, "deleted_id": episode_id}
 
 
 async def main():

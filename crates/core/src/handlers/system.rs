@@ -1217,6 +1217,23 @@ impl SystemHandler {
                     message_count = unarchived.len(),
                     "📚 Auto-archived episode"
                 );
+
+                // Also update user profile after successful archival
+                match mcp
+                    .call_server_tool(
+                        server_id,
+                        "update_profile",
+                        serde_json::json!({"agent_id": agent_id, "history": history}),
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        info!(agent_id = %agent_id, "📝 Auto-updated user profile");
+                    }
+                    Err(e) => {
+                        warn!(agent_id = %agent_id, error = %e, "⚠️ Profile update failed");
+                    }
+                }
             }
             Err(e) => {
                 warn!(agent_id = %agent_id, error = %e, "⚠️ Episode archival failed");

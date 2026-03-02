@@ -253,4 +253,11 @@ export const api = {
   getAvatarUrl(agentId: string): string {
     return `${API_BASE}/agents/${encodeURIComponent(agentId)}/avatar`;
   },
+
+  // Memory Management
+  deleteMemory: (memoryId: number, apiKey: string) =>
+    mutate(`/memories/${memoryId}`, 'DELETE', 'delete memory', undefined, { 'X-API-Key': apiKey }).then(() => {}),
+
+  deleteEpisode: (episodeId: number, apiKey: string) =>
+    mutate(`/episodes/${episodeId}`, 'DELETE', 'delete episode', undefined, { 'X-API-Key': apiKey }).then(() => {}),
 };
