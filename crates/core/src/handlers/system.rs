@@ -134,6 +134,9 @@ impl SystemHandler {
             .await
             .ok();
 
+        // 1-B. Image Analysis: analyze attached images before routing to engine
+        let msg = self.maybe_analyze_images(msg).await;
+
         // 2. メモリからのコンテキスト取得 (Dual Dispatch: Rust Plugin → MCP Server)
         let memory_plugin = if let Some(preferred_id) = agent.metadata.get("preferred_memory") {
             self.registry.get_engine(preferred_id).await
@@ -876,6 +879,115 @@ impl SystemHandler {
     }
 
     /// Extract text content from MCP think() response.
+    /// Analyze image attachments via vision.capture MCP server.
+    /// Prepends analysis text to the message content so the LLM engine
+    /// can "see" images even though it only receives text.
+    async fn maybe_analyze_images(
+        &self,
+        mut msg: cloto_shared::ClotoMessage,
+    ) -> cloto_shared::ClotoMessage {
+        // Fetch attachments from chat persistence DB
+        let Ok(attachments) =
+            crate::db::get_attachments_for_message(&self.agent_manager.pool, &msg.id).await
+        else {
+            return msg;
+        };
+
+        let image_atts: Vec<_> = attachments
+            .iter()
+            .filter(|a| a.mime_type.starts_with("image/"))
+            .collect();
+
+        if image_atts.is_empty() {
+            return msg;
+        }
+
+        let Some(ref mcp) = self.registry.mcp_manager else {
+            return msg;
+        };
+
+        let mut analyses = Vec::new();
+        for att in &image_atts {
+            // Get image bytes
+            let image_bytes = if let Some(ref data) = att.inline_data {
+                data.clone()
+            } else if let Some(ref path) = att.disk_path {
+                match tokio::fs::read(path).await {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                }
+            } else {
+                continue;
+            };
+
+            // Write to temp file for vision MCP
+            let ext = att.mime_type.strip_prefix("image/").unwrap_or("png");
+            let ext = if ext == "jpeg" { "jpg" } else { ext };
+            let temp_path = format!(
+                "data/tmp_vision_{}.{ext}",
+                uuid::Uuid::new_v4()
+            );
+            if tokio::fs::write(&temp_path, &image_bytes).await.is_err() {
+                continue;
+            }
+
+            let abs_path = match std::path::Path::new(&temp_path).canonicalize() {
+                Ok(p) => p.to_string_lossy().to_string(),
+                Err(_) => temp_path.clone(),
+            };
+
+            let args = serde_json::json!({
+                "file_path": abs_path,
+                "prompt": format!(
+                    "Analyze this image. The user said: '{}'. Describe what you see in detail.",
+                    msg.content
+                )
+            });
+
+            match mcp
+                .call_server_tool("vision.capture", "analyze_image", args)
+                .await
+            {
+                Ok(result) => {
+                    if let Ok(text) = Self::extract_mcp_think_content(&result) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if let Some(response) = json.get("response").and_then(|r| r.as_str()) {
+                                analyses.push(response.to_string());
+                            }
+                        } else {
+                            analyses.push(text);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        msg_id = %msg.id,
+                        "Image analysis failed, continuing without vision context"
+                    );
+                }
+            }
+
+            // Clean up temp file
+            let _ = tokio::fs::remove_file(&temp_path).await;
+        }
+
+        if !analyses.is_empty() {
+            msg.content = format!(
+                "[Image Analysis]\n{}\n\n[User Message]\n{}",
+                analyses.join("\n---\n"),
+                msg.content
+            );
+            tracing::info!(
+                msg_id = %msg.id,
+                image_count = image_atts.len(),
+                "Prepended vision analysis to message content"
+            );
+        }
+
+        msg
+    }
+
     fn extract_mcp_think_content(
         result: &crate::managers::mcp_protocol::CallToolResult,
     ) -> anyhow::Result<String> {

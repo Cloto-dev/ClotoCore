@@ -1228,7 +1228,7 @@ After subscription, the server emits events as **Layer 2 protocol notifications*
     "data": {
       "tokens_used": 1500,
       "tokens_remaining": 8500,
-      "model": "llama3.1-70b"
+      "model": "gpt-oss-120b"
     }
   }
 }
