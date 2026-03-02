@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Minus, Square, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, HelpCircle, Minus, Square, X, type LucideIcon } from 'lucide-react';
 import { isTauri, minimizeWindow, toggleMaximizeWindow, closeWindow } from '../lib/tauri';
 import { useConnection } from '../contexts/ConnectionContext';
 
@@ -8,9 +8,10 @@ interface ViewHeaderProps {
   title: string;
   onBack?: (() => void) | string;
   right?: React.ReactNode;
+  onHelp?: () => void;
 }
 
-export function ViewHeader({ icon: Icon, title, onBack, right }: ViewHeaderProps) {
+export function ViewHeader({ icon: Icon, title, onBack, right, onHelp }: ViewHeaderProps) {
   const { connected, checking } = useConnection();
 
   return (
@@ -31,8 +32,13 @@ export function ViewHeader({ icon: Icon, title, onBack, right }: ViewHeaderProps
       <h1 className="text-xs font-mono uppercase tracking-widest text-content-primary">{title}</h1>
       {right && <div className="ml-auto flex items-center gap-3">{right}</div>}
 
-      {/* Connection indicator + Window Controls */}
+      {/* Help + Connection indicator + Window Controls */}
       <div className={`flex items-center gap-2 pr-1 ${right ? '' : 'ml-auto'}`}>
+        {onHelp && (
+          <button onClick={onHelp} className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors" title="Help">
+            <HelpCircle size={14} />
+          </button>
+        )}
         {/* Connection status dot */}
         {!checking && (
           <div className="relative group" title={connected ? 'Backend connected' : 'Backend unreachable'}>
