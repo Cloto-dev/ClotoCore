@@ -19,7 +19,7 @@ struct AgentRow {
 
 #[derive(Clone)]
 pub struct AgentManager {
-    pool: SqlitePool,
+    pub(crate) pool: SqlitePool,
 }
 
 impl AgentManager {

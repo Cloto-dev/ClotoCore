@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Activity, Send, Zap, User as UserIcon, RotateCcw, ArrowLeft } from 'lucide-react';
-import { AgentMetadata, ClotoMessage, ChatMessage } from '../types';
+import { Activity, Zap, User as UserIcon, RotateCcw, ArrowLeft, Volume2 } from 'lucide-react';
+import { AgentMetadata, ClotoMessage, ChatMessage, ContentBlock } from '../types';
 import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { useLongPress } from '../hooks/useLongPress';
 import { MessageContent } from './ContentBlockView';
+import { ChatInputBar } from './ChatInputBar';
 import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { SkeletonThinking } from './SkeletonThinking';
@@ -68,7 +69,6 @@ async function migrateLegacyData(agentId: string, apiKey: string) {
 export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => void }) {
   const { apiKey } = useApiKey();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
@@ -269,8 +269,10 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     }
   }, [artifactPanel.addArtifact]);
 
-  const sendMessage = async () => {
-    if (!input.trim() || isTyping || pendingResponse) return;
+  const sendMessage = async (blocks?: ContentBlock[], rawText?: string) => {
+    const text = rawText ?? '';
+    const contentBlocks = blocks ?? (text.trim() ? [{ type: 'text' as const, text: text.trim() }] : []);
+    if (contentBlocks.length === 0 || isTyping || pendingResponse) return;
     artifactPanel.clearArtifacts();
 
     const msgId = Date.now().toString();
@@ -279,43 +281,43 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       agent_id: agent.id,
       user_id: 'default',
       source: 'user',
-      content: [{ type: 'text', text: input }],
+      content: contentBlocks,
       created_at: Date.now(),
     };
 
     setMessages(prev => [...prev, userMsg]);
-    setInput('');
     setIsTyping(true);
     setThinkingSteps([]);
     sendTimestampRef.current = Date.now();
 
+    // Extract text content for event bus (which expects a plain string)
+    const textContent = contentBlocks
+      .filter(b => b.type === 'text')
+      .map(b => b.text || '')
+      .join(' ');
+
     try {
-      // Persist user message first — cancel send if this fails
       await api.postChatMessage(agent.id, {
         id: userMsg.id,
         source: 'user',
         content: userMsg.content,
       }, apiKey);
 
-      // Send to event bus for agent processing
       const clotoMsg: ClotoMessage = {
         id: msgId,
         source: { type: 'User', id: 'user', name: 'User' },
         target_agent: agent.id,
-        content: input,
+        content: textContent || '[attachment]',
         timestamp: new Date().toISOString(),
         metadata: { target_agent_id: agent.id }
       };
 
       await api.postChat(clotoMsg, apiKey);
     } catch (err) {
-      // Rollback: remove the user message from UI and show error
       setMessages(prev => prev.filter(m => m.id !== msgId));
-      setInput(input); // Restore input so user can retry
       setIsTyping(false);
       const errMsg = err instanceof Error ? err.message : 'Failed to send message';
       console.error("Failed to send message:", errMsg);
-      // Show transient error in UI
       const errId = `err-${msgId}`;
       const errBubble: ChatMessage = {
         id: errId,
@@ -327,6 +329,24 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       };
       setMessages(prev => [...prev, errBubble]);
       setTimeout(() => setMessages(prev => prev.filter(m => m.id !== errId)), 5000);
+    }
+  };
+
+  const speakText = async (content: ContentBlock[]) => {
+    const text = content.filter(b => b.type === 'text').map(b => b.text || '').join(' ');
+    if (!text.trim()) return;
+    try {
+      const clotoMsg: ClotoMessage = {
+        id: Date.now().toString(),
+        source: { type: 'User', id: 'system', name: 'System' },
+        target_agent: agent.id,
+        content: `Use the speak tool to say aloud: ${text}`,
+        timestamp: new Date().toISOString(),
+        metadata: { target_agent_id: agent.id, tool_hint: 'speak' }
+      };
+      await api.postChat(clotoMsg, apiKey);
+    } catch (err) {
+      console.error('TTS request failed:', err);
     }
   };
 
@@ -409,9 +429,20 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                     : 'pt-1 text-content-primary'
                 }`}>
                   <MessageContent content={msg.content} />
-                  {!isUser && msg.metadata?.elapsed_secs != null && (
-                    <div className="mt-2 text-xs font-mono text-content-tertiary">
-                      {msg.metadata.elapsed_secs}s
+                  {!isUser && (
+                    <div className="mt-2 flex items-center gap-2">
+                      {msg.metadata?.elapsed_secs != null && (
+                        <span className="text-xs font-mono text-content-tertiary">
+                          {msg.metadata.elapsed_secs}s
+                        </span>
+                      )}
+                      <button
+                        onClick={() => speakText(msg.content as ContentBlock[])}
+                        className="p-1 rounded hover:bg-glass text-content-muted hover:text-brand transition-colors"
+                        title="Read aloud"
+                      >
+                        <Volume2 size={12} />
+                      </button>
                     </div>
                   )}
                 </div>
@@ -467,26 +498,10 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       </div>
 
       {/* Input Area */}
-      <div className="p-4 bg-glass-strong border-t border-edge-subtle">
-        <div className="relative flex items-center">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-            disabled={isTyping || !!pendingResponse}
-            placeholder={isTyping || pendingResponse ? "PROCESSING..." : "ENTER COMMAND..."}
-            className="w-full bg-surface-primary border border-edge rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none focus:border-brand transition-colors placeholder:text-content-muted disabled:opacity-50 shadow-inner"
-          />
-          <button
-            onClick={sendMessage}
-            disabled={isTyping || !!pendingResponse || !input.trim()}
-            className="absolute right-2 p-2 bg-brand text-white rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:grayscale disabled:scale-100 shadow-lg shadow-brand/20"
-          >
-            <Send size={16} />
-          </button>
-        </div>
-      </div>
+      <ChatInputBar
+        onSend={(blocks, rawText) => sendMessage(blocks, rawText)}
+        disabled={isTyping || !!pendingResponse}
+      />
       </div>{/* end chat column */}
 
       {/* Artifact Panel */}

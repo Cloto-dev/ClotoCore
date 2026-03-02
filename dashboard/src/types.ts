@@ -87,7 +87,7 @@ export interface ModalState {
 
 // Chat persistence types
 export interface ContentBlock {
-  type: 'text' | 'image' | 'code' | 'tool_result' | 'file';
+  type: 'text' | 'image' | 'code' | 'tool_result' | 'file' | 'audio';
   text?: string;
   url?: string;
   language?: string;
@@ -95,6 +95,7 @@ export interface ContentBlock {
   mime_type?: string;
   attachment_id?: string;
   metadata?: Record<string, unknown>;
+  duration?: number;
 }
 
 export interface ChatMessage {
