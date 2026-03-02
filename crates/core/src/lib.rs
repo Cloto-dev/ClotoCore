@@ -201,6 +201,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         tracing::warn!("Failed to create data/avatars directory: {}", e);
     }
 
+    // 0c. Ensure Python MCP venv exists (auto-setup on first run)
+    managers::mcp_venv::ensure_mcp_venv().await;
+
     // 1. データベースの初期化
     use sqlx::sqlite::SqliteConnectOptions;
     use std::str::FromStr;
