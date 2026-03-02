@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Server, ArrowLeft, Plus, X, Save, Activity, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
+import { Server, ArrowLeft, Plus, X, Save, Activity, Wifi, WifiOff, AlertTriangle, Upload, Camera, Pencil } from 'lucide-react';
 import { AgentMetadata, McpServerInfo, AccessControlEntry } from '../types';
 import { api } from '../services/api';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
@@ -30,6 +30,15 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [saveError, setSaveError] = useState('');
+
+  // Profile state
+  const [agentName, setAgentName] = useState(agent.name);
+  const [agentDescription, setAgentDescription] = useState(agent.description);
+
+  // Avatar state
+  const [avatarKey, setAvatarKey] = useState(0);
+  const [avatarDescription, setAvatarDescription] = useState(agent.metadata?.avatar_description || '');
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   // Load current access entries for this agent
   useEffect(() => {
@@ -113,6 +122,8 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
       await api.updateAgent(
         agent.id,
         {
+          name: agentName !== agent.name ? agentName : undefined,
+          description: agentDescription !== agent.description ? agentDescription : undefined,
           default_engine_id: engineServer?.id,
           metadata,
         },
@@ -124,6 +135,38 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
       setSaveError(err?.message || 'Failed to save configuration');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setSaveError('Avatar must be under 5MB');
+      return;
+    }
+    setIsUploadingAvatar(true);
+    setSaveError('');
+    try {
+      const result = await api.uploadAvatar(agent.id, file, effectiveKey);
+      setAvatarKey(prev => prev + 1);
+      setAvatarDescription(result.avatar_description || '');
+    } catch (err: any) {
+      setSaveError(err?.message || 'Failed to upload avatar');
+    } finally {
+      setIsUploadingAvatar(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleAvatarDelete = async () => {
+    setSaveError('');
+    try {
+      await api.deleteAvatar(agent.id, effectiveKey);
+      setAvatarKey(prev => prev + 1);
+      setAvatarDescription('');
+    } catch (err: any) {
+      setSaveError(err?.message || 'Failed to delete avatar');
     }
   };
 
@@ -160,6 +203,82 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
           <div className="py-12 text-center text-content-muted font-mono text-xs animate-pulse">Loading...</div>
         ) : (
           <>
+            {/* Avatar */}
+            <section>
+              <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
+                <Camera className="text-brand" size={16} />
+                <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Avatar</h2>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-lg border border-edge overflow-hidden flex items-center justify-center bg-glass-strong">
+                  {agent.metadata?.has_avatar === 'true' ? (
+                    <img
+                      src={`${api.getAvatarUrl(agent.id)}?v=${avatarKey}`}
+                      alt="Avatar"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <AgentIcon agent={agent} size={32} />
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className={`cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-[10px] font-bold text-content-secondary hover:text-brand hover:border-brand transition-all ${isUploadingAvatar ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <Upload size={12} />
+                    {isUploadingAvatar ? 'Analyzing...' : 'Upload'}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/gif,image/webp"
+                      className="hidden"
+                      onChange={handleAvatarUpload}
+                      disabled={isUploadingAvatar}
+                    />
+                  </label>
+                  {agent.metadata?.has_avatar === 'true' && (
+                    <button
+                      onClick={handleAvatarDelete}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-[10px] font-bold text-content-muted hover:text-red-500 hover:border-red-500/30 transition-all"
+                    >
+                      <X size={12} /> Remove
+                    </button>
+                  )}
+                </div>
+                {avatarDescription && (
+                  <div className="flex-1 text-[10px] text-content-tertiary font-mono bg-glass rounded-lg p-2 border border-edge">
+                    <span className="text-content-muted">Vision: </span>{avatarDescription}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* Profile */}
+            <section>
+              <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
+                <Pencil className="text-brand" size={16} />
+                <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Profile</h2>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">Name</label>
+                  <input
+                    type="text"
+                    value={agentName}
+                    onChange={e => setAgentName(e.target.value)}
+                    maxLength={200}
+                    className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">Description</label>
+                  <textarea
+                    value={agentDescription}
+                    onChange={e => setAgentDescription(e.target.value)}
+                    maxLength={1000}
+                    className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary font-mono h-20 resize-none"
+                  />
+                </div>
+              </div>
+            </section>
+
             {/* Granted Servers */}
             <section>
               <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">

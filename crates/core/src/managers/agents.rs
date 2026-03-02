@@ -15,6 +15,8 @@ struct AgentRow {
     required_capabilities: sqlx::types::Json<Vec<cloto_shared::CapabilityType>>,
     metadata: sqlx::types::Json<HashMap<String, String>>,
     power_password_hash: Option<String>,
+    avatar_path: Option<String>,
+    avatar_description: Option<String>,
 }
 
 #[derive(Clone)]
@@ -37,6 +39,12 @@ impl AgentManager {
         if has_pw {
             meta.insert("has_power_password".to_string(), "true".to_string());
         }
+        if let Some(ref desc) = row.avatar_description {
+            meta.insert("avatar_description".to_string(), desc.clone());
+        }
+        if row.avatar_path.is_some() {
+            meta.insert("has_avatar".to_string(), "true".to_string());
+        }
         let mut agent = AgentMetadata {
             id: row.id,
             name: row.name,
@@ -58,7 +66,8 @@ impl AgentManager {
     ) -> anyhow::Result<(AgentMetadata, String)> {
         let row: AgentRow = sqlx::query_as(
             "SELECT id, name, description, enabled, last_seen, default_engine_id, \
-             required_capabilities, metadata, power_password_hash FROM agents WHERE id = ?",
+             required_capabilities, metadata, power_password_hash, avatar_path, \
+             avatar_description FROM agents WHERE id = ?",
         )
         .bind(agent_id)
         .fetch_one(&self.pool)
@@ -72,7 +81,8 @@ impl AgentManager {
     pub async fn list_agents(&self) -> anyhow::Result<Vec<AgentMetadata>> {
         let rows: Vec<AgentRow> = sqlx::query_as(
             "SELECT id, name, description, enabled, last_seen, default_engine_id, \
-             required_capabilities, metadata, power_password_hash FROM agents",
+             required_capabilities, metadata, power_password_hash, avatar_path, \
+             avatar_description FROM agents",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -205,8 +215,52 @@ impl AgentManager {
             .collect())
     }
 
+    /// Set the avatar path and description for an agent.
+    pub async fn set_avatar(
+        &self,
+        agent_id: &str,
+        avatar_path: &str,
+        avatar_description: Option<&str>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE agents SET avatar_path = ?, avatar_description = ? WHERE id = ?",
+        )
+        .bind(avatar_path)
+        .bind(avatar_description)
+        .bind(agent_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Clear the avatar for an agent (removes path and description).
+    pub async fn clear_avatar(&self, agent_id: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE agents SET avatar_path = NULL, avatar_description = NULL WHERE id = ?",
+        )
+        .bind(agent_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Get just the avatar path for serving.
+    pub async fn get_avatar_path(&self, agent_id: &str) -> anyhow::Result<Option<String>> {
+        let row: (Option<String>,) =
+            sqlx::query_as("SELECT avatar_path FROM agents WHERE id = ?")
+                .bind(agent_id)
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(row.0)
+    }
+
     /// Delete an agent and all associated data (chat messages, attachments via cascade).
     pub async fn delete_agent(&self, agent_id: &str) -> anyhow::Result<()> {
+        // Clean up avatar file from disk
+        if let Ok(Some(path)) = self.get_avatar_path(agent_id).await {
+            let _ = tokio::fs::remove_file(&path).await;
+        }
+
         // chat_attachments cascade from chat_messages (ON DELETE CASCADE in schema)
         sqlx::query("DELETE FROM chat_messages WHERE agent_id = ?")
             .bind(agent_id)
@@ -227,24 +281,26 @@ impl AgentManager {
     pub async fn update_agent_config(
         &self,
         agent_id: &str,
+        name: Option<&str>,
+        description: Option<&str>,
         default_engine_id: Option<String>,
         metadata: HashMap<String, String>,
     ) -> anyhow::Result<()> {
         let metadata_json = serde_json::to_string(&metadata)?;
-        if let Some(engine_id) = default_engine_id {
-            sqlx::query("UPDATE agents SET metadata = ?, default_engine_id = ? WHERE id = ?")
-                .bind(metadata_json)
-                .bind(engine_id)
-                .bind(agent_id)
-                .execute(&self.pool)
-                .await?;
-        } else {
-            sqlx::query("UPDATE agents SET metadata = ? WHERE id = ?")
-                .bind(metadata_json)
-                .bind(agent_id)
-                .execute(&self.pool)
-                .await?;
-        }
+        sqlx::query(
+            "UPDATE agents SET metadata = ?, \
+             name = COALESCE(?, name), \
+             description = COALESCE(?, description), \
+             default_engine_id = COALESCE(?, default_engine_id) \
+             WHERE id = ?",
+        )
+        .bind(&metadata_json)
+        .bind(name)
+        .bind(description)
+        .bind(&default_engine_id)
+        .bind(agent_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }

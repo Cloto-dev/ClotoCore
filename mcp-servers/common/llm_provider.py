@@ -72,11 +72,19 @@ def build_system_prompt(agent: dict) -> str:
         else ""
     )
 
+    avatar_desc = metadata.get("avatar_description", "")
+    avatar_line = (
+        f"Your visual appearance/avatar: {avatar_desc}\n"
+        if avatar_desc
+        else ""
+    )
+
     return (
         f"You are {name}, an AI agent running on the Cloto platform.\n"
         f"Cloto is a local, self-hosted AI container system — all data stays on your "
         f"operator's hardware and is never sent to any external service.\n"
         f"{memory_line}"
+        f"{avatar_line}"
         f"You can extend your capabilities at runtime using the create_mcp_server tool "
         f"to build new Python-based MCP tools when your current toolset is insufficient.\n"
         f"\n"
