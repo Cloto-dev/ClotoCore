@@ -33,7 +33,7 @@ from mcp.types import TextContent, Tool
 # API key is managed by kernel LLM proxy (MGP §13.4).
 config = ProviderConfig(
     provider_id=os.environ.get("CEREBRAS_PROVIDER", "cerebras"),
-    model_id=os.environ.get("CEREBRAS_MODEL", "llama3.1-70b"),
+    model_id=os.environ.get("CEREBRAS_MODEL", "gpt-oss-120b"),
     api_url=os.environ.get(
         "CEREBRAS_API_URL", "http://127.0.0.1:8082/v1/chat/completions"
     ),
