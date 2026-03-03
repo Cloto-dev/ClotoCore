@@ -255,19 +255,19 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       }
     }
 
-    // Command approval request from kernel
+    // Command approval request from kernel (batch)
     if (event.type === 'CommandApprovalRequested' && event.data?.agent_id === agent.id) {
       setPendingApprovals(prev => {
         if (prev.some(a => a.approval_id === event.data.approval_id)) return prev;
         return [...prev, {
           approval_id: event.data.approval_id,
           agent_id: event.data.agent_id,
-          command: event.data.command,
-          command_name: event.data.command_name,
+          commands: event.data.commands || [],
         }];
       });
       if (document.hidden) {
-        sendNativeNotification('Command Approval', `${agent.name}: ${event.data.command_name}`);
+        const count = event.data.commands?.length || 1;
+        sendNativeNotification('Command Approval', `${agent.name}: ${count} command(s) pending`);
       }
     }
     if (event.type === 'CommandApprovalResult') {
@@ -558,8 +558,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             <div className="w-8" />
             <CommandApprovalCard
               approvalId={approval.approval_id}
-              command={approval.command}
-              commandName={approval.command_name}
+              commands={approval.commands}
               onResolved={(id) => setPendingApprovals(prev => prev.filter(a => a.approval_id !== id))}
             />
           </div>

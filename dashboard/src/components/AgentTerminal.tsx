@@ -382,34 +382,74 @@ export function AgentTerminal({
                   Engine Routing
                   <span className="text-content-muted font-normal normal-case ml-1">(optional)</span>
                 </label>
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   {newAgent.routingRules.map((rule, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <input
-                        type="text"
-                        value={rule.match}
-                        onChange={e => updateRoutingRule(i, 'match', e.target.value)}
-                        placeholder="contains:keyword"
-                        className="flex-1 px-2 py-1 rounded border border-edge text-[10px] font-mono bg-surface-primary focus:outline-none focus:border-brand min-w-0"
-                      />
-                      <span className="text-[10px] text-content-muted shrink-0">&rarr;</span>
-                      <select
-                        value={rule.engine}
-                        onChange={e => updateRoutingRule(i, 'engine', e.target.value)}
-                        className="w-28 px-1 py-1 rounded border border-edge text-[10px] font-mono bg-surface-primary focus:outline-none focus:border-brand"
-                      >
-                        <option value="">Select...</option>
-                        {mcpEngines.map(s => (
-                          <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => removeRoutingRule(i)}
-                        className="p-0.5 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all shrink-0"
-                      >
-                        <X size={12} />
-                      </button>
+                    <div key={i} className="space-y-1 bg-glass rounded-lg p-2 border border-edge">
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={rule.match}
+                          onChange={e => updateRoutingRule(i, 'match', e.target.value)}
+                          placeholder="contains:keyword"
+                          className="flex-1 px-2 py-1 rounded border border-edge text-[10px] font-mono bg-surface-primary focus:outline-none focus:border-brand min-w-0"
+                        />
+                        <span className="text-[10px] text-content-muted shrink-0">&rarr;</span>
+                        <select
+                          value={rule.engine}
+                          onChange={e => updateRoutingRule(i, 'engine', e.target.value)}
+                          className="w-28 px-1 py-1 rounded border border-edge text-[10px] font-mono bg-surface-primary focus:outline-none focus:border-brand"
+                        >
+                          <option value="">Select...</option>
+                          {mcpEngines.map(s => (
+                            <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => removeRoutingRule(i)}
+                          className="p-0.5 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all shrink-0"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                      {/* CFR + Fallback options */}
+                      <div className="flex items-center gap-2 pl-1">
+                        <label className="flex items-center gap-1 text-[9px] text-content-muted cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={rule.cfr || false}
+                            onChange={e => updateRoutingRule(i, 'cfr', e.target.checked)}
+                            className="w-3 h-3 rounded"
+                          />
+                          CFR
+                        </label>
+                        {rule.cfr && (
+                          <>
+                            <span className="text-[9px] text-content-muted">&rarr;</span>
+                            <select
+                              value={rule.escalate_to || ''}
+                              onChange={e => updateRoutingRule(i, 'escalate_to', e.target.value || undefined)}
+                              className="w-24 px-1 py-0.5 rounded border border-edge text-[9px] font-mono bg-surface-primary focus:outline-none focus:border-brand"
+                            >
+                              <option value="">Escalate to...</option>
+                              {mcpEngines.filter(s => s.id !== rule.engine).map(s => (
+                                <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
+                              ))}
+                            </select>
+                          </>
+                        )}
+                        <span className="text-[9px] text-content-muted ml-1">Fallback:</span>
+                        <select
+                          value={rule.fallback || ''}
+                          onChange={e => updateRoutingRule(i, 'fallback', e.target.value || undefined)}
+                          className="w-24 px-1 py-0.5 rounded border border-edge text-[9px] font-mono bg-surface-primary focus:outline-none focus:border-brand"
+                        >
+                          <option value="">None</option>
+                          {mcpEngines.filter(s => s.id !== rule.engine).map(s => (
+                            <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   ))}
                   <button
@@ -421,7 +461,7 @@ export function AgentTerminal({
                   </button>
                 </div>
                 <p className="text-[8px] text-content-muted mt-1 font-mono">
-                  Conditions: contains:keyword, length:&gt;N, tools_likely, default
+                  Conditions: contains:keyword, length:&gt;N, tools_likely, default | CFR: try fast engine first, escalate on [[ESCALATE]]
                 </p>
               </div>
             )}

@@ -14,13 +14,20 @@ use cloto_shared::{
     PluginManifest, ThinkResult, ToolCall,
 };
 
-// ── Engine Routing Rules ──
+// ── Engine Routing Rules (CFR + Fallback + Escalation) ──
 
 #[derive(serde::Deserialize)]
 struct RoutingRule {
     #[serde(rename = "match")]
     condition: String,
     engine: String,
+    /// Cost-First Router: try this engine first, escalate if [[ESCALATE]] in response.
+    #[serde(default)]
+    cfr: bool,
+    /// Engine to escalate to when CFR engine returns [[ESCALATE]].
+    escalate_to: Option<String>,
+    /// Engine to fall back to on 429/5xx/connection errors.
+    fallback: Option<String>,
 }
 
 impl RoutingRule {
@@ -56,23 +63,70 @@ impl RoutingRule {
     }
 }
 
+/// Result of engine routing evaluation.
+struct EngineSelection {
+    engine_id: String,
+    cfr: bool,
+    escalate_to: Option<String>,
+    fallback: Option<String>,
+}
+
 fn evaluate_engine_routing(
     message: &str,
     metadata: &std::collections::HashMap<String, String>,
     connected_servers: &[String],
-) -> Option<String> {
-    let rules_json = metadata.get("engine_routing")?;
-    let rules: Vec<RoutingRule> = serde_json::from_str(rules_json).ok()?;
+    default_engine_id: &str,
+) -> EngineSelection {
+    let selection = (|| -> Option<EngineSelection> {
+        let rules_json = metadata.get("engine_routing")?;
+        let rules: Vec<RoutingRule> = serde_json::from_str(rules_json).ok()?;
 
-    for rule in &rules {
-        if !connected_servers.contains(&rule.engine) {
-            continue;
+        for rule in &rules {
+            if !connected_servers.contains(&rule.engine) {
+                continue;
+            }
+            if rule.matches(message) {
+                // Validate escalate_to and fallback targets are connected
+                let escalate_to = rule.escalate_to.as_ref()
+                    .filter(|e| connected_servers.contains(e))
+                    .cloned();
+                let fallback = rule.fallback.as_ref()
+                    .filter(|f| connected_servers.contains(f))
+                    .cloned();
+                return Some(EngineSelection {
+                    engine_id: rule.engine.clone(),
+                    cfr: rule.cfr && escalate_to.is_some(),
+                    escalate_to,
+                    fallback,
+                });
+            }
         }
-        if rule.matches(message) {
-            return Some(rule.engine.clone());
-        }
-    }
-    None
+        None
+    })();
+
+    selection.unwrap_or(EngineSelection {
+        engine_id: default_engine_id.to_string(),
+        cfr: false,
+        escalate_to: None,
+        fallback: None,
+    })
+}
+
+/// Check if response content contains an escalation marker.
+fn needs_escalation(content: &str) -> bool {
+    content.contains("[[ESCALATE]]")
+}
+
+/// Check if an error is retriable (rate limit, server error, connection).
+fn is_retriable_error(e: &anyhow::Error) -> bool {
+    let msg = e.to_string();
+    msg.contains("rate_limited")
+        || msg.contains("provider_error")
+        || msg.contains("connection_failed")
+        || msg.contains("timeout")
+        || msg.contains("429")
+        || msg.contains("502")
+        || msg.contains("503")
 }
 
 /// User's decision on a command approval request.
@@ -341,27 +395,79 @@ impl SystemHandler {
         } else {
             // 通常モード: エージェントループで処理
             // 3-layer engine selection: override > routing rules > default
-            let engine_id = if let Some(ov) = msg.metadata.get("engine_override") {
-                ov.clone()
+            let selection = if let Some(ov) = msg.metadata.get("engine_override") {
+                EngineSelection { engine_id: ov.clone(), cfr: false, escalate_to: None, fallback: None }
             } else if let Some(ref mcp) = self.registry.mcp_manager {
                 let connected = mcp.list_connected_mind_servers().await;
-                evaluate_engine_routing(&msg.content, &agent.metadata, &connected)
-                    .unwrap_or(default_engine_id)
+                evaluate_engine_routing(&msg.content, &agent.metadata, &connected, &default_engine_id)
             } else {
-                evaluate_engine_routing(&msg.content, &agent.metadata, &[])
-                    .unwrap_or(default_engine_id)
+                evaluate_engine_routing(&msg.content, &agent.metadata, &[], &default_engine_id)
             };
-            match self
-                .run_agentic_loop(
-                    &agent,
-                    &engine_id,
-                    &msg,
-                    context,
-                    &granted_server_ids,
-                    trace_id,
-                )
-                .await
-            {
+
+            let engine_id = selection.engine_id.clone();
+
+            // Execute with CFR + fallback support
+            let (final_result, final_engine_id) = if selection.cfr {
+                // CFR Tier 1: tool-less think only (judgment mode)
+                let tier1_result = {
+                    let engine_plugin = self.registry.get_engine(&engine_id).await;
+                    let mcp_engine = if engine_plugin.is_none() {
+                        self.registry.mcp_manager.as_ref().cloned()
+                    } else { None };
+                    self.engine_think(
+                        engine_plugin.as_ref(),
+                        mcp_engine.as_ref(),
+                        &engine_id, &agent, &msg, context.clone(),
+                    ).await
+                };
+
+                match tier1_result {
+                    Ok(content) if needs_escalation(&content) => {
+                        // Tier 1 requested escalation → Tier 2 with full agentic loop
+                        let escalate_id = selection.escalate_to.as_deref().unwrap_or(&engine_id);
+                        info!(from = %engine_id, to = %escalate_id, "⬆️ CFR escalation triggered");
+                        let r = self.run_agentic_loop(
+                            &agent, escalate_id, &msg, context.clone(), &granted_server_ids, trace_id,
+                        ).await;
+                        (r, escalate_id.to_string())
+                    }
+                    Ok(content) => {
+                        // Tier 1 handled it directly
+                        info!(engine = %engine_id, "⚡ CFR Tier 1 handled request");
+                        (Ok(content), engine_id.clone())
+                    }
+                    Err(e) if is_retriable_error(&e) && selection.fallback.is_some() => {
+                        let fallback_id = selection.fallback.as_deref().unwrap();
+                        warn!(from = %engine_id, to = %fallback_id, error = %e, "🔄 CFR Tier 1 fallback");
+                        let r = self.run_agentic_loop(
+                            &agent, fallback_id, &msg, context.clone(), &granted_server_ids, trace_id,
+                        ).await;
+                        (r, fallback_id.to_string())
+                    }
+                    Err(e) => (Err(e), engine_id.clone()),
+                }
+            } else {
+                // Standard execution (no CFR)
+                let loop_result = self.run_agentic_loop(
+                    &agent, &engine_id, &msg, context.clone(), &granted_server_ids, trace_id,
+                ).await;
+
+                match loop_result {
+                    Ok(content) => (Ok(content), engine_id.clone()),
+                    Err(e) if is_retriable_error(&e) && selection.fallback.is_some() => {
+                        let fallback_id = selection.fallback.as_deref().unwrap();
+                        warn!(from = %engine_id, to = %fallback_id, error = %e, "🔄 Auto-fallback triggered");
+                        let r = self.run_agentic_loop(
+                            &agent, fallback_id, &msg, context.clone(), &granted_server_ids, trace_id,
+                        ).await;
+                        (r, fallback_id.to_string())
+                    }
+                    Err(e) => (Err(e), engine_id.clone()),
+                }
+            };
+
+            let engine_id = final_engine_id;
+            match final_result {
                 Ok(content) => {
                     // エージェント返答もメモリに保存 (user messageと対で保存)
                     if let Some(plugin) = &memory_plugin {
@@ -778,9 +884,103 @@ impl SystemHandler {
                     }
                     tool_history.push(assistant_msg);
 
+                    // ── Batch Command Approval Gate ──
+                    // Collect all untrusted execute_command calls and request approval once.
+                    let yolo = self.registry.mcp_manager.as_ref()
+                        .map_or(false, |m| m.yolo_mode.load(std::sync::atomic::Ordering::Relaxed));
+                    let mut denied_call_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+                    if !yolo {
+                        let mut untrusted_cmds: Vec<serde_json::Value> = Vec::new();
+                        for call in &calls {
+                            if call.name != "execute_command" { continue; }
+                            let Some(cmd_str) = call.arguments.get("command").and_then(|v| v.as_str()) else { continue; };
+                            let db_trusted = crate::db::is_command_trusted(&self.pool, &agent.id, cmd_str).await.unwrap_or(false);
+                            let cmd_name = cmd_str.split_whitespace().next().unwrap_or(cmd_str);
+                            let session_trusted = self.session_trusted_commands
+                                .get(&agent.id)
+                                .map_or(false, |set| set.contains(cmd_name));
+                            if !db_trusted && !session_trusted {
+                                untrusted_cmds.push(serde_json::json!({
+                                    "call_id": call.id,
+                                    "command": cmd_str,
+                                    "command_name": cmd_name,
+                                }));
+                            }
+                        }
+
+                        if !untrusted_cmds.is_empty() {
+                            let approval_id = uuid::Uuid::new_v4().to_string();
+                            info!(agent_id = %agent.id, count = untrusted_cmds.len(), "🔒 Commands require approval");
+
+                            let (atx, arx) = oneshot::channel();
+                            self.pending_approvals.insert(approval_id.clone(), atx);
+
+                            self.emit_event(trace_id, ClotoEventData::CommandApprovalRequested {
+                                approval_id: approval_id.clone(),
+                                agent_id: agent.id.clone(),
+                                commands: untrusted_cmds.clone(),
+                            }).await;
+
+                            let decision = tokio::time::timeout(Duration::from_secs(60), arx).await;
+                            self.pending_approvals.remove(&approval_id);
+
+                            match decision {
+                                Ok(Ok(CommandApprovalDecision::Approve)) => {
+                                    for cmd in &untrusted_cmds {
+                                        if let Some(c) = cmd.get("command").and_then(|v| v.as_str()) {
+                                            let _ = crate::db::add_trusted_command(&self.pool, &agent.id, c).await;
+                                        }
+                                    }
+                                    info!(approval_id = %approval_id, "✅ Commands approved (exact)");
+                                    self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
+                                        approval_id, decision: "approved".to_string(),
+                                    }).await;
+                                }
+                                Ok(Ok(CommandApprovalDecision::Trust)) => {
+                                    for cmd in &untrusted_cmds {
+                                        if let Some(n) = cmd.get("command_name").and_then(|v| v.as_str()) {
+                                            self.session_trusted_commands
+                                                .entry(agent.id.clone())
+                                                .or_default()
+                                                .insert(n.to_string());
+                                        }
+                                    }
+                                    info!(approval_id = %approval_id, "✅ Command names trusted (session)");
+                                    self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
+                                        approval_id, decision: "trusted".to_string(),
+                                    }).await;
+                                }
+                                _ => {
+                                    let reason = if matches!(decision, Err(_)) { "timeout (60s)" } else { "denied by user" };
+                                    warn!(approval_id = %approval_id, reason = reason, "🚫 Commands denied");
+                                    self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
+                                        approval_id, decision: reason.to_string(),
+                                    }).await;
+                                    for cmd in &untrusted_cmds {
+                                        if let Some(id) = cmd.get("call_id").and_then(|v| v.as_str()) {
+                                            denied_call_ids.insert(id.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Execute each tool call
                     for call in &calls {
                         total_tool_calls += 1;
+
+                        // Skip denied commands
+                        if denied_call_ids.contains(&call.id) {
+                            let cmd = call.arguments.get("command").and_then(|v| v.as_str()).unwrap_or("?");
+                            tool_history.push(serde_json::json!({
+                                "role": "tool",
+                                "tool_call_id": call.id,
+                                "content": format!("Error: command '{}' was denied by user", cmd)
+                            }));
+                            continue;
+                        }
 
                         // M-04: Pre-validate tool name before execution
                         if !tool_names.contains(&call.name) {
@@ -799,8 +999,6 @@ impl SystemHandler {
                         let start = std::time::Instant::now();
 
                         // 🔐 Anti-spoofing: force agent_id in tool arguments
-                        // Prevents LLM from specifying a different agent's ID
-                        // to access their memory or profile
                         let mut safe_args = call.arguments.clone();
                         if let Some(obj) = safe_args.as_object_mut() {
                             if obj.contains_key("agent_id") {
@@ -808,82 +1006,6 @@ impl SystemHandler {
                                     "agent_id".to_string(),
                                     serde_json::Value::String(agent.id.clone()),
                                 );
-                            }
-                        }
-
-                        // ── Command Approval Gate ──
-                        if call.name == "execute_command" {
-                            if let Some(command_str) = safe_args.get("command").and_then(|v| v.as_str()) {
-                                let yolo = self.registry.mcp_manager.as_ref()
-                                    .map_or(false, |m| m.yolo_mode.load(std::sync::atomic::Ordering::Relaxed));
-
-                                if !yolo {
-                                    // Check DB exact match
-                                    let db_trusted = crate::db::is_command_trusted(
-                                        &self.pool, &agent.id, command_str
-                                    ).await.unwrap_or(false);
-
-                                    // Check session command-name trust
-                                    let cmd_name = command_str.split_whitespace().next().unwrap_or(command_str);
-                                    let session_trusted = self.session_trusted_commands
-                                        .get(&agent.id)
-                                        .map_or(false, |set| set.contains(cmd_name));
-
-                                    if !db_trusted && !session_trusted {
-                                        let approval_id = uuid::Uuid::new_v4().to_string();
-                                        info!(agent_id = %agent.id, command = %command_str, "🔒 Command requires approval");
-
-                                        let (atx, arx) = oneshot::channel();
-                                        self.pending_approvals.insert(approval_id.clone(), atx);
-
-                                        self.emit_event(trace_id, ClotoEventData::CommandApprovalRequested {
-                                            approval_id: approval_id.clone(),
-                                            agent_id: agent.id.clone(),
-                                            command: command_str.to_string(),
-                                            command_name: cmd_name.to_string(),
-                                        }).await;
-
-                                        let decision = tokio::time::timeout(Duration::from_secs(60), arx).await;
-                                        self.pending_approvals.remove(&approval_id);
-
-                                        match decision {
-                                            Ok(Ok(CommandApprovalDecision::Approve)) => {
-                                                // Store exact match in DB for future sessions
-                                                let _ = crate::db::add_trusted_command(
-                                                    &self.pool, &agent.id, command_str,
-                                                ).await;
-                                                info!(approval_id = %approval_id, "✅ Command approved (exact)");
-                                                self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
-                                                    approval_id, decision: "approved".to_string(),
-                                                }).await;
-                                            }
-                                            Ok(Ok(CommandApprovalDecision::Trust)) => {
-                                                // Store command name in session memory only
-                                                self.session_trusted_commands
-                                                    .entry(agent.id.clone())
-                                                    .or_default()
-                                                    .insert(cmd_name.to_string());
-                                                info!(approval_id = %approval_id, cmd = %cmd_name, "✅ Command name trusted (session)");
-                                                self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
-                                                    approval_id, decision: "trusted".to_string(),
-                                                }).await;
-                                            }
-                                            _ => {
-                                                let reason = if matches!(decision, Err(_)) { "timeout (60s)" } else { "denied by user" };
-                                                warn!(approval_id = %approval_id, reason = reason, "🚫 Command denied");
-                                                self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
-                                                    approval_id, decision: reason.to_string(),
-                                                }).await;
-                                                tool_history.push(serde_json::json!({
-                                                    "role": "tool",
-                                                    "tool_call_id": call.id,
-                                                    "content": format!("Error: command '{}' was {}", command_str, reason)
-                                                }));
-                                                continue;
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         }
 
