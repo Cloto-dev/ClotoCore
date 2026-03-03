@@ -67,6 +67,7 @@ pub fn spawn_llm_proxy(pool: SqlitePool, port: u16, shutdown: Arc<Notify>) {
     });
 }
 
+#[allow(clippy::too_many_lines)]
 async fn proxy_handler(
     State(state): State<Arc<ProxyState>>,
     headers: HeaderMap,

@@ -15,11 +15,13 @@ fn resolve_project_root() -> Option<PathBuf> {
 }
 
 /// Get the path to the shared venv directory.
+#[must_use]
 pub fn resolve_venv_dir() -> Option<PathBuf> {
     resolve_project_root().map(|root| root.join("mcp-servers").join(".venv"))
 }
 
 /// Get the path to the Python executable inside the venv.
+#[must_use]
 pub fn resolve_venv_python() -> Option<PathBuf> {
     let venv_dir = resolve_venv_dir()?;
 

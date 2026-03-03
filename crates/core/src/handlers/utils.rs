@@ -48,6 +48,7 @@ pub const CONTENT_BLOCK_MAX_ITEMS: usize = 20;
 
 /// Convert a MIME type to a file extension.
 /// Returns `None` for unsupported image types.
+#[must_use]
 pub fn mime_to_ext(mime: &str) -> Option<&'static str> {
     match mime {
         "image/png" => Some("png"),
@@ -60,11 +61,13 @@ pub fn mime_to_ext(mime: &str) -> Option<&'static str> {
 }
 
 /// Convert a MIME type to a file extension with a fallback default.
+#[must_use]
 pub fn mime_to_ext_or(mime: &str, default: &'static str) -> &'static str {
     mime_to_ext(mime).unwrap_or(default)
 }
 
 /// Convert a file extension to its MIME type.
+#[must_use]
 pub fn ext_to_mime(ext: &str) -> &'static str {
     match ext {
         "png" => "image/png",

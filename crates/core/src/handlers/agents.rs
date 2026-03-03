@@ -97,7 +97,10 @@ pub async fn create_agent(
     check_auth(&state, &headers)?;
 
     // M-07: Input validation
-    use super::utils::*;
+    use super::utils::{
+        AGENT_DESC_MAX, AGENT_DESC_MIN, AGENT_METADATA_KEY_MAX, AGENT_METADATA_MAX_PAIRS,
+        AGENT_METADATA_VALUE_MAX, AGENT_NAME_MAX, AGENT_NAME_MIN,
+    };
     if payload.name.is_empty() || payload.name.len() > AGENT_NAME_MAX {
         return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             format!(
