@@ -122,8 +122,7 @@ export interface PermissionRequest {
 export interface CommandApprovalRequest {
   approval_id: string;
   agent_id: string;
-  command: string;
-  command_name: string;
+  commands: Array<{ command: string; command_name: string }>;
 }
 
 export interface Metrics {
