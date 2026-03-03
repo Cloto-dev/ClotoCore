@@ -5,6 +5,7 @@ pub mod cron;
 pub mod llm;
 pub mod mcp;
 pub mod permissions;
+pub mod trusted_commands;
 
 pub use api_keys::*;
 pub use audit::*;
@@ -13,6 +14,7 @@ pub use cron::*;
 pub use llm::*;
 pub use mcp::*;
 pub use permissions::*;
+pub use trusted_commands::*;
 
 use async_trait::async_trait;
 use cloto_shared::PluginDataStore;

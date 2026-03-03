@@ -494,6 +494,19 @@ pub enum ClotoEventData {
         method: String,
         params: serde_json::Value,
     },
+    /// A terminal command requires human approval before execution.
+    CommandApprovalRequested {
+        approval_id: String,
+        agent_id: String,
+        command: String,
+        command_name: String,
+    },
+    /// Result of a command approval decision.
+    CommandApprovalResult {
+        approval_id: String,
+        /// "approved", "trusted", "denied", "timeout"
+        decision: String,
+    },
 }
 
 impl ClotoEvent {

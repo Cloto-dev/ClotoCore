@@ -2,26 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useEventStream } from './useEventStream';
 import { api, EVENTS_URL } from '../services/api';
 import type { StrictSystemEvent } from '../types';
-import { isTauri } from '../lib/tauri';
-
-/** Send an OS notification in Tauri mode (no-op in browser). */
-async function sendNativeNotification(title: string, body: string) {
-  if (!isTauri) return;
-  try {
-    const { isPermissionGranted, requestPermission, sendNotification } =
-      await import('@tauri-apps/plugin-notification');
-    let permitted = await isPermissionGranted();
-    if (!permitted) {
-      const result = await requestPermission();
-      permitted = result === 'granted';
-    }
-    if (permitted) {
-      sendNotification({ title, body });
-    }
-  } catch {
-    // Notification plugin not available or permission denied - silently skip
-  }
-}
+import { sendNativeNotification } from '../lib/notifications';
 
 export interface ThoughtLine {
   id: number;

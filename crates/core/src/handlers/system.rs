@@ -5,6 +5,10 @@ use std::time::Duration;
 use tracing::{error, info, warn};
 
 use crate::managers::{AgentManager, McpClientManager, PluginRegistry};
+use dashmap::DashMap;
+use sqlx::SqlitePool;
+use std::collections::HashSet;
+use tokio::sync::oneshot;
 use cloto_shared::{
     AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, Plugin, PluginCast,
     PluginManifest, ThinkResult, ToolCall,
@@ -71,6 +75,21 @@ fn evaluate_engine_routing(
     None
 }
 
+/// User's decision on a command approval request.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CommandApprovalDecision {
+    Approve,
+    Trust,
+    Deny,
+}
+
+/// In-memory pending command approval requests (approval_id → oneshot sender).
+pub type PendingApprovals = Arc<DashMap<String, oneshot::Sender<CommandApprovalDecision>>>;
+
+/// Session-scoped trusted command names (agent_id → set of command names).
+/// Cleared on kernel restart.
+pub type SessionTrustedCommands = Arc<DashMap<String, HashSet<String>>>;
+
 pub struct SystemHandler {
     registry: Arc<PluginRegistry>,
     agent_manager: AgentManager,
@@ -81,9 +100,13 @@ pub struct SystemHandler {
     consensus_engines: Vec<String>,
     max_agentic_iterations: u8,
     tool_execution_timeout_secs: u64,
+    pending_approvals: PendingApprovals,
+    session_trusted_commands: SessionTrustedCommands,
+    pool: SqlitePool,
 }
 
 impl SystemHandler {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         registry: Arc<PluginRegistry>,
         agent_manager: AgentManager,
@@ -94,6 +117,9 @@ impl SystemHandler {
         consensus_engines: Vec<String>,
         max_agentic_iterations: u8,
         tool_execution_timeout_secs: u64,
+        pending_approvals: PendingApprovals,
+        session_trusted_commands: SessionTrustedCommands,
+        pool: SqlitePool,
     ) -> Self {
         Self {
             registry,
@@ -105,6 +131,9 @@ impl SystemHandler {
             consensus_engines,
             max_agentic_iterations,
             tool_execution_timeout_secs,
+            pending_approvals,
+            session_trusted_commands,
+            pool,
         }
     }
 
@@ -133,6 +162,23 @@ impl SystemHandler {
             .touch_last_seen(&target_agent_id)
             .await
             .ok();
+
+        // Persist user message to chat history (backend-side persistence)
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let user_chat_msg = crate::db::ChatMessageRow {
+            id: msg.id.clone(),
+            agent_id: target_agent_id.clone(),
+            user_id: "default".to_string(),
+            source: "user".to_string(),
+            content: serde_json::to_string(
+                &serde_json::json!([{"type": "text", "text": &msg.content}])
+            ).unwrap_or_default(),
+            metadata: None,
+            created_at: now_ms,
+        };
+        if let Err(e) = crate::db::save_chat_message(&self.pool, &user_chat_msg).await {
+            warn!("Failed to persist user message: {}", e);
+        }
 
         // 1-B. Image Analysis: analyze attached images before routing to engine
         let msg = self.maybe_analyze_images(msg).await;
@@ -363,6 +409,23 @@ impl SystemHandler {
                         });
                     }
 
+                    // Persist agent response to chat history (backend-side)
+                    let resp_id = format!("{}-resp", msg.id);
+                    let agent_chat_msg = crate::db::ChatMessageRow {
+                        id: resp_id,
+                        agent_id: agent.id.clone(),
+                        user_id: "default".to_string(),
+                        source: "agent".to_string(),
+                        content: serde_json::to_string(
+                            &serde_json::json!([{"type": "text", "text": &content}])
+                        ).unwrap_or_default(),
+                        metadata: None,
+                        created_at: chrono::Utc::now().timestamp_millis(),
+                    };
+                    if let Err(e) = crate::db::save_chat_message(&self.pool, &agent_chat_msg).await {
+                        warn!("Failed to persist agent response: {}", e);
+                    }
+
                     let thought_response = ClotoEventData::ThoughtResponse {
                         agent_id: agent.id.clone(),
                         engine_id: engine_id.clone(),
@@ -391,10 +454,27 @@ impl SystemHandler {
                         "❌ Agentic loop failed"
                     );
                     // H-04: Send error response so the user's message doesn't vanish
+                    let error_content = format!("[Error] {}", e);
+
+                    // Persist error response to chat history
+                    let err_resp_id = format!("{}-resp", msg.id);
+                    let err_chat_msg = crate::db::ChatMessageRow {
+                        id: err_resp_id,
+                        agent_id: agent.id.clone(),
+                        user_id: "default".to_string(),
+                        source: "agent".to_string(),
+                        content: serde_json::to_string(
+                            &serde_json::json!([{"type": "text", "text": &error_content}])
+                        ).unwrap_or_default(),
+                        metadata: None,
+                        created_at: chrono::Utc::now().timestamp_millis(),
+                    };
+                    let _ = crate::db::save_chat_message(&self.pool, &err_chat_msg).await;
+
                     let error_response = ClotoEventData::ThoughtResponse {
                         agent_id: agent.id.clone(),
                         engine_id: engine_id.clone(),
-                        content: format!("[Error] Processing failed: {}", e),
+                        content: error_content,
                         source_message_id: msg.id.clone(),
                     };
                     let envelope = crate::EnvelopedEvent {
@@ -731,6 +811,82 @@ impl SystemHandler {
                             }
                         }
 
+                        // ── Command Approval Gate ──
+                        if call.name == "execute_command" {
+                            if let Some(command_str) = safe_args.get("command").and_then(|v| v.as_str()) {
+                                let yolo = self.registry.mcp_manager.as_ref()
+                                    .map_or(false, |m| m.yolo_mode.load(std::sync::atomic::Ordering::Relaxed));
+
+                                if !yolo {
+                                    // Check DB exact match
+                                    let db_trusted = crate::db::is_command_trusted(
+                                        &self.pool, &agent.id, command_str
+                                    ).await.unwrap_or(false);
+
+                                    // Check session command-name trust
+                                    let cmd_name = command_str.split_whitespace().next().unwrap_or(command_str);
+                                    let session_trusted = self.session_trusted_commands
+                                        .get(&agent.id)
+                                        .map_or(false, |set| set.contains(cmd_name));
+
+                                    if !db_trusted && !session_trusted {
+                                        let approval_id = uuid::Uuid::new_v4().to_string();
+                                        info!(agent_id = %agent.id, command = %command_str, "🔒 Command requires approval");
+
+                                        let (atx, arx) = oneshot::channel();
+                                        self.pending_approvals.insert(approval_id.clone(), atx);
+
+                                        self.emit_event(trace_id, ClotoEventData::CommandApprovalRequested {
+                                            approval_id: approval_id.clone(),
+                                            agent_id: agent.id.clone(),
+                                            command: command_str.to_string(),
+                                            command_name: cmd_name.to_string(),
+                                        }).await;
+
+                                        let decision = tokio::time::timeout(Duration::from_secs(60), arx).await;
+                                        self.pending_approvals.remove(&approval_id);
+
+                                        match decision {
+                                            Ok(Ok(CommandApprovalDecision::Approve)) => {
+                                                // Store exact match in DB for future sessions
+                                                let _ = crate::db::add_trusted_command(
+                                                    &self.pool, &agent.id, command_str,
+                                                ).await;
+                                                info!(approval_id = %approval_id, "✅ Command approved (exact)");
+                                                self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
+                                                    approval_id, decision: "approved".to_string(),
+                                                }).await;
+                                            }
+                                            Ok(Ok(CommandApprovalDecision::Trust)) => {
+                                                // Store command name in session memory only
+                                                self.session_trusted_commands
+                                                    .entry(agent.id.clone())
+                                                    .or_default()
+                                                    .insert(cmd_name.to_string());
+                                                info!(approval_id = %approval_id, cmd = %cmd_name, "✅ Command name trusted (session)");
+                                                self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
+                                                    approval_id, decision: "trusted".to_string(),
+                                                }).await;
+                                            }
+                                            _ => {
+                                                let reason = if matches!(decision, Err(_)) { "timeout (60s)" } else { "denied by user" };
+                                                warn!(approval_id = %approval_id, reason = reason, "🚫 Command denied");
+                                                self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
+                                                    approval_id, decision: reason.to_string(),
+                                                }).await;
+                                                tool_history.push(serde_json::json!({
+                                                    "role": "tool",
+                                                    "tool_call_id": call.id,
+                                                    "content": format!("Error: command '{}' was {}", command_str, reason)
+                                                }));
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         let tool_result = tokio::time::timeout(
                             Duration::from_secs(self.tool_execution_timeout_secs),
                             async {
@@ -988,6 +1144,18 @@ impl SystemHandler {
         msg
     }
 
+    /// Build a user-friendly error message from MCP engine error + optional error_code.
+    fn format_engine_error(error: &str, error_code: Option<&str>) -> String {
+        let guidance = match error_code.unwrap_or("unknown") {
+            "auth_failed" => " Check your API key in Settings → Security.",
+            "rate_limited" => " Please wait a moment and try again.",
+            "provider_error" => " The LLM provider is experiencing issues. Try a different engine.",
+            "connection_failed" | "timeout" => " Ensure the kernel and LLM services are running.",
+            _ => "",
+        };
+        format!("{error}{guidance}")
+    }
+
     fn extract_mcp_think_content(
         result: &crate::managers::mcp_protocol::CallToolResult,
     ) -> anyhow::Result<String> {
@@ -997,7 +1165,8 @@ impl SystemHandler {
                 // Try to parse as JSON (may contain {"type":"final","content":"..."})
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
                     if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
-                        return Err(anyhow::anyhow!("MCP engine error: {}", error));
+                        let code = json.get("error_code").and_then(|c| c.as_str());
+                        return Err(anyhow::anyhow!("{}", Self::format_engine_error(error, code)));
                     }
                     if let Some(content) = json.get("content").and_then(|c| c.as_str()) {
                         return Ok(content.to_string());
@@ -1021,7 +1190,8 @@ impl SystemHandler {
                     .map_err(|e| anyhow::anyhow!("MCP engine returned invalid JSON: {}", e))?;
 
                 if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
-                    return Err(anyhow::anyhow!("MCP engine error: {}", error));
+                    let code = json.get("error_code").and_then(|c| c.as_str());
+                    return Err(anyhow::anyhow!("{}", Self::format_engine_error(error, code)));
                 }
 
                 let result_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("final");
