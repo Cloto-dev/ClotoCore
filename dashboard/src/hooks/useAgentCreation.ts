@@ -6,6 +6,9 @@ import { useApiKey } from '../contexts/ApiKeyContext';
 export interface RoutingRuleEntry {
   match: string;
   engine: string;
+  cfr?: boolean;
+  escalate_to?: string;
+  fallback?: string;
 }
 
 interface CreationForm {
@@ -80,7 +83,7 @@ export function useAgentCreation(onCreated: () => void) {
     }));
   };
 
-  const updateRoutingRule = (index: number, field: keyof RoutingRuleEntry, value: string) => {
+  const updateRoutingRule = (index: number, field: keyof RoutingRuleEntry, value: string | boolean | undefined) => {
     setForm(prev => {
       const rules = [...prev.routingRules];
       rules[index] = { ...rules[index], [field]: value };
