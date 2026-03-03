@@ -1,5 +1,6 @@
+import { useState, useRef, useEffect } from 'react';
 import { McpServerInfo } from '../../types';
-import { Server, Plus, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Server, Plus, RefreshCw, AlertTriangle, X } from 'lucide-react';
 
 interface Props {
   servers: McpServerInfo[];
@@ -20,14 +21,61 @@ function statusIndicator(status: McpServerInfo['status']) {
 }
 
 export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh, isLoading, error }: Props) {
+  const [filterText, setFilterText] = useState('');
+  const [isFiltering, setIsFiltering] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-focus input when entering filter mode
+  useEffect(() => {
+    if (isFiltering && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isFiltering]);
+
+  const filteredServers = filterText
+    ? servers.filter(s =>
+        s.id.toLowerCase().includes(filterText.toLowerCase()) ||
+        s.tools.some(t => t.toLowerCase().includes(filterText.toLowerCase())) ||
+        s.status.toLowerCase().includes(filterText.toLowerCase())
+      )
+    : servers;
+
   const running = servers.filter(s => s.status === 'Connected').length;
   const stopped = servers.filter(s => s.status !== 'Connected').length;
 
+  const handleExitFilter = () => {
+    setIsFiltering(false);
+    setFilterText('');
+  };
+
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
+      {/* Header — click title to enter filter mode */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-edge">
-        <span className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary">MCP Servers</span>
+        {isFiltering ? (
+          <div className="flex items-center gap-1 flex-1 mr-1">
+            <input
+              ref={inputRef}
+              type="text"
+              value={filterText}
+              onChange={e => setFilterText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Escape') handleExitFilter(); }}
+              placeholder="Filter..."
+              className="w-full bg-transparent text-[10px] font-mono uppercase tracking-widest text-content-primary placeholder:text-content-muted outline-none"
+            />
+            <button onClick={handleExitFilter} className="p-0.5 rounded hover:bg-glass text-content-muted hover:text-content-primary transition-colors" title="Clear filter">
+              <X size={10} />
+            </button>
+          </div>
+        ) : (
+          <span
+            onClick={() => setIsFiltering(true)}
+            className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary hover:text-content-secondary cursor-text transition-colors"
+            title="Click to filter"
+          >
+            MCP Servers
+          </span>
+        )}
         <div className="flex gap-1">
           <button onClick={onRefresh} className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors" title="Refresh">
             <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
@@ -48,10 +96,12 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
 
       {/* Server list */}
       <div className="flex-1 overflow-y-auto py-1">
-        {servers.length === 0 && !isLoading && !error && (
-          <div className="px-3 py-4 text-center text-[10px] text-content-muted font-mono">NO SERVERS</div>
+        {filteredServers.length === 0 && !isLoading && !error && (
+          <div className="px-3 py-4 text-center text-[10px] text-content-muted font-mono">
+            {filterText ? 'NO MATCH' : 'NO SERVERS'}
+          </div>
         )}
-        {servers.map(server => (
+        {filteredServers.map(server => (
           <button
             key={server.id}
             onClick={() => onSelect(server.id)}
@@ -73,7 +123,9 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
 
       {/* Status bar */}
       <div className="px-3 py-1.5 border-t border-edge text-[9px] font-mono text-content-muted">
-        {servers.length} servers | {running} running | {stopped} stopped
+        {filterText
+          ? `${filteredServers.length}/${servers.length} servers`
+          : `${servers.length} servers | ${running} running | ${stopped} stopped`}
       </div>
     </div>
   );
