@@ -350,6 +350,18 @@
       "pattern": "\\.metadata.*get\\(\"target_agent_id\"\\).*unwrap_or_else",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-181",
+      "summary": "SystemHandler runs inside dispatch_event causing event loop deadlock — approval cards delayed 60s+",
+      "severity": "CRITICAL",
+      "discovered": "2026-03-03T00:00:00Z",
+      "version": "0.4.23",
+      "commit": "71486ca",
+      "file": "crates/core/src/lib.rs",
+      "pattern": "plugins\\.insert\\(\"kernel\\.system\"",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }
