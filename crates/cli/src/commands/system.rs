@@ -24,7 +24,10 @@ async fn version(client: &ClotoClient, json_mode: bool) -> Result<()> {
         return Ok(());
     }
 
-    let version = result.get("version").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let version = result
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
     let target = result
         .get("build_target")
         .and_then(|v| v.as_str())
@@ -55,7 +58,10 @@ async fn health(client: &ClotoClient, json_mode: bool) -> Result<()> {
         return Ok(());
     }
 
-    let status = result.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let status = result
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
     let icon = if status == "ok" {
         "●".green()
     } else {

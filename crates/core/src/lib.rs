@@ -297,8 +297,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 // Walk up from exe_dir to find the workspace root (Cargo.toml)
                 // and resolve mcp.toml relative to it.
                 let fallback = std::path::Path::new("mcp.toml");
-                managers::McpClientManager::resolve_project_path(fallback)
-                    .unwrap_or(config_path)
+                managers::McpClientManager::resolve_project_path(fallback).unwrap_or(config_path)
             } else {
                 config_path
             }

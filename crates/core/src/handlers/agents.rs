@@ -119,7 +119,8 @@ pub async fn create_agent(
         return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             format!(
                 "Metadata must have at most {} key-value pairs (got {})",
-                AGENT_METADATA_MAX_PAIRS, metadata.len()
+                AGENT_METADATA_MAX_PAIRS,
+                metadata.len()
             ),
         )));
     }
@@ -196,7 +197,9 @@ pub async fn update_agent(
         if name.is_empty() || name.len() > super::utils::AGENT_NAME_MAX {
             return Err(AppError::Validation(format!(
                 "Agent name must be {}-{} characters (got {})",
-                super::utils::AGENT_NAME_MIN, super::utils::AGENT_NAME_MAX, name.len()
+                super::utils::AGENT_NAME_MIN,
+                super::utils::AGENT_NAME_MAX,
+                name.len()
             )));
         }
     }
@@ -204,7 +207,9 @@ pub async fn update_agent(
         if desc.is_empty() || desc.len() > super::utils::AGENT_DESC_MAX {
             return Err(AppError::Validation(format!(
                 "Agent description must be {}-{} characters (got {})",
-                super::utils::AGENT_DESC_MIN, super::utils::AGENT_DESC_MAX, desc.len()
+                super::utils::AGENT_DESC_MIN,
+                super::utils::AGENT_DESC_MAX,
+                desc.len()
             )));
         }
     }
@@ -277,8 +282,12 @@ pub async fn power_toggle(
 
     // Check if agent has a password
     super::utils::verify_agent_password(
-        &state, &id, payload.password.as_deref(), "control this agent's power state",
-    ).await?;
+        &state,
+        &id,
+        payload.password.as_deref(),
+        "control this agent's power state",
+    )
+    .await?;
 
     state
         .agent_manager
@@ -373,9 +382,9 @@ pub async fn upload_avatar(
         .join("avatars")
         .join(format!("{}.{}", id, ext));
     let avatar_path_str = avatar_path.to_string_lossy().to_string();
-    tokio::fs::write(&avatar_path, &body).await.map_err(|e| {
-        AppError::Internal(anyhow::anyhow!("Failed to write avatar file: {}", e))
-    })?;
+    tokio::fs::write(&avatar_path, &body)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to write avatar file: {}", e)))?;
 
     // Attempt vision analysis (graceful degradation)
     let avatar_description = analyze_avatar(&state, &avatar_path_str).await;
@@ -449,9 +458,9 @@ pub async fn get_avatar(
         .await?
         .ok_or_else(|| AppError::Validation("No avatar set".to_string()))?;
 
-    let data = tokio::fs::read(&avatar_path).await.map_err(|e| {
-        AppError::Internal(anyhow::anyhow!("Failed to read avatar file: {}", e))
-    })?;
+    let data = tokio::fs::read(&avatar_path)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to read avatar file: {}", e)))?;
 
     let ext = avatar_path.rsplit('.').next().unwrap_or("png");
     let mime = ext_to_mime(ext);
