@@ -127,9 +127,15 @@ async fn proxy_handler(
         .header("Content-Type", "application/json")
         .timeout(Duration::from_secs(provider.timeout_secs as u64));
 
-    // Add API key if configured
+    // Add API key if configured (provider-specific auth format)
     if !provider.api_key.is_empty() {
-        req = req.header("Authorization", format!("Bearer {}", provider.api_key));
+        if provider_id == "claude" {
+            // Anthropic uses x-api-key header + required version header
+            req = req.header("x-api-key", &provider.api_key);
+            req = req.header("anthropic-version", "2023-06-01");
+        } else {
+            req = req.header("Authorization", format!("Bearer {}", provider.api_key));
+        }
     }
 
     debug!(
