@@ -7,6 +7,15 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.4.19] — 2026-03-03
+
+### Changed
+- Extract password verification helper to `handlers/utils.rs` (deduplicate 2x20-line blocks)
+- Python MCP server factory: `create_llm_mcp_server()` + `load_llm_provider_config()` reduce cerebras/deepseek to ~27 lines each
+- Split `AgentPluginWorkspace.tsx` into `AvatarSection`, `ProfileSection`, `ServerAccessSection` components
+
+---
+
 ## [0.4.18] — 2026-03-03
 
 ### Changed
