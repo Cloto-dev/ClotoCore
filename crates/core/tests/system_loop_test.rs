@@ -18,7 +18,7 @@ async fn test_system_handler_loop_prevention() {
         .execute(&pool).await.unwrap();
 
     let registry = Arc::new(PluginRegistry::new(5, 10));
-    let agent_manager = AgentManager::new(pool);
+    let agent_manager = AgentManager::new(pool.clone());
     let (event_tx, mut event_rx) = mpsc::channel(10);
 
     let metrics = Arc::new(cloto_core::managers::SystemMetrics::new());
@@ -32,6 +32,9 @@ async fn test_system_handler_loop_prevention() {
         vec!["mind.deepseek".to_string(), "mind.cerebras".to_string()],
         16, // max_agentic_iterations
         30, // tool_execution_timeout_secs
+        Arc::new(dashmap::DashMap::new()),
+        Arc::new(dashmap::DashMap::new()),
+        pool,
     );
 
     // 1. Test User Message → triggers handle_message (agentic loop)

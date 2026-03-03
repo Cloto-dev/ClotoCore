@@ -7,6 +7,33 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.4.21] — 2026-03-03
+
+### Added
+- Command approval system: HITL gate for terminal commands (Yes/Trust/No)
+  - Kernel intercepts `execute_command` before MCP dispatch (YOLO mode bypasses)
+  - DB-persisted exact match trust ("Yes") + session-scoped command name trust ("Trust")
+  - Inline approval card in chat with 60s countdown timer
+  - Tauri OS notification when approval pending and user is away
+  - API endpoints: `POST /api/commands/:id/{approve,trust,deny}`
+  - `trusted_commands` DB table + `CommandApprovalRequested/Result` events
+
+### Changed
+- Chat persistence moved from frontend to kernel (backend-complete)
+  - User messages persisted in `handle_message()` before processing
+  - Agent responses persisted before SSE `ThoughtResponse` emission
+  - Frontend `postChatMessage` calls removed (no more fire-and-forget)
+- LLM error handling improved across all layers
+  - L1 (Proxy): HTTP status → user-friendly message + error code (`auth_failed`, `rate_limited`, etc.)
+  - L2 (MCP Python): `LlmApiError` class replaces raw `raise_for_status()`, structured error response
+  - L3 (Kernel): `format_engine_error()` adds actionable guidance per error code
+  - L4 (Dashboard): `[Error]` messages displayed as amber error cards instead of plain text
+  - Internal URLs (`127.0.0.1:8082`) no longer exposed to users
+- Reset button long-press reduced from 2s to 1.5s
+- Thinking state recovery: 30s timeout + `visibilitychange` listener to handle missed SSE responses
+
+---
+
 ## [0.4.20] — 2026-03-03
 
 ### Added

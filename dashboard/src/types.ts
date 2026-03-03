@@ -119,6 +119,13 @@ export interface PermissionRequest {
   created_at: string;
 }
 
+export interface CommandApprovalRequest {
+  approval_id: string;
+  agent_id: string;
+  command: string;
+  command_name: string;
+}
+
 export interface Metrics {
   total_requests: number;
   total_memories: number;

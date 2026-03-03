@@ -1,6 +1,7 @@
 pub mod agents;
 pub mod assets;
 pub mod chat;
+pub mod commands;
 pub mod cron;
 pub mod events;
 pub mod llm;
@@ -27,6 +28,7 @@ pub use mcp::{
     restart_mcp_server, revoke_permission_handler, set_yolo_mode, start_mcp_server,
     stop_mcp_server, update_mcp_server_settings, update_plugin_config,
 };
+pub use commands::{approve_command, deny_command, trust_command};
 pub use permissions::{approve_permission, deny_permission, get_pending_permissions};
 
 /// GET /api/system/version
