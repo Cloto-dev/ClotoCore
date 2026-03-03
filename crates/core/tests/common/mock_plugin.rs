@@ -70,20 +70,7 @@ pub fn create_mock_plugin(id: ClotoId) -> (Arc<MockPlugin>, Arc<Mutex<Vec<ClotoE
     (plugin, received_events)
 }
 
-/// Slow mock plugin: introduces a configurable delay before returning.
-#[allow(dead_code)]
-pub fn create_slow_plugin(id: ClotoId, delay: Duration) -> Arc<MockPlugin> {
-    Arc::new(MockPlugin {
-        manifest: base_manifest(id, "SlowPlugin"),
-        received_events: Arc::new(Mutex::new(Vec::new())),
-        should_panic: false,
-        response_delay: delay,
-        response: None,
-    })
-}
-
 /// Panicking mock plugin: panics on every on_event call.
-#[allow(dead_code)]
 pub fn create_panicking_plugin(id: ClotoId) -> Arc<MockPlugin> {
     Arc::new(MockPlugin {
         manifest: base_manifest(id, "PanickingPlugin"),
