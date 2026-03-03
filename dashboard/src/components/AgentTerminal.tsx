@@ -199,7 +199,7 @@ export function AgentTerminal({
                       <img
                         src={api.getAvatarUrl(agent.id)}
                         alt=""
-                        className="absolute inset-0 w-full h-full object-cover opacity-10 blur-sm group-hover:opacity-15 transition-opacity duration-300"
+                        className="absolute inset-0 w-full h-full object-cover opacity-10 blur-sm group-hover:opacity-15 transition-opacity duration-300 pointer-events-none"
                       />
                     )}
                     {/* Row 1: Status + Name + Power */}
