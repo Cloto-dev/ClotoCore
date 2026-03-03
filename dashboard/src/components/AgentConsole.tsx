@@ -414,7 +414,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   };
 
   return (
-    <div className="flex flex-col h-full bg-glass backdrop-blur-3xl animate-in fade-in duration-500">
+    <div className="flex flex-col h-full animate-in fade-in duration-500">
       {/* Header */}
       <div className="p-4 border-b border-edge-subtle flex items-center justify-between bg-glass-strong">
         <div className="flex items-center gap-3">
