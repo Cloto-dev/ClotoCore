@@ -161,7 +161,10 @@ async fn proxy_handler(
                         // Translate HTTP status into user-friendly error with code
                         let (msg, code) = match status.as_u16() {
                             401 | 403 => (
-                                format!("API key authentication failed for provider '{}'", provider_id),
+                                format!(
+                                    "API key authentication failed for provider '{}'",
+                                    provider_id
+                                ),
                                 "auth_failed",
                             ),
                             429 => (
@@ -169,11 +172,19 @@ async fn proxy_handler(
                                 "rate_limited",
                             ),
                             500..=599 => (
-                                format!("Provider '{}' returned a server error ({})", provider_id, status.as_u16()),
+                                format!(
+                                    "Provider '{}' returned a server error ({})",
+                                    provider_id,
+                                    status.as_u16()
+                                ),
                                 "provider_error",
                             ),
                             _ => (
-                                format!("Provider '{}' returned an error ({})", provider_id, status.as_u16()),
+                                format!(
+                                    "Provider '{}' returned an error ({})",
+                                    provider_id,
+                                    status.as_u16()
+                                ),
                                 "unknown",
                             ),
                         };
