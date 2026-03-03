@@ -1,4 +1,36 @@
-// Shared handler utilities: validation constants, MIME helpers
+// Shared handler utilities: validation constants, MIME helpers, auth helpers
+
+use crate::{AppError, AppResult, AppState};
+
+// ── Password Verification ───────────────────────────────────
+
+/// Verify an agent's password if one is set.
+/// Returns Ok(()) if no password is set or if the provided password matches.
+pub async fn verify_agent_password(
+    state: &AppState,
+    agent_id: &str,
+    password: Option<&str>,
+    operation: &str,
+) -> AppResult<()> {
+    let password_hash = state.agent_manager.get_password_hash(agent_id).await?;
+    if let Some(ref hash) = password_hash {
+        match password {
+            Some(pw) => {
+                if !crate::managers::AgentManager::verify_password(pw, hash)? {
+                    return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                        cloto_shared::Permission::AdminAccess,
+                    )));
+                }
+            }
+            None => {
+                return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
+                    format!("Password required to {operation}"),
+                )));
+            }
+        }
+    }
+    Ok(())
+}
 
 // ── Validation Constants ─────────────────────────────────────
 

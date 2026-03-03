@@ -252,27 +252,11 @@ pub async fn delete_agent(
     }
 
     // If agent has a password, require it for deletion
-    let password_hash = state.agent_manager.get_password_hash(&id).await?;
-    if let Some(ref hash) = password_hash {
-        let password = body
-            .as_ref()
-            .and_then(|b| b.get("password"))
-            .and_then(|v| v.as_str());
-        match password {
-            Some(pw) => {
-                if !crate::managers::AgentManager::verify_password(pw, hash)? {
-                    return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
-                        cloto_shared::Permission::AdminAccess,
-                    )));
-                }
-            }
-            None => {
-                return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
-                    "Password required to delete this agent".to_string(),
-                )));
-            }
-        }
-    }
+    let password = body
+        .as_ref()
+        .and_then(|b| b.get("password"))
+        .and_then(|v| v.as_str());
+    super::utils::verify_agent_password(&state, &id, password, "delete this agent").await?;
 
     state.agent_manager.delete_agent(&id).await?;
     Ok(Json(serde_json::json!({ "status": "success" })))
@@ -292,23 +276,9 @@ pub async fn power_toggle(
     check_auth(&state, &headers)?;
 
     // Check if agent has a password
-    let password_hash = state.agent_manager.get_password_hash(&id).await?;
-    if let Some(ref hash) = password_hash {
-        match &payload.password {
-            Some(pw) => {
-                if !crate::managers::AgentManager::verify_password(pw, hash)? {
-                    return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
-                        cloto_shared::Permission::AdminAccess,
-                    )));
-                }
-            }
-            None => {
-                return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
-                    "Password required for this agent's power control".to_string(),
-                )));
-            }
-        }
-    }
+    super::utils::verify_agent_password(
+        &state, &id, payload.password.as_deref(), "control this agent's power state",
+    ).await?;
 
     state
         .agent_manager
