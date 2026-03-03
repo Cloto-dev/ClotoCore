@@ -107,6 +107,7 @@ auto_restart = false
 [servers.env]
 VISION_OLLAMA_URL = "http://localhost:11434"
 VISION_MODEL = "llava"
+VISION_OCR_MODE = "hybrid"
 
 [[servers]]
 id = "tool.imagegen"
