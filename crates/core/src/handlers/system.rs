@@ -194,9 +194,9 @@ impl SystemHandler {
     #[allow(clippy::too_many_lines)]
     pub async fn handle_message(&self, msg: ClotoMessage) -> anyhow::Result<()> {
         let target_agent_id = msg
-            .metadata
-            .get("target_agent_id")
-            .cloned()
+            .target_agent
+            .clone()
+            .or_else(|| msg.metadata.get("target_agent_id").cloned())
             .unwrap_or_else(|| self.default_agent_id.clone());
 
         // 1. エージェント情報の取得
@@ -885,7 +885,8 @@ impl SystemHandler {
                     tool_history.push(assistant_msg);
 
                     // ── Batch Command Approval Gate ──
-                    // Collect all untrusted execute_command calls and request approval once.
+                    // Collect all untrusted sandboxed tool calls and request approval once.
+                    // Covers execute_command and any tool with a "sandbox" validator.
                     let yolo = self.registry.mcp_manager.as_ref()
                         .map_or(false, |m| m.yolo_mode.load(std::sync::atomic::Ordering::Relaxed));
                     let mut denied_call_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -893,7 +894,14 @@ impl SystemHandler {
                     if !yolo {
                         let mut untrusted_cmds: Vec<serde_json::Value> = Vec::new();
                         for call in &calls {
-                            if call.name != "execute_command" { continue; }
+                            // Check if tool has a "sandbox" validator (includes execute_command
+                            // and any other sandboxed tools configured in mcp.toml)
+                            let has_sandbox_validator = if let Some(ref mcp) = self.registry.mcp_manager {
+                                mcp.get_tool_validator(&call.name).await.as_deref() == Some("sandbox")
+                            } else {
+                                false
+                            };
+                            if !has_sandbox_validator { continue; }
                             let Some(cmd_str) = call.arguments.get("command").and_then(|v| v.as_str()) else { continue; };
                             let db_trusted = crate::db::is_command_trusted(&self.pool, &agent.id, cmd_str).await.unwrap_or(false);
                             let cmd_name = cmd_str.split_whitespace().next().unwrap_or(cmd_str);
@@ -951,9 +959,27 @@ impl SystemHandler {
                                         approval_id, decision: "trusted".to_string(),
                                     }).await;
                                 }
-                                _ => {
-                                    let reason = if matches!(decision, Err(_)) { "timeout (60s)" } else { "denied by user" };
-                                    warn!(approval_id = %approval_id, reason = reason, "🚫 Commands denied");
+                                Ok(Ok(CommandApprovalDecision::Deny)) => {
+                                    warn!(approval_id = %approval_id, "🚫 Commands denied by user");
+                                    self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
+                                        approval_id, decision: "denied by user".to_string(),
+                                    }).await;
+                                    for cmd in &untrusted_cmds {
+                                        if let Some(id) = cmd.get("call_id").and_then(|v| v.as_str()) {
+                                            denied_call_ids.insert(id.to_string());
+                                        }
+                                    }
+                                }
+                                Ok(Err(_)) | Err(_) => {
+                                    let reason = if matches!(decision, Err(_)) { "timeout (60s)" } else { "channel closed" };
+                                    warn!(approval_id = %approval_id, reason = reason, "🚫 Commands denied (no response)");
+                                    info!(
+                                        approval_id = %approval_id,
+                                        agent_id = %agent.id,
+                                        commands = ?untrusted_cmds,
+                                        reason = reason,
+                                        "📋 Approval gate audit: commands blocked due to {}", reason
+                                    );
                                     self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
                                         approval_id, decision: reason.to_string(),
                                     }).await;
@@ -964,6 +990,19 @@ impl SystemHandler {
                                     }
                                 }
                             }
+                        }
+                    } else {
+                        // Bug #6: YOLO mode — still emit observability log for audit trail
+                        let sandboxed_tools: Vec<&str> = calls.iter()
+                            .filter(|c| c.arguments.get("command").and_then(|v| v.as_str()).is_some())
+                            .map(|c| c.arguments.get("command").and_then(|v| v.as_str()).unwrap_or("?"))
+                            .collect();
+                        if !sandboxed_tools.is_empty() {
+                            info!(
+                                agent_id = %agent.id,
+                                commands = ?sandboxed_tools,
+                                "⚡ YOLO mode: commands auto-approved"
+                            );
                         }
                     }
 
@@ -998,15 +1037,13 @@ impl SystemHandler {
 
                         let start = std::time::Instant::now();
 
-                        // 🔐 Anti-spoofing: force agent_id in tool arguments
+                        // 🔐 Anti-spoofing: always force agent_id in tool arguments
                         let mut safe_args = call.arguments.clone();
                         if let Some(obj) = safe_args.as_object_mut() {
-                            if obj.contains_key("agent_id") {
-                                obj.insert(
-                                    "agent_id".to_string(),
-                                    serde_json::Value::String(agent.id.clone()),
-                                );
-                            }
+                            obj.insert(
+                                "agent_id".to_string(),
+                                serde_json::Value::String(agent.id.clone()),
+                            );
                         }
 
                         let tool_result = tokio::time::timeout(

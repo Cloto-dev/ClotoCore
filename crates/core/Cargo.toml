@@ -40,6 +40,7 @@ validator = { version = "0.20", features = ["derive"] }
 cron = "0.15"
 uuid.workspace = true
 base64 = "0.22"
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 http = "1.0"
