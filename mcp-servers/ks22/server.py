@@ -899,10 +899,14 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="delete_memory",
-            description="Delete a single memory by ID.",
+            description="Delete a single memory by ID. Ownership is enforced when agent_id is provided.",
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Agent ID for ownership verification (injected by kernel)",
+                    },
                     "memory_id": {
                         "type": "integer",
                         "description": "Memory ID to delete",
@@ -913,10 +917,14 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="delete_episode",
-            description="Delete a single episode by ID.",
+            description="Delete a single episode by ID. Ownership is enforced when agent_id is provided.",
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Agent ID for ownership verification (injected by kernel)",
+                    },
                     "episode_id": {
                         "type": "integer",
                         "description": "Episode ID to delete",
@@ -965,10 +973,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         elif name == "delete_memory":
             result = await do_delete_memory(
                 arguments.get("memory_id", 0),
+                arguments.get("agent_id", ""),
             )
         elif name == "delete_episode":
             result = await do_delete_episode(
                 arguments.get("episode_id", 0),
+                arguments.get("agent_id", ""),
             )
         else:
             result = {"error": f"Unknown tool: {name}"}
@@ -1042,23 +1052,43 @@ async def do_list_episodes(agent_id: str, limit: int) -> dict:
     return {"episodes": episodes, "count": len(episodes)}
 
 
-async def do_delete_memory(memory_id: int) -> dict:
-    """Delete a single memory by ID."""
+async def do_delete_memory(memory_id: int, agent_id: str = "") -> dict:
+    """Delete a single memory by ID.
+
+    When agent_id is provided (non-empty), enforces ownership: only deletes
+    if the memory belongs to that agent. When empty (dashboard/admin calls),
+    deletes unconditionally.
+    """
     db = await get_db()
-    cursor = await db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+    if agent_id:
+        cursor = await db.execute(
+            "DELETE FROM memories WHERE id = ? AND agent_id = ?",
+            (memory_id, agent_id),
+        )
+    else:
+        cursor = await db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
     await db.commit()
     if cursor.rowcount == 0:
-        return {"error": f"Memory {memory_id} not found"}
+        return {"error": f"Memory {memory_id} not found or not owned by agent"}
     return {"ok": True, "deleted_id": memory_id}
 
 
-async def do_delete_episode(episode_id: int) -> dict:
-    """Delete a single episode by ID (FTS5 triggers handle index cleanup)."""
+async def do_delete_episode(episode_id: int, agent_id: str = "") -> dict:
+    """Delete a single episode by ID (FTS5 triggers handle index cleanup).
+
+    When agent_id is provided (non-empty), enforces ownership.
+    """
     db = await get_db()
-    cursor = await db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
+    if agent_id:
+        cursor = await db.execute(
+            "DELETE FROM episodes WHERE id = ? AND agent_id = ?",
+            (episode_id, agent_id),
+        )
+    else:
+        cursor = await db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
     await db.commit()
     if cursor.rowcount == 0:
-        return {"error": f"Episode {episode_id} not found"}
+        return {"error": f"Episode {episode_id} not found or not owned by agent"}
     return {"ok": True, "deleted_id": episode_id}
 
 
