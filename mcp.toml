@@ -34,6 +34,17 @@ CEREBRAS_API_URL = "http://127.0.0.1:8082/v1/chat/completions"
 CEREBRAS_PROVIDER = "cerebras"
 
 [[servers]]
+id = "mind.claude"
+command = "python"
+args = ["mcp-servers/claude/server.py"]
+transport = "stdio"
+auto_restart = true
+[servers.env]
+# API key managed by kernel LLM proxy (MGP §13.4)
+CLAUDE_API_URL = "http://127.0.0.1:8082/v1/messages"
+CLAUDE_PROVIDER = "claude"
+
+[[servers]]
 id = "mind.ollama"
 command = "python"
 args = ["mcp-servers/ollama/server.py"]
