@@ -74,8 +74,8 @@ export const WindowAgentNavigator: React.FC<AgentNavigatorProps> = ({
               {isActive && (
                 <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-r-full" style={{ backgroundColor: accentColor }} />
               )}
-              <div className="relative flex-shrink-0">
-                <AgentIcon agent={agent} size={16} />
+              <div className="relative flex-shrink-0 w-6 h-6 overflow-hidden rounded-md flex items-center justify-center">
+                <AgentIcon agent={agent} size={24} />
                 <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-surface-secondary ${statusDotClass(agent.status)}`} />
               </div>
               <div className="min-w-0 flex-1">

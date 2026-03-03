@@ -19,10 +19,13 @@ const StatusIcon = ({ status }: { status: McpServerInfo['status'] }) => {
   }
 };
 
+const DEFAULT_AGENT_ID = 'agent.cloto_default';
+
 export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const { apiKey } = useApiKey();
   // Allow empty apiKey — debug backend skips auth when CLOTO_API_KEY is unset
   const effectiveKey = apiKey || '';
+  const isDefault = agent.id === DEFAULT_AGENT_ID;
   const { servers } = useMcpServers(effectiveKey);
 
   const [grantedIds, setGrantedIds] = useState<Set<string>>(new Set());
@@ -37,6 +40,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
 
   // Avatar state
   const [avatarKey, setAvatarKey] = useState(0);
+  const [hasAvatar, setHasAvatar] = useState(agent.metadata?.has_avatar === 'true');
   const [avatarDescription, setAvatarDescription] = useState(agent.metadata?.avatar_description || '');
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
@@ -113,6 +117,10 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
       const memoryServer = grantedServers.find(s => s.id.startsWith('memory.'));
 
       const metadata: Record<string, string> = { ...agent.metadata };
+      // Remove backend-injected avatar fields (managed by avatar API, not metadata column)
+      delete metadata.has_avatar;
+      delete metadata.avatar_description;
+      delete metadata.has_power_password;
       if (memoryServer) {
         metadata.preferred_memory = memoryServer.id;
       } else {
@@ -150,6 +158,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
     try {
       const result = await api.uploadAvatar(agent.id, file, effectiveKey);
       setAvatarKey(prev => prev + 1);
+      setHasAvatar(true);
       setAvatarDescription(result.avatar_description || '');
     } catch (err: any) {
       setSaveError(err?.message || 'Failed to upload avatar');
@@ -164,6 +173,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
     try {
       await api.deleteAvatar(agent.id, effectiveKey);
       setAvatarKey(prev => prev + 1);
+      setHasAvatar(false);
       setAvatarDescription('');
     } catch (err: any) {
       setSaveError(err?.message || 'Failed to delete avatar');
@@ -184,8 +194,8 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
           >
             <ArrowLeft size={18} />
           </button>
-          <div className="w-10 h-10 rounded-md flex items-center justify-center shadow-sm text-white" style={{ backgroundColor: agentColor(agent) }}>
-            <AgentIcon agent={agent} size={20} />
+          <div className="w-10 h-10 rounded-md flex items-center justify-center shadow-sm text-white overflow-hidden" style={{ backgroundColor: agentColor(agent) }}>
+            <AgentIcon agent={agent} size={40} />
           </div>
           <div>
             <h1 className="text-xl font-black tracking-tighter text-content-primary uppercase">{agent.name} · MCP Access</h1>
@@ -203,55 +213,57 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
           <div className="py-12 text-center text-content-muted font-mono text-xs animate-pulse">Loading...</div>
         ) : (
           <>
-            {/* Avatar */}
-            <section>
+            {/* Avatar (protected for default agent) */}
+            {!isDefault && <section>
               <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
                 <Camera className="text-brand" size={16} />
                 <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Avatar</h2>
               </div>
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-lg border border-edge overflow-hidden flex items-center justify-center bg-glass-strong">
-                  {agent.metadata?.has_avatar === 'true' ? (
-                    <img
-                      src={`${api.getAvatarUrl(agent.id)}?v=${avatarKey}`}
-                      alt="Avatar"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <AgentIcon agent={agent} size={32} />
-                  )}
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label className={`cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-[10px] font-bold text-content-secondary hover:text-brand hover:border-brand transition-all ${isUploadingAvatar ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <Upload size={12} />
-                    {isUploadingAvatar ? 'Analyzing...' : 'Upload'}
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/gif,image/webp"
-                      className="hidden"
-                      onChange={handleAvatarUpload}
-                      disabled={isUploadingAvatar}
-                    />
-                  </label>
-                  {agent.metadata?.has_avatar === 'true' && (
-                    <button
-                      onClick={handleAvatarDelete}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-[10px] font-bold text-content-muted hover:text-red-500 hover:border-red-500/30 transition-all"
-                    >
-                      <X size={12} /> Remove
-                    </button>
-                  )}
+              <div className="space-y-3">
+                <div className="flex items-center gap-4">
+                  <div className="w-24 h-24 rounded-lg border border-edge overflow-hidden flex items-center justify-center bg-glass-strong shrink-0">
+                    {hasAvatar ? (
+                      <img
+                        src={`${api.getAvatarUrl(agent.id)}?v=${avatarKey}`}
+                        alt="Avatar"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <AgentIcon agent={agent} size={48} />
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className={`cursor-pointer inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand hover:border-brand transition-all ${isUploadingAvatar ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <Upload size={14} />
+                      {isUploadingAvatar ? 'Analyzing...' : 'Upload'}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/gif,image/webp"
+                        className="hidden"
+                        onChange={handleAvatarUpload}
+                        disabled={isUploadingAvatar}
+                      />
+                    </label>
+                    {hasAvatar && (
+                      <button
+                        onClick={handleAvatarDelete}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-red-500/20 bg-red-500/5 text-xs font-bold text-red-400/70 hover:text-red-500 hover:border-red-500/40 hover:bg-red-500/10 transition-all"
+                      >
+                        <X size={14} /> Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {avatarDescription && (
-                  <div className="flex-1 text-[10px] text-content-tertiary font-mono bg-glass rounded-lg p-2 border border-edge">
-                    <span className="text-content-muted">Vision: </span>{avatarDescription}
+                  <div className="text-[11px] text-content-tertiary font-mono bg-glass rounded-lg p-3 border border-edge leading-relaxed">
+                    <span className="text-content-muted font-bold">Vision: </span>{avatarDescription}
                   </div>
                 )}
               </div>
-            </section>
+            </section>}
 
-            {/* Profile */}
-            <section>
+            {/* Profile (protected for default agent) */}
+            {!isDefault && <section>
               <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
                 <Pencil className="text-brand" size={16} />
                 <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Profile</h2>
@@ -277,7 +289,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
                   />
                 </div>
               </div>
-            </section>
+            </section>}
 
             {/* Granted Servers */}
             <section>
@@ -292,7 +304,11 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
               ) : (
                 <div className="space-y-2">
                   {grantedServers.map(server => (
-                    <div key={server.id} className="bg-glass-strong backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-brand transition-all flex items-center gap-3 group">
+                    <div
+                      key={server.id}
+                      className="bg-glass-strong backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-red-500/30 transition-all flex items-center gap-3 group cursor-pointer"
+                      onClick={() => revokeServer(server.id)}
+                    >
                       <div className="p-1.5 rounded-md" style={{ backgroundColor: `${agentColor(agent)}15`, color: agentColor(agent) }}>
                         <Server size={16} />
                       </div>
@@ -308,13 +324,9 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
                       }`}>
                         {server.status}
                       </span>
-                      <button
-                        onClick={() => revokeServer(server.id)}
-                        className="p-1.5 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                        title="Revoke"
-                      >
+                      <span className="p-1.5 rounded text-content-muted group-hover:text-red-500 transition-all opacity-0 group-hover:opacity-100">
                         <X size={14} />
-                      </button>
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -330,8 +342,12 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
                 </div>
                 <div className="space-y-2">
                   {availableServers.map(server => (
-                    <div key={server.id} className="bg-glass backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-brand/50 transition-all flex items-center gap-3 group">
-                      <div className="p-1.5 rounded-md text-content-muted">
+                    <div
+                      key={server.id}
+                      className="bg-glass backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-brand/50 transition-all flex items-center gap-3 group cursor-pointer"
+                      onClick={() => grantServer(server.id)}
+                    >
+                      <div className="p-1.5 rounded-md text-content-muted group-hover:text-brand transition-colors">
                         <Server size={16} />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -346,12 +362,11 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
                       }`}>
                         {server.status}
                       </span>
-                      <button
-                        onClick={() => grantServer(server.id)}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold text-brand hover:bg-brand/10 transition-all opacity-0 group-hover:opacity-100"
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold text-brand opacity-0 group-hover:opacity-100 transition-all"
                       >
                         <Plus size={10} /> Grant
-                      </button>
+                      </span>
                     </div>
                   ))}
                 </div>

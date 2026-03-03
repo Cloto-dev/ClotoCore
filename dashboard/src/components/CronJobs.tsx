@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { memo } from 'react';
 import { Clock, Plus, Trash2, Play, Power } from 'lucide-react';
 import { ViewHeader } from './ViewHeader';
+import { InteractiveGrid } from './InteractiveGrid';
 import { CronJob, AgentMetadata } from '../types';
 import { api } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
@@ -90,16 +91,7 @@ export const CronJobs = memo(function CronJobs() {
 
   return (
     <div className="bg-surface-base min-h-screen relative font-sans text-content-primary overflow-x-hidden animate-in fade-in duration-500">
-      <div
-        className="fixed left-0 right-0 bottom-0 z-0 opacity-30 pointer-events-none"
-        style={{
-          top: '41px',
-          backgroundImage: `linear-gradient(to right, var(--canvas-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--canvas-grid) 1px, transparent 1px)`,
-          backgroundSize: '40px 40px',
-          maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
-          WebkitMaskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)'
-        }}
-      />
+      <InteractiveGrid />
 
       <ViewHeader
         icon={Clock}
