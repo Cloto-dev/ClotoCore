@@ -57,6 +57,8 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         rate_limiter,
         shutdown: Arc::new(Notify::new()),
         revoked_keys: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
+        pending_command_approvals: Arc::new(dashmap::DashMap::new()),
+        session_trusted_commands: Arc::new(dashmap::DashMap::new()),
     })
 }
 

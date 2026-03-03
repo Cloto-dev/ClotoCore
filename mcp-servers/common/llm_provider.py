@@ -217,6 +217,16 @@ def parse_chat_think_result(config: ProviderConfig, response_data: dict) -> dict
 # ============================================================
 
 
+class LlmApiError(Exception):
+    """Structured error from the LLM proxy with an error code."""
+
+    def __init__(self, message: str, code: str = "unknown", status_code: int = 0):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.status_code = status_code
+
+
 async def call_llm_api(
     config: ProviderConfig,
     messages: list[dict],
@@ -232,17 +242,40 @@ async def call_llm_api(
     if tools and model_supports_tools(config):
         body["tools"] = tools
 
-    async with httpx.AsyncClient(timeout=config.request_timeout) as client:
-        response = await client.post(
-            config.api_url,
-            json=body,
-            headers={
-                "X-LLM-Provider": config.provider_id,
-                "Content-Type": "application/json",
-            },
+    try:
+        async with httpx.AsyncClient(timeout=config.request_timeout) as client:
+            response = await client.post(
+                config.api_url,
+                json=body,
+                headers={
+                    "X-LLM-Provider": config.provider_id,
+                    "Content-Type": "application/json",
+                },
+            )
+    except httpx.ConnectError:
+        raise LlmApiError(
+            f"Cannot connect to LLM proxy. Ensure the kernel is running.",
+            "connection_failed",
         )
-        response.raise_for_status()
-        return response.json()
+    except httpx.TimeoutException:
+        raise LlmApiError(
+            f"LLM request timed out after {config.request_timeout}s.",
+            "timeout",
+        )
+
+    if response.status_code >= 400:
+        # Extract structured error from proxy response
+        try:
+            err_body = response.json()
+            err_obj = err_body.get("error", {})
+            msg = err_obj.get("message", f"HTTP {response.status_code}")
+            code = err_obj.get("code", "unknown")
+        except Exception:
+            msg = f"HTTP {response.status_code}"
+            code = "unknown"
+        raise LlmApiError(msg, code, response.status_code)
+
+    return response.json()
 
 
 # ============================================================
@@ -311,6 +344,17 @@ THINK_WITH_TOOLS_INPUT_SCHEMA = {
 # ============================================================
 
 
+def _error_response(error: Exception) -> list[TextContent]:
+    """Build a structured error response for tool handlers."""
+    if isinstance(error, LlmApiError):
+        return [TextContent(type="text", text=json.dumps({
+            "error": error.message, "error_code": error.code,
+        }))]
+    return [TextContent(type="text", text=json.dumps({
+        "error": "An unexpected error occurred", "error_code": "internal",
+    }))]
+
+
 async def handle_think(
     config: ProviderConfig, arguments: dict
 ) -> list[TextContent]:
@@ -330,11 +374,7 @@ async def handle_think(
             )
         ]
     except Exception as e:
-        return [
-            TextContent(
-                type="text", text=json.dumps({"error": str(e)})
-            )
-        ]
+        return _error_response(e)
 
 
 async def handle_think_with_tools(
@@ -357,11 +397,7 @@ async def handle_think_with_tools(
 
         return [TextContent(type="text", text=json.dumps(result))]
     except Exception as e:
-        return [
-            TextContent(
-                type="text", text=json.dumps({"error": str(e)})
-            )
-        ]
+        return _error_response(e)
 
 
 # ============================================================

@@ -1,23 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Activity, Zap, User as UserIcon, RotateCcw, ArrowLeft, Volume2 } from 'lucide-react';
-import { AgentMetadata, ClotoMessage, ChatMessage, ContentBlock } from '../types';
+import { AgentMetadata, ClotoMessage, ChatMessage, ContentBlock, CommandApprovalRequest } from '../types';
 import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { useLongPress } from '../hooks/useLongPress';
 import { MessageContent } from './ContentBlockView';
 import { ChatInputBar } from './ChatInputBar';
+import { CommandApprovalCard } from './CommandApprovalCard';
 import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { SkeletonThinking } from './SkeletonThinking';
 import { TypewriterMessage } from './TypewriterMessage';
 import { ArtifactPanel } from './ArtifactPanel';
 import { useArtifacts } from '../hooks/useArtifacts';
+import { sendNativeNotification } from '../lib/notifications';
 
 // Legacy localStorage key prefix for migration
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
 
 function LongPressResetButton({ onReset }: { onReset: () => void }) {
-  const { progress, handlers } = useLongPress(2000, onReset);
+  const { progress, handlers } = useLongPress(1500, onReset);
 
   return (
     <button
@@ -75,6 +77,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [pendingResponse, setPendingResponse] = useState<{ id: string; text: string; elapsedSecs: number } | null>(null);
   const [thinkingSteps, setThinkingSteps] = useState<Array<{ id: number; icon: string; text: string; ts: number }>>([]);
+  const [pendingApprovals, setPendingApprovals] = useState<CommandApprovalRequest[]>([]);
   const thinkingIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -98,7 +101,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         const reversed = loaded.reverse();
         setMessages(reversed);
         setHasMore(has_more);
-        // Restore typing state: if last message is from user, agent is likely still processing
+        // Restore typing state: if last message is from user, agent may still be processing.
+        // Set a safety timeout to recover if the SSE response was missed.
         if (reversed.length > 0 && reversed[reversed.length - 1].source === 'user') {
           setIsTyping(true);
         }
@@ -110,6 +114,42 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     };
     loadMessages();
   }, [agent.id, apiKey]);
+
+  // Recovery: if isTyping is true but we missed the SSE response,
+  // re-check the server for messages. Triggers on:
+  // 1. 30s timeout while typing
+  // 2. Page becoming visible again (user navigated away and back)
+  const recoverTypingState = useCallback(async () => {
+    if (!isTyping) return;
+    try {
+      const { messages: latest } = await api.getChatMessages(agent.id, apiKey, undefined, 5);
+      if (latest.length > 0 && latest[0].source === 'agent') {
+        const reversed = latest.reverse();
+        setMessages(prev => {
+          const existingIds = new Set(prev.map(m => m.id));
+          const newMsgs = reversed.filter(m => !existingIds.has(m.id));
+          return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev;
+        });
+        setIsTyping(false);
+        setThinkingSteps([]);
+      }
+    } catch {
+      // Silently ignore — next event or timeout will retry
+    }
+  }, [isTyping, agent.id, apiKey]);
+
+  useEffect(() => {
+    if (!isTyping) return;
+    const timer = setTimeout(recoverTypingState, 30_000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') recoverTypingState();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [isTyping, recoverTypingState]);
 
   // Scroll to bottom on initial load and new messages (only if user is at bottom)
   useEffect(() => {
@@ -215,6 +255,25 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       }
     }
 
+    // Command approval request from kernel
+    if (event.type === 'CommandApprovalRequested' && event.data?.agent_id === agent.id) {
+      setPendingApprovals(prev => {
+        if (prev.some(a => a.approval_id === event.data.approval_id)) return prev;
+        return [...prev, {
+          approval_id: event.data.approval_id,
+          agent_id: event.data.agent_id,
+          command: event.data.command,
+          command_name: event.data.command_name,
+        }];
+      });
+      if (document.hidden) {
+        sendNativeNotification('Command Approval', `${agent.name}: ${event.data.command_name}`);
+      }
+    }
+    if (event.type === 'CommandApprovalResult') {
+      setPendingApprovals(prev => prev.filter(a => a.approval_id !== event.data.approval_id));
+    }
+
     if (event.type === 'ThoughtResponse' && event.data.agent_id === agent.id) {
       setIsTyping(false);
       setThinkingSteps([]);
@@ -238,12 +297,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         return { id: msgId, text: event.data.content, elapsedSecs };
       });
 
-      // Persist agent response to server (fire-and-forget)
-      api.postChatMessage(agent.id, {
-        id: msgId,
-        source: 'agent',
-        content: [{ type: 'text', text: event.data.content }],
-      }, apiKey).catch(err => console.error('Failed to persist agent response:', err));
+      // Agent response is persisted backend-side (system.rs) before SSE emission.
     }
   });
 
@@ -297,12 +351,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       .join(' ');
 
     try {
-      await api.postChatMessage(agent.id, {
-        id: userMsg.id,
-        source: 'user',
-        content: userMsg.content,
-      }, apiKey);
-
+      // User message is persisted backend-side (system.rs) on receipt.
       const clotoMsg: ClotoMessage = {
         id: msgId,
         source: { type: 'User', id: 'user', name: 'User' },
@@ -416,20 +465,35 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         ) : (
           messages.map((msg) => {
             const isUser = msg.source === 'user';
+            const firstText = Array.isArray(msg.content) ? msg.content.find(b => b.type === 'text')?.text || '' : '';
+            const isError = !isUser && firstText.startsWith('[Error]');
             return (
               <div key={msg.id} className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm overflow-hidden ${
-                  isUser ? 'bg-surface-primary border border-edge-subtle text-content-tertiary' : 'text-white'
-                }`} style={!isUser ? { backgroundColor: agentColor(agent) } : undefined}>
-                  {isUser ? <UserIcon size={14} /> : <AgentIcon agent={agent} size={32} />}
+                  isUser ? 'bg-surface-primary border border-edge-subtle text-content-tertiary'
+                  : isError ? 'bg-amber-500/20 text-amber-500'
+                  : 'text-white'
+                }`} style={!isUser && !isError ? { backgroundColor: agentColor(agent) } : undefined}>
+                  {isUser ? <UserIcon size={14} />
+                   : isError ? <Activity size={14} />
+                   : <AgentIcon agent={agent} size={32} />}
                 </div>
                 <div className={`max-w-[80%] text-base leading-7 select-text ${
                   isUser
                     ? 'p-4 rounded-2xl rounded-tr-none shadow-sm bg-surface-primary text-content-primary'
+                    : isError
+                    ? 'p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-amber-200 text-sm'
                     : 'pt-1 text-content-primary'
                 }`}>
-                  <MessageContent content={msg.content} />
-                  {!isUser && (
+                  {isError ? (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Engine Error</div>
+                      <div className="text-xs text-content-secondary whitespace-pre-line">{firstText.replace(/^\[Error\]\s*/, '')}</div>
+                    </div>
+                  ) : (
+                    <MessageContent content={msg.content} />
+                  )}
+                  {!isUser && !isError && (
                     <div className="mt-2 flex items-center gap-2">
                       {msg.metadata?.elapsed_secs != null && (
                         <span className="text-xs font-mono text-content-tertiary">
@@ -488,8 +552,20 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             </div>
           </div>
         )}
+        {/* Command Approval Cards */}
+        {pendingApprovals.map(approval => (
+          <div key={approval.approval_id} className="flex items-start gap-3">
+            <div className="w-8" />
+            <CommandApprovalCard
+              approvalId={approval.approval_id}
+              command={approval.command}
+              commandName={approval.command_name}
+              onResolved={(id) => setPendingApprovals(prev => prev.filter(a => a.approval_id !== id))}
+            />
+          </div>
+        ))}
         {/* Skeleton (waiting for SSE response) */}
-        {isTyping && (
+        {isTyping && pendingApprovals.length === 0 && (
           <SkeletonThinking
             agentColor={agentColor(agent)}
             agentIcon={<AgentIcon agent={agent} size={32} />}
