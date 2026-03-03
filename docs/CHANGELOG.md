@@ -7,6 +7,16 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.4.22] — 2026-03-03
+
+### Added
+- CFR (Cost-First Router): high-speed engine tries first, escalates to high-quality engine on `[[ESCALATE]]`
+- Auto-fallback: retriable errors (429/5xx/connection) automatically switch to fallback engine
+- Routing rule extensions: `cfr`, `escalate_to`, `fallback` fields (backward-compatible)
+- Dashboard UI: CFR toggle, escalation target, fallback selector in routing rule builder
+
+---
+
 ## [0.4.21] — 2026-03-03
 
 ### Added
