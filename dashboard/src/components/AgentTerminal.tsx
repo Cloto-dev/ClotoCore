@@ -95,7 +95,7 @@ export function AgentTerminal({
 
   if (selectedAgent) {
     if (isAiAgent(selectedAgent)) {
-      return <AgentConsole agent={selectedAgent} onBack={() => onSelectAgent(null)} />;
+      return <AgentConsole key={selectedAgent.id} agent={selectedAgent} onBack={() => onSelectAgent(null)} />;
     }
     return (
       <ContainerDashboard

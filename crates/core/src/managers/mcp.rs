@@ -1101,22 +1101,29 @@ impl McpClientManager {
     }
 
     /// Execute a tool on a specific server by server ID and tool name.
+    /// Applies kernel-side validation (A) before forwarding to the MCP server.
     pub async fn call_server_tool(
         &self,
         server_id: &str,
         tool_name: &str,
         args: Value,
     ) -> Result<CallToolResult> {
-        let client = {
+        let (client, tool_validators) = {
             let servers = self.servers.read().await;
             let handle = servers
                 .get(server_id)
                 .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not found", server_id))?;
-            handle
+            let client = handle
                 .client
                 .clone()
-                .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not connected", server_id))?
+                .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not connected", server_id))?;
+            (client, handle.config.tool_validators.clone())
         };
+
+        // ──── Kernel-side Validation (A): Validate tool arguments before forwarding ────
+        if let Some(validator_name) = tool_validators.get(tool_name) {
+            validate_tool_arguments(validator_name, tool_name, &args)?;
+        }
 
         client.call_tool(tool_name, args).await
     }
@@ -1346,6 +1353,18 @@ impl McpClientManager {
         // Restart to apply new env
         let _ = self.restart_server(id).await;
         Ok(())
+    }
+
+    /// Look up the kernel-side validator name for a given tool.
+    /// Returns `Some("sandbox")` if the tool has a sandbox validator configured, etc.
+    pub async fn get_tool_validator(&self, tool_name: &str) -> Option<String> {
+        let server_id = {
+            let index = self.tool_index.read().await;
+            index.get(tool_name).cloned()
+        }?;
+        let servers = self.servers.read().await;
+        let handle = servers.get(&server_id)?;
+        handle.config.tool_validators.get(tool_name).cloned()
     }
 
     /// Get a reference to the database pool (for access control queries).
