@@ -32,13 +32,29 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
     }
   }, [isFiltering]);
 
+  // Category sort: mind > memory > tool > voice > vision > other
+  const categoryOrder: Record<string, number> = {
+    'mind.': 0, 'memory.': 1, 'tool.': 2, 'voice.': 3, 'vision.': 4,
+  };
+  const getOrder = (id: string) => {
+    for (const [prefix, order] of Object.entries(categoryOrder)) {
+      if (id.startsWith(prefix)) return order;
+    }
+    return 9;
+  };
+
+  const sortedServers = [...servers].sort((a, b) => {
+    const oa = getOrder(a.id), ob = getOrder(b.id);
+    return oa !== ob ? oa - ob : a.id.localeCompare(b.id);
+  });
+
   const filteredServers = filterText
-    ? servers.filter(s =>
+    ? sortedServers.filter(s =>
         s.id.toLowerCase().includes(filterText.toLowerCase()) ||
         s.tools.some(t => t.toLowerCase().includes(filterText.toLowerCase())) ||
         s.status.toLowerCase().includes(filterText.toLowerCase())
       )
-    : servers;
+    : sortedServers;
 
   const running = servers.filter(s => s.status === 'Connected').length;
   const stopped = servers.filter(s => s.status !== 'Connected').length;
