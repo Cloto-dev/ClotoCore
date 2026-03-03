@@ -375,3 +375,93 @@ async def run_server(server: Server):
         await server.run(
             read_stream, write_stream, server.create_initialization_options()
         )
+
+
+# ============================================================
+# Configuration Loader
+# ============================================================
+
+
+def load_llm_provider_config(
+    prefix: str,
+    display_name: str,
+    default_model: str = "",
+    supports_tools: bool = True,
+    default_timeout: int = 120,
+) -> ProviderConfig:
+    """Load an LLM provider config from environment variables.
+
+    Environment variables: {PREFIX}_PROVIDER, {PREFIX}_MODEL,
+    {PREFIX}_API_URL, {PREFIX}_TIMEOUT_SECS.
+    """
+    import os
+
+    return ProviderConfig(
+        provider_id=os.environ.get(f"{prefix}_PROVIDER", prefix.lower()),
+        model_id=os.environ.get(f"{prefix}_MODEL", default_model),
+        api_url=os.environ.get(
+            f"{prefix}_API_URL", "http://127.0.0.1:8082/v1/chat/completions"
+        ),
+        request_timeout=int(
+            os.environ.get(f"{prefix}_TIMEOUT_SECS", str(default_timeout))
+        ),
+        supports_tools=supports_tools,
+        display_name=display_name,
+    )
+
+
+# ============================================================
+# Server Factory
+# ============================================================
+
+
+def create_llm_mcp_server(config: ProviderConfig) -> Server:
+    """Create a fully configured LLM MCP server with think/think_with_tools tools.
+
+    Eliminates boilerplate duplication across provider servers.
+    """
+    from mcp.types import Tool
+
+    server = Server(f"cloto-mcp-{config.provider_id}")
+
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        tools = [
+            Tool(
+                name="think",
+                description=(
+                    f"Generate a text response using {config.display_name} LLM."
+                ),
+                inputSchema=THINK_INPUT_SCHEMA,
+            ),
+        ]
+
+        if model_supports_tools(config):
+            tools.append(
+                Tool(
+                    name="think_with_tools",
+                    description=(
+                        "Generate a response that may include tool calls. "
+                        "Returns either final text or a list of tool calls to execute."
+                    ),
+                    inputSchema=THINK_WITH_TOOLS_INPUT_SCHEMA,
+                )
+            )
+
+        return tools
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+        if name == "think":
+            return await handle_think(config, arguments)
+        elif name == "think_with_tools":
+            return await handle_think_with_tools(config, arguments)
+        else:
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps({"error": f"Unknown tool: {name}"}),
+                )
+            ]
+
+    return server
