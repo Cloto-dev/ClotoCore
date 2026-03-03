@@ -254,6 +254,102 @@
       "pattern": "auto-approved without manual review",
       "expected": "present",
       "status": "open"
+    },
+    {
+      "id": "bug-173",
+      "summary": "call_server_tool() bypasses kernel-side tool validation (defense-in-depth gap)",
+      "severity": "CRITICAL",
+      "discovered": "2026-03-03T00:00:00Z",
+      "version": "0.4.22",
+      "commit": "101b803",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "server_id\\)\\)\\?$",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-174",
+      "summary": "Anti-spoofing only overwrites agent_id when key already present (conditional bypass)",
+      "severity": "CRITICAL",
+      "discovered": "2026-03-03T00:00:00Z",
+      "version": "0.4.22",
+      "commit": "101b803",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "contains_key\\(\"agent_id\"\\)",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-175",
+      "summary": "Approval gate hardcoded to execute_command only, ignores other sandboxed tools",
+      "severity": "HIGH",
+      "discovered": "2026-03-03T00:00:00Z",
+      "version": "0.4.22",
+      "commit": "101b803",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "call\\.name != \"execute_command\"",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-176",
+      "summary": "Approval timeout and user-deny share single catch-all match arm (no audit differentiation)",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-03T00:00:00Z",
+      "version": "0.4.22",
+      "commit": "101b803",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "\"timeout \\(60s\\)\" \\} else \\{ \"denied by user\"",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-177",
+      "summary": "YOLO mode auto-approves commands with no audit log (observability gap)",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-03T00:00:00Z",
+      "version": "0.4.22",
+      "commit": "101b803",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "YOLO mode: commands auto-approved",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-178",
+      "summary": "Kernel sandbox validator lacks NFKC normalization (Unicode bypass possible)",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-03T00:00:00Z",
+      "version": "0.4.22",
+      "commit": "101b803",
+      "file": "crates/core/src/managers/mcp_tool_validator.rs",
+      "pattern": "let lower = command\\.to_lowercase",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-179",
+      "summary": "AgentConsole lacks key prop — switching agents leaks isTyping state (shows Thinking on wrong agent)",
+      "severity": "HIGH",
+      "discovered": "2026-03-03T00:00:00Z",
+      "version": "0.4.22",
+      "commit": "101b803",
+      "file": "dashboard/src/components/AgentTerminal.tsx",
+      "pattern": "<AgentConsole agent=\\{selectedAgent\\}",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-180",
+      "summary": "handle_message ignores ClotoMessage.target_agent field — routes via metadata only, causing silent misrouting",
+      "severity": "HIGH",
+      "discovered": "2026-03-03T00:00:00Z",
+      "version": "0.4.22",
+      "commit": "101b803",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "\\.metadata.*get\\(\"target_agent_id\"\\).*unwrap_or_else",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

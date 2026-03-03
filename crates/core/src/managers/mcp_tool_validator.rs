@@ -4,6 +4,7 @@
 use anyhow::Result;
 use serde_json::Value;
 use tracing::warn;
+use unicode_normalization::UnicodeNormalization;
 
 // ============================================================
 // Kernel-side Tool Validation (Security Feature A)
@@ -68,9 +69,10 @@ fn validate_sandbox_args(_tool_name: &str, args: &Value) -> Result<()> {
         ));
     }
 
-    // Note: NFKC normalization is handled by the MCP server itself (Python side).
-    // Kernel validation operates on the raw string for defense-in-depth.
-    let lower = command.to_lowercase();
+    // NFKC normalization: canonicalize Unicode to prevent bypasses via
+    // confusable characters (e.g., U+2011 non-breaking hyphen → U+002D hyphen-minus).
+    let normalized: String = command.nfkc().collect();
+    let lower = normalized.to_lowercase();
 
     // Block embedded newlines/carriage returns (injection vectors)
     if lower.contains('\n')
