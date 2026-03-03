@@ -56,56 +56,106 @@ def model_supports_tools(config: ProviderConfig) -> bool:
     return "reasoner" not in config.model_id
 
 
-def build_system_prompt(agent: dict) -> str:
-    """Build the system prompt for a Cloto agent.
+def build_system_prompt(
+    agent: dict, tools: list[dict] | None = None
+) -> str:
+    """Build a 5-layer system prompt for a Cloto agent.
 
-    Ported from llm::build_system_prompt().
+    Layers:
+      1. Identity   — agent name + platform intro
+      2. Platform   — Cloto local/self-hosted description
+      3. Persona    — structured role/expertise/style from metadata.persona
+      4. Capabilities — available tools (dynamic), memory, avatar
+      5. Behavior   — tool-usage guidance + free-text description
     """
     name = agent.get("name", "Agent")
     description = agent.get("description", "")
     metadata = agent.get("metadata", {})
 
-    has_memory = bool(metadata.get("preferred_memory", ""))
-    memory_line = (
-        "You have persistent memory — you can recall past conversations with your operator.\n"
-        if has_memory
-        else ""
+    lines: list[str] = []
+
+    # --- [1] Identity ---
+    lines.append(f"You are {name}, an AI agent running on the Cloto platform.")
+
+    # --- [2] Platform ---
+    lines.append(
+        "Cloto is a local, self-hosted AI container system — "
+        "all data stays on your operator's hardware and is never sent to external services."
     )
+
+    # --- [3] Persona (from metadata.persona JSON) ---
+    persona_raw = metadata.get("persona", "")
+    if persona_raw:
+        try:
+            p = json.loads(persona_raw) if isinstance(persona_raw, str) else persona_raw
+            if p.get("role"):
+                lines.append(f"Your role: {p['role']}")
+            if p.get("expertise"):
+                exp = p["expertise"]
+                if isinstance(exp, list):
+                    lines.append(f"Your areas of expertise: {', '.join(exp)}")
+                else:
+                    lines.append(f"Your areas of expertise: {exp}")
+            if p.get("communication_style"):
+                lines.append(f"Communication style: {p['communication_style']}")
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # --- [4] Capabilities ---
+    if metadata.get("preferred_memory"):
+        lines.append(
+            "You have persistent memory — you can store and recall past conversations."
+        )
 
     avatar_desc = metadata.get("avatar_description", "")
-    avatar_line = (
-        f"Your visual appearance/avatar: {avatar_desc}\n"
-        if avatar_desc
-        else ""
+    if avatar_desc:
+        lines.append(f"Your visual appearance/avatar: {avatar_desc}")
+
+    # Dynamic tool listing — lets the model know exactly what it can do
+    if tools:
+        tool_lines = []
+        for t in tools:
+            fn = t.get("function", {})
+            tname = fn.get("name", "")
+            tdesc = fn.get("description", "")
+            if tname:
+                short_desc = tdesc.split(".")[0].strip() if tdesc else ""
+                tool_lines.append(f"  - {tname}: {short_desc}")
+        if tool_lines:
+            lines.append("")
+            lines.append(f"You have access to {len(tool_lines)} tools:")
+            lines.extend(tool_lines)
+
+    # --- [5] Behavior ---
+    lines.append("")
+    lines.append(
+        "When the user's request can be fulfilled by using a tool, "
+        "prefer calling the appropriate tool over guessing or explaining "
+        "how to do it manually. Execute first, explain after."
+    )
+    lines.append(
+        "If no tool can help, respond honestly based on your knowledge."
     )
 
-    return (
-        f"You are {name}, an AI agent running on the Cloto platform.\n"
-        f"Cloto is a local, self-hosted AI container system — all data stays on your "
-        f"operator's hardware and is never sent to any external service.\n"
-        f"{memory_line}"
-        f"{avatar_line}"
-        f"You can extend your capabilities at runtime using the create_mcp_server tool "
-        f"to build new Python-based MCP tools when your current toolset is insufficient.\n"
-        f"\n"
-        f"IMPORTANT: You must never fabricate or hallucinate information about your "
-        f"own capabilities, connected servers, or available tools. If you are unsure "
-        f"about what you can do, say so honestly. Only describe capabilities you have "
-        f"actually been provided with.\n"
-        f"\n"
-        f"{description}"
-    )
+    if description:
+        lines.append("")
+        lines.append(description)
+
+    return "\n".join(lines)
 
 
 def build_chat_messages(
-    agent: dict, message: dict, context: list[dict]
+    agent: dict,
+    message: dict,
+    context: list[dict],
+    tools: list[dict] | None = None,
 ) -> list[dict]:
     """Build the standard OpenAI-compatible messages array.
 
     Returns [system_message, ...context_messages, user_message].
-    Ported from llm::build_chat_messages().
+    When tools are provided, the system prompt includes a dynamic tool listing.
     """
-    messages = [{"role": "system", "content": build_system_prompt(agent)}]
+    messages = [{"role": "system", "content": build_system_prompt(agent, tools)}]
 
     for msg in context:
         source = msg.get("source", {})
@@ -388,7 +438,7 @@ async def handle_think_with_tools(
         tools = arguments.get("tools", [])
         tool_history = arguments.get("tool_history", [])
 
-        messages = build_chat_messages(agent, message, context)
+        messages = build_chat_messages(agent, message, context, tools=tools)
         # Append tool history (assistant messages with tool_calls + tool results)
         messages.extend(tool_history)
 
