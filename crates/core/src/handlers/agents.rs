@@ -97,37 +97,37 @@ pub async fn create_agent(
     check_auth(&state, &headers)?;
 
     // M-07: Input validation
-    if payload.name.is_empty() || payload.name.len() > 200 {
+    use super::utils::*;
+    if payload.name.is_empty() || payload.name.len() > AGENT_NAME_MAX {
         return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             format!(
-                "Agent name must be 1-200 characters (got {} chars); example: \"my-agent\"",
+                "Agent name must be {AGENT_NAME_MIN}-{AGENT_NAME_MAX} characters (got {} chars); example: \"my-agent\"",
                 payload.name.len()
             ),
         )));
     }
-    // Bug #1: Add empty check for description to match name validation pattern
-    if payload.description.is_empty() || payload.description.len() > 1000 {
+    if payload.description.is_empty() || payload.description.len() > AGENT_DESC_MAX {
         return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
-            format!("Agent description must be 1-1000 characters (got {} chars); example: \"A helpful assistant\"",
+            format!("Agent description must be {AGENT_DESC_MIN}-{AGENT_DESC_MAX} characters (got {} chars); example: \"A helpful assistant\"",
                 payload.description.len()),
         )));
     }
 
     // H-04: Metadata size validation
     let metadata = payload.metadata.unwrap_or_default();
-    if metadata.len() > 50 {
+    if metadata.len() > AGENT_METADATA_MAX_PAIRS {
         return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             format!(
-                "Metadata must have at most 50 key-value pairs (got {})",
-                metadata.len()
+                "Metadata must have at most {} key-value pairs (got {})",
+                AGENT_METADATA_MAX_PAIRS, metadata.len()
             ),
         )));
     }
     for (k, v) in &metadata {
-        if k.len() > 200 || v.len() > 5000 {
+        if k.len() > AGENT_METADATA_KEY_MAX || v.len() > AGENT_METADATA_VALUE_MAX {
             return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
-                format!("Metadata key '{}' exceeds limits (key: {} chars max 200, value: {} chars max 5000)",
-                    k, k.len(), v.len()),
+                format!("Metadata key '{}' exceeds limits (key: {} chars max {}, value: {} chars max {})",
+                    k, k.len(), AGENT_METADATA_KEY_MAX, v.len(), AGENT_METADATA_VALUE_MAX),
             )));
         }
     }
@@ -193,18 +193,18 @@ pub async fn update_agent(
     }
 
     if let Some(ref name) = payload.name {
-        if name.is_empty() || name.len() > 200 {
+        if name.is_empty() || name.len() > super::utils::AGENT_NAME_MAX {
             return Err(AppError::Validation(format!(
-                "Agent name must be 1-200 characters (got {})",
-                name.len()
+                "Agent name must be {}-{} characters (got {})",
+                super::utils::AGENT_NAME_MIN, super::utils::AGENT_NAME_MAX, name.len()
             )));
         }
     }
     if let Some(ref desc) = payload.description {
-        if desc.is_empty() || desc.len() > 1000 {
+        if desc.is_empty() || desc.len() > super::utils::AGENT_DESC_MAX {
             return Err(AppError::Validation(format!(
-                "Agent description must be 1-1000 characters (got {})",
-                desc.len()
+                "Agent description must be {}-{} characters (got {})",
+                super::utils::AGENT_DESC_MIN, super::utils::AGENT_DESC_MAX, desc.len()
             )));
         }
     }
@@ -352,27 +352,7 @@ pub async fn power_toggle(
 // Avatar Management
 // ============================================================
 
-const MAX_AVATAR_SIZE: usize = 5 * 1024 * 1024; // 5 MB
-
-fn mime_to_ext(mime: &str) -> Option<&'static str> {
-    match mime {
-        "image/png" => Some("png"),
-        "image/jpeg" => Some("jpg"),
-        "image/gif" => Some("gif"),
-        "image/webp" => Some("webp"),
-        _ => None,
-    }
-}
-
-fn ext_to_mime(ext: &str) -> &'static str {
-    match ext {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        _ => "application/octet-stream",
-    }
-}
+use super::utils::{ext_to_mime, mime_to_ext, AVATAR_MAX_BYTES};
 
 /// Upload an avatar image for an agent.
 ///
@@ -394,11 +374,11 @@ pub async fn upload_avatar(
         ));
     }
 
-    if body.len() > MAX_AVATAR_SIZE {
+    if body.len() > AVATAR_MAX_BYTES {
         return Err(AppError::Validation(format!(
             "Avatar image too large ({} bytes, max {} bytes)",
             body.len(),
-            MAX_AVATAR_SIZE
+            AVATAR_MAX_BYTES
         )));
     }
 

@@ -22,8 +22,6 @@ pub enum AppAction {
     PluginsUpdated(Vec<PluginManifest>),
     MetricsUpdated(serde_json::Value),
     NewEvent(serde_json::Value),
-    #[allow(dead_code)]
-    Tick,
 }
 
 /// TUI application state.
@@ -92,7 +90,6 @@ impl App {
                     self.event_scroll = self.event_scroll.min(self.events.len() - 1);
                 }
             }
-            AppAction::Tick => {}
         }
     }
 
@@ -122,8 +119,4 @@ impl App {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn selected_agent(&self) -> Option<&AgentMetadata> {
-        self.agents.get(self.agent_scroll)
-    }
 }

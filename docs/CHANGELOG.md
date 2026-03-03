@@ -7,6 +7,21 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.4.18] — 2026-03-03
+
+### Changed
+- Split monolithic `db.rs` (1,732 lines) into 7 domain modules (`db/{audit,permissions,chat,mcp,api_keys,cron,llm}.rs`)
+- Extract `mcp_tool_validator.rs` (~200 lines) from `managers/mcp.rs`
+- Centralize validation constants and MIME helpers into `handlers/utils.rs`
+- Remove unused npm packages (`clsx`, `tailwind-merge`)
+- Remove false-positive `#[allow(dead_code)]` annotations (7 items)
+- Remove unused code: `Tick` variant, `selected_agent()`, `create_slow_plugin()`
+
+### Added
+- Multi-Agent Delegation design document (`docs/MULTI_AGENT_DESIGN.md`) for v0.5.x
+
+---
+
 ## [0.4.17] — 2026-03-03
 
 ### Fixed
