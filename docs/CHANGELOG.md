@@ -7,6 +7,30 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.4.16] — 2026-03-03
+
+### Added
+- PaddleOCR hybrid vision: OCR + llava combined analysis with A/B test support (hybrid/vision/ocr modes)
+- Agent card avatar background in agent selection screen (blurred, hover effect)
+- Default agent protection: name, description, avatar changes blocked for Cloto Assistant
+
+### Changed
+- Unified grid background: all 6 screens use `InteractiveGrid` (Canvas) with bottom fade
+- Agent config UI: larger avatar preview (96px), bigger buttons, Remove button with red tint
+- Agent card buttons enlarged (text-xs, size-14 icons)
+- Chat avatar icons fill parent container (size 32-40px with overflow-hidden)
+- Sidebar avatar icons enlarged to 24px
+- MCP server grant/revoke: one-click on row (no separate button needed)
+- Cloto Assistant description updated to reflect full capabilities
+
+### Fixed
+- Avatar broken image after delete (local `hasAvatar` state tracking)
+- Backend-injected metadata fields polluting save (has_avatar, avatar_description excluded)
+- Agent ID sanitization: URL-unsafe characters replaced with underscore
+- Duplicate `api` import in AgentTerminal
+
+---
+
 ## [0.4.15] — 2026-03-02
 
 ### Added

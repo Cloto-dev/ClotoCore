@@ -375,8 +375,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
           >
             <ArrowLeft size={16} />
           </button>
-          <div className="p-2 text-white rounded-md shadow-sm" style={{ backgroundColor: agentColor(agent) }}>
-            <AgentIcon agent={agent} size={18} />
+          <div className="w-10 h-10 text-white rounded-md shadow-sm overflow-hidden flex items-center justify-center" style={{ backgroundColor: agentColor(agent) }}>
+            <AgentIcon agent={agent} size={40} />
           </div>
           <div>
             <h2 className="text-xl font-black text-content-primary tracking-tighter uppercase">{agent.name}</h2>
@@ -418,10 +418,10 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             const isUser = msg.source === 'user';
             return (
               <div key={msg.id} className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm overflow-hidden ${
                   isUser ? 'bg-surface-primary border border-edge-subtle text-content-tertiary' : 'text-white'
                 }`} style={!isUser ? { backgroundColor: agentColor(agent) } : undefined}>
-                  {isUser ? <UserIcon size={14} /> : <AgentIcon agent={agent} size={14} />}
+                  {isUser ? <UserIcon size={14} /> : <AgentIcon agent={agent} size={32} />}
                 </div>
                 <div className={`max-w-[80%] text-base leading-7 select-text ${
                   isUser
@@ -453,9 +453,9 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         {/* Typewriter animation for current response */}
         {pendingResponse && (
           <div className="flex items-start gap-3 message-enter">
-            <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm"
+            <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm overflow-hidden"
                  style={{ backgroundColor: agentColor(agent) }}>
-              <AgentIcon agent={agent} size={14} />
+              <AgentIcon agent={agent} size={32} />
             </div>
             <div className="max-w-[80%] pt-1 text-base leading-7 select-text text-content-primary">
               <TypewriterMessage
@@ -474,9 +474,9 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         {/* Thinking process steps (real-time tool invocations) */}
         {isTyping && thinkingSteps.length > 0 && (
           <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm opacity-60"
+            <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm overflow-hidden opacity-60"
                  style={{ backgroundColor: agentColor(agent) }}>
-              <AgentIcon agent={agent} size={14} />
+              <AgentIcon agent={agent} size={32} />
             </div>
             <div className="flex-1 space-y-1 py-1">
               {thinkingSteps.map(step => (
@@ -492,7 +492,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         {isTyping && (
           <SkeletonThinking
             agentColor={agentColor(agent)}
-            agentIcon={<AgentIcon agent={agent} size={14} />}
+            agentIcon={<AgentIcon agent={agent} size={32} />}
           />
         )}
       </div>

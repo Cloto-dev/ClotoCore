@@ -192,9 +192,16 @@ export function AgentTerminal({
                 return (
                   <div
                     key={agent.id}
-                    className="bg-glass-strong backdrop-blur-sm p-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group cursor-pointer"
+                    className="relative bg-glass-strong backdrop-blur-sm p-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group cursor-pointer overflow-hidden"
                     onClick={() => onSelectAgent(agent)}
                   >
+                    {agent.metadata?.has_avatar === 'true' && (
+                      <img
+                        src={api.getAvatarUrl(agent.id)}
+                        alt=""
+                        className="absolute inset-0 w-full h-full object-cover opacity-10 blur-sm group-hover:opacity-15 transition-opacity duration-300"
+                      />
+                    )}
                     {/* Row 1: Status + Name + Power */}
                     <div className="flex items-center gap-3 mb-2">
                       <div className={`w-3 h-3 rounded-full flex-shrink-0 ${agent.enabled ? 'bg-emerald-500' : 'bg-content-muted'}`} />
@@ -222,27 +229,27 @@ export function AgentTerminal({
                         {agent.metadata?.has_power_password === 'true' && <Lock size={8} className="inline mr-1" />}
                         {agent.id}
                       </span>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-2">
                         {isAi && (
                           <button
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold text-brand hover:bg-brand/10 transition-all"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-brand hover:bg-brand/10 transition-all"
                             onClick={(e) => { e.stopPropagation(); onSelectAgent(agent); }}
                           >
-                            <MessageSquare size={10} /> Chat
+                            <MessageSquare size={14} /> Chat
                           </button>
                         )}
                         <button
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
                           onClick={(e) => { e.stopPropagation(); setConfiguringAgent(agent); }}
                         >
-                          <Settings size={10} /> Config
+                          <Settings size={14} /> Config
                         </button>
                         {agent.id !== DEFAULT_AGENT_ID && (
                           <button
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all"
                             onClick={(e) => { e.stopPropagation(); setDeleteTarget(agent); setDeleteError(null); }}
                           >
-                            <Trash2 size={10} />
+                            <Trash2 size={14} />
                           </button>
                         )}
                       </div>

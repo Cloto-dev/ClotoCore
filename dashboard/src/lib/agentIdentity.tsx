@@ -42,7 +42,7 @@ export function AgentIcon({ agent, size = 20 }: { agent: AgentMetadata; size?: n
       <img
         src={api.getAvatarUrl(agent.id)}
         alt={agent.name}
-        className="rounded-full object-cover"
+        className="rounded-md object-cover"
         style={{ width: size, height: size }}
         onError={() => setImgError(true)}
       />

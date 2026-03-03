@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, memo } from 'react';
 import { Activity, Maximize2 } from 'lucide-react';
 import { ViewHeader } from './ViewHeader';
+import { InteractiveGrid } from './InteractiveGrid';
 import { NeuralNetwork } from '../components/NeuralNetwork';
 import { useMetrics } from '../hooks/useMetrics';
 import { useStatusManager, ThoughtLine } from '../hooks/useStatusManager';
@@ -209,16 +210,8 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
         )}
       </div>
 
-      {/* 2. Static Grid Background (bottom-fade, inherited from MemoryCore) */}
-      <div
-        className="absolute inset-0 z-0 opacity-30 pointer-events-none"
-        style={{
-          backgroundImage: `linear-gradient(to right, var(--canvas-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--canvas-grid) 1px, transparent 1px)`,
-          backgroundSize: '40px 40px',
-          maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
-          WebkitMaskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)'
-        }}
-      />
+      {/* 2. Grid Background (Canvas, bottom-fade) */}
+      <InteractiveGrid />
 
       {/* 3. The Core Visualizer */}
       <NeuralNetwork

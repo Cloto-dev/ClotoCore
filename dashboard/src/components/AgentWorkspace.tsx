@@ -3,6 +3,7 @@ import { Users } from 'lucide-react';
 import { AgentTerminal } from './AgentTerminal';
 import { ViewHeader } from './ViewHeader';
 import { WindowAgentNavigator } from './WindowAgentNavigator';
+import { InteractiveGrid } from './InteractiveGrid';
 import { KernelMonitor } from './KernelMonitor';
 import { useAgents } from '../hooks/useAgents';
 
@@ -47,16 +48,7 @@ export function AgentWorkspace({ onBack }: { onBack?: () => void }) {
 
       {/* Body: sidebar + content */}
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Background grid — matches MemoryCore aesthetic */}
-        <div
-          className="absolute inset-0 z-0 opacity-30 pointer-events-none"
-          style={{
-            backgroundImage: `linear-gradient(to right, var(--canvas-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--canvas-grid) 1px, transparent 1px)`,
-            backgroundSize: '40px 40px',
-            maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
-            WebkitMaskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
-          }}
-        />
+        <InteractiveGrid />
 
         {/* Sidebar - Window Native Style */}
         <div className="relative z-10">
