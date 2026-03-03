@@ -90,7 +90,6 @@ impl ClotoClient {
     }
 
     /// GET event history.
-    #[allow(dead_code)]
     pub async fn get_history(&self) -> Result<Vec<serde_json::Value>> {
         self.get("/api/history").await
     }
@@ -142,7 +141,6 @@ impl ClotoClient {
     }
 
     /// POST chat message.
-    #[allow(dead_code)]
     pub async fn send_chat(&self, msg: &cloto_shared::ClotoMessage) -> Result<serde_json::Value> {
         self.post("/api/chat", msg).await
     }
@@ -438,7 +436,6 @@ impl ClotoClient {
     }
 
     /// GET SSE stream (raw response for line-by-line parsing).
-    #[allow(dead_code)]
     pub async fn sse_stream(&self) -> Result<reqwest::Response> {
         let req = self.client.get(self.url("/api/events"));
         let resp = self

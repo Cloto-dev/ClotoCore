@@ -7,6 +7,7 @@ pub mod llm;
 pub mod mcp;
 pub mod permissions;
 pub mod system;
+pub mod utils;
 
 // Re-export all handler functions so that existing `handlers::*` paths in lib.rs continue to work.
 pub use agents::{

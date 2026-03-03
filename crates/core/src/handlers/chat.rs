@@ -102,16 +102,15 @@ pub async fn post_message(
     }
 
     // M-3: Limit content array length to prevent abuse
-    const MAX_CONTENT_ITEMS: usize = 20;
     if payload
         .content
         .as_array()
-        .is_some_and(|a| a.len() > MAX_CONTENT_ITEMS)
+        .is_some_and(|a| a.len() > super::utils::CONTENT_BLOCK_MAX_ITEMS)
     {
         return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             format!(
                 "content array exceeds maximum of {} items",
-                MAX_CONTENT_ITEMS
+                super::utils::CONTENT_BLOCK_MAX_ITEMS
             ),
         )));
     }
@@ -167,7 +166,7 @@ pub async fn post_message(
                                 #[allow(clippy::cast_possible_wrap)]
                                 let size = decoded.len() as i64;
                                 let filename =
-                                    format!("image_{}.{}", &att_id[..8], mime_to_ext(&mime_type));
+                                    format!("image_{}.{}", &att_id[..8], super::utils::mime_to_ext_or(&mime_type, "bin"));
 
                                 let (storage_type, inline_data, disk_path) = if size <= 65536 {
                                     // <=64KB: store inline
@@ -327,13 +326,3 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, ()> {
         .map_err(|_| ())
 }
 
-fn mime_to_ext(mime: &str) -> &str {
-    match mime {
-        "image/png" => "png",
-        "image/jpeg" | "image/jpg" => "jpg",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        "image/svg+xml" => "svg",
-        _ => "bin",
-    }
-}
