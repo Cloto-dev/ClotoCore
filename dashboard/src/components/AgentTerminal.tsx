@@ -205,7 +205,7 @@ export function AgentTerminal({
                     {/* Row 1: Status + Name + Power */}
                     <div className="flex items-center gap-3 mb-2">
                       <div className={`w-3 h-3 rounded-full flex-shrink-0 ${agent.enabled ? 'bg-emerald-500' : 'bg-content-muted'}`} />
-                      <h3 className="font-bold text-content-primary text-sm flex-1 truncate">{agent.name}</h3>
+                      <h3 className="font-bold text-content-primary text-base flex-1 truncate">{agent.name}</h3>
                       <AgentPowerButton agent={agent} onPowerToggle={handlePowerToggle} />
                     </div>
 
