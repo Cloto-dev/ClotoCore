@@ -34,23 +34,33 @@ export function InteractiveGrid() {
       // Grid lines
       gctx.strokeStyle = colorsRef.current.canvasGrid;
       gctx.lineWidth = 1;
-      gctx.globalAlpha = 0.4;
 
       const gridSize = 40;
 
-      // Draw horizontal lines
+      // Fade: full opacity at top 40%, transparent at bottom
+      const fadeStart = height * 0.4;
+
+      // Draw horizontal lines with vertical fade
       for (let y = 0; y <= height + gridSize; y += gridSize) {
+        const alpha = y < fadeStart ? 0.4 : 0.4 * Math.max(0, 1 - (y - fadeStart) / (height - fadeStart));
+        gctx.globalAlpha = alpha;
         gctx.beginPath();
         gctx.moveTo(0, y);
         gctx.lineTo(width, y);
         gctx.stroke();
       }
-      // Draw vertical lines
+      // Draw vertical lines with vertical fade (use mask approach)
       for (let x = 0; x <= width + gridSize; x += gridSize) {
-        gctx.beginPath();
-        gctx.moveTo(x, 0);
-        gctx.lineTo(x, height);
-        gctx.stroke();
+        // Draw in segments to apply fade
+        for (let y = 0; y < height; y += gridSize) {
+          const midY = y + gridSize / 2;
+          const alpha = midY < fadeStart ? 0.4 : 0.4 * Math.max(0, 1 - (midY - fadeStart) / (height - fadeStart));
+          gctx.globalAlpha = alpha;
+          gctx.beginPath();
+          gctx.moveTo(x, y);
+          gctx.lineTo(x, Math.min(y + gridSize, height));
+          gctx.stroke();
+        }
       }
     };
 

@@ -183,6 +183,15 @@ pub async fn update_agent(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
 
+    // Protect default agent name/description
+    if id == state.config.default_agent_id
+        && (payload.name.is_some() || payload.description.is_some())
+    {
+        return Err(AppError::Validation(
+            "Cannot modify name or description of the default agent".to_string(),
+        ));
+    }
+
     if let Some(ref name) = payload.name {
         if name.is_empty() || name.len() > 200 {
             return Err(AppError::Validation(format!(
@@ -379,6 +388,12 @@ pub async fn upload_avatar(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
 
+    if id == state.config.default_agent_id {
+        return Err(AppError::Validation(
+            "Cannot modify avatar of the default agent".to_string(),
+        ));
+    }
+
     if body.len() > MAX_AVATAR_SIZE {
         return Err(AppError::Validation(format!(
             "Avatar image too large ({} bytes, max {} bytes)",
@@ -516,6 +531,12 @@ pub async fn delete_avatar(
     Path(id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
+
+    if id == state.config.default_agent_id {
+        return Err(AppError::Validation(
+            "Cannot modify avatar of the default agent".to_string(),
+        ));
+    }
 
     if let Ok(Some(path)) = state.agent_manager.get_avatar_path(&id).await {
         let _ = tokio::fs::remove_file(&path).await;

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Sun, Shield, MousePointer, ScrollText, Info, Zap, Settings } from 'lucide-react';
 import { ViewHeader } from './ViewHeader';
+import { InteractiveGrid } from './InteractiveGrid';
 import { GeneralSection, SecuritySection, DisplaySection, AdvancedSection, LogSection, AboutSection } from './settings';
 
 type Section = 'general' | 'security' | 'display' | 'advanced' | 'log' | 'about';
@@ -19,16 +20,7 @@ export function SettingsView({ onBack }: { onBack?: () => void }) {
 
   return (
     <div className="flex flex-col h-full bg-surface-base text-content-primary relative">
-      {/* Background grid — MemoryCore aesthetic */}
-      <div
-        className="absolute inset-0 z-0 opacity-30 pointer-events-none"
-        style={{
-          backgroundImage: `linear-gradient(to right, var(--canvas-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--canvas-grid) 1px, transparent 1px)`,
-          backgroundSize: '40px 40px',
-          maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
-          WebkitMaskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
-        }}
-      />
+      <InteractiveGrid />
 
       {onBack && (
         <div className="relative z-10">
