@@ -31,7 +31,10 @@ pub async fn run(client: &ClotoClient, json_mode: bool) -> Result<()> {
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    let count = result.get("count").and_then(serde_json::Value::as_u64).unwrap_or(0);
+    let count = result
+        .get("count")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
 
     if episodes.is_empty() {
         println!("  {}", "No episodes archived.".dimmed());
@@ -45,17 +48,17 @@ pub async fn run(client: &ClotoClient, json_mode: bool) -> Result<()> {
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     for ep in &episodes {
-        let id = ep.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0);
+        let id = ep
+            .get("id")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
         let summary = ep.get("summary").and_then(|v| v.as_str()).unwrap_or("-");
         let truncated = if summary.len() > 80 {
             format!("{}...", &summary[..77])
         } else {
             summary.to_string()
         };
-        let created = ep
-            .get("created_at")
-            .and_then(|v| v.as_str())
-            .unwrap_or("-");
+        let created = ep.get("created_at").and_then(|v| v.as_str()).unwrap_or("-");
 
         table.add_row(vec![
             format!("  {id}"),

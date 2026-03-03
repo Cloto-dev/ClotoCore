@@ -70,11 +70,7 @@ async fn config(client: &ClotoClient, cmd: PluginConfigCommand, json_mode: bool)
             println!();
             Ok(())
         }
-        PluginConfigCommand::Set {
-            plugin,
-            key,
-            value,
-        } => {
+        PluginConfigCommand::Set { plugin, key, value } => {
             let sp = if json_mode {
                 None
             } else {

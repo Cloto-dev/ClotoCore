@@ -234,35 +234,30 @@ impl AgentManager {
         avatar_path: &str,
         avatar_description: Option<&str>,
     ) -> anyhow::Result<()> {
-        sqlx::query(
-            "UPDATE agents SET avatar_path = ?, avatar_description = ? WHERE id = ?",
-        )
-        .bind(avatar_path)
-        .bind(avatar_description)
-        .bind(agent_id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE agents SET avatar_path = ?, avatar_description = ? WHERE id = ?")
+            .bind(avatar_path)
+            .bind(avatar_description)
+            .bind(agent_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     /// Clear the avatar for an agent (removes path and description).
     pub async fn clear_avatar(&self, agent_id: &str) -> anyhow::Result<()> {
-        sqlx::query(
-            "UPDATE agents SET avatar_path = NULL, avatar_description = NULL WHERE id = ?",
-        )
-        .bind(agent_id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE agents SET avatar_path = NULL, avatar_description = NULL WHERE id = ?")
+            .bind(agent_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     /// Get just the avatar path for serving.
     pub async fn get_avatar_path(&self, agent_id: &str) -> anyhow::Result<Option<String>> {
-        let row: (Option<String>,) =
-            sqlx::query_as("SELECT avatar_path FROM agents WHERE id = ?")
-                .bind(agent_id)
-                .fetch_one(&self.pool)
-                .await?;
+        let row: (Option<String>,) = sqlx::query_as("SELECT avatar_path FROM agents WHERE id = ?")
+            .bind(agent_id)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(row.0)
     }
 

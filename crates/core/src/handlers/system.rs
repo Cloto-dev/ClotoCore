@@ -4,13 +4,13 @@ use std::time::Duration;
 use tracing::{error, info, warn};
 
 use crate::managers::{AgentManager, McpClientManager, PluginRegistry};
+use cloto_shared::{
+    AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, Plugin, ThinkResult, ToolCall,
+};
 use dashmap::DashMap;
 use sqlx::SqlitePool;
 use std::collections::HashSet;
 use tokio::sync::oneshot;
-use cloto_shared::{
-    AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, Plugin, ThinkResult, ToolCall,
-};
 
 // ── Engine Routing Rules (CFR + Fallback + Escalation) ──
 
@@ -85,10 +85,14 @@ fn evaluate_engine_routing(
             }
             if rule.matches(message) {
                 // Validate escalate_to and fallback targets are connected
-                let escalate_to = rule.escalate_to.as_ref()
+                let escalate_to = rule
+                    .escalate_to
+                    .as_ref()
                     .filter(|e| connected_servers.contains(e))
                     .cloned();
-                let fallback = rule.fallback.as_ref()
+                let fallback = rule
+                    .fallback
+                    .as_ref()
                     .filter(|f| connected_servers.contains(f))
                     .cloned();
                 return Some(EngineSelection {
@@ -223,8 +227,9 @@ impl SystemHandler {
             user_id: "default".to_string(),
             source: "user".to_string(),
             content: serde_json::to_string(
-                &serde_json::json!([{"type": "text", "text": &msg.content}])
-            ).unwrap_or_default(),
+                &serde_json::json!([{"type": "text", "text": &msg.content}]),
+            )
+            .unwrap_or_default(),
             metadata: None,
             created_at: now_ms,
         };
@@ -394,10 +399,20 @@ impl SystemHandler {
             // 通常モード: エージェントループで処理
             // 3-layer engine selection: override > routing rules > default
             let selection = if let Some(ov) = msg.metadata.get("engine_override") {
-                EngineSelection { engine_id: ov.clone(), cfr: false, escalate_to: None, fallback: None }
+                EngineSelection {
+                    engine_id: ov.clone(),
+                    cfr: false,
+                    escalate_to: None,
+                    fallback: None,
+                }
             } else if let Some(ref mcp) = self.registry.mcp_manager {
                 let connected = mcp.list_connected_mind_servers().await;
-                evaluate_engine_routing(&msg.content, &agent.metadata, &connected, &default_engine_id)
+                evaluate_engine_routing(
+                    &msg.content,
+                    &agent.metadata,
+                    &connected,
+                    &default_engine_id,
+                )
             } else {
                 evaluate_engine_routing(&msg.content, &agent.metadata, &[], &default_engine_id)
             };
@@ -411,12 +426,18 @@ impl SystemHandler {
                     let engine_plugin = self.registry.get_engine(&engine_id).await;
                     let mcp_engine = if engine_plugin.is_none() {
                         self.registry.mcp_manager.as_ref().cloned()
-                    } else { None };
+                    } else {
+                        None
+                    };
                     self.engine_think(
                         engine_plugin.as_ref(),
                         mcp_engine.as_ref(),
-                        &engine_id, &agent, &msg, context.clone(),
-                    ).await
+                        &engine_id,
+                        &agent,
+                        &msg,
+                        context.clone(),
+                    )
+                    .await
                 };
 
                 match tier1_result {
@@ -424,9 +445,16 @@ impl SystemHandler {
                         // Tier 1 requested escalation → Tier 2 with full agentic loop
                         let escalate_id = selection.escalate_to.as_deref().unwrap_or(&engine_id);
                         info!(from = %engine_id, to = %escalate_id, "⬆️ CFR escalation triggered");
-                        let r = self.run_agentic_loop(
-                            &agent, escalate_id, &msg, context.clone(), &granted_server_ids, trace_id,
-                        ).await;
+                        let r = self
+                            .run_agentic_loop(
+                                &agent,
+                                escalate_id,
+                                &msg,
+                                context.clone(),
+                                &granted_server_ids,
+                                trace_id,
+                            )
+                            .await;
                         (r, escalate_id.to_string())
                     }
                     Ok(content) => {
@@ -437,27 +465,48 @@ impl SystemHandler {
                     Err(e) if is_retriable_error(&e) && selection.fallback.is_some() => {
                         let fallback_id = selection.fallback.as_deref().unwrap();
                         warn!(from = %engine_id, to = %fallback_id, error = %e, "🔄 CFR Tier 1 fallback");
-                        let r = self.run_agentic_loop(
-                            &agent, fallback_id, &msg, context.clone(), &granted_server_ids, trace_id,
-                        ).await;
+                        let r = self
+                            .run_agentic_loop(
+                                &agent,
+                                fallback_id,
+                                &msg,
+                                context.clone(),
+                                &granted_server_ids,
+                                trace_id,
+                            )
+                            .await;
                         (r, fallback_id.to_string())
                     }
                     Err(e) => (Err(e), engine_id.clone()),
                 }
             } else {
                 // Standard execution (no CFR)
-                let loop_result = self.run_agentic_loop(
-                    &agent, &engine_id, &msg, context.clone(), &granted_server_ids, trace_id,
-                ).await;
+                let loop_result = self
+                    .run_agentic_loop(
+                        &agent,
+                        &engine_id,
+                        &msg,
+                        context.clone(),
+                        &granted_server_ids,
+                        trace_id,
+                    )
+                    .await;
 
                 match loop_result {
                     Ok(content) => (Ok(content), engine_id.clone()),
                     Err(e) if is_retriable_error(&e) && selection.fallback.is_some() => {
                         let fallback_id = selection.fallback.as_deref().unwrap();
                         warn!(from = %engine_id, to = %fallback_id, error = %e, "🔄 Auto-fallback triggered");
-                        let r = self.run_agentic_loop(
-                            &agent, fallback_id, &msg, context.clone(), &granted_server_ids, trace_id,
-                        ).await;
+                        let r = self
+                            .run_agentic_loop(
+                                &agent,
+                                fallback_id,
+                                &msg,
+                                context.clone(),
+                                &granted_server_ids,
+                                trace_id,
+                            )
+                            .await;
                         (r, fallback_id.to_string())
                     }
                     Err(e) => (Err(e), engine_id.clone()),
@@ -521,12 +570,14 @@ impl SystemHandler {
                         user_id: "default".to_string(),
                         source: "agent".to_string(),
                         content: serde_json::to_string(
-                            &serde_json::json!([{"type": "text", "text": &content}])
-                        ).unwrap_or_default(),
+                            &serde_json::json!([{"type": "text", "text": &content}]),
+                        )
+                        .unwrap_or_default(),
                         metadata: None,
                         created_at: chrono::Utc::now().timestamp_millis(),
                     };
-                    if let Err(e) = crate::db::save_chat_message(&self.pool, &agent_chat_msg).await {
+                    if let Err(e) = crate::db::save_chat_message(&self.pool, &agent_chat_msg).await
+                    {
                         warn!("Failed to persist agent response: {}", e);
                     }
 
@@ -568,8 +619,9 @@ impl SystemHandler {
                         user_id: "default".to_string(),
                         source: "agent".to_string(),
                         content: serde_json::to_string(
-                            &serde_json::json!([{"type": "text", "text": &error_content}])
-                        ).unwrap_or_default(),
+                            &serde_json::json!([{"type": "text", "text": &error_content}]),
+                        )
+                        .unwrap_or_default(),
                         metadata: None,
                         created_at: chrono::Utc::now().timestamp_millis(),
                     };
@@ -885,25 +937,39 @@ impl SystemHandler {
                     // ── Batch Command Approval Gate ──
                     // Collect all untrusted sandboxed tool calls and request approval once.
                     // Covers execute_command and any tool with a "sandbox" validator.
-                    let yolo = self.registry.mcp_manager.as_ref()
-                        .map_or(false, |m| m.yolo_mode.load(std::sync::atomic::Ordering::Relaxed));
-                    let mut denied_call_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+                    let yolo = self.registry.mcp_manager.as_ref().map_or(false, |m| {
+                        m.yolo_mode.load(std::sync::atomic::Ordering::Relaxed)
+                    });
+                    let mut denied_call_ids: std::collections::HashSet<String> =
+                        std::collections::HashSet::new();
 
                     if !yolo {
                         let mut untrusted_cmds: Vec<serde_json::Value> = Vec::new();
                         for call in &calls {
                             // Check if tool has a "sandbox" validator (includes execute_command
                             // and any other sandboxed tools configured in mcp.toml)
-                            let has_sandbox_validator = if let Some(ref mcp) = self.registry.mcp_manager {
-                                mcp.get_tool_validator(&call.name).await.as_deref() == Some("sandbox")
-                            } else {
-                                false
+                            let has_sandbox_validator =
+                                if let Some(ref mcp) = self.registry.mcp_manager {
+                                    mcp.get_tool_validator(&call.name).await.as_deref()
+                                        == Some("sandbox")
+                                } else {
+                                    false
+                                };
+                            if !has_sandbox_validator {
+                                continue;
+                            }
+                            let Some(cmd_str) =
+                                call.arguments.get("command").and_then(|v| v.as_str())
+                            else {
+                                continue;
                             };
-                            if !has_sandbox_validator { continue; }
-                            let Some(cmd_str) = call.arguments.get("command").and_then(|v| v.as_str()) else { continue; };
-                            let db_trusted = crate::db::is_command_trusted(&self.pool, &agent.id, cmd_str).await.unwrap_or(false);
+                            let db_trusted =
+                                crate::db::is_command_trusted(&self.pool, &agent.id, cmd_str)
+                                    .await
+                                    .unwrap_or(false);
                             let cmd_name = cmd_str.split_whitespace().next().unwrap_or(cmd_str);
-                            let session_trusted = self.session_trusted_commands
+                            let session_trusted = self
+                                .session_trusted_commands
                                 .get(&agent.id)
                                 .map_or(false, |set| set.contains(cmd_name));
                             if !db_trusted && !session_trusted {
@@ -922,11 +988,15 @@ impl SystemHandler {
                             let (atx, arx) = oneshot::channel();
                             self.pending_approvals.insert(approval_id.clone(), atx);
 
-                            self.emit_event(trace_id, ClotoEventData::CommandApprovalRequested {
-                                approval_id: approval_id.clone(),
-                                agent_id: agent.id.clone(),
-                                commands: untrusted_cmds.clone(),
-                            }).await;
+                            self.emit_event(
+                                trace_id,
+                                ClotoEventData::CommandApprovalRequested {
+                                    approval_id: approval_id.clone(),
+                                    agent_id: agent.id.clone(),
+                                    commands: untrusted_cmds.clone(),
+                                },
+                            )
+                            .await;
 
                             let decision = tokio::time::timeout(Duration::from_secs(60), arx).await;
                             self.pending_approvals.remove(&approval_id);
@@ -934,18 +1004,29 @@ impl SystemHandler {
                             match decision {
                                 Ok(Ok(CommandApprovalDecision::Approve)) => {
                                     for cmd in &untrusted_cmds {
-                                        if let Some(c) = cmd.get("command").and_then(|v| v.as_str()) {
-                                            let _ = crate::db::add_trusted_command(&self.pool, &agent.id, c).await;
+                                        if let Some(c) = cmd.get("command").and_then(|v| v.as_str())
+                                        {
+                                            let _ = crate::db::add_trusted_command(
+                                                &self.pool, &agent.id, c,
+                                            )
+                                            .await;
                                         }
                                     }
                                     info!(approval_id = %approval_id, "✅ Commands approved (exact)");
-                                    self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
-                                        approval_id, decision: "approved".to_string(),
-                                    }).await;
+                                    self.emit_event(
+                                        trace_id,
+                                        ClotoEventData::CommandApprovalResult {
+                                            approval_id,
+                                            decision: "approved".to_string(),
+                                        },
+                                    )
+                                    .await;
                                 }
                                 Ok(Ok(CommandApprovalDecision::Trust)) => {
                                     for cmd in &untrusted_cmds {
-                                        if let Some(n) = cmd.get("command_name").and_then(|v| v.as_str()) {
+                                        if let Some(n) =
+                                            cmd.get("command_name").and_then(|v| v.as_str())
+                                        {
                                             self.session_trusted_commands
                                                 .entry(agent.id.clone())
                                                 .or_default()
@@ -953,23 +1034,39 @@ impl SystemHandler {
                                         }
                                     }
                                     info!(approval_id = %approval_id, "✅ Command names trusted (session)");
-                                    self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
-                                        approval_id, decision: "trusted".to_string(),
-                                    }).await;
+                                    self.emit_event(
+                                        trace_id,
+                                        ClotoEventData::CommandApprovalResult {
+                                            approval_id,
+                                            decision: "trusted".to_string(),
+                                        },
+                                    )
+                                    .await;
                                 }
                                 Ok(Ok(CommandApprovalDecision::Deny)) => {
                                     warn!(approval_id = %approval_id, "🚫 Commands denied by user");
-                                    self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
-                                        approval_id, decision: "denied by user".to_string(),
-                                    }).await;
+                                    self.emit_event(
+                                        trace_id,
+                                        ClotoEventData::CommandApprovalResult {
+                                            approval_id,
+                                            decision: "denied by user".to_string(),
+                                        },
+                                    )
+                                    .await;
                                     for cmd in &untrusted_cmds {
-                                        if let Some(id) = cmd.get("call_id").and_then(|v| v.as_str()) {
+                                        if let Some(id) =
+                                            cmd.get("call_id").and_then(|v| v.as_str())
+                                        {
                                             denied_call_ids.insert(id.to_string());
                                         }
                                     }
                                 }
                                 Ok(Err(_)) | Err(_) => {
-                                    let reason = if matches!(decision, Err(_)) { "timeout (60s)" } else { "channel closed" };
+                                    let reason = if matches!(decision, Err(_)) {
+                                        "timeout (60s)"
+                                    } else {
+                                        "channel closed"
+                                    };
                                     warn!(approval_id = %approval_id, reason = reason, "🚫 Commands denied (no response)");
                                     info!(
                                         approval_id = %approval_id,
@@ -978,11 +1075,18 @@ impl SystemHandler {
                                         reason = reason,
                                         "📋 Approval gate audit: commands blocked due to {}", reason
                                     );
-                                    self.emit_event(trace_id, ClotoEventData::CommandApprovalResult {
-                                        approval_id, decision: reason.to_string(),
-                                    }).await;
+                                    self.emit_event(
+                                        trace_id,
+                                        ClotoEventData::CommandApprovalResult {
+                                            approval_id,
+                                            decision: reason.to_string(),
+                                        },
+                                    )
+                                    .await;
                                     for cmd in &untrusted_cmds {
-                                        if let Some(id) = cmd.get("call_id").and_then(|v| v.as_str()) {
+                                        if let Some(id) =
+                                            cmd.get("call_id").and_then(|v| v.as_str())
+                                        {
                                             denied_call_ids.insert(id.to_string());
                                         }
                                     }
@@ -991,9 +1095,20 @@ impl SystemHandler {
                         }
                     } else {
                         // Bug #6: YOLO mode — still emit observability log for audit trail
-                        let sandboxed_tools: Vec<&str> = calls.iter()
-                            .filter(|c| c.arguments.get("command").and_then(|v| v.as_str()).is_some())
-                            .map(|c| c.arguments.get("command").and_then(|v| v.as_str()).unwrap_or("?"))
+                        let sandboxed_tools: Vec<&str> = calls
+                            .iter()
+                            .filter(|c| {
+                                c.arguments
+                                    .get("command")
+                                    .and_then(|v| v.as_str())
+                                    .is_some()
+                            })
+                            .map(|c| {
+                                c.arguments
+                                    .get("command")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("?")
+                            })
                             .collect();
                         if !sandboxed_tools.is_empty() {
                             info!(
@@ -1010,7 +1125,11 @@ impl SystemHandler {
 
                         // Skip denied commands
                         if denied_call_ids.contains(&call.id) {
-                            let cmd = call.arguments.get("command").and_then(|v| v.as_str()).unwrap_or("?");
+                            let cmd = call
+                                .arguments
+                                .get("command")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?");
                             tool_history.push(serde_json::json!({
                                 "role": "tool",
                                 "tool_call_id": call.id,
@@ -1236,10 +1355,7 @@ impl SystemHandler {
             // Write to temp file for vision MCP
             let ext = att.mime_type.strip_prefix("image/").unwrap_or("png");
             let ext = if ext == "jpeg" { "jpg" } else { ext };
-            let temp_path = format!(
-                "data/tmp_vision_{}.{ext}",
-                uuid::Uuid::new_v4()
-            );
+            let temp_path = format!("data/tmp_vision_{}.{ext}", uuid::Uuid::new_v4());
             if tokio::fs::write(&temp_path, &image_bytes).await.is_err() {
                 continue;
             }
@@ -1323,7 +1439,10 @@ impl SystemHandler {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
                     if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
                         let code = json.get("error_code").and_then(|c| c.as_str());
-                        return Err(anyhow::anyhow!("{}", Self::format_engine_error(error, code)));
+                        return Err(anyhow::anyhow!(
+                            "{}",
+                            Self::format_engine_error(error, code)
+                        ));
                     }
                     if let Some(content) = json.get("content").and_then(|c| c.as_str()) {
                         return Ok(content.to_string());
@@ -1348,7 +1467,10 @@ impl SystemHandler {
 
                 if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
                     let code = json.get("error_code").and_then(|c| c.as_str());
-                    return Err(anyhow::anyhow!("{}", Self::format_engine_error(error, code)));
+                    return Err(anyhow::anyhow!(
+                        "{}",
+                        Self::format_engine_error(error, code)
+                    ));
                 }
 
                 let result_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("final");
@@ -1593,4 +1715,3 @@ impl SystemHandler {
         }
     }
 }
-

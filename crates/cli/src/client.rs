@@ -268,18 +268,27 @@ impl ClotoClient {
     }
 
     pub async fn start_mcp_server(&self, name: &str) -> Result<serde_json::Value> {
-        self.post(&format!("/api/mcp/servers/{name}/start"), &serde_json::json!({}))
-            .await
+        self.post(
+            &format!("/api/mcp/servers/{name}/start"),
+            &serde_json::json!({}),
+        )
+        .await
     }
 
     pub async fn stop_mcp_server(&self, name: &str) -> Result<serde_json::Value> {
-        self.post(&format!("/api/mcp/servers/{name}/stop"), &serde_json::json!({}))
-            .await
+        self.post(
+            &format!("/api/mcp/servers/{name}/stop"),
+            &serde_json::json!({}),
+        )
+        .await
     }
 
     pub async fn restart_mcp_server(&self, name: &str) -> Result<serde_json::Value> {
-        self.post(&format!("/api/mcp/servers/{name}/restart"), &serde_json::json!({}))
-            .await
+        self.post(
+            &format!("/api/mcp/servers/{name}/restart"),
+            &serde_json::json!({}),
+        )
+        .await
     }
 
     pub async fn get_mcp_server_settings(&self, name: &str) -> Result<serde_json::Value> {
@@ -312,10 +321,7 @@ impl ClotoClient {
 
     // ── Cron Jobs ───────────────────────────────────────────
 
-    pub async fn list_cron_jobs(
-        &self,
-        agent_id: Option<&str>,
-    ) -> Result<serde_json::Value> {
+    pub async fn list_cron_jobs(&self, agent_id: Option<&str>) -> Result<serde_json::Value> {
         let path = match agent_id {
             Some(id) => format!("/api/cron/jobs?agent_id={id}"),
             None => "/api/cron/jobs".to_string(),
@@ -331,11 +337,7 @@ impl ClotoClient {
         self.delete_json(&format!("/api/cron/jobs/{id}")).await
     }
 
-    pub async fn toggle_cron_job(
-        &self,
-        id: &str,
-        enabled: bool,
-    ) -> Result<serde_json::Value> {
+    pub async fn toggle_cron_job(&self, id: &str, enabled: bool) -> Result<serde_json::Value> {
         self.post(
             &format!("/api/cron/jobs/{id}/toggle"),
             &serde_json::json!({ "enabled": enabled }),
@@ -366,10 +368,7 @@ impl ClotoClient {
         .await
     }
 
-    pub async fn delete_llm_provider_key(
-        &self,
-        provider_id: &str,
-    ) -> Result<serde_json::Value> {
+    pub async fn delete_llm_provider_key(&self, provider_id: &str) -> Result<serde_json::Value> {
         self.delete_json(&format!("/api/llm/providers/{provider_id}/key"))
             .await
     }

@@ -16,7 +16,17 @@ pub async fn run(client: &ClotoClient, cmd: McpCommand, json_mode: bool) -> Resu
             command,
             args,
             description,
-        } => create(client, &name, &command, &args, description.as_deref(), json_mode).await,
+        } => {
+            create(
+                client,
+                &name,
+                &command,
+                &args,
+                description.as_deref(),
+                json_mode,
+            )
+            .await
+        }
         McpCommand::Delete { name, force } => delete(client, &name, force, json_mode).await,
         McpCommand::Start { name } => lifecycle(client, &name, "start", json_mode).await,
         McpCommand::Stop { name } => lifecycle(client, &name, "stop", json_mode).await,
@@ -163,12 +173,7 @@ async fn delete(client: &ClotoClient, name: &str, force: bool, json_mode: bool) 
     Ok(())
 }
 
-async fn lifecycle(
-    client: &ClotoClient,
-    name: &str,
-    action: &str,
-    json_mode: bool,
-) -> Result<()> {
+async fn lifecycle(client: &ClotoClient, name: &str, action: &str, json_mode: bool) -> Result<()> {
     let sp = if json_mode {
         None
     } else {
@@ -226,7 +231,10 @@ async fn settings(client: &ClotoClient, name: &str, json_mode: bool) -> Result<(
 
     output::print_header(&format!("Settings: {name}"));
 
-    let command = result.get("command").and_then(|v| v.as_str()).unwrap_or("-");
+    let command = result
+        .get("command")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
     let policy = result
         .get("default_policy")
         .and_then(|v| v.as_str())

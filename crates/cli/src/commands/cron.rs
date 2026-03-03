@@ -93,7 +93,10 @@ async fn list(client: &ClotoClient, agent_id: Option<&str>, json_mode: bool) -> 
         let id = job.get("id").and_then(|v| v.as_str()).unwrap_or("-");
         let name = job.get("name").and_then(|v| v.as_str()).unwrap_or("-");
         let agent = job.get("agent_id").and_then(|v| v.as_str()).unwrap_or("-");
-        let enabled = job.get("enabled").and_then(serde_json::Value::as_bool).unwrap_or(false);
+        let enabled = job
+            .get("enabled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         let sched_type = job
             .get("schedule_type")
             .and_then(|v| v.as_str())
@@ -174,7 +177,10 @@ async fn create(
         return Ok(());
     }
 
-    let id = result.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let id = result
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
     let next = result
         .get("next_run_at")
         .and_then(|v| v.as_str())
@@ -205,11 +211,7 @@ async fn delete(client: &ClotoClient, id: &str, force: bool, json_mode: bool) ->
         return Ok(());
     }
 
-    println!(
-        "  {} Cron job deleted: {}",
-        "✓".green().bold(),
-        id.bold()
-    );
+    println!("  {} Cron job deleted: {}", "✓".green().bold(), id.bold());
     println!();
     Ok(())
 }

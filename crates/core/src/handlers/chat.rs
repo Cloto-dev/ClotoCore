@@ -165,8 +165,11 @@ pub async fn post_message(
                                 let att_id = uuid::Uuid::new_v4().to_string();
                                 #[allow(clippy::cast_possible_wrap)]
                                 let size = decoded.len() as i64;
-                                let filename =
-                                    format!("image_{}.{}", &att_id[..8], super::utils::mime_to_ext_or(&mime_type, "bin"));
+                                let filename = format!(
+                                    "image_{}.{}",
+                                    &att_id[..8],
+                                    super::utils::mime_to_ext_or(&mime_type, "bin")
+                                );
 
                                 let (storage_type, inline_data, disk_path) = if size <= 65536 {
                                     // <=64KB: store inline
@@ -325,4 +328,3 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, ()> {
         .decode(input)
         .map_err(|_| ())
 }
-

@@ -194,7 +194,9 @@ impl EventProcessor {
                     let handler = self.system_handler.clone();
                     let msg = msg.clone();
                     tokio::spawn(async move {
-                        let Ok(_permit) = sem.acquire().await else { return };
+                        let Ok(_permit) = sem.acquire().await else {
+                            return;
+                        };
                         if let Err(e) = handler.handle_message(msg).await {
                             error!(error = %e, "❌ SystemHandler.handle_message error");
                         }
