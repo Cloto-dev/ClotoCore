@@ -1,10 +1,11 @@
 use cloto_core::events::EventProcessor;
+use cloto_core::handlers::system::SystemHandler;
 use cloto_core::managers::{AgentManager, PluginManager, PluginRegistry, SystemMetrics};
 use cloto_shared::{ClotoEvent, ClotoEventData};
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 
 /// Helper to create EventProcessor for testing
 async fn create_test_processor(
@@ -22,6 +23,22 @@ async fn create_test_processor(
     let metrics = Arc::new(SystemMetrics::new());
     let event_history = Arc::new(RwLock::new(VecDeque::new()));
 
+    let (sys_event_tx, _sys_event_rx) = mpsc::channel(10);
+    let sys_handler = Arc::new(SystemHandler::new(
+        registry.clone(),
+        agent_manager.clone(),
+        "agent.test".to_string(),
+        sys_event_tx,
+        10,
+        metrics.clone(),
+        vec![],
+        16,
+        30,
+        Arc::new(dashmap::DashMap::new()),
+        Arc::new(dashmap::DashMap::new()),
+        pool.clone(),
+    ));
+
     let processor = Arc::new(EventProcessor::new(
         registry,
         plugin_manager,
@@ -32,6 +49,7 @@ async fn create_test_processor(
         max_history_size,
         24,   // event_retention_hours
         None, // consensus
+        sys_handler,
     ));
 
     (processor, event_history)

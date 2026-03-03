@@ -1,5 +1,6 @@
 use cloto_core::{
     events::EventProcessor,
+    handlers::system::SystemHandler,
     managers::{AgentManager, PluginManager, PluginRegistry},
     EnvelopedEvent,
 };
@@ -104,6 +105,22 @@ async fn test_event_cascading_protection() {
     let metrics = Arc::new(cloto_core::managers::SystemMetrics::new());
     let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
 
+    let (sys_event_tx, _sys_event_rx) = mpsc::channel(10);
+    let sys_handler = Arc::new(SystemHandler::new(
+        registry.clone(),
+        agent_manager.clone(),
+        "agent.test".to_string(),
+        sys_event_tx,
+        10,
+        metrics.clone(),
+        vec![],
+        16,
+        30,
+        Arc::new(dashmap::DashMap::new()),
+        Arc::new(dashmap::DashMap::new()),
+        pool.clone(),
+    ));
+
     let processor = EventProcessor::new(
         registry.clone(),
         plugin_manager.clone(),
@@ -114,6 +131,7 @@ async fn test_event_cascading_protection() {
         1000, // max_history_size
         24,   // event_retention_hours
         None, // consensus
+        sys_handler,
     );
 
     let tx_internal_for_loop = tx_internal.clone();

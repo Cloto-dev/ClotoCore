@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use chrono::Utc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,8 +9,7 @@ use sqlx::SqlitePool;
 use std::collections::HashSet;
 use tokio::sync::oneshot;
 use cloto_shared::{
-    AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, Plugin, PluginCast,
-    PluginManifest, ThinkResult, ToolCall,
+    AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, Plugin, ThinkResult, ToolCall,
 };
 
 // ── Engine Routing Rules (CFR + Fallback + Escalation) ──
@@ -1596,48 +1594,3 @@ impl SystemHandler {
     }
 }
 
-impl PluginCast for SystemHandler {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
-
-#[async_trait]
-impl Plugin for SystemHandler {
-    fn manifest(&self) -> PluginManifest {
-        PluginManifest {
-            id: "kernel.system".to_string(),
-            name: "Kernel System Handler".to_string(),
-            description: "Internal core logic handler".to_string(),
-            version: "1.0.0".to_string(),
-            category: cloto_shared::PluginCategory::System,
-            service_type: cloto_shared::ServiceType::Reasoning,
-            tags: vec![],
-            is_active: true,
-            is_configured: true,
-            required_config_keys: vec![],
-            action_icon: None,
-            action_target: None,
-            icon_data: None,
-            magic_seal: 0x5645_5253,
-            sdk_version: "internal".to_string(),
-            required_permissions: vec![],
-            provided_capabilities: vec![],
-            provided_tools: vec![],
-        }
-    }
-
-    async fn on_event(
-        &self,
-        event: &ClotoEvent,
-    ) -> anyhow::Result<Option<cloto_shared::ClotoEventData>> {
-        if let cloto_shared::ClotoEventData::MessageReceived(msg) = &event.data {
-            // Only trigger thinking for messages from users to prevent agent-agent loops
-            if matches!(msg.source, cloto_shared::MessageSource::User { .. }) {
-                let msg = msg.clone();
-                self.handle_message(msg).await?;
-            }
-        }
-        Ok(None)
-    }
-}
