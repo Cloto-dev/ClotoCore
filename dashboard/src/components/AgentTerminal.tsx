@@ -209,19 +209,11 @@ export function AgentTerminal({
                       <AgentPowerButton agent={agent} onPowerToggle={handlePowerToggle} />
                     </div>
 
-                    {/* Row 2: Type + Engine */}
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] font-mono text-content-tertiary">
-                        {isAi ? 'AI Agent' : 'Container'} · {agent.default_engine_id || 'No engine'}
-                      </span>
+                    {/* Row 2: Type · Engine · Memory */}
+                    <div className="text-xs font-mono text-content-tertiary mb-2">
+                      {isAi ? 'AI Agent' : 'Container'} · {agent.default_engine_id || 'No engine'}
+                      {agent.metadata?.preferred_memory && ` · ${agent.metadata.preferred_memory}`}
                     </div>
-
-                    {/* Row 3: Memory */}
-                    {agent.metadata?.preferred_memory && (
-                      <div className="text-[10px] font-mono text-content-muted mb-2">
-                        {agent.metadata.preferred_memory}
-                      </div>
-                    )}
 
                     {/* Divider + Actions */}
                     <div className="mt-2 pt-2 border-t border-edge-subtle flex items-center justify-between">
