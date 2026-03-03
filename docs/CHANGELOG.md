@@ -7,6 +7,13 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.4.17] — 2026-03-03
+
+### Fixed
+- Agent card buttons unclickable when avatar background is set (`pointer-events-none` on overlay image)
+
+---
+
 ## [0.4.16] — 2026-03-03
 
 ### Added
