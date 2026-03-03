@@ -57,12 +57,15 @@ async fn list(client: &ClotoClient, json_mode: bool) -> Result<()> {
 
     for p in &providers {
         let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("-");
-        let display = p
-            .get("display_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or(id);
-        let has_key = p.get("has_key").and_then(serde_json::Value::as_bool).unwrap_or(false);
-        let enabled = p.get("enabled").and_then(serde_json::Value::as_bool).unwrap_or(true);
+        let display = p.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
+        let has_key = p
+            .get("has_key")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let enabled = p
+            .get("enabled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true);
 
         let key_status = if has_key {
             "set".green().to_string()
@@ -95,7 +98,9 @@ async fn set_key(
     key: Option<String>,
     json_mode: bool,
 ) -> Result<()> {
-    let api_key = if let Some(k) = key { k } else {
+    let api_key = if let Some(k) = key {
+        k
+    } else {
         if json_mode {
             anyhow::bail!("--key is required in JSON mode");
         }

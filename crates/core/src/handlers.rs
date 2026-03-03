@@ -12,10 +12,11 @@ pub mod utils;
 
 // Re-export all handler functions so that existing `handlers::*` paths in lib.rs continue to work.
 pub use agents::{
-    create_agent, delete_agent, delete_avatar, get_agents, get_avatar, power_toggle,
-    update_agent, upload_avatar,
+    create_agent, delete_agent, delete_avatar, get_agents, get_avatar, power_toggle, update_agent,
+    upload_avatar,
 };
 pub use chat::chat_handler;
+pub use commands::{approve_command, deny_command, trust_command};
 pub use cron::{
     create_cron_job, delete_cron_job, list_cron_jobs, run_cron_job_now, toggle_cron_job,
 };
@@ -28,7 +29,6 @@ pub use mcp::{
     restart_mcp_server, revoke_permission_handler, set_yolo_mode, start_mcp_server,
     stop_mcp_server, update_mcp_server_settings, update_plugin_config,
 };
-pub use commands::{approve_command, deny_command, trust_command};
 pub use permissions::{approve_permission, deny_permission, get_pending_permissions};
 
 /// GET /api/system/version
@@ -360,8 +360,7 @@ pub async fn delete_memory(
         .await
         .map_err(AppError::Internal)?;
 
-    if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) =
-        result.content.first()
+    if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) = result.content.first()
     {
         if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
             return Ok(Json(data));
@@ -386,8 +385,7 @@ pub async fn delete_episode(
         .await
         .map_err(AppError::Internal)?;
 
-    if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) =
-        result.content.first()
+    if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) = result.content.first()
     {
         if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
             return Ok(Json(data));

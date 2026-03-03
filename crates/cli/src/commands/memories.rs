@@ -31,7 +31,10 @@ pub async fn run(client: &ClotoClient, json_mode: bool) -> Result<()> {
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    let count = result.get("count").and_then(serde_json::Value::as_u64).unwrap_or(0);
+    let count = result
+        .get("count")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
 
     if memories.is_empty() {
         println!("  {}", "No memories stored.".dimmed());
@@ -45,11 +48,11 @@ pub async fn run(client: &ClotoClient, json_mode: bool) -> Result<()> {
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     for mem in &memories {
-        let id = mem.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0);
-        let content = mem
-            .get("content")
-            .and_then(|v| v.as_str())
-            .unwrap_or("-");
+        let id = mem
+            .get("id")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+        let content = mem.get("content").and_then(|v| v.as_str()).unwrap_or("-");
         let truncated = if content.len() > 80 {
             format!("{}...", &content[..77])
         } else {
