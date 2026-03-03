@@ -152,10 +152,31 @@ async fn proxy_handler(
                             status = %status,
                             "LLM provider returned error"
                         );
+                        // Translate HTTP status into user-friendly error with code
+                        let (msg, code) = match status.as_u16() {
+                            401 | 403 => (
+                                format!("API key authentication failed for provider '{}'", provider_id),
+                                "auth_failed",
+                            ),
+                            429 => (
+                                format!("Rate limit exceeded for provider '{}'", provider_id),
+                                "rate_limited",
+                            ),
+                            500..=599 => (
+                                format!("Provider '{}' returned a server error ({})", provider_id, status.as_u16()),
+                                "provider_error",
+                            ),
+                            _ => (
+                                format!("Provider '{}' returned an error ({})", provider_id, status.as_u16()),
+                                "unknown",
+                            ),
+                        };
                         (
                             StatusCode::from_u16(status.as_u16())
                                 .unwrap_or(StatusCode::BAD_GATEWAY),
-                            Json(resp_body),
+                            Json(serde_json::json!({
+                                "error": { "message": msg, "code": code }
+                            })),
                         )
                     }
                 }
@@ -175,7 +196,10 @@ async fn proxy_handler(
             (
                 StatusCode::BAD_GATEWAY,
                 Json(serde_json::json!({
-                    "error": { "message": format!("Failed to reach provider '{}': {}", provider_id, e) }
+                    "error": {
+                        "message": format!("Cannot connect to provider '{}'. Ensure the service is running.", provider_id),
+                        "code": "connection_failed"
+                    }
                 })),
             )
         }

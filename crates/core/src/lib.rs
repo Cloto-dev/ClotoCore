@@ -67,6 +67,10 @@ pub struct AppState {
     /// In-memory cache of revoked API key hashes (SHA-256 fingerprints).
     /// Loaded from DB at startup; updated on POST /api/system/invalidate-key.
     pub revoked_keys: Arc<std::sync::RwLock<std::collections::HashSet<String>>>,
+    /// Pending command approval requests (kernel ↔ API handler bridge).
+    pub pending_command_approvals: handlers::system::PendingApprovals,
+    /// Session-scoped trusted command names (cleared on restart).
+    pub session_trusted_commands: handlers::system::SessionTrustedCommands,
 }
 
 pub enum AppError {
@@ -252,6 +256,11 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
 
     // 🔌 System Handler の登録
+    let pending_command_approvals: handlers::system::PendingApprovals =
+        Arc::new(dashmap::DashMap::new());
+    let session_trusted_commands: handlers::system::SessionTrustedCommands =
+        Arc::new(dashmap::DashMap::new());
+
     let system_handler = Arc::new(SystemHandler::new(
         registry_arc.clone(),
         agent_manager.clone(),
@@ -262,6 +271,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         config.consensus_engines.clone(),
         config.max_agentic_iterations,
         config.tool_execution_timeout_secs,
+        pending_command_approvals.clone(),
+        session_trusted_commands.clone(),
+        pool.clone(),
     ));
 
     {
@@ -337,6 +349,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         rate_limiter: rate_limiter.clone(),
         shutdown,
         revoked_keys,
+        pending_command_approvals,
+        session_trusted_commands,
     });
 
     // 6. Consensus Orchestrator (kernel-level, replaces core.moderator plugin)
@@ -515,6 +529,10 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             post(handlers::approve_permission),
         )
         .route("/permissions/:id/deny", post(handlers::deny_permission))
+        // Command approval endpoints
+        .route("/commands/:id/approve", post(handlers::approve_command))
+        .route("/commands/:id/trust", post(handlers::trust_command))
+        .route("/commands/:id/deny", post(handlers::deny_command))
         // M-08: chat_handler moved here to apply rate limiting
         .route("/chat", post(handlers::chat_handler))
         // Chat persistence endpoints
