@@ -71,6 +71,7 @@ pub fn create_mock_plugin(id: ClotoId) -> (Arc<MockPlugin>, Arc<Mutex<Vec<ClotoE
 }
 
 /// Panicking mock plugin: panics on every on_event call.
+#[allow(dead_code)]
 pub fn create_panicking_plugin(id: ClotoId) -> Arc<MockPlugin> {
     Arc::new(MockPlugin {
         manifest: base_manifest(id, "PanickingPlugin"),

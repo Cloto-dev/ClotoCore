@@ -293,13 +293,13 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         // cargo tauri dev where CWD differs from project root).
         let config_path = {
             let p = std::path::Path::new(&config_path);
-            if !p.exists() {
+            if p.exists() {
+                config_path
+            } else {
                 // Walk up from exe_dir to find the workspace root (Cargo.toml)
                 // and resolve mcp.toml relative to it.
                 let fallback = std::path::Path::new("mcp.toml");
                 managers::McpClientManager::resolve_project_path(fallback).unwrap_or(config_path)
-            } else {
-                config_path
             }
         };
         if let Err(e) = mcp_manager.load_config_file(&config_path).await {

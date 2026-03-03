@@ -13,8 +13,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Notify, RwLock};
 
-/// Reusable helper to create test AppState for benchmarks
-/// Uses larger buffer sizes (1000 vs 100) for high-throughput scenarios
+#[allow(dead_code)]
 pub async fn create_bench_app_state() -> Arc<AppState> {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
     cloto_core::db::init_db(&pool, "sqlite::memory:")
@@ -52,6 +51,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         mcp_manager,
         dynamic_router,
         config,
+        data_dir: std::path::PathBuf::from("target/debug/data"),
         event_history,
         metrics,
         rate_limiter,
@@ -63,6 +63,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
 }
 
 /// Create a simple test event for benchmarking
+#[allow(dead_code)]
 pub fn create_test_event(message: String) -> Arc<ClotoEvent> {
     let msg = ClotoMessage::new(
         MessageSource::User {
@@ -75,6 +76,7 @@ pub fn create_test_event(message: String) -> Arc<ClotoEvent> {
 }
 
 /// Create an enveloped event for dispatch benchmarks
+#[allow(dead_code)]
 pub fn create_enveloped_event(message: String) -> cloto_core::EnvelopedEvent {
     cloto_core::EnvelopedEvent {
         event: create_test_event(message),
