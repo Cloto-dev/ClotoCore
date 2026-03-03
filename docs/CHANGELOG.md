@@ -7,6 +7,16 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.4.20] — 2026-03-03
+
+### Added
+- Dashboard update checker: "Check for Updates" button in Settings → About
+- GitHub API-based version comparison with release notes display
+- "Update Now" via Tauri shell plugin (desktop mode only)
+- Tauri Native Auto-Update design document (`docs/TAURI_AUTO_UPDATE_DESIGN.md`) for future v0.6.x implementation
+
+---
+
 ## [0.4.19] — 2026-03-03
 
 ### Changed
