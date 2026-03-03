@@ -276,10 +276,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         pool.clone(),
     ));
 
-    {
-        let mut plugins = registry_arc.plugins.write().await;
-        plugins.insert("kernel.system".to_string(), system_handler);
-    }
+    // SystemHandler is NOT registered as a plugin — it runs outside the dispatch
+    // pipeline to avoid blocking the event loop during agentic loops.
+    // It is passed directly to EventProcessor instead.
 
     // Load MCP servers from config file (mcp.toml)
     {
@@ -380,6 +379,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         config.event_history_size,
         config.event_retention_hours,
         Some(consensus_orchestrator),
+        system_handler,
     ));
 
     // Start event history cleanup task

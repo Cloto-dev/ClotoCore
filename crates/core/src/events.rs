@@ -1,8 +1,9 @@
+use crate::handlers::system::SystemHandler;
 use crate::managers::{AgentManager, PluginManager, PluginRegistry};
 use cloto_shared::{ClotoEvent, Permission};
 use std::collections::VecDeque;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, Semaphore};
 use tracing::{debug, error, info, warn};
 
 pub struct EventProcessor {
@@ -17,6 +18,10 @@ pub struct EventProcessor {
     consensus: Option<Arc<crate::consensus::ConsensusOrchestrator>>,
     /// Per-plugin rate limiter for InputControl actions (bug-143: Guardrail 1.6)
     action_rate_limiter: Arc<dashmap::DashMap<String, governor::DefaultDirectRateLimiter>>,
+    /// Kernel system handler — runs agentic loops outside the plugin dispatch pipeline.
+    system_handler: Arc<SystemHandler>,
+    /// Per-agent semaphore to serialize agentic loops for the same agent.
+    agent_locks: Arc<dashmap::DashMap<String, Arc<Semaphore>>>,
 }
 
 impl EventProcessor {
@@ -31,6 +36,7 @@ impl EventProcessor {
         max_history_size: usize,
         event_retention_hours: u64, // M-10: Configurable retention period
         consensus: Option<Arc<crate::consensus::ConsensusOrchestrator>>,
+        system_handler: Arc<SystemHandler>,
     ) -> Self {
         Self {
             registry,
@@ -43,6 +49,8 @@ impl EventProcessor {
             event_retention_hours,
             consensus,
             action_rate_limiter: Arc::new(dashmap::DashMap::new()),
+            system_handler,
+            agent_locks: Arc::new(dashmap::DashMap::new()),
         }
     }
 
@@ -168,12 +176,48 @@ impl EventProcessor {
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
 
-            // 1. 全プラグイン（および内部システムハンドラ）に配信
+            // ── (1) User メッセージ → SystemHandler を spawn (プラグイン外) ──
+            // Agentic loop はイベントループをブロックせず独立して実行される。
+            // Per-agent Semaphore で同一エージェントへの並行処理を直列化。
+            if let cloto_shared::ClotoEventData::MessageReceived(ref msg) = event.data {
+                if matches!(msg.source, cloto_shared::MessageSource::User { .. }) {
+                    let agent_id = msg
+                        .target_agent
+                        .clone()
+                        .or_else(|| msg.metadata.get("target_agent_id").cloned())
+                        .unwrap_or_default();
+                    let sem = self
+                        .agent_locks
+                        .entry(agent_id)
+                        .or_insert_with(|| Arc::new(Semaphore::new(1)))
+                        .clone();
+                    let handler = self.system_handler.clone();
+                    let msg = msg.clone();
+                    tokio::spawn(async move {
+                        let Ok(_permit) = sem.acquire().await else { return };
+                        if let Err(e) = handler.handle_message(msg).await {
+                            error!(error = %e, "❌ SystemHandler.handle_message error");
+                        }
+                    });
+                }
+            }
+
+            // ── (2) 即時 SSE ブロードキャスト (dispatch_event の前) ──
+            // ActionRequested / PermissionGranted は後続 match で個別処理。
+            match &event.data {
+                cloto_shared::ClotoEventData::ActionRequested { .. }
+                | cloto_shared::ClotoEventData::PermissionGranted { .. } => {}
+                _ => {
+                    let _ = self.tx_internal.send(event.clone());
+                }
+            }
+
+            // ── (3) プラグイン配信 (SystemHandler は含まれない → 高速) ──
             self.registry
                 .dispatch_event(envelope.clone(), &event_tx)
                 .await;
 
-            // 1b. Consensus Orchestrator (kernel-level, replaces core.moderator plugin)
+            // ── (4) Consensus Orchestrator ──
             if let Some(ref consensus) = self.consensus {
                 if let Some(response_data) = consensus.handle_event(&event).await {
                     let response_event = Arc::new(ClotoEvent::with_trace(trace_id, response_data));
@@ -189,7 +233,7 @@ impl EventProcessor {
                 }
             }
 
-            // 2. 内部イベント分岐処理
+            // ── (5) イベント固有の後処理 ──
             match &event.data {
                 cloto_shared::ClotoEventData::ThoughtResponse {
                     agent_id,
@@ -198,14 +242,9 @@ impl EventProcessor {
                     source_message_id: _,
                 } => {
                     info!(trace_id = %trace_id, agent_id = %agent_id, "🧠 Received ThoughtResponse");
-
-                    // Passive heartbeat: agent responded, update last_seen
                     self.agent_manager.touch_last_seen(agent_id).await.ok();
 
-                    // Broadcast ThoughtResponse to SSE subscribers (dashboard needs this)
-                    let _ = self.tx_internal.send(event.clone());
-
-                    // Also create a MessageReceived for plugin cascade
+                    // Create additional MessageReceived for plugin cascade
                     let msg = cloto_shared::ClotoMessage::new(
                         cloto_shared::MessageSource::Agent {
                             id: agent_id.clone(),
@@ -230,10 +269,9 @@ impl EventProcessor {
                     requester,
                     action: _action,
                 } => {
-                    // Security Check: Verify that the issuer matches the requester
                     let is_valid_issuer = match &envelope.issuer {
                         Some(issuer_id) => issuer_id == requester,
-                        None => true, // System/Kernel can act on behalf of anyone
+                        None => true,
                     };
 
                     if !is_valid_issuer {
@@ -243,7 +281,7 @@ impl EventProcessor {
                             issuer_id = ?envelope.issuer,
                             "🚫 FORGERY DETECTED: Plugin attempted to impersonate another ID in ActionRequested"
                         );
-                        continue; // Drop the event
+                        continue;
                     }
 
                     if self.authorize(requester, Permission::InputControl).await {
@@ -272,20 +310,18 @@ impl EventProcessor {
                         "🔐 Permission GRANTED to plugin"
                     );
 
-                    // 1. 権限リストの更新 (In-memory)
                     let cloto_id = cloto_shared::ClotoId::from_name(plugin_id);
                     self.registry
                         .update_effective_permissions(cloto_id, permission.clone())
                         .await;
 
-                    // 2. Capability の注入
                     let plugins = self.registry.plugins.read().await;
                     if let Some(plugin) = plugins.get(plugin_id) {
                         if let Some(cap) = self
                             .plugin_manager
                             .get_capability_for_permission(permission)
                         {
-                            let plugin_id = plugin_id.clone(); // Clone for spawn
+                            let plugin_id = plugin_id.clone();
                             info!(trace_id = %trace_id, plugin_id = %plugin_id, "💉 Injecting capability");
                             let plugin = plugin.clone();
                             tokio::spawn(async move {
@@ -297,9 +333,6 @@ impl EventProcessor {
                     }
                     drop(plugins);
                 }
-                cloto_shared::ClotoEventData::ConfigUpdated { .. } => {
-                    let _ = self.tx_internal.send(event);
-                }
                 cloto_shared::ClotoEventData::AgentPowerChanged {
                     ref agent_id,
                     enabled,
@@ -310,7 +343,6 @@ impl EventProcessor {
                         enabled = %enabled,
                         "🔌 Agent power state changed"
                     );
-                    let _ = self.tx_internal.send(event);
                 }
                 cloto_shared::ClotoEventData::ToolInvoked {
                     ref agent_id,
@@ -329,7 +361,6 @@ impl EventProcessor {
                         iteration = iteration,
                         "🔧 Tool invoked"
                     );
-                    let _ = self.tx_internal.send(event);
                 }
                 cloto_shared::ClotoEventData::AgenticLoopCompleted {
                     ref agent_id,
@@ -344,12 +375,8 @@ impl EventProcessor {
                         tool_calls = total_tool_calls,
                         "✅ Agentic loop completed"
                     );
-                    let _ = self.tx_internal.send(event);
                 }
-                _ => {
-                    // Forward to SSE subscribers
-                    let _ = self.tx_internal.send(event);
-                }
+                _ => {}
             }
         }
     }

@@ -1,6 +1,6 @@
 use cloto_core::handlers::system::SystemHandler;
 use cloto_core::managers::{AgentManager, PluginRegistry};
-use cloto_shared::{ClotoEvent, ClotoMessage, MessageSource, Plugin};
+use cloto_shared::{ClotoMessage, MessageSource};
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -37,9 +37,9 @@ async fn test_system_handler_loop_prevention() {
         pool,
     );
 
-    // 1. Test User Message → triggers handle_message (agentic loop)
-    //    Without a registered engine, the loop errors gracefully.
-    //    The key assertion: on_event does NOT panic.
+    // Test User Message → triggers handle_message (agentic loop).
+    // Without a registered engine, the loop errors gracefully.
+    // The key assertion: handle_message does NOT panic.
     let user_msg = ClotoMessage::new(
         MessageSource::User {
             id: "user1".into(),
@@ -47,9 +47,8 @@ async fn test_system_handler_loop_prevention() {
         },
         "Hello".into(),
     );
-    let user_event = ClotoEvent::new(cloto_shared::ClotoEventData::MessageReceived(user_msg));
 
-    let result = handler.on_event(&user_event).await;
+    let result = handler.handle_message(user_msg).await;
     assert!(
         result.is_ok(),
         "User message should be handled without panic"
@@ -57,22 +56,4 @@ async fn test_system_handler_loop_prevention() {
 
     // Drain any events produced by user message (e.g. error ThoughtResponse)
     while event_rx.try_recv().is_ok() {}
-
-    // 2. Test Agent Message (Should NOT trigger processing at all)
-    let agent_msg = ClotoMessage::new(
-        MessageSource::Agent {
-            id: agent_id.into(),
-        },
-        "Response".into(),
-    );
-    let agent_event = ClotoEvent::new(cloto_shared::ClotoEventData::MessageReceived(agent_msg));
-
-    let _ = handler.on_event(&agent_event).await.unwrap();
-
-    // Check that NO event was sent to the channel for agent messages
-    let result = event_rx.try_recv();
-    assert!(
-        result.is_err(),
-        "Should NOT have received any event for agent message"
-    );
 }
