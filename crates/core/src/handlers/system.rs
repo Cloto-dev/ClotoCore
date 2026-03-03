@@ -425,7 +425,7 @@ impl SystemHandler {
                 let tier1_result = {
                     let engine_plugin = self.registry.get_engine(&engine_id).await;
                     let mcp_engine = if engine_plugin.is_none() {
-                        self.registry.mcp_manager.as_ref().cloned()
+                        self.registry.mcp_manager.clone()
                     } else {
                         None
                     };
@@ -937,13 +937,38 @@ impl SystemHandler {
                     // ── Batch Command Approval Gate ──
                     // Collect all untrusted sandboxed tool calls and request approval once.
                     // Covers execute_command and any tool with a "sandbox" validator.
-                    let yolo = self.registry.mcp_manager.as_ref().map_or(false, |m| {
-                        m.yolo_mode.load(std::sync::atomic::Ordering::Relaxed)
-                    });
+                    let yolo =
+                        self.registry.mcp_manager.as_ref().is_some_and(|m| {
+                            m.yolo_mode.load(std::sync::atomic::Ordering::Relaxed)
+                        });
                     let mut denied_call_ids: std::collections::HashSet<String> =
                         std::collections::HashSet::new();
 
-                    if !yolo {
+                    if yolo {
+                        // Bug #6: YOLO mode — still emit observability log for audit trail
+                        let sandboxed_tools: Vec<&str> = calls
+                            .iter()
+                            .filter(|c| {
+                                c.arguments
+                                    .get("command")
+                                    .and_then(|v| v.as_str())
+                                    .is_some()
+                            })
+                            .map(|c| {
+                                c.arguments
+                                    .get("command")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("?")
+                            })
+                            .collect();
+                        if !sandboxed_tools.is_empty() {
+                            info!(
+                                agent_id = %agent.id,
+                                commands = ?sandboxed_tools,
+                                "⚡ YOLO mode: commands auto-approved"
+                            );
+                        }
+                    } else {
                         let mut untrusted_cmds: Vec<serde_json::Value> = Vec::new();
                         for call in &calls {
                             // Check if tool has a "sandbox" validator (includes execute_command
@@ -971,7 +996,7 @@ impl SystemHandler {
                             let session_trusted = self
                                 .session_trusted_commands
                                 .get(&agent.id)
-                                .map_or(false, |set| set.contains(cmd_name));
+                                .is_some_and(|set| set.contains(cmd_name));
                             if !db_trusted && !session_trusted {
                                 untrusted_cmds.push(serde_json::json!({
                                     "call_id": call.id,
@@ -1062,7 +1087,7 @@ impl SystemHandler {
                                     }
                                 }
                                 Ok(Err(_)) | Err(_) => {
-                                    let reason = if matches!(decision, Err(_)) {
+                                    let reason = if decision.is_err() {
                                         "timeout (60s)"
                                     } else {
                                         "channel closed"
@@ -1092,30 +1117,6 @@ impl SystemHandler {
                                     }
                                 }
                             }
-                        }
-                    } else {
-                        // Bug #6: YOLO mode — still emit observability log for audit trail
-                        let sandboxed_tools: Vec<&str> = calls
-                            .iter()
-                            .filter(|c| {
-                                c.arguments
-                                    .get("command")
-                                    .and_then(|v| v.as_str())
-                                    .is_some()
-                            })
-                            .map(|c| {
-                                c.arguments
-                                    .get("command")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("?")
-                            })
-                            .collect();
-                        if !sandboxed_tools.is_empty() {
-                            info!(
-                                agent_id = %agent.id,
-                                commands = ?sandboxed_tools,
-                                "⚡ YOLO mode: commands auto-approved"
-                            );
                         }
                     }
 
