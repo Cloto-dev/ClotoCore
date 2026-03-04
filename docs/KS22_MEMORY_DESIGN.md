@@ -1,6 +1,6 @@
 # KS2.2 Memory System — MCP Server Design
 
-> **Status:** Draft (2026-02-23)
+> **Status:** Implemented (Phase 1-3 complete as of v0.4.15)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
 > **MCP Server ID:** `memory.ks22`
 > **Companion Server:** `memory.embedding` (pluggable vector embedding)
@@ -566,7 +566,7 @@ map to ClotoCore's agent_id model. Manual migration may be performed if needed.
 
 ## 9. Implementation Phases
 
-### Phase 1: MCP Pipeline (this PR)
+### Phase 1: MCP Pipeline — **Completed**
 
 - [x] `mcp-servers/ks22/server.py` with `store` and `recall` tools
 - [x] `recall`: FTS5 + keyword fallback (no vector search)
@@ -576,20 +576,21 @@ map to ClotoCore's agent_id model. Manual migration may be performed if needed.
 - [x] Kernel Memory Resolver update (`system.rs`, `registry.rs`, `mcp.rs`)
 - [x] Remove Rust `plugins/ks22/` dependency
 
-### Phase 2: Embedding Integration
+### Phase 2: Embedding Integration — **Completed** (v0.4.15)
 
-- [ ] `mcp-servers/embedding/server.py` with `embed` tool + HTTP endpoint
-- [ ] KS22 `EmbeddingClient` interface with provider abstraction
-- [ ] Vector columns populated on `store` and `archive_episode`
-- [ ] `recall` vector search path activated
-- [ ] Migration script for existing memories (`migrate.py`)
+- [x] `mcp-servers/embedding/server.py` with `embed` tool + HTTP endpoint
+- [x] KS22 `EmbeddingClient` interface with provider abstraction
+- [x] Vector columns populated on `store` and `archive_episode`
+- [x] `recall` vector search path activated (ONNX MiniLM, cosine similarity)
+- [x] Auto-download ONNX model on first startup
 
-### Phase 3: LLM Memory Extraction (KS2.1 Restoration)
+### Phase 3: LLM Memory Extraction (KS2.1 Restoration) — **Completed** (v0.4.15)
 
-- [ ] `update_profile`: LLM-powered fact extraction (port from KS2.1 `memory_worker.rs`)
-- [ ] `archive_episode`: LLM-powered summarization with keywords
-- [ ] Background task queue (DB-persisted, crash-recoverable)
-- [ ] Semantic cache (high-confidence recall caching)
+- [x] `update_profile`: LLM-powered fact extraction via Cerebras
+- [x] `archive_episode`: LLM-powered summarization with keywords via Cerebras
+- [x] Auto `update_profile` trigger after episode archival
+- [ ] Background task queue (DB-persisted, crash-recoverable) — deferred
+- [ ] Semantic cache (high-confidence recall caching) — deferred
 
 ---
 

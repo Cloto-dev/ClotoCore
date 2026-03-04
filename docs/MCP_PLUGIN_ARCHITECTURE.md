@@ -1,8 +1,8 @@
 # MCP Plugin Architecture (v2)
 
-> **Status:** Approved (2026-02-23)
+> **Status:** Implemented (v0.5.3)
 > **Supersedes:** Three-Tier Plugin Model (Rust/Python Bridge/WASM) → Two-Layer Model (Rust Core + MCP)
-> **Related:** `ARCHITECTURE.md` Section 3, `WASM_PLUGIN_DESIGN.md` (historical)
+> **Related:** `ARCHITECTURE.md` Section 3
 
 ---
 
@@ -117,17 +117,9 @@ User Message
 
 ### 2.3 Event Flow
 
-```
-Kernel Event (e.g., ConfigUpdated)
-  │
-  ├─ Event Bus → SSE subscribers (Dashboard)
-  │
-  └─ MCP Client Manager → 全 MCP Server に Notification 送信
-       │
-       ├─ mind.deepseek:  notifications/cloto.event { type: "ConfigUpdated", ... }
-       ├─ memory.ks22:    notifications/cloto.event { type: "ConfigUpdated", ... }
-       └─ tool.terminal:  notifications/cloto.event { type: "ConfigUpdated", ... }
-```
+> For the full event processing pipeline, see `ARCHITECTURE.md` § 0.3.
+
+MCP Client Manager は Kernel Event を受信し、全 MCP Server に `notifications/cloto.event` として転送する。
 
 ---
 
@@ -434,64 +426,54 @@ auto_restart = true
 
 ## 9. Deprecated Components
 
-本アーキテクチャ移行完了後に削除されるもの:
+MCP 移行により削除・アーカイブされたコンポーネント:
 
-| Component | Path | Reason |
-|-----------|------|--------|
-| Plugin SDK | `crates/shared/src/lib.rs` (Plugin, ReasoningEngine, Tool, MemoryProvider, CommunicationAdapter traits) | MCP に置換 |
-| Plugin Macros | `crates/macros/` | MCP マニフェストに置換 — **Completed** (deleted) |
-| Plugin Implementations | `plugins/deepseek/`, `plugins/cerebras/`, `plugins/ks22/`, `plugins/moderator/`, `plugins/terminal/`, `plugins/mcp/` | MCP Server として再実装 — **Completed** (deleted) |
-| PluginManager | `crates/core/src/managers/plugin.rs` | MCP Client Manager に置換 |
-| PluginRegistry | `crates/core/src/managers/registry.rs` | MCP Client Manager に統合 |
-| PluginFactory pattern | `crates/shared/` | 不要 |
-| PluginCast | `crates/shared/` | 不要 |
-| inventory crate | `Cargo.toml` | 不要 — **Completed** (removed) |
-| Capability Injection | `crates/core/src/capabilities.rs` | MCP Server 自前管理 |
-| Magic Seal 0x56455253 | `crates/shared/`, `crates/core/` | HMAC 署名に置換 |
-| WASM Plugin Design | `docs/WASM_PLUGIN_DESIGN.md` | Historical reference として残存 |
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Plugin SDK (traits) | `crates/shared/` にトレイト定義のみ残存 | MCP に置換済み |
+| Plugin Macros (`crates/macros/`) | **Completed** — 削除済み | MCP マニフェストに置換 |
+| Plugin Implementations (`plugins/`) | **Completed** — 削除済み | MCP Server として再実装 |
+| inventory crate | **Completed** — 削除済み | 不要 |
+| WASM Plugin Design | **Archived** — `archive/docs/` | 歴史的参考資料 |
+| PluginManager / PluginRegistry | MCP Client Manager に移行中 | `managers/` 内に残存 |
+| Capability Injection | MCP Server 自前管理に移行 | `capabilities.rs` に残存 |
+| Magic Seal 0x56455253 | HMAC 署名に移行中 | 旧定数は削除対象 |
 
 ---
 
 ## 10. Migration Plan
 
-### Phase 1: tool.terminal → MCP Server
+### Phase 1: tool.terminal → MCP Server — **Completed**
 
-**目的**: 最も単純なプラグインで MCP 化の実証を行う。
+- [x] `tool.terminal` を Python MCP Server として再実装
+- [x] MCP Client Manager の基礎実装
+- [x] Kernel から MCP Tool `execute_command` を呼び出し可能
 
-1. `tool.terminal` を MCP Server として再実装 (Python or Rust)
-2. MCP Client Manager の基礎実装 (adapter.mcp 拡張)
-3. Kernel から MCP Tool `execute_command` を呼び出し可能にする
-4. 既存の Rust `tool.terminal` と並行運用して動作確認
+### Phase 2: mind.deepseek → MCP Server — **Completed**
 
-### Phase 2: mind.deepseek → MCP Server
+- [x] `mind.deepseek` を Python MCP Server として再実装
+- [x] Chat Pipeline を MCP Tool `think` 呼び出しに変更
+- [x] `think_with_tools` の MCP Tool としての動作検証
 
-**目的**: ReasoningEngine → MCP Tool の変換パターンを確立する。
+### Phase 3: 残り全プラグイン移行 — **Completed**
 
-1. `mind.deepseek` を MCP Server として再実装
-2. Chat Pipeline を MCP Tool `think` 呼び出しに変更
-3. `think_with_tools` の MCP Tool としての動作検証
-4. Config 変更通知 (cloto/config_updated) の実装
+- [x] `mind.cerebras` → MCP Server
+- [x] `memory.ks22` → MCP Server (store/recall Tools)
+- [x] `tool.embedding` → MCP Server
 
-### Phase 3: 残り全プラグイン移行
+### Phase 4: Rust Plugin SDK 削除 — **Partial**
 
-1. `mind.cerebras` → MCP Server
-2. `memory.ks22` → MCP Server (store/recall Tools)
+- [x] `crates/macros/` 削除
+- [x] `plugins/` ディレクトリ削除 → `mcp-servers/` に移行
+- [x] `inventory` クレート依存削除
+- [ ] `crates/shared/` からプラグイントレイト削除 (トレイト定義のみ残存)
+- [ ] PluginManager, PluginRegistry の完全削除
 
-### Phase 4: Rust Plugin SDK 削除
+### Phase 5: 動的プラグイン生成 — **Pending**
 
-1. `crates/shared/` からプラグイントレイト削除
-2. `crates/macros/` 削除
-3. `plugins/` ディレクトリ削除 (MCP Server は別リポジトリ or `mcp-servers/` に配置)
-4. PluginManager, PluginRegistry 削除
-5. `inventory` クレート依存削除
-6. `ARCHITECTURE.md` 更新 (本ドキュメントを参照)
-
-### Phase 5: 動的プラグイン生成
-
-1. MCP Server 管理 API 実装
-2. Magic Seal (HMAC) 実装
-3. エージェント L5 による MCP Server 自律生成の実装
-4. Dashboard の MCP Server 管理 UI
+1. Magic Seal (HMAC) 実装
+2. エージェント L5 による MCP Server 自律生成の実装
+3. Dashboard の MCP Server 管理 UI — **Completed** (v0.5.3, see `MCP_SERVER_UI_DESIGN.md`)
 
 ---
 

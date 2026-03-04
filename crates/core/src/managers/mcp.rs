@@ -359,6 +359,17 @@ pub struct McpClientManager {
     notification_rx: Mutex<Option<mpsc::Receiver<McpNotification>>>,
 }
 
+fn mcp_tool_schema(tool: &McpTool) -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description.as_deref().unwrap_or(""),
+            "parameters": tool.input_schema,
+        }
+    })
+}
+
 impl McpClientManager {
     #[must_use]
     pub fn new(pool: SqlitePool, yolo_mode: bool) -> Self {
@@ -937,14 +948,7 @@ impl McpClientManager {
                 continue;
             }
             for tool in &handle.tools {
-                schemas.push(serde_json::json!({
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description.as_deref().unwrap_or(""),
-                        "parameters": tool.input_schema,
-                    }
-                }));
+                schemas.push(mcp_tool_schema(tool));
             }
         }
         schemas
@@ -965,14 +969,7 @@ impl McpClientManager {
                     continue;
                 }
                 for tool in &handle.tools {
-                    schemas.push(serde_json::json!({
-                        "type": "function",
-                        "function": {
-                            "name": tool.name,
-                            "description": tool.description.as_deref().unwrap_or(""),
-                            "parameters": tool.input_schema,
-                        }
-                    }));
+                    schemas.push(mcp_tool_schema(tool));
                 }
             }
         }
@@ -1001,14 +998,7 @@ impl McpClientManager {
                     .await
                 {
                     Ok(ref perm) if perm == "allow" => {
-                        schemas.push(serde_json::json!({
-                            "type": "function",
-                            "function": {
-                                "name": tool.name,
-                                "description": tool.description.as_deref().unwrap_or(""),
-                                "parameters": tool.input_schema,
-                            }
-                        }));
+                        schemas.push(mcp_tool_schema(tool));
                     }
                     _ => {} // deny or error → skip
                 }

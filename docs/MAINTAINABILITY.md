@@ -3,8 +3,8 @@
 保守性の包括的スキャン結果と改善アクションリストを記録したドキュメントです。
 開発の意思決定や技術的負債の管理に役立てるため、継続的に更新してください。
 
-**最終更新**: 2026-02-18
-**調査対象バージョン**: 0.1.0 (commit `7d61b30`)
+**最終更新**: 2026-03-04
+**調査対象バージョン**: 0.5.3
 
 ---
 
@@ -13,8 +13,8 @@
 ```
 ClotoCore/
 ├── crates/
-│   ├── core/        # カーネル・ハンドラー・DB・イベント・進化エンジン
-│   ├── shared/      # 共有型・トレイト
+│   ├── core/        # カーネル・ハンドラー・DB・managers/・ミドルウェア
+│   ├── shared/      # 共有トレイト定義
 │   └── cli/         # CLIツール
 ├── mcp-servers/     # 5 MCP servers (cerebras, deepseek, embedding, ks22, terminal)
 ├── dashboard/       # React + TypeScript + Tauri 2.x
@@ -23,7 +23,7 @@ ClotoCore/
 └── .dev-notes/      # 保守ノート（gitignore対象・補足資料）
 ```
 
-**技術スタック**: Rust（ワークスペース 4 クレート）/ TypeScript + React / Python
+**技術スタック**: Rust（ワークスペース 3 クレート）/ TypeScript + React / Python
 
 ---
 
@@ -54,59 +54,24 @@ ClotoCore/
 
 ### 🔴 要即時対応
 
-#### A. `managers.rs` の肥大化とドキュメント陳腐化
-
-`.dev-notes/architecture-debt.md`（M-02）は「managers.rs が 350+ 行で要リファクタリング」と記載しているが、
-実際には `AgentManager` の追加により **863 行** に達している。文書が現実を著しく下回っている。
-
-**現状の構成（863行 / 1ファイル）**:
-- `PluginRegistry` — プラグインの登録・検索
-- `PluginManager` — イベント配信・タイムアウト・パニック回復
-- `SystemMetrics` — システムメトリクス収集
-- `AgentManager` — エージェントのDB管理（後から追加）
-
-**推奨分割**:
-```
-crates/core/src/managers/
-├── mod.rs           # Public exports
-├── registry.rs      # PluginRegistry + SystemMetrics
-├── dispatcher.rs    # PluginManager（イベント配信ロジック）
-└── agents.rs        # AgentManager
-```
-
-#### B. `qa/issue-registry.json` の bug-017 が誤検知
+#### A. `qa/issue-registry.json` の bug-017 が誤検知
 
 `bug-017`（"CI/CD: cargo audit security check missing"）は `"status": "open"` だが、
 `ci.yml:63-64` に `cargo audit` が既に存在する。**レジストリが現実と不一致**。
 
-```json
-// 現状（誤り）
-"status": "open",
-"expected": "present"
+---
 
-// 修正すべき状態
-"status": "fixed",
-"expected": "present"
-```
+### ✅ 解決済み（参考）
+
+- **`managers.rs` の肥大化**: `managers/` ディレクトリに分割完了
+  (mod.rs, agents.rs, plugin.rs, registry.rs, mcp.rs, mcp_protocol.rs, mcp_transport.rs)
+- **`evolution.rs` の肥大化**: `archive/evolution/` にアーカイブ完了、ファイル削除済み
 
 ---
 
 ### 🟠 高優先度（1ヶ月以内）
 
-#### C. `evolution.rs` の肥大化（1907行）
-
-最大ファイル。型定義・純粋関数・エンジン本体がすべて混在している。
-
-**推奨分割**:
-```
-crates/core/src/evolution/
-├── mod.rs           # Public exports + EvolutionEngine
-├── types.rs         # AutonomyLevel, FitnessScores, EvolutionParams 等
-├── fitness.rs       # calculate_fitness, compute_delta, detect_rebalance
-└── triggers.rs      # check_triggers, detect_capability_gain, grace_period_length
-```
-
-#### D. テストカバレッジ不足（~35%）
+#### B. テストカバレッジ不足（~35%）
 
 以下の重要パスが未テスト:
 
@@ -126,7 +91,7 @@ crates/core/src/evolution/
 
 ### 🟡 中優先度（3ヶ月以内）
 
-#### E. DB全件取得のページネーション欠如（M-03）
+#### C. DB全件取得のページネーション欠如（M-03）
 
 `db::get_all_json()` が LIMIT なしで全レコードを取得する。
 プラグインが大量データを保存した場合にメモリ枯渇・タイムアウトのリスクあり。
@@ -141,7 +106,7 @@ const DEFAULT_MAX_RESULTS: usize = 1000;
 "SELECT key, value FROM plugin_data WHERE plugin_id = ? LIMIT ?"
 ```
 
-#### F. グレースフルシャットダウン未実装
+#### D. グレースフルシャットダウン未実装
 
 バックグラウンドタスクの JoinHandle が保存されていないため、
 シャットダウン時にクリーンアップができない。
@@ -154,12 +119,12 @@ tokio::spawn(async move { processor_clone.process_loop(...).await });
 // 改善: JoinHandle を保存し、シャットダウン時に await
 ```
 
-#### G. エラーメッセージの不明瞭さ（M-05）
+#### E. エラーメッセージの不明瞭さ（M-05）
 
 DB操作エラー・設定エラーにコンテキスト情報が不足しており、
 デバッグ効率が低下している。エラーに「どのエージェントの」「どの操作で」を付加すること。
 
-#### H. イベント履歴の上限未設定
+#### F. イベント履歴の上限未設定
 
 高頻度イベント時（1000件/分）に 60 分保持で最大 60,000 件 ≈ 60MB が蓄積される可能性がある。
 
@@ -245,25 +210,21 @@ if history.len() > MAX_EVENT_HISTORY {
 | セキュリティ | **B+** | 重大脆弱性は修正済み、継続監視が必要 |
 | テスト | **C+** | 105 テスト関数だが推定 35% カバレッジ |
 | コード品質 | **B** | `unwrap` 乱用なし・TODO ほぼゼロは優秀 |
-| ファイル構造 | **C** | `evolution.rs` / `managers.rs` の肥大化が課題 |
-| ドキュメント | **B** | `.dev-notes` の一部が陳腐化している |
+| ファイル構造 | **B** | `managers.rs` 分割完了、`evolution.rs` アーカイブ済み |
+| ドキュメント | **B+** | v0.5.3 で docs/ を監査・統合・最新化 |
 | 依存関係管理 | **B+** | ワークスペース統一・ロックファイルあり |
 
 ---
 
 ## 7. アクションリスト
 
-### 即時対応（今週）
+### 即時対応
 
 - [ ] `qa/issue-registry.json` の bug-017 を `"status": "fixed"` に修正し `verify-issues.sh` を実行
-- [ ] `.dev-notes/architecture-debt.md`（M-02）を `managers.rs` の実態（863行）に更新
 - [ ] `crates/cli/src/output.rs:97` の `unwrap()` を確認・必要なら `expect()` に置換
-- [ ] `cargo audit` をローカル開発環境にインストール（`cargo install cargo-audit`）
 
 ### 1ヶ月以内
 
-- [x] `evolution.rs` — archived (moved to `archive/evolution/`, file deleted)
-- [x] `managers.rs` — split into `managers/` directory (mod.rs, agents.rs, plugin.rs, registry.rs, mcp.rs, mcp_protocol.rs, mcp_transport.rs)
 - [ ] `MockPlugin` 実装（`crates/core/tests/mocks/mod.rs`）
 - [ ] `db::get_all_json()` に `LIMIT` 追加
 - [ ] グレースフルシャットダウン実装（JoinHandle の保存）
@@ -296,4 +257,4 @@ if history.len() > MAX_EVENT_HISTORY {
 ---
 
 *このドキュメントは保守性スキャンの結果を記録したものです。*
-*次回スキャン推奨時期: **2026-05-18**（3ヶ月後）*
+*次回スキャン推奨時期: **2026-06-04**（3ヶ月後）*

@@ -797,6 +797,31 @@ pub async fn get_agent_access(
     })))
 }
 
+async fn server_lifecycle(
+    state: &Arc<AppState>,
+    name: &str,
+    action: &str,
+    audit_event: &str,
+    tools: Result<Option<Vec<String>>, anyhow::Error>,
+) -> AppResult<Json<serde_json::Value>> {
+    let tools = tools.map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+    spawn_admin_audit(
+        state.pool.clone(),
+        audit_event,
+        name.to_string(),
+        format!("MCP server {}", action),
+        None,
+        None,
+        None,
+    );
+    info!(name = %name, "MCP server {}", action);
+    let mut resp = serde_json::json!({ "status": action, "name": name });
+    if let Some(t) = tools {
+        resp["tools"] = serde_json::json!(t);
+    }
+    Ok(Json(resp))
+}
+
 /// POST /api/mcp/servers/:name/restart
 pub async fn restart_mcp_server(
     State(state): State<Arc<AppState>>,
@@ -804,30 +829,8 @@ pub async fn restart_mcp_server(
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-
-    let tools = state
-        .mcp_manager
-        .restart_server(&name)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to restart server: {}", e)))?;
-
-    spawn_admin_audit(
-        state.pool.clone(),
-        "MCP_SERVER_RESTARTED",
-        name.clone(),
-        "MCP server restarted".to_string(),
-        None,
-        None,
-        None,
-    );
-
-    info!(name = %name, "🔄 MCP server restarted");
-
-    Ok(Json(serde_json::json!({
-        "status": "restarted",
-        "name": name,
-        "tools": tools,
-    })))
+    let result = state.mcp_manager.restart_server(&name).await.map(Some);
+    server_lifecycle(&state, &name, "restarted", "MCP_SERVER_RESTARTED", result).await
 }
 
 /// POST /api/mcp/servers/:name/start
@@ -837,30 +840,8 @@ pub async fn start_mcp_server(
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-
-    let tools = state
-        .mcp_manager
-        .start_server(&name)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to start server: {}", e)))?;
-
-    spawn_admin_audit(
-        state.pool.clone(),
-        "MCP_SERVER_STARTED",
-        name.clone(),
-        "MCP server started".to_string(),
-        None,
-        None,
-        None,
-    );
-
-    info!(name = %name, "▶️ MCP server started");
-
-    Ok(Json(serde_json::json!({
-        "status": "started",
-        "name": name,
-        "tools": tools,
-    })))
+    let result = state.mcp_manager.start_server(&name).await.map(Some);
+    server_lifecycle(&state, &name, "started", "MCP_SERVER_STARTED", result).await
 }
 
 /// POST /api/mcp/servers/:name/stop
@@ -870,29 +851,8 @@ pub async fn stop_mcp_server(
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-
-    state
-        .mcp_manager
-        .stop_server(&name)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to stop server: {}", e)))?;
-
-    spawn_admin_audit(
-        state.pool.clone(),
-        "MCP_SERVER_STOPPED",
-        name.clone(),
-        "MCP server stopped".to_string(),
-        None,
-        None,
-        None,
-    );
-
-    info!(name = %name, "⏹️ MCP server stopped");
-
-    Ok(Json(serde_json::json!({
-        "status": "stopped",
-        "name": name,
-    })))
+    let result = state.mcp_manager.stop_server(&name).await.map(|()| None);
+    server_lifecycle(&state, &name, "stopped", "MCP_SERVER_STOPPED", result).await
 }
 
 // ============================================================

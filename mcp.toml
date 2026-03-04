@@ -12,6 +12,23 @@ auto_restart = true
 execute_command = "sandbox"
 
 [[servers]]
+id = "tool.agent_utils"
+command = "python"
+args = ["mcp-servers/agent_utils/server.py"]
+transport = "stdio"
+auto_restart = true
+
+[[servers]]
+id = "tool.cron"
+command = "python"
+args = ["mcp-servers/cron/server.py"]
+transport = "stdio"
+auto_restart = true
+[servers.env]
+CLOTO_API_URL = "http://127.0.0.1:8081"
+CLOTO_API_KEY = "${CLOTO_API_KEY}"
+
+[[servers]]
 id = "mind.deepseek"
 command = "python"
 args = ["mcp-servers/deepseek/server.py"]
@@ -52,7 +69,7 @@ transport = "stdio"
 auto_restart = true
 [servers.env]
 OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "glm-4.7-flash"
+OLLAMA_MODEL = "cydonia"
 
 [[servers]]
 id = "memory.ks22"

@@ -7,6 +7,25 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.5.4] — 2026-03-04
+
+### Added
+- `tool.cron` MCP server: stateless CRON job management via kernel REST API (create, list, delete, toggle, run now)
+- `tool.agent_utils` MCP server: 8 deterministic utility tools (time, math, date arithmetic, random, UUID, unit conversion, encode/decode, hash)
+- Default MCP server grants for Cloto Assistant: memory.ks22, tool.cron, tool.terminal, tool.websearch, tool.research, tool.agent_utils
+- Cydonia 24B v4.3 (TheDrummer) Q4_K_M Ollama model support with ChatML template
+
+### Fixed
+- Default engine routing: Cloto Assistant was incorrectly using mind.deepseek instead of mind.cerebras (migration WHERE condition bug)
+- ONNX embedding server: missing `token_type_ids` input caused all-MiniLM-L6-v2 inference to fail, breaking memory recall
+- Response latency reduced from ~7.4s to ~2s (engine fix + embedding fix)
+
+### Changed
+- Ollama default model changed from glm-4.7-flash to cydonia
+- Code cleanup: reduced ~600 lines across DB layer, handlers, and docs
+
+---
+
 ## [0.4.22] — 2026-03-03
 
 ### Added
@@ -50,7 +69,7 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 - Dashboard update checker: "Check for Updates" button in Settings → About
 - GitHub API-based version comparison with release notes display
 - "Update Now" via Tauri shell plugin (desktop mode only)
-- Tauri Native Auto-Update design document (`docs/TAURI_AUTO_UPDATE_DESIGN.md`) for future v0.6.x implementation
+- Tauri Native Auto-Update design (integrated into `docs/INSTALLER_DISTRIBUTION.md` § 6) for future implementation
 
 ---
 
