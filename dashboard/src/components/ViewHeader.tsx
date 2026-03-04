@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowLeft, HelpCircle, Minus, Square, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, ArrowRight, HelpCircle, Minus, Square, X, type LucideIcon } from 'lucide-react';
 import { isTauri, minimizeWindow, toggleMaximizeWindow, closeWindow } from '../lib/tauri';
 import { useConnection } from '../contexts/ConnectionContext';
 
@@ -9,9 +9,13 @@ interface ViewHeaderProps {
   onBack?: (() => void) | string;
   right?: React.ReactNode;
   onHelp?: () => void;
+  navBack?: () => void;
+  navForward?: () => void;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
 }
 
-export function ViewHeader({ icon: Icon, title, onBack, right, onHelp }: ViewHeaderProps) {
+export function ViewHeader({ icon: Icon, title, onBack, right, onHelp, navBack, navForward, canGoBack, canGoForward }: ViewHeaderProps) {
   const { connected, checking } = useConnection();
 
   return (
@@ -28,6 +32,26 @@ export function ViewHeader({ icon: Icon, title, onBack, right, onHelp }: ViewHea
           <ArrowLeft size={16} />
         </button>
       ) : null}
+      {navBack && (
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={navBack}
+            disabled={!canGoBack}
+            className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-25 disabled:pointer-events-none"
+            title="Back"
+          >
+            <ArrowLeft size={14} />
+          </button>
+          <button
+            onClick={navForward}
+            disabled={!canGoForward}
+            className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-25 disabled:pointer-events-none"
+            title="Forward"
+          >
+            <ArrowRight size={14} />
+          </button>
+        </div>
+      )}
       <Icon size={14} className="text-brand" />
       <h1 className="text-xs font-mono uppercase tracking-widest text-content-primary">{title}</h1>
       {right && <div className="ml-auto flex items-center gap-3">{right}</div>}
