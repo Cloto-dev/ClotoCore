@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef, memo } from 'react';
-import { Activity, Maximize2 } from 'lucide-react';
-import { ViewHeader } from './ViewHeader';
-import { InteractiveGrid } from './InteractiveGrid';
+import { Maximize2 } from 'lucide-react';
 import { NeuralNetwork } from '../components/NeuralNetwork';
+import { useOutletContext } from 'react-router-dom';
+import type { AppOutletContext } from './AppLayout';
 import { useMetrics } from '../hooks/useMetrics';
 import { useStatusManager, ThoughtLine } from '../hooks/useStatusManager';
 import { useTheme } from '../hooks/useTheme';
@@ -93,7 +93,12 @@ function TimelinePins({ events, startTime, endTime, onPinClick }: {
 export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { isWindowMode?: boolean }) {
   const [seekTime, setSeekTime] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
-  const [immersive, setImmersive] = useState(false);
+  const [immersive, setLocalImmersive] = useState(false);
+  const outletCtx = useOutletContext<AppOutletContext | null>();
+  const setImmersive = (v: boolean) => {
+    setLocalImmersive(v);
+    if (!isWindowMode) outletCtx?.setImmersive(v);
+  };
   const { metrics, fetchMetrics } = useMetrics();
   const { eventHistory, thoughtLines } = useStatusManager(fetchMetrics);
   const { colors } = useTheme();
@@ -158,25 +163,18 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
       onMouseEnter={(e) => {
         realMouse.current = { x: e.clientX, y: e.clientY };
       }}
-      className={`${isWindowMode ? 'bg-transparent h-full w-full rounded-md' : 'bg-surface-base min-h-screen'} flex flex-col items-center justify-center overflow-hidden relative font-sans text-content-primary`}
+      className={`${isWindowMode ? 'bg-transparent h-full w-full rounded-md' : 'h-full w-full'} flex flex-col items-center justify-center overflow-hidden relative font-sans text-content-primary`}
     >
-      {/* Header */}
+      {/* Immersive toggle button */}
       {!isWindowMode && !immersive && (
-        <div className="absolute top-0 left-0 right-0 z-20">
-          <ViewHeader
-            icon={Activity}
-            title="Status Core"
-            onBack="/"
-            right={
-              <button onClick={() => setImmersive(true)} className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors" title="Immersive mode">
-                <Maximize2 size={14} />
-              </button>
-            }
-          />
+        <div className="absolute top-4 right-4 z-20">
+          <button onClick={() => setImmersive(true)} className="p-1.5 rounded bg-glass-subtle hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors" title="Immersive mode">
+            <Maximize2 size={14} />
+          </button>
         </div>
       )}
 
-      {/* Immersive mode: invisible hit area spanning the header region */}
+      {/* Immersive mode: invisible hit area to exit */}
       {!isWindowMode && immersive && (
         <button
           onClick={() => setImmersive(false)}
@@ -187,7 +185,7 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
 
       {/* Archive Indicator */}
       {seekTime !== null && !immersive && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 px-4 py-1 bg-blue-600 text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-full animate-pulse shadow-lg shadow-blue-500/20">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-1 bg-blue-600 text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-full animate-pulse shadow-lg shadow-blue-500/20">
           REPLAYING: {new Date(seekTime).toLocaleTimeString()}
         </div>
       )}
@@ -210,10 +208,7 @@ export const StatusCore = memo(function StatusCore({ isWindowMode = false }: { i
         )}
       </div>
 
-      {/* 2. Grid Background (Canvas, bottom-fade) */}
-      <InteractiveGrid />
-
-      {/* 3. The Core Visualizer */}
+      {/* The Core Visualizer */}
       <NeuralNetwork
         mouseRef={realMouse}
         events={eventHistory}

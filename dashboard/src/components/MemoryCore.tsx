@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { memo } from 'react';
-import { Brain, Sparkles, History, User, Trash2 } from 'lucide-react';
-import { ViewHeader } from './ViewHeader';
-import { InteractiveGrid } from './InteractiveGrid';
+import { Brain, History, User, Trash2 } from 'lucide-react';
 import { Memory, Episode } from '../types';
 import { SystemHistory } from './SystemHistory';
 import { useEventStream } from '../hooks/useEventStream';
@@ -80,19 +78,19 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
   });
 
   return (
-    <div className={`${isWindowMode ? 'bg-transparent p-4' : 'bg-surface-base min-h-screen'} relative font-sans text-content-primary overflow-x-hidden h-full animate-in fade-in duration-500`}>
-      {!isWindowMode && <InteractiveGrid />}
-
+    <div className={`${isWindowMode ? 'bg-transparent p-4' : 'h-full overflow-y-auto'} relative font-sans text-content-primary overflow-x-hidden animate-in fade-in duration-500`}>
+      {/* Inline header bar with metrics */}
       {!isWindowMode && (
-        <ViewHeader
-          icon={Brain}
-          title="Memory Core"
-          onBack="/"
-          right={<span className="text-[10px] font-mono text-content-tertiary">{metrics.ram_usage} / {metrics.total_memories} OBJS</span>}
-        />
+        <div className="flex items-center justify-between px-6 pt-4 pb-2 md:px-12">
+          <div className="flex items-center gap-2">
+            <Brain className="text-brand" size={16} />
+            <h2 className="text-xs font-mono uppercase tracking-widest text-content-primary font-bold">Memory Core</h2>
+          </div>
+          <span className="text-[10px] font-mono text-content-tertiary">{metrics.ram_usage} / {metrics.total_memories} OBJS</span>
+        </div>
       )}
 
-      <div className={`relative z-10 ${isWindowMode ? '' : 'p-6 md:p-12'}`}>
+      <div className={`relative z-10 ${isWindowMode ? '' : 'p-6 md:px-12'}`}>
 
         <main className={`grid grid-cols-1 ${isWindowMode ? 'gap-4' : 'lg:grid-cols-3 gap-8'}`}>
           <section className={`${isWindowMode ? '' : 'lg:col-span-2'} space-y-4`}>

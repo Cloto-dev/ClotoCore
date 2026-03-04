@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { memo } from 'react';
 import { Clock, Plus, Trash2, Play, Power } from 'lucide-react';
-import { ViewHeader } from './ViewHeader';
-import { InteractiveGrid } from './InteractiveGrid';
 import { CronJob, AgentMetadata } from '../types';
 import { api } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
@@ -90,24 +88,21 @@ export const CronJobs = memo(function CronJobs() {
   };
 
   return (
-    <div className="bg-surface-base min-h-screen relative font-sans text-content-primary overflow-x-hidden animate-in fade-in duration-500">
-      <InteractiveGrid />
-
-      <ViewHeader
-        icon={Clock}
-        title="Cron Jobs"
-        onBack="/"
-        right={
+    <div className="h-full relative font-sans text-content-primary overflow-x-hidden overflow-y-auto animate-in fade-in duration-500">
+      <div className="relative z-10 p-6 md:p-12 space-y-6">
+        {/* Inline header with New Job button */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Clock className="text-brand" size={16} />
+            <h2 className="text-xs font-mono uppercase tracking-widest text-content-primary font-bold">Cron Jobs</h2>
+          </div>
           <button
             onClick={() => setShowForm(!showForm)}
             className="flex items-center gap-1.5 px-3 py-1 rounded bg-brand/10 text-brand hover:bg-brand/20 text-[10px] font-mono uppercase tracking-wider transition-colors"
           >
             <Plus size={12} /> New Job
           </button>
-        }
-      />
-
-      <div className="relative z-10 p-6 md:p-12 space-y-6">
+        </div>
         {/* Create Form */}
         {showForm && (
           <div className="bg-glass-strong backdrop-blur-sm p-6 rounded-lg border border-edge space-y-4">
