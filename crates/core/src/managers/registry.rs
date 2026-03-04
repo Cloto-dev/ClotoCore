@@ -44,6 +44,17 @@ impl SystemMetrics {
     }
 }
 
+fn rust_tool_schema(tool: &dyn cloto_shared::Tool) -> serde_json::Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": tool.name(),
+            "description": tool.description(),
+            "parameters": tool.parameters_schema(),
+        }
+    })
+}
+
 impl PluginRegistry {
     #[must_use]
     pub fn new(event_timeout_secs: u64, max_event_depth: u8) -> Self {
@@ -96,17 +107,7 @@ impl PluginRegistry {
             let plugins = self.plugins.read().await;
             plugins
                 .values()
-                .filter_map(|p| {
-                    let tool = p.as_tool()?;
-                    Some(serde_json::json!({
-                        "type": "function",
-                        "function": {
-                            "name": tool.name(),
-                            "description": tool.description(),
-                            "parameters": tool.parameters_schema(),
-                        }
-                    }))
-                })
+                .filter_map(|p| Some(rust_tool_schema(p.as_tool()?)))
                 .collect()
         };
 
@@ -131,15 +132,7 @@ impl PluginRegistry {
                     if !allowed_plugin_ids.contains(id) {
                         return None;
                     }
-                    let tool = p.as_tool()?;
-                    Some(serde_json::json!({
-                        "type": "function",
-                        "function": {
-                            "name": tool.name(),
-                            "description": tool.description(),
-                            "parameters": tool.parameters_schema(),
-                        }
-                    }))
+                    Some(rust_tool_schema(p.as_tool()?))
                 })
                 .collect()
         };
@@ -253,15 +246,7 @@ impl PluginRegistry {
                     if !allowed_plugin_ids.contains(id) {
                         return None;
                     }
-                    let tool = p.as_tool()?;
-                    Some(serde_json::json!({
-                        "type": "function",
-                        "function": {
-                            "name": tool.name(),
-                            "description": tool.description(),
-                            "parameters": tool.parameters_schema(),
-                        }
-                    }))
+                    Some(rust_tool_schema(p.as_tool()?))
                 })
                 .collect()
         };

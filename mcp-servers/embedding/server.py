@@ -213,10 +213,17 @@ class OnnxMiniLMProvider(EmbeddingProvider):
         attention_mask = np.array(
             [e.attention_mask for e in encodings], dtype=np.int64
         )
+        token_type_ids = np.array(
+            [e.type_ids for e in encodings], dtype=np.int64
+        )
 
         outputs = self._session.run(
             None,
-            {"input_ids": input_ids, "attention_mask": attention_mask},
+            {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "token_type_ids": token_type_ids,
+            },
         )
         token_embeddings = outputs[0]  # (batch, seq_len, hidden_dim)
 
