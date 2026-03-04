@@ -45,8 +45,8 @@
     --surface-overlay: rgba(0, 0, 0, 0.7);
     /* Text */
     --text-primary: 241 245 249;
-    --text-secondary: 148 163 184;
-    --text-tertiary: 100 116 139;
+    --text-secondary: 203 213 225;
+    --text-tertiary: 148 163 184;
     --text-muted: 71 85 105;
     /* Borders */
     --border-default: 51 65 85;

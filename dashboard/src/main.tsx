@@ -1,11 +1,13 @@
-import React, { Suspense, lazy, useState, useEffect, useCallback } from 'react'
+import React, { lazy, useState, useEffect, useCallback } from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
-import { Home } from './pages/Home'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ThemeProvider } from './components/ThemeProvider'
 import { ApiKeyProvider } from './contexts/ApiKeyContext'
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext'
+import { AgentProvider } from './contexts/AgentContext'
+import { AppLayout } from './components/AppLayout'
+import { AgentPage } from './pages/AgentPage'
 import { CustomCursor } from './components/CustomCursor'
 import { isTauri } from './lib/tauri'
 import './compiled-tailwind.css'
@@ -78,32 +80,34 @@ function App() {
   }
 
   return (
-    <Router>
-      {!isTauri && !bannerDismissed && (
-        <div className="bg-amber-900/80 border-b border-amber-700 px-4 py-2 flex items-center justify-between font-mono text-xs text-amber-200">
-          <span>
-            Browser access is deprecated. Please use the{' '}
-            <a href="https://github.com/Cloto-dev/ClotoCore/releases/latest" target="_blank" rel="noopener noreferrer" className="underline text-amber-100 hover:text-white">
-              Cloto desktop app
-            </a>{' '}
-            for the full experience.
-          </span>
-          <button onClick={dismissBanner} className="ml-4 text-amber-400 hover:text-white" aria-label="Dismiss">
-            ✕
-          </button>
-        </div>
-      )}
-      <Suspense fallback={<div className="min-h-screen bg-surface-base flex items-center justify-center font-mono text-xs text-content-tertiary">LOADING CLOTO...</div>}>
+    <AgentProvider>
+      <Router>
+        {!isTauri && !bannerDismissed && (
+          <div className="bg-amber-900/80 border-b border-amber-700 px-4 py-2 flex items-center justify-between font-mono text-xs text-amber-200">
+            <span>
+              Browser access is deprecated. Please use the{' '}
+              <a href="https://github.com/Cloto-dev/ClotoCore/releases/latest" target="_blank" rel="noopener noreferrer" className="underline text-amber-100 hover:text-white">
+                Cloto desktop app
+              </a>{' '}
+              for the full experience.
+            </span>
+            <button onClick={dismissBanner} className="ml-4 text-amber-400 hover:text-white" aria-label="Dismiss">
+              ✕
+            </button>
+          </div>
+        )}
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/status" element={<StatusCore />} />
-          <Route path="/dashboard" element={<MemoryCore />} />
-          <Route path="/mcp-servers" element={<McpServersPage />} />
-          <Route path="/cron" element={<CronJobs />} />
+          <Route element={<AppLayout />}>
+            <Route path="/" element={<AgentPage />} />
+            <Route path="/status" element={<StatusCore />} />
+            <Route path="/dashboard" element={<MemoryCore />} />
+            <Route path="/mcp-servers" element={<McpServersPage />} />
+            <Route path="/cron" element={<CronJobs />} />
+          </Route>
         </Routes>
-      </Suspense>
-      {cursorEnabled && <CustomCursor />}
-    </Router>
+        {cursorEnabled && <CustomCursor />}
+      </Router>
+    </AgentProvider>
   );
 }
 
