@@ -137,3 +137,22 @@ This script is the mechanical verification engine that prevents hallucination an
 - Commit messages in English
 - Git author: `ClotoCore Project <ClotoCore@proton.me>`
 - Do NOT push without explicit user permission
+
+## Release Rules
+
+### Version Bump
+
+- Bump version in `Cargo.toml`, `dashboard/package.json`, `dashboard/src-tauri/tauri.conf.json` on every version-incrementing commit (even if that version will not be released).
+- Unstable versions may be skipped for release. The version number is "consumed" and not reused.
+
+### Tags
+
+- Do NOT create git tags manually (`git tag` is prohibited).
+- Tags are created exclusively by `gh release create`, which auto-creates the tag on the release commit.
+
+### Release Notes (Cumulative Changelog)
+
+- Release notes MUST include all changes since the **previous released version** (not just the current version's commit).
+- Use `gh release list` to identify the previous release, then gather all commits between that tag and HEAD.
+- When intermediate versions were skipped, organize the changelog by **version sections** (e.g., `### v0.5.5`, `### v0.5.4`, `### v0.5.3 → v0.5.4`).
+- Each section should describe features, bug fixes, and other changes for that version.
