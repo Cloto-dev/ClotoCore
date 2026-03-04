@@ -173,6 +173,7 @@ export interface McpServerInfo {
   tools: string[];
   is_cloto_sdk: boolean;
   source: ServerSource;
+  display_name?: string;
 }
 
 export interface AccessControlEntry {

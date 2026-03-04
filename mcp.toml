@@ -30,6 +30,7 @@ CLOTO_API_KEY = "${CLOTO_API_KEY}"
 
 [[servers]]
 id = "mind.deepseek"
+display_name = "DeepSeek"
 command = "python"
 args = ["mcp-servers/deepseek/server.py"]
 transport = "stdio"
@@ -41,6 +42,7 @@ DEEPSEEK_PROVIDER = "deepseek"
 
 [[servers]]
 id = "mind.cerebras"
+display_name = "Cerebras"
 command = "python"
 args = ["mcp-servers/cerebras/server.py"]
 transport = "stdio"
@@ -52,6 +54,7 @@ CEREBRAS_PROVIDER = "cerebras"
 
 [[servers]]
 id = "mind.claude"
+display_name = "Claude"
 command = "python"
 args = ["mcp-servers/claude/server.py"]
 transport = "stdio"
@@ -63,6 +66,7 @@ CLAUDE_PROVIDER = "claude"
 
 [[servers]]
 id = "mind.ollama"
+display_name = "Cydonia"
 command = "python"
 args = ["mcp-servers/ollama/server.py"]
 transport = "stdio"

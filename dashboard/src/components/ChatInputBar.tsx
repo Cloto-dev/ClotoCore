@@ -1,10 +1,12 @@
 import { useState, useRef, useCallback } from 'react';
 import { Send, Plus, Mic, MicOff, X } from 'lucide-react';
-import { ContentBlock } from '../types';
+import { ContentBlock, McpServerInfo } from '../types';
+import { EngineSelector } from './EngineSelector';
 
 interface ChatInputBarProps {
-  onSend: (blocks: ContentBlock[], rawText: string) => void;
+  onSend: (blocks: ContentBlock[], rawText: string, engineOverride: string | null) => void;
   disabled: boolean;
+  servers?: McpServerInfo[];
 }
 
 interface PendingAttachment {
@@ -13,10 +15,11 @@ interface PendingAttachment {
   dataUrl: string;
 }
 
-export function ChatInputBar({ onSend, disabled }: ChatInputBarProps) {
+export function ChatInputBar({ onSend, disabled, servers = [] }: ChatInputBarProps) {
   const [input, setInput] = useState('');
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [selectedEngine, setSelectedEngine] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -39,7 +42,14 @@ export function ChatInputBar({ onSend, disabled }: ChatInputBarProps) {
       blocks.push({ type: 'text', text: input.trim() });
     }
 
-    onSend(blocks, input.trim());
+    // Fallback to Auto if selected engine is disconnected
+    let engine = selectedEngine;
+    if (engine) {
+      const srv = servers.find(s => s.id === engine);
+      if (!srv || srv.status !== 'Connected') engine = null;
+    }
+
+    onSend(blocks, input.trim(), engine);
     setInput('');
     setAttachment(null);
   };
@@ -159,6 +169,14 @@ export function ChatInputBar({ onSend, disabled }: ChatInputBarProps) {
         >
           {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
         </button>
+
+        {/* Engine selector */}
+        <EngineSelector
+          servers={servers}
+          selectedEngine={selectedEngine}
+          onSelect={setSelectedEngine}
+          disabled={disabled}
+        />
 
         {/* Text input */}
         <input
