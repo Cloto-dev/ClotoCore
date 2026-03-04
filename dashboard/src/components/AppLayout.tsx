@@ -1,5 +1,5 @@
-import { useState, Suspense, lazy } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef, Suspense, lazy } from 'react';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Cpu, Settings, HelpCircle } from 'lucide-react';
 import { ViewHeader } from './ViewHeader';
 import { InteractiveGrid } from './InteractiveGrid';
@@ -21,9 +21,22 @@ export function AppLayout() {
   const [immersive, setImmersive] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebar-collapsed') === 'true');
   const navigate = useNavigate();
+  const location = useLocation();
   const { agents, setSelectedAgentId } = useAgentContext();
 
   const activeCount = agents.filter(a => a.enabled).length;
+
+  // Track navigation history for back/forward button states
+  const maxIdxRef = useRef(0);
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
+
+  useEffect(() => {
+    const idx = ((window.history.state as Record<string, unknown>)?.idx as number) ?? 0;
+    maxIdxRef.current = Math.max(maxIdxRef.current, idx);
+    setCanGoBack(idx > 0);
+    setCanGoForward(idx < maxIdxRef.current);
+  }, [location]);
 
   const handleToggleSidebar = () => {
     setSidebarCollapsed(prev => {
@@ -48,6 +61,10 @@ export function AppLayout() {
           icon={Cpu}
           title="Cloto System"
           onHelp={() => setHelpOpen(true)}
+          navBack={() => navigate(-1)}
+          navForward={() => navigate(1)}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
           right={<span className="text-[10px] font-mono text-content-tertiary">{activeCount} / {agents.length} Active</span>}
         />
       )}
