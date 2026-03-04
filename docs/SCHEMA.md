@@ -45,6 +45,8 @@ Agent definitions with heartbeat-based status resolution.
 | `enabled` | BOOLEAN | NOT NULL DEFAULT 1 | Whether the agent is active |
 | `last_seen` | INTEGER | NOT NULL DEFAULT 0 | Last heartbeat timestamp (Unix ms) |
 | `power_password_hash` | TEXT | DEFAULT NULL | Optional password hash for power toggle |
+| `avatar_path` | TEXT | | Path to agent avatar image file |
+| `avatar_description` | TEXT | | Vision-generated avatar description |
 
 ### plugin_data
 
@@ -183,6 +185,7 @@ Dynamic MCP server persistence for restart restoration.
 | `description` | TEXT | | Server description |
 | `created_at` | INTEGER | NOT NULL | Unix timestamp |
 | `is_active` | BOOLEAN | NOT NULL DEFAULT 1 | Active state |
+| `env` | TEXT | NOT NULL DEFAULT '{}' | JSON map of environment variables |
 | `default_policy` | TEXT | NOT NULL DEFAULT 'opt-in' | `opt-in` (deny by default) / `opt-out` (allow by default) |
 
 ### mcp_access_control
@@ -206,6 +209,51 @@ Unified access control for MCP tool-level permissions (MCP_SERVER_UI_DESIGN.md Â
 **Indexes:** `(agent_id, server_id, tool_name)`, `(server_id)`, `(entry_type)`
 
 **Access Resolution Priority:** `tool_grant` > `server_grant` > `default_policy`
+
+### cron_jobs
+
+Scheduled job definitions for periodic agent tasks.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Auto-incrementing ID |
+| `agent_id` | TEXT | NOT NULL | Target agent |
+| `schedule_type` | TEXT | NOT NULL | Schedule type (e.g. `cron`, `interval`) |
+| `schedule_value` | TEXT | NOT NULL | Schedule expression |
+| `next_run_at` | INTEGER | | Next run Unix timestamp |
+| `last_run_at` | INTEGER | | Last run Unix timestamp |
+| `last_status` | TEXT | | Last execution status |
+| `last_error` | TEXT | | Last error message |
+| `max_iterations` | INTEGER | | Maximum iterations (NULL = unlimited) |
+
+**Indexes:** `next_run_at`, `agent_id`
+
+### llm_providers
+
+Centralized LLM provider API key management.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PRIMARY KEY | Provider identifier (e.g. `deepseek`, `cerebras`) |
+| `display_name` | TEXT | NOT NULL | Human-readable name |
+| `api_url` | TEXT | NOT NULL | API endpoint URL |
+| `api_key` | TEXT | NOT NULL DEFAULT '' | API key |
+| `model_id` | TEXT | NOT NULL | Default model identifier |
+| `timeout_secs` | INTEGER | NOT NULL DEFAULT 120 | Request timeout |
+| `enabled` | BOOLEAN | NOT NULL DEFAULT 1 | Whether the provider is active |
+
+### trusted_commands
+
+Per-agent command approval for the terminal security system.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Auto-incrementing ID |
+| `agent_id` | TEXT | NOT NULL | Target agent |
+| `pattern` | TEXT | NOT NULL | Command pattern (exact match) |
+| `pattern_type` | TEXT | NOT NULL DEFAULT 'exact' | Match type |
+
+**Index:** `agent_id`
 
 ---
 
@@ -233,3 +281,13 @@ Unified access control for MCP tool-level permissions (MCP_SERVER_UI_DESIGN.md Â
 | `20260222000000_add_mcp_servers.sql` | Add mcp_servers table |
 | `20260223000000_add_mcp_access_control.sql` | Add mcp_access_control + mcp_servers.default_policy |
 | `20260225000000_rename_exiv_to_cloto.sql` | Rename exiv_default â†’ cloto_default |
+| `20260227000000_add_mcp_server_env.sql` | Add `env` column to mcp_servers |
+| `20260228000000_add_cron_jobs.sql` | Add cron_jobs table |
+| `20260228100000_add_llm_providers.sql` | Add llm_providers table with default providers |
+| `20260301000000_default_policy_opt_out.sql` | Change MCP default_policy to opt-out |
+| `20260302000000_cerebras_model_update.sql` | Update Cerebras model to gpt-oss-120b |
+| `20260302100000_add_agent_avatar.sql` | Add avatar_path/avatar_description to agents |
+| `20260303000000_sanitize_agent_ids.sql` | Replace '/' with '_' in agent IDs |
+| `20260303100000_update_default_agent_description.sql` | Update default agent description |
+| `20260304000000_add_trusted_commands.sql` | Add trusted_commands table |
+| `20260304100000_add_claude_provider.sql` | Add Claude (Anthropic) LLM provider |

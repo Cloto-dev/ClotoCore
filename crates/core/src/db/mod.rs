@@ -28,7 +28,7 @@ const DB_TIMEOUT_SECS: u64 = 10;
 
 /// Execute a database operation with standard timeout and error handling.
 /// Consolidates the repeated timeout+error pattern (bug-148).
-async fn db_timeout<T, F>(future: F) -> anyhow::Result<T>
+pub(crate) async fn db_timeout<T, F>(future: F) -> anyhow::Result<T>
 where
     F: std::future::Future<Output = Result<T, sqlx::Error>>,
 {
@@ -36,6 +36,16 @@ where
         .await
         .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
         .map_err(|e| anyhow::anyhow!("Database operation failed: {}", e))
+}
+
+/// Timeout wrapper for multi-query operations returning anyhow::Result.
+pub(crate) async fn db_timeout_op<T, F>(future: F) -> anyhow::Result<T>
+where
+    F: std::future::Future<Output = anyhow::Result<T>>,
+{
+    timeout(Duration::from_secs(DB_TIMEOUT_SECS), future)
+        .await
+        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
 }
 
 pub struct SqliteDataStore {

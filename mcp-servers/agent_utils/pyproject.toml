@@ -1,0 +1,15 @@
+[project]
+name = "cloto-mcp-agent-utils"
+version = "0.1.0"
+description = "Cloto MCP Server: deterministic utility tools (time, math, UUID, units, encode/decode)"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]

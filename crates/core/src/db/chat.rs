@@ -16,7 +16,7 @@ pub struct ChatMessageRow {
     pub created_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AttachmentRow {
     pub id: String,
     pub message_id: String,
@@ -178,46 +178,16 @@ pub async fn get_attachments_for_message(
     pool: &SqlitePool,
     message_id: &str,
 ) -> anyhow::Result<Vec<AttachmentRow>> {
-    let query_future = sqlx::query_as::<_, (String, String, String, String, i64, String, Option<Vec<u8>>, Option<String>, i64)>(
-        "SELECT id, message_id, filename, mime_type, size_bytes, storage_type, inline_data, disk_path, created_at
-         FROM chat_attachments
-         WHERE message_id = ?"
-    )
-    .bind(message_id)
-    .fetch_all(pool);
-
-    let rows = db_timeout(query_future).await?;
-
-    let attachments = rows
-        .into_iter()
-        .map(
-            |(
-                id,
-                message_id,
-                filename,
-                mime_type,
-                size_bytes,
-                storage_type,
-                inline_data,
-                disk_path,
-                created_at,
-            )| {
-                AttachmentRow {
-                    id,
-                    message_id,
-                    filename,
-                    mime_type,
-                    size_bytes,
-                    storage_type,
-                    inline_data,
-                    disk_path,
-                    created_at,
-                }
-            },
+    db_timeout(
+        sqlx::query_as::<_, AttachmentRow>(
+            "SELECT id, message_id, filename, mime_type, size_bytes, storage_type, inline_data, disk_path, created_at
+             FROM chat_attachments
+             WHERE message_id = ?",
         )
-        .collect();
-
-    Ok(attachments)
+        .bind(message_id)
+        .fetch_all(pool),
+    )
+    .await
 }
 
 /// Get an attachment by ID
@@ -225,41 +195,16 @@ pub async fn get_attachment_by_id(
     pool: &SqlitePool,
     attachment_id: &str,
 ) -> anyhow::Result<Option<AttachmentRow>> {
-    let query_future = sqlx::query_as::<_, (String, String, String, String, i64, String, Option<Vec<u8>>, Option<String>, i64)>(
-        "SELECT id, message_id, filename, mime_type, size_bytes, storage_type, inline_data, disk_path, created_at
-         FROM chat_attachments
-         WHERE id = ?"
+    db_timeout(
+        sqlx::query_as::<_, AttachmentRow>(
+            "SELECT id, message_id, filename, mime_type, size_bytes, storage_type, inline_data, disk_path, created_at
+             FROM chat_attachments
+             WHERE id = ?",
+        )
+        .bind(attachment_id)
+        .fetch_optional(pool),
     )
-    .bind(attachment_id)
-    .fetch_optional(pool);
-
-    let row = db_timeout(query_future).await?;
-
-    Ok(row.map(
-        |(
-            id,
-            message_id,
-            filename,
-            mime_type,
-            size_bytes,
-            storage_type,
-            inline_data,
-            disk_path,
-            created_at,
-        )| {
-            AttachmentRow {
-                id,
-                message_id,
-                filename,
-                mime_type,
-                size_bytes,
-                storage_type,
-                inline_data,
-                disk_path,
-                created_at,
-            }
-        },
-    ))
+    .await
 }
 
 /// Helper: get disk paths for attachments belonging to given message IDs
