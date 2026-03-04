@@ -8,6 +8,8 @@ import {
   Clock,
   Brain,
   Settings,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { useAgentContext } from '../contexts/AgentContext';
 import { AgentIcon } from '../lib/agentIdentity';
@@ -29,9 +31,11 @@ const NAV_LINKS: readonly { path: string; icon: typeof Server; label: string; ac
 
 interface AppSidebarProps {
   onSettingsClick: () => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
-export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
+export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collapsed, onToggleCollapse }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -70,24 +74,25 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
   const isAgentPageActive = location.pathname === '/';
 
   return (
-    <div className="w-48 h-full flex flex-col py-3 bg-surface-secondary/60 backdrop-blur-md border-r border-[var(--border-strong)]">
+    <div className={`${collapsed ? 'w-14' : 'w-48'} h-full flex flex-col py-3 bg-surface-secondary/60 backdrop-blur-md border-r border-[var(--border-strong)] transition-[width] duration-200`}>
       {/* System / Kernel */}
       <button
         onClick={handleSelectSystem}
-        className={`relative mx-2 flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all duration-200 ${
+        title={collapsed ? 'System' : undefined}
+        className={`relative mx-2 flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 ${
           systemActive && isAgentPageActive
             ? 'bg-surface-primary shadow-sm text-brand ring-1 ring-brand/20'
             : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
         }`}
       >
-        {systemActive && isAgentPageActive && (
+        {!collapsed && systemActive && isAgentPageActive && (
           <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-brand rounded-r-full" />
         )}
-        <Cpu size={16} />
-        <span className="text-[11px] font-bold tracking-wide uppercase">System</span>
+        <Cpu size={24} className="shrink-0" />
+        {!collapsed && <span className="text-[11px] font-bold tracking-wide uppercase">System</span>}
       </button>
 
-      <div className="mx-3 my-2 h-px bg-edge" />
+      <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
 
       {/* Agents List */}
       <div className="flex-1 flex flex-col gap-1 overflow-y-auto no-scrollbar px-2">
@@ -97,29 +102,31 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
             <button
               key={agent.id}
               onClick={() => handleSelectAgent(agent.id)}
-              className={`relative flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all duration-200 text-left w-full ${
+              title={collapsed ? agent.name : undefined}
+              className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-left w-full ${
                 isActive
                   ? 'bg-surface-primary text-brand shadow-sm ring-1 ring-brand/20'
                   : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
               }`}
             >
-              {isActive && (
+              {!collapsed && isActive && (
                 <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-brand rounded-r-full" />
               )}
-              <div className="relative flex-shrink-0 w-6 h-6 overflow-hidden rounded-md flex items-center justify-center">
-                <AgentIcon agent={agent} size={24} />
+              <div className="relative flex-shrink-0 w-7 h-7 overflow-hidden rounded-md flex items-center justify-center">
+                <AgentIcon agent={agent} size={28} />
                 <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-surface-secondary ${statusDotClass(agent.status)}`} />
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-bold truncate">{agent.name}</div>
-              </div>
+              {!collapsed && (
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold truncate">{agent.name}</div>
+                </div>
+              )}
             </button>
           );
         })}
-
       </div>
 
-      <div className="mx-3 my-2 h-px bg-edge" />
+      <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
 
       {/* Nav Links */}
       <div className="px-2 flex flex-col gap-0.5">
@@ -135,20 +142,35 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
                 else if (action === 'agents') handleAddAgent();
                 else handleNavClick(path);
               }}
-              className={`relative flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all duration-200 text-xs font-bold uppercase tracking-wide ${
+              title={collapsed ? label : undefined}
+              className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-xs font-bold uppercase tracking-wide ${
                 isActive
                   ? 'bg-surface-primary text-brand shadow-sm ring-1 ring-brand/20'
                   : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
               }`}
             >
-              {isActive && (
+              {!collapsed && isActive && (
                 <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 bg-brand rounded-r-full" />
               )}
-              <Icon size={18} />
-              {label}
+              <Icon size={24} className="shrink-0" />
+              {!collapsed && label}
             </button>
           );
         })}
+      </div>
+
+      <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
+
+      {/* Collapse toggle */}
+      <div className="px-2">
+        <button
+          onClick={onToggleCollapse}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-content-tertiary hover:text-content-secondary hover:bg-glass-strong w-full`}
+        >
+          {collapsed ? <PanelLeftOpen size={24} className="shrink-0" /> : <PanelLeftClose size={24} className="shrink-0" />}
+          {!collapsed && <span className="text-[10px] font-mono uppercase tracking-wide">Collapse</span>}
+        </button>
       </div>
     </div>
   );

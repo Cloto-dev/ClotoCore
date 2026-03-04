@@ -19,10 +19,19 @@ export function AppLayout() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [immersive, setImmersive] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebar-collapsed') === 'true');
   const navigate = useNavigate();
   const { agents, setSelectedAgentId } = useAgentContext();
 
   const activeCount = agents.filter(a => a.enabled).length;
+
+  const handleToggleSidebar = () => {
+    setSidebarCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem('sidebar-collapsed', String(next));
+      return next;
+    });
+  };
 
   const handleAskAgent = () => {
     setHelpOpen(false);
@@ -48,7 +57,7 @@ export function AppLayout() {
         <InteractiveGrid />
         {!immersive && (
           <div className="relative z-10">
-            <AppSidebar onSettingsClick={() => setSettingsOpen(true)} />
+            <AppSidebar onSettingsClick={() => setSettingsOpen(true)} collapsed={sidebarCollapsed} onToggleCollapse={handleToggleSidebar} />
           </div>
         )}
         <main className="flex-1 h-full overflow-hidden relative z-10">
