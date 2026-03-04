@@ -338,6 +338,8 @@ pub struct McpServerInfo {
     pub tools: Vec<String>,
     pub is_cloto_sdk: bool,
     pub source: ServerSource,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 // ============================================================
@@ -507,6 +509,7 @@ impl McpClientManager {
                 auto_restart: true,
                 required_permissions: Vec::new(),
                 tool_validators: HashMap::new(),
+                display_name: None,
             };
 
             // Regenerate script file if needed
@@ -826,6 +829,7 @@ impl McpClientManager {
                 tools: h.tools.iter().map(|t| t.name.clone()).collect(),
                 is_cloto_sdk: h.handshake.is_some(),
                 source: h.source,
+                display_name: h.config.display_name.clone(),
             })
             .collect();
 
@@ -841,6 +845,7 @@ impl McpClientManager {
                     tools: Vec::new(),
                     is_cloto_sdk: false,
                     source: *source,
+                    display_name: config.display_name.clone(),
                 });
             }
         }
@@ -1204,6 +1209,7 @@ impl McpClientManager {
             auto_restart: true,
             required_permissions: Vec::new(),
             tool_validators: HashMap::new(),
+            display_name: None,
         };
 
         let tool_names = self.connect_server(config, ServerSource::Dynamic).await?;
@@ -1316,6 +1322,7 @@ impl McpClientManager {
             auto_restart: true,
             required_permissions: Vec::new(),
             tool_validators: HashMap::new(),
+            display_name: None,
         };
 
         self.connect_server(config, ServerSource::Dynamic).await
