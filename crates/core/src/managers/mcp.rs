@@ -753,8 +753,10 @@ impl McpClientManager {
             servers.insert(id.clone(), handle);
         }
 
-        // Update tool routing index
-        {
+        // Update tool routing index.
+        // Skip mind.* servers — their tools (think, think_with_tools) are engine-internal
+        // and called directly via call_server_tool(engine_id, ...), not through tool_index.
+        if !id.starts_with("mind.") {
             let mut index = self.tool_index.write().await;
             for tool in &tools {
                 if let Some(existing) = index.get(&tool.name) {
@@ -930,6 +932,10 @@ impl McpClientManager {
             if handle.status != ServerStatus::Connected {
                 continue;
             }
+            // Skip mind.* — engine-internal tools, not agent-facing
+            if handle.id.starts_with("mind.") {
+                continue;
+            }
             for tool in &handle.tools {
                 schemas.push(serde_json::json!({
                     "type": "function",
@@ -984,6 +990,10 @@ impl McpClientManager {
         };
         for (server_id, handle) in servers.iter() {
             if handle.status != ServerStatus::Connected {
+                continue;
+            }
+            // Skip mind.* — engine-internal tools, not agent-facing
+            if server_id.starts_with("mind.") {
                 continue;
             }
             for tool in &handle.tools {
