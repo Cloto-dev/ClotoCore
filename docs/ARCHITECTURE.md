@@ -85,7 +85,7 @@ ClotoCore/
 │   │       ├── handlers/        # Sub-handlers (system, assets, chat)
 │   │       ├── config.rs        # AppConfig from environment variables
 │   │       ├── db.rs            # SQLite schema, queries, audit logging
-│   │       ├── managers.rs      # PluginManager, AgentManager, PluginRegistry
+│   │       ├── managers/        # PluginManager, AgentManager, PluginRegistry, MCP client
 │   │       ├── middleware.rs    # Rate limiter, request tracking
 │   │       └── lib.rs           # AppState, router setup, event processor
 │   └── shared/        # Plugin SDK: traits, types, macros
@@ -237,21 +237,21 @@ For full architecture details, see [MCP Plugin Architecture](MCP_PLUGIN_ARCHITEC
 - Servers defined in `mcp-servers/` and configured via `mcp.toml`
 - Language-agnostic: any language implementing MCP protocol
 - Process isolation: each server runs as a separate OS process
-- Dual dispatch: PluginRegistry checks legacy Rust plugins first, then MCP servers (transitional; Rust plugin path to be removed)
+- Dispatch: PluginRegistry routes events to MCP servers via MCP client manager
 - Access control: 3-level RBAC (capability → server_grant → tool_grant)
 
-### 3.2 Plugin Architecture History
+### 3.2 Architecture History
 
-> **Note:** The original Three-Tier Plugin Model (Rust compiled → Python Bridge → WASM)
-> has been superseded by the MCP-only architecture. See [MCP Plugin Architecture](MCP_PLUGIN_ARCHITECTURE.md).
-> The WASM design document is archived at `archive/docs/WASM_PLUGIN_DESIGN.md`.
+> **Note:** The original Three-Tier Plugin Model (Rust compiled, Python Bridge, WASM)
+> has been fully superseded by the MCP-only architecture as of v0.4.x.
+> Archived design documents are in `archive/docs/`.
+> See [MCP Plugin Architecture](MCP_PLUGIN_ARCHITECTURE.md) for current details.
 
 ---
 
 ## 4. Project Oculi: Eye-Tracking & Visual Symbiosis (Paused)
 
-> **Status:** Paused. Python Bridge (sensor layer) has been removed. Vision/cursor plugins archived.
-> Future implementation would use MCP server-based approach.
+> **Status:** Paused. Sensor layer archived. Future implementation would use MCP server-based approach.
 
 人間の視線（Gaze）を AI とリアルタイムに共有し、Foveated Vision による低レイテンシ・低コスト推論を実現するサブプロジェクト。
 

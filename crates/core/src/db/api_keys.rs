@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 
-use super::DB_TIMEOUT_SECS;
+use super::db_timeout;
 
 // ============================================================
 // Revoked API Keys
@@ -27,42 +27,32 @@ pub fn hash_api_key(key: &str) -> String {
 pub async fn revoke_api_key(pool: &SqlitePool, key: &str) -> anyhow::Result<()> {
     let key_hash = hash_api_key(key);
     let now = chrono::Utc::now().timestamp_millis();
-    tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
+    db_timeout(
         sqlx::query("INSERT OR IGNORE INTO revoked_keys (key_hash, revoked_at) VALUES (?, ?)")
             .bind(&key_hash)
             .bind(now)
-            .execute(pool)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to revoke API key: {}", e))?;
-        Ok(())
-    })
-    .await
-    .map_err(|_| anyhow::anyhow!("Database timeout revoking API key"))?
+            .execute(pool),
+    )
+    .await?;
+    Ok(())
 }
 
 pub async fn load_revoked_key_hashes(pool: &SqlitePool) -> anyhow::Result<Vec<String>> {
-    tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
-        let rows: Vec<(String,)> = sqlx::query_as("SELECT key_hash FROM revoked_keys")
-            .fetch_all(pool)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to load revoked key hashes: {}", e))?;
-        Ok(rows.into_iter().map(|(h,)| h).collect())
-    })
-    .await
-    .map_err(|_| anyhow::anyhow!("Database timeout loading revoked keys"))?
+    let rows: Vec<(String,)> = db_timeout(
+        sqlx::query_as("SELECT key_hash FROM revoked_keys")
+            .fetch_all(pool),
+    )
+    .await?;
+    Ok(rows.into_iter().map(|(h,)| h).collect())
 }
 
 pub async fn is_api_key_revoked(pool: &SqlitePool, key: &str) -> anyhow::Result<bool> {
     let key_hash = hash_api_key(key);
-    tokio::time::timeout(std::time::Duration::from_secs(DB_TIMEOUT_SECS), async {
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT key_hash FROM revoked_keys WHERE key_hash = ?")
-                .bind(&key_hash)
-                .fetch_optional(pool)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to check revoked keys: {}", e))?;
-        Ok(row.is_some())
-    })
-    .await
-    .map_err(|_| anyhow::anyhow!("Database timeout checking revoked keys"))?
+    let row: Option<(String,)> = db_timeout(
+        sqlx::query_as("SELECT key_hash FROM revoked_keys WHERE key_hash = ?")
+            .bind(&key_hash)
+            .fetch_optional(pool),
+    )
+    .await?;
+    Ok(row.is_some())
 }
