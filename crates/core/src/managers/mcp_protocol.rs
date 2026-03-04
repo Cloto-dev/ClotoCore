@@ -178,6 +178,9 @@ pub struct McpServerConfig {
     /// Maps tool name → validator name (e.g., "execute_command" → "sandbox").
     #[serde(default)]
     pub tool_validators: std::collections::HashMap<String, String>,
+    /// Human-readable display name for the UI (e.g., "DeepSeek", "Cerebras").
+    #[serde(default)]
+    pub display_name: Option<String>,
 }
 
 fn default_transport() -> String {
