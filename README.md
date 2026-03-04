@@ -101,13 +101,20 @@ All plugin functionality is delivered via **MCP (Model Context Protocol)** serve
 |--------|------|-------------|
 | `mind.deepseek` | Reasoning | Advanced reasoning via DeepSeek API |
 | `mind.cerebras` | Reasoning | Ultra-high-speed reasoning via Cerebras API |
+| `mind.claude` | Reasoning | Anthropic Claude API (native Messages API) |
 | `mind.ollama` | Reasoning | Local model inference via Ollama |
 | `memory.ks22` | Memory | Persistent memory with FTS5 search + vector embedding |
 | `tool.terminal` | Tool | Sandboxed shell command execution |
-| `tool.embedding` | Tool | Vector embedding generation (OpenAI API / local ONNX) |
+| `tool.agent_utils` | Tool | Deterministic utilities (time, math, UUID, hash, etc.) |
+| `tool.cron` | Tool | Stateless CRON job management via kernel REST API |
+| `tool.embedding` | Tool | Vector embedding generation (local ONNX MiniLM) |
 | `tool.websearch` | Tool | Web search via Tavily or SearXNG |
 | `tool.research` | Tool | Multi-engine research synthesis pipeline |
+| `tool.imagegen` | Tool | Image generation via Stable Diffusion API |
 | `vision.gaze_webcam` | Vision | Eye gaze tracking via MediaPipe |
+| `vision.capture` | Vision | Screen/image analysis via Ollama (hybrid OCR) |
+| `voice.stt` | Voice | Speech-to-text via Whisper |
+| `voice.tts` | Voice | Text-to-speech via pyttsx3 |
 
 MCP servers are configured via `mcp.toml` and can be written in any language.
 See [MCP Plugin Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) for details.
@@ -118,8 +125,7 @@ See [MCP Plugin Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) for details.
 crates/core/        Kernel — event bus, MCP manager, HTTP API, rate limiter
 crates/shared/      Plugin SDK — traits, capability injection, event types, LLM utilities
 crates/cli/         CLI client with interactive TUI
-mcp-servers/        MCP servers (Python): deepseek, cerebras, ollama, ks22, terminal,
-                    embedding, websearch, research, gaze
+mcp-servers/        MCP servers (Python): 16 servers across mind, memory, tool, vision, voice
 dashboard/          React/TypeScript web UI (Tauri desktop app)
 scripts/            Build tools, verification scripts
 docs/               Architecture, vision, specs, design documents
@@ -192,7 +198,9 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | GET | `/api/history` | Event history |
 | GET | `/api/metrics` | System metrics |
 | GET | `/api/memories` | Memory entries |
+| DELETE | `/api/memories/:id` | Delete memory entry |
 | GET | `/api/episodes` | Episode archive entries |
+| DELETE | `/api/episodes/:id` | Delete episode entry |
 | GET | `/api/plugins` | Plugin list with manifests |
 | GET | `/api/plugins/:id/config` | Plugin configuration |
 | GET | `/api/agents` | Agent configurations |
@@ -217,6 +225,8 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | POST | `/api/agents/:id` | Update agent |
 | DELETE | `/api/agents/:id` | Delete agent |
 | POST | `/api/agents/:id/power` | Toggle agent power state |
+| GET/POST/DELETE | `/api/agents/:id/avatar` | Agent avatar management |
+| POST | `/api/commands/:id/approve\|trust\|deny` | Command approval decisions |
 | POST | `/api/events/publish` | Publish event to bus |
 | POST | `/api/permissions/:id/approve` | Approve a request |
 | POST | `/api/permissions/:id/deny` | Deny a request |
