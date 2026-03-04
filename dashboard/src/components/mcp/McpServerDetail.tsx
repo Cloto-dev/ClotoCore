@@ -44,23 +44,7 @@ export function McpServerDetail({ server, apiKey, onRefresh, onDelete, onStart, 
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-4 py-3 border-b border-edge">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-mono font-medium text-content-primary">{server.id}</h2>
-          {server.source === 'dynamic' && (
-            <button
-              onClick={() => {
-                if (confirm(`Delete server '${server.id}'?`))
-                  handleAction('delete', () => onDelete(server.id));
-              }}
-              disabled={actionLoading !== null}
-              className="p-1 rounded hover:bg-red-500/10 text-content-muted hover:text-red-500 transition-colors disabled:opacity-40"
-              title="Delete Server"
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-4 mt-1.5 text-[10px] font-mono text-content-tertiary">
+        <div className="flex items-center gap-4 text-[10px] font-mono text-content-tertiary">
           <span className="flex items-center gap-1">
             Status:
             <span className={isRunning ? 'text-green-500' : isError ? 'text-red-500' : 'text-content-muted'}>
@@ -101,6 +85,21 @@ export function McpServerDetail({ server, apiKey, onRefresh, onDelete, onStart, 
           >
             <RotateCcw size={10} /> Restart
           </button>
+          {server.source === 'dynamic' && (
+            <>
+              <div className="w-px h-4 bg-edge self-center mx-0.5" />
+              <button
+                onClick={() => {
+                  if (confirm(`Delete server '${server.id}'?`))
+                    handleAction('delete', () => onDelete(server.id));
+                }}
+                disabled={actionLoading !== null}
+                className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-red-500/10 text-content-secondary hover:text-red-500 transition-colors border border-edge"
+              >
+                <Trash2 size={10} /> Delete
+              </button>
+            </>
+          )}
         </div>
       </div>
 
