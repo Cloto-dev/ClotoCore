@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Activity, Zap, User as UserIcon, RotateCcw, ArrowLeft, Volume2 } from 'lucide-react';
-import { AgentMetadata, ClotoMessage, ChatMessage, ContentBlock, CommandApprovalRequest } from '../types';
+import { AgentMetadata, ClotoMessage, ChatMessage, ContentBlock, CommandApprovalRequest, McpServerInfo } from '../types';
 import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { useLongPress } from '../hooks/useLongPress';
@@ -9,6 +9,7 @@ import { ChatInputBar } from './ChatInputBar';
 import { CommandApprovalCard } from './CommandApprovalCard';
 import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
+import { useMcpServers } from '../hooks/useMcpServers';
 import { SkeletonThinking } from './SkeletonThinking';
 import { TypewriterMessage } from './TypewriterMessage';
 import { ArtifactPanel } from './ArtifactPanel';
@@ -70,6 +71,8 @@ async function migrateLegacyData(agentId: string, apiKey: string) {
 
 export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => void }) {
   const { apiKey } = useApiKey();
+  const { servers: mcpServers } = useMcpServers(apiKey);
+  const [agentEngines, setAgentEngines] = useState<McpServerInfo[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -85,6 +88,18 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const isScrolledToBottom = useRef(true);
   const sendTimestampRef = useRef<number>(0);
   const artifactPanel = useArtifacts();
+
+  // Resolve agent's granted mind.* servers for engine selector
+  useEffect(() => {
+    api.getAgentAccess(agent.id).then(({ entries }) => {
+      const grantedMindIds = new Set(
+        entries
+          .filter(e => e.entry_type === 'server_grant' && e.permission === 'allow' && e.server_id.startsWith('mind.'))
+          .map(e => e.server_id)
+      );
+      setAgentEngines(mcpServers.filter(s => grantedMindIds.has(s.id)));
+    }).catch(() => {});
+  }, [agent.id, mcpServers]);
 
   // Load initial messages from server
   useEffect(() => {
@@ -323,7 +338,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     }
   }, [artifactPanel.addArtifact]);
 
-  const sendMessage = async (blocks?: ContentBlock[], rawText?: string) => {
+  const sendMessage = async (blocks?: ContentBlock[], rawText?: string, engineOverride?: string | null) => {
     const text = rawText ?? '';
     const contentBlocks = blocks ?? (text.trim() ? [{ type: 'text' as const, text: text.trim() }] : []);
     if (contentBlocks.length === 0 || isTyping || pendingResponse) return;
@@ -358,7 +373,10 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         target_agent: agent.id,
         content: textContent || '[attachment]',
         timestamp: new Date().toISOString(),
-        metadata: { target_agent_id: agent.id }
+        metadata: {
+          target_agent_id: agent.id,
+          ...(engineOverride ? { engine_override: engineOverride } : {}),
+        }
       };
 
       await api.postChat(clotoMsg, apiKey);
@@ -574,8 +592,9 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
       {/* Input Area */}
       <ChatInputBar
-        onSend={(blocks, rawText) => sendMessage(blocks, rawText)}
+        onSend={(blocks, rawText, engineOverride) => sendMessage(blocks, rawText, engineOverride)}
         disabled={isTyping || !!pendingResponse}
+        servers={agentEngines}
       />
       </div>{/* end chat column */}
 
