@@ -47,21 +47,19 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
   } = useAgentContext();
 
   const handleSelectSystem = () => {
-    setSystemActive(!systemActive);
-    setSelectedAgentId(null);
-    if (location.pathname !== '/') navigate('/');
+    if (systemActive && isAgentPageActive) {
+      navigate('/');
+    } else {
+      navigate('/?system=true');
+    }
   };
 
   const handleSelectAgent = (id: string) => {
-    setSelectedAgentId(id);
-    setSystemActive(false);
-    if (location.pathname !== '/') navigate('/');
+    navigate('/?agent=' + encodeURIComponent(id));
   };
 
   const handleAddAgent = () => {
-    setSelectedAgentId(null);
-    setSystemActive(false);
-    if (location.pathname !== '/') navigate('/');
+    navigate('/');
   };
 
   const handleNavClick = (path: string) => {
