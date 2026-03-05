@@ -7,6 +7,7 @@ import { useLongPress } from '../hooks/useLongPress';
 import { MessageContent } from './ContentBlockView';
 import { ChatInputBar } from './ChatInputBar';
 import { CommandApprovalCard } from './CommandApprovalCard';
+import { SystemAlertCard } from './SystemAlertCard';
 import { BranchNavigator } from './BranchNavigator';
 import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
@@ -81,7 +82,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [pendingResponse, setPendingResponse] = useState<{ id: string; text: string; elapsedSecs: number; parentId?: string } | null>(null);
-  const [thinkingSteps, setThinkingSteps] = useState<Array<{ id: number; icon: string; text: string; ts: number }>>([]);
+  const [thinkingSteps, setThinkingSteps] = useState<Array<{ id: number; status: 'ok' | 'fail' | 'done' | 'thought'; text: string; detail?: string; ts: number }>>([]);
   const [pendingApprovals, setPendingApprovals] = useState<CommandApprovalRequest[]>([]);
   const thinkingIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -251,35 +252,27 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     if (event.data?.agent_id === agent.id || event.data?.engine_id?.startsWith('mind.')) {
       if (event.type === 'ToolInvoked' && event.data.agent_id === agent.id) {
         const tool = event.data.tool_name || 'unknown';
-        const success = event.data.success;
-        const duration = event.data.duration_ms;
-        const icon = tool.includes('search') || tool.includes('research') ? '🔍'
-          : tool.includes('think') ? '🧠'
-          : tool.includes('store') || tool.includes('recall') ? '💾'
-          : tool.includes('execute') ? '⚡'
-          : '🔧';
-        const status = success ? `${duration}ms` : '❌ failed';
         setThinkingSteps(prev => [...prev, {
           id: thinkingIdRef.current++,
-          icon,
-          text: `${tool} (${status})`,
+          status: event.data.success ? 'ok' : 'fail',
+          text: tool,
+          detail: event.data.success ? `${event.data.duration_ms}ms` : 'failed',
           ts: Date.now(),
         }]);
       }
       if (event.type === 'AgenticLoopCompleted' && event.data.agent_id === agent.id) {
-        const iters = event.data.total_iterations || 0;
-        const calls = event.data.total_tool_calls || 0;
         setThinkingSteps(prev => [...prev, {
           id: thinkingIdRef.current++,
-          icon: '✅',
-          text: `Complete (${iters} iterations, ${calls} tool calls)`,
+          status: 'done',
+          text: 'complete',
+          detail: `${event.data.total_iterations || 0} iter, ${event.data.total_tool_calls || 0} calls`,
           ts: Date.now(),
         }]);
       }
       if (event.type === 'Thought' && event.payload?.content) {
         setThinkingSteps(prev => [...prev, {
           id: thinkingIdRef.current++,
-          icon: '💭',
+          status: 'thought',
           text: event.payload.content.slice(0, 120),
           ts: Date.now(),
         }]);
@@ -611,32 +604,29 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             const branch = branchKey ? branchPoints.get(branchKey) : undefined;
             return (
               <div key={msg.id}>
+                {isError ? (
+                  <SystemAlertCard
+                    icon={<Activity size={14} />}
+                    title="Engine Error"
+                  >
+                    <div className="text-xs text-content-secondary whitespace-pre-line">{firstText.replace(/^\[Error\]\s*/, '')}</div>
+                  </SystemAlertCard>
+                ) : (
                 <div className={`group flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm overflow-hidden ${
                     isUser ? 'bg-surface-primary border border-edge-subtle text-content-tertiary'
-                    : isError ? 'bg-amber-500/20 text-amber-500'
                     : 'text-white'
-                  }`} style={!isUser && !isError ? { backgroundColor: agentColor(agent) } : undefined}>
+                  }`} style={!isUser ? { backgroundColor: agentColor(agent) } : undefined}>
                     {isUser ? <UserIcon size={14} />
-                     : isError ? <Activity size={14} />
                      : <AgentIcon agent={agent} size={32} />}
                   </div>
                   <div className={`max-w-[80%] text-base leading-7 select-text ${
                     isUser
                       ? 'p-4 rounded-2xl rounded-tr-none shadow-sm bg-surface-primary text-content-primary'
-                      : isError
-                      ? 'p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-amber-200 text-sm'
                       : 'pt-1 text-content-primary'
                   }`}>
-                    {isError ? (
-                      <div className="space-y-1">
-                        <div className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Engine Error</div>
-                        <div className="text-xs text-content-secondary whitespace-pre-line">{firstText.replace(/^\[Error\]\s*/, '')}</div>
-                      </div>
-                    ) : (
-                      <MessageContent content={msg.content} />
-                    )}
-                    {!isUser && !isError && (
+                    <MessageContent content={msg.content} />
+                    {!isUser && (
                       <div className="mt-2 flex items-center gap-2">
                         {msg.metadata?.elapsed_secs != null && (
                           <span className="text-xs font-mono text-content-tertiary">
@@ -673,6 +663,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                     </button>
                   )}
                 </div>
+                )}
                 {/* Branch navigator */}
                 {branch && (
                   <div className={`flex ${isUser ? 'justify-end mr-11' : 'ml-11'}`}>
@@ -716,15 +707,27 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         {/* Thinking process steps (real-time tool invocations) */}
         {isTyping && thinkingSteps.length > 0 && (
           <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm overflow-hidden opacity-60"
+            <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm overflow-hidden opacity-40"
                  style={{ backgroundColor: agentColor(agent) }}>
               <AgentIcon agent={agent} size={32} />
             </div>
-            <div className="flex-1 space-y-1 py-1">
+            <div className="flex-1 space-y-0.5 py-1">
               {thinkingSteps.map(step => (
-                <div key={step.id} className="flex items-center gap-2 text-[10px] font-mono text-content-muted animate-in fade-in slide-in-from-left-2 duration-300">
-                  <span>{step.icon}</span>
-                  <span className="text-content-tertiary">{step.text}</span>
+                <div key={step.id} className="flex items-center gap-2 text-[10px] font-mono animate-in fade-in duration-200">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    step.status === 'ok' ? 'bg-brand'
+                    : step.status === 'fail' ? 'bg-red-500'
+                    : step.status === 'done' ? 'bg-emerald-500'
+                    : 'bg-amber-500 animate-pulse'
+                  }`} />
+                  <span className={`${step.status === 'fail' ? 'text-red-400' : 'text-content-tertiary'}`}>
+                    {step.text}
+                  </span>
+                  {step.detail && (
+                    <span className={`ml-auto ${step.status === 'fail' ? 'text-red-400/60' : 'text-content-muted'}`}>
+                      {step.detail}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -732,14 +735,12 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         )}
         {/* Command Approval Cards */}
         {pendingApprovals.map(approval => (
-          <div key={approval.approval_id} className="flex items-start gap-3">
-            <div className="w-8" />
-            <CommandApprovalCard
-              approvalId={approval.approval_id}
-              commands={approval.commands}
-              onResolved={(id) => setPendingApprovals(prev => prev.filter(a => a.approval_id !== id))}
-            />
-          </div>
+          <CommandApprovalCard
+            key={approval.approval_id}
+            approvalId={approval.approval_id}
+            commands={approval.commands}
+            onResolved={(id) => setPendingApprovals(prev => prev.filter(a => a.approval_id !== id))}
+          />
         ))}
         {/* Skeleton (waiting for SSE response) */}
         {isTyping && pendingApprovals.length === 0 && (
