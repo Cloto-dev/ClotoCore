@@ -11,6 +11,7 @@ import { SystemAlertCard } from './SystemAlertCard';
 import { BranchNavigator } from './BranchNavigator';
 import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
+import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { SkeletonThinking } from './SkeletonThinking';
 import { TypewriterMessage } from './TypewriterMessage';
@@ -74,6 +75,7 @@ async function migrateLegacyData(agentId: string, apiKey: string) {
 
 export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => void }) {
   const { apiKey } = useApiKey();
+  const { identity } = useUserIdentity();
   const { servers: mcpServers } = useMcpServers(apiKey);
   const [agentEngines, setAgentEngines] = useState<McpServerInfo[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -128,7 +130,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         // First, check for legacy localStorage data and migrate
         await migrateLegacyData(agent.id, apiKey);
 
-        const { messages: loaded, has_more } = await api.getChatMessages(agent.id, apiKey, undefined, 50);
+        const { messages: loaded, has_more } = await api.getChatMessages(agent.id, apiKey, undefined, 50, identity.id);
         // API returns newest-first; reverse for display (oldest at top)
         const reversed = loaded.reverse();
         setMessages(reversed);
@@ -154,7 +156,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const recoverTypingState = useCallback(async () => {
     if (!isTyping || retryParentIdRef.current) return;
     try {
-      const { messages: latest } = await api.getChatMessages(agent.id, apiKey, undefined, 5);
+      const { messages: latest } = await api.getChatMessages(agent.id, apiKey, undefined, 5, identity.id);
       if (latest.length > 0 && latest[0].source === 'agent') {
         const reversed = latest.reverse();
         setMessages(prev => {
@@ -220,7 +222,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
     try {
       const oldestTs = messages[0]?.created_at;
-      const { messages: older, has_more } = await api.getChatMessages(agent.id, apiKey, oldestTs, 50);
+      const { messages: older, has_more } = await api.getChatMessages(agent.id, apiKey, oldestTs, 50, identity.id);
 
       if (older.length > 0) {
         // Preserve scroll position
@@ -319,7 +321,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       setPendingResponse(prev => {
         if (prev) {
           const prevMsg: ChatMessage = {
-            id: prev.id, agent_id: agent.id, user_id: 'default',
+            id: prev.id, agent_id: agent.id, user_id: identity.id,
             source: 'agent',
             content: [{ type: 'text', text: prev.text }],
             metadata: { elapsed_secs: prev.elapsedSecs },
@@ -340,7 +342,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     setPendingResponse(prev => {
       if (!prev) return null;
       const agentMsg: ChatMessage = {
-        id: prev.id, agent_id: agent.id, user_id: 'default',
+        id: prev.id, agent_id: agent.id, user_id: identity.id,
         source: 'agent',
         content: [{ type: 'text', text: prev.text }],
         metadata: { elapsed_secs: prev.elapsedSecs },
@@ -368,7 +370,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     const userMsg: ChatMessage = {
       id: msgId,
       agent_id: agent.id,
-      user_id: 'default',
+      user_id: identity.id,
       source: 'user',
       content: contentBlocks,
       created_at: Date.now(),
@@ -389,7 +391,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       // User message is persisted backend-side (system.rs) on receipt.
       const clotoMsg: ClotoMessage = {
         id: msgId,
-        source: { type: 'User', id: 'user', name: 'User' },
+        source: { type: 'User', id: identity.id, name: identity.name },
         target_agent: agent.id,
         content: textContent || '[attachment]',
         timestamp: new Date().toISOString(),
@@ -409,7 +411,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       const errBubble: ChatMessage = {
         id: errId,
         agent_id: agent.id,
-        user_id: 'default',
+        user_id: identity.id,
         source: 'system',
         content: [{ type: 'text', text: `⚠ ${errMsg}` }],
         created_at: Date.now(),
@@ -457,7 +459,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     const userMsg: ChatMessage = {
       id: editId,
       agent_id: agent.id,
-      user_id: 'default',
+      user_id: identity.id,
       source: 'user',
       content: contentBlocks,
       created_at: now,
@@ -485,7 +487,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     try {
       const clotoMsg: ClotoMessage = {
         id: editId,
-        source: { type: 'User', id: 'user', name: 'User' },
+        source: { type: 'User', id: identity.id, name: identity.name },
         target_agent: agent.id,
         content: textContent || '[attachment]',
         timestamp: new Date().toISOString(),
@@ -539,7 +541,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     initialLoadDone.current = false;
     artifactPanel.clearArtifacts();
     try {
-      await api.deleteChatMessages(agent.id, apiKey);
+      await api.deleteChatMessages(agent.id, apiKey, identity.id);
     } catch (err) {
       console.error('Failed to delete chat messages:', err);
     }
