@@ -176,13 +176,18 @@ def build_chat_messages(
         # Handle both serde internally-tagged {"type": "User", ...}
         # and legacy externally-tagged {"User": {...}} formats
         src_type = source.get("type", "") if isinstance(source, dict) else ""
+        content = msg.get("content", "")
         if src_type in ("User",) or "User" in source or "user" in source:
             role = "user"
+            # Include user name in context messages for multi-user awareness
+            ctx_name = source.get("name", "") if isinstance(source, dict) else ""
+            if ctx_name and ctx_name not in ("User", ""):
+                content = f"[{ctx_name}]: {content}"
         elif src_type in ("Agent",) or "Agent" in source or "agent" in source:
             role = "assistant"
         else:
             role = "system"
-        messages.append({"role": role, "content": msg.get("content", "")})
+        messages.append({"role": role, "content": content})
 
     if context:
         messages.append({
@@ -190,7 +195,16 @@ def build_chat_messages(
             "content": "[End of recalled memories. Current conversation follows.]",
         })
 
-    messages.append({"role": "user", "content": message.get("content", "")})
+    # Extract user name from source for multi-user awareness
+    source = message.get("source", {})
+    user_name = ""
+    if isinstance(source, dict) and source.get("type") == "User":
+        user_name = source.get("name", "")
+    user_content = message.get("content", "")
+    if user_name and user_name not in ("User", ""):
+        messages.append({"role": "user", "content": f"[{user_name}]: {user_content}"})
+    else:
+        messages.append({"role": "user", "content": user_content})
     return messages
 
 

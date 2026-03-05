@@ -124,8 +124,10 @@ export const api = {
     mutate('/chat', 'POST', 'send chat', message, { 'X-API-Key': apiKey }).then(() => {}),
   postChatMessage: (agentId: string, msg: { id: string; source: string; content: ContentBlock[]; metadata?: Record<string, unknown> }, apiKey: string): Promise<{ id: string; created_at: number }> =>
     mutate(`/chat/${agentId}/messages`, 'POST', 'post chat message', msg, { 'X-API-Key': apiKey }).then(r => r.json()),
-  deleteChatMessages: (agentId: string, apiKey: string): Promise<{ deleted_count: number }> =>
-    mutate(`/chat/${agentId}/messages`, 'DELETE', 'delete chat messages', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
+  deleteChatMessages: (agentId: string, apiKey: string, userId?: string): Promise<{ deleted_count: number }> => {
+    const qs = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+    return mutate(`/chat/${agentId}/messages${qs}`, 'DELETE', 'delete chat messages', undefined, { 'X-API-Key': apiKey }).then(r => r.json());
+  },
   retryResponse: (agentId: string, messageId: string, apiKey: string): Promise<{ status: string; retry_id: string }> =>
     mutate(`/chat/${agentId}/messages/${encodeURIComponent(messageId)}/retry`, 'POST', 'retry response', {}, { 'X-API-Key': apiKey }).then(r => r.json()),
   invalidateApiKey: (apiKey: string): Promise<{ status: string; message: string }> =>
@@ -142,10 +144,11 @@ export const api = {
   },
 
   // Custom response transformation: parses JSON string fields
-  async getChatMessages(agentId: string, apiKey: string, before?: number, limit?: number): Promise<{ messages: ChatMessage[], has_more: boolean }> {
+  async getChatMessages(agentId: string, apiKey: string, before?: number, limit?: number, userId?: string): Promise<{ messages: ChatMessage[], has_more: boolean }> {
     const params = new URLSearchParams();
     if (before) params.set('before', String(before));
     if (limit) params.set('limit', String(limit));
+    if (userId) params.set('user_id', userId);
     const qs = params.toString();
     const res = await fetch(`${API_BASE}/chat/${agentId}/messages${qs ? '?' + qs : ''}`, {
       headers: { 'X-API-Key': apiKey },
