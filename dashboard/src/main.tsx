@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ThemeProvider } from './components/ThemeProvider'
 import { ApiKeyProvider } from './contexts/ApiKeyContext'
+import { UserIdentityProvider } from './contexts/UserIdentityContext'
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext'
 import { AgentProvider } from './contexts/AgentContext'
 import { AppLayout } from './components/AppLayout'
@@ -116,9 +117,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <ThemeProvider>
         <ApiKeyProvider>
-          <ConnectionProvider>
-            <App />
-          </ConnectionProvider>
+          <UserIdentityProvider>
+            <ConnectionProvider>
+              <App />
+            </ConnectionProvider>
+          </UserIdentityProvider>
         </ApiKeyProvider>
       </ThemeProvider>
     </ErrorBoundary>

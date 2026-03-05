@@ -196,6 +196,15 @@ impl SystemHandler {
         }
     }
 
+    /// Extract user_id from a ClotoMessage's source.
+    fn extract_user_id(msg: &ClotoMessage) -> &str {
+        match &msg.source {
+            cloto_shared::MessageSource::User { id, .. } => id.as_str(),
+            cloto_shared::MessageSource::Agent { id } => id.as_str(),
+            cloto_shared::MessageSource::System => "system",
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
     pub async fn handle_message(&self, msg: ClotoMessage) -> anyhow::Result<()> {
         let target_agent_id = msg
@@ -257,7 +266,7 @@ impl SystemHandler {
             let user_chat_msg = crate::db::ChatMessageRow {
                 id: msg.id.clone(),
                 agent_id: target_agent_id.clone(),
-                user_id: "default".to_string(),
+                user_id: Self::extract_user_id(&msg).to_string(),
                 source: "user".to_string(),
                 content: serde_json::to_string(
                     &serde_json::json!([{"type": "text", "text": &msg.content}]),
@@ -613,7 +622,7 @@ impl SystemHandler {
                     let agent_chat_msg = crate::db::ChatMessageRow {
                         id: resp_id,
                         agent_id: agent.id.clone(),
-                        user_id: "default".to_string(),
+                        user_id: Self::extract_user_id(&msg).to_string(),
                         source: "agent".to_string(),
                         content: serde_json::to_string(
                             &serde_json::json!([{"type": "text", "text": &content}]),
@@ -673,7 +682,7 @@ impl SystemHandler {
                     let err_chat_msg = crate::db::ChatMessageRow {
                         id: err_resp_id,
                         agent_id: agent.id.clone(),
-                        user_id: "default".to_string(),
+                        user_id: Self::extract_user_id(&msg).to_string(),
                         source: "agent".to_string(),
                         content: serde_json::to_string(
                             &serde_json::json!([{"type": "text", "text": &error_content}]),

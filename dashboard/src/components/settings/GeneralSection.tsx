@@ -1,9 +1,11 @@
 import { Sun, Moon, Monitor } from 'lucide-react';
 import { SectionCard } from './common';
 import { useTheme } from '../../hooks/useTheme';
+import { useUserIdentity } from '../../contexts/UserIdentityContext';
 
 export function GeneralSection() {
   const { preference, setPreference } = useTheme();
+  const { identity, setIdentity } = useUserIdentity();
   const themes: { value: 'light' | 'dark' | 'system'; icon: typeof Sun; label: string }[] = [
     { value: 'light', icon: Sun, label: 'Light' },
     { value: 'dark', icon: Moon, label: 'Dark' },
@@ -28,6 +30,24 @@ export function GeneralSection() {
               {label}
             </button>
           ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="User Identity">
+        <div className="space-y-3">
+          <div>
+            <label className="text-[10px] text-content-tertiary font-bold uppercase tracking-widest block mb-1">Display Name</label>
+            <input
+              type="text"
+              value={identity.name}
+              onChange={e => setIdentity(identity.id, e.target.value)}
+              className="w-full px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-sm text-content-primary focus:border-brand focus:outline-none transition-colors"
+              placeholder="User"
+            />
+          </div>
+          <p className="text-[10px] text-content-muted">
+            The name shown to agents when you chat. Agents can use it to address you personally.
+          </p>
         </div>
       </SectionCard>
 

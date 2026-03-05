@@ -57,6 +57,7 @@ pub struct PostMessageRequest {
     pub source: String,
     pub content: serde_json::Value, // ContentBlock[] as opaque JSON
     pub metadata: Option<serde_json::Value>,
+    pub user_id: Option<String>,
 }
 
 /// POST /api/chat/:agent_id/messages
@@ -123,7 +124,7 @@ pub async fn post_message(
     let msg = ChatMessageRow {
         id: payload.id.clone(),
         agent_id: agent_id.clone(),
-        user_id: "default".to_string(),
+        user_id: payload.user_id.clone().unwrap_or_else(|| "default".to_string()),
         source: payload.source,
         content: content_str,
         metadata: metadata_str,
@@ -331,8 +332,8 @@ pub async fn retry_response(
     let cloto_msg = cloto_shared::ClotoMessage {
         id: retry_id.clone(),
         source: cloto_shared::MessageSource::User {
-            id: "user".to_string(),
-            name: "User".to_string(),
+            id: original.user_id.clone(),
+            name: original.user_id.clone(),
         },
         target_agent: Some(agent_id.clone()),
         content: content_text,
