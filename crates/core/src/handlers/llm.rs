@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::{AppError, AppResult, AppState};
 
-use super::check_auth;
+use super::{check_auth, ok_data};
 
 /// GET /api/llm/providers
 pub async fn list_llm_providers(
@@ -29,7 +29,7 @@ pub async fn list_llm_providers(
             })
         })
         .collect();
-    Ok(Json(serde_json::json!({ "providers": masked })))
+    ok_data(serde_json::json!({ "providers": masked }))
 }
 
 /// POST /api/llm/providers/:id/key
@@ -47,7 +47,7 @@ pub async fn set_llm_provider_key(
         .await
         .map_err(|e| AppError::Validation(e.to_string()))?;
     tracing::info!(provider = %provider_id, "LLM provider API key updated");
-    Ok(Json(serde_json::json!({ "status": "ok" })))
+    ok_data(serde_json::json!({}))
 }
 
 /// DELETE /api/llm/providers/:id/key
@@ -61,5 +61,5 @@ pub async fn delete_llm_provider_key(
         .await
         .map_err(AppError::Internal)?;
     tracing::info!(provider = %provider_id, "LLM provider API key deleted");
-    Ok(Json(serde_json::json!({ "status": "deleted" })))
+    ok_data(serde_json::json!({}))
 }

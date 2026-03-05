@@ -12,6 +12,8 @@ use tracing::error;
 use crate::db::{self, AttachmentRow, ChatMessageRow};
 use crate::{AppError, AppResult, AppState};
 
+use super::ok_data;
+
 #[derive(Deserialize)]
 pub struct GetMessagesQuery {
     pub user_id: Option<String>,
@@ -45,10 +47,10 @@ pub async fn get_messages(
     let has_more = messages.len() as i64 > limit;
     let messages: Vec<ChatMessageRow> = messages.into_iter().take(limit as usize).collect();
 
-    Ok(Json(serde_json::json!({
+    ok_data(serde_json::json!({
         "messages": messages,
         "has_more": has_more,
-    })))
+    }))
 }
 
 #[derive(Deserialize)]
@@ -215,10 +217,10 @@ pub async fn post_message(
         }
     }
 
-    Ok(Json(serde_json::json!({
+    ok_data(serde_json::json!({
         "id": msg.id,
         "created_at": now,
-    })))
+    }))
 }
 
 #[derive(Deserialize)]
@@ -239,9 +241,9 @@ pub async fn delete_messages(
     let user_id = params.user_id.as_deref().unwrap_or("default");
     let deleted_count = db::delete_chat_messages(&state.pool, &agent_id, user_id).await?;
 
-    Ok(Json(serde_json::json!({
+    ok_data(serde_json::json!({
         "deleted_count": deleted_count,
-    })))
+    }))
 }
 
 /// GET /api/chat/attachments/:attachment_id
@@ -354,10 +356,9 @@ pub async fn retry_response(
         )));
     }
 
-    Ok(Json(serde_json::json!({
-        "status": "accepted",
+    ok_data(serde_json::json!({
         "retry_id": retry_id,
-    })))
+    }))
 }
 
 /// Send a chat message into the system.
@@ -393,7 +394,7 @@ pub async fn chat_handler(
             "Failed to accept message"
         )));
     }
-    Ok(Json(serde_json::json!({ "status": "accepted" })))
+    ok_data(serde_json::json!({}))
 }
 
 // --- Helpers ---

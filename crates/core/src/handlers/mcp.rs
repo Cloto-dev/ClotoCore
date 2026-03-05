@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use crate::{AppError, AppResult, AppState};
 
-use super::{check_auth, spawn_admin_audit};
+use super::{check_auth, ok_data, spawn_admin_audit};
 
 #[derive(Debug, Deserialize)]
 pub struct PluginToggleRequest {
@@ -51,7 +51,7 @@ pub async fn get_plugins(State(state): State<Arc<AppState>>) -> AppResult<Json<s
         .plugin_manager
         .list_plugins_with_settings(&state.registry)
         .await?;
-    Ok(Json(serde_json::json!(manifests)))
+    ok_data(serde_json::json!(manifests))
 }
 
 /// Get plugin configuration values.
@@ -72,7 +72,7 @@ pub async fn get_plugin_config(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let config = state.plugin_manager.get_config(&id).await?;
-    Ok(Json(serde_json::json!(config)))
+    ok_data(serde_json::json!(config))
 }
 
 /// Update a single plugin configuration key-value pair.
@@ -131,7 +131,7 @@ pub async fn update_plugin_config(
         );
     }
 
-    Ok(Json(serde_json::json!({ "status": "success" })))
+    ok_data(serde_json::json!({}))
 }
 
 /// Batch apply plugin enabled/disabled settings.
@@ -156,7 +156,7 @@ pub async fn apply_plugin_settings(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Json(payload): Json<Vec<PluginToggleRequest>>,
-) -> AppResult<Json<bool>> {
+) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     info!(
         count = payload.len(),
@@ -166,7 +166,7 @@ pub async fn apply_plugin_settings(
     let settings = payload.into_iter().map(|i| (i.id, i.is_active)).collect();
 
     state.plugin_manager.apply_settings(settings).await?;
-    Ok(Json(true))
+    ok_data(serde_json::json!({}))
 }
 
 /// Grant a permission to a plugin.
@@ -230,7 +230,7 @@ pub async fn grant_permission_handler(
         Some(event.trace_id.to_string()),
     );
 
-    Ok(Json(serde_json::json!({ "status": "success" })))
+    ok_data(serde_json::json!({}))
 }
 
 /// Get the current effective permissions for a plugin.
@@ -244,9 +244,7 @@ pub async fn get_plugin_permissions(
     check_auth(&state, &headers)?;
     let perms = state.plugin_manager.get_permissions(&id).await?;
     let list: Vec<String> = perms.iter().map(|p| format!("{:?}", p)).collect();
-    Ok(Json(
-        serde_json::json!({ "plugin_id": id, "permissions": list }),
-    ))
+    ok_data(serde_json::json!({ "plugin_id": id, "permissions": list }))
 }
 
 /// Revoke a permission from a plugin.
@@ -284,7 +282,7 @@ pub async fn revoke_permission_handler(
         None,
     );
 
-    Ok(Json(serde_json::json!({ "status": "success" })))
+    ok_data(serde_json::json!({}))
 }
 
 // ============================================================
@@ -406,11 +404,10 @@ if __name__ == "__main__":
 
     tracing::info!(name = %name, tools = ?tool_names, "🔌 Dynamic MCP server added");
 
-    Ok(Json(serde_json::json!({
-        "status": "created",
+    ok_data(serde_json::json!({
         "name": name,
         "tools": tool_names,
-    })))
+    }))
 }
 
 pub async fn list_mcp_servers(
@@ -421,10 +418,10 @@ pub async fn list_mcp_servers(
 
     let servers = state.mcp_manager.list_servers().await;
 
-    Ok(Json(serde_json::json!({
+    ok_data(serde_json::json!({
         "servers": servers,
         "count": servers.len(),
-    })))
+    }))
 }
 
 pub async fn delete_mcp_server(
@@ -457,10 +454,9 @@ pub async fn delete_mcp_server(
 
     tracing::info!(name = %name, "🗑️ MCP server removed");
 
-    Ok(Json(serde_json::json!({
-        "status": "deleted",
+    ok_data(serde_json::json!({
         "name": name,
-    })))
+    }))
 }
 
 // ============================================================
@@ -510,7 +506,7 @@ pub async fn get_mcp_server_settings(
             })
             .collect();
 
-        Ok(Json(serde_json::json!({
+        ok_data(serde_json::json!({
             "server_id": record.name,
             "default_policy": default_policy,
             "config": {},
@@ -519,7 +515,7 @@ pub async fn get_mcp_server_settings(
             "command": record.command,
             "args": serde_json::from_str::<Vec<String>>(&record.args).unwrap_or_default(),
             "description": record.description,
-        })))
+        }))
     } else {
         // Fallback: config-loaded servers not yet in DB — use in-memory env
         let servers = state.mcp_manager.list_servers().await;
@@ -543,7 +539,7 @@ pub async fn get_mcp_server_settings(
                     )
                 })
                 .collect();
-            Ok(Json(serde_json::json!({
+            ok_data(serde_json::json!({
                 "server_id": server.id,
                 "default_policy": "opt-in",
                 "config": {},
@@ -552,7 +548,7 @@ pub async fn get_mcp_server_settings(
                 "command": server.command,
                 "args": server.args,
                 "description": null,
-            })))
+            }))
         } else {
             Err(AppError::Validation(format!(
                 "MCP server '{}' not found",
@@ -685,10 +681,7 @@ pub async fn update_mcp_server_settings(
         None,
     );
 
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "message": format!("Settings updated for server '{}'", name)
-    })))
+    ok_data(serde_json::json!({}))
 }
 
 /// GET /api/mcp/servers/:name/access
@@ -720,12 +713,12 @@ pub async fn get_mcp_server_access(
             .unwrap_or_default()
     };
 
-    Ok(Json(serde_json::json!({
+    ok_data(serde_json::json!({
         "server_id": name,
         "default_policy": default_policy,
         "tools": tools,
         "entries": entries,
-    })))
+    }))
 }
 
 /// PUT /api/mcp/servers/:name/access
@@ -775,11 +768,9 @@ pub async fn put_mcp_server_access(
         None,
     );
 
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "message": format!("Access control updated for server '{}'", name),
+    ok_data(serde_json::json!({
         "count": entries.len(),
-    })))
+    }))
 }
 
 /// GET /api/mcp/access/by-agent/:agent_id
@@ -791,10 +782,10 @@ pub async fn get_agent_access(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
 
-    Ok(Json(serde_json::json!({
+    ok_data(serde_json::json!({
         "agent_id": agent_id,
         "entries": entries,
-    })))
+    }))
 }
 
 async fn server_lifecycle(
@@ -815,11 +806,11 @@ async fn server_lifecycle(
         None,
     );
     info!(name = %name, "MCP server {}", action);
-    let mut resp = serde_json::json!({ "status": action, "name": name });
+    let mut resp = serde_json::json!({ "name": name });
     if let Some(t) = tools {
         resp["tools"] = serde_json::json!(t);
     }
-    Ok(Json(resp))
+    ok_data(resp)
 }
 
 /// POST /api/mcp/servers/:name/restart
@@ -869,7 +860,7 @@ pub async fn get_yolo_mode(
         .mcp_manager
         .yolo_mode
         .load(std::sync::atomic::Ordering::Relaxed);
-    Ok(Json(serde_json::json!({ "enabled": enabled })))
+    ok_data(serde_json::json!({ "enabled": enabled }))
 }
 
 /// PUT /api/settings/yolo
@@ -904,9 +895,7 @@ pub async fn set_yolo_mode(
         None,
     );
 
-    Ok(Json(
-        serde_json::json!({ "status": "ok", "enabled": enabled }),
-    ))
+    ok_data(serde_json::json!({ "enabled": enabled }))
 }
 
 // ============================================================
@@ -922,7 +911,7 @@ pub async fn get_max_cron_generation(
     let val = state
         .max_cron_generation
         .load(std::sync::atomic::Ordering::Relaxed);
-    Ok(Json(serde_json::json!({ "value": val, "max": 6 })))
+    ok_data(serde_json::json!({ "value": val, "max": 6 }))
 }
 
 /// PUT /api/settings/max-cron-generation
@@ -954,5 +943,5 @@ pub async fn set_max_cron_generation(
         None,
     );
 
-    Ok(Json(serde_json::json!({ "value": val })))
+    ok_data(serde_json::json!({ "value": val }))
 }

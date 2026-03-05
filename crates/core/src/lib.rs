@@ -129,7 +129,6 @@ impl axum::response::IntoResponse for AppError {
         };
 
         let body = axum::Json(serde_json::json!({
-            "status": "error",
             "error": {
                 "type": err_type,
                 "message": message
