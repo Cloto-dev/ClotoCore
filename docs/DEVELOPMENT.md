@@ -18,6 +18,7 @@
 | `EventProcessor` で `issuer` を検証する | `if plugin_id == "admin"` のようなハードコード特権判定を行ってはいけない | 原則 #2 (Capability over Concrete Type) に反する |
 | プラグインの `on_event` 引数を変更する | プラグイン側で `issuer` を書き換え可能にしてはいけない | 封印後のデータ一貫性を損なうため |
 | SSE 出力を調整する | 既存の JSON フォーマットを破壊してはいけない | Dashboard が壊れる「無限ループ」の典型例 |
+| REST API レスポンスを構築する | `serde_json::json!({ "status": "..." })` を直接書いてはいけない | レスポンスヘルパー (`ok_data`) を経由すること (ARCHITECTURE.md §0.6) |
 | `dispatch_event` のシグネチャを変更する | プラグインの `on_event` 内で `dispatch` を直接呼ばせてはいけない | Kernel を経由しないイベント発行は「なりすまし」の温床 |
 
 ### 1.2 Cascading Protection: Event Depth Tracking

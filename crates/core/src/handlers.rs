@@ -7,8 +7,11 @@ pub mod events;
 pub mod llm;
 pub mod mcp;
 pub mod permissions;
+pub mod response;
 pub mod system;
 pub mod utils;
+
+pub use response::{json_data, ok_data};
 
 // Re-export all handler functions so that existing `handlers::*` paths in lib.rs continue to work.
 pub use agents::{
@@ -35,7 +38,7 @@ pub use permissions::{approve_permission, deny_permission, get_pending_permissio
 /// GET /api/system/version
 /// Returns current Cloto version and build target (public, no auth).
 pub async fn version_handler() -> axum::Json<serde_json::Value> {
-    axum::Json(serde_json::json!({
+    json_data(serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
         "build_target": env!("TARGET"),
     }))
@@ -43,7 +46,7 @@ pub async fn version_handler() -> axum::Json<serde_json::Value> {
 
 /// GET /api/system/health — lightweight liveness check (no auth required)
 pub async fn health_handler() -> axum::Json<serde_json::Value> {
-    axum::Json(serde_json::json!({
+    json_data(serde_json::json!({
         "status": "ok"
     }))
 }
@@ -183,7 +186,7 @@ pub async fn shutdown_handler(
         shutdown.notify_one();
     });
 
-    Ok(Json(serde_json::json!({ "status": "shutting_down" })))
+    ok_data(serde_json::json!({}))
 }
 
 /// Server-Sent Events (SSE) stream for real-time event delivery.
@@ -244,7 +247,7 @@ pub async fn sse_handler(
 pub async fn get_history(State(state): State<Arc<AppState>>) -> AppResult<Json<serde_json::Value>> {
     let history = state.event_history.read().await;
     let history_vec: Vec<_> = history.iter().collect();
-    Ok(Json(serde_json::json!(history_vec)))
+    ok_data(serde_json::json!(history_vec))
 }
 
 /// Get system metrics and health information.
@@ -267,7 +270,7 @@ pub async fn get_metrics(State(state): State<Arc<AppState>>) -> AppResult<Json<s
     let history_len = state.event_history.read().await.len();
     let max_size = state.config.event_history_size;
 
-    Ok(Json(serde_json::json!({
+    ok_data(serde_json::json!({
         "total_requests": state.metrics.total_requests.load(std::sync::atomic::Ordering::Relaxed),
         "total_memories": state.metrics.total_memories.load(std::sync::atomic::Ordering::Relaxed),
         "total_episodes": state.metrics.total_episodes.load(std::sync::atomic::Ordering::Relaxed),
@@ -277,7 +280,7 @@ pub async fn get_metrics(State(state): State<Arc<AppState>>) -> AppResult<Json<s
             "max_size": max_size,
             "memory_estimate_bytes": history_len * std::mem::size_of::<std::sync::Arc<cloto_shared::ClotoEvent>>(),
         }
-    })))
+    }))
 }
 
 /// Get stored agent memories via KS22 MCP server.
@@ -303,14 +306,14 @@ pub async fn get_memories(
                 result.content.first()
             {
                 if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
-                    return Ok(Json(data));
+                    return ok_data(data);
                 }
             }
-            Ok(Json(serde_json::json!({ "memories": [], "count": 0 })))
+            ok_data(serde_json::json!({ "memories": [], "count": 0 }))
         }
         Err(e) => {
             tracing::warn!("KS22 list_memories failed: {}", e);
-            Ok(Json(serde_json::json!({ "memories": [], "count": 0 })))
+            ok_data(serde_json::json!({ "memories": [], "count": 0 }))
         }
     }
 }
@@ -335,14 +338,14 @@ pub async fn get_episodes(
                 result.content.first()
             {
                 if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
-                    return Ok(Json(data));
+                    return ok_data(data);
                 }
             }
-            Ok(Json(serde_json::json!({ "episodes": [], "count": 0 })))
+            ok_data(serde_json::json!({ "episodes": [], "count": 0 }))
         }
         Err(e) => {
             tracing::warn!("KS22 list_episodes failed: {}", e);
-            Ok(Json(serde_json::json!({ "episodes": [], "count": 0 })))
+            ok_data(serde_json::json!({ "episodes": [], "count": 0 }))
         }
     }
 }
@@ -366,10 +369,10 @@ pub async fn delete_memory(
     if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) = result.content.first()
     {
         if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
-            return Ok(Json(data));
+            return ok_data(data);
         }
     }
-    Ok(Json(serde_json::json!({ "ok": true })))
+    ok_data(serde_json::json!({}))
 }
 
 /// Delete an episode by ID via KS22 MCP server.
@@ -391,10 +394,10 @@ pub async fn delete_episode(
     if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) = result.content.first()
     {
         if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
-            return Ok(Json(data));
+            return ok_data(data);
         }
     }
-    Ok(Json(serde_json::json!({ "ok": true })))
+    ok_data(serde_json::json!({}))
 }
 
 // ============================================================
@@ -425,10 +428,9 @@ pub async fn invalidate_api_key(
 
     tracing::warn!("🔑 API key invalidated — system-wide access revoked for this key");
 
-    Ok(Json(serde_json::json!({
-        "status": "invalidated",
+    ok_data(serde_json::json!({
         "message": "API key has been revoked. All future requests with this key will be rejected. Restart with a new CLOTO_API_KEY to restore access."
-    })))
+    }))
 }
 
 #[cfg(test)]

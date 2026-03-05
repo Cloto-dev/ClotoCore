@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::{AppResult, AppState};
 
-use super::{check_auth, spawn_admin_audit};
+use super::{check_auth, ok_data, spawn_admin_audit};
 
 #[derive(Deserialize)]
 pub struct PermissionDecisionPayload {}
@@ -21,9 +21,9 @@ pub struct PermissionDecisionPayload {}
 /// Used by the dashboard for Human-in-the-Loop permission management.
 pub async fn get_pending_permissions(
     State(state): State<Arc<AppState>>,
-) -> AppResult<Json<Vec<crate::PermissionRequest>>> {
+) -> AppResult<Json<serde_json::Value>> {
     let requests = crate::get_pending_permission_requests(&state.pool).await?;
-    Ok(Json(requests))
+    ok_data(serde_json::json!(requests))
 }
 
 /// Approve a pending permission request.
@@ -61,10 +61,7 @@ pub async fn approve_permission(
         None,
     );
 
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "message": "Permission request approved"
-    })))
+    ok_data(serde_json::json!({}))
 }
 
 /// Deny a pending permission request.
@@ -102,8 +99,5 @@ pub async fn deny_permission(
         None,
     );
 
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "message": "Permission request denied"
-    })))
+    ok_data(serde_json::json!({}))
 }

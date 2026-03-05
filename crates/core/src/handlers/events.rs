@@ -4,7 +4,7 @@ use tracing::error;
 
 use crate::{AppError, AppResult, AppState};
 
-use super::check_auth;
+use super::{check_auth, ok_data};
 
 /// Inject an event into the event bus from external sources.
 ///
@@ -59,5 +59,5 @@ pub async fn post_event_handler(
             "Failed to publish event"
         )));
     }
-    Ok(Json(serde_json::json!({ "status": "published" })))
+    ok_data(serde_json::json!({}))
 }

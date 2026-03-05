@@ -47,6 +47,19 @@ export async function closeWindow() {
   await getCurrentWindow().close();
 }
 
+// ── Auto API Key ──
+
+/** Fetch the auto-generated API key from the Tauri backend. Returns null in browser mode. */
+export async function getAutoApiKey(): Promise<string | null> {
+  if (!isTauri) return null;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<string | null>('get_auto_api_key') ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Update Checker ──
 
 export interface UpdateInfo {

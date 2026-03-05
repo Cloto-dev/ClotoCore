@@ -1,7 +1,23 @@
+use std::sync::OnceLock;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+/// Holds the auto-generated API key (only set when CLOTO_API_KEY was absent from .env).
+static AUTO_GENERATED_KEY: OnceLock<String> = OnceLock::new();
+
+/// Generate a cryptographically random API key (64 hex chars).
+fn generate_api_key() -> String {
+    use rand::rngs::OsRng;
+    use rand::Rng;
+    use std::fmt::Write;
+    let bytes: [u8; 32] = OsRng.gen();
+    bytes.iter().fold(String::with_capacity(64), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    })
+}
 
 /// Returns the kernel HTTP port (used by frontend to construct API URLs).
 #[tauri::command]
@@ -49,6 +65,12 @@ fn select_script_file(base_dir: String) -> Result<Option<String>, String> {
     Ok(None)
 }
 
+/// Returns the auto-generated API key, or None if the user configured their own in .env.
+#[tauri::command]
+fn get_auto_api_key() -> Option<String> {
+    AUTO_GENERATED_KEY.get().cloned()
+}
+
 #[allow(clippy::too_many_lines)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -78,7 +100,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_kernel_port,
             capture_screen,
-            select_script_file
+            select_script_file,
+            get_auto_api_key
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -147,8 +170,17 @@ pub fn run() {
                 .ok();
 
             // --- Launch the Cloto Kernel Server ---
+            // Load .env before spawn so we can inspect CLOTO_API_KEY synchronously.
+            dotenvy::dotenv().ok();
+
+            // Auto-generate API key if not configured in .env
+            if std::env::var("CLOTO_API_KEY").is_err() {
+                let key = generate_api_key();
+                std::env::set_var("CLOTO_API_KEY", &key);
+                let _ = AUTO_GENERATED_KEY.set(key);
+            }
+
             tauri::async_runtime::spawn(async move {
-                dotenvy::dotenv().ok();
                 if let Err(e) = cloto_core::run_kernel().await {
                     eprintln!("Failed to start Cloto Kernel: {}", e);
                 }
