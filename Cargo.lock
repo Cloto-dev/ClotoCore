@@ -157,13 +157,14 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "base64 0.21.7",
  "cloto_core",
  "dotenvy",
  "image",
  "log",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "tauri",
@@ -977,7 +978,7 @@ checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
 
 [[package]]
 name = "cloto_cli"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1000,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "cloto_core"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1042,7 +1043,7 @@ dependencies = [
 
 [[package]]
 name = "cloto_shared"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "anyhow",
  "async-trait",

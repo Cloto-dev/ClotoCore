@@ -140,6 +140,78 @@ ClotoCore/
 | GET | `/api/mcp/access/by-agent/:agent_id` | Agent MCP access |
 | ANY | `/api/plugin/*path` | Dynamic plugin route proxy |
 
+### 0.6 API Response Format Convention
+
+All REST API endpoints MUST follow this response envelope convention.
+This provides a consistent, extensible contract between backend and frontend.
+
+#### Success Response
+
+All successful responses use the `data` key as the top-level envelope:
+
+```jsonc
+// Mutation with no return data (e.g., DELETE, toggle)
+{ "data": {} }
+
+// Mutation with return data (e.g., POST creating a resource)
+{ "data": { "id": "agent.xxx" } }
+
+// Query returning a single resource
+{ "data": { "id": "agent.xxx", "name": "Assistant", ... } }
+
+// Query returning a collection
+{ "data": { "messages": [...], "has_more": true } }
+```
+
+The `data` key is ALWAYS present on success. Additional top-level keys may be
+added in the future without breaking changes:
+
+```jsonc
+{
+  "data": { ... },
+  "request_id": "req-abc123",           // Future: request tracing (M-16)
+  "meta": { "page": 1, "total": 42 }   // Future: pagination (L-09)
+}
+```
+
+#### Error Response
+
+All error responses use the `error` key as the top-level envelope:
+
+```jsonc
+{
+  "error": {
+    "type": "ValidationError",
+    "message": "Agent name must be between 1 and 100 characters"
+  }
+}
+```
+
+HTTP status codes carry the primary success/failure signal.
+The envelope key (`data` vs `error`) provides a secondary, parseable indicator.
+
+#### Implementation
+
+Handlers MUST use the response helper functions defined in `handlers.rs`:
+
+```rust
+// No return data
+ok_data(())
+
+// With return data
+ok_data(json!({ "id": agent_id }))
+
+// The helper guarantees: { "data": { "id": "..." } }
+```
+
+Direct construction of `serde_json::json!({ "status": "..." })` is prohibited.
+All response formatting is centralized in the helper to prevent format drift.
+
+#### SSE Events
+
+SSE event payloads (`/api/events`) are NOT wrapped in this envelope.
+SSE events use their own format defined by the `ClotoEvent` type system.
+
 ---
 
 ## 1. Design Principles (Manifesto)

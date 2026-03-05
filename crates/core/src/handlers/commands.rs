@@ -3,7 +3,7 @@ use axum::http::HeaderMap;
 use axum::Json;
 use std::sync::Arc;
 
-use super::check_auth;
+use super::{check_auth, ok_data};
 use crate::handlers::system::CommandApprovalDecision;
 use crate::{AppError, AppResult, AppState};
 
@@ -22,7 +22,7 @@ pub async fn approve_command(
         // the approval metadata — retrieve from a separate store or let the kernel do it).
         // For simplicity, the kernel stores the exact match after receiving Approve.
         let _ = sender.send(CommandApprovalDecision::Approve);
-        Ok(Json(serde_json::json!({ "status": "approved" })))
+        ok_data(serde_json::json!({}))
     } else {
         Err(AppError::NotFound(format!(
             "Approval request '{}' not found or already resolved",
@@ -42,7 +42,7 @@ pub async fn trust_command(
 
     if let Some((_, sender)) = state.pending_command_approvals.remove(&approval_id) {
         let _ = sender.send(CommandApprovalDecision::Trust);
-        Ok(Json(serde_json::json!({ "status": "trusted" })))
+        ok_data(serde_json::json!({}))
     } else {
         Err(AppError::NotFound(format!(
             "Approval request '{}' not found or already resolved",
@@ -61,7 +61,7 @@ pub async fn deny_command(
 
     if let Some((_, sender)) = state.pending_command_approvals.remove(&approval_id) {
         let _ = sender.send(CommandApprovalDecision::Deny);
-        Ok(Json(serde_json::json!({ "status": "denied" })))
+        ok_data(serde_json::json!({}))
     } else {
         Err(AppError::NotFound(format!(
             "Approval request '{}' not found or already resolved",

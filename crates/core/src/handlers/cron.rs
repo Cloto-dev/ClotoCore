@@ -4,7 +4,7 @@ use tracing::info;
 
 use crate::{AppError, AppResult, AppState};
 
-use super::check_auth;
+use super::{check_auth, ok_data};
 
 /// GET /api/cron/jobs[?agent_id=X]
 #[allow(clippy::implicit_hasher)]
@@ -20,9 +20,7 @@ pub async fn list_cron_jobs(
         crate::db::list_cron_jobs(&state.pool).await
     }
     .map_err(AppError::Internal)?;
-    Ok(Json(
-        serde_json::json!({ "jobs": jobs, "count": jobs.len() }),
-    ))
+    ok_data(serde_json::json!({ "jobs": jobs, "count": jobs.len() }))
 }
 
 /// POST /api/cron/jobs
@@ -102,9 +100,7 @@ pub async fn create_cron_job(
 
     info!(job_id = %job_id, agent_id = %agent_id, name = %name, "Cron job created");
 
-    Ok(Json(
-        serde_json::json!({ "id": job_id, "next_run_at": next_run_at }),
-    ))
+    ok_data(serde_json::json!({ "id": job_id, "next_run_at": next_run_at }))
 }
 
 /// DELETE /api/cron/jobs/:id
@@ -118,7 +114,7 @@ pub async fn delete_cron_job(
         .await
         .map_err(|e| AppError::Validation(e.to_string()))?;
     info!(job_id = %job_id, "Cron job deleted");
-    Ok(Json(serde_json::json!({ "status": "deleted" })))
+    ok_data(serde_json::json!({}))
 }
 
 /// POST /api/cron/jobs/:id/toggle
@@ -135,9 +131,7 @@ pub async fn toggle_cron_job(
     crate::db::set_cron_job_enabled(&state.pool, &job_id, enabled)
         .await
         .map_err(|e| AppError::Validation(e.to_string()))?;
-    Ok(Json(
-        serde_json::json!({ "status": "ok", "enabled": enabled }),
-    ))
+    ok_data(serde_json::json!({ "enabled": enabled }))
 }
 
 /// POST /api/cron/jobs/:id/run — trigger immediate execution
@@ -210,5 +204,5 @@ pub async fn run_cron_job_now(
         );
     }
 
-    Ok(Json(serde_json::json!({ "status": "dispatched" })))
+    ok_data(serde_json::json!({}))
 }

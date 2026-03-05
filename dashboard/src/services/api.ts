@@ -24,7 +24,8 @@ async function throwIfNotOk(res: Response, ctx: string): Promise<void> {
 async function fetchJson<T>(path: string, ctx: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
   if (!res.ok) throw new Error(`Failed to ${ctx}: ${res.statusText}`);
-  return res.json();
+  const body = await res.json();
+  return body.data as T;
 }
 
 async function mutate(
@@ -44,7 +45,7 @@ export const api = {
   getHealth: async (): Promise<{ status: string }> => {
     const res = await fetch(`${API_BASE}/system/health`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error(res.statusText);
-    return res.json();
+    return res.json().then(b => b.data);
   },
 
   getAgents: () => fetchJson<AgentMetadata[]>('/agents', 'fetch agents'),
@@ -62,9 +63,9 @@ export const api = {
   getHistory: () => fetchJson<StrictSystemEvent[]>('/history', 'fetch history'),
   fetchJson: <T>(path: string, apiKey: string) =>
     fetch(`${API_BASE}${path}`, { headers: { 'X-API-Key': apiKey } })
-      .then(r => { if (!r.ok) throw new Error(`${r.statusText}`); return r.json() as Promise<T>; }),
+      .then(r => { if (!r.ok) throw new Error(`${r.statusText}`); return r.json().then((b: any) => b.data) as Promise<T>; }),
   put: (path: string, body: unknown, apiKey: string) =>
-    mutate(path, 'PUT', path, body, { 'X-API-Key': apiKey }).then(r => r.json()),
+    mutate(path, 'PUT', path, body, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
   updateAgent: (id: string, payload: { name?: string, description?: string, default_engine_id?: string, metadata: Record<string, string> }, apiKey: string) =>
     mutate(`/agents/${id}`, 'POST', 'update agent', payload, { 'X-API-Key': apiKey }).then(() => {}),
 
@@ -73,7 +74,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
     });
     if (!res.ok) throw new Error(`Failed to get permissions: ${res.statusText}`);
-    const data = await res.json();
+    const data = (await res.json()).data;
     return data.permissions ?? [];
   },
 
@@ -123,15 +124,15 @@ export const api = {
   postChat: (message: ClotoMessage, apiKey: string) =>
     mutate('/chat', 'POST', 'send chat', message, { 'X-API-Key': apiKey }).then(() => {}),
   postChatMessage: (agentId: string, msg: { id: string; source: string; content: ContentBlock[]; metadata?: Record<string, unknown> }, apiKey: string): Promise<{ id: string; created_at: number }> =>
-    mutate(`/chat/${agentId}/messages`, 'POST', 'post chat message', msg, { 'X-API-Key': apiKey }).then(r => r.json()),
+    mutate(`/chat/${agentId}/messages`, 'POST', 'post chat message', msg, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
   deleteChatMessages: (agentId: string, apiKey: string, userId?: string): Promise<{ deleted_count: number }> => {
     const qs = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
-    return mutate(`/chat/${agentId}/messages${qs}`, 'DELETE', 'delete chat messages', undefined, { 'X-API-Key': apiKey }).then(r => r.json());
+    return mutate(`/chat/${agentId}/messages${qs}`, 'DELETE', 'delete chat messages', undefined, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data);
   },
-  retryResponse: (agentId: string, messageId: string, apiKey: string): Promise<{ status: string; retry_id: string }> =>
-    mutate(`/chat/${agentId}/messages/${encodeURIComponent(messageId)}/retry`, 'POST', 'retry response', {}, { 'X-API-Key': apiKey }).then(r => r.json()),
-  invalidateApiKey: (apiKey: string): Promise<{ status: string; message: string }> =>
-    mutate('/system/invalidate-key', 'POST', 'invalidate API key', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
+  retryResponse: (agentId: string, messageId: string, apiKey: string): Promise<{ retry_id: string }> =>
+    mutate(`/chat/${agentId}/messages/${encodeURIComponent(messageId)}/retry`, 'POST', 'retry response', {}, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
+  invalidateApiKey: (apiKey: string): Promise<{ message: string }> =>
+    mutate('/system/invalidate-key', 'POST', 'invalidate API key', undefined, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
 
   // Custom error handling: reads error body for detailed message
   async toggleAgentPower(agentId: string, enabled: boolean, apiKey: string, password?: string): Promise<void> {
@@ -154,7 +155,7 @@ export const api = {
       headers: { 'X-API-Key': apiKey },
     });
     if (!res.ok) throw new Error(`Failed to fetch chat messages: ${res.statusText}`);
-    const data = await res.json();
+    const data = (await res.json()).data;
     return {
       messages: data.messages.map((m: any) => ({
         ...m,
@@ -175,7 +176,7 @@ export const api = {
       headers: { 'X-API-Key': apiKey },
     });
     if (!res.ok) throw new Error(`Failed to list MCP servers: ${res.statusText}`);
-    return res.json();
+    return res.json().then(b => b.data);
   },
 
   getMcpServerSettings: async (name: string, apiKey: string): Promise<McpServerSettings> => {
@@ -183,7 +184,7 @@ export const api = {
       headers: { 'X-API-Key': apiKey },
     });
     if (!res.ok) throw new Error(`Failed to get server settings: ${res.statusText}`);
-    return res.json();
+    return res.json().then(b => b.data);
   },
 
   updateMcpServerSettings: (name: string, settings: { default_policy?: string; env?: Record<string, string> }, apiKey: string) =>
@@ -194,7 +195,7 @@ export const api = {
       headers: { 'X-API-Key': apiKey },
     });
     if (!res.ok) throw new Error(`Failed to get access control: ${res.statusText}`);
-    return res.json();
+    return res.json().then(b => b.data);
   },
 
   putMcpServerAccess: (name: string, entries: AccessControlEntry[], apiKey: string) =>
@@ -204,16 +205,16 @@ export const api = {
     fetchJson<{ agent_id: string; entries: AccessControlEntry[] }>(`/mcp/access/by-agent/${encodeURIComponent(agentId)}`, 'fetch agent access'),
 
   startMcpServer: (name: string, apiKey: string) =>
-    mutate(`/mcp/servers/${encodeURIComponent(name)}/start`, 'POST', 'start MCP server', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
+    mutate(`/mcp/servers/${encodeURIComponent(name)}/start`, 'POST', 'start MCP server', undefined, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
 
   stopMcpServer: (name: string, apiKey: string) =>
-    mutate(`/mcp/servers/${encodeURIComponent(name)}/stop`, 'POST', 'stop MCP server', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
+    mutate(`/mcp/servers/${encodeURIComponent(name)}/stop`, 'POST', 'stop MCP server', undefined, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
 
   restartMcpServer: (name: string, apiKey: string) =>
-    mutate(`/mcp/servers/${encodeURIComponent(name)}/restart`, 'POST', 'restart MCP server', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
+    mutate(`/mcp/servers/${encodeURIComponent(name)}/restart`, 'POST', 'restart MCP server', undefined, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
 
   createMcpServer: (payload: { name: string; command?: string; args?: string[]; code?: string; description?: string }, apiKey: string) =>
-    mutate('/mcp/servers', 'POST', 'create MCP server', payload, { 'X-API-Key': apiKey }).then(r => r.json()),
+    mutate('/mcp/servers', 'POST', 'create MCP server', payload, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
 
   deleteMcpServer: (name: string, apiKey: string) =>
     mutate(`/mcp/servers/${encodeURIComponent(name)}`, 'DELETE', 'delete MCP server', undefined, { 'X-API-Key': apiKey }).then(() => {}),
@@ -222,11 +223,11 @@ export const api = {
   listCronJobs: (apiKey: string, agentId?: string): Promise<{ jobs: import('../types').CronJob[]; count: number }> => {
     const qs = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : '';
     return fetch(`${API_BASE}/cron/jobs${qs}`, { headers: { 'X-API-Key': apiKey } })
-      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json().then(b => b.data); });
   },
 
   createCronJob: (payload: { agent_id: string; name: string; schedule_type: string; schedule_value: string; message: string; engine_id?: string; max_iterations?: number; hide_prompt?: boolean }, apiKey: string) =>
-    mutate('/cron/jobs', 'POST', 'create cron job', payload, { 'X-API-Key': apiKey }).then(r => r.json()),
+    mutate('/cron/jobs', 'POST', 'create cron job', payload, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
 
   deleteCronJob: (jobId: string, apiKey: string) =>
     mutate(`/cron/jobs/${encodeURIComponent(jobId)}`, 'DELETE', 'delete cron job', undefined, { 'X-API-Key': apiKey }).then(() => {}),
@@ -235,12 +236,12 @@ export const api = {
     mutate(`/cron/jobs/${encodeURIComponent(jobId)}/toggle`, 'POST', 'toggle cron job', { enabled }, { 'X-API-Key': apiKey }).then(() => {}),
 
   runCronJobNow: (jobId: string, apiKey: string) =>
-    mutate(`/cron/jobs/${encodeURIComponent(jobId)}/run`, 'POST', 'run cron job', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
+    mutate(`/cron/jobs/${encodeURIComponent(jobId)}/run`, 'POST', 'run cron job', undefined, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
 
   // LLM Provider Management (MGP §13.4)
   listLlmProviders: (apiKey: string): Promise<{ providers: Array<{ id: string; display_name: string; api_url: string; has_key: boolean; model_id: string; timeout_secs: number; enabled: boolean }> }> =>
     fetch(`${API_BASE}/llm/providers`, { headers: { 'X-API-Key': apiKey } })
-      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); }),
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json().then(b => b.data); }),
 
   setLlmProviderKey: (providerId: string, apiKey: string, providerApiKey: string) =>
     mutate(`/llm/providers/${encodeURIComponent(providerId)}/key`, 'POST', 'set provider key', { api_key: providerApiKey }, { 'X-API-Key': apiKey }).then(() => {}),
@@ -256,7 +257,7 @@ export const api = {
       body: file,
     });
     await throwIfNotOk(res, 'upload avatar');
-    return res.json();
+    return res.json().then((b: any) => b.data);
   },
 
   deleteAvatar: (agentId: string, apiKey: string) =>
