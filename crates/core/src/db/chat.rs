@@ -55,7 +55,17 @@ pub async fn save_chat_message(pool: &SqlitePool, msg: &ChatMessageRow) -> anyho
 }
 
 /// Row type returned by chat message queries.
-type ChatMessageTuple = (String, String, String, String, String, Option<String>, i64, Option<String>, i32);
+type ChatMessageTuple = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    i64,
+    Option<String>,
+    i32,
+);
 
 /// Get chat messages with cursor-based pagination (ordered by created_at DESC)
 pub async fn get_chat_messages(
@@ -101,7 +111,17 @@ pub async fn get_chat_messages(
     let messages = rows
         .into_iter()
         .map(
-            |(id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index)| ChatMessageRow {
+            |(
+                id,
+                agent_id,
+                user_id,
+                source,
+                content,
+                metadata,
+                created_at,
+                parent_id,
+                branch_index,
+            )| ChatMessageRow {
                 id,
                 agent_id,
                 user_id,
@@ -148,7 +168,17 @@ pub async fn get_chat_message_by_id(
     .await?;
 
     Ok(row.map(
-        |(id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index)| {
+        |(
+            id,
+            agent_id,
+            user_id,
+            source,
+            content,
+            metadata,
+            created_at,
+            parent_id,
+            branch_index,
+        )| {
             ChatMessageRow {
                 id,
                 agent_id,
