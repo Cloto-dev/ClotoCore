@@ -87,15 +87,17 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()>
             }
         }
     } else {
-        // In release builds, require API key to be configured
-        if !cfg!(debug_assertions) {
+        // H-01: Require explicit opt-in via env var to skip auth (not just debug_assertions)
+        let skip_auth = std::env::var("CLOTO_DEBUG_SKIP_AUTH")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if !skip_auth {
             return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
                 cloto_shared::Permission::AdminAccess,
             )));
         }
-        // M-09: Warn loudly in debug builds when no API key is set
         tracing::warn!(
-            "⚠️  SECURITY: Admin API access without authentication (debug mode, no CLOTO_API_KEY)"
+            "⚠️  SECURITY: Admin API access without authentication (CLOTO_DEBUG_SKIP_AUTH=true)"
         );
         tracing::warn!("⚠️  Set CLOTO_API_KEY in .env before deploying to production");
     }
