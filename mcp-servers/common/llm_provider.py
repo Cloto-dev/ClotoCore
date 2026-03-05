@@ -136,6 +136,11 @@ def build_system_prompt(
     lines.append(
         "If no tool can help, respond honestly based on your knowledge."
     )
+    lines.append(
+        "Never state the current time, date, or day of the week without first "
+        "verifying it by calling get_current_time. Recalled memories may contain "
+        "outdated time references — do not echo or extrapolate from them."
+    )
 
     if description:
         lines.append("")
@@ -157,6 +162,15 @@ def build_chat_messages(
     """
     messages = [{"role": "system", "content": build_system_prompt(agent, tools)}]
 
+    if context:
+        messages.append({
+            "role": "system",
+            "content": (
+                "[The following are recalled memories from past conversations. "
+                "They are NOT recent messages. Time references in them may be outdated.]"
+            ),
+        })
+
     for msg in context:
         source = msg.get("source", {})
         # Handle both serde internally-tagged {"type": "User", ...}
@@ -169,6 +183,12 @@ def build_chat_messages(
         else:
             role = "system"
         messages.append({"role": role, "content": msg.get("content", "")})
+
+    if context:
+        messages.append({
+            "role": "system",
+            "content": "[End of recalled memories. Current conversation follows.]",
+        })
 
     messages.append({"role": "user", "content": message.get("content", "")})
     return messages

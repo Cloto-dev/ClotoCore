@@ -1,11 +1,13 @@
 """
-Cloto MCP Server: KS2.2 Memory
+Cloto MCP Server: KS2.3 Memory
 Persistent memory with FTS5 full-text search and pluggable vector embedding.
 Ported from plugins/ks22/src/lib.rs + ai_karin KS2.1 architecture.
 
 Phase 1: store, recall (FTS5 + keyword) — COMPLETE
 Phase 2: Vector embedding integration (cosine similarity search) — COMPLETE
 Phase 3: LLM-powered memory extraction (profile + episode summarization) — COMPLETE
+Phase 4: Anti-contamination — memory boundary markers, timestamp annotations,
+         anti-hallucination guardrails — COMPLETE
 """
 
 import asyncio
@@ -348,7 +350,7 @@ async def close_db():
 
 
 def generate_mem_key(agent_id: str, message: dict) -> str:
-    """Generate a unique key for a memory entry (KS2.2 compatible)."""
+    """Generate a unique key for a memory entry (KS2.1 compatible)."""
     ts = message.get("timestamp", datetime.now(timezone.utc).isoformat())
     content = message.get("content", "")
     hash_input = f"{agent_id}:{ts}:{content}"
@@ -437,7 +439,7 @@ async def do_recall(agent_id: str, query: str, limit: int) -> dict:
             "timestamp": "",
         })
 
-    # Strategy 3: Keyword match on memories (KS2.2 fallback)
+    # Strategy 3: Keyword match on memories (KS2.1 fallback)
     remaining = max(0, limit - len(results))
     if remaining > 0:
         memory_rows = await _search_memories_keyword(
@@ -453,10 +455,18 @@ async def do_recall(agent_id: str, query: str, limit: int) -> dict:
     results = results[:limit]
     results.reverse()
 
-    # Convert to ClotoMessage-compatible format
+    # Convert to ClotoMessage-compatible format with timestamp annotations
     messages = []
     for r in results:
-        msg: dict = {"content": r["content"]}
+        content = r["content"]
+        # Annotate with localized timestamp so LLM knows when this memory is from
+        ts_raw = r.get("timestamp", "")
+        if ts_raw:
+            annotation = _format_memory_timestamp(ts_raw)
+            if annotation:
+                content = f"[Memory from {annotation}] {content}"
+
+        msg: dict = {"content": content}
         if r.get("source"):
             msg["source"] = r["source"] if isinstance(r["source"], dict) else _try_parse_json(r["source"])
         if r.get("timestamp"):
@@ -586,7 +596,7 @@ async def _search_episodes_fts(
 async def _search_memories_keyword(
     db: aiosqlite.Connection, agent_id: str, query: str, limit: int
 ) -> list[dict]:
-    """Search memories using keyword matching (KS2.2 compatible fallback)."""
+    """Search memories using keyword matching (KS2.1 compatible fallback)."""
     if query.strip():
         # Keyword match
         rows = await db.execute_fetchall(
@@ -760,6 +770,24 @@ async def do_archive_episode(agent_id: str, history: list[dict]) -> dict:
     )
     await db.commit()
     return {"ok": True, "episode_id": cursor.lastrowid}
+
+
+def _format_memory_timestamp(ts_raw: str) -> str | None:
+    """Convert an ISO-8601 timestamp to a human-readable local time annotation.
+
+    Uses the OS-local timezone (no hardcoded TZ). Returns None on parse failure.
+    """
+    if not ts_raw:
+        return None
+    try:
+        # Parse ISO-8601 (handles +00:00, Z, and offset formats)
+        dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+        # Convert to OS-local timezone
+        local_dt = dt.astimezone()
+        tz_name = local_dt.strftime("%Z")  # e.g. "JST", "EST", "CET"
+        return local_dt.strftime(f"%Y-%m-%d %H:%M {tz_name}")
+    except (ValueError, OSError):
+        return None
 
 
 def _try_parse_json(s: str) -> dict:
