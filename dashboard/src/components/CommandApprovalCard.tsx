@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Terminal, Check, Shield, X } from 'lucide-react';
+import { SystemAlertCard } from './SystemAlertCard';
 import { api } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
 
@@ -51,64 +52,58 @@ export function CommandApprovalCard({ approvalId, commands, onResolved }: Props)
 
   if (status === 'resolved') return null;
 
-  // Collect unique command names for trust button label
   const uniqueNames = [...new Set(commands.map(c => c.command_name))];
   const trustLabel = uniqueNames.length === 1
     ? `Trust '${uniqueNames[0]}'`
     : `Trust ${uniqueNames.length} commands`;
 
   return (
-    <div className="bg-surface-primary/90 backdrop-blur-xl border border-edge rounded-xl shadow-lg p-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      {/* Header */}
-      <div className="flex items-center gap-2">
-        <Terminal size={14} className="text-brand" />
-        <span className="text-[10px] font-black text-brand uppercase tracking-[0.2em]">
-          Command Approval {commands.length > 1 ? `(${commands.length})` : ''}
-        </span>
-        <span className="ml-auto text-[10px] font-mono text-content-muted">{secondsLeft}s</span>
-      </div>
-
+    <SystemAlertCard
+      icon={<Terminal size={14} />}
+      title={`Command Approval${commands.length > 1 ? ` (${commands.length})` : ''}`}
+      trailing={<span className="text-[10px] font-mono text-content-muted">{secondsLeft}s</span>}
+      footer={
+        <div className="flex gap-2">
+          <button
+            onClick={() => handle('approve')}
+            disabled={status === 'acting'}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50 transition-colors"
+          >
+            <Check size={12} /> Yes
+          </button>
+          <button
+            onClick={() => handle('trust')}
+            disabled={status === 'acting'}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider text-amber-500 hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
+          >
+            <Shield size={12} /> {trustLabel}
+          </button>
+          <button
+            onClick={() => handle('deny')}
+            disabled={status === 'acting'}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider text-content-secondary hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
+          >
+            <X size={12} /> No
+          </button>
+        </div>
+      }
+    >
       {/* Countdown bar */}
-      <div className="h-0.5 bg-edge rounded-full overflow-hidden">
+      <div className="h-0.5 bg-amber-500/10 rounded-full overflow-hidden">
         <div
-          className="h-full bg-brand/60 transition-all duration-1000 ease-linear"
+          className="h-full bg-amber-500/40 transition-all duration-1000 ease-linear"
           style={{ width: `${(secondsLeft / 60) * 100}%` }}
         />
       </div>
 
       {/* Command display */}
-      <div className="bg-surface-secondary/50 border border-edge-subtle rounded-lg px-3 py-2 font-mono text-xs text-content-primary space-y-1 max-h-40 overflow-y-auto">
+      <div className="font-mono text-xs text-content-secondary space-y-1 whitespace-pre-line">
         {commands.map((cmd, i) => (
           <div key={i} className="break-all">
             <span className="text-content-muted select-none">$ </span>{cmd.command}
           </div>
         ))}
       </div>
-
-      {/* Action buttons */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => handle('approve')}
-          disabled={status === 'acting'}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-glass border border-edge text-[10px] font-bold uppercase tracking-wider text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/30 disabled:opacity-50 transition-colors"
-        >
-          <Check size={12} /> Yes
-        </button>
-        <button
-          onClick={() => handle('trust')}
-          disabled={status === 'acting'}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-glass border border-brand/30 text-[10px] font-bold uppercase tracking-wider text-brand hover:bg-brand/10 disabled:opacity-50 transition-colors"
-        >
-          <Shield size={12} /> {trustLabel}
-        </button>
-        <button
-          onClick={() => handle('deny')}
-          disabled={status === 'acting'}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-glass border border-edge text-[10px] font-bold uppercase tracking-wider text-content-secondary hover:text-red-400 hover:border-red-500/30 disabled:opacity-50 transition-colors"
-        >
-          <X size={12} /> No
-        </button>
-      </div>
-    </div>
+    </SystemAlertCard>
   );
 }
