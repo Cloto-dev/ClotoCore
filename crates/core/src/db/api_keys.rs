@@ -38,11 +38,8 @@ pub async fn revoke_api_key(pool: &SqlitePool, key: &str) -> anyhow::Result<()> 
 }
 
 pub async fn load_revoked_key_hashes(pool: &SqlitePool) -> anyhow::Result<Vec<String>> {
-    let rows: Vec<(String,)> = db_timeout(
-        sqlx::query_as("SELECT key_hash FROM revoked_keys")
-            .fetch_all(pool),
-    )
-    .await?;
+    let rows: Vec<(String,)> =
+        db_timeout(sqlx::query_as("SELECT key_hash FROM revoked_keys").fetch_all(pool)).await?;
     Ok(rows.into_iter().map(|(h,)| h).collect())
 }
 

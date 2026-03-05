@@ -195,7 +195,10 @@ pub async fn run_cron_job_now(
             state.pool.clone(),
             "CRON_HIDDEN_DISPATCH",
             job.agent_id.clone(),
-            format!("Cron job '{}' manually dispatched with hide_prompt", job.name),
+            format!(
+                "Cron job '{}' manually dispatched with hide_prompt",
+                job.name
+            ),
             None,
             Some(serde_json::json!({
                 "job_id": job.id,
