@@ -106,6 +106,8 @@ export interface ChatMessage {
   content: ContentBlock[];
   metadata?: Record<string, unknown>;
   created_at: number;
+  parent_id?: string | null;
+  branch_index?: number;
 }
 
 // API response types
@@ -225,4 +227,6 @@ export interface CronJob {
   last_error?: string;
   max_iterations?: number;
   created_at: string;
+  hide_prompt?: boolean;
+  cron_generation?: number;
 }

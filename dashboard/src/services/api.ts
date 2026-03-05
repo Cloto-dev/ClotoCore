@@ -126,6 +126,8 @@ export const api = {
     mutate(`/chat/${agentId}/messages`, 'POST', 'post chat message', msg, { 'X-API-Key': apiKey }).then(r => r.json()),
   deleteChatMessages: (agentId: string, apiKey: string): Promise<{ deleted_count: number }> =>
     mutate(`/chat/${agentId}/messages`, 'DELETE', 'delete chat messages', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
+  retryResponse: (agentId: string, messageId: string, apiKey: string): Promise<{ status: string; retry_id: string }> =>
+    mutate(`/chat/${agentId}/messages/${encodeURIComponent(messageId)}/retry`, 'POST', 'retry response', {}, { 'X-API-Key': apiKey }).then(r => r.json()),
   invalidateApiKey: (apiKey: string): Promise<{ status: string; message: string }> =>
     mutate('/system/invalidate-key', 'POST', 'invalidate API key', undefined, { 'X-API-Key': apiKey }).then(r => r.json()),
 
@@ -220,7 +222,7 @@ export const api = {
       .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
   },
 
-  createCronJob: (payload: { agent_id: string; name: string; schedule_type: string; schedule_value: string; message: string; engine_id?: string; max_iterations?: number }, apiKey: string) =>
+  createCronJob: (payload: { agent_id: string; name: string; schedule_type: string; schedule_value: string; message: string; engine_id?: string; max_iterations?: number; hide_prompt?: boolean }, apiKey: string) =>
     mutate('/cron/jobs', 'POST', 'create cron job', payload, { 'X-API-Key': apiKey }).then(r => r.json()),
 
   deleteCronJob: (jobId: string, apiKey: string) =>

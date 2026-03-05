@@ -21,8 +21,19 @@ pub use db::{
 use cloto_shared::ClotoEvent;
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
+use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Notify, RwLock};
+
+/// Context for a currently-executing CRON job (tracks generation for recursion depth).
+#[derive(Debug, Clone)]
+pub struct CronExecContext {
+    pub job_id: String,
+    pub generation: i32,
+}
+
+/// Per-agent active CRON execution contexts (agent_id → context).
+pub type ActiveCronContexts = Arc<dashmap::DashMap<String, CronExecContext>>;
 
 #[derive(Debug, Clone)]
 pub struct EnvelopedEvent {
@@ -71,6 +82,10 @@ pub struct AppState {
     pub pending_command_approvals: handlers::system::PendingApprovals,
     /// Session-scoped trusted command names (cleared on restart).
     pub session_trusted_commands: handlers::system::SessionTrustedCommands,
+    /// Per-agent active CRON execution contexts (for recursion depth tracking).
+    pub active_cron_contexts: ActiveCronContexts,
+    /// Maximum allowed CRON recursion depth (0-6, default 2).
+    pub max_cron_generation: Arc<AtomicU8>,
 }
 
 pub enum AppError {
@@ -260,6 +275,14 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         Arc::new(dashmap::DashMap::new());
     let session_trusted_commands: handlers::system::SessionTrustedCommands =
         Arc::new(dashmap::DashMap::new());
+    let active_cron_contexts: ActiveCronContexts = Arc::new(dashmap::DashMap::new());
+    let max_cron_generation = Arc::new(AtomicU8::new(
+        std::env::var("CLOTO_MAX_CRON_GENERATION")
+            .ok()
+            .and_then(|v| v.parse::<u8>().ok())
+            .map(|v| v.min(6))
+            .unwrap_or(2),
+    ));
 
     let system_handler = Arc::new(SystemHandler::new(
         registry_arc.clone(),
@@ -274,6 +297,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         pending_command_approvals.clone(),
         session_trusted_commands.clone(),
         pool.clone(),
+        active_cron_contexts.clone(),
     ));
 
     // SystemHandler is NOT registered as a plugin — it runs outside the dispatch
@@ -349,6 +373,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         revoked_keys,
         pending_command_approvals,
         session_trusted_commands,
+        active_cron_contexts,
+        max_cron_generation,
     });
 
     // 6. Consensus Orchestrator (kernel-level, replaces core.moderator plugin)
@@ -542,6 +568,10 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 .delete(handlers::chat::delete_messages),
         )
         .route(
+            "/chat/:agent_id/messages/:message_id/retry",
+            post(handlers::chat::retry_response),
+        )
+        .route(
             "/chat/attachments/:attachment_id",
             get(handlers::chat::get_attachment),
         )
@@ -574,6 +604,10 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route(
             "/settings/yolo",
             get(handlers::get_yolo_mode).put(handlers::set_yolo_mode),
+        )
+        .route(
+            "/settings/max-cron-generation",
+            get(handlers::get_max_cron_generation).put(handlers::set_max_cron_generation),
         )
         // API key invalidation
         .route("/system/invalidate-key", post(handlers::invalidate_api_key))

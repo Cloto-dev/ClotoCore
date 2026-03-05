@@ -19,6 +19,7 @@ pub async fn run(client: &ClotoClient, cmd: CronCommand, json_mode: bool) -> Res
             message,
             engine_id,
             max_iterations,
+            hide_prompt,
         } => {
             create(
                 client,
@@ -29,6 +30,7 @@ pub async fn run(client: &ClotoClient, cmd: CronCommand, json_mode: bool) -> Res
                 &message,
                 engine_id.as_deref(),
                 max_iterations,
+                hide_prompt,
                 json_mode,
             )
             .await
@@ -110,6 +112,11 @@ async fn list(client: &ClotoClient, agent_id: Option<&str>, json_mode: bool) -> 
             .and_then(|v| v.as_str())
             .unwrap_or("-");
 
+        let generation = job
+            .get("cron_generation")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
         let dot = if enabled {
             "●".green().to_string()
         } else {
@@ -117,11 +124,16 @@ async fn list(client: &ClotoClient, agent_id: Option<&str>, json_mode: bool) -> 
         };
 
         let schedule = format!("{sched_type}:{sched_val}");
+        let gen_str = if generation > 0 {
+            format!("[gen:{}]", generation).yellow().to_string()
+        } else {
+            String::new()
+        };
 
         table.add_row(vec![
             format!("  {dot}"),
             id.bold().to_string(),
-            name.to_string(),
+            format!("{name} {gen_str}"),
             agent.dimmed().to_string(),
             schedule,
             format!("next: {}", next_run.dimmed()),
@@ -143,6 +155,7 @@ async fn create(
     message: &str,
     engine_id: Option<&str>,
     max_iterations: Option<u32>,
+    hide_prompt: bool,
     json_mode: bool,
 ) -> Result<()> {
     let mut body = serde_json::json!({
@@ -158,6 +171,9 @@ async fn create(
     }
     if let Some(max) = max_iterations {
         body["max_iterations"] = serde_json::json!(max);
+    }
+    if hide_prompt {
+        body["hide_prompt"] = serde_json::json!(true);
     }
 
     let sp = if json_mode {

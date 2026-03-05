@@ -78,7 +78,7 @@ export function EngineSelector({ servers, selectedEngine, onSelect, disabled }: 
       {isOpen && pos && createPortal(
         <div
           ref={menuRef}
-          className="fixed w-48 bg-surface-primary/95 backdrop-blur-xl border border-edge rounded-xl shadow-2xl shadow-black/40 overflow-hidden z-[9999]"
+          className="fixed w-48 bg-surface-primary/95 backdrop-blur-xl border border-edge rounded-xl shadow-2xl shadow-black/40 overflow-hidden z-[9998]"
           style={{ left: pos.left, bottom: pos.bottom }}
         >
           {/* Auto option */}

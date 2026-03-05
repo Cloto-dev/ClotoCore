@@ -908,3 +908,54 @@ pub async fn set_yolo_mode(
         serde_json::json!({ "status": "ok", "enabled": enabled }),
     ))
 }
+
+// ============================================================
+// CRON Recursion Limit API
+// ============================================================
+
+/// GET /api/settings/max-cron-generation
+pub async fn get_max_cron_generation(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    let val = state
+        .max_cron_generation
+        .load(std::sync::atomic::Ordering::Relaxed);
+    Ok(Json(serde_json::json!({ "value": val, "max": 6 })))
+}
+
+/// PUT /api/settings/max-cron-generation
+pub async fn set_max_cron_generation(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    let val = body
+        .get("value")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2) as u8;
+    if val > 6 {
+        return Err(AppError::Validation(
+            "max_cron_generation must be 0-6".into(),
+        ));
+    }
+    state
+        .max_cron_generation
+        .store(val, std::sync::atomic::Ordering::Relaxed);
+
+    tracing::info!("max_cron_generation set to {} via API", val);
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        "MAX_CRON_GENERATION_CHANGED",
+        "system".to_string(),
+        format!("max_cron_generation set to {}", val),
+        None,
+        None,
+        None,
+    );
+
+    Ok(Json(serde_json::json!({ "value": val })))
+}
