@@ -81,6 +81,14 @@ impl StdioTransport {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
+        // Windows: prevent console windows from appearing for child processes
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
         // Inject environment variables (with shell variable expansion)
         for (key, value) in env {
             let resolved = resolve_env_value(value);
