@@ -1,7 +1,7 @@
 [project]
 name = "cloto-mcp-ks22"
 version = "0.1.0"
-description = "Cloto MCP Server: KS2.2 persistent memory with FTS5 search"
+description = "Cloto MCP Server: KS2.3 persistent memory with FTS5 search and anti-contamination"
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.0.0",

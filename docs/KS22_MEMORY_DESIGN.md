@@ -1,6 +1,6 @@
-# KS2.2 Memory System — MCP Server Design
+# KS2.3 Memory System — MCP Server Design
 
-> **Status:** Implemented (Phase 1-3 complete as of v0.4.15)
+> **Status:** Implemented (Phase 1-4 complete as of v0.5.9)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
 > **MCP Server ID:** `memory.ks22`
 > **Companion Server:** `memory.embedding` (pluggable vector embedding)
@@ -14,23 +14,24 @@
 | Version | Project | Storage | Search | Memory Extraction | Status |
 |---------|---------|---------|--------|-------------------|--------|
 | KS2.0/2.1 | ai_karin | SQLite (WAL, FTS5, vector) | FTS5 + cosine similarity + semantic cache | LLM-powered (DeepSeek Reasoner): profile extraction, episode archival | Reference implementation |
-| KS2.2 | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Current (Rust plugin) |
-| KS2.2 MCP | ClotoCore | Dedicated SQLite (`data/ks22_memory.db`) | FTS5 + vector (pluggable) | Planned (Phase 2) | **This design** |
+| KS2.2 | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Deprecated (Rust plugin) |
+| KS2.3 | ClotoCore | Dedicated SQLite (`data/ks22_memory.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) | **Current** |
 
-### 1.2 KS2.1 Capabilities Lost in KS2.2
+### 1.2 KS2.1 Capabilities Lost in KS2.2 (restored in KS2.3)
 
 KS2.2 was a deliberate simplification of KS2.1 for the initial ClotoCore port. The following
-capabilities were dropped:
+capabilities were dropped and subsequently restored in KS2.3:
 
-| Capability | KS2.1 | KS2.2 | Impact |
-|------------|-------|-------|--------|
-| **LLM Profile Extraction** | DeepSeek Reasoner parses conversation → extracts user facts → merges with existing memories | None | No automatic memory formation |
-| **Episode Archival** | Conversation summarization with keyword extraction → searchable episodes | None | No long-term conversation recall |
-| **FTS5 Full-Text Search** | SQLite FTS5 with per-word AND matching | `LIKE '%keyword%'` | Poor search quality |
-| **Vector Search** | MiniLM embeddings, cosine similarity on f32 vectors | None | No semantic understanding |
-| **Semantic Cache** | High-similarity (≥0.95) cache for instant responses | None | No fast-path retrieval |
-| **Background Task Queue** | DB-persisted task queue (`pending_memory_tasks`) with crash recovery | None | No async processing |
-| **Cross-Scope Sharing** | Per-user, per-guild memory with sharing controls | Per-agent flat store | No multi-scope memory |
+| Capability | KS2.1 | KS2.2 | KS2.3 | Impact |
+|------------|-------|-------|-------|--------|
+| **LLM Profile Extraction** | DeepSeek Reasoner | None | Cerebras (Phase 3) | Restored |
+| **Episode Archival** | Summarization + keywords | None | LLM-powered (Phase 3) | Restored |
+| **FTS5 Full-Text Search** | FTS5 AND matching | `LIKE '%keyword%'` | FTS5 (Phase 1) | Restored |
+| **Vector Search** | MiniLM, cosine similarity | None | Pluggable embedding (Phase 2) | Restored |
+| **Anti-Contamination** | None | None | Memory boundary markers, timestamp annotations, anti-hallucination guardrails (Phase 4) | **New in KS2.3** |
+| **Semantic Cache** | ≥0.95 similarity cache | None | None | Not yet restored |
+| **Background Task Queue** | DB-persisted with crash recovery | None | None | Not yet restored |
+| **Cross-Scope Sharing** | Per-user, per-guild | Per-agent flat store | Per-agent flat store | Not yet restored |
 
 ### 1.3 Design Goals
 
@@ -38,7 +39,8 @@ capabilities were dropped:
 2. **Prepare for KS2.1 memory extraction** — Schema supports profiles and episodes from day one
 3. **Dedicated storage** — Independent SQLite file, no dependency on kernel's plugin_data table
 4. **Pluggable embedding** — Decoupled from any specific model; provider selected via configuration
-5. **Lightweight footprint** — KS2.2 MCP server itself stays ~40MB; heavy models live elsewhere
+5. **Lightweight footprint** — KS2.3 MCP server itself stays ~40MB; heavy models live elsewhere
+6. **Anti-contamination** — Prevent memory-induced hallucination via temporal annotations and boundary markers
 
 ---
 
