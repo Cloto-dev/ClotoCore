@@ -180,7 +180,10 @@ impl EventProcessor {
             // Agentic loop はイベントループをブロックせず独立して実行される。
             // Per-agent Semaphore で同一エージェントへの並行処理を直列化。
             if let cloto_shared::ClotoEventData::MessageReceived(ref msg) = event.data {
-                if matches!(msg.source, cloto_shared::MessageSource::User { .. } | cloto_shared::MessageSource::System) {
+                if matches!(
+                    msg.source,
+                    cloto_shared::MessageSource::User { .. } | cloto_shared::MessageSource::System
+                ) {
                     let agent_id = msg
                         .target_agent
                         .clone()

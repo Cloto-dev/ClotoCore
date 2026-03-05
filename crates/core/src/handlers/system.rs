@@ -606,9 +606,10 @@ impl SystemHandler {
                         .get("parent_id")
                         .cloned()
                         .unwrap_or_else(|| msg.id.clone());
-                    let resp_branch = crate::db::get_next_branch_index(&self.pool, &response_parent)
-                        .await
-                        .unwrap_or(0);
+                    let resp_branch =
+                        crate::db::get_next_branch_index(&self.pool, &response_parent)
+                            .await
+                            .unwrap_or(0);
                     let agent_chat_msg = crate::db::ChatMessageRow {
                         id: resp_id,
                         agent_id: agent.id.clone(),
