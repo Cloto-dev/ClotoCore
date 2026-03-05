@@ -89,6 +89,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const initialLoadDone = useRef(false);
   const isScrolledToBottom = useRef(true);
   const sendTimestampRef = useRef<number>(0);
+  // Holds the correct parent_id during retry (null = not retrying)
+  const retryParentIdRef = useRef<string | null>(null);
   const artifactPanel = useArtifacts();
   const [activeBranches, setActiveBranches] = useState<Record<string, number>>({});
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
@@ -149,7 +151,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   // 1. 30s timeout while typing
   // 2. Page becoming visible again (user navigated away and back)
   const recoverTypingState = useCallback(async () => {
-    if (!isTyping) return;
+    if (!isTyping || retryParentIdRef.current) return;
     try {
       const { messages: latest } = await api.getChatMessages(agent.id, apiKey, undefined, 5);
       if (latest.length > 0 && latest[0].source === 'agent') {
@@ -307,12 +309,20 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       setIsTyping(false);
       setThinkingSteps([]);
       const msgId = event.data.source_message_id + "-resp";
+      const now = Date.now();
       const elapsedSecs = sendTimestampRef.current > 0
-        ? Math.round((Date.now() - sendTimestampRef.current) / 100) / 10
+        ? Math.round((now - sendTimestampRef.current) / 100) / 10
         : 0;
+      // Reset for next response in the agentic loop — measures per-message, not cumulative
+      sendTimestampRef.current = now;
+
+      // Use correct parent_id: retryParentIdRef during retry, otherwise SSE source
+      const sourceId = event.data.source_message_id;
+      const parentId = retryParentIdRef.current ?? sourceId;
+      // Clear retry guard so recoverTypingState can resume
+      retryParentIdRef.current = null;
 
       // If a previous typewriter is still running, finalize it immediately
-      const sourceId = event.data.source_message_id;
       setPendingResponse(prev => {
         if (prev) {
           const prevMsg: ChatMessage = {
@@ -321,11 +331,11 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             content: [{ type: 'text', text: prev.text }],
             metadata: { elapsed_secs: prev.elapsedSecs },
             created_at: Date.now(),
-            parent_id: sourceId,
+            parent_id: prev.parentId,
           };
           setMessages(msgs => [...msgs, prevMsg]);
         }
-        return { id: msgId, text: event.data.content, elapsedSecs, parentId: sourceId };
+        return { id: msgId, text: event.data.content, elapsedSecs, parentId };
       });
 
       // Agent response is persisted backend-side (system.rs) before SSE emission.
@@ -500,7 +510,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     }
   };
 
-  // Retry handler: re-generate agent response for a user message
+  // Retry handler: remove old response immediately, re-generate in place
   const handleRetry = async (agentResponseMsg: ChatMessage) => {
     if (isTyping || pendingResponse) return;
 
@@ -508,6 +518,9 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     const userMsgId = agentResponseMsg.parent_id
       ?? agentResponseMsg.id.replace(/-resp$/, '');
 
+    // Store correct parent_id for the new response (also acts as retry-in-progress guard)
+    retryParentIdRef.current = userMsgId;
+    setMessages(prev => prev.filter(m => m.id !== agentResponseMsg.id));
     setIsTyping(true);
     setThinkingSteps([]);
     sendTimestampRef.current = Date.now();
@@ -516,6 +529,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     try {
       await api.retryResponse(agent.id, userMsgId, apiKey);
     } catch (err) {
+      setMessages(prev => [...prev, agentResponseMsg]);
+      retryParentIdRef.current = null;
       setIsTyping(false);
       console.error('Failed to retry response:', err);
     }
@@ -630,7 +645,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                         )}
                         <button
                           onClick={() => speakText(msg.content as ContentBlock[])}
-                          className="p-1 rounded hover:bg-glass text-content-muted hover:text-brand transition-colors opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
                           title="Read aloud"
                         >
                           <Volume2 size={12} />
@@ -638,7 +653,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                         {!isTyping && !pendingResponse && (
                           <button
                             onClick={() => handleRetry(msg)}
-                            className="p-1 rounded hover:bg-glass text-content-muted hover:text-brand transition-colors opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
                             title="Retry response"
                           >
                             <RetryIcon size={12} />
