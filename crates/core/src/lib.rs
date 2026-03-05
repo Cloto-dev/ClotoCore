@@ -184,9 +184,16 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     info!("+---------------------------------------+");
 
     let config = AppConfig::load()?;
+    // H-06: Mask DB path in logs (show filename only, not full path)
+    let db_display = config
+        .database_url
+        .rsplit_once('/')
+        .or_else(|| config.database_url.rsplit_once('\\'))
+        .map(|(_, name)| name)
+        .unwrap_or("***");
     info!(
-        "📍 Loaded Config: DB_URL={}, DEFAULT_AGENT={}",
-        config.database_url, config.default_agent_id
+        "📍 Loaded Config: DB={}, DEFAULT_AGENT={}",
+        db_display, config.default_agent_id
     );
 
     // Principle #5: Warn if admin API key is missing in release builds
@@ -229,7 +236,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // 1. データベースの初期化
     use sqlx::sqlite::SqliteConnectOptions;
     use std::str::FromStr;
-    let opts = SqliteConnectOptions::from_str(&config.database_url)?.create_if_missing(true);
+    let opts = SqliteConnectOptions::from_str(&config.database_url)?
+        .create_if_missing(true)
+        .pragma("foreign_keys", "ON");
     let pool = sqlx::SqlitePool::connect_with(opts).await?;
     db::init_db(&pool, &config.database_url).await?;
 
