@@ -72,6 +72,11 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+  .no-focus-ring:focus,
+  .no-focus-ring:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
 }
 
 /* Neural Cursor Active state to force hide native cursors on all interactive elements */

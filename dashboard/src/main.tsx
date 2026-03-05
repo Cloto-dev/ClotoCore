@@ -67,7 +67,7 @@ function App() {
   if (!connected) {
     return (
       <div className="min-h-screen bg-surface-base flex flex-col items-center justify-center select-none">
-        <h1 className="text-4xl font-black tracking-[0.2em] text-content-primary animate-pulse">
+        <h1 className="text-4xl font-black tracking-[0.2em] text-content-primary">
           CLOTO SYSTEM
         </h1>
         <div className="mt-6 h-6 flex items-center justify-center">
