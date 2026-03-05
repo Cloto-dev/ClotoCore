@@ -35,6 +35,7 @@ async fn test_system_handler_loop_prevention() {
         Arc::new(dashmap::DashMap::new()),
         Arc::new(dashmap::DashMap::new()),
         pool,
+        Arc::new(dashmap::DashMap::new()),
     );
 
     // Test User Message → triggers handle_message (agentic loop).

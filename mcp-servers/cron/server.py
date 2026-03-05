@@ -83,6 +83,8 @@ async def do_create_cron_job(args: dict) -> dict:
         payload["engine_id"] = args["engine_id"]
     if args.get("max_iterations") is not None:
         payload["max_iterations"] = args["max_iterations"]
+    if args.get("hide_prompt"):
+        payload["hide_prompt"] = True
 
     return await _api_post("/api/cron/jobs", payload)
 
@@ -180,6 +182,15 @@ async def list_tools() -> list[Tool]:
                         "type": "integer",
                         "description": "Max conversation turns per execution (default: 8)",
                         "default": 8,
+                    },
+                    "hide_prompt": {
+                        "type": "boolean",
+                        "description": (
+                            "Agent-speak mode: if true, the cron prompt is hidden from chat "
+                            "and only the agent's response is displayed. "
+                            "Default: false (prompt shown as user message)."
+                        ),
+                        "default": False,
                     },
                 },
                 "required": ["agent_id", "name", "schedule_type", "schedule_value", "message"],

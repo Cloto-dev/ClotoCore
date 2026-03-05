@@ -54,9 +54,28 @@ pub async fn create_cron_job(
         crate::managers::scheduler::calculate_initial_next_run(schedule_type, schedule_value)
             .map_err(|e| AppError::Validation(e.to_string()))?;
 
+    // CRON recursion depth check: if called from within a cron execution context,
+    // enforce generation limit (kernel auto-sets generation, ignoring any LLM-provided value)
+    let cron_generation = if let Some(ctx) = state.active_cron_contexts.get(&agent_id.to_string()) {
+        let child_gen = ctx.generation + 1;
+        let max_gen = state
+            .max_cron_generation
+            .load(std::sync::atomic::Ordering::Relaxed) as i32;
+        if child_gen > max_gen {
+            return Err(AppError::Validation(format!(
+                "CRON recursion depth limit exceeded (generation {} > max {})",
+                child_gen, max_gen
+            )));
+        }
+        child_gen
+    } else {
+        0
+    };
+
     let job_id = format!("cron.{}.{}", agent_id, cloto_shared::ClotoId::new());
     let engine_id = payload["engine_id"].as_str().map(String::from);
     let max_iterations = payload["max_iterations"].as_i64().map(|v| v as i32);
+    let hide_prompt = payload["hide_prompt"].as_bool().unwrap_or(false);
 
     let job = crate::db::CronJobRow {
         id: job_id.clone(),
@@ -73,6 +92,8 @@ pub async fn create_cron_job(
         last_error: None,
         max_iterations: max_iterations.or(Some(8)),
         created_at: String::new(), // set by DB default
+        hide_prompt,
+        cron_generation,
     };
 
     crate::db::create_cron_job(&state.pool, &job)
@@ -144,6 +165,9 @@ pub async fn run_cron_job_now(
     if let Some(ref engine_id) = job.engine_id {
         metadata.insert("engine_override".into(), engine_id.clone());
     }
+    if job.hide_prompt {
+        metadata.insert("skip_user_persist".into(), "true".into());
+    }
 
     let msg = cloto_shared::ClotoMessage {
         id: cloto_shared::ClotoId::new().to_string(),
@@ -164,5 +188,24 @@ pub async fn run_cron_job_now(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to dispatch: {}", e)))?;
 
     info!(job_id = %job_id, "Cron job manually triggered");
+
+    // Audit log for hidden-prompt cron jobs (observability guarantee)
+    if job.hide_prompt {
+        super::spawn_admin_audit(
+            state.pool.clone(),
+            "CRON_HIDDEN_DISPATCH",
+            job.agent_id.clone(),
+            format!("Cron job '{}' manually dispatched with hide_prompt", job.name),
+            None,
+            Some(serde_json::json!({
+                "job_id": job.id,
+                "message": job.message,
+                "generation": job.cron_generation,
+                "source": "manual",
+            })),
+            None,
+        );
+    }
+
     Ok(Json(serde_json::json!({ "status": "dispatched" })))
 }

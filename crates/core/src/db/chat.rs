@@ -14,6 +14,8 @@ pub struct ChatMessageRow {
     pub content: String, // JSON string of ContentBlock[]
     pub metadata: Option<String>,
     pub created_at: i64,
+    pub parent_id: Option<String>,
+    pub branch_index: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -33,8 +35,8 @@ pub struct AttachmentRow {
 /// Save a chat message to the database
 pub async fn save_chat_message(pool: &SqlitePool, msg: &ChatMessageRow) -> anyhow::Result<()> {
     let query_future = sqlx::query(
-        "INSERT INTO chat_messages (id, agent_id, user_id, source, content, metadata, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO chat_messages (id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&msg.id)
     .bind(&msg.agent_id)
@@ -43,6 +45,8 @@ pub async fn save_chat_message(pool: &SqlitePool, msg: &ChatMessageRow) -> anyho
     .bind(&msg.content)
     .bind(&msg.metadata)
     .bind(msg.created_at)
+    .bind(&msg.parent_id)
+    .bind(msg.branch_index)
     .execute(pool);
 
     db_timeout(query_future).await?;
@@ -51,7 +55,7 @@ pub async fn save_chat_message(pool: &SqlitePool, msg: &ChatMessageRow) -> anyho
 }
 
 /// Row type returned by chat message queries.
-type ChatMessageTuple = (String, String, String, String, String, Option<String>, i64);
+type ChatMessageTuple = (String, String, String, String, String, Option<String>, i64, Option<String>, i32);
 
 /// Get chat messages with cursor-based pagination (ordered by created_at DESC)
 pub async fn get_chat_messages(
@@ -65,7 +69,7 @@ pub async fn get_chat_messages(
 
     let rows: Vec<ChatMessageTuple> = if let Some(before) = before_ts {
         let query_future = sqlx::query_as::<_, ChatMessageTuple>(
-            "SELECT id, agent_id, user_id, source, content, metadata, created_at
+            "SELECT id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index
              FROM chat_messages
              WHERE agent_id = ? AND user_id = ? AND created_at < ?
              ORDER BY created_at DESC
@@ -80,7 +84,7 @@ pub async fn get_chat_messages(
         db_timeout(query_future).await?
     } else {
         let query_future = sqlx::query_as::<_, ChatMessageTuple>(
-            "SELECT id, agent_id, user_id, source, content, metadata, created_at
+            "SELECT id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index
              FROM chat_messages
              WHERE agent_id = ? AND user_id = ?
              ORDER BY created_at DESC
@@ -97,7 +101,7 @@ pub async fn get_chat_messages(
     let messages = rows
         .into_iter()
         .map(
-            |(id, agent_id, user_id, source, content, metadata, created_at)| ChatMessageRow {
+            |(id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index)| ChatMessageRow {
                 id,
                 agent_id,
                 user_id,
@@ -105,11 +109,59 @@ pub async fn get_chat_messages(
                 content,
                 metadata,
                 created_at,
+                parent_id,
+                branch_index,
             },
         )
         .collect();
 
     Ok(messages)
+}
+
+/// Get the next available branch_index for a given parent_id
+pub async fn get_next_branch_index(pool: &SqlitePool, parent_id: &str) -> anyhow::Result<i32> {
+    let row: Option<(i32,)> = db_timeout(
+        sqlx::query_as::<_, (i32,)>(
+            "SELECT COALESCE(MAX(branch_index), -1) FROM chat_messages WHERE parent_id = ?",
+        )
+        .bind(parent_id)
+        .fetch_optional(pool),
+    )
+    .await?;
+
+    Ok(row.map_or(0, |(max,)| max + 1))
+}
+
+/// Get a single chat message by ID
+pub async fn get_chat_message_by_id(
+    pool: &SqlitePool,
+    message_id: &str,
+) -> anyhow::Result<Option<ChatMessageRow>> {
+    let row: Option<ChatMessageTuple> = db_timeout(
+        sqlx::query_as::<_, ChatMessageTuple>(
+            "SELECT id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index
+             FROM chat_messages WHERE id = ?",
+        )
+        .bind(message_id)
+        .fetch_optional(pool),
+    )
+    .await?;
+
+    Ok(row.map(
+        |(id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index)| {
+            ChatMessageRow {
+                id,
+                agent_id,
+                user_id,
+                source,
+                content,
+                metadata,
+                created_at,
+                parent_id,
+                branch_index,
+            }
+        },
+    ))
 }
 
 /// Delete all chat messages (and cascade to attachments) for an agent/user pair

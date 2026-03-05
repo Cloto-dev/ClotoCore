@@ -1,0 +1,1 @@
+ALTER TABLE cron_jobs ADD COLUMN cron_generation INTEGER NOT NULL DEFAULT 0;

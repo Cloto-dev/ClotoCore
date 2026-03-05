@@ -159,6 +159,7 @@ pub struct SystemHandler {
     pending_approvals: PendingApprovals,
     session_trusted_commands: SessionTrustedCommands,
     pool: SqlitePool,
+    active_cron_contexts: crate::ActiveCronContexts,
 }
 
 impl SystemHandler {
@@ -176,6 +177,7 @@ impl SystemHandler {
         pending_approvals: PendingApprovals,
         session_trusted_commands: SessionTrustedCommands,
         pool: SqlitePool,
+        active_cron_contexts: crate::ActiveCronContexts,
     ) -> Self {
         Self {
             registry,
@@ -190,6 +192,7 @@ impl SystemHandler {
             pending_approvals,
             session_trusted_commands,
             pool,
+            active_cron_contexts,
         }
     }
 
@@ -200,6 +203,23 @@ impl SystemHandler {
             .clone()
             .or_else(|| msg.metadata.get("target_agent_id").cloned())
             .unwrap_or_else(|| self.default_agent_id.clone());
+
+        // Set active cron context if this message was dispatched by a cron job
+        let cron_context_key = if let Some(cron_job_id) = msg.metadata.get("cron_job_id") {
+            let generation = crate::db::get_cron_job_generation(&self.pool, cron_job_id)
+                .await
+                .unwrap_or(0);
+            self.active_cron_contexts.insert(
+                target_agent_id.clone(),
+                crate::CronExecContext {
+                    job_id: cron_job_id.clone(),
+                    generation,
+                },
+            );
+            Some(target_agent_id.clone())
+        } else {
+            None
+        };
 
         // 1. エージェント情報の取得
         let (agent, default_engine_id) = self
@@ -221,20 +241,36 @@ impl SystemHandler {
 
         // Persist user message to chat history (backend-side persistence)
         let now_ms = chrono::Utc::now().timestamp_millis();
-        let user_chat_msg = crate::db::ChatMessageRow {
-            id: msg.id.clone(),
-            agent_id: target_agent_id.clone(),
-            user_id: "default".to_string(),
-            source: "user".to_string(),
-            content: serde_json::to_string(
-                &serde_json::json!([{"type": "text", "text": &msg.content}]),
-            )
-            .unwrap_or_default(),
-            metadata: None,
-            created_at: now_ms,
-        };
-        if let Err(e) = crate::db::save_chat_message(&self.pool, &user_chat_msg).await {
-            warn!("Failed to persist user message: {}", e);
+        let skip_user_persist = msg
+            .metadata
+            .get("skip_user_persist")
+            .map_or(false, |v| v == "true");
+
+        if !skip_user_persist {
+            let parent_id = msg.metadata.get("parent_id").cloned();
+            let branch_index = msg
+                .metadata
+                .get("branch_index")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+
+            let user_chat_msg = crate::db::ChatMessageRow {
+                id: msg.id.clone(),
+                agent_id: target_agent_id.clone(),
+                user_id: "default".to_string(),
+                source: "user".to_string(),
+                content: serde_json::to_string(
+                    &serde_json::json!([{"type": "text", "text": &msg.content}]),
+                )
+                .unwrap_or_default(),
+                metadata: None,
+                created_at: now_ms,
+                parent_id,
+                branch_index,
+            };
+            if let Err(e) = crate::db::save_chat_message(&self.pool, &user_chat_msg).await {
+                warn!("Failed to persist user message: {}", e);
+            }
         }
 
         // 1-B. Image Analysis: analyze attached images before routing to engine
@@ -564,6 +600,15 @@ impl SystemHandler {
 
                     // Persist agent response to chat history (backend-side)
                     let resp_id = format!("{}-resp", msg.id);
+                    // For retry: metadata["parent_id"] overrides default parent (the user msg ID)
+                    let response_parent = msg
+                        .metadata
+                        .get("parent_id")
+                        .cloned()
+                        .unwrap_or_else(|| msg.id.clone());
+                    let resp_branch = crate::db::get_next_branch_index(&self.pool, &response_parent)
+                        .await
+                        .unwrap_or(0);
                     let agent_chat_msg = crate::db::ChatMessageRow {
                         id: resp_id,
                         agent_id: agent.id.clone(),
@@ -575,6 +620,8 @@ impl SystemHandler {
                         .unwrap_or_default(),
                         metadata: None,
                         created_at: chrono::Utc::now().timestamp_millis(),
+                        parent_id: Some(response_parent),
+                        branch_index: resp_branch,
                     };
                     if let Err(e) = crate::db::save_chat_message(&self.pool, &agent_chat_msg).await
                     {
@@ -613,6 +660,15 @@ impl SystemHandler {
 
                     // Persist error response to chat history
                     let err_resp_id = format!("{}-resp", msg.id);
+                    let err_response_parent = msg
+                        .metadata
+                        .get("parent_id")
+                        .cloned()
+                        .unwrap_or_else(|| msg.id.clone());
+                    let err_resp_branch =
+                        crate::db::get_next_branch_index(&self.pool, &err_response_parent)
+                            .await
+                            .unwrap_or(0);
                     let err_chat_msg = crate::db::ChatMessageRow {
                         id: err_resp_id,
                         agent_id: agent.id.clone(),
@@ -624,6 +680,8 @@ impl SystemHandler {
                         .unwrap_or_default(),
                         metadata: None,
                         created_at: chrono::Utc::now().timestamp_millis(),
+                        parent_id: Some(err_response_parent),
+                        branch_index: err_resp_branch,
                     };
                     let _ = crate::db::save_chat_message(&self.pool, &err_chat_msg).await;
 
@@ -735,6 +793,11 @@ impl SystemHandler {
             tokio::spawn(async move {
                 Self::maybe_archive_episode(&ep_mcp, &ep_server_id, &ep_agent_id).await;
             });
+        }
+
+        // Clear active cron context
+        if let Some(ref agent_key) = cron_context_key {
+            self.active_cron_contexts.remove(agent_key);
         }
 
         Ok(())

@@ -1,12 +1,19 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Send, Plus, Mic, MicOff, X } from 'lucide-react';
 import { ContentBlock, McpServerInfo } from '../types';
 import { EngineSelector } from './EngineSelector';
+
+interface EditMode {
+  messageId: string;
+  initialContent: string;
+  onCancel: () => void;
+}
 
 interface ChatInputBarProps {
   onSend: (blocks: ContentBlock[], rawText: string, engineOverride: string | null) => void;
   disabled: boolean;
   servers?: McpServerInfo[];
+  editMode?: EditMode | null;
 }
 
 interface PendingAttachment {
@@ -15,7 +22,7 @@ interface PendingAttachment {
   dataUrl: string;
 }
 
-export function ChatInputBar({ onSend, disabled, servers = [] }: ChatInputBarProps) {
+export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatInputBarProps) {
   const [input, setInput] = useState('');
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -23,6 +30,15 @@ export function ChatInputBar({ onSend, disabled, servers = [] }: ChatInputBarPro
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Prefill input when entering edit mode
+  useEffect(() => {
+    if (editMode) {
+      setInput(editMode.initialContent);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [editMode?.messageId]);
 
   const handleSend = () => {
     if ((!input.trim() && !attachment) || disabled) return;
@@ -180,15 +196,31 @@ export function ChatInputBar({ onSend, disabled, servers = [] }: ChatInputBarPro
 
         {/* Text input */}
         <input
+          ref={inputRef}
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSend();
+            if (e.key === 'Escape' && editMode) editMode.onCancel();
+          }}
           onPaste={handlePaste}
           disabled={disabled}
-          placeholder={disabled ? "PROCESSING..." : "ENTER COMMAND..."}
-          className="flex-1 bg-surface-primary border border-edge rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none focus:border-brand transition-colors placeholder:text-content-muted disabled:opacity-50 shadow-inner"
+          placeholder={editMode ? "EDIT MESSAGE..." : disabled ? "PROCESSING..." : "ENTER COMMAND..."}
+          className="flex-1 bg-surface-primary border rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none transition-colors placeholder:text-content-muted disabled:opacity-50 shadow-inner border-edge focus:border-brand"
+          style={editMode ? { borderColor: '#fbbf24' } : undefined}
         />
+
+        {/* Cancel edit button */}
+        {editMode && (
+          <button
+            onClick={editMode.onCancel}
+            className="absolute right-12 p-1.5 text-content-tertiary hover:text-red-400 transition-colors"
+            title="Cancel edit"
+          >
+            <X size={14} />
+          </button>
+        )}
 
         {/* Send button */}
         <button

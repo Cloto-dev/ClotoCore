@@ -112,6 +112,7 @@ async fn test_dynamic_permission_elevation_flow() {
         Arc::new(dashmap::DashMap::new()),
         Arc::new(dashmap::DashMap::new()),
         pool.clone(),
+        Arc::new(dashmap::DashMap::new()),
     ));
 
     let processor = EventProcessor::new(
