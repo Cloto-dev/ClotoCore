@@ -69,6 +69,9 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
         if let Some(max_iter) = job.max_iterations {
             metadata.insert("max_iterations_override".into(), max_iter.to_string());
         }
+        if job.hide_prompt {
+            metadata.insert("skip_user_persist".into(), "true".into());
+        }
 
         let msg = ClotoMessage {
             id: ClotoId::new().to_string(),
@@ -108,6 +111,28 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
             name = %job.name,
             "Cron job dispatched"
         );
+
+        // Audit log for hidden-prompt cron jobs (observability guarantee)
+        if job.hide_prompt {
+            crate::db::spawn_audit_log(
+                pool.clone(),
+                crate::db::AuditLogEntry {
+                    timestamp: Utc::now(),
+                    event_type: "CRON_HIDDEN_DISPATCH".into(),
+                    actor_id: Some("scheduler".into()),
+                    target_id: Some(job.agent_id.clone()),
+                    permission: None,
+                    result: "dispatched".into(),
+                    reason: format!("Cron job '{}' dispatched with hide_prompt", job.name),
+                    metadata: Some(serde_json::json!({
+                        "job_id": job.id,
+                        "message": job.message,
+                        "generation": job.cron_generation,
+                    })),
+                    trace_id: None,
+                },
+            );
+        }
 
         // Calculate next run and update job status
         let (next_run, still_enabled) = calculate_next_run(job, now_ms);

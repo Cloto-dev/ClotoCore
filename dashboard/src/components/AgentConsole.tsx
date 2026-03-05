@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Activity, Zap, User as UserIcon, RotateCcw, ArrowLeft, Volume2 } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Activity, Zap, User as UserIcon, RotateCcw, ArrowLeft, Volume2, Pencil, RotateCcw as RetryIcon } from 'lucide-react';
 import { AgentMetadata, ClotoMessage, ChatMessage, ContentBlock, CommandApprovalRequest, McpServerInfo } from '../types';
 import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
@@ -7,6 +7,7 @@ import { useLongPress } from '../hooks/useLongPress';
 import { MessageContent } from './ContentBlockView';
 import { ChatInputBar } from './ChatInputBar';
 import { CommandApprovalCard } from './CommandApprovalCard';
+import { BranchNavigator } from './BranchNavigator';
 import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { useMcpServers } from '../hooks/useMcpServers';
@@ -15,6 +16,7 @@ import { TypewriterMessage } from './TypewriterMessage';
 import { ArtifactPanel } from './ArtifactPanel';
 import { useArtifacts } from '../hooks/useArtifacts';
 import { sendNativeNotification } from '../lib/notifications';
+import { flattenConversation, findBranchPoints } from '../lib/conversationTree';
 
 // Legacy localStorage key prefix for migration
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
@@ -78,7 +80,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const [isLoading, setIsLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [pendingResponse, setPendingResponse] = useState<{ id: string; text: string; elapsedSecs: number } | null>(null);
+  const [pendingResponse, setPendingResponse] = useState<{ id: string; text: string; elapsedSecs: number; parentId?: string } | null>(null);
   const [thinkingSteps, setThinkingSteps] = useState<Array<{ id: number; icon: string; text: string; ts: number }>>([]);
   const [pendingApprovals, setPendingApprovals] = useState<CommandApprovalRequest[]>([]);
   const thinkingIdRef = useRef(0);
@@ -88,6 +90,18 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const isScrolledToBottom = useRef(true);
   const sendTimestampRef = useRef<number>(0);
   const artifactPanel = useArtifacts();
+  const [activeBranches, setActiveBranches] = useState<Record<string, number>>({});
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+
+  // Flatten branching conversation to linear display
+  const displayMessages = useMemo(
+    () => flattenConversation(messages, activeBranches),
+    [messages, activeBranches],
+  );
+  const branchPoints = useMemo(
+    () => findBranchPoints(messages, activeBranches),
+    [messages, activeBranches],
+  );
 
   // Resolve agent's granted mind.* servers for engine selector
   useEffect(() => {
@@ -298,6 +312,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         : 0;
 
       // If a previous typewriter is still running, finalize it immediately
+      const sourceId = event.data.source_message_id;
       setPendingResponse(prev => {
         if (prev) {
           const prevMsg: ChatMessage = {
@@ -306,10 +321,11 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             content: [{ type: 'text', text: prev.text }],
             metadata: { elapsed_secs: prev.elapsedSecs },
             created_at: Date.now(),
+            parent_id: sourceId,
           };
           setMessages(msgs => [...msgs, prevMsg]);
         }
-        return { id: msgId, text: event.data.content, elapsedSecs };
+        return { id: msgId, text: event.data.content, elapsedSecs, parentId: sourceId };
       });
 
       // Agent response is persisted backend-side (system.rs) before SSE emission.
@@ -326,6 +342,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         content: [{ type: 'text', text: prev.text }],
         metadata: { elapsed_secs: prev.elapsedSecs },
         created_at: Date.now(),
+        parent_id: prev.parentId,
       };
       setMessages(msgs => [...msgs, agentMsg]);
       return null;
@@ -409,11 +426,98 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         target_agent: agent.id,
         content: `Use the speak tool to say aloud: ${text}`,
         timestamp: new Date().toISOString(),
-        metadata: { target_agent_id: agent.id, tool_hint: 'speak' }
+        metadata: { target_agent_id: agent.id, tool_hint: 'speak', skip_user_persist: 'true' }
       };
       await api.postChat(clotoMsg, apiKey);
     } catch (err) {
       console.error('TTS request failed:', err);
+    }
+  };
+
+  // Edit handler: resend edited user message as a new branch
+  const handleEditMessage = async (blocks: ContentBlock[], rawText: string, engineOverride: string | null) => {
+    if (!editingMessage || isTyping || pendingResponse) return;
+
+    const text = rawText?.trim() || '';
+    const contentBlocks = blocks?.length ? blocks : (text ? [{ type: 'text' as const, text }] : []);
+    if (contentBlocks.length === 0) return;
+
+    const now = Date.now();
+    const editId = `edit-${now}`;
+    const parentId = editingMessage.parent_id ?? undefined;
+
+    // Count existing siblings to determine branch_index
+    const siblingCount = messages.filter(
+      m => m.parent_id === parentId && m.source === 'user'
+    ).length;
+
+    const userMsg: ChatMessage = {
+      id: editId,
+      agent_id: agent.id,
+      user_id: 'default',
+      source: 'user',
+      content: contentBlocks,
+      created_at: now,
+      parent_id: parentId,
+      branch_index: siblingCount,
+    };
+
+    setMessages(prev => [...prev, userMsg]);
+    setEditingMessage(null);
+    setIsTyping(true);
+    setThinkingSteps([]);
+    sendTimestampRef.current = now;
+    artifactPanel.clearArtifacts();
+
+    // Update active branch to show the new edit
+    if (parentId) {
+      setActiveBranches(prev => ({ ...prev, [parentId + ':user']: siblingCount }));
+    }
+
+    const textContent = contentBlocks
+      .filter(b => b.type === 'text')
+      .map(b => b.text || '')
+      .join(' ');
+
+    try {
+      const clotoMsg: ClotoMessage = {
+        id: editId,
+        source: { type: 'User', id: 'user', name: 'User' },
+        target_agent: agent.id,
+        content: textContent || '[attachment]',
+        timestamp: new Date().toISOString(),
+        metadata: {
+          target_agent_id: agent.id,
+          ...(parentId ? { parent_id: parentId, branch_index: String(siblingCount) } : {}),
+          ...(engineOverride ? { engine_override: engineOverride } : {}),
+        }
+      };
+      await api.postChat(clotoMsg, apiKey);
+    } catch (err) {
+      setMessages(prev => prev.filter(m => m.id !== editId));
+      setIsTyping(false);
+      console.error('Failed to send edited message:', err);
+    }
+  };
+
+  // Retry handler: re-generate agent response for a user message
+  const handleRetry = async (agentResponseMsg: ChatMessage) => {
+    if (isTyping || pendingResponse) return;
+
+    // Find the user message this response was generated from
+    const userMsgId = agentResponseMsg.parent_id
+      ?? agentResponseMsg.id.replace(/-resp$/, '');
+
+    setIsTyping(true);
+    setThinkingSteps([]);
+    sendTimestampRef.current = Date.now();
+    artifactPanel.clearArtifacts();
+
+    try {
+      await api.retryResponse(agent.id, userMsgId, apiKey);
+    } catch (err) {
+      setIsTyping(false);
+      console.error('Failed to retry response:', err);
     }
   };
 
@@ -422,6 +526,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     setIsTyping(false);
     setPendingResponse(null);
     setHasMore(false);
+    setActiveBranches({});
+    setEditingMessage(null);
     initialLoadDone.current = false;
     artifactPanel.clearArtifacts();
     try {
@@ -461,7 +567,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       {/* Chat column */}
       <div className="flex flex-col flex-1 min-w-0">
       {/* Message Stream */}
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
+      <div ref={scrollRef} onScroll={handleScroll} onClick={() => editingMessage && setEditingMessage(null)} className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
         {/* Sentinel for lazy loading older messages */}
         {hasMore && <div ref={sentinelRef} className="h-1" />}
         {isLoadingMore && (
@@ -475,59 +581,98 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             <Activity size={24} className="animate-pulse" />
             <p className="text-[10px] font-mono tracking-[0.2em] uppercase">Loading session...</p>
           </div>
-        ) : messages.length === 0 && !pendingResponse && !isTyping ? (
+        ) : displayMessages.length === 0 && !pendingResponse && !isTyping ? (
           <div className="h-full flex flex-col items-center justify-center text-content-muted space-y-4">
             <Zap size={32} strokeWidth={1} className="opacity-20" />
             <p className="text-[10px] font-mono tracking-[0.2em] uppercase">Ready for instructions</p>
           </div>
         ) : (
-          messages.map((msg) => {
+          displayMessages.map((msg) => {
             const isUser = msg.source === 'user';
             const firstText = Array.isArray(msg.content) ? msg.content.find(b => b.type === 'text')?.text || '' : '';
             const isError = !isUser && firstText.startsWith('[Error]');
+            // Check if this message's parent has branch siblings
+            const branchKey = msg.parent_id ? msg.parent_id + ':' + msg.source : null;
+            const branch = branchKey ? branchPoints.get(branchKey) : undefined;
             return (
-              <div key={msg.id} className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm overflow-hidden ${
-                  isUser ? 'bg-surface-primary border border-edge-subtle text-content-tertiary'
-                  : isError ? 'bg-amber-500/20 text-amber-500'
-                  : 'text-white'
-                }`} style={!isUser && !isError ? { backgroundColor: agentColor(agent) } : undefined}>
-                  {isUser ? <UserIcon size={14} />
-                   : isError ? <Activity size={14} />
-                   : <AgentIcon agent={agent} size={32} />}
-                </div>
-                <div className={`max-w-[80%] text-base leading-7 select-text ${
-                  isUser
-                    ? 'p-4 rounded-2xl rounded-tr-none shadow-sm bg-surface-primary text-content-primary'
-                    : isError
-                    ? 'p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-amber-200 text-sm'
-                    : 'pt-1 text-content-primary'
-                }`}>
-                  {isError ? (
-                    <div className="space-y-1">
-                      <div className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Engine Error</div>
-                      <div className="text-xs text-content-secondary whitespace-pre-line">{firstText.replace(/^\[Error\]\s*/, '')}</div>
-                    </div>
-                  ) : (
-                    <MessageContent content={msg.content} />
+              <div key={msg.id}>
+                <div className={`group flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm overflow-hidden ${
+                    isUser ? 'bg-surface-primary border border-edge-subtle text-content-tertiary'
+                    : isError ? 'bg-amber-500/20 text-amber-500'
+                    : 'text-white'
+                  }`} style={!isUser && !isError ? { backgroundColor: agentColor(agent) } : undefined}>
+                    {isUser ? <UserIcon size={14} />
+                     : isError ? <Activity size={14} />
+                     : <AgentIcon agent={agent} size={32} />}
+                  </div>
+                  <div className={`max-w-[80%] text-base leading-7 select-text ${
+                    isUser
+                      ? 'p-4 rounded-2xl rounded-tr-none shadow-sm bg-surface-primary text-content-primary'
+                      : isError
+                      ? 'p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-amber-200 text-sm'
+                      : 'pt-1 text-content-primary'
+                  }`}>
+                    {isError ? (
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Engine Error</div>
+                        <div className="text-xs text-content-secondary whitespace-pre-line">{firstText.replace(/^\[Error\]\s*/, '')}</div>
+                      </div>
+                    ) : (
+                      <MessageContent content={msg.content} />
+                    )}
+                    {!isUser && !isError && (
+                      <div className="mt-2 flex items-center gap-2">
+                        {msg.metadata?.elapsed_secs != null && (
+                          <span className="text-xs font-mono text-content-tertiary">
+                            {msg.metadata.elapsed_secs}s
+                          </span>
+                        )}
+                        <button
+                          onClick={() => speakText(msg.content as ContentBlock[])}
+                          className="p-1 rounded hover:bg-glass text-content-muted hover:text-brand transition-colors opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Read aloud"
+                        >
+                          <Volume2 size={12} />
+                        </button>
+                        {!isTyping && !pendingResponse && (
+                          <button
+                            onClick={() => handleRetry(msg)}
+                            className="p-1 rounded hover:bg-glass text-content-muted hover:text-brand transition-colors opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Retry response"
+                          >
+                            <RetryIcon size={12} />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {/* Edit button — outside bubble, to the left of user messages */}
+                  {isUser && !isTyping && !pendingResponse && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditingMessage(msg); }}
+                      className="self-start mt-1 p-1.5 rounded-full hover:bg-glass text-content-primary/40 hover:text-brand transition-all shrink-0"
+                      title="Edit message"
+                    >
+                      <Pencil size={13} />
+                    </button>
                   )}
-                  {!isUser && !isError && (
-                    <div className="mt-2 flex items-center gap-2">
-                      {msg.metadata?.elapsed_secs != null && (
-                        <span className="text-xs font-mono text-content-tertiary">
-                          {msg.metadata.elapsed_secs}s
-                        </span>
-                      )}
-                      <button
-                        onClick={() => speakText(msg.content as ContentBlock[])}
-                        className="p-1 rounded hover:bg-glass text-content-muted hover:text-brand transition-colors"
-                        title="Read aloud"
-                      >
-                        <Volume2 size={12} />
-                      </button>
-                    </div>
-                  )}
                 </div>
+                {/* Branch navigator */}
+                {branch && (
+                  <div className={`flex ${isUser ? 'justify-end mr-11' : 'ml-11'}`}>
+                    <BranchNavigator
+                      count={branch.count}
+                      activeIndex={branch.activeIndex}
+                      indices={branch.indices}
+                      onNavigate={(idx) => {
+                        if (branchKey) {
+                          setActiveBranches(prev => ({ ...prev, [branchKey]: idx }));
+                        }
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             );
           })
@@ -592,9 +737,22 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
       {/* Input Area */}
       <ChatInputBar
-        onSend={(blocks, rawText, engineOverride) => sendMessage(blocks, rawText, engineOverride)}
+        onSend={(blocks, rawText, engineOverride) => {
+          if (editingMessage) {
+            handleEditMessage(blocks, rawText, engineOverride);
+          } else {
+            sendMessage(blocks, rawText, engineOverride);
+          }
+        }}
         disabled={isTyping || !!pendingResponse}
         servers={agentEngines}
+        editMode={editingMessage ? {
+          messageId: editingMessage.id,
+          initialContent: Array.isArray(editingMessage.content)
+            ? editingMessage.content.filter(b => b.type === 'text').map(b => b.text || '').join(' ')
+            : '',
+          onCancel: () => setEditingMessage(null),
+        } : null}
       />
       </div>{/* end chat column */}
 

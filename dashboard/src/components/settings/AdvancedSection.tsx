@@ -8,12 +8,16 @@ export function AdvancedSection() {
   const { apiKey } = useApiKey();
   const [yoloEnabled, setYoloEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [maxCronGen, setMaxCronGen] = useState(2);
 
   useEffect(() => {
     api.fetchJson<{ enabled: boolean }>('/settings/yolo', apiKey)
       .then(data => setYoloEnabled(data.enabled))
       .catch(() => {})
       .finally(() => setLoading(false));
+    api.fetchJson<{ value: number }>('/settings/max-cron-generation', apiKey)
+      .then(data => setMaxCronGen(data.value))
+      .catch(() => {});
   }, [apiKey]);
 
   const handleToggle = async () => {
@@ -23,6 +27,16 @@ export function AdvancedSection() {
       setYoloEnabled(next);
     } catch (err) {
       console.error('Failed to toggle YOLO mode:', err);
+    }
+  };
+
+  const handleSetMaxCronGen = async (val: number) => {
+    const clamped = Math.max(0, Math.min(6, val));
+    try {
+      await api.put('/settings/max-cron-generation', { value: clamped }, apiKey);
+      setMaxCronGen(clamped);
+    } catch (err) {
+      console.error('Failed to set max cron generation:', err);
     }
   };
 
@@ -45,6 +59,25 @@ export function AdvancedSection() {
           {!yoloEnabled && (
             <p className="text-[10px] text-content-muted">When enabled, MCP server permission requests are automatically approved. SafetyGate post-validation remains active as a safety net.</p>
           )}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="CRON Recursion Limit">
+        <div className="space-y-3">
+          <p className="text-[10px] text-content-muted">
+            Maximum generations a CRON job can recursively create child CRON jobs. 0 disables recursion entirely.
+          </p>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={0}
+              max={6}
+              value={maxCronGen}
+              onChange={e => handleSetMaxCronGen(Number(e.target.value))}
+              className="w-16 bg-surface-secondary border border-edge rounded px-2 py-1 text-xs font-mono text-content-primary"
+            />
+            <span className="text-[10px] text-content-tertiary">(0-6, default: 2)</span>
+          </div>
         </div>
       </SectionCard>
     </>

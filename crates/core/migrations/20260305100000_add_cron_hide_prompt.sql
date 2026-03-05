@@ -1,0 +1,1 @@
+ALTER TABLE cron_jobs ADD COLUMN hide_prompt INTEGER NOT NULL DEFAULT 0;

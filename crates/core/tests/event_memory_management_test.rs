@@ -37,6 +37,7 @@ async fn create_test_processor(
         Arc::new(dashmap::DashMap::new()),
         Arc::new(dashmap::DashMap::new()),
         pool.clone(),
+        Arc::new(dashmap::DashMap::new()),
     ));
 
     let processor = Arc::new(EventProcessor::new(

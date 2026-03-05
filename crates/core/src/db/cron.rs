@@ -18,11 +18,13 @@ pub struct CronJobRow {
     pub last_error: Option<String>,
     pub max_iterations: Option<i32>,
     pub created_at: String,
+    pub hide_prompt: bool,
+    pub cron_generation: i32,
 }
 
 pub async fn list_cron_jobs(pool: &SqlitePool) -> anyhow::Result<Vec<CronJobRow>> {
     let rows = sqlx::query_as::<_, CronJobRow>(
-        "SELECT id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, last_run_at, last_status, last_error, max_iterations, created_at FROM cron_jobs ORDER BY created_at DESC"
+        "SELECT id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, last_run_at, last_status, last_error, max_iterations, created_at, hide_prompt, cron_generation FROM cron_jobs ORDER BY created_at DESC"
     ).fetch_all(pool).await?;
     Ok(rows)
 }
@@ -32,21 +34,21 @@ pub async fn list_cron_jobs_for_agent(
     agent_id: &str,
 ) -> anyhow::Result<Vec<CronJobRow>> {
     let rows = sqlx::query_as::<_, CronJobRow>(
-        "SELECT id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, last_run_at, last_status, last_error, max_iterations, created_at FROM cron_jobs WHERE agent_id = ? ORDER BY created_at DESC"
+        "SELECT id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, last_run_at, last_status, last_error, max_iterations, created_at, hide_prompt, cron_generation FROM cron_jobs WHERE agent_id = ? ORDER BY created_at DESC"
     ).bind(agent_id).fetch_all(pool).await?;
     Ok(rows)
 }
 
 pub async fn get_due_cron_jobs(pool: &SqlitePool, now_ms: i64) -> anyhow::Result<Vec<CronJobRow>> {
     let rows = sqlx::query_as::<_, CronJobRow>(
-        "SELECT id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, last_run_at, last_status, last_error, max_iterations, created_at FROM cron_jobs WHERE enabled = 1 AND next_run_at <= ? ORDER BY next_run_at ASC"
+        "SELECT id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, last_run_at, last_status, last_error, max_iterations, created_at, hide_prompt, cron_generation FROM cron_jobs WHERE enabled = 1 AND next_run_at <= ? ORDER BY next_run_at ASC"
     ).bind(now_ms).fetch_all(pool).await?;
     Ok(rows)
 }
 
 pub async fn create_cron_job(pool: &SqlitePool, job: &CronJobRow) -> anyhow::Result<()> {
     sqlx::query(
-        "INSERT INTO cron_jobs (id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, max_iterations) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO cron_jobs (id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, max_iterations, hide_prompt, cron_generation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&job.id)
     .bind(&job.agent_id)
@@ -58,6 +60,8 @@ pub async fn create_cron_job(pool: &SqlitePool, job: &CronJobRow) -> anyhow::Res
     .bind(&job.message)
     .bind(job.next_run_at)
     .bind(job.max_iterations)
+    .bind(job.hide_prompt)
+    .bind(job.cron_generation)
     .execute(pool)
     .await?;
     Ok(())
@@ -111,4 +115,12 @@ pub async fn set_cron_job_enabled(
         return Err(anyhow::anyhow!("Cron job '{}' not found", id));
     }
     Ok(())
+}
+
+pub async fn get_cron_job_generation(pool: &SqlitePool, job_id: &str) -> anyhow::Result<i32> {
+    let row: (i32,) = sqlx::query_as("SELECT cron_generation FROM cron_jobs WHERE id = ?")
+        .bind(job_id)
+        .fetch_one(pool)
+        .await?;
+    Ok(row.0)
 }

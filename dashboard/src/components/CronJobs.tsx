@@ -33,10 +33,10 @@ export const CronJobs = memo(function CronJobs() {
     schedule_value: '3600',
     message: '',
     engine_id: '',
+    hide_prompt: false,
   });
 
   const fetchJobs = useCallback(async () => {
-    if (!apiKey) return;
     try {
       const data = await api.listCronJobs(apiKey);
       setJobs(data.jobs);
@@ -62,9 +62,10 @@ export const CronJobs = memo(function CronJobs() {
         schedule_value: form.schedule_value,
         message: form.message,
         engine_id: form.engine_id || undefined,
+        hide_prompt: form.hide_prompt || undefined,
       }, apiKey);
       setShowForm(false);
-      setForm({ agent_id: '', name: '', schedule_type: 'interval', schedule_value: '3600', message: '', engine_id: '' });
+      setForm({ agent_id: '', name: '', schedule_type: 'interval', schedule_value: '3600', message: '', engine_id: '', hide_prompt: false });
       fetchJobs();
     } catch (e: any) { alert(e.message); }
   };
@@ -165,6 +166,19 @@ export const CronJobs = memo(function CronJobs() {
                   className="w-full bg-surface-secondary border border-edge rounded px-3 py-2 text-xs font-mono text-content-primary resize-none"
                 />
               </div>
+              <div className="md:col-span-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={form.hide_prompt}
+                    onChange={e => setForm({ ...form, hide_prompt: e.target.checked })}
+                    className="rounded border-edge bg-surface-secondary"
+                  />
+                  <span className="text-[10px] font-mono text-content-tertiary uppercase">
+                    エージェント発言モード（プロンプトを非表示にし、応答のみチャットに表示）
+                  </span>
+                </label>
+              </div>
             </div>
             <div className="flex gap-3 pt-2">
               <button
@@ -199,6 +213,12 @@ export const CronJobs = memo(function CronJobs() {
                     <span className={`w-2 h-2 rounded-full ${job.enabled ? 'bg-green-500' : 'bg-gray-500'}`} />
                     <span className="text-sm font-medium text-content-primary truncate">{job.name}</span>
                     <span className="text-[10px] font-mono text-content-muted px-1.5 py-0.5 bg-surface-secondary rounded">{job.schedule_type}</span>
+                    {job.hide_prompt && (
+                      <span className="text-[10px] font-mono text-brand px-1.5 py-0.5 bg-brand/10 rounded">agent</span>
+                    )}
+                    {(job.cron_generation ?? 0) > 0 && (
+                      <span className="text-[10px] font-mono text-amber-400 px-1.5 py-0.5 bg-amber-500/10 rounded">gen:{job.cron_generation}</span>
+                    )}
                   </div>
                   <div className="text-[10px] font-mono text-content-tertiary space-y-0.5">
                     <div>Agent: <span className="text-content-secondary">{job.agent_id}</span></div>

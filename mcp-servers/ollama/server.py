@@ -25,6 +25,8 @@ from mcp.types import TextContent, Tool
 BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 MODEL_ID = os.environ.get("OLLAMA_MODEL", "glm-4.7-flash")
 REQUEST_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT_SECS", "120"))
+MAX_PREDICT = int(os.environ.get("OLLAMA_MAX_PREDICT", "2048"))
+ENABLE_THINKING = os.environ.get("OLLAMA_ENABLE_THINKING", "false").lower() == "true"
 
 # Mutable session state
 _active_model = MODEL_ID
@@ -118,6 +120,12 @@ async def call_ollama_api(messages: list[dict]) -> dict:
         "model": _active_model,
         "messages": messages,
         "stream": False,
+        "options": {
+            "num_predict": MAX_PREDICT,
+            "repeat_penalty": 1.3,
+            "repeat_last_n": 128,
+        },
+        "think": ENABLE_THINKING,
     }
 
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
