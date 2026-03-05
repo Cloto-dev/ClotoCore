@@ -11,7 +11,7 @@ use tracing::{error, warn};
 
 use crate::{AppError, AppResult, AppState};
 
-use super::{check_auth, spawn_admin_audit};
+use super::{check_auth, ok_data, spawn_admin_audit};
 
 #[derive(Deserialize)]
 pub struct CreateAgentRequest {
@@ -54,7 +54,7 @@ pub struct UpdateAgentRequest {
 /// ```
 pub async fn get_agents(State(state): State<Arc<AppState>>) -> AppResult<Json<serde_json::Value>> {
     let agents = state.agent_manager.list_agents().await?;
-    Ok(Json(serde_json::json!(agents)))
+    ok_data(serde_json::json!(agents))
 }
 
 /// Create a new agent with the specified configuration.
@@ -152,9 +152,7 @@ pub async fn create_agent(
             payload.password.as_deref(),
         )
         .await?;
-    Ok(Json(
-        serde_json::json!({ "status": "success", "id": agent_id }),
-    ))
+    ok_data(serde_json::json!({ "id": agent_id }))
 }
 
 /// Update an existing agent's settings.
@@ -227,7 +225,7 @@ pub async fn update_agent(
             payload.metadata,
         )
         .await?;
-    Ok(Json(serde_json::json!({ "status": "success" })))
+    ok_data(serde_json::json!({}))
 }
 
 /// Delete an agent and all its data.
@@ -267,7 +265,7 @@ pub async fn delete_agent(
     super::utils::verify_agent_password(&state, &id, password, "delete this agent").await?;
 
     state.agent_manager.delete_agent(&id).await?;
-    Ok(Json(serde_json::json!({ "status": "success" })))
+    ok_data(serde_json::json!({}))
 }
 
 /// Toggle agent power state (enable/disable).
@@ -324,10 +322,7 @@ pub async fn power_toggle(
         None,
     );
 
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "enabled": payload.enabled
-    })))
+    ok_data(serde_json::json!({ "enabled": payload.enabled }))
 }
 
 // ============================================================
@@ -397,11 +392,10 @@ pub async fn upload_avatar(
         .set_avatar(&id, &avatar_path_str, avatar_description.as_deref())
         .await?;
 
-    Ok(Json(serde_json::json!({
-        "status": "success",
+    ok_data(serde_json::json!({
         "avatar_path": avatar_path_str,
         "avatar_description": avatar_description,
-    })))
+    }))
 }
 
 /// Analyze avatar image via vision.capture MCP server.
@@ -506,5 +500,5 @@ pub async fn delete_avatar(
 
     state.agent_manager.clear_avatar(&id).await?;
 
-    Ok(Json(serde_json::json!({ "status": "success" })))
+    ok_data(serde_json::json!({}))
 }
