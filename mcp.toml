@@ -105,9 +105,8 @@ args = ["mcp-servers/websearch/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
-CLOTO_SEARCH_PROVIDER = "tavily"
-TAVILY_API_KEY = "${TAVILY_API_KEY}"
-# For SearXNG: CLOTO_SEARCH_PROVIDER = "searxng", SEARXNG_URL = "http://localhost:8080"
+CLOTO_SEARCH_PROVIDER = "searxng"
+SEARXNG_URL = "http://localhost:8080"
 
 [[servers]]
 id = "tool.research"
@@ -116,8 +115,8 @@ args = ["mcp-servers/research/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
-CLOTO_SEARCH_PROVIDER = "tavily"
-TAVILY_API_KEY = "${TAVILY_API_KEY}"
+CLOTO_SEARCH_PROVIDER = "searxng"
+SEARXNG_URL = "http://localhost:8080"
 RESEARCH_EXTRACT_PROVIDER = "cerebras"
 RESEARCH_EVALUATE_PROVIDER = "deepseek"
 RESEARCH_SYNTHESIZE_PROVIDER = "deepseek"
