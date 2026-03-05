@@ -105,7 +105,7 @@ class EmbeddingClient:
             else:
                 logger.warning("Unknown embedding mode: %s", self.mode)
                 return None
-        except Exception as e:
+        except (httpx.RequestError, httpx.HTTPStatusError, ValueError, KeyError) as e:
             logger.warning("Embedding request failed: %s", e)
             return None
 
@@ -389,7 +389,7 @@ async def do_store(agent_id: str, message: dict) -> dict:
             embeddings = await _embedding_client.embed([content])
             if embeddings and embeddings[0]:
                 embedding_blob = EmbeddingClient.pack_embedding(embeddings[0])
-        except Exception as e:
+        except (httpx.RequestError, httpx.HTTPStatusError, ValueError, TypeError) as e:
             logger.warning("Embedding failed during store: %s", e)
 
     await db.execute(
@@ -521,7 +521,8 @@ async def _search_vector(
                     "source": source,
                     "timestamp": timestamp,
                 }))
-        except Exception:
+        except (ValueError, TypeError) as e:
+            logger.debug("Skipping memory %s: vector decode error: %s", mem_id, e)
             continue
 
     # 3. Search episode embeddings
@@ -549,7 +550,8 @@ async def _search_vector(
                     "source": {"System": "episode"},
                     "timestamp": start_time or "",
                 }))
-        except Exception:
+        except (ValueError, TypeError) as e:
+            logger.debug("Skipping episode %s: vector decode error: %s", ep_id, e)
             continue
 
     # 4. Sort by similarity descending, return top-K

@@ -179,7 +179,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     os.makedirs(WORKING_DIR, exist_ok=True)
 
     try:
-        argv = shlex.split(command)
+        try:
+            argv = shlex.split(command)
+        except ValueError as e:
+            return [TextContent(type="text", text=json.dumps({
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": f"Failed to parse command: {e}",
+            }))]
         proc = await asyncio.create_subprocess_exec(
             *argv,
             stdout=asyncio.subprocess.PIPE,
