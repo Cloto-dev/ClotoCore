@@ -128,6 +128,8 @@ pub async fn post_message(
         content: content_str,
         metadata: metadata_str,
         created_at: now,
+        parent_id: None,
+        branch_index: 0,
     };
 
     db::save_chat_message(&state.pool, &msg).await?;
@@ -282,6 +284,79 @@ pub async fn get_attachment(
     ];
 
     Ok((headers, Bytes::from(data)))
+}
+
+/// Retry an agent response: re-sends the original user message for re-generation.
+///
+/// **Route:** `POST /api/chat/:agent_id/messages/:message_id/retry`
+pub async fn retry_response(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((agent_id, message_id)): Path<(String, String)>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+
+    // Look up the original user message
+    let original = db::get_chat_message_by_id(&state.pool, &message_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Message '{}' not found", message_id)))?;
+
+    // Extract text content from the stored ContentBlock[] JSON
+    let content_text = serde_json::from_str::<serde_json::Value>(&original.content)
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .and_then(|blocks| {
+            blocks
+                .iter()
+                .filter_map(|b| {
+                    if b.get("type").and_then(|t| t.as_str()) == Some("text") {
+                        b.get("text").and_then(|t| t.as_str()).map(String::from)
+                    } else {
+                        None
+                    }
+                })
+                .reduce(|a, b| format!("{} {}", a, b))
+        })
+        .unwrap_or_default();
+
+    if content_text.is_empty() {
+        return Err(AppError::Validation(
+            "Original message has no text content to retry".to_string(),
+        ));
+    }
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let retry_id = format!("retry-{}", now_ms);
+
+    let cloto_msg = cloto_shared::ClotoMessage {
+        id: retry_id.clone(),
+        source: cloto_shared::MessageSource::User {
+            id: "user".to_string(),
+            name: "User".to_string(),
+        },
+        target_agent: Some(agent_id.clone()),
+        content: content_text,
+        timestamp: chrono::Utc::now(),
+        metadata: std::collections::HashMap::from([
+            ("target_agent_id".to_string(), agent_id),
+            ("skip_user_persist".to_string(), "true".to_string()),
+            ("parent_id".to_string(), message_id),
+        ]),
+    };
+
+    let envelope =
+        crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::MessageReceived(cloto_msg));
+    if let Err(e) = state.event_tx.send(envelope).await {
+        error!("Failed to send retry event: {}", e);
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "Failed to accept retry"
+        )));
+    }
+
+    Ok(Json(serde_json::json!({
+        "status": "accepted",
+        "retry_id": retry_id,
+    })))
 }
 
 /// Send a chat message into the system.

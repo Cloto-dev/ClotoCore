@@ -241,6 +241,9 @@ pub enum CronCommand {
         /// Max agentic iterations
         #[arg(long)]
         max_iterations: Option<u32>,
+        /// Agent-speak mode: hide cron prompt, show only agent response
+        #[arg(long)]
+        hide_prompt: bool,
     },
     /// Delete a cron job
     Delete {
