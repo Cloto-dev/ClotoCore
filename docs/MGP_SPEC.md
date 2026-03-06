@@ -68,7 +68,7 @@ MGP-specific methods use the `mgp/` prefix. MGP-specific notifications use the
 
 ### 1.6 Protocol Architecture — Selective Minimalism
 
-MGP extends MCP with only **10 protocol primitives** (4 methods + 6 notifications) organized in three layers. All
+MGP extends MCP with only **12 protocol primitives** (4 methods + 8 notifications) organized in four layers. All
 other functionality is provided as standard MCP tools exposed by the kernel.
 
 ```
@@ -76,10 +76,12 @@ other functionality is provided as standard MCP tools exposed by the kernel.
 │  Layer 1: Metadata Extensions (0 new methods)            │
 │  └─ _mgp fields on initialize, tools/list, tools/call   │
 ├──────────────────────────────────────────────────────────┤
-│  Layer 2: Protocol Notifications (6)                     │
+│  Layer 2: Protocol Notifications (8)                     │
 │  ├─ notifications/mgp.audit                              │
 │  ├─ notifications/mgp.stream.chunk                       │
 │  ├─ notifications/mgp.stream.progress                    │
+│  ├─ notifications/mgp.stream.pace                        │
+│  ├─ notifications/mgp.stream.gap                         │
 │  ├─ notifications/mgp.lifecycle                          │
 │  ├─ notifications/mgp.callback.request                   │
 │  └─ notifications/mgp.event                              │
@@ -143,7 +145,7 @@ They do NOT require new protocol methods because:
    tools defined in §5, §11, §13, §15, and §16. The tool schemas are standardized
    even though the invocation mechanism is `tools/call` rather than a dedicated method.
 
-This architecture reduces MGP's protocol surface area by 60% (25 → 10 primitives)
+This architecture reduces MGP's protocol surface area by 52% (25 → 12 primitives)
 while maintaining full security guarantees and MCP structural limitation breakthroughs.
 
 #### 1.6.3 Kernel Tool Namespace and Visibility
@@ -248,7 +250,7 @@ MCP mode.
     "protocolVersion": "2024-11-05",
     "capabilities": {
       "mgp": {
-        "version": "0.1.0",
+        "version": "0.6.0",
         "extensions": ["permissions", "tool_security", "access_control", "audit"]
       }
     },
@@ -303,7 +305,7 @@ activate protocol-level behavior.
     "capabilities": {
       "tools": {},
       "mgp": {
-        "version": "0.1.0",
+        "version": "0.6.0",
         "extensions": ["permissions", "tool_security", "audit"],
         "permissions_required": ["shell", "network"],
         "server_id": "mind.cerebras",
@@ -1348,7 +1350,7 @@ before the final response.
 ```json
 {
   "mgp": {
-    "version": "0.1.0",
+    "version": "0.6.0",
     "extensions": ["streaming"]
   }
 }
@@ -2206,7 +2208,7 @@ that is not part of MCP's direct client-server model.
 ```json
 {
   "mgp": {
-    "version": "0.2.0",
+    "version": "0.6.0",
     "extensions": ["tool_discovery"]
   }
 }
@@ -2455,7 +2457,7 @@ in during capability negotiation:
 ```json
 {
   "mgp": {
-    "version": "0.4.0",
+    "version": "0.6.0",
     "extensions": ["tool_discovery"],
     "tool_creation": { "enabled": true }
   }
@@ -2864,10 +2866,10 @@ that do not require bidirectional protocol agreement. Converting these to standa
 tools via `tools/call` preserves all functionality while reducing protocol surface area
 by 64%.
 
-**Result:** 25 → 10 protocol primitives (4 methods + 6 notifications).
+**Result:** 25 → 12 protocol primitives (4 methods + 8 notifications).
 
 - **Layer 1 (Metadata):** `_mgp` fields on existing MCP messages — 0 new methods
-- **Layer 2 (Notifications):** 6 protocol notifications
+- **Layer 2 (Notifications):** 8 protocol notifications
 - **Layer 3 (Methods):** 4 irreducible methods (permission/await, permission/grant,
   callback/respond, stream/cancel)
 - **Layer 4 (Kernel Tools):** 17 standard MCP tools with `mgp.*` naming convention
