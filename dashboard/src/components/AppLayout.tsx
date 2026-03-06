@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Cpu, Settings, HelpCircle } from 'lucide-react';
+import { useLocalStorage } from '../hooks/useStorage';
 import { ViewHeader } from './ViewHeader';
 import { InteractiveGrid } from './InteractiveGrid';
 import { AppSidebar } from './AppSidebar';
@@ -19,7 +20,8 @@ export function AppLayout() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [immersive, setImmersive] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebar-collapsed') === 'true');
+  const [sidebarRaw, setSidebarRaw] = useLocalStorage('sidebar-collapsed', 'false');
+  const sidebarCollapsed = sidebarRaw === 'true';
   const navigate = useNavigate();
   const location = useLocation();
   const { agents, setSelectedAgentId } = useAgentContext();
@@ -38,13 +40,7 @@ export function AppLayout() {
     setCanGoForward(idx < maxIdxRef.current);
   }, [location]);
 
-  const handleToggleSidebar = () => {
-    setSidebarCollapsed(prev => {
-      const next = !prev;
-      localStorage.setItem('sidebar-collapsed', String(next));
-      return next;
-    });
-  };
+  const handleToggleSidebar = () => setSidebarRaw(sidebarCollapsed ? 'false' : 'true');
 
   const handleAskAgent = () => {
     setHelpOpen(false);

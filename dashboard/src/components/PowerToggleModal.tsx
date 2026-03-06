@@ -3,6 +3,7 @@ import { Power, Lock } from 'lucide-react';
 import { AgentMetadata } from '../types';
 import { api } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
+import { useAsyncAction } from '../hooks/useAsyncAction';
 
 interface Props {
   agent: AgentMetadata;
@@ -13,24 +14,15 @@ interface Props {
 export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
   const { apiKey } = useApiKey();
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const action = useAsyncAction('Failed to toggle power');
 
   const needsPassword = agent.metadata?.has_power_password === 'true';
 
-  const handleConfirm = async () => {
-    setIsLoading(true);
-    setError('');
-    try {
-      await api.toggleAgentPower(agent.id, !agent.enabled, apiKey, needsPassword ? password : undefined);
-      onClose();
-      onSuccess();
-    } catch (err: any) {
-      setError(err.message || 'Failed to toggle power');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const handleConfirm = () => action.run(async () => {
+    await api.toggleAgentPower(agent.id, !agent.enabled, apiKey, needsPassword ? password : undefined);
+    onClose();
+    onSuccess();
+  });
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm">
@@ -62,25 +54,25 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
             />
           </div>
         )}
-        {error && (
-          <p className="text-[10px] text-red-500 font-medium">{error}</p>
+        {action.error && (
+          <p className="text-[10px] text-red-500 font-medium">{action.error}</p>
         )}
         <div className="flex gap-2">
           <button
             onClick={onClose}
             className="flex-1 py-2 rounded-xl border border-edge text-xs font-bold text-content-secondary hover:bg-surface-base transition-all"
-            disabled={isLoading}
+            disabled={action.isLoading}
           >
             Cancel
           </button>
           <button
             onClick={handleConfirm}
-            disabled={(needsPassword && !password) || isLoading}
+            disabled={(needsPassword && !password) || action.isLoading}
             className={`flex-1 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-50 ${
               agent.enabled ? 'bg-red-500 hover:bg-red-600' : 'bg-emerald-500 hover:bg-emerald-600'
             }`}
           >
-            {isLoading ? 'Processing...' : 'Confirm'}
+            {action.isLoading ? 'Processing...' : 'Confirm'}
           </button>
         </div>
       </div>

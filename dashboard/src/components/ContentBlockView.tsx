@@ -4,6 +4,7 @@ import { Image, FileAudio, Download, X } from 'lucide-react';
 import { ContentBlock } from '../types';
 import { api } from '../services/api';
 import { isTauri } from '../lib/tauri';
+import { tryParseJsonObject } from '../lib/json';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
 function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
@@ -40,16 +41,6 @@ function ClickableImage({ src, alt, className }: { src: string; alt: string; cla
       {open && <ImageLightbox src={src} alt={alt} onClose={() => setOpen(false)} />}
     </>
   );
-}
-
-function tryParseJson(text?: string): Record<string, unknown> | null {
-  if (!text) return null;
-  try {
-    const parsed = JSON.parse(text);
-    return typeof parsed === 'object' && parsed !== null ? parsed : null;
-  } catch {
-    return null;
-  }
 }
 
 function resolveLocalPath(filePath: string): string | null {
@@ -92,7 +83,7 @@ export function ContentBlockView({ block }: { block: ContentBlock }) {
       );
 
     case 'tool_result': {
-      const parsed = tryParseJson(block.text);
+      const parsed = tryParseJsonObject(block.text);
 
       // Image file path detection in tool results
       if (parsed?.path && typeof parsed.path === 'string' && IMAGE_EXT.test(parsed.path)) {

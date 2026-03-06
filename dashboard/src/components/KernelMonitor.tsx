@@ -1,6 +1,7 @@
 import React from 'react';
 import { Cpu, Database, MousePointer2, Globe, ArrowLeft, Server } from 'lucide-react';
 import { useAgents } from '../hooks/useAgents';
+import { StatusDot } from './ui/StatusDot';
 
 interface KernelMonitorProps {
   onClose: () => void;
@@ -59,7 +60,7 @@ export const KernelMonitor: React.FC<KernelMonitorProps> = ({ onClose }) => {
           <div className="flex flex-wrap gap-2">
             {agents.map(agent => (
               <div key={agent.id} className={`px-4 py-2 border rounded-xl flex items-center gap-3 ${agent.enabled ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-surface-secondary border-edge-subtle opacity-60'}`}>
-                <div className={`w-2 h-2 rounded-full ${agent.enabled ? 'bg-emerald-500 animate-pulse' : 'bg-gray-500'}`} />
+                <StatusDot status={agent.enabled ? 'online' : 'offline'} pulse={agent.enabled} />
                 <span className={`text-xs font-bold uppercase tracking-wider ${agent.enabled ? 'text-emerald-700' : 'text-content-tertiary'}`}>{agent.name}</span>
               </div>
             ))}
