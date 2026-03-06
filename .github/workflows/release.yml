@@ -392,14 +392,11 @@ jobs:
           cd ..
 
       - name: Sign checksums manifest (cosign keyless)
-        uses: sigstore/cosign-installer@d7d6bc7722e3daa8354c50bcb52f4837da5e9b6a # v3
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4
       - run: |
           cosign sign-blob --yes \
-            --output-signature release-files/SHA256SUMS.txt.sig \
-            --output-certificate release-files/SHA256SUMS.txt.pem \
+            --bundle release-files/SHA256SUMS.txt.bundle \
             release-files/SHA256SUMS.txt
-        env:
-          COSIGN_EXPERIMENTAL: "1"
 
       - name: Create tag (workflow_dispatch only)
         if: github.event_name == 'workflow_dispatch'
