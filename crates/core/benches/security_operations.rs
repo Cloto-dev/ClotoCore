@@ -3,8 +3,9 @@
 // - cloto_core/src/capabilities.rs:54-56 (SafeHttpClient whitelist check via send_http_request)
 // - cloto_core/src/handlers.rs:27 (constant-time comparison)
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::HashSet;
+use std::hint::black_box;
 
 mod helpers;
 
