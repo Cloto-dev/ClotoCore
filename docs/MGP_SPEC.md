@@ -1,9 +1,9 @@
 # MGP — Model General Protocol
 
-**Version:** 0.5.3-draft
+**Version:** 0.6.0-draft
 **Status:** Draft
 **Authors:** ClotoCore Project
-**Date:** 2026-03-01
+**Date:** 2026-03-06
 
 ---
 
@@ -24,7 +24,8 @@ server when connected to a client that does not support MGP extensions.
 2. **Graceful Degradation** — MGP features activate only when both sides negotiate support
 3. **Security by Default** — Dangerous operations require explicit permission grants
 4. **Defense in Depth** — Multiple independent validation layers (server, kernel, protocol)
-5. **Auditable** — All security-relevant actions produce structured audit events
+5. **Auditable** — All security-relevant actions are persisted to the kernel's local
+   audit store and forwarded as structured notifications to subscribed servers
 
 ### 1.3 Compatibility Matrix
 
@@ -89,13 +90,16 @@ other functionality is provided as standard MCP tools exposed by the kernel.
 │  ├─ mgp/callback/respond                                 │
 │  └─ mgp/stream/cancel                                    │
 ├──────────────────────────────────────────────────────────┤
-│  Layer 4: Kernel Tools (16 — standard tools/call)        │
+│  Layer 4: Kernel Tools (17 — standard tools/call)        │
 │  ├─ mgp.access.*    (query, grant, revoke)       — §5   │
+│  ├─ mgp.audit.*     (replay)                    — §6   │
 │  ├─ mgp.health.*    (ping, status)               — §11  │
 │  ├─ mgp.lifecycle.* (shutdown)                   — §11  │
-│  ├─ mgp.events.*    (subscribe, unsubscribe)     — §13  │
+│  ├─ mgp.events.*    (subscribe, unsubscribe,     — §13  │
+│  │                    replay)                            │
 │  ├─ mgp.discovery.* (list, register, deregister) — §15  │
-│  └─ mgp.tools.*     (discover, request, session) — §16  │
+│  └─ mgp.tools.*     (discover, request,          — §16  │
+│                       session, session.evict)            │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -104,6 +108,28 @@ other functionality is provided as standard MCP tools exposed by the kernel.
 **Layers 1-3** are protocol-level primitives. All MGP implementations MUST support
 these. They are irreducible: each requires bidirectional agreement or fire-and-forget
 notification that cannot be expressed as a tool call.
+
+#### 1.6.2 Layer 2 Notification Reliability
+
+JSON-RPC 2.0 notifications have no delivery guarantee (no `id`, no acknowledgment).
+Layer 2 notifications are therefore **best-effort** by design. MGP compensates for
+this with per-notification recovery mechanisms:
+
+| Notification | Direction | Reliability | Recovery Mechanism |
+|---|---|---|---|
+| `mgp.stream.chunk` | Server→Kernel | Best-effort | §12.5: final response contains complete result. §12.9: gap detection |
+| `mgp.stream.progress` | Server→Kernel | Best-effort | None required (informational only) |
+| `mgp.stream.pace` | Kernel→Server | Best-effort | None required (rate hint, non-binding) |
+| `mgp.stream.gap` | Kernel→Server | Best-effort | Final response is fallback |
+| `mgp.lifecycle` | Server→Kernel | Best-effort | `mgp.health.ping` provides eventual consistency |
+| `mgp.audit` | Kernel→Server | Best-effort + local persistence | Kernel MUST persist locally (§6.3). `mgp.audit.replay` for catch-up |
+| `mgp.callback.request` | Server→Kernel | Retry-with-timeout | Server retries with same `callback_id`. Kernel deduplicates (§13.4) |
+| `mgp.event` | Kernel→Server | Best-effort + sequence tracking | `_mgp.seq` enables gap detection. `mgp.events.replay` for catch-up (§13.6) |
+
+**Kernel→Server notifications** include `_mgp.seq` (a per-server monotonically
+increasing sequence number) to enable gap detection by the receiving server.
+Server→Kernel notifications do not require sequence numbers because each has an
+independent recovery mechanism.
 
 **Layer 4** tools are exposed by the kernel as standard MCP tools via `tools/call`.
 They do NOT require new protocol methods because:
@@ -119,6 +145,41 @@ They do NOT require new protocol methods because:
 
 This architecture reduces MGP's protocol surface area by 60% (25 → 10 primitives)
 while maintaining full security guarantees and MCP structural limitation breakthroughs.
+
+#### 1.6.3 Kernel Tool Namespace and Visibility
+
+**Namespace reservation:** The `mgp.*` tool name prefix is reserved for kernel tools.
+MCP servers MUST NOT register tools with names starting with `mgp.`. If a server
+includes an `mgp.*`-prefixed tool in its `tools/list` response, the kernel MUST
+reject the tool and SHOULD log a `TOOL_NAME_CONFLICT` audit event.
+
+**Source identification:** Kernel tools include `_mgp.source: "kernel"` in their
+tool definitions to distinguish them from server-provided tools:
+
+```json
+{
+  "name": "mgp.access.grant",
+  "_mgp": { "source": "kernel", "admin_only": true }
+}
+```
+
+**LLM context visibility:** Kernel tools have strict visibility rules for LLM
+agent tool contexts:
+
+| Category | In `tools/list` | In LLM Context | Rationale |
+|----------|----------------|-----------------|-----------|
+| `mgp.tools.discover` | Yes | MUST include | LLM needs discovery to find tools |
+| `mgp.tools.request` | Yes | MUST include | LLM needs active tool request |
+| `mgp.tools.session`, `mgp.tools.session.evict` | Yes | MAY include | Optional context management |
+| `mgp.access.*` | Yes | MUST NOT include | Security management is operator-only |
+| `mgp.health.*` | Yes | MUST NOT include | Operational monitoring is operator-only |
+| `mgp.lifecycle.*` | Yes | MUST NOT include | Server management is operator-only |
+| `mgp.events.*` | Yes | MUST NOT include | Subscription management is operator-only |
+| `mgp.discovery.*` | Yes | MUST NOT include | Server registration is operator-only |
+
+**Admin-only enforcement:** Tools marked `admin_only: true` accept calls only from
+operator-level requests (e.g., HTTP API, CLI). Tool calls from LLM agents to
+admin-only kernel tools MUST be rejected with `1000 PERMISSION_DENIED`.
 
 ### 1.7 Relationship to MCP & Migration Policy
 
@@ -188,12 +249,12 @@ MCP mode.
     "capabilities": {
       "mgp": {
         "version": "0.1.0",
-        "extensions": ["security", "access_control", "audit"]
+        "extensions": ["permissions", "tool_security", "access_control", "audit"]
       }
     },
     "clientInfo": {
-      "name": "ClotoCore",
-      "version": "0.2.8"
+      "name": "CLOTO-KERNEL",
+      "version": "0.6.0"
     }
   }
 }
@@ -213,19 +274,23 @@ servers will ignore it.
 
 | Extension | Layer | Description | Spec |
 |-----------|-------|-------------|------|
-| `security` | 1+3 (Metadata + Method) | Permission declarations and tool security metadata | §3, §4 |
+| `permissions` | 1+3 (Metadata + Method) | Permission declarations and approval flow | §3 |
+| `tool_security` | 1 (Metadata) | Tool-level security metadata (`security` field in `tools/list`) | §4 |
 | `access_control` | 4 (Kernel Tool) | Agent-scoped tool access control | §5 |
 | `audit` | 2 (Notification) | Structured audit trail notifications | §6 |
 | `code_safety` | 1 (Metadata) | Code execution safety framework | §7 |
 | `lifecycle` | 2+4 (Notification + Kernel Tool) | State transitions, health checks, shutdown | §11 |
-| `streaming` | 2+3 (Notification + Method) | Stream chunks, progress, cancellation | §12 |
-| `bidirectional` | 2+3+4 (All) | Callbacks, events, subscriptions | §13 |
+| `streaming` | 2+3 (Notification + Method) | Stream chunks, cancellation, flow control | §12 |
+| `progress` | 2 (Notification) | Progress reporting for long-running operations | §12.6 |
+| `callbacks` | 2+3 (Notification + Method) | Server-to-kernel callback requests (including `llm_completion`) | §13.3, §13.4 |
+| `events` | 2+4 (Notification + Kernel Tool) | Event bus notifications, subscribe/unsubscribe | §13.1, §13.2 |
 | `discovery` | 4 (Kernel Tool) | Server registration, deregistration | §15 |
 | `tool_discovery` | 4 (Kernel Tool) | Dynamic tool search, active tool request | §16 |
 | `error_handling` | 1 (Metadata) | Structured error categories and recovery hints | §14 |
 
-Negotiating a Layer 4 extension means the kernel exposes the corresponding standard
-MCP tools (see §1.6). Layer 1-3 extensions activate protocol-level behavior.
+Each extension is independently negotiable. Negotiating a Layer 4 extension means the
+kernel exposes the corresponding standard MCP tools (see §1.6). Layer 1-3 extensions
+activate protocol-level behavior.
 
 ### 2.3 Server → Client (initialize response)
 
@@ -239,7 +304,7 @@ MCP tools (see §1.6). Layer 1-3 extensions activate protocol-level behavior.
       "tools": {},
       "mgp": {
         "version": "0.1.0",
-        "extensions": ["security", "audit"],
+        "extensions": ["permissions", "tool_security", "audit"],
         "permissions_required": ["shell", "network"],
         "server_id": "mind.cerebras",
         "trust_level": "standard"
@@ -261,7 +326,13 @@ MCP tools (see §1.6). Layer 1-3 extensions activate protocol-level behavior.
 | `extensions` | string[] | Yes | Extensions the server supports (intersection with client) |
 | `permissions_required` | string[] | No | Permissions this server needs to operate |
 | `server_id` | string | No | Unique server identifier |
-| `trust_level` | string | No | `trusted`, `standard`, or `sandboxed` |
+| `trust_level` | string | No | `core`, `standard`, `experimental`, or `untrusted` (see MGP_ISOLATION_DESIGN.md §3.1) |
+
+> **Note:** The `trust_level` value in the server's handshake response is
+> **informational only**. The kernel determines the effective trust level from
+> `mcp.toml` configuration and Magic Seal verification (see MGP_ISOLATION_DESIGN.md
+> §10 Security Invariant 3). If the server-declared value exceeds the
+> kernel-determined level, the kernel silently downgrades it.
 
 ### 2.4 Negotiation Rules
 
@@ -397,6 +468,8 @@ Direction: Client → Server
 The client delivers the operator's decision to the server. This completes the
 permission flow initiated by `mgp/permission/await`.
 
+**Simple format** (no scope):
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -414,13 +487,86 @@ permission flow initiated by `mgp/permission/await`.
 }
 ```
 
-**Grant Values:**
+**Scoped format** (with resource constraints):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "mgp/permission/grant",
+  "params": {
+    "request_id": "perm-001",
+    "grants": {
+      "shell.execute": {
+        "decision": "approved",
+        "scope": {
+          "commands": ["git", "npm", "cargo"],
+          "deny_commands": ["rm", "dd", "mkfs"],
+          "allow_sudo": false
+        }
+      },
+      "filesystem.read": {
+        "decision": "approved",
+        "scope": {
+          "paths": ["/home/user/projects/**", "/tmp/**"],
+          "deny_paths": ["/home/user/.ssh/**", "/etc/shadow"]
+        }
+      }
+    },
+    "approved_by": "admin",
+    "expires_at": "2026-03-01T00:00:00Z"
+  }
+}
+```
+
+Both formats are valid. When the grant value is a string (e.g., `"approved"`), it is
+equivalent to `{ "decision": "approved" }` with no scope constraints.
+
+**Grant Decision Values:**
 
 | Value | Meaning |
 |-------|---------|
-| `approved` | Permission granted |
+| `approved` | Permission granted (with optional scope) |
 | `denied` | Permission denied (server should degrade gracefully) |
 | `deferred` | Decision deferred (server should wait or retry) |
+
+### 3.7 Permission Scopes
+
+When a permission is granted with a `scope` object, the server is restricted to
+operating within the specified boundaries. Scope constraints are enforced by the
+kernel and, where available, by OS-level isolation (see MGP_ISOLATION_DESIGN.md).
+
+#### 3.7.1 Standard Scope Fields
+
+| Permission | Scope Field | Type | Description |
+|------------|-------------|------|-------------|
+| `filesystem.read`, `filesystem.write` | `paths` | string[] (glob) | Allowed path patterns |
+| | `deny_paths` | string[] (glob) | Denied path patterns (takes precedence over `paths`) |
+| `shell.execute` | `commands` | string[] | Allowed command names (basename only) |
+| | `deny_commands` | string[] | Denied command names |
+| | `allow_sudo` | boolean | Whether `sudo` prefix is permitted (default: `false`) |
+| `network.outbound`, `network.listen` | `hosts` | string[] (glob) | Allowed hostnames |
+| | `deny_hosts` | string[] | Denied hostnames |
+| | `ports` | number[] | Allowed ports (empty = all) |
+| `code_execution` | `languages` | string[] | Allowed languages (e.g., `["python", "javascript"]`) |
+| | `max_execution_time_ms` | number | Maximum execution time per invocation |
+
+#### 3.7.2 Scope Resolution Rules
+
+1. `deny_*` fields always take precedence over allow fields (deny-first)
+2. If a `scope` is present but the relevant field is absent, no constraint applies
+   for that dimension (e.g., `{ "paths": ["/data/**"] }` without `deny_paths`
+   means deny_paths is empty)
+3. Glob patterns follow POSIX glob syntax: `*` matches any single path component,
+   `**` matches zero or more path components
+4. The kernel propagates scope constraints to the OS isolation layer where
+   applicable (see MGP_ISOLATION_DESIGN.md §3.5)
+
+#### 3.7.3 Custom Permission Scopes
+
+Custom permissions (reverse-domain notation) MAY define their own scope fields.
+The kernel treats unrecognized scope fields as opaque metadata and passes them to
+the enforcement layer without validation.
 
 ---
 
@@ -460,14 +606,19 @@ Standard MCP clients will ignore the `security` field (it is not part of MCP's t
 
 ### 4.3 Security Fields
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `risk_level` | string | Yes | `safe`, `moderate`, or `dangerous` |
-| `permissions_required` | string[] | No | Permissions needed to call this tool |
-| `side_effects` | string[] | No | Categories of side effects: `filesystem`, `network`, `process`, `database`, `notification` |
-| `validator` | string | No | Kernel-side validator to apply: `sandbox`, `readonly`, `none` |
-| `reversible` | boolean | No | Whether the tool's effects can be undone |
-| `confirmation_required` | boolean | No | Whether the client should prompt the user before execution |
+| Field | Type | Source | Description |
+|-------|------|--------|-------------|
+| `risk_level` | string | Server (informational) | Server's self-declared risk: `safe`, `moderate`, or `dangerous` |
+| `effective_risk_level` | string | Kernel (authoritative) | Kernel-derived risk level — see §4.6. Injected by kernel into `tools/list` relay |
+| `permissions_required` | string[] | Server | Permissions needed to call this tool |
+| `side_effects` | string[] | Server (informational) | Categories of side effects: `filesystem`, `network`, `process`, `database`, `notification` |
+| `validator` | string | Kernel (from mcp.toml) | Kernel-side validator to apply: `sandbox`, `readonly`, `none` |
+| `reversible` | boolean | Server (informational) | Whether the tool's effects can be undone |
+| `confirmation_required` | boolean | Merged | Server declares; kernel MAY override to `true` for `dangerous` tools |
+
+Fields marked **informational** are self-declared by the server and MUST NOT be used
+for security decisions. Fields marked **authoritative** are determined by the kernel
+and can be trusted. The `Source` column indicates the trust boundary.
 
 ### 4.4 Risk Levels
 
@@ -489,6 +640,55 @@ Standard MCP clients will ignore the `security` field (it is not part of MCP's t
 
 Validators are applied by the **client/kernel** before forwarding the tool call to the server.
 This provides defense-in-depth: even a compromised server cannot bypass kernel validation.
+
+### 4.6 Effective Risk Level Derivation
+
+The kernel computes `effective_risk_level` for each tool using three inputs:
+
+```
+effective_risk_level = max(
+    derive_from_trust_level(server.trust_level),
+    derive_from_validator(tool.validator),
+    derive_from_permissions(tool.permissions_required)
+)
+```
+
+**Trust level mapping:**
+
+| `trust_level` | Derived risk |
+|----------------|-------------|
+| `core` | `safe` |
+| `standard` | `moderate` |
+| `experimental` | `dangerous` |
+| `untrusted` | `dangerous` |
+
+**Validator mapping:**
+
+| `validator` | Derived risk |
+|-------------|-------------|
+| `readonly` | `safe` |
+| `sandbox` | `moderate` |
+| `network_restricted` | `moderate` |
+| `code_safety` | `moderate` |
+| `none` | `dangerous` |
+
+**Permission mapping:**
+
+| Condition | Derived risk |
+|-----------|-------------|
+| `permissions_required` includes `shell.execute` or `code_execution` | `dangerous` |
+| `permissions_required` includes `filesystem.write` | `moderate` |
+| Otherwise | `safe` |
+
+The `max()` function uses the ordering `safe < moderate < dangerous`.
+
+When the kernel relays `tools/list` to the LLM or client, it injects
+`effective_risk_level` into each tool's `security` object. If
+`effective_risk_level` differs from the server-declared `risk_level`, the kernel
+SHOULD generate an audit event with `event_type: "RISK_LEVEL_OVERRIDE"`.
+
+LLM agents and UI components MUST use `effective_risk_level` (not `risk_level`)
+for security-relevant decisions such as confirmation prompts.
 
 ---
 
@@ -604,6 +804,91 @@ Revoke an existing access grant.
 | `opt-in` | Deny by default. Agents must be explicitly granted access. |
 | `opt-out` | Allow by default. Agents have access unless explicitly denied. |
 
+### 5.6 Delegated Execution
+
+When a server executes a tool call on behalf of another agent (e.g., a coordinator
+server delegating tasks in a multi-agent system), the tool call SHOULD include a
+`delegation` object in the `_mgp` field:
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "read_file",
+    "arguments": { "path": "/data/report.txt" },
+    "_mgp": {
+      "delegation": {
+        "original_actor": "agent-A",
+        "delegated_via": "coordinator-server",
+        "delegation_id": "del-001"
+      }
+    }
+  }
+}
+```
+
+#### 5.6.1 Permission Evaluation
+
+When a `delegation` field is present, the kernel evaluates access control using the
+**intersection** of the original actor's and the delegating server's permissions:
+
+```
+effective_permissions = intersect(
+    permissions(original_actor),
+    permissions(delegated_via)
+)
+```
+
+This ensures that:
+- The delegating server cannot escalate the original actor's privileges
+- The original actor cannot gain access to tools beyond the delegating server's scope
+- Both parties must independently hold the required permission for the call to succeed
+
+#### 5.6.2 Delegation Chain Limits
+
+Delegation chains MUST NOT exceed a depth of **3** (original actor → delegate 1 →
+delegate 2). The kernel MUST reject tool calls with deeper chains with error code
+`1000 PERMISSION_DENIED` and detail `"delegation_depth_exceeded"`.
+
+The `delegation` field for chained delegations:
+
+```json
+{
+  "_mgp": {
+    "delegation": {
+      "original_actor": "agent-A",
+      "delegated_via": "sub-coordinator",
+      "chain": ["agent-A", "coordinator-server", "sub-coordinator"],
+      "delegation_id": "del-002"
+    }
+  }
+}
+```
+
+The effective permissions are the intersection of **all** actors in the chain.
+
+#### 5.6.3 Kernel Verification
+
+The kernel MUST verify delegation claims:
+- `original_actor` must be a known, active agent
+- `delegated_via` must be the server that sent the tool call
+- If either check fails, the call is rejected with `1000 PERMISSION_DENIED`
+
+#### 5.6.4 Audit Integration
+
+Delegated tool calls generate audit events with `actor.type: "delegated"`:
+
+```json
+{
+  "actor": {
+    "type": "delegated",
+    "original_actor": "agent-A",
+    "delegated_via": "coordinator-server",
+    "delegation_id": "del-001"
+  }
+}
+```
+
 ---
 
 ## 6. Audit Trail
@@ -676,9 +961,68 @@ Kernel (MCP Client)                    Audit MGP Server
   │─────────────────────────────────────>│  (each event is a separate notification)
 ```
 
+The kernel MUST persist all audit events to its local audit store **before**
+forwarding them as notifications. The local store is the primary record; notifications
+are a secondary delivery channel for real-time consumption.
+
 The kernel SHOULD forward `notifications/mgp.audit` to all connected servers that
-declared `audit` in their negotiated extensions (§2). If no Audit server is connected,
-the kernel SHOULD log events locally.
+declared `audit` in their negotiated extensions (§2). Forwarded audit notifications
+include `_mgp.seq` for gap detection by the receiving server:
+
+```json
+{
+  "method": "notifications/mgp.audit",
+  "params": {
+    "_mgp": { "seq": 43 },
+    "event_type": "TOOL_EXECUTED",
+    "timestamp": "2026-02-27T12:00:00.000Z",
+    "..."
+  }
+}
+```
+
+The `seq` value is a per-server monotonically increasing integer managed by the
+kernel. Each server receives its own independent sequence. Servers detect gaps by
+tracking the last received `seq` and checking for non-consecutive values.
+
+#### mgp.audit.replay
+
+**Tool Name:** `mgp.audit.replay`
+**Category:** Kernel Tool (Layer 4)
+
+Allows audit-subscribed servers to retrieve missed events after gap detection or
+reconnection.
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "since_seq": { "type": "integer", "description": "Resume from this sequence number (exclusive)" },
+    "since_timestamp": { "type": "string", "format": "date-time", "description": "Alternative: resume from this timestamp" },
+    "limit": { "type": "integer", "default": 100, "description": "Maximum events to return" }
+  }
+}
+```
+
+**Output:**
+```json
+{
+  "events": [
+    { "seq": 44, "event_type": "TOOL_EXECUTED", "..." },
+    { "seq": 45, "event_type": "PERMISSION_GRANTED", "..." }
+  ],
+  "has_more": true,
+  "next_seq": 46
+}
+```
+
+The server calls `mgp.audit.replay` with `since_seq` set to the last successfully
+received sequence number. The kernel returns events from its local store. If
+`has_more` is true, the server should call again with `since_seq: next_seq - 1`.
+
+Either `since_seq` or `since_timestamp` must be provided. If both are present,
+`since_seq` takes precedence.
 
 ### 6.4 Standard Event Types
 
@@ -771,6 +1115,10 @@ This format enables AI agents to self-correct their code without human intervent
 
 ---
 
+> **§8–§10 Reserved.** These section numbers are reserved for future Part I extensions
+> (e.g., Isolation Profiles, Trust Level Enforcement, Magic Seal Verification).
+> See `docs/MGP_ISOLATION_DESIGN.md` for current design work in these areas.
+
 ---
 
 # Part II: Communication & Lifecycle Layer
@@ -814,15 +1162,15 @@ graceful shutdown.
 
 **States:**
 
-| State | Description |
-|-------|-------------|
-| `registered` | Server configuration loaded but not yet started |
-| `connecting` | Transport initializing, handshake in progress |
-| `connected` | Operational — accepting tool calls |
-| `draining` | Graceful shutdown initiated — finishing in-flight requests, rejecting new ones |
-| `disconnected` | Transport closed, server stopped |
-| `error` | Connection failed or runtime error |
-| `restarting` | Server is being stopped and restarted |
+| State | Description | Implemented |
+|-------|-------------|-------------|
+| `registered` | Server configuration loaded but not yet started | No |
+| `connecting` | Transport initializing, handshake in progress | No |
+| `connected` | Operational — accepting tool calls | Yes |
+| `draining` | Graceful shutdown initiated — finishing in-flight requests, rejecting new ones | No |
+| `disconnected` | Transport closed, server stopped | Yes |
+| `error` | Connection failed or runtime error | Yes |
+| `restarting` | Server is being stopped and restarted | No |
 
 ### 11.3 Health Check — Kernel Tools
 
@@ -1144,6 +1492,79 @@ Clients can cancel an in-flight streaming or long-running request:
 
 The server SHOULD return any partial results accumulated before cancellation.
 
+### 12.8 Flow Control
+
+Streaming has no built-in backpressure in JSON-RPC. MGP provides a **rate hint**
+mechanism that allows the client to request throttling without aborting the stream.
+
+**Notification:** `notifications/mgp.stream.pace`
+
+Direction: Client → Server
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/mgp.stream.pace",
+  "params": {
+    "request_id": 20,
+    "max_chunks_per_second": 10,
+    "reason": "client_busy"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `request_id` | number | Yes | The original tool call request ID |
+| `max_chunks_per_second` | number | Yes | Recommended maximum chunk rate. `0` = pause |
+| `reason` | string | No | `client_busy`, `rendering`, `user_paused` |
+
+**Server behavior:**
+
+- Servers SHOULD respect rate hints by throttling chunk emission
+- `max_chunks_per_second: 0` requests a pause. The server SHOULD stop emitting
+  chunks until a subsequent `pace` with a positive value or a `cancel` is received
+- Servers that ignore pace hints are not in protocol violation, but the kernel
+  MAY buffer and throttle chunks on behalf of the client
+- A `pace` notification does not affect the final response (§12.5), which is
+  always delivered regardless of pacing state
+
+### 12.9 Gap Detection
+
+Stream chunks include an `index` field (§12.4) that enables gap detection. If the
+client detects missing indices, it MAY request retransmission:
+
+**Notification:** `notifications/mgp.stream.gap`
+
+Direction: Client → Server
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/mgp.stream.gap",
+  "params": {
+    "request_id": 20,
+    "missing_indices": [3, 4, 7]
+  }
+}
+```
+
+**Server behavior:**
+
+- If the missing chunks are still in the server's buffer, the server SHOULD
+  retransmit them as standard `notifications/mgp.stream.chunk` messages
+- If the missing chunks have been discarded, the server SHOULD emit a chunk with
+  `"gap_unrecoverable": true` and continue from the current position
+- The final response (§12.5) always contains the **complete** result regardless
+  of gaps, ensuring data integrity even when individual chunks are lost
+
+**Client behavior:**
+
+- Gap detection is OPTIONAL. Clients that do not track indices simply rely on
+  the final response for the complete result
+- Clients SHOULD wait a reasonable interval (e.g., 2× the average inter-chunk
+  delay) before declaring a gap, to account for out-of-order delivery
+
 ---
 
 ## 13. Bidirectional Communication
@@ -1155,10 +1576,11 @@ standardized patterns for server-initiated communication — event subscriptions
 notifications, and callback requests.
 
 - **Layer 2 (Protocol Notifications):** `notifications/mgp.callback.request` — server requests
-  information from the kernel during tool execution
+  information from the kernel during tool execution; `notifications/mgp.event` — server
+  pushes subscribed events (with `_mgp.seq` for gap detection)
 - **Layer 3 (Protocol Methods):** `mgp/callback/respond` — kernel responds to callback requests
 - **Layer 4 (Kernel Tools):** `mgp.events.subscribe`, `mgp.events.unsubscribe` — event
-  subscription management
+  subscription management; `mgp.events.replay` — catch-up replay for missed events
 
 ### 13.2 Event Subscription — Kernel Tools
 
@@ -1215,7 +1637,13 @@ Cancel an existing event subscription.
 
 ### 13.3 Server Push Notifications — Protocol Layer
 
-After subscription, the server emits events as **Layer 2 protocol notifications**:
+After subscription, the server emits events as **Layer 2 protocol notifications**.
+
+Each event notification MUST include a `_mgp.seq` field — a monotonically increasing
+integer (per subscription) that enables gap detection and replay. Subscribers detect
+gaps by tracking the last received sequence number; if `received_seq > last_seq + 1`,
+one or more events were lost and the subscriber SHOULD request replay via
+`mgp.events.replay` (§13.6).
 
 ```json
 {
@@ -1225,6 +1653,7 @@ After subscription, the server emits events as **Layer 2 protocol notifications*
     "subscription_id": "sub-001",
     "channel": "model.token_usage",
     "timestamp": "2026-02-27T12:05:00.000Z",
+    "_mgp.seq": 42,
     "data": {
       "tokens_used": 1500,
       "tokens_remaining": 8500,
@@ -1342,6 +1771,62 @@ MCP defines `sampling/createMessage` as a dedicated method for the same purpose.
 Per §1.7 (Migration Policy), if MCP Sampling evolves to match these capabilities, MGP
 will provide a compatibility layer during the transition period.
 
+#### Callback Delivery Reliability
+
+`notifications/mgp.callback.request` is a JSON-RPC 2.0 notification and therefore has
+no built-in delivery guarantee. Since callback requests often gate human-in-the-loop
+decisions, loss can stall tool execution indefinitely.
+
+**Server-side retry:**
+
+Servers SHOULD implement retry logic for callback requests:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `retry_count` | 3 | Maximum number of retries after initial attempt |
+| `retry_interval_ms` | 5000 | Interval between retries |
+| `retry_backoff` | `none` | Backoff strategy: `none`, `linear`, `exponential` |
+
+Each retry MUST reuse the same `callback_id` as the original request. The server MAY
+include a `_mgp.attempt` field (integer, starting at 1) to indicate the attempt number:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/mgp.callback.request",
+  "params": {
+    "callback_id": "cb-001",
+    "request_id": 20,
+    "type": "confirmation",
+    "message": "This operation will delete 15 files. Continue?",
+    "options": ["confirm", "cancel"],
+    "timeout_ms": 60000,
+    "_mgp.attempt": 2
+  }
+}
+```
+
+**Kernel-side deduplication:**
+
+The kernel MUST deduplicate callback requests by `callback_id`. If the kernel receives
+a `notifications/mgp.callback.request` with a `callback_id` for which a response has
+already been sent via `mgp/callback/respond`, the kernel MUST:
+
+1. Ignore the duplicate notification (do not re-prompt the user)
+2. Re-send the previously recorded response via `mgp/callback/respond`
+
+This ensures idempotent delivery: servers can safely retry without causing duplicate
+prompts or conflicting responses.
+
+**Exhaustion behavior:**
+
+If all retries are exhausted without receiving a response, the server SHOULD:
+
+1. Treat the callback as timed out
+2. Emit an audit event: `{ "event_type": "CALLBACK_TIMEOUT", "callback_id": "cb-001" }`
+3. Either fail the parent tool call with error code `3003` (TIMEOUT) or proceed with a
+   safe default action, depending on the callback type
+
 ### 13.5 Standard Event Channels
 
 | Channel Pattern | Description |
@@ -1353,6 +1838,82 @@ will provide a compatibility layer during the transition period.
 
 Servers define their own channels within these patterns. Clients SHOULD NOT assume specific
 channels exist — use the `mgp.events.subscribe` kernel tool to discover available channels.
+
+### 13.6 Event Replay — Kernel Tool
+
+#### mgp.events.replay
+
+**Tool Name:** `mgp.events.replay`
+**Category:** Kernel Tool (Layer 4)
+
+Replay missed event notifications for a subscription. Subscribers invoke this tool after
+detecting a sequence gap (see §13.3) or after reconnection to catch up on events emitted
+while disconnected.
+
+The kernel MUST buffer event notifications per subscription. The buffer depth is
+implementation-defined but MUST retain at least the most recent 1000 events per
+subscription. Events beyond the buffer depth are permanently lost; the kernel indicates
+this via the `truncated` field in the response.
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "subscription_id": {
+      "type": "string",
+      "description": "The subscription to replay events for"
+    },
+    "after_seq": {
+      "type": "integer",
+      "description": "Replay events with _mgp.seq strictly greater than this value. Use the last successfully received sequence number."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Maximum number of events to return (default: 100, max: 1000)"
+    }
+  },
+  "required": ["subscription_id", "after_seq"]
+}
+```
+
+**Output:**
+```json
+{
+  "subscription_id": "sub-001",
+  "events": [
+    {
+      "channel": "model.token_usage",
+      "timestamp": "2026-02-27T12:05:01.000Z",
+      "_mgp.seq": 43,
+      "data": { "tokens_used": 1600, "tokens_remaining": 8400, "model": "gpt-oss-120b" }
+    },
+    {
+      "channel": "model.token_usage",
+      "timestamp": "2026-02-27T12:05:02.000Z",
+      "_mgp.seq": 44,
+      "data": { "tokens_used": 1700, "tokens_remaining": 8300, "model": "gpt-oss-120b" }
+    }
+  ],
+  "has_more": false,
+  "truncated": false
+}
+```
+
+**Response fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `events` | array | Replayed events in sequence order |
+| `has_more` | boolean | `true` if more events exist beyond `limit` — caller should paginate |
+| `truncated` | boolean | `true` if events before the requested range were evicted from buffer |
+
+**Error codes:**
+
+| Code | Condition |
+|------|-----------|
+| 4001 | `subscription_id` does not exist or has been cancelled |
+| 1000 | Caller does not own the subscription |
 
 ---
 
@@ -1397,6 +1958,7 @@ JSON-RPC 2.0 reserves codes -32768 to -32000. MGP defines application-level code
 | 4000 | `INVALID_TOOL_ARGS` | Tool arguments failed validation |
 | 4001 | `TOOL_NOT_FOUND` | Requested tool does not exist |
 | 4002 | `TOOL_DISABLED` | Tool exists but is currently disabled |
+| 4003 | `TOOL_NAME_CONFLICT` | Server attempted to register a tool with reserved `mgp.*` prefix |
 | 5000 | `UPSTREAM_ERROR` | External API returned an error |
 | 5001 | `UPSTREAM_TIMEOUT` | External API timed out |
 | 5002 | `UPSTREAM_UNAVAILABLE` | External API is unreachable |
@@ -1472,11 +2034,11 @@ kernel tools.
 
 Clients look for MGP servers in these locations (in order):
 
-1. `./mgp.toml` — Project-local configuration
-2. `~/.config/mgp/servers.toml` — User-level configuration
-3. `$MGP_CONFIG_PATH` — Environment variable override
+1. `./mcp.toml` — Project-local configuration (MGP fields in `[servers.mgp]` section)
+2. `~/.config/cloto/mcp.toml` — User-level configuration
+3. `$MCP_CONFIG_PATH` — Environment variable override
 
-**Format (mgp.toml):**
+**Format (mcp.toml):**
 
 ```toml
 [[servers]]
@@ -1486,7 +2048,7 @@ args = ["mcp-servers/cerebras/server.py"]
 transport = "stdio"
 
 [servers.mgp]
-extensions = ["security", "lifecycle", "streaming"]
+extensions = ["permissions", "tool_security", "lifecycle", "streaming"]
 permissions_required = ["network.outbound"]
 trust_level = "standard"
 restart_policy = "on_failure"
@@ -1502,7 +2064,7 @@ is ignored by MCP-only clients.
 ### 15.3 Capability Advertisement
 
 Connected servers advertise their capabilities via the `initialize` response (§2). For
-pre-connection discovery, the `mgp.toml` configuration provides the same information
+pre-connection discovery, the `mcp.toml` configuration provides the same information
 without establishing a transport connection.
 
 ### 15.4 Registry — Kernel Tools
@@ -1541,7 +2103,7 @@ Query connected and registered servers.
       "id": "mind.cerebras",
       "status": "connected",
       "mgp_version": "0.1.0",
-      "extensions": ["security", "lifecycle", "streaming"],
+      "extensions": ["permissions", "tool_security", "lifecycle", "streaming"],
       "tools": ["think", "analyze"],
       "trust_level": "standard"
     }
@@ -1570,7 +2132,7 @@ Register a server created at runtime (e.g., by agents).
       "properties": {
         "extensions": { "type": "array", "items": { "type": "string" } },
         "permissions_required": { "type": "array", "items": { "type": "string" } },
-        "trust_level": { "type": "string", "enum": ["trusted", "standard", "sandboxed"] }
+        "trust_level": { "type": "string", "enum": ["core", "standard", "experimental", "untrusted"] }
       }
     },
     "created_by": { "type": "string" },
@@ -1580,8 +2142,8 @@ Register a server created at runtime (e.g., by agents).
 }
 ```
 
-Dynamic registrations with `trust_level: "sandboxed"` are subject to stricter validation
-(code safety framework, limited permissions) than `standard` or `trusted` servers.
+Dynamic registrations with `trust_level: "experimental"` or `"untrusted"` are subject to stricter validation
+(code safety framework, limited permissions) than `standard` or `core` servers.
 
 #### mgp.discovery.deregister
 
@@ -2045,8 +2607,8 @@ budget are truncated (fewer results returned).
 #### Kernel Tool Visibility
 
 Layer 4 Kernel Tools (`mgp.access.*`, `mgp.health.*`, `mgp.events.*`, etc.) are
-management tools intended for operators and administrative agents. They SHOULD NOT be
-included in the LLM's tool context by default:
+management tools intended for operators and administrative agents. See §1.6.3 for
+the complete namespace and visibility specification. Summary:
 
 | Kernel Tool Category | `tools/list` | LLM Context | Rationale |
 |---------------------|-------------|------------|-----------|
@@ -2117,14 +2679,17 @@ as first-class protocol methods, with session management and context budgeting b
 ClotoCore is the reference implementation of MGP. The following ClotoCore components
 map to MGP specifications:
 
+All paths relative to `crates/core/src/`.
+
 | MGP Spec | Layer | ClotoCore Component | File |
 |----------|-------|-------------------|------|
 | §2 Capability Negotiation | 1 | `cloto/handshake` | `managers/mcp.rs` |
 | §3 Permission Declarations | 3 | Permission Gate (D) | `managers/mcp.rs` |
-| §4 Tool Security Metadata | 1 | `tool_validators` config | `managers/mcp_protocol.rs` |
-| §5 Access Control | 4 | `mcp_access_control` table | `db.rs`, `handlers.rs` |
-| §6 Audit Trail | 2 | `audit_logs` table | `handlers.rs` |
+| §4 Tool Security Metadata | 1 | `tool_validators` config | `managers/mcp_tool_validator.rs` |
+| §5 Access Control | 4 | `mcp_access_control` table | `db/mcp.rs`, `handlers/mcp.rs` |
+| §6 Audit Trail | 2 | `audit_logs` table | `db/audit.rs`, `handlers/system.rs` |
 | §7 Code Safety | 1 | `validate_mcp_code()` | `managers/mcp.rs` |
+| §8–10 Isolation | — | — (see MGP_ISOLATION_DESIGN.md) | — |
 | §11 Lifecycle | 2+4 | `ServerStatus`, `auto_restart` | `managers/mcp.rs` |
 | §12 Streaming | 2+3 | — (not yet implemented) | — |
 | §13 Bidirectional | 2+3+4 | SSE event bus, callbacks | `handlers.rs`, `lib.rs` |
@@ -2159,8 +2724,8 @@ Tier 1 ──── Tier 2 ──── Tier 3 ──── Tier 4
 Tier 3-4 additionally use Layer 3 (Protocol Methods) and Layer 4 (Kernel Tools).
 Kernel Tools (Layer 4) require no server-side implementation — the kernel provides them.
 
-**Tier 1 — Minimal (hours):** Add `mgp` to `initialize` capabilities + `security` metadata
-on `tools/list`. ~80 lines of code for clients, ~70 lines for servers.
+**Tier 1 — Minimal (hours):** Add `mgp` to `initialize` capabilities + `tool_security`
+metadata on `tools/list`. ~80 lines of code for clients, ~70 lines for servers.
 
 ```python
 # Server: 3 lines to add MGP Tier 1 support
@@ -2168,15 +2733,15 @@ from mgp import enable_mgp
 enable_mgp(server, permissions=["network.outbound"], trust_level="standard")
 ```
 
-**Tier 2 — Security (1 week):** Permission approval flow (§3), audit events (§6),
-structured error handling (§14), access control (§5).
+**Tier 2 — Security (1 week):** Permission approval flow (`permissions`), audit events
+(`audit`), structured error handling (`error_handling`), access control (`access_control`).
 
-**Tier 3 — Communication (2-4 weeks):** Lifecycle management (§11), streaming (§12),
-bidirectional communication (§13).
+**Tier 3 — Communication (2-4 weeks):** Lifecycle management (`lifecycle`), streaming
+(`streaming`, `progress`), callbacks (`callbacks`), events (`events`).
 
-**Tier 4 — Full (1-2 months):** Dynamic tool discovery (§16 Mode A+B), context budget
-management, session tool cache. Semantic search is OPTIONAL — keyword + category is
-sufficient for Tier 4 compliance.
+**Tier 4 — Full (1-2 months):** Dynamic tool discovery (`tool_discovery` — Mode A+B),
+context budget management, session tool cache. Semantic search is OPTIONAL — keyword +
+category is sufficient for Tier 4 compliance.
 
 ### 17.6 Implementation Difficulty Matrix
 
@@ -2207,7 +2772,7 @@ sufficient for Tier 4 compliance.
 | §12 Streaming Emission | 3 | ~200 | Medium |
 | §13 Event Publishing | 3 | ~150 | Low-Med |
 
-**Server Tier 1 total: ~70 lines.** Just declare `security` fields on tools.
+**Server Tier 1 total: ~70 lines.** Just declare `tool_security` fields on tools.
 
 ### 17.7 SDK Design
 
@@ -2274,6 +2839,7 @@ Compliance badges: `[MGP Tier 1]` `[MGP Tier 2]` `[MGP Tier 3]` `[MGP Tier 4]`
 | 0.5.0-draft | 2026-02-28 | Selective Minimalism (see §18.3) |
 | 0.5.1-draft | 2026-02-28 | Document consolidation: merged MGP_PATTERNS.md, MGP_ADOPTION.md, MGP_REVIEW_RESPONSE.md into single specification |
 | 0.5.2-draft | 2026-02-28 | Second review response: sequential section numbering (§17-19), `notifications/mgp.event` added to Layer 2, kernel tool visibility rules (§16.8), §14 Layer classification, MCP comparison compressed |
+| 0.6.0-draft | 2026-03-06 | Transport layer analysis (see §18.4) + structural audit & architectural revision (see §18.5) |
 
 ### 18.2 Expert Review Response (0.3.0 → 0.4.0)
 
@@ -2293,7 +2859,7 @@ MGP-compatible server" experience in §17.8.
 
 ### 18.3 Selective Minimalism (0.4.0 → 0.5.0)
 
-Structural analysis revealed that 16 of 25 protocol methods are kernel-side operations
+Structural analysis revealed that 15 of 25 protocol methods are kernel-side operations
 that do not require bidirectional protocol agreement. Converting these to standard MCP
 tools via `tools/call` preserves all functionality while reducing protocol surface area
 by 64%.
@@ -2304,13 +2870,14 @@ by 64%.
 - **Layer 2 (Notifications):** 6 protocol notifications
 - **Layer 3 (Methods):** 4 irreducible methods (permission/await, permission/grant,
   callback/respond, stream/cancel)
-- **Layer 4 (Kernel Tools):** 16 methods converted to standard MCP tools with `mgp.*`
-  naming convention
+- **Layer 4 (Kernel Tools):** 17 standard MCP tools with `mgp.*` naming convention
+  (originally 15; `mgp.audit.replay` and `mgp.events.replay` added for notification
+  reliability — see §6.3 and §13.6)
 
 Security guarantees and MCP structural limitation breakthroughs are fully maintained
 because the kernel remains the sole enforcement point regardless of invocation mechanism.
 
-### 18.4 Transport Layer Analysis (0.5.2 → 0.5.3)
+### 18.4 Transport Layer Analysis (0.5.2 → 0.6.0)
 
 Discord Bridge implementation revealed a structural gap in MCP's transport model.
 MCP transports assume the Kernel (Client) is the initiator; external event-driven
@@ -2331,6 +2898,56 @@ This is a specification-implementation gap affecting the entire MCP ecosystem.
 **Design decision:** Two-phase approach. Phase 1 standardizes the Bridge Pattern (§19.6)
 and requires Kernel notification handling. Phase 2 (future) introduces `transport_websocket`
 as an optional extension informed by Phase 1 operational experience.
+
+### 18.5 Structural Audit & Architectural Revision (0.6.0)
+
+Comprehensive audit against ClotoCore codebase and architectural flaw analysis.
+
+#### Documentation Audit Fixes
+
+| Area | Change |
+|------|--------|
+| trust_level taxonomy | Unified 3-level (Spec) → 4-level: `core > standard > experimental > untrusted` (§2.3, §16) |
+| Error codes | Fixed mismatches: `3002→3001`, `1004→1010`, `1001→1000` in MGP_ISOLATION_DESIGN.md |
+| Config naming | `mgp.toml` → `mcp.toml` unified (§15.2) |
+| Security Invariant 3 | "cannot be self-declared" → "cannot be self-elevated" (MGP_ISOLATION_DESIGN.md §10) |
+| File paths | `db.rs` → `db/mcp.rs` etc. in §17.3 mapping table |
+| ServerStatus | Added `Implemented` column to §11.2 |
+| clientInfo | `ClotoCore/0.2.8` → `CLOTO-KERNEL/0.6.0` |
+
+#### Structural Flaw Revisions (#2–#7)
+
+| # | Flaw | Resolution | Sections |
+|---|------|-----------|----------|
+| #2 | Extension negotiation too coarse | Split `security` → `permissions` + `tool_security`, `bidirectional` → `callbacks` + `events`, added `progress` (9 → 12 extensions) | §2.2 |
+| #3 | Delegation concept missing | `_mgp.delegation` field, `intersect(actor, delegator)` permission model, chain depth max 3 | §5.6 (new) |
+| #4 | Permission scope missing | `scope` object with `paths`/`deny_paths`, `commands`/`deny_commands`, `hosts`/`deny_hosts`, deny-first precedence | §3.6, §3.7 (new) |
+| #5 | Security metadata self-declaration | `effective_risk_level` (kernel-derived, authoritative) vs `risk_level` (server-declared, informational). Source column in §4.3 | §4.3, §4.6 (new) |
+| #6 | Kernel tools self-referential | `mgp.*` namespace reservation, `_mgp.source: "kernel"`, `admin_only` flag, MUST NOT in LLM context | §1.6.3 (new), §4.3 |
+| #7 | Streaming backpressure missing | `notifications/mgp.stream.pace` (rate hints), `notifications/mgp.stream.gap` (gap detection + retransmission) | §12.8, §12.9 (new) |
+
+#### Notification Reliability (#1)
+
+Layer 2 notifications (JSON-RPC 2.0) have no delivery guarantee. This revision adds
+compensating mechanisms for both communication directions:
+
+| Mechanism | Direction | Sections |
+|-----------|-----------|----------|
+| `_mgp.seq` on audit notifications + `mgp.audit.replay` kernel tool | K→S | §6.3 |
+| Callback retry with `_mgp.attempt` + kernel deduplication | S→K | §13.4 |
+| `_mgp.seq` on event notifications + `mgp.events.replay` kernel tool | K→S | §13.3, §13.6 (new) |
+| Layer 2 Notification Reliability table | — | §1.6.2 (new) |
+
+Kernel Tool count: 15 → 17 (`mgp.audit.replay`, `mgp.events.replay` added).
+
+§1.2 Auditable principle revised: "persist to local audit store and forward as
+notifications" (previously: "produce structured audit events").
+
+#### Future Considerations
+
+§20 (new): Protocol Layer Evolution — documents structural asymmetry (JSON-RPC 2.0
+inherited), layer isolation analysis, potential migration path, and decision criteria
+with earliest evaluation 2027-Q2.
 
 ---
 
@@ -2477,7 +3094,7 @@ time, since the connection is already established when `initialize` is sent.
 {
   "mgp": {
     "version": "0.6.0",
-    "extensions": ["security", "bidirectional"],
+    "extensions": ["permissions", "tool_security", "callbacks", "events"],
     "transport": "websocket"
   }
 }
@@ -2575,3 +3192,65 @@ topology change.
 
 **MGP Primitives Used:** Event Subscription (§13.2), Push Notifications (§13.3),
 Lifecycle (§11), Access Control (§5), Audit (§6)
+
+---
+
+## 20. Future Considerations: Protocol Layer Evolution
+
+### 20.1 Structural Asymmetry
+
+MGP inherits JSON-RPC 2.0's client-server model from MCP. The kernel (client) can
+make method calls to servers (with response guarantee), but servers can only send
+notifications to the kernel (fire-and-forget, no delivery guarantee).
+
+This asymmetry is compensated by application-level mechanisms (`_mgp.seq`, replay
+tools, callback retry — see §1.6.2), but cannot be fully eliminated within the
+current protocol layer.
+
+### 20.2 Layer Isolation
+
+MGP's 4-layer architecture cleanly separates transport-dependent and
+transport-independent concerns:
+
+| Layer | Transport-dependent? | Notes |
+|-------|---------------------|-------|
+| Layer 1 (Metadata) | No | `_mgp` fields are payload-level |
+| Layer 2 (Notifications) | **Yes** | Asymmetry exists here |
+| Layer 3 (Methods) | No | Application semantics only |
+| Layer 4 (Kernel Tools) | No | Standard `tools/call` |
+
+A future protocol evolution would only need to replace Layer 2, preserving
+Layers 1, 3, and 4 unchanged.
+
+### 20.3 Potential Migration Path
+
+If operational data (callback timeout frequency, event replay `truncated` rate)
+demonstrates that Layer 2 compensation is insufficient, a symmetric transport
+layer could be introduced:
+
+```
+Kernel (Next-Gen)
+├── MGP Adapter   ← JSON-RPC 2.0 (notification + callback pattern)
+│   └── Existing MGP Servers (unchanged)
+└── Native        ← Bidirectional protocol (method calls both directions)
+    └── Next-Gen Servers
+```
+
+**Backward compatibility is one-directional only:** existing MGP servers work on
+a next-gen kernel (via adapter), but next-gen servers do NOT work on an MGP-only
+kernel. This follows the HTTP/1.1 → HTTP/2 precedent.
+
+### 20.4 Decision Criteria
+
+This migration is NOT planned. The following conditions should be monitored
+before considering it:
+
+1. **MCP evolution**: If MCP adds server→client method calls (e.g., via
+   Streamable HTTP), MGP's asymmetry resolves at the MCP level — no custom
+   protocol needed
+2. **Operational data**: Frequency of `CALLBACK_TIMEOUT` audit events and
+   `mgp.events.replay` responses with `truncated: true`
+3. **Ecosystem size**: Migration cost scales with the number of third-party
+   MGP server implementations
+
+**Earliest evaluation: 2027-Q2.**
