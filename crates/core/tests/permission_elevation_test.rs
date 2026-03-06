@@ -78,9 +78,9 @@ async fn test_dynamic_permission_elevation_flow() {
     cloto_core::db::init_db(&pool, "sqlite::memory:")
         .await
         .unwrap();
-    let registry_raw = PluginRegistry::new(5, 10);
-    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 5, 10).unwrap());
-    let agent_manager = AgentManager::new(pool.clone());
+    let registry_raw = PluginRegistry::new(5, 10, 50);
+    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 5, 10, 50).unwrap());
+    let agent_manager = AgentManager::new(pool.clone(), 90_000);
     let (tx_internal, _rx_internal) = tokio::sync::broadcast::channel(10);
 
     // 2. Register Mock Plugin
@@ -113,6 +113,7 @@ async fn test_dynamic_permission_elevation_flow() {
         Arc::new(dashmap::DashMap::new()),
         pool.clone(),
         Arc::new(dashmap::DashMap::new()),
+        5, // memory_timeout_secs
     ));
 
     let processor = EventProcessor::new(
@@ -122,10 +123,11 @@ async fn test_dynamic_permission_elevation_flow() {
         tx_internal,
         event_history,
         metrics,
-        1000, // max_history_size
-        24,   // event_retention_hours
-        None, // consensus
+        1000,   // max_history_size
+        24,     // event_retention_hours
+        None,   // consensus
         sys_handler,
+        10_000, // max_event_history
     );
     let (event_tx, event_rx) = mpsc::channel(10);
 

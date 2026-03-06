@@ -22,18 +22,16 @@ struct AgentRow {
 #[derive(Clone)]
 pub struct AgentManager {
     pub(crate) pool: SqlitePool,
+    heartbeat_threshold_ms: i64,
 }
 
 impl AgentManager {
-    /// Heartbeat threshold: 90 seconds. Agents not heard from in this window are "degraded".
-    pub const HEARTBEAT_THRESHOLD_MS: i64 = 90_000;
-
     #[must_use]
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(pool: SqlitePool, heartbeat_threshold_ms: i64) -> Self {
+        Self { pool, heartbeat_threshold_ms }
     }
 
-    fn row_to_metadata(row: AgentRow) -> AgentMetadata {
+    fn row_to_metadata(&self, row: AgentRow) -> AgentMetadata {
         let has_pw = row.power_password_hash.is_some();
         let mut meta = row.metadata.0;
         if has_pw {
@@ -56,7 +54,7 @@ impl AgentManager {
             required_capabilities: row.required_capabilities.0,
             metadata: meta,
         };
-        agent.resolve_status(Self::HEARTBEAT_THRESHOLD_MS);
+        agent.resolve_status(self.heartbeat_threshold_ms);
         agent
     }
 
@@ -74,7 +72,7 @@ impl AgentManager {
         .await?;
 
         let engine_id = row.default_engine_id.clone();
-        let metadata = Self::row_to_metadata(row);
+        let metadata = self.row_to_metadata(row);
         Ok((metadata, engine_id))
     }
 
@@ -87,7 +85,7 @@ impl AgentManager {
         .fetch_all(&self.pool)
         .await?;
 
-        let agents: Vec<AgentMetadata> = rows.into_iter().map(Self::row_to_metadata).collect();
+        let agents: Vec<AgentMetadata> = rows.into_iter().map(|r| self.row_to_metadata(r)).collect();
 
         for agent in &agents {
             debug!(

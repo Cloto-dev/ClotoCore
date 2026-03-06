@@ -7,6 +7,86 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.0-alpha.3] — 2026-03-06
+
+### Fixed
+- 8 MEDIUM bugs resolved, improved Python MCP server quality
+- Graceful shutdown now broadcasts to all tasks (not just one listener)
+- MCP stderr log noise suppressed
+
+---
+
+## [0.6.0-alpha.2] — 2026-03-05
+
+### Removed
+- CLI crate (`cloto_system` binary removed)
+- Status UI page
+
+### Fixed
+- MCP server restore bug on kernel restart
+
+### Security
+- Authentication added to read-only APIs (agents, plugins, metrics, memories)
+- YOLO mode audit log: all auto-approved actions recorded
+- Revoked API keys now expire with TTL cleanup
+
+---
+
+## [0.6.0-alpha.1] — 2026-03-05
+
+### Changed
+- Replace Inno Setup installer with Tauri NSIS installer (Windows)
+
+### Fixed
+- Windows console windows appearing from MCP server child processes
+- Kernel images blocked by CSP `img-src` directive
+- Release pipeline: Ed25519 signing, artifact paths, macOS runner, cosign verification
+
+---
+
+## [0.5.11] — 2026-03-04
+
+### Changed
+- Unified REST API response envelope (`{ "data": ... }` / `{ "error": ... }`)
+- Auto-generate Tauri API key on first launch
+
+---
+
+## [0.5.10] — 2026-03-04
+
+### Added
+- Multi-user identity propagation across the full pipeline (chat, agentic loop, MCP tools, memory)
+
+---
+
+## [0.5.9] — 2026-03-04
+
+### Fixed
+- Memory contamination causing time hallucination in agent responses
+
+---
+
+## [0.5.8] — 2026-03-04
+
+### Changed
+- Dashboard UI/UX refinements: retry fix, MemoryCore design unification, engine selector polish
+
+---
+
+## [0.5.7] — 2026-03-04
+
+### Added
+- CRON autonomy security: recursion depth control and audit log guarantee
+
+---
+
+## [0.5.5] — 2026-03-04
+
+### Added
+- Gemini-style engine switcher in chat input bar
+
+---
+
 ## [0.5.4] — 2026-03-04
 
 ### Added

@@ -13,9 +13,9 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
     let (event_tx, _event_rx) = mpsc::channel(100);
     let (tx, _rx) = broadcast::channel(100);
 
-    let registry = Arc::new(PluginRegistry::new(5, 10));
-    let agent_manager = AgentManager::new(pool.clone());
-    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10).unwrap());
+    let registry = Arc::new(PluginRegistry::new(5, 10, 50));
+    let agent_manager = AgentManager::new(pool.clone(), 90_000);
+    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10, 50).unwrap());
 
     let dynamic_router = Arc::new(DynamicRouter {
         router: RwLock::new(axum::Router::new()),
@@ -27,12 +27,16 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
     let mut config = AppConfig::load().unwrap();
     config.admin_api_key = admin_api_key;
 
-    let rate_limiter = Arc::new(crate::middleware::RateLimiter::new(10, 20));
+    let rate_limiter = Arc::new(crate::middleware::RateLimiter::new(
+        config.rate_limit_per_sec,
+        config.rate_limit_burst,
+    ));
 
     let shutdown = Arc::new(Notify::new());
     let mcp_manager = Arc::new(crate::managers::McpClientManager::new(
         pool.clone(),
         false, // yolo_mode disabled in tests
+        120,   // mcp_request_timeout_secs
     ));
 
     Arc::new(crate::AppState {

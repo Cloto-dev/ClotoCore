@@ -57,13 +57,13 @@ fn rust_tool_schema(tool: &dyn cloto_shared::Tool) -> serde_json::Value {
 
 impl PluginRegistry {
     #[must_use]
-    pub fn new(event_timeout_secs: u64, max_event_depth: u8) -> Self {
+    pub fn new(event_timeout_secs: u64, max_event_depth: u8, event_concurrency_limit: usize) -> Self {
         Self {
             plugins: tokio::sync::RwLock::new(HashMap::new()),
             effective_permissions: tokio::sync::RwLock::new(HashMap::new()),
             event_timeout_secs,
             max_event_depth,
-            event_semaphore: Arc::new(tokio::sync::Semaphore::new(50)),
+            event_semaphore: Arc::new(tokio::sync::Semaphore::new(event_concurrency_limit)),
             mcp_manager: None,
         }
     }

@@ -41,6 +41,30 @@ pub struct AppConfig {
     pub cron_check_interval_secs: u64,
     /// Port for internal LLM proxy (MGP §13.4).
     pub llm_proxy_port: u16,
+    /// Database operation timeout in seconds.
+    pub db_timeout_secs: u64,
+    /// Memory retrieval timeout in seconds.
+    pub memory_timeout_secs: u64,
+    /// Agent heartbeat threshold in milliseconds.
+    pub heartbeat_threshold_ms: i64,
+    /// MCP request timeout in seconds.
+    pub mcp_request_timeout_secs: u64,
+    /// LLM proxy HTTP client timeout in seconds.
+    pub llm_proxy_timeout_secs: u64,
+    /// Rate limiter: requests per second.
+    pub rate_limit_per_sec: u32,
+    /// Rate limiter: burst size.
+    pub rate_limit_burst: u32,
+    /// Maximum event history ring buffer size.
+    pub max_event_history: usize,
+    /// Event processing concurrency limit.
+    pub event_concurrency_limit: usize,
+    /// Maximum chat query limit per request.
+    pub max_chat_query_limit: i64,
+    /// Attachment inline threshold in bytes.
+    pub attachment_inline_threshold: usize,
+    /// Default max iterations for cron jobs.
+    pub cron_default_max_iterations: u8,
 }
 
 impl AppConfig {
@@ -227,6 +251,138 @@ impl AppConfig {
             .parse::<u16>()
             .unwrap_or(8082);
 
+        let db_timeout_secs = env::var("CLOTO_DB_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "10".to_string())
+            .parse::<u64>()
+            .context("Failed to parse CLOTO_DB_TIMEOUT_SECS")?;
+        if db_timeout_secs == 0 || db_timeout_secs > 120 {
+            anyhow::bail!(
+                "CLOTO_DB_TIMEOUT_SECS must be between 1 and 120 (got {})",
+                db_timeout_secs
+            );
+        }
+
+        let memory_timeout_secs = env::var("CLOTO_MEMORY_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "5".to_string())
+            .parse::<u64>()
+            .context("Failed to parse CLOTO_MEMORY_TIMEOUT_SECS")?;
+        if memory_timeout_secs == 0 || memory_timeout_secs > 60 {
+            anyhow::bail!(
+                "CLOTO_MEMORY_TIMEOUT_SECS must be between 1 and 60 (got {})",
+                memory_timeout_secs
+            );
+        }
+
+        let heartbeat_threshold_ms = env::var("CLOTO_HEARTBEAT_THRESHOLD_MS")
+            .unwrap_or_else(|_| "90000".to_string())
+            .parse::<i64>()
+            .context("Failed to parse CLOTO_HEARTBEAT_THRESHOLD_MS")?;
+        if !(10_000..=600_000).contains(&heartbeat_threshold_ms) {
+            anyhow::bail!(
+                "CLOTO_HEARTBEAT_THRESHOLD_MS must be between 10000 and 600000 (got {})",
+                heartbeat_threshold_ms
+            );
+        }
+
+        let mcp_request_timeout_secs = env::var("CLOTO_MCP_REQUEST_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "120".to_string())
+            .parse::<u64>()
+            .context("Failed to parse CLOTO_MCP_REQUEST_TIMEOUT_SECS")?;
+        if !(10..=600).contains(&mcp_request_timeout_secs) {
+            anyhow::bail!(
+                "CLOTO_MCP_REQUEST_TIMEOUT_SECS must be between 10 and 600 (got {})",
+                mcp_request_timeout_secs
+            );
+        }
+
+        let llm_proxy_timeout_secs = env::var("CLOTO_LLM_PROXY_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "180".to_string())
+            .parse::<u64>()
+            .context("Failed to parse CLOTO_LLM_PROXY_TIMEOUT_SECS")?;
+        if !(30..=600).contains(&llm_proxy_timeout_secs) {
+            anyhow::bail!(
+                "CLOTO_LLM_PROXY_TIMEOUT_SECS must be between 30 and 600 (got {})",
+                llm_proxy_timeout_secs
+            );
+        }
+
+        let rate_limit_per_sec = env::var("CLOTO_RATE_LIMIT_PER_SEC")
+            .unwrap_or_else(|_| "10".to_string())
+            .parse::<u32>()
+            .context("Failed to parse CLOTO_RATE_LIMIT_PER_SEC")?;
+        if rate_limit_per_sec == 0 || rate_limit_per_sec > 1000 {
+            anyhow::bail!(
+                "CLOTO_RATE_LIMIT_PER_SEC must be between 1 and 1000 (got {})",
+                rate_limit_per_sec
+            );
+        }
+
+        let rate_limit_burst = env::var("CLOTO_RATE_LIMIT_BURST")
+            .unwrap_or_else(|_| "20".to_string())
+            .parse::<u32>()
+            .context("Failed to parse CLOTO_RATE_LIMIT_BURST")?;
+        if rate_limit_burst == 0 || rate_limit_burst > 10_000 {
+            anyhow::bail!(
+                "CLOTO_RATE_LIMIT_BURST must be between 1 and 10000 (got {})",
+                rate_limit_burst
+            );
+        }
+
+        let max_event_history = env::var("CLOTO_MAX_EVENT_HISTORY")
+            .unwrap_or_else(|_| "10000".to_string())
+            .parse::<usize>()
+            .context("Failed to parse CLOTO_MAX_EVENT_HISTORY")?;
+        if !(100..=1_000_000).contains(&max_event_history) {
+            anyhow::bail!(
+                "CLOTO_MAX_EVENT_HISTORY must be between 100 and 1000000 (got {})",
+                max_event_history
+            );
+        }
+
+        let event_concurrency_limit = env::var("CLOTO_EVENT_CONCURRENCY")
+            .unwrap_or_else(|_| "50".to_string())
+            .parse::<usize>()
+            .context("Failed to parse CLOTO_EVENT_CONCURRENCY")?;
+        if event_concurrency_limit == 0 || event_concurrency_limit > 500 {
+            anyhow::bail!(
+                "CLOTO_EVENT_CONCURRENCY must be between 1 and 500 (got {})",
+                event_concurrency_limit
+            );
+        }
+
+        let max_chat_query_limit = env::var("CLOTO_MAX_CHAT_QUERY_LIMIT")
+            .unwrap_or_else(|_| "200".to_string())
+            .parse::<i64>()
+            .context("Failed to parse CLOTO_MAX_CHAT_QUERY_LIMIT")?;
+        if !(10..=10_000).contains(&max_chat_query_limit) {
+            anyhow::bail!(
+                "CLOTO_MAX_CHAT_QUERY_LIMIT must be between 10 and 10000 (got {})",
+                max_chat_query_limit
+            );
+        }
+
+        let attachment_inline_threshold = env::var("CLOTO_ATTACHMENT_INLINE_THRESHOLD")
+            .unwrap_or_else(|_| "65536".to_string())
+            .parse::<usize>()
+            .context("Failed to parse CLOTO_ATTACHMENT_INLINE_THRESHOLD")?;
+        if attachment_inline_threshold > 10_485_760 {
+            anyhow::bail!(
+                "CLOTO_ATTACHMENT_INLINE_THRESHOLD must be between 0 and 10485760 (got {})",
+                attachment_inline_threshold
+            );
+        }
+
+        let cron_default_max_iterations = env::var("CLOTO_CRON_DEFAULT_MAX_ITERATIONS")
+            .unwrap_or_else(|_| "8".to_string())
+            .parse::<u8>()
+            .context("Failed to parse CLOTO_CRON_DEFAULT_MAX_ITERATIONS")?;
+        if cron_default_max_iterations == 0 || cron_default_max_iterations > 64 {
+            anyhow::bail!(
+                "CLOTO_CRON_DEFAULT_MAX_ITERATIONS must be between 1 and 64 (got {})",
+                cron_default_max_iterations
+            );
+        }
+
         Ok(Self {
             database_url,
             port,
@@ -249,6 +405,18 @@ impl AppConfig {
             cron_enabled,
             cron_check_interval_secs,
             llm_proxy_port,
+            db_timeout_secs,
+            memory_timeout_secs,
+            heartbeat_threshold_ms,
+            mcp_request_timeout_secs,
+            llm_proxy_timeout_secs,
+            rate_limit_per_sec,
+            rate_limit_burst,
+            max_event_history,
+            event_concurrency_limit,
+            max_chat_query_limit,
+            attachment_inline_threshold,
+            cron_default_max_iterations,
         })
     }
 }

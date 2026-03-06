@@ -22,6 +22,15 @@ use tracing::{debug, error, info, warn};
 
 use crate::db;
 
+/// OpenAI-compatible chat completions endpoint path.
+const LLM_PROXY_ENDPOINT: &str = "/v1/chat/completions";
+
+/// Provider ID that triggers Anthropic-specific authentication.
+const ANTHROPIC_PROVIDER_ID: &str = "claude";
+
+/// Required API version header for Anthropic requests.
+const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+
 struct ProxyState {
     pool: SqlitePool,
     http_client: reqwest::Client,
@@ -32,17 +41,24 @@ struct ProxyState {
 /// Mind MCP servers send requests to this proxy with an `X-LLM-Provider` header
 /// indicating which provider to route to. The proxy looks up the API key from
 /// the database and forwards the request with proper authentication.
-pub fn spawn_llm_proxy(pool: SqlitePool, port: u16, shutdown: Arc<Notify>) {
+pub fn spawn_llm_proxy(pool: SqlitePool, port: u16, timeout_secs: u64, shutdown: Arc<Notify>) {
+    let http_client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+    {
+        Ok(client) => client,
+        Err(e) => {
+            error!("Failed to create LLM proxy HTTP client: {}", e);
+            return;
+        }
+    };
     let state = Arc::new(ProxyState {
         pool,
-        http_client: reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
-            .build()
-            .expect("Failed to create HTTP client"),
+        http_client,
     });
 
     let app = Router::new()
-        .route("/v1/chat/completions", post(proxy_handler))
+        .route(LLM_PROXY_ENDPOINT, post(proxy_handler))
         .with_state(state);
 
     tokio::spawn(async move {
@@ -130,10 +146,10 @@ async fn proxy_handler(
 
     // Add API key if configured (provider-specific auth format)
     if !provider.api_key.is_empty() {
-        if provider_id == "claude" {
+        if provider_id == ANTHROPIC_PROVIDER_ID {
             // Anthropic uses x-api-key header + required version header
             req = req.header("x-api-key", &provider.api_key);
-            req = req.header("anthropic-version", "2023-06-01");
+            req = req.header("anthropic-version", ANTHROPIC_API_VERSION);
         } else {
             req = req.header("Authorization", format!("Bearer {}", provider.api_key));
         }

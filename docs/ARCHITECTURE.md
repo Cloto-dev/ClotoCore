@@ -1,6 +1,6 @@
 # ClotoCore Architecture
 
-ClotoCoreは、高度な柔軟性、安全性、および拡張性を備えたAIエージェント・プラットフォームです。本ドキュメントは設計原則、セキュリティフレームワーク、プラグイン通信機構、およびサブプロジェクトの仕様を統合的に定義します。
+ClotoCore is an AI agent platform designed with a high degree of flexibility, safety, and extensibility. This document provides an integrated definition of design principles, the security framework, plugin communication mechanisms, and sub-project specifications.
 
 ---
 
@@ -81,14 +81,54 @@ ClotoCore/
 ├── crates/
 │   ├── core/          # Kernel: HTTP server, handlers, event loop, database
 │   │   └── src/
-│   │       ├── handlers.rs      # HTTP API handlers (agents, plugins, events, auth)
-│   │       ├── handlers/        # Sub-handlers (system, assets, chat)
+│   │       ├── handlers.rs      # Handler routing module (re-exports sub-handlers)
+│   │       ├── handlers/        # HTTP API sub-handlers
+│   │       │   ├── system.rs    #   Agentic loop, chat pipeline, delegation
+│   │       │   ├── mcp.rs       #   MCP server management endpoints
+│   │       │   ├── agents.rs    #   Agent CRUD, avatar, power toggle
+│   │       │   ├── chat.rs      #   Chat message persistence
+│   │       │   ├── cron.rs      #   CRON job management
+│   │       │   ├── commands.rs  #   Command approval (HITL)
+│   │       │   ├── permissions.rs # Permission approval/denial
+│   │       │   ├── events.rs    #   SSE event stream
+│   │       │   ├── llm.rs       #   LLM proxy endpoints
+│   │       │   ├── assets.rs    #   Static asset serving
+│   │       │   ├── response.rs  #   ok_data() / json_data() helpers
+│   │       │   └── utils.rs     #   Validation, password verification
+│   │       ├── db/              # SQLite persistence layer
+│   │       │   ├── mod.rs       #   Schema, migrations, core queries
+│   │       │   ├── mcp.rs       #   MCP server state, access control
+│   │       │   ├── chat.rs      #   Chat message storage
+│   │       │   ├── permissions.rs # Permission requests
+│   │       │   ├── cron.rs      #   CRON job persistence
+│   │       │   ├── audit.rs     #   Audit log queries
+│   │       │   ├── api_keys.rs  #   API key management
+│   │       │   ├── llm.rs       #   LLM routing rules
+│   │       │   └── trusted_commands.rs # Command trust store
+│   │       ├── managers/        # Runtime managers
+│   │       │   ├── mod.rs       #   Module declarations
+│   │       │   ├── mcp.rs       #   McpClientManager (server orchestration)
+│   │       │   ├── mcp_client.rs #  JSON-RPC client per MCP server
+│   │       │   ├── mcp_types.rs #   Shared MCP types (McpServerHandle, etc.)
+│   │       │   ├── mcp_protocol.rs # MCP JSON-RPC message types
+│   │       │   ├── mcp_transport.rs # stdio transport layer
+│   │       │   ├── mcp_kernel_tool.rs # create_mcp_server tool
+│   │       │   ├── mcp_tool_validator.rs # Code security validation
+│   │       │   ├── mcp_health.rs #  Server health monitor + auto-restart
+│   │       │   ├── mcp_venv.rs  #   Python venv auto-setup
+│   │       │   ├── registry.rs  #   PluginRegistry (event dispatch)
+│   │       │   ├── plugin.rs    #   PluginManager (lifecycle)
+│   │       │   ├── agents.rs    #   AgentManager
+│   │       │   ├── llm_proxy.rs #   LLM API proxy
+│   │       │   └── scheduler.rs #   CRON scheduler
 │   │       ├── config.rs        # AppConfig from environment variables
-│   │       ├── db.rs            # SQLite schema, queries, audit logging
-│   │       ├── managers/        # PluginManager, AgentManager, PluginRegistry, MCP client
+│   │       ├── events.rs        # Event processor (cascade, broadcast, dispatch)
 │   │       ├── middleware.rs    # Rate limiter, request tracking
-│   │       └── lib.rs           # AppState, router setup, event processor
-│   └── shared/        # Plugin SDK: traits, types, macros
+│   │       ├── consensus.rs    # Multi-engine consensus orchestrator
+│   │       ├── capabilities.rs # Capability types and permission model
+│   │       ├── validation.rs   # Input validation rules
+│   │       └── lib.rs           # AppState, router setup, server bootstrap
+│   └── shared/        # Shared trait definitions
 │       └── src/lib.rs           # Plugin, ReasoningEngine, Tool traits
 │
 ├── mcp-servers/        # MCP servers (Python, any language)
@@ -216,83 +256,83 @@ SSE events use their own format defined by the `ClotoEvent` type system.
 
 ## 1. Design Principles (Manifesto)
 
-本システムにおける全ての開発は、以下の9つの設計原則に従わなければなりません。
+All development within this system must adhere to the following nine design principles.
 
-### 1.1 Core Minimalism (核の最小化)
-**「Kernelは舞台であり、役者ではない」**
-- **Kernelの責務**: プラグインのライフサイクル管理、イベントの仲介、データの永続化インターフェースの提供、Webサーバーの土台提供。
-- **禁止事項**: 特定のAIモデル（LLM）への依存ロジック、特定のメモリ形式の処理ロジックなど、機能そのものをKernel内にハードコードすること。
-- **目標**: Kernelを修正することなく、あらゆる機能をプラグインの追加・差し替えだけで実現する。
+### 1.1 Core Minimalism
+**"The Kernel is the stage, not the actor."**
+- **Kernel responsibilities**: Plugin lifecycle management, event mediation, data persistence interface, and web server foundation.
+- **Prohibited**: Hard-coding functionality into the Kernel, such as logic dependent on specific AI models (LLMs) or processing logic for specific memory formats.
+- **Goal**: Enable all functionality through plugin addition and replacement alone, without modifying the Kernel.
 
-### 1.2 Capability over Concrete Type (具象ではなく能力を)
-**「誰であるかではなく、何ができるか」**
-- **設計指針**: プラグインのIDや名前を直接参照して処理を分岐させない。代わりに `CapabilityType` (Reasoning, Memory, HAL等) を通じてプラグインを呼び出す。
-- **メリット**: 深い階層でのプラグイン差し替えが可能になり、システム全体のポータビリティが向上する。
+### 1.2 Capability over Concrete Type
+**"Not who it is, but what it can do."**
+- **Design guideline**: Do not branch logic by directly referencing plugin IDs or names. Instead, invoke plugins through `CapabilityType` (Reasoning, Memory, HAL, etc.).
+- **Benefit**: Enables deep-level plugin swapping and improves overall system portability.
 
-### 1.3 Event-First Communication (イベントバス至上主義)
-**「直接話さず、広場に投げろ」**
-- **設計指針**: プラグイン間、あるいはKernelとプラグイン間の連携は、可能な限りイベントバス（`ClotoEvent`）を介して非同期・疎結合に行う。
-- **目標**: AプラグインがBプラグインの存在を知らなくても、特定のイベントに反応するだけで機能が統合される状態を作る。
+### 1.3 Event-First Communication
+**"Don't talk directly -- announce it in the plaza."**
+- **Design guideline**: Communication between plugins, and between the Kernel and plugins, should be asynchronous and loosely coupled via the event bus (`ClotoEvent`) whenever possible.
+- **Goal**: Achieve a state where features integrate by simply reacting to specific events, even if Plugin A is unaware of Plugin B's existence.
 
-### 1.4 Data Sovereignty (データの主権はプラグインに)
-**「Kernelはデータを預かるが、中身は解釈しない」**
-- **設計指針**: プラグイン固有の設定やエージェントの属性は、Kernelのテーブルを拡張せず、不透明な `metadata` (JSON) として扱う。
-- **目標**: データベーススキーマを変更せずに、プラグインが自由に独自の内部データ構造を定義・永続化できるようにする。
+### 1.4 Data Sovereignty
+**"The Kernel holds the data, but does not interpret its contents."**
+- **Design guideline**: Plugin-specific settings and agent attributes are treated as opaque `metadata` (JSON) rather than extending Kernel tables.
+- **Goal**: Allow plugins to freely define and persist their own internal data structures without modifying the database schema.
 
-### 1.5 Strict Permission Isolation (厳格な権限分離)
-**「能力には責任と権限が伴う」**
-- **設計指針**: 機能（Capability）の提供と、リソースへのアクセス（Permission）を分離する。
-- **目標**: 「ファイルに書き込めるが、ネットワークには出られないエージェント」といった、セキュアな実行環境をメタデータ定義だけで実現する。
+### 1.5 Strict Permission Isolation
+**"Capability comes with responsibility and authorization."**
+- **Design guideline**: Separate capability provision from resource access (permissions).
+- **Goal**: Achieve secure execution environments through metadata definitions alone -- such as "an agent that can write to files but cannot access the network."
 
-### 1.6 Seamless Integration & DevEx (シームレスな統合と開発体験)
-**「原則はガードレールであり、壁ではない」**
-- **設計指針**: 厳格な原則が開発の足かせにならないよう、SDK（Macros, Utilities）を通じてアーキテクチャの複雑さを隠蔽する。
-- **アプローチ**:
-    - **Macro-driven Compliance**: 定型的なトレイト実装やマニフェスト定義をマクロ化し、人為的ミスと記述量を最小化する。
-    - **Encapsulated Complexity**: イベントのフィルタリングやストレージの初期化など、共通パターンをSDKレベルで抽象化する。
+### 1.6 Seamless Integration & DevEx
+**"Principles are guardrails, not walls."**
+- **Design guideline**: Use the SDK (macros, utilities) to abstract away architectural complexity so that strict principles do not hinder development.
+- **Approach**:
+    - **Macro-driven Compliance**: Minimize human error and boilerplate by converting common trait implementations and manifest definitions into macros.
+    - **Encapsulated Complexity**: Abstract common patterns such as event filtering and storage initialization at the SDK level.
 
-### 1.7 Polyglot Extension (多言語拡張の正解)
-**「核は Rust で守り、翼は Python で広げる」**
-- **設計指針**: 高度な数値計算や広大なライブラリ資産が必要な場合、Core に機能を追加せず、「AIコンテナ (Bridge Plugin)」を通じて他言語環境（主に Python）を統合する。
+### 1.7 Polyglot Extension
+**"Guard the core with Rust, spread the wings with Python."**
+- **Design guideline**: When advanced numerical computation or access to extensive library ecosystems is needed, integrate other language environments (primarily Python) through an "AI Container (Bridge Plugin)" rather than adding functionality to the Core.
 
-### 1.8 Dynamic Intelligence Orchestration (知能の動的編成)
-**「能力は与えられるものではなく、勝ち取るもの」**
-- **設計指針**: AIエージェントの権限は起動時に固定せず、実行中に「意図」に基づいて動的に要求・付与（Human-in-the-loop）されるべきである。
-- **目標**: 最小権限原則を維持しつつ、必要に応じて人間が AI の能力を即座に解放できる動的なエコシステムを実現する。
+### 1.8 Dynamic Intelligence Orchestration
+**"Capabilities are not given -- they are earned."**
+- **Design guideline**: AI agent permissions should not be fixed at startup, but rather dynamically requested and granted at runtime based on "intent" (Human-in-the-loop).
+- **Goal**: Realize a dynamic ecosystem where humans can instantly unlock AI capabilities as needed while maintaining the principle of least privilege.
 
-### 1.9 Self-Healing AI Containerization (自己修復型コンテナ化)
-**「死んでも蘇り、止まらずに進め」**
-- **設計指針**: 外部ランタイム（AIコンテナ）は Kernel から物理的に隔離されるだけでなく、異常発生時に自律的にリセット・復旧する能力を持たなければならない。
+### 1.9 Self-Healing AI Containerization
+**"Even if it dies, it resurrects and keeps moving forward."**
+- **Design guideline**: External runtimes (AI Containers) must not only be physically isolated from the Kernel but also possess the ability to autonomously reset and recover upon anomalies.
 
 ---
 
 ## 2. Security and Governance Framework
 
-### 2.1 三層のセキュリティ構造
+### 2.1 Three-Layer Security Structure
 
-1. **物理的隔離 (Containerization)**: 各エージェント（特に対外接続を行うもの）は、Kernel とは独立した OS プロセスとして実行される。
-2. **認可ゲート (Authorization Gate)**: すべての行動意図（`ActionRequested`, `PermissionRequested`）は、Kernel のイベントプロセッサを通過し、ホワイトリストに基づいたフィルタリングが行われる。
-3. **能力注入 (Capability Injection)**: プラグインは自身で通信ライブラリをインスタンス化できない。Kernel から渡された「認可済みの道具」のみを通じて外部と接触する。
-4. **イベント封印 (Event Enveloping)**: すべてのプラグインイベントは `EnvelopedEvent` に包まれ、送信元 ID の偽装を物理的に防ぐ。
+1. **Physical Isolation (Containerization)**: Each agent (especially those with external connectivity) runs as an independent OS process, separate from the Kernel.
+2. **Authorization Gate**: All action intents (`ActionRequested`, `PermissionRequested`) pass through the Kernel's event processor and are filtered based on a whitelist.
+3. **Capability Injection**: Plugins cannot instantiate communication libraries on their own. They interact with the outside world only through "authorized tools" provided by the Kernel.
+4. **Event Enveloping**: All plugin events are wrapped in an `EnvelopedEvent`, physically preventing source ID spoofing.
 
-### 2.2 動的権限昇格 (Human-in-the-loop)
+### 2.2 Dynamic Permission Escalation (Human-in-the-loop)
 
-1. AI コンテナが現在の権限では実行不可能な操作を検知
-2. `ClotoEvent::PermissionRequested` を発行
-3. Dashboard の Security Guard UI がユーザーに承認を要求
-4. ユーザーが承認
-5. Kernel が DB を更新し、実行中のコンテナへライブで能力を注入
+1. The AI Container detects an operation that cannot be performed with current permissions
+2. Issues a `ClotoEvent::PermissionRequested`
+3. The Dashboard's Security Guard UI prompts the user for approval
+4. The user approves
+5. The Kernel updates the DB and live-injects the capability into the running container
 
 ### 2.3 SafeHttpClient
 
-- **Host 制限**: `localhost` やプライベート IP へのアクセスをデフォルトで遮断
-- **ドメイン制御**: ホワイトリストによるドメイン制限 (HashSet による O(1) 検索)
-- **DNS Rebinding 対策**: 名前解決後の IP アドレスも制限チェック
+- **Host restriction**: Blocks access to `localhost` and private IPs by default
+- **Domain control**: Domain restriction via whitelist (O(1) lookup using HashSet)
+- **DNS rebinding protection**: Restriction checks are also applied to IP addresses after name resolution
 
-### 2.4 運用指針
+### 2.4 Operational Guidelines
 
-- **最小権限**: マニフェストの `required_permissions` には真に必要な最小限の項目のみを記述
-- **明示的な理由**: 権限要求時は `reason` フィールドに人間が理解できる説明を記述
+- **Least privilege**: Only list the truly necessary minimum items in the manifest's `required_permissions`
+- **Explicit reasoning**: Include a human-readable explanation in the `reason` field when requesting permissions
 
 ---
 
@@ -325,13 +365,13 @@ For full architecture details, see [MCP Plugin Architecture](MCP_PLUGIN_ARCHITEC
 
 > **Status:** Paused. Sensor layer archived. Future implementation would use MCP server-based approach.
 
-人間の視線（Gaze）を AI とリアルタイムに共有し、Foveated Vision による低レイテンシ・低コスト推論を実現するサブプロジェクト。
+A sub-project that shares human gaze data with the AI in real time, enabling low-latency, low-cost inference through Foveated Vision.
 
 **Original Roadmap:**
-- [x] Phase 1: Communication Infrastructure (GazeUpdated イベント, ストリーミング対応)
-- [x] Phase 2: Neural Synchronization (MediaPipe 視線推定, ダッシュボード同期)
-- [ ] Phase 3: Foveated Vision — paused
-- [ ] Phase 4: Intent Discovery — paused
+- [x] Phase 1: Communication Infrastructure (GazeUpdated event, streaming support)
+- [x] Phase 2: Neural Synchronization (MediaPipe gaze estimation, dashboard synchronization)
+- [ ] Phase 3: Foveated Vision -- paused
+- [ ] Phase 4: Intent Discovery -- paused
 
 ---
 
@@ -347,8 +387,8 @@ For full architecture details, see [MCP Plugin Architecture](MCP_PLUGIN_ARCHITEC
 
 ---
 
-## 運用
+## Operations
 
-この原則群は ClotoCore における「正解」を定義するものです。コード監査においては以下を評価基準とします:
-1. **整合性**: 各コンポーネントが上記原則に則っているか
-2. **持続可能性**: SDKやマクロにより原則への準拠が「容易」な状態に保たれているか
+These principles define the "correct approach" within ClotoCore. The following criteria are used for code audits:
+1. **Consistency**: Whether each component adheres to the principles described above
+2. **Sustainability**: Whether compliance with the principles is kept "easy" through the SDK and macros

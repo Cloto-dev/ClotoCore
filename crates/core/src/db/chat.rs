@@ -3,6 +3,9 @@ use sqlx::SqlitePool;
 
 use super::db_timeout;
 
+/// Retry delay in milliseconds for chat message insertion on conflict.
+const CHAT_RETRY_DELAY_MS: u64 = 200;
+
 // ─── Chat Persistence Layer ───
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,7 +73,7 @@ pub async fn save_chat_message_reliable(
                 "Chat persist failed (attempt 1/2): {}. Retrying...",
                 first_err,
             );
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(CHAT_RETRY_DELAY_MS)).await;
             match save_chat_message(pool, msg).await {
                 Ok(()) => {
                     tracing::info!(
@@ -115,8 +118,9 @@ pub async fn get_chat_messages(
     user_id: &str,
     before_ts: Option<i64>,
     limit: i64,
+    max_limit: i64,
 ) -> anyhow::Result<Vec<ChatMessageRow>> {
-    let limit = limit.min(200);
+    let limit = limit.min(max_limit);
 
     let rows: Vec<ChatMessageTuple> = if let Some(before) = before_ts {
         let query_future = sqlx::query_as::<_, ChatMessageTuple>(

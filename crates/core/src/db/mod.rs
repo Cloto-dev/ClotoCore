@@ -1,3 +1,9 @@
+//! Database layer for ClotoCore kernel.
+//!
+//! SQLite-backed persistence split into domain modules: audit logging,
+//! permissions, chat messages, MCP server state, API keys, CRON jobs,
+//! LLM routing, and trusted commands.
+
 pub mod api_keys;
 pub mod audit;
 pub mod chat;
@@ -24,7 +30,17 @@ use tokio::time::{timeout, Duration};
 use tracing::info;
 
 // Bug #7: Database operation timeout to prevent indefinite hangs
-const DB_TIMEOUT_SECS: u64 = 10;
+const DEFAULT_DB_TIMEOUT_SECS: u64 = 10;
+static DB_TIMEOUT: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+
+/// Set the database timeout (called once at startup from config).
+pub fn set_db_timeout(secs: u64) {
+    let _ = DB_TIMEOUT.set(secs);
+}
+
+fn db_timeout_secs() -> u64 {
+    *DB_TIMEOUT.get().unwrap_or(&DEFAULT_DB_TIMEOUT_SECS)
+}
 
 /// Execute a database operation with standard timeout and error handling.
 /// Consolidates the repeated timeout+error pattern (bug-148).
@@ -32,9 +48,10 @@ pub(crate) async fn db_timeout<T, F>(future: F) -> anyhow::Result<T>
 where
     F: std::future::Future<Output = Result<T, sqlx::Error>>,
 {
-    timeout(Duration::from_secs(DB_TIMEOUT_SECS), future)
+    let secs = db_timeout_secs();
+    timeout(Duration::from_secs(secs), future)
         .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
+        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", secs))?
         .map_err(|e| anyhow::anyhow!("Database operation failed: {}", e))
 }
 
@@ -43,9 +60,10 @@ pub(crate) async fn db_timeout_op<T, F>(future: F) -> anyhow::Result<T>
 where
     F: std::future::Future<Output = anyhow::Result<T>>,
 {
-    timeout(Duration::from_secs(DB_TIMEOUT_SECS), future)
+    let secs = db_timeout_secs();
+    timeout(Duration::from_secs(secs), future)
         .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", DB_TIMEOUT_SECS))?
+        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", secs))?
 }
 
 pub struct SqliteDataStore {

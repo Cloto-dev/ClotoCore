@@ -74,9 +74,9 @@ async fn test_event_cascading_protection() {
         .await
         .unwrap();
 
-    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 1, 10).unwrap()); // 1 sec timeout
-    let agent_manager = AgentManager::new(pool.clone());
-    let registry = Arc::new(PluginRegistry::new(1, 10));
+    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 1, 10, 50).unwrap()); // 1 sec timeout
+    let agent_manager = AgentManager::new(pool.clone(), 90_000);
+    let registry = Arc::new(PluginRegistry::new(1, 10, 50));
 
     let id_a = "plugin.a".to_string();
     let id_b = "plugin.b".to_string();
@@ -120,6 +120,7 @@ async fn test_event_cascading_protection() {
         Arc::new(dashmap::DashMap::new()),
         pool.clone(),
         Arc::new(dashmap::DashMap::new()),
+        5, // memory_timeout_secs
     ));
 
     let processor = EventProcessor::new(
@@ -129,10 +130,11 @@ async fn test_event_cascading_protection() {
         tx_broadcast.clone(),
         event_history,
         metrics,
-        1000, // max_history_size
-        24,   // event_retention_hours
-        None, // consensus
+        1000,   // max_history_size
+        24,     // event_retention_hours
+        None,   // consensus
         sys_handler,
+        10_000, // max_event_history
     );
 
     let tx_internal_for_loop = tx_internal.clone();

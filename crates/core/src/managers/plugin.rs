@@ -12,6 +12,7 @@ pub struct PluginManager {
     http_client: Arc<SafeHttpClient>,
     event_timeout_secs: u64,
     max_event_depth: u8,
+    event_concurrency_limit: usize,
     pub event_tx: Option<tokio::sync::mpsc::Sender<crate::EnvelopedEvent>>,
     pub plugin_semaphore: Arc<tokio::sync::Semaphore>,
     pub shutdown: Arc<tokio::sync::Notify>,
@@ -23,14 +24,16 @@ impl PluginManager {
         allowed_hosts: Vec<String>,
         event_timeout_secs: u64,
         max_event_depth: u8,
+        event_concurrency_limit: usize,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             pool,
             http_client: Arc::new(SafeHttpClient::new(allowed_hosts)?),
             event_timeout_secs,
             max_event_depth,
+            event_concurrency_limit,
             event_tx: None,
-            plugin_semaphore: Arc::new(tokio::sync::Semaphore::new(20)),
+            plugin_semaphore: Arc::new(tokio::sync::Semaphore::new(event_concurrency_limit)),
             shutdown: Arc::new(tokio::sync::Notify::new()),
         })
     }
@@ -41,7 +44,7 @@ impl PluginManager {
 
     /// Initialize the plugin registry (no Rust SDK plugins — all external plugins are MCP).
     pub async fn initialize_all(&self) -> anyhow::Result<PluginRegistry> {
-        let registry = PluginRegistry::new(self.event_timeout_secs, self.max_event_depth);
+        let registry = PluginRegistry::new(self.event_timeout_secs, self.max_event_depth, self.event_concurrency_limit);
         info!("✅ Plugin registry initialized (MCP-only mode)");
         Ok(registry)
     }

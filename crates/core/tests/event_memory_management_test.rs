@@ -16,9 +16,9 @@ async fn create_test_processor(
         .await
         .unwrap();
 
-    let registry = Arc::new(PluginRegistry::new(5, 10));
-    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10).unwrap());
-    let agent_manager = AgentManager::new(pool.clone());
+    let registry = Arc::new(PluginRegistry::new(5, 10, 50));
+    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10, 50).unwrap());
+    let agent_manager = AgentManager::new(pool.clone(), 90_000);
     let (tx, _rx) = broadcast::channel(100);
     let metrics = Arc::new(SystemMetrics::new());
     let event_history = Arc::new(RwLock::new(VecDeque::new()));
@@ -38,6 +38,7 @@ async fn create_test_processor(
         Arc::new(dashmap::DashMap::new()),
         pool.clone(),
         Arc::new(dashmap::DashMap::new()),
+        5, // memory_timeout_secs
     ));
 
     let processor = Arc::new(EventProcessor::new(
@@ -48,9 +49,10 @@ async fn create_test_processor(
         event_history.clone(),
         metrics,
         max_history_size,
-        24,   // event_retention_hours
-        None, // consensus
+        24,     // event_retention_hours
+        None,   // consensus
         sys_handler,
+        10_000, // max_event_history
     ));
 
     (processor, event_history)

@@ -3,8 +3,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
-/// Timeout for memory plugin operations (recall, store) and MCP tool calls.
-const MEMORY_TIMEOUT: Duration = Duration::from_secs(5);
+/// Marker string in LLM responses that triggers CFR escalation.
+const ESCALATION_MARKER: &str = "[[ESCALATE]]";
+
+/// Maximum number of tool call entries kept in the agentic loop history.
+const MAX_TOOL_HISTORY: usize = 100;
+
+/// Number of unarchived memories that triggers automatic episode archival.
+const TOOL_USAGE_THRESHOLD: usize = 10;
 
 use crate::managers::{AgentManager, McpClientManager, PluginRegistry};
 use cloto_shared::{
@@ -119,7 +125,7 @@ fn evaluate_engine_routing(
 
 /// Check if response content contains an escalation marker.
 fn needs_escalation(content: &str) -> bool {
-    content.contains("[[ESCALATE]]")
+    content.contains(ESCALATION_MARKER)
 }
 
 /// Check if an error is retriable (rate limit, server error, connection).
@@ -163,6 +169,7 @@ pub struct SystemHandler {
     session_trusted_commands: SessionTrustedCommands,
     pool: SqlitePool,
     active_cron_contexts: crate::ActiveCronContexts,
+    memory_timeout_secs: u64,
 }
 
 impl SystemHandler {
@@ -181,6 +188,7 @@ impl SystemHandler {
         session_trusted_commands: SessionTrustedCommands,
         pool: SqlitePool,
         active_cron_contexts: crate::ActiveCronContexts,
+        memory_timeout_secs: u64,
     ) -> Self {
         Self {
             registry,
@@ -196,6 +204,7 @@ impl SystemHandler {
             session_trusted_commands,
             pool,
             active_cron_contexts,
+            memory_timeout_secs,
         }
     }
 
@@ -337,7 +346,7 @@ impl SystemHandler {
                 if has_memory_read {
                     // 🛑 停滞対策: メモリの呼び出しにタイムアウトを設定
                     match tokio::time::timeout(
-                        MEMORY_TIMEOUT,
+                        Duration::from_secs(self.memory_timeout_secs),
                         mem.recall(agent.id.clone(), &msg.content, self.memory_context_limit),
                     )
                     .await
@@ -370,7 +379,7 @@ impl SystemHandler {
                 "limit": self.memory_context_limit,
             });
             match tokio::time::timeout(
-                MEMORY_TIMEOUT,
+                Duration::from_secs(self.memory_timeout_secs),
                 mcp.call_server_tool(server_id, "recall", recall_args),
             )
             .await
@@ -578,10 +587,11 @@ impl SystemHandler {
                             metadata: std::collections::HashMap::new(),
                         };
                         let agent_id_clone = agent.id.clone();
+                        let mem_timeout = Duration::from_secs(self.memory_timeout_secs);
                         tokio::spawn(async move {
                             if let Some(mem) = plugin_clone.as_memory() {
                                 let _ = tokio::time::timeout(
-                                    MEMORY_TIMEOUT,
+                                    mem_timeout,
                                     mem.store(agent_id_clone, agent_resp_msg),
                                 )
                                 .await;
@@ -597,13 +607,14 @@ impl SystemHandler {
                             "source": { "type": "Agent", "id": agent.id },
                             "timestamp": Utc::now().to_rfc3339(),
                         });
+                        let mem_timeout2 = Duration::from_secs(self.memory_timeout_secs);
                         tokio::spawn(async move {
                             let store_args = serde_json::json!({
                                 "agent_id": agent_id_clone,
                                 "message": resp_msg_json,
                             });
                             let _ = tokio::time::timeout(
-                                MEMORY_TIMEOUT,
+                                mem_timeout2,
                                 mcp_clone.call_server_tool(&server_id_clone, "store", store_args),
                             )
                             .await;
@@ -736,11 +747,12 @@ impl SystemHandler {
                     let agent_id = agent.id.clone();
                     let plugin_clone = plugin.clone();
                     let metrics = self.metrics.clone();
+                    let store_mem_timeout = Duration::from_secs(self.memory_timeout_secs);
                     // 🛑 停滞対策: 保存処理はバックグラウンドで行い、メインループをブロックしない
                     tokio::spawn(async move {
                         if let Some(mem) = plugin_clone.as_memory() {
                             match tokio::time::timeout(
-                                MEMORY_TIMEOUT,
+                                store_mem_timeout,
                                 mem.store(agent_id.clone(), msg),
                             )
                             .await
@@ -781,6 +793,7 @@ impl SystemHandler {
             let ep_mcp = mcp.clone();
             let ep_server_id = server_id.clone();
             let ep_agent_id = agent_id.clone();
+            let memory_timeout = Duration::from_secs(self.memory_timeout_secs);
 
             tokio::spawn(async move {
                 let store_args = serde_json::json!({
@@ -788,7 +801,7 @@ impl SystemHandler {
                     "message": msg_json,
                 });
                 match tokio::time::timeout(
-                    MEMORY_TIMEOUT,
+                    memory_timeout,
                     mcp.call_server_tool(&server_id, "store", store_args),
                 )
                 .await
@@ -802,14 +815,15 @@ impl SystemHandler {
                         error!(agent_id = %agent_id, error = %e, "❌ MCP memory store failed");
                     }
                     Err(_) => {
-                        error!(agent_id = %agent_id, "❌ MCP memory store timed out (5s)");
+                        error!(agent_id = %agent_id, "❌ MCP memory store timed out");
                     }
                 }
             });
 
             // Episode auto-archival check (background, non-blocking)
+            let ep_memory_timeout = Duration::from_secs(self.memory_timeout_secs);
             tokio::spawn(async move {
-                Self::maybe_archive_episode(&ep_mcp, &ep_server_id, &ep_agent_id).await;
+                Self::maybe_archive_episode(&ep_mcp, &ep_server_id, &ep_agent_id, ep_memory_timeout).await;
             });
         }
 
@@ -922,7 +936,6 @@ impl SystemHandler {
         let mut tool_history: Vec<serde_json::Value> = Vec::new();
         let mut iteration: u8 = 0;
         let mut total_tool_calls: u32 = 0;
-        const MAX_TOOL_HISTORY: usize = 100;
 
         loop {
             iteration += 1;
@@ -1688,16 +1701,14 @@ impl SystemHandler {
     }
 
     /// Auto-archive episode when enough unarchived memories accumulate.
-    async fn maybe_archive_episode(mcp: &Arc<McpClientManager>, server_id: &str, agent_id: &str) {
-        const THRESHOLD: usize = 10;
-
+    async fn maybe_archive_episode(mcp: &Arc<McpClientManager>, server_id: &str, agent_id: &str, memory_timeout: Duration) {
         // 1. Fetch recent memories
         let Ok(Ok(mem_result)) = tokio::time::timeout(
-            MEMORY_TIMEOUT,
+            memory_timeout,
             mcp.call_server_tool(
                 server_id,
                 "list_memories",
-                serde_json::json!({"agent_id": agent_id, "limit": THRESHOLD + 5}),
+                serde_json::json!({"agent_id": agent_id, "limit": TOOL_USAGE_THRESHOLD + 5}),
             ),
         )
         .await
@@ -1709,13 +1720,13 @@ impl SystemHandler {
             return;
         };
         let memories = match mem_json.get("memories").and_then(|m| m.as_array()) {
-            Some(m) if m.len() >= THRESHOLD => m,
+            Some(m) if m.len() >= TOOL_USAGE_THRESHOLD => m,
             _ => return,
         };
 
         // 2. Get last episode timestamp
         let Ok(Ok(ep_result)) = tokio::time::timeout(
-            MEMORY_TIMEOUT,
+            memory_timeout,
             mcp.call_server_tool(
                 server_id,
                 "list_episodes",
@@ -1748,7 +1759,7 @@ impl SystemHandler {
             memories.iter().collect()
         };
 
-        if unarchived.len() < THRESHOLD {
+        if unarchived.len() < TOOL_USAGE_THRESHOLD {
             return;
         }
 

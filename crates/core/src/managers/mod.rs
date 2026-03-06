@@ -1,9 +1,18 @@
+//! Manager subsystem for ClotoCore kernel.
+//!
+//! Contains the plugin manager, agent manager, MCP client manager, LLM proxy,
+//! scheduler, and supporting modules for MCP transport, protocol, and health monitoring.
+
 mod agents;
 pub mod llm_proxy;
 pub mod mcp;
+pub mod mcp_client;
+mod mcp_health;
+mod mcp_kernel_tool;
 pub mod mcp_protocol;
 pub mod mcp_tool_validator;
 pub mod mcp_transport;
+pub mod mcp_types;
 pub mod mcp_venv;
 mod plugin;
 mod registry;

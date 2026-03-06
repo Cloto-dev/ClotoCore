@@ -77,7 +77,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         self._model = model or "text-embedding-3-small"
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None
-        self._dimensions = 1536  # text-embedding-3-small default
+        self._dimensions = int(os.environ.get("EMBEDDING_DIMENSIONS", "1536"))
 
     async def initialize(self) -> None:
         if not self._api_key:
