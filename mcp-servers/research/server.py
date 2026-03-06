@@ -71,25 +71,74 @@ async def call_llm(provider: str, prompt: str, system: str | None = None) -> str
 # Search Providers (inline — reuse websearch patterns)
 # ============================================================
 
+async def _search_searxng(client: httpx.AsyncClient, query: str, max_results: int) -> list[dict]:
+    resp = await client.get(
+        f"{SEARXNG_URL}/search",
+        params={"q": query, "format": "json", "pageno": 1},
+    )
+    resp.raise_for_status()
+    results = resp.json().get("results", [])[:max_results]
+    return [{"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("content", "")} for r in results]
+
+
+async def _search_tavily(client: httpx.AsyncClient, query: str, max_results: int) -> list[dict]:
+    resp = await client.post(
+        "https://api.tavily.com/search",
+        json={"query": query, "max_results": max_results, "api_key": TAVILY_API_KEY},
+    )
+    resp.raise_for_status()
+    results = resp.json().get("results", [])[:max_results]
+    return [{"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("content", "")} for r in results]
+
+
+async def _search_ddg(query: str, max_results: int) -> list[dict]:
+    from ddgs import DDGS
+
+    def _sync() -> list[dict]:
+        with DDGS() as ddgs:
+            raw = ddgs.text(query, max_results=max_results)
+            return [
+                {"title": r.get("title", ""), "url": r.get("href", ""), "snippet": r.get("body", "")}
+                for r in raw
+            ]
+
+    return await asyncio.to_thread(_sync)
+
+
 async def search_web(query: str, max_results: int = 5) -> list[dict]:
-    """Search using configured provider."""
+    """Search using configured provider with automatic fallback chain.
+
+    "auto" mode: SearXNG → Tavily (if key set) → DuckDuckGo.
+    """
     async with httpx.AsyncClient(timeout=SEARCH_TIMEOUT) as client:
-        if SEARCH_PROVIDER == "searxng":
-            resp = await client.get(
-                f"{SEARXNG_URL}/search",
-                params={"q": query, "format": "json", "pageno": 1},
-            )
-            resp.raise_for_status()
-            results = resp.json().get("results", [])[:max_results]
-            return [{"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("content", "")} for r in results]
-        else:  # tavily
-            resp = await client.post(
-                "https://api.tavily.com/search",
-                json={"query": query, "max_results": max_results, "api_key": TAVILY_API_KEY},
-            )
-            resp.raise_for_status()
-            results = resp.json().get("results", [])[:max_results]
-            return [{"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("content", "")} for r in results]
+        if SEARCH_PROVIDER == "auto":
+            # Chain: SearXNG → Tavily → DDG
+            providers: list[tuple[str, object]] = [("searxng", client)]
+            if TAVILY_API_KEY:
+                providers.append(("tavily", client))
+            providers.append(("ddg", None))
+
+            last_err: Exception | None = None
+            for name, ctx in providers:
+                try:
+                    if name == "searxng":
+                        return await _search_searxng(ctx, query, max_results)
+                    elif name == "tavily":
+                        return await _search_tavily(ctx, query, max_results)
+                    else:
+                        return await _search_ddg(query, max_results)
+                except Exception as e:
+                    print(f"Research search: {name} failed: {e}", file=sys.stderr)
+                    last_err = e
+            raise last_err or RuntimeError("No search providers available")
+        elif SEARCH_PROVIDER == "searxng":
+            return await _search_searxng(client, query, max_results)
+        elif SEARCH_PROVIDER == "tavily":
+            return await _search_tavily(client, query, max_results)
+        elif SEARCH_PROVIDER == "ddg":
+            return await _search_ddg(query, max_results)
+        else:
+            return await _search_tavily(client, query, max_results)
 
 
 def format_search_results(results: list[dict]) -> tuple[str, dict[str, str]]:
