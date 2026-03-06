@@ -29,7 +29,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -37,11 +37,18 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": "v1Compatible"
+    "createUpdaterArtifacts": "v1Compatible",
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": true,
+        "languages": ["English", "Japanese"],
+        "installMode": "both"
+      }
+    }
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5NjdBMzNGMDkzRTU5QTAKUldTZ1dUNEpQNk5uS1Y3WWtETndCTjlXTW9iK0pmZHdWQ2xBZzhDaGpjVEl6RVdGLytMRHErdzYK",
       "endpoints": [
         "https://github.com/Cloto-dev/ClotoCore/releases/latest/download/latest.json"
       ]

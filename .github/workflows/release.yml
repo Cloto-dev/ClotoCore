@@ -228,9 +228,9 @@ jobs:
             cloto_system-${{ matrix.target }}.sha256
           retention-days: 7
 
-  build-installer:
-    name: Build Windows Installer
-    needs: build
+  build-tauri:
+    name: Build Tauri Installer (Windows)
+    needs: build-dashboard
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
@@ -246,40 +246,65 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Download Windows build artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: release-windows-x64
-          path: artifacts/
-
-      - name: Install Inno Setup
-        shell: pwsh
-        run: choco install innosetup -y --no-progress
-
-      - name: Build installer
-        shell: pwsh
+      - name: Validate version matches tauri.conf.json
+        shell: bash
         run: |
-          $Binary = Get-ChildItem -Path artifacts/ -Filter "cloto_system-x86_64-pc-windows-msvc" | Select-Object -First 1 -ExpandProperty FullName
-          if (-not $Binary) {
-            # Fallback: extract from ZIP
-            $Zip = Get-ChildItem -Path artifacts/ -Filter "cloto-*-windows-x64.zip" | Select-Object -First 1 -ExpandProperty FullName
-            Expand-Archive -Path $Zip -DestinationPath artifacts/extracted -Force
-            $Binary = Get-ChildItem -Path artifacts/extracted -Recurse -Filter "cloto_system.exe" | Select-Object -First 1 -ExpandProperty FullName
-          }
-          .\installer\build-installer.ps1 -Version "${{ steps.version.outputs.version }}" -BinaryPath $Binary
+          TAURI_VERSION=$(grep '"version"' dashboard/src-tauri/tauri.conf.json | head -1 | sed 's/.*"\([0-9][^"]*\)".*/\1/')
+          if [[ "${{ steps.version.outputs.version }}" != "$TAURI_VERSION" ]]; then
+            echo "::error::Tag version (${{ steps.version.outputs.version }}) != tauri.conf.json version ($TAURI_VERSION)"
+            exit 1
+          fi
 
-      - name: Upload installer artifact
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: dashboard
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          shared-key: release-tauri-windows
+
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: dashboard
+          tauriScript: npx tauri
+
+      - name: Collect Tauri artifacts
+        shell: bash
+        run: |
+          mkdir -p tauri-artifacts
+          # NSIS installer and signatures
+          find dashboard/src-tauri/target/release/bundle/nsis -type f \( -name "*.exe" -o -name "*.sig" -o -name "*.zip" -o -name "*.zip.sig" \) -exec cp {} tauri-artifacts/ \;
+          echo "Tauri artifacts:"
+          ls -lh tauri-artifacts/
+
+      - name: Upload Tauri artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: installer-windows-x64
-          path: |
-            installer/output/cloto-setup-*.exe
-            installer/output/cloto-setup-*.exe.sha256
+          name: tauri-windows-x64
+          path: tauri-artifacts/*
           retention-days: 7
 
   release:
     name: Create Release
-    needs: [build, build-installer]
+    needs: [build, build-tauri]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
@@ -306,12 +331,56 @@ jobs:
           for dir in artifacts/release-*/; do
             cp "${dir}"* release-files/ 2>/dev/null || true
           done
-          # Include Windows GUI installer
-          for dir in artifacts/installer-*/; do
+          # Include Tauri NSIS installer artifacts
+          for dir in artifacts/tauri-*/; do
             cp "${dir}"* release-files/ 2>/dev/null || true
           done
           echo "Release files:"
           ls -lh release-files/
+
+      - name: Generate latest.json for Tauri updater
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Read NSIS zip signature
+          NSIS_ZIP_SIG=""
+          for sig_file in release-files/*_x64-setup.nsis.zip.sig; do
+            if [[ -f "$sig_file" ]]; then
+              NSIS_ZIP_SIG=$(cat "$sig_file")
+              break
+            fi
+          done
+
+          # Determine NSIS zip filename
+          NSIS_ZIP_NAME=""
+          for zip_file in release-files/*_x64-setup.nsis.zip; do
+            if [[ -f "$zip_file" ]]; then
+              NSIS_ZIP_NAME=$(basename "$zip_file")
+              break
+            fi
+          done
+
+          if [[ -z "$NSIS_ZIP_SIG" || -z "$NSIS_ZIP_NAME" ]]; then
+            echo "::warning::NSIS zip or signature not found, skipping latest.json"
+          else
+            cat > release-files/latest.json << MANIFEST
+          {
+            "version": "${VERSION}",
+            "notes": "ClotoCore v${VERSION}",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "${NSIS_ZIP_SIG}",
+                "url": "https://github.com/Cloto-dev/ClotoCore/releases/download/${TAG}/${NSIS_ZIP_NAME}"
+              }
+            }
+          }
+          MANIFEST
+            echo "Generated latest.json:"
+            cat release-files/latest.json
+          fi
 
       - name: Generate checksums manifest
         run: |
@@ -346,18 +415,17 @@ jobs:
         id: body
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          cat > release-body.md << 'HEADER'
+          cat > release-body.md << HEADER
           ## Install
 
-          **Windows (GUI installer — recommended):**
-          Download **cloto-setup-VERSION.exe** from the assets below and run it.
+          **Windows (Desktop App — recommended):**
+          Download **cloto-system_${VERSION}_x64-setup.exe** from the assets below and run the NSIS installer.
 
-          **Command-line install (PowerShell / Bash):**
-          Download `install.ps1` (Windows) or `install.sh` (macOS/Linux) from the assets below, review, then run locally.
+          **CLI binary (all platforms):**
+          Download the archive for your platform from the assets below.
 
           ---
           HEADER
-          sed -i "s/VERSION/${VERSION}/g" release-body.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2

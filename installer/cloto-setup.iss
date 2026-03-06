@@ -1,3 +1,6 @@
+; DEPRECATED: Replaced by Tauri NSIS installer.
+; See docs/INSTALLER_DISTRIBUTION.md. Last used: v0.5.11
+;
 ; ============================================================
 ; ClotoCore - Windows Installer (Inno Setup)
 ; AI Agent Orchestration Platform
