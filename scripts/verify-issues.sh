@@ -85,8 +85,14 @@ while IFS='|' read -r id severity file pattern expected status summary; do
 
     # Check file exists
     if [[ ! -f "$full_path" ]]; then
-        echo -e "  ${RED}[ERROR]${NC} $id ($severity): File not found: $file"
-        errors=$((errors + 1))
+        if [[ "$expected" == "absent" ]]; then
+            echo -e "  ${GREEN}[FIXED]${NC} $id ($severity): $summary"
+            echo -e "           File deleted: $file (pattern trivially absent)"
+            fixed=$((fixed + 1))
+        else
+            echo -e "  ${RED}[ERROR]${NC} $id ($severity): File not found: $file"
+            errors=$((errors + 1))
+        fi
         continue
     fi
 
