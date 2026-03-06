@@ -52,39 +52,6 @@ export interface StrictSystemEvent {
   data?: unknown;
 }
 
-// Neural network visualization types
-export interface Node {
-  id: string;
-  label: string;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  type: string;
-  color: string;
-  data: { status: string; lastActive: string; log: string };
-}
-
-export interface Edge {
-  source: string;
-  target: string;
-  color: string;
-}
-
-export interface Pulse {
-  edge: Edge;
-  progress: number;
-  speed: number;
-  color: string;
-}
-
-export interface ModalState {
-  nodeId: string;
-  offsetX: number;
-  offsetY: number;
-  isDragging: boolean;
-}
-
 // Chat persistence types
 export interface ContentBlock {
   type: 'text' | 'image' | 'code' | 'tool_result' | 'file' | 'audio';

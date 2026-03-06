@@ -497,6 +497,17 @@ impl McpClientManager {
         info!("Restoring {} MCP server(s) from database", records.len());
 
         for record in records {
+            // Skip placeholder rows inserted by migration (config-loaded servers
+            // are already loaded from mcp.toml via load_config_file()).
+            if record.command == "config-loaded" {
+                continue;
+            }
+
+            // Skip servers already loaded from mcp.toml
+            if self.servers.read().await.contains_key(&record.name) {
+                continue;
+            }
+
             let args: Vec<String> = serde_json::from_str(&record.args).unwrap_or_default();
             let db_env: HashMap<String, String> =
                 serde_json::from_str(&record.env).unwrap_or_default();

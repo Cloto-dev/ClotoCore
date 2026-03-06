@@ -15,7 +15,6 @@ import './compiled-tailwind.css'
 
 declare const __APP_VERSION__: string;
 
-const StatusCore = lazy(() => import('./components/StatusCore').then(m => ({ default: m.StatusCore })));
 const MemoryCore = lazy(() => import('./components/MemoryCore').then(m => ({ default: m.MemoryCore })));
 const McpServersPage = lazy(() => import('./pages/McpServersPage').then(m => ({ default: m.McpServersPage })));
 const CronJobs = lazy(() => import('./components/CronJobs').then(m => ({ default: m.CronJobs })));
@@ -100,7 +99,6 @@ function App() {
         <Routes>
           <Route element={<AppLayout />}>
             <Route path="/" element={<AgentPage />} />
-            <Route path="/status" element={<StatusCore />} />
             <Route path="/dashboard" element={<MemoryCore />} />
             <Route path="/mcp-servers" element={<McpServersPage />} />
             <Route path="/cron" element={<CronJobs />} />
