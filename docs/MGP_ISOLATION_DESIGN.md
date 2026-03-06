@@ -253,7 +253,7 @@ When a resource limit is hit, the kernel:
 ```json
 {
   "error": {
-    "code": 3002,
+    "code": 3001,
     "message": "MCP server exceeded memory limit (512 MB)",
     "data": {
       "_mgp": {
@@ -362,7 +362,7 @@ command = "python"
 args = ["mcp-servers/terminal/server.py"]
 
 [servers.mgp]
-extensions = ["security", "lifecycle"]
+extensions = ["permissions", "tool_security", "lifecycle"]
 permissions_required = ["shell.execute", "filesystem.write"]
 trust_level = "standard"
 
@@ -400,10 +400,10 @@ into the appropriate MGP §14 error code:
 | OS Event | MGP Code | Category | Retryable |
 |---|---|---|---|
 | `SIGXCPU` / CPU time exceeded | 3003 TIMEOUT | resource | No |
-| OOM / memory limit exceeded | 3002 RESOURCE_EXHAUSTED | resource | No |
-| `EACCES` / filesystem denied | 1004 VALIDATION_BLOCKED | security | No |
-| `ECONNREFUSED` / network denied | 1001 PERMISSION_DENIED | security | No |
-| `EPERM` / fork denied | 1001 PERMISSION_DENIED | security | No |
+| OOM / memory limit exceeded | 3001 RESOURCE_EXHAUSTED | resource | No |
+| `EACCES` / filesystem denied | 1010 VALIDATION_BLOCKED | security | No |
+| `ECONNREFUSED` / network denied | 1000 PERMISSION_DENIED | security | No |
+| `EPERM` / fork denied | 1000 PERMISSION_DENIED | security | No |
 | Server crash (any signal) | 2000 SERVER_NOT_READY | lifecycle | Yes (auto_restart) |
 
 All isolation violations generate an audit event (MGP §6):
@@ -547,10 +547,13 @@ The following invariants MUST hold at all times:
 2. **Isolation profiles are immutable after spawn.**
    A running server cannot modify its own resource limits or filesystem scope.
 
-3. **`trust_level` cannot be self-declared.**
-   The kernel determines trust_level from the seal signature and mcp.toml config,
-   not from the server's handshake response. A server claiming `core` without a
-   valid core-level seal is downgraded to `untrusted`.
+3. **`trust_level` cannot be self-elevated.**
+   The kernel determines the effective trust_level from the seal signature and
+   mcp.toml config. The server MAY declare `trust_level` in its handshake response
+   (MGP §2.3), but this value is informational only. If the server-declared level
+   exceeds the kernel-determined level, the kernel silently downgrades it.
+   A server claiming `core` without a valid core-level seal is downgraded to
+   `untrusted`.
 
 4. **OS isolation failure is a fatal error.**
    If `setrlimit`, Job Object creation, or namespace setup fails, the server is
@@ -599,3 +602,4 @@ The following invariants MUST hold at all times:
 
 *Document History:*
 - 2026-03-05: Initial design (approved). MGP + OS isolation integrated architecture.
+- 2026-03-06: Audit fixes — trust_level unified to 4-level taxonomy (§2, Glossary), error codes corrected (§3.2, §6: 3002→3001, 1004→1010, 1001→1000), extension names updated to `permissions`+`tool_security`+`lifecycle` (§5.1), Security Invariant 3 revised to "cannot be self-elevated" (§10).
