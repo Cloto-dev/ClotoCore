@@ -4,7 +4,6 @@ import {
   Cpu,
   Users,
   Server,
-  Activity,
   Clock,
   Brain,
   Settings,
@@ -17,7 +16,6 @@ import { AgentIcon, statusDotColor } from '../lib/agentIdentity';
 const NAV_LINKS: readonly { path: string; icon: typeof Server; label: string; action?: 'settings' | 'agents' }[] = [
   { path: '/', icon: Users, label: 'Agent', action: 'agents' },
   { path: '/mcp-servers', icon: Server, label: 'MCP' },
-  { path: '/status', icon: Activity, label: 'Status' },
   { path: '/cron', icon: Clock, label: 'Cron' },
   { path: '/dashboard', icon: Brain, label: 'Memory' },
   { path: '#settings', icon: Settings, label: 'Settings', action: 'settings' },
