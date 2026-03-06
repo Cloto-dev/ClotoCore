@@ -383,6 +383,7 @@ Developer
 GitHub Actions
   │  ├── Binary build
   │  ├── Ed25519 signing (for Tauri updater)
+  │  ├── Apple code signing + notarization (macOS DMG)
   │  ├── cosign signing (for checksums, keyless)
   │  └── SHA256 checksum generation
   │
@@ -393,7 +394,9 @@ GitHub Releases
   │  └── SHA256SUMS.txt.sig (cosign signature)
   │
 End User
-     ├── Installer: OS verifies signature
+     ├── Windows: NSIS installer (no code signing)
+     ├── macOS: Gatekeeper verifies Apple signature + notarization
+     ├── Linux: No OS-level signing required
      └── Auto-update: Tauri verifies Ed25519
 ```
 
@@ -403,6 +406,9 @@ End User
 |-----|-----------------|---------|
 | Ed25519 private key | GitHub Secrets | Signing for Tauri auto-update |
 | Ed25519 public key | `tauri.conf.json` (repository) | Client-side signature verification |
+| Apple Developer ID cert (P12) | GitHub Secrets (`APPLE_CERTIFICATE`) | macOS code signing |
+| Apple ID + app-specific password | GitHub Secrets (`APPLE_ID`, `APPLE_PASSWORD`) | macOS notarization |
+| Apple Team ID | GitHub Secrets (`APPLE_TEAM_ID`) | macOS notarization |
 | cosign | keyless (Sigstore) | Checksum signing |
 
 ---
