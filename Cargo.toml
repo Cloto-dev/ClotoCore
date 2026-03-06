@@ -33,7 +33,7 @@ tokio-stream = "0.1"
 async-stream = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 dashmap = "6.1"
-criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
+criterion = { version = "0.8", features = ["async_tokio", "html_reports"] }
 semver = "1.0"
 clap = { version = "4", features = ["derive"] }
 toml = "0.8"
