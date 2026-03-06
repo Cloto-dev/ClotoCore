@@ -47,9 +47,9 @@
       "version": "0.4.7",
       "commit": "2743946",
       "file": "crates/core/src/handlers/system.rs",
-      "pattern": "touch_last_seen",
+      "pattern": "Failed to update last_seen",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-156",
@@ -59,9 +59,9 @@
       "version": "0.4.7",
       "commit": "2743946",
       "file": "crates/core/src/handlers/system.rs",
-      "pattern": "Duration::from_secs\\(5\\)",
+      "pattern": "MEMORY_TIMEOUT",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-157",
@@ -83,9 +83,9 @@
       "version": "0.4.7",
       "commit": "2743946",
       "file": "crates/core/src/lib.rs",
-      "pattern": "revoked_keys",
+      "pattern": "cleanup_revoked_keys",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-159",
@@ -107,9 +107,9 @@
       "version": "0.4.7",
       "commit": "2743946",
       "file": "mcp-servers/websearch/server.py",
-      "pattern": "class SearXNGProvider",
+      "pattern": "async def aclose",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-161",
@@ -119,9 +119,9 @@
       "version": "0.4.7",
       "commit": "2743946",
       "file": "mcp-servers/ollama/server.py",
-      "pattern": "def build_system_prompt",
+      "pattern": "from common\\.llm_provider import",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-162",
@@ -131,9 +131,9 @@
       "version": "0.4.7",
       "commit": "2743946",
       "file": "mcp-servers/ollama/server.py",
-      "pattern": "global _active_model",
+      "pattern": "_model_lock",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-163",
@@ -142,10 +142,10 @@
       "discovered": "2026-03-01T12:00:00Z",
       "version": "0.4.7",
       "commit": "2743946",
-      "file": "mcp-servers/cerebras/pyproject.toml",
-      "pattern": "dependencies",
+      "file": "mcp-servers/requirements.lock",
+      "pattern": "==",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-164",
@@ -227,9 +227,9 @@
       "version": "0.4.12",
       "commit": "bc2ea54",
       "file": "crates/core/src/managers/mcp.rs",
-      "pattern": "AtomicBool::new\\(yolo",
+      "pattern": "yolo_mode_initializes_correctly",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-171",
@@ -238,10 +238,10 @@
       "discovered": "2026-03-02T00:00:00Z",
       "version": "0.4.12",
       "commit": "bc2ea54",
-      "file": "crates/core/src/managers/mcp.rs",
-      "pattern": "AtomicBool::new\\(yolo",
+      "file": "crates/core/src/handlers/mcp.rs",
+      "pattern": "persist YOLO mode to DB",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-172",
