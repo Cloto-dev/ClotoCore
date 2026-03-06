@@ -196,10 +196,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     );
     // Full DB path at debug level for troubleshooting persistence issues
     tracing::debug!("📍 DB full path: {}", config.database_url);
-    tracing::debug!(
-        "📍 exe_dir resolved to: {}",
-        config::exe_dir().display()
-    );
+    tracing::debug!("📍 exe_dir resolved to: {}", config::exe_dir().display());
 
     // Principle #5: Warn if admin API key is missing in release builds
     if config.admin_api_key.is_none() && !cfg!(debug_assertions) {
