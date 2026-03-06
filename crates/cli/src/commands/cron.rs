@@ -114,7 +114,7 @@ async fn list(client: &ClotoClient, agent_id: Option<&str>, json_mode: bool) -> 
 
         let generation = job
             .get("cron_generation")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
 
         let dot = if enabled {
