@@ -199,8 +199,8 @@ impl SystemHandler {
     /// Extract user_id from a ClotoMessage's source.
     fn extract_user_id(msg: &ClotoMessage) -> &str {
         match &msg.source {
-            cloto_shared::MessageSource::User { id, .. } => id.as_str(),
-            cloto_shared::MessageSource::Agent { id } => id.as_str(),
+            cloto_shared::MessageSource::User { id, .. }
+            | cloto_shared::MessageSource::Agent { id } => id.as_str(),
             cloto_shared::MessageSource::System => "system",
         }
     }
@@ -253,7 +253,7 @@ impl SystemHandler {
         let skip_user_persist = msg
             .metadata
             .get("skip_user_persist")
-            .map_or(false, |v| v == "true");
+            .is_some_and(|v| v == "true");
 
         if !skip_user_persist {
             let parent_id = msg.metadata.get("parent_id").cloned();

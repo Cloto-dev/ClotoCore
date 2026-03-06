@@ -188,8 +188,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .database_url
         .rsplit_once('/')
         .or_else(|| config.database_url.rsplit_once('\\'))
-        .map(|(_, name)| name)
-        .unwrap_or("***");
+        .map_or("***", |(_, name)| name);
     info!(
         "📍 Loaded Config: DB={}, DEFAULT_AGENT={}",
         db_display, config.default_agent_id
@@ -291,8 +290,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         std::env::var("CLOTO_MAX_CRON_GENERATION")
             .ok()
             .and_then(|v| v.parse::<u8>().ok())
-            .map(|v| v.min(6))
-            .unwrap_or(2),
+            .map_or(2, |v| v.min(6)),
     ));
 
     let system_handler = Arc::new(SystemHandler::new(
