@@ -56,9 +56,11 @@ pub async fn create_cron_job(
     // enforce generation limit (kernel auto-sets generation, ignoring any LLM-provided value)
     let cron_generation = if let Some(ctx) = state.active_cron_contexts.get(&agent_id.to_string()) {
         let child_gen = ctx.generation + 1;
-        let max_gen = i32::from(state
-            .max_cron_generation
-            .load(std::sync::atomic::Ordering::Relaxed));
+        let max_gen = i32::from(
+            state
+                .max_cron_generation
+                .load(std::sync::atomic::Ordering::Relaxed),
+        );
         if child_gen > max_gen {
             return Err(AppError::Validation(format!(
                 "CRON recursion depth limit exceeded (generation {} > max {})",
