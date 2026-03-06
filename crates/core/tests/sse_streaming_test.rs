@@ -10,8 +10,10 @@ use futures::StreamExt;
 use std::sync::Arc;
 use tower::ServiceExt;
 
+const TEST_API_KEY: &str = "test-sse-key";
+
 async fn create_test_app_state() -> Arc<cloto_core::AppState> {
-    create_test_app_state_with_key(None).await
+    create_test_app_state_with_key(Some(TEST_API_KEY.to_string())).await
 }
 
 /// Helper function to create a test router with app state
@@ -34,7 +36,7 @@ async fn test_sse_handshake() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/events")
+                .uri(format!("/api/events?token={}", TEST_API_KEY))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -75,7 +77,7 @@ async fn test_sse_handler_streams_events() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/events")
+                .uri(format!("/api/events?token={}", TEST_API_KEY))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -134,7 +136,7 @@ async fn test_sse_handler_handles_lagged_receiver() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/api/events")
+                .uri(format!("/api/events?token={}", TEST_API_KEY))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -164,4 +166,23 @@ async fn test_sse_handler_handles_lagged_receiver() {
     }
 
     // Test passes if we didn't panic
+}
+
+#[tokio::test]
+async fn test_sse_handler_rejects_unauthenticated() {
+    let state = create_test_app_state().await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/events")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }

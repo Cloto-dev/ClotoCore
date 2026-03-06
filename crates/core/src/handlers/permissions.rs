@@ -21,7 +21,9 @@ pub struct PermissionDecisionPayload {}
 /// Used by the dashboard for Human-in-the-Loop permission management.
 pub async fn get_pending_permissions(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
     let requests = crate::get_pending_permission_requests(&state.pool).await?;
     ok_data(serde_json::json!(requests))
 }

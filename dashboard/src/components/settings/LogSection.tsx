@@ -2,8 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { SectionCard } from './common';
 import { useEventStream } from '../../hooks/useEventStream';
 import { EVENTS_URL } from '../../services/api';
+import { useApiKey } from '../../contexts/ApiKeyContext';
 
 export function LogSection() {
+  const { apiKey } = useApiKey();
   const [logs, setLogs] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pendingLogs = useRef<string[]>([]);
@@ -21,7 +23,7 @@ export function LogSection() {
         setLogs(prev => [...prev, ...batch].slice(-100));
       });
     }
-  });
+  }, apiKey);
 
   useEffect(() => {
     return () => { if (rafId.current) cancelAnimationFrame(rafId.current); };

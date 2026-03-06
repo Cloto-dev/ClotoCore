@@ -16,14 +16,19 @@ const subscribers = new Set<Handler>();
 let reconnectTimeout: number | null = null;
 let attempt = 0;
 
-function connect(url: string) {
+let sharedApiKey: string | null = null;
+
+function connect(url: string, apiKey?: string) {
   if (sharedEventSource && sharedEventSource.readyState !== EventSource.CLOSED) {
     return; // Already connected
   }
 
   sharedUrl = url;
+  sharedApiKey = apiKey ?? null;
+  // SSE EventSource cannot set custom headers — pass token via query param (bug-157)
+  const connectUrl = apiKey ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(apiKey)}` : url;
   console.log(`📡 Connecting to Event Stream: ${url}`);
-  const es = new EventSource(url);
+  const es = new EventSource(connectUrl);
   sharedEventSource = es;
 
   es.onmessage = (event) => {
@@ -45,7 +50,7 @@ function connect(url: string) {
     if (reconnectTimeout) clearTimeout(reconnectTimeout);
     reconnectTimeout = window.setTimeout(() => {
       if (subscribers.size > 0 && sharedUrl) {
-        connect(sharedUrl);
+        connect(sharedUrl, sharedApiKey ?? undefined);
       }
     }, delay);
   };
@@ -67,7 +72,8 @@ function disconnect() {
 
 export function useEventStream(
   url: string,
-  onMessage: (data: any) => void
+  onMessage: (data: any) => void,
+  apiKey?: string,
 ) {
   const handlerRef = useRef(onMessage);
 
@@ -78,11 +84,11 @@ export function useEventStream(
   useEffect(() => {
     const handler: Handler = (data) => handlerRef.current(data);
     subscribers.add(handler);
-    connect(url);
+    connect(url, apiKey);
 
     return () => {
       subscribers.delete(handler);
       disconnect();
     };
-  }, [url]);
+  }, [url, apiKey]);
 }
