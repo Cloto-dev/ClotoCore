@@ -1,7 +1,7 @@
 """
 Cloto MCP Server: Web Search
 Multi-provider web search with page content extraction.
-Supports SearXNG (self-hosted) and Tavily (cloud API).
+Fallback chain: SearXNG (self-hosted) → Tavily (cloud API) → DuckDuckGo (zero-config).
 """
 
 import asyncio
@@ -19,7 +19,7 @@ from mcp.types import TextContent, Tool
 # Configuration
 # ============================================================
 
-PROVIDER = os.environ.get("CLOTO_SEARCH_PROVIDER", "tavily")  # searxng | tavily
+PROVIDER = os.environ.get("CLOTO_SEARCH_PROVIDER", "auto")
 SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://localhost:8080")
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 DEFAULT_MAX_RESULTS = 5
@@ -32,6 +32,8 @@ REQUEST_TIMEOUT = 15
 # ============================================================
 
 class SearchProvider(ABC):
+    name: str = "unknown"
+
     @abstractmethod
     async def search(self, query: str, max_results: int, language: str, time_range: str | None) -> list[dict]:
         ...
@@ -39,6 +41,7 @@ class SearchProvider(ABC):
 
 class SearXNGProvider(SearchProvider):
     """Self-hosted SearXNG — no API key, unlimited queries, full privacy."""
+    name = "searxng"
 
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
@@ -70,6 +73,7 @@ class SearXNGProvider(SearchProvider):
 
 class TavilyProvider(SearchProvider):
     """Tavily — AI-optimized search, 1000 free queries/month."""
+    name = "tavily"
 
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -100,13 +104,69 @@ class TavilyProvider(SearchProvider):
         return results
 
 
+class DuckDuckGoProvider(SearchProvider):
+    """DuckDuckGo via ddgs — zero-config, no API key, rate-limited."""
+    name = "duckduckgo"
+
+    async def search(self, query: str, max_results: int, language: str, time_range: str | None) -> list[dict]:
+        from ddgs import DDGS
+
+        ddgs_timelimit = None
+        if time_range:
+            ddgs_timelimit = time_range[0]  # "d", "w", "m", "y"
+
+        def _sync_search() -> list[dict]:
+            with DDGS() as ddgs:
+                raw = ddgs.text(query, max_results=max_results, timelimit=ddgs_timelimit)
+                return [
+                    {"title": r.get("title", ""), "url": r.get("href", ""), "snippet": r.get("body", "")}
+                    for r in raw
+                ]
+
+        return await asyncio.to_thread(_sync_search)
+
+
+class ChainProvider(SearchProvider):
+    """Try providers in order, falling back on failure."""
+    name = "chain"
+
+    def __init__(self, providers: list[SearchProvider]):
+        self.providers = providers
+
+    async def search(self, query: str, max_results: int, language: str, time_range: str | None) -> list[dict]:
+        last_error: Exception | None = None
+        for p in self.providers:
+            try:
+                return await p.search(query, max_results, language, time_range)
+            except Exception as e:
+                print(f"Provider {p.name} failed: {e}", file=sys.stderr)
+                last_error = e
+        raise last_error or RuntimeError("No search providers available")
+
+
 def create_provider() -> SearchProvider:
-    if PROVIDER == "searxng":
+    """Build provider (or chain) from CLOTO_SEARCH_PROVIDER env var.
+
+    Supported values:
+      "auto"    — SearXNG → Tavily (if key set) → DuckDuckGo
+      "searxng" — SearXNG only
+      "tavily"  — Tavily only
+      "ddg"     — DuckDuckGo only
+    """
+    if PROVIDER == "auto":
+        chain: list[SearchProvider] = [SearXNGProvider(SEARXNG_URL)]
+        if TAVILY_API_KEY:
+            chain.append(TavilyProvider(TAVILY_API_KEY))
+        chain.append(DuckDuckGoProvider())
+        return ChainProvider(chain)
+    elif PROVIDER == "searxng":
         return SearXNGProvider(SEARXNG_URL)
     elif PROVIDER == "tavily":
         if not TAVILY_API_KEY:
             print("WARNING: TAVILY_API_KEY not set, search will fail", file=sys.stderr)
         return TavilyProvider(TAVILY_API_KEY)
+    elif PROVIDER == "ddg":
+        return DuckDuckGoProvider()
     else:
         raise ValueError(f"Unknown search provider: {PROVIDER}")
 
@@ -158,6 +218,47 @@ def html_to_text(html: str) -> str:
     text = re.sub(r'\n\s*\n', '\n\n', text)
     text = re.sub(r' +', ' ', text)
     return text.strip()
+
+
+# ============================================================
+# Provider Health Check
+# ============================================================
+
+async def check_provider_status(name: str) -> dict:
+    """Check if a specific provider is configured and reachable."""
+    if name == "searxng":
+        configured = bool(SEARXNG_URL)
+        if not configured:
+            return {"name": name, "configured": False, "reachable": False}
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.get(f"{SEARXNG_URL}/")
+                reachable = resp.status_code < 500
+        except Exception:
+            reachable = False
+        return {
+            "name": name,
+            "configured": True,
+            "reachable": reachable,
+            "url": SEARXNG_URL,
+            "setup_hint": "Run 'docker compose up -d' in the ClotoCore project root." if not reachable else None,
+        }
+    elif name == "tavily":
+        configured = bool(TAVILY_API_KEY)
+        return {
+            "name": name,
+            "configured": configured,
+            "reachable": configured,  # If key is set, API is reachable (cloud service)
+            "setup_hint": "Register at https://tavily.com (free, no credit card) and add TAVILY_API_KEY to .env." if not configured else None,
+        }
+    elif name == "duckduckgo":
+        return {
+            "name": name,
+            "configured": True,
+            "reachable": True,  # Best-effort, always "available"
+            "note": "Zero-config fallback. Rate-limited and unstable — upgrade to SearXNG or Tavily recommended.",
+        }
+    return {"name": name, "configured": False, "reachable": False}
 
 
 # ============================================================
@@ -222,6 +323,19 @@ async def list_tools() -> list[Tool]:
                 "required": ["url"],
             },
         ),
+        Tool(
+            name="search_status",
+            description=(
+                "Check which web search providers are configured and reachable. "
+                "Returns the status of each provider in the fallback chain "
+                "(SearXNG, Tavily, DuckDuckGo) with setup hints for unconfigured providers. "
+                "Use this when search fails or when the user asks about search capabilities."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
     ]
 
 
@@ -231,6 +345,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return await handle_web_search(arguments)
     elif name == "fetch_page":
         return await handle_fetch_page(arguments)
+    elif name == "search_status":
+        return await handle_search_status()
     else:
         return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
 
@@ -255,10 +371,33 @@ async def handle_web_search(arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps(response, ensure_ascii=False))]
     except Exception as e:
         return [TextContent(type="text", text=json.dumps({
-            "error": f"Search failed ({PROVIDER}): {e}",
+            "error": f"All search providers failed. Last error: {e}",
             "provider": PROVIDER,
             "query": query,
         }))]
+
+
+async def handle_search_status() -> list[TextContent]:
+    statuses = await asyncio.gather(
+        check_provider_status("searxng"),
+        check_provider_status("tavily"),
+        check_provider_status("duckduckgo"),
+    )
+    chain = list(statuses)
+
+    # Determine which provider will actually handle searches
+    active = "none"
+    for s in chain:
+        if s["reachable"]:
+            active = s["name"]
+            break
+
+    response = {
+        "mode": PROVIDER,
+        "active_provider": active,
+        "chain": chain,
+    }
+    return [TextContent(type="text", text=json.dumps(response, ensure_ascii=False))]
 
 
 async def handle_fetch_page(arguments: dict) -> list[TextContent]:
