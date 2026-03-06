@@ -277,8 +277,10 @@ impl SystemHandler {
                 parent_id,
                 branch_index,
             };
-            if let Err(e) = crate::db::save_chat_message(&self.pool, &user_chat_msg).await {
-                warn!("Failed to persist user message: {}", e);
+            if let Err(e) =
+                crate::db::save_chat_message_reliable(&self.pool, &user_chat_msg).await
+            {
+                error!("Chat persist DROPPED user message: {}", e);
             }
         }
 
@@ -633,9 +635,10 @@ impl SystemHandler {
                         parent_id: Some(response_parent),
                         branch_index: resp_branch,
                     };
-                    if let Err(e) = crate::db::save_chat_message(&self.pool, &agent_chat_msg).await
+                    if let Err(e) =
+                        crate::db::save_chat_message_reliable(&self.pool, &agent_chat_msg).await
                     {
-                        warn!("Failed to persist agent response: {}", e);
+                        error!("Chat persist DROPPED agent response: {}", e);
                     }
 
                     let thought_response = ClotoEventData::ThoughtResponse {
@@ -693,7 +696,11 @@ impl SystemHandler {
                         parent_id: Some(err_response_parent),
                         branch_index: err_resp_branch,
                     };
-                    let _ = crate::db::save_chat_message(&self.pool, &err_chat_msg).await;
+                    if let Err(e) =
+                        crate::db::save_chat_message_reliable(&self.pool, &err_chat_msg).await
+                    {
+                        error!("Chat persist DROPPED error response: {}", e);
+                    }
 
                     let error_response = ClotoEventData::ThoughtResponse {
                         agent_id: agent.id.clone(),
