@@ -35,9 +35,9 @@
       "version": "0.4.0",
       "commit": "c85b20e",
       "file": "crates/core/src/managers/mcp.rs",
-      "pattern": "pub struct McpClientManager",
-      "expected": "present",
-      "status": "open"
+      "pattern": "pub struct McpClient\\s",
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-155",

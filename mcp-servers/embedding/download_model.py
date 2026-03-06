@@ -5,7 +5,10 @@ import sys
 import urllib.request
 
 MODEL_DIR = os.environ.get("ONNX_MODEL_DIR", "data/models/all-MiniLM-L6-v2")
-BASE_URL = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main"
+BASE_URL = os.environ.get(
+    "ONNX_MODEL_BASE_URL",
+    "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main",
+)
 
 FILES = {
     "model.onnx": f"{BASE_URL}/onnx/model.onnx",

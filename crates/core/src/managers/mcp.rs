@@ -1,353 +1,33 @@
-use super::mcp_protocol::{
-    CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, ClotoHandshakeParams,
-    ClotoHandshakeResult, InitializeParams, JsonRpcRequest, ListToolsResult, McpConfigFile,
-    McpServerConfig, McpTool, ToolContent,
-};
-use super::mcp_tool_validator::{
-    validate_mcp_code, validate_tool_arguments, BLOCKED_IMPORTS, BLOCKED_PATTERNS, MAX_CODE_SIZE,
-};
-use super::mcp_transport::{self, StdioTransport};
+//! MCP Client Manager — orchestrates all MCP server lifecycles.
+//!
+//! Responsible for spawning, stopping, and restarting MCP server processes,
+//! routing tool calls to the correct server, managing manifests, and
+//! forwarding kernel events as MCP notifications.
+
+pub use super::mcp_client::{McpClient, McpNotification};
+pub use super::mcp_types::*;
+
+use super::mcp_protocol::{McpConfigFile, McpServerConfig, ToolContent};
+use super::mcp_tool_validator::validate_tool_arguments;
+use super::mcp_transport;
 use anyhow::{Context, Result};
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{debug, error, info, warn};
 
-// ============================================================
-// McpClient — JSON-RPC client for a single MCP server
-// ============================================================
-
-/// MCP server-initiated notification (Server→Kernel).
-#[derive(Debug, Clone)]
-pub struct McpNotification {
-    pub server_id: String,
-    pub method: String,
-    pub params: Option<Value>,
-}
-
-pub struct McpClient {
-    transport: Arc<Mutex<StdioTransport>>,
-    /// Cloned sender for lock-free request dispatch.
-    /// The response loop holds `transport` Mutex during recv(); sending through
-    /// this channel avoids the deadlock where call() would block on the same Mutex.
-    sender: mpsc::Sender<String>,
-    pending_requests: Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>>,
-    next_id: Arc<AtomicI64>,
-    response_task: Option<tokio::task::JoinHandle<()>>,
-    notification_tx: mpsc::Sender<McpNotification>,
-}
-
-impl Drop for McpClient {
-    fn drop(&mut self) {
-        if let Some(handle) = self.response_task.take() {
-            handle.abort();
-        }
-    }
-}
-
-impl McpClient {
-    const MAX_PENDING_REQUESTS: usize = 100;
-    const REQUEST_TIMEOUT_SECS: u64 = 120;
-
-    pub async fn connect(
-        server_id: &str,
-        command: &str,
-        args: &[String],
-        env: &HashMap<String, String>,
-        notification_tx: mpsc::Sender<McpNotification>,
-    ) -> Result<Self> {
-        let transport = StdioTransport::start(command, args, env).await?;
-        let sender = transport.sender();
-        let mut client = Self {
-            transport: Arc::new(Mutex::new(transport)),
-            sender,
-            pending_requests: Arc::new(Mutex::new(HashMap::new())),
-            next_id: Arc::new(AtomicI64::new(1)),
-            response_task: None,
-            notification_tx,
-        };
-
-        client.start_response_loop(server_id);
-        client.initialize().await?;
-
-        Ok(client)
-    }
-
-    fn start_response_loop(&mut self, server_id: &str) {
-        use super::mcp_protocol::JsonRpcMessage;
-
-        let transport = self.transport.clone();
-        let pending = self.pending_requests.clone();
-        let notif_tx = self.notification_tx.clone();
-        let server_id_owned = server_id.to_string();
-
-        let handle = tokio::spawn(async move {
-            loop {
-                let msg_opt = {
-                    let mut tp = transport.lock().await;
-                    tp.recv().await
-                };
-
-                if let Some(line) = msg_opt {
-                    match serde_json::from_str::<JsonRpcMessage>(&line) {
-                        Ok(JsonRpcMessage::Response(response)) => {
-                            if let Some(id_val) = response.id {
-                                if let Some(id) = id_val.as_i64() {
-                                    let mut map = pending.lock().await;
-                                    if let Some(tx) = map.remove(&id) {
-                                        if let Some(error) = response.error {
-                                            if tx
-                                                .send(Err(anyhow::anyhow!(
-                                                    "RPC Error {}: {}",
-                                                    error.code,
-                                                    error.message
-                                                )))
-                                                .is_err()
-                                            {
-                                                debug!(
-                                                    "Response receiver dropped for request {}",
-                                                    id
-                                                );
-                                            }
-                                        } else if tx
-                                            .send(Ok(response.result.unwrap_or(Value::Null)))
-                                            .is_err()
-                                        {
-                                            debug!("Response receiver dropped for request {}", id);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Ok(JsonRpcMessage::Notification(notif)) => {
-                            if notif_tx
-                                .try_send(McpNotification {
-                                    server_id: server_id_owned.clone(),
-                                    method: notif.method,
-                                    params: notif.params,
-                                })
-                                .is_err()
-                            {
-                                debug!("Notification channel full, dropping");
-                            }
-                        }
-                        Err(e) => {
-                            debug!(
-                                error = %e,
-                                "Received unparseable message: {}",
-                                &line[..line.len().min(200)]
-                            );
-                        }
-                    }
-                } else {
-                    error!("MCP Connection closed.");
-                    let mut map = pending.lock().await;
-                    let count = map.len();
-                    for (id, tx) in map.drain() {
-                        if tx
-                            .send(Err(anyhow::anyhow!("MCP server process terminated")))
-                            .is_err()
-                        {
-                            debug!("Response receiver dropped for request {}", id);
-                        }
-                    }
-                    if count > 0 {
-                        error!(
-                            "Failed {} pending MCP requests due to process termination",
-                            count
-                        );
-                    }
-                    break;
-                }
-            }
-        });
-        self.response_task = Some(handle);
-    }
-
-    async fn call(&self, method: &str, params: Option<Value>) -> Result<Value> {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-
-        let request = JsonRpcRequest::new(id, method, params);
-        let req_str = serde_json::to_string(&request)?;
-
-        let (tx, rx) = oneshot::channel();
-        {
-            let mut map = self.pending_requests.lock().await;
-            if map.len() >= Self::MAX_PENDING_REQUESTS {
-                return Err(anyhow::anyhow!(
-                    "MCP pending request limit reached ({})",
-                    Self::MAX_PENDING_REQUESTS
-                ));
-            }
-            map.insert(id, tx);
-        }
-
-        self.sender
-            .send(req_str)
-            .await
-            .context("Failed to send request to MCP transport")?;
-
-        if let Ok(res) = tokio::time::timeout(
-            std::time::Duration::from_secs(Self::REQUEST_TIMEOUT_SECS),
-            rx,
-        )
-        .await
-        {
-            res.context("Response channel closed")?
-        } else {
-            let mut map = self.pending_requests.lock().await;
-            map.remove(&id);
-            Err(anyhow::anyhow!("MCP Request timed out"))
-        }
-    }
-
-    async fn initialize(&self) -> Result<()> {
-        let params = InitializeParams {
-            protocol_version: "2024-11-05".to_string(),
-            capabilities: ClientCapabilities {},
-            client_info: ClientInfo {
-                name: "CLOTO-KERNEL".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-            },
-        };
-
-        let result = self
-            .call("initialize", Some(serde_json::to_value(params)?))
-            .await?;
-        info!("MCP Initialized: {:?}", result);
-
-        // Send initialized notification
-        let notify = JsonRpcRequest::notification("notifications/initialized", None);
-        let notify_str = serde_json::to_string(&notify)?;
-        self.sender
-            .send(notify_str)
-            .await
-            .context("Failed to send initialized notification")?;
-
-        Ok(())
-    }
-
-    pub async fn list_tools(&self) -> Result<ListToolsResult> {
-        let val = self.call("tools/list", None).await?;
-        let result: ListToolsResult = serde_json::from_value(val)?;
-        Ok(result)
-    }
-
-    pub async fn call_tool(&self, name: &str, args: Value) -> Result<CallToolResult> {
-        let params = CallToolParams {
-            name: name.to_string(),
-            arguments: args,
-        };
-        let val = self
-            .call("tools/call", Some(serde_json::to_value(params)?))
-            .await?;
-        let result: CallToolResult = serde_json::from_value(val)?;
-        Ok(result)
-    }
-
-    /// Send a JSON-RPC notification (fire-and-forget, no response expected).
-    pub async fn send_notification(&self, method: &str, params: Option<Value>) -> Result<()> {
-        let request = JsonRpcRequest::notification(method, params);
-        let req_str = serde_json::to_string(&request)?;
-        self.sender
-            .send(req_str)
-            .await
-            .context("Failed to send notification to MCP transport")
-    }
-
-    /// Perform cloto/handshake custom method.
-    pub async fn cloto_handshake(&self) -> Result<Option<ClotoHandshakeResult>> {
-        let params = ClotoHandshakeParams {
-            kernel_version: env!("CARGO_PKG_VERSION").to_string(),
-        };
-
-        match self
-            .call("cloto/handshake", Some(serde_json::to_value(params)?))
-            .await
-        {
-            Ok(val) => {
-                let result: ClotoHandshakeResult = serde_json::from_value(val)?;
-                Ok(Some(result))
-            }
-            Err(e) => {
-                // cloto/handshake is optional — non-Cloto MCP servers won't support it
-                debug!("cloto/handshake not supported: {}", e);
-                Ok(None)
-            }
-        }
-    }
-
-    /// Check if the underlying transport process is still alive.
-    /// Uses sender channel state to avoid contending with the response loop's Mutex.
-    #[must_use]
-    pub fn is_alive(&self) -> bool {
-        !self.sender.is_closed()
-    }
-}
-
-// ============================================================
-// McpServerHandle — per-server state
-// ============================================================
-
-#[derive(Clone)]
-pub struct McpServerHandle {
-    pub id: String,
-    pub config: McpServerConfig,
-    pub client: Option<Arc<McpClient>>,
-    pub tools: Vec<McpTool>,
-    pub handshake: Option<ClotoHandshakeResult>,
-    pub status: ServerStatus,
-    pub source: ServerSource,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ServerSource {
-    Config,
-    Dynamic,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ServerStatus {
-    Connected,
-    Disconnected,
-    Error(String),
-}
-
-impl serde::Serialize for ServerStatus {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Connected => serializer.serialize_str("Connected"),
-            Self::Disconnected => serializer.serialize_str("Disconnected"),
-            Self::Error(_) => serializer.serialize_str("Error"),
-        }
-    }
-}
-
-/// Public info about a connected MCP server.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct McpServerInfo {
-    pub id: String,
-    pub command: String,
-    pub args: Vec<String>,
-    pub status: ServerStatus,
-    pub status_message: Option<String>,
-    pub tools: Vec<String>,
-    pub is_cloto_sdk: bool,
-    pub source: ServerSource,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-}
+/// Approver identity used for YOLO-mode auto-approved permissions.
+const YOLO_APPROVER_ID: &str = "YOLO";
 
 // ============================================================
 // McpClientManager — kernel-level MCP server orchestrator
 // ============================================================
 
 pub struct McpClientManager {
-    servers: RwLock<HashMap<String, McpServerHandle>>,
+    pub(crate) servers: RwLock<HashMap<String, McpServerHandle>>,
     pool: SqlitePool,
     /// Tool name → server ID index for fast routing
     tool_index: RwLock<HashMap<String, String>>,
@@ -359,22 +39,12 @@ pub struct McpClientManager {
     /// Shared notification channel — all MCP servers' notifications are collected here
     notification_tx: mpsc::Sender<McpNotification>,
     notification_rx: Mutex<Option<mpsc::Receiver<McpNotification>>>,
-}
-
-fn mcp_tool_schema(tool: &McpTool) -> Value {
-    serde_json::json!({
-        "type": "function",
-        "function": {
-            "name": tool.name,
-            "description": tool.description.as_deref().unwrap_or(""),
-            "parameters": tool.input_schema,
-        }
-    })
+    mcp_request_timeout_secs: u64,
 }
 
 impl McpClientManager {
     #[must_use]
-    pub fn new(pool: SqlitePool, yolo_mode: bool) -> Self {
+    pub fn new(pool: SqlitePool, yolo_mode: bool, mcp_request_timeout_secs: u64) -> Self {
         let (notification_tx, notification_rx) = mpsc::channel(256);
         Self {
             servers: RwLock::new(HashMap::new()),
@@ -384,6 +54,7 @@ impl McpClientManager {
             stopped_configs: RwLock::new(HashMap::new()),
             notification_tx,
             notification_rx: Mutex::new(Some(notification_rx)),
+            mcp_request_timeout_secs,
         }
     }
 
@@ -611,7 +282,7 @@ impl McpClientManager {
                                 id, perm
                             ),
                             status: "approved".to_string(),
-                            approved_by: Some("YOLO".to_string()),
+                            approved_by: Some(YOLO_APPROVER_ID.to_string()),
                             approved_at: Some(chrono::Utc::now()),
                             expires_at: None,
                             metadata: None,
@@ -694,6 +365,7 @@ impl McpClientManager {
                     &config.args,
                     &config.env,
                     self.notification_tx.clone(),
+                    self.mcp_request_timeout_secs,
                 )
                 .await
                 {
@@ -892,66 +564,12 @@ impl McpClientManager {
     // Tool Routing (used by PluginRegistry in Phase 1+)
     // ============================================================
 
-    /// Kernel-native tool schema: create_mcp_server
-    fn kernel_tool_schema() -> Value {
-        serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "create_mcp_server",
-                "description": concat!(
-                    "Create a new MCP server from Python code. ",
-                    "The code is safety-validated before execution. ",
-                    "Returns the list of discovered tools from the new server.\n\n",
-                    "Auto-provided (do NOT include): imports (asyncio, json, mcp.server.Server, ",
-                    "mcp.types.TextContent/Tool), `app = Server(name)`, main() entrypoint, stdio transport.\n\n",
-                    "Blocked imports: subprocess, shutil, socket, ctypes, multiprocessing, signal, ",
-                    "pty, fcntl, resource, importlib, code, codeop, compileall, py_compile.\n",
-                    "Blocked patterns: eval(), exec(), __import__(), compile(), open(), globals(), locals(), ",
-                    "os.system, os.popen, os.spawn, os.exec, os.remove, os.unlink, os.rmdir, os.makedirs, ",
-                    "subprocess., __builtins__, getattr(), setattr(), delattr().\n",
-                    "Max code size: 10KB. Allowed imports: json, asyncio, httpx, os, datetime, time, ",
-                    "math, re, hashlib, base64, urllib.request, typing.",
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "Server name (1-64 chars, alphanumeric + underscore/hyphen)"
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "Short description of the server's purpose"
-                        },
-                        "code": {
-                            "type": "string",
-                            "description": concat!(
-                                "Python code body defining MCP tool handlers. You MUST define exactly two decorated functions:\n\n",
-                                "1. @app.list_tools()\\nasync def list_tools() -> list[Tool]:\\n",
-                                "    return [Tool(name=\"tool_name\", description=\"...\", ",
-                                "inputSchema={\"type\": \"object\", \"properties\": {...}, \"required\": [...]})]\n\n",
-                                "2. @app.call_tool()\\nasync def call_tool(name: str, arguments: dict) -> list[TextContent]:\\n",
-                                "    if name == \"tool_name\":\\n",
-                                "        result = ...  # your logic\\n",
-                                "        return [TextContent(type=\"text\", text=json.dumps(result))]\\n",
-                                "    raise ValueError(f\"Unknown tool: {name}\")\n\n",
-                                "You may add helper functions and use httpx for HTTP requests. ",
-                                "Do not include imports already provided (asyncio, json, mcp.server, mcp.types).",
-                            )
-                        }
-                    },
-                    "required": ["name", "description", "code"]
-                }
-            }
-        })
-    }
-
     /// Collect tool schemas from all MCP servers in OpenAI function format.
     /// Includes kernel-native tools (create_mcp_server) only when YOLO mode is enabled.
     pub async fn collect_tool_schemas(&self) -> Vec<Value> {
         let servers = self.servers.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
-            vec![Self::kernel_tool_schema()]
+            vec![super::mcp_kernel_tool::kernel_tool_schema()]
         } else {
             vec![]
         };
@@ -975,7 +593,7 @@ impl McpClientManager {
     pub async fn collect_tool_schemas_for(&self, server_ids: &[String]) -> Vec<Value> {
         let servers = self.servers.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
-            vec![Self::kernel_tool_schema()]
+            vec![super::mcp_kernel_tool::kernel_tool_schema()]
         } else {
             vec![]
         };
@@ -997,7 +615,7 @@ impl McpClientManager {
     pub async fn collect_tool_schemas_for_agent(&self, agent_id: &str) -> Vec<Value> {
         let servers = self.servers.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
-            vec![Self::kernel_tool_schema()]
+            vec![super::mcp_kernel_tool::kernel_tool_schema()]
         } else {
             vec![]
         };
@@ -1051,7 +669,7 @@ impl McpClientManager {
     pub async fn execute_tool(&self, tool_name: &str, args: Value) -> Result<Value> {
         // Kernel-native tool: create_mcp_server
         if tool_name == "create_mcp_server" {
-            return self.execute_create_mcp_server(args).await;
+            return super::mcp_kernel_tool::execute_create_mcp_server(self, args).await;
         }
 
         let server_id = {
@@ -1123,7 +741,7 @@ impl McpClientManager {
         server_id: &str,
         tool_name: &str,
         args: Value,
-    ) -> Result<CallToolResult> {
+    ) -> Result<super::mcp_protocol::CallToolResult> {
         let (client, tool_validators) = {
             let servers = self.servers.read().await;
             let handle = servers
@@ -1437,202 +1055,8 @@ impl McpClientManager {
 
     /// Spawn a background task that periodically checks for dead MCP servers
     /// and auto-restarts them if `auto_restart` is enabled in their config.
-    /// Follows the `tokio::select!` + `Arc<Notify>` shutdown pattern from events.rs.
     pub fn spawn_health_monitor(self: Arc<Self>, shutdown: Arc<tokio::sync::Notify>) {
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-            loop {
-                tokio::select! {
-                    () = shutdown.notified() => {
-                        info!("MCP health monitor shutting down");
-                        break;
-                    }
-                    _ = interval.tick() => {
-                        self.check_and_restart_dead_servers().await;
-                    }
-                }
-            }
-        });
-    }
-
-    /// Scan all registered MCP servers and restart any that have died
-    /// (process exited / channel closed) if their config has `auto_restart: true`.
-    async fn check_and_restart_dead_servers(&self) {
-        let dead_servers: Vec<String> = {
-            let servers = self.servers.read().await;
-            servers
-                .iter()
-                .filter_map(|(id, handle)| {
-                    if !handle.config.auto_restart {
-                        return None;
-                    }
-                    let is_dead = match &handle.client {
-                        Some(client) => !client.is_alive(),
-                        None => matches!(handle.status, ServerStatus::Error(_)),
-                    };
-                    if is_dead {
-                        Some(id.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        };
-
-        for server_id in dead_servers {
-            warn!(server_id = %server_id, "MCP server died, attempting auto-restart");
-            match self.restart_server(&server_id).await {
-                Ok(tools) => {
-                    info!(
-                        server_id = %server_id,
-                        tools = tools.len(),
-                        "MCP server auto-restarted successfully"
-                    );
-                }
-                Err(e) => {
-                    error!(
-                        server_id = %server_id,
-                        error = %e,
-                        "MCP server auto-restart failed"
-                    );
-                    // Update status to Error so the UI reflects the failure
-                    let mut servers = self.servers.write().await;
-                    if let Some(handle) = servers.get_mut(&server_id) {
-                        handle.status = ServerStatus::Error(format!("Auto-restart failed: {}", e));
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ============================================================
-// Kernel Tool: create_mcp_server
-// ============================================================
-
-impl McpClientManager {
-    /// Execute the kernel-native create_mcp_server tool.
-    /// Requires YOLO mode to be enabled — autonomous server creation is a privileged operation.
-    #[allow(clippy::too_many_lines)]
-    async fn execute_create_mcp_server(&self, args: Value) -> Result<Value> {
-        if !self.yolo_mode.load(Ordering::Relaxed) {
-            return Ok(serde_json::json!({
-                "status": "rejected",
-                "reason": "Autonomous MCP server creation requires YOLO mode to be enabled. Ask the operator to enable it in Settings.",
-            }));
-        }
-
-        let name = args
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: name"))?;
-        let description = args
-            .get("description")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Agent-generated MCP server");
-        let code = args
-            .get("code")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: code"))?;
-
-        // Validate name (same rules as handlers.rs)
-        if name.is_empty() || name.len() > 64 {
-            return Err(anyhow::anyhow!("Server name must be 1-64 characters"));
-        }
-        let valid_name = name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-        if !valid_name {
-            return Err(anyhow::anyhow!(
-                "Server name must contain only alphanumeric, underscore, or hyphen"
-            ));
-        }
-
-        // Code safety validation (Layer 5)
-        if let Err(violations) = validate_mcp_code(code) {
-            return Ok(serde_json::json!({
-                "status": "rejected",
-                "reason": "Code validation failed — review violations and use hints to fix",
-                "violations": violations,
-                "hints": {
-                    "blocked_imports": BLOCKED_IMPORTS,
-                    "blocked_patterns": BLOCKED_PATTERNS,
-                    "max_code_size_bytes": MAX_CODE_SIZE,
-                    "auto_provided_imports": [
-                        "asyncio", "json", "mcp.server.Server",
-                        "mcp.server.stdio.stdio_server",
-                        "mcp.types.TextContent", "mcp.types.Tool"
-                    ],
-                    "allowed_additional_imports": [
-                        "httpx", "os", "datetime", "time", "math",
-                        "re", "hashlib", "base64", "urllib.request", "typing"
-                    ],
-                }
-            }));
-        }
-
-        // Generate script from template
-        let script = format!(
-            r#""""MCP Server: {name} — {desc}"""
-import asyncio
-import json
-
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
-
-app = Server("{name}")
-
-{code}
-
-async def main():
-    async with stdio_server() as (read, write):
-        await app.run(read, write, app.create_initialization_options())
-
-if __name__ == "__main__":
-    asyncio.run(main())
-"#,
-            name = name,
-            desc = description.replace('"', r#"\""#),
-            code = code,
-        );
-
-        // Write script file
-        let scripts_dir = std::path::Path::new("scripts");
-        if !scripts_dir.exists() {
-            std::fs::create_dir_all(scripts_dir)
-                .map_err(|e| anyhow::anyhow!("Failed to create scripts directory: {}", e))?;
-        }
-        let script_path = scripts_dir.join(format!("mcp_{name}.py"));
-        std::fs::write(&script_path, &script)
-            .map_err(|e| anyhow::anyhow!("Failed to write script: {}", e))?;
-
-        // Register and connect the server
-        let server_id = format!("agent.{name}");
-        let tool_names = self
-            .add_dynamic_server(
-                server_id.clone(),
-                "python".to_string(),
-                vec![script_path.to_string_lossy().to_string()],
-                Some(script),
-                Some(description.to_string()),
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to start server: {}", e))?;
-
-        info!(
-            "Agent created MCP server '{}' with {} tool(s): {:?}",
-            server_id,
-            tool_names.len(),
-            tool_names
-        );
-
-        Ok(serde_json::json!({
-            "status": "created",
-            "server_id": server_id,
-            "tools": tool_names,
-            "script_path": script_path.to_string_lossy(),
-        }))
+        super::mcp_health::spawn_health_monitor(self, shutdown);
     }
 }
 
@@ -1645,10 +1069,10 @@ mod tests {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
         crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
 
-        let manager_off = McpClientManager::new(pool.clone(), false);
+        let manager_off = McpClientManager::new(pool.clone(), false, 120);
         assert!(!manager_off.yolo_mode.load(Ordering::Relaxed));
 
-        let manager_on = McpClientManager::new(pool, true);
+        let manager_on = McpClientManager::new(pool, true, 120);
         assert!(manager_on.yolo_mode.load(Ordering::Relaxed));
     }
 
@@ -1657,7 +1081,7 @@ mod tests {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
         crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
 
-        let manager = McpClientManager::new(pool, false);
+        let manager = McpClientManager::new(pool, false, 120);
         assert!(!manager.yolo_mode.load(Ordering::Relaxed));
 
         manager.yolo_mode.store(true, Ordering::Relaxed);
@@ -1673,12 +1097,12 @@ mod tests {
         crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
 
         // YOLO off: no kernel tools
-        let manager = McpClientManager::new(pool.clone(), false);
+        let manager = McpClientManager::new(pool.clone(), false, 120);
         let schemas = manager.collect_tool_schemas().await;
         assert!(schemas.is_empty(), "YOLO off should not include kernel tools");
 
         // YOLO on: kernel tool (create_mcp_server) included
-        let manager_on = McpClientManager::new(pool, true);
+        let manager_on = McpClientManager::new(pool, true, 120);
         let schemas_on = manager_on.collect_tool_schemas().await;
         assert!(!schemas_on.is_empty(), "YOLO on should include kernel tools");
         let name = schemas_on[0]["function"]["name"].as_str().unwrap();
