@@ -3,6 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
+/// Timeout for memory plugin operations (recall, store) and MCP tool calls.
+const MEMORY_TIMEOUT: Duration = Duration::from_secs(5);
+
 use crate::managers::{AgentManager, McpClientManager, PluginRegistry};
 use cloto_shared::{
     AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, Plugin, ThinkResult, ToolCall,
@@ -243,10 +246,9 @@ impl SystemHandler {
         }
 
         // Passive heartbeat: update last_seen on message routing
-        self.agent_manager
-            .touch_last_seen(&target_agent_id)
-            .await
-            .ok();
+        if let Err(e) = self.agent_manager.touch_last_seen(&target_agent_id).await {
+            warn!(agent_id = %target_agent_id, error = %e, "Failed to update last_seen");
+        }
 
         // Persist user message to chat history (backend-side persistence)
         let now_ms = chrono::Utc::now().timestamp_millis();
@@ -335,7 +337,7 @@ impl SystemHandler {
                 if has_memory_read {
                     // 🛑 停滞対策: メモリの呼び出しにタイムアウトを設定
                     match tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
+                        MEMORY_TIMEOUT,
                         mem.recall(agent.id.clone(), &msg.content, self.memory_context_limit),
                     )
                     .await
@@ -368,7 +370,7 @@ impl SystemHandler {
                 "limit": self.memory_context_limit,
             });
             match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
+                MEMORY_TIMEOUT,
                 mcp.call_server_tool(server_id, "recall", recall_args),
             )
             .await
@@ -579,7 +581,7 @@ impl SystemHandler {
                         tokio::spawn(async move {
                             if let Some(mem) = plugin_clone.as_memory() {
                                 let _ = tokio::time::timeout(
-                                    std::time::Duration::from_secs(5),
+                                    MEMORY_TIMEOUT,
                                     mem.store(agent_id_clone, agent_resp_msg),
                                 )
                                 .await;
@@ -601,7 +603,7 @@ impl SystemHandler {
                                 "message": resp_msg_json,
                             });
                             let _ = tokio::time::timeout(
-                                std::time::Duration::from_secs(5),
+                                MEMORY_TIMEOUT,
                                 mcp_clone.call_server_tool(&server_id_clone, "store", store_args),
                             )
                             .await;
@@ -738,7 +740,7 @@ impl SystemHandler {
                     tokio::spawn(async move {
                         if let Some(mem) = plugin_clone.as_memory() {
                             match tokio::time::timeout(
-                                std::time::Duration::from_secs(5),
+                                MEMORY_TIMEOUT,
                                 mem.store(agent_id.clone(), msg),
                             )
                             .await
@@ -786,7 +788,7 @@ impl SystemHandler {
                     "message": msg_json,
                 });
                 match tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
+                    MEMORY_TIMEOUT,
                     mcp.call_server_tool(&server_id, "store", store_args),
                 )
                 .await
@@ -1691,7 +1693,7 @@ impl SystemHandler {
 
         // 1. Fetch recent memories
         let Ok(Ok(mem_result)) = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
+            MEMORY_TIMEOUT,
             mcp.call_server_tool(
                 server_id,
                 "list_memories",
@@ -1713,7 +1715,7 @@ impl SystemHandler {
 
         // 2. Get last episode timestamp
         let Ok(Ok(ep_result)) = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
+            MEMORY_TIMEOUT,
             mcp.call_server_tool(
                 server_id,
                 "list_episodes",
