@@ -43,6 +43,18 @@ pub async fn load_revoked_key_hashes(pool: &SqlitePool) -> anyhow::Result<Vec<St
     Ok(rows.into_iter().map(|(h,)| h).collect())
 }
 
+/// Delete revoked key entries older than `ttl_days` and return the remaining hashes.
+pub async fn cleanup_revoked_keys(pool: &SqlitePool, ttl_days: i64) -> anyhow::Result<Vec<String>> {
+    let cutoff_ms = (chrono::Utc::now() - chrono::Duration::days(ttl_days)).timestamp_millis();
+    db_timeout(
+        sqlx::query("DELETE FROM revoked_keys WHERE revoked_at < ?")
+            .bind(cutoff_ms)
+            .execute(pool),
+    )
+    .await?;
+    load_revoked_key_hashes(pool).await
+}
+
 pub async fn is_api_key_revoked(pool: &SqlitePool, key: &str) -> anyhow::Result<bool> {
     let key_hash = hash_api_key(key);
     let row: Option<(String,)> = db_timeout(

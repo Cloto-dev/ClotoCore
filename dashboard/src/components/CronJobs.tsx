@@ -45,10 +45,10 @@ export const CronJobs = memo(function CronJobs() {
 
   const fetchAgents = useCallback(async () => {
     try {
-      const data = await api.getAgents();
+      const data = await api.getAgents(apiKey);
       setAgents(data);
     } catch (e) { console.error('Failed to fetch agents', e); }
-  }, []);
+  }, [apiKey]);
 
   useEffect(() => { fetchJobs(); fetchAgents(); }, [fetchJobs, fetchAgents]);
 

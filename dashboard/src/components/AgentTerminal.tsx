@@ -78,7 +78,7 @@ export function AgentTerminal({
     if (event.type === 'AgentPowerChanged') {
       onRefresh();
     }
-  });
+  }, apiKey);
 
   const handlePowerToggle = (agent: AgentMetadata) => {
     setPowerTarget(agent);

@@ -63,6 +63,54 @@ use tracing::{error, info};
 
 use crate::{AppError, AppResult, AppState};
 
+/// Authenticate via `X-API-Key` header OR `?token=` query parameter.
+/// SSE's `EventSource` API cannot set custom headers, so the dashboard
+/// passes the API key as a query parameter instead (bug-157).
+pub(crate) fn check_auth_with_query(
+    state: &AppState,
+    headers: &HeaderMap,
+    query: &std::collections::HashMap<String, String>,
+) -> AppResult<()> {
+    // Try header first, fall back to query token
+    let from_header = headers.get("X-API-Key").and_then(|h| h.to_str().ok());
+    let from_query = query.get("token").map(String::as_str);
+    let provided = from_header.or(from_query);
+
+    if let Some(ref required_key) = state.config.admin_api_key {
+        use subtle::ConstantTimeEq;
+        let matches: bool = match provided {
+            Some(p) => p.as_bytes().ct_eq(required_key.as_bytes()).into(),
+            None => false,
+        };
+        if !matches {
+            return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                cloto_shared::Permission::AdminAccess,
+            )));
+        }
+        if let Some(p) = provided {
+            let hash = crate::db::hash_api_key(p);
+            if let Ok(revoked) = state.revoked_keys.read() {
+                if revoked.contains(&hash) {
+                    tracing::warn!("🚫 Rejected revoked API key");
+                    return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                        cloto_shared::Permission::AdminAccess,
+                    )));
+                }
+            }
+        }
+    } else {
+        let skip_auth = std::env::var("CLOTO_DEBUG_SKIP_AUTH")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if !skip_auth {
+            return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                cloto_shared::Permission::AdminAccess,
+            )));
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()> {
     use subtle::ConstantTimeEq;
     if let Some(ref required_key) = state.config.admin_api_key {
@@ -205,9 +253,13 @@ pub async fn shutdown_handler(
 /// # Connection
 /// Clients should use `EventSource` API or equivalent SSE client.
 /// Connection closes when the broadcast channel is closed.
+#[allow(clippy::implicit_hasher)]
 pub async fn sse_handler(
     State(state): State<Arc<AppState>>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
+    check_auth_with_query(&state, &headers, &query)?;
     let mut rx = state.tx.subscribe();
     let stream = async_stream::stream! {
         yield Ok(Event::default().event("handshake").data("connected"));
@@ -227,11 +279,11 @@ pub async fn sse_handler(
             }
         }
     };
-    Sse::new(stream).keep_alive(
+    Ok(Sse::new(stream).keep_alive(
         axum::response::sse::KeepAlive::new()
             .interval(Duration::from_secs(15))
             .text("keep-alive"),
-    )
+    ))
 }
 
 /// Get recent event history from the in-memory ring buffer.
@@ -244,7 +296,11 @@ pub async fn sse_handler(
 /// # Response
 /// Returns a JSON array of recent events (most recent first),
 /// limited by the configured `event_history_size`.
-pub async fn get_history(State(state): State<Arc<AppState>>) -> AppResult<Json<serde_json::Value>> {
+pub async fn get_history(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
     let history = state.event_history.read().await;
     let history_vec: Vec<_> = history.iter().collect();
     ok_data(serde_json::json!(history_vec))
@@ -266,7 +322,11 @@ pub async fn get_history(State(state): State<Arc<AppState>>) -> AppResult<Json<s
 ///   "event_history": { "current_size": 100, "max_size": 1000, "memory_estimate_bytes": 800 }
 /// }
 /// ```
-pub async fn get_metrics(State(state): State<Arc<AppState>>) -> AppResult<Json<serde_json::Value>> {
+pub async fn get_metrics(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
     let history_len = state.event_history.read().await.len();
     let max_size = state.config.event_history_size;
 
@@ -294,7 +354,9 @@ pub async fn get_metrics(State(state): State<Arc<AppState>>) -> AppResult<Json<s
 /// Returns recent memories from KS22 memory server.
 pub async fn get_memories(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
     let args = serde_json::json!({ "agent_id": "", "limit": 100 });
     match state
         .mcp_manager
@@ -326,7 +388,9 @@ pub async fn get_memories(
 /// Returns recent episodes from KS22 memory server.
 pub async fn get_episodes(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
     let args = serde_json::json!({ "agent_id": "", "limit": 50 });
     match state
         .mcp_manager

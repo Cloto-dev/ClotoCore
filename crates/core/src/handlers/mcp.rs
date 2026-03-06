@@ -46,7 +46,11 @@ pub struct RevokePermissionRequest {
 ///
 /// Each entry includes: `id`, `name`, `description`, `version`, `category`,
 /// `tags`, `capabilities`, `is_active`, and `provided_tools`.
-pub async fn get_plugins(State(state): State<Arc<AppState>>) -> AppResult<Json<serde_json::Value>> {
+pub async fn get_plugins(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
     let manifests = state
         .plugin_manager
         .list_plugins_with_settings(&state.registry)

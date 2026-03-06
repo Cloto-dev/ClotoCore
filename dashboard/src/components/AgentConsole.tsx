@@ -336,7 +336,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
       // Agent response is persisted backend-side (system.rs) before SSE emission.
     }
-  });
+  }, apiKey);
 
   // Typewriter completion: move pending response to static messages
   const handleTypewriterComplete = useCallback(() => {
