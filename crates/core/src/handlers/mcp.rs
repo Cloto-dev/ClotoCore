@@ -883,6 +883,18 @@ pub async fn set_yolo_mode(
         .yolo_mode
         .store(enabled, std::sync::atomic::Ordering::Relaxed);
 
+    // Persist to DB so the setting survives kernel restarts
+    let value = if enabled { "true" } else { "false" };
+    if let Err(e) = sqlx::query(
+        "INSERT OR REPLACE INTO plugin_configs (plugin_id, config_key, config_value) VALUES ('kernel', 'yolo_mode', ?)"
+    )
+        .bind(value)
+        .execute(&state.pool)
+        .await
+    {
+        tracing::error!(error = %e, "Failed to persist YOLO mode to DB");
+    }
+
     if enabled {
         tracing::warn!("YOLO mode enabled via API");
     } else {

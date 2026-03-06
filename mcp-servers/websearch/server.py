@@ -47,6 +47,9 @@ class SearXNGProvider(SearchProvider):
         self.base_url = base_url.rstrip("/")
         self.client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
 
+    async def aclose(self) -> None:
+        await self.client.aclose()
+
     async def search(self, query: str, max_results: int, language: str, time_range: str | None) -> list[dict]:
         params: dict = {
             "q": query,
@@ -78,6 +81,9 @@ class TavilyProvider(SearchProvider):
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
+
+    async def aclose(self) -> None:
+        await self.client.aclose()
 
     async def search(self, query: str, max_results: int, language: str, time_range: str | None) -> list[dict]:
         payload: dict = {
@@ -132,6 +138,11 @@ class ChainProvider(SearchProvider):
 
     def __init__(self, providers: list[SearchProvider]):
         self.providers = providers
+
+    async def aclose(self) -> None:
+        for p in self.providers:
+            if hasattr(p, "aclose"):
+                await p.aclose()
 
     async def search(self, query: str, max_results: int, language: str, time_range: str | None) -> list[dict]:
         last_error: Exception | None = None
@@ -422,8 +433,12 @@ async def handle_fetch_page(arguments: dict) -> list[TextContent]:
 # ============================================================
 
 async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
+    finally:
+        if hasattr(provider, "aclose"):
+            await provider.aclose()
 
 
 if __name__ == "__main__":
