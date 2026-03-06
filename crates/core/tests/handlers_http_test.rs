@@ -160,6 +160,8 @@ async fn test_update_plugin_config_nonexistent_plugin() {
 
 #[tokio::test]
 async fn test_chat_handler_routes_to_agent() {
+    // H-01: CLOTO_DEBUG_SKIP_AUTH required to bypass auth when no API key configured
+    std::env::set_var("CLOTO_DEBUG_SKIP_AUTH", "1");
     let state = create_test_app_state(None).await;
 
     // Create a test agent first
