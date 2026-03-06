@@ -259,9 +259,22 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let plugin_manager = Arc::new(plugin_manager_obj);
 
     // 3b. MCP Client Manager (created early so PluginRegistry can reference it)
+    // Resolve YOLO mode: DB-persisted value takes precedence over env var
+    let yolo_mode = {
+        let db_yolo: Option<(String,)> = sqlx::query_as(
+            "SELECT config_value FROM plugin_configs WHERE plugin_id = 'kernel' AND config_key = 'yolo_mode'"
+        )
+            .fetch_optional(&pool)
+            .await
+            .unwrap_or(None);
+        match db_yolo {
+            Some((val,)) => val == "true",
+            None => config.yolo_mode, // fall back to env var
+        }
+    };
     let mcp_manager = Arc::new(managers::McpClientManager::new(
         pool.clone(),
-        config.yolo_mode,
+        yolo_mode,
     ));
 
     // 4. Initialize External Plugins

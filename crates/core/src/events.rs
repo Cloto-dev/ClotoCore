@@ -247,7 +247,9 @@ impl EventProcessor {
                     source_message_id: _,
                 } => {
                     info!(trace_id = %trace_id, agent_id = %agent_id, "🧠 Received ThoughtResponse");
-                    self.agent_manager.touch_last_seen(agent_id).await.ok();
+                    if let Err(e) = self.agent_manager.touch_last_seen(agent_id).await {
+                        error!(agent_id = %agent_id, error = %e, "Failed to update last_seen on ThoughtResponse");
+                    }
 
                     // Create additional MessageReceived for plugin cascade
                     let msg = cloto_shared::ClotoMessage::new(

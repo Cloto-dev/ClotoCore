@@ -1635,3 +1635,76 @@ if __name__ == "__main__":
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn yolo_mode_initializes_correctly() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+
+        let manager_off = McpClientManager::new(pool.clone(), false);
+        assert!(!manager_off.yolo_mode.load(Ordering::Relaxed));
+
+        let manager_on = McpClientManager::new(pool, true);
+        assert!(manager_on.yolo_mode.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn yolo_mode_toggle_at_runtime() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+
+        let manager = McpClientManager::new(pool, false);
+        assert!(!manager.yolo_mode.load(Ordering::Relaxed));
+
+        manager.yolo_mode.store(true, Ordering::Relaxed);
+        assert!(manager.yolo_mode.load(Ordering::Relaxed));
+
+        manager.yolo_mode.store(false, Ordering::Relaxed);
+        assert!(!manager.yolo_mode.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn yolo_mode_affects_kernel_tool_schemas() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+
+        // YOLO off: no kernel tools
+        let manager = McpClientManager::new(pool.clone(), false);
+        let schemas = manager.collect_tool_schemas().await;
+        assert!(schemas.is_empty(), "YOLO off should not include kernel tools");
+
+        // YOLO on: kernel tool (create_mcp_server) included
+        let manager_on = McpClientManager::new(pool, true);
+        let schemas_on = manager_on.collect_tool_schemas().await;
+        assert!(!schemas_on.is_empty(), "YOLO on should include kernel tools");
+        let name = schemas_on[0]["function"]["name"].as_str().unwrap();
+        assert_eq!(name, "create_mcp_server");
+    }
+
+    #[tokio::test]
+    async fn yolo_mode_persisted_to_db() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+
+        // Simulate set_yolo_mode handler persisting to DB
+        sqlx::query(
+            "INSERT OR REPLACE INTO plugin_configs (plugin_id, config_key, config_value) VALUES ('kernel', 'yolo_mode', 'true')"
+        )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Read back
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT config_value FROM plugin_configs WHERE plugin_id = 'kernel' AND config_key = 'yolo_mode'"
+        )
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
+        assert_eq!(row.unwrap().0, "true");
+    }
+}

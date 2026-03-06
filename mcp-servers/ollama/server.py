@@ -12,11 +12,18 @@ Tools:
 import asyncio
 import json
 import os
+import sys
 
 import httpx
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
+
+# Resolve parent directory for common module import.
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.normpath(os.path.join(_script_dir, "..")))
+
+from common.llm_provider import build_system_prompt, build_chat_messages
 
 # ============================================================
 # Configuration (from environment variables)
@@ -28,61 +35,9 @@ REQUEST_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT_SECS", "120"))
 MAX_PREDICT = int(os.environ.get("OLLAMA_MAX_PREDICT", "2048"))
 ENABLE_THINKING = os.environ.get("OLLAMA_ENABLE_THINKING", "false").lower() == "true"
 
-# Mutable session state
+# Mutable session state (protected by _model_lock for concurrent access)
 _active_model = MODEL_ID
-
-# ============================================================
-# LLM Utilities (shared pattern with cerebras/deepseek)
-# ============================================================
-
-
-def build_system_prompt(agent: dict) -> str:
-    """Build the system prompt for a Cloto agent."""
-    name = agent.get("name", "Agent")
-    description = agent.get("description", "")
-    metadata = agent.get("metadata", {})
-
-    has_memory = bool(metadata.get("preferred_memory", ""))
-    memory_line = (
-        "You have persistent memory — you can recall past conversations with your operator.\n"
-        if has_memory
-        else ""
-    )
-
-    return (
-        f"You are {name}, an AI agent running on the Cloto platform.\n"
-        f"Cloto is a local, self-hosted AI container system — all data stays on your "
-        f"operator's hardware and is never sent to any external service.\n"
-        f"{memory_line}"
-        f"\n"
-        f"IMPORTANT: You must never fabricate or hallucinate information about your "
-        f"own capabilities, connected servers, or available tools. If you are unsure "
-        f"about what you can do, say so honestly. Only describe capabilities you have "
-        f"actually been provided with.\n"
-        f"\n"
-        f"{description}"
-    )
-
-
-def build_chat_messages(
-    agent: dict, message: dict, context: list[dict]
-) -> list[dict]:
-    """Build the standard OpenAI-compatible messages array."""
-    messages = [{"role": "system", "content": build_system_prompt(agent)}]
-
-    for msg in context:
-        source = msg.get("source", {})
-        src_type = source.get("type", "") if isinstance(source, dict) else ""
-        if src_type in ("User",) or "User" in source or "user" in source:
-            role = "user"
-        elif src_type in ("Agent",) or "Agent" in source or "agent" in source:
-            role = "assistant"
-        else:
-            role = "system"
-        messages.append({"role": role, "content": msg.get("content", "")})
-
-    messages.append({"role": "user", "content": message.get("content", "")})
-    return messages
+_model_lock = asyncio.Lock()
 
 
 def parse_chat_content(response_data: dict) -> str:
@@ -116,8 +71,11 @@ def parse_chat_content(response_data: dict) -> str:
 
 async def call_ollama_api(messages: list[dict]) -> dict:
     """Send a request to the Ollama native chat API (/api/chat)."""
+    async with _model_lock:
+        model = _active_model
+
     body: dict = {
-        "model": _active_model,
+        "model": model,
         "messages": messages,
         "stream": False,
         "options": {
@@ -136,8 +94,8 @@ async def call_ollama_api(messages: list[dict]) -> dict:
         )
         if response.status_code == 404:
             raise ValueError(
-                f"Model '{_active_model}' not found in Ollama. "
-                f"Install it with: ollama pull {_active_model}"
+                f"Model '{model}' not found in Ollama. "
+                f"Install it with: ollama pull {model}"
             )
         response.raise_for_status()
         return response.json()
@@ -272,6 +230,8 @@ async def handle_think(arguments: dict) -> list[TextContent]:
 async def handle_list_models() -> list[TextContent]:
     """Handle 'list_models' tool: list locally installed models."""
     try:
+        async with _model_lock:
+            active = _active_model
         models = await fetch_ollama_models()
         result = []
         for m in models:
@@ -289,7 +249,7 @@ async def handle_list_models() -> list[TextContent]:
             TextContent(
                 type="text",
                 text=json.dumps({
-                    "active_model": _active_model,
+                    "active_model": active,
                     "models": result,
                     "count": len(result),
                 }),
@@ -348,8 +308,9 @@ async def handle_switch_model(arguments: dict) -> list[TextContent]:
                 )
             ]
 
-        previous = _active_model
-        _active_model = model
+        async with _model_lock:
+            previous = _active_model
+            _active_model = model
 
         return [
             TextContent(
@@ -357,7 +318,7 @@ async def handle_switch_model(arguments: dict) -> list[TextContent]:
                 text=json.dumps({
                     "status": "switched",
                     "previous_model": previous,
-                    "active_model": _active_model,
+                    "active_model": model,
                 }),
             )
         ]
