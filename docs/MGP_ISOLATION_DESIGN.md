@@ -86,7 +86,7 @@ for a multi-tenant platform accepting untrusted third-party servers.
        │ DENIED → reject connection
        ▼
 5. Kernel derives Isolation Profile from:
-       │  - trust_level (§2.2)
+       │  - trust_level (§2.3)
        │  - permissions_required (§3)
        │  - [servers.isolation] overrides (mcp.toml)
        ▼
@@ -583,7 +583,7 @@ The following invariants MUST hold at all times:
 | Raw socket to attacker C2 | L3 | seccomp `socket` filter / WFP rule blocks |
 | DNS exfiltration | L3 | seccomp `connect` filter (hard) / proxy-only env (soft) |
 | Spawn reverse shell | L4 | seccomp `execve` filter / Job Object process limit |
-| Lie about trust_level | §3.2 inv.3 | Kernel determines trust from seal, not server claim |
+| Lie about trust_level | §10 inv.3 | Kernel determines trust from seal, not server claim |
 | Bypass tool validator | L2+L3+L4 | OS-level blocks even if validator is circumvented |
 | Resource starvation of kernel | L1 | Per-process limits, kernel is not resource-limited |
 
@@ -602,4 +602,4 @@ The following invariants MUST hold at all times:
 
 *Document History:*
 - 2026-03-05: Initial design (approved). MGP + OS isolation integrated architecture.
-- 2026-03-06: Audit fixes — trust_level unified to 4-level taxonomy (§2, Glossary), error codes corrected (§3.2, §6: 3002→3001, 1004→1010, 1001→1000), extension names updated to `permissions`+`tool_security`+`lifecycle` (§5.1), Security Invariant 3 revised to "cannot be self-elevated" (§10).
+- 2026-03-06: Audit fixes — trust_level unified to 4-level taxonomy (§2, Glossary), error codes corrected (§6: 3002→3001, 1004→1010, 1001→1000), extension names updated to `permissions`+`tool_security`+`lifecycle` (§5.1), Security Invariant 3 revised to "cannot be self-elevated" (§10).
