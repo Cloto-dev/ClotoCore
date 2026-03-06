@@ -30,7 +30,7 @@ export function McpAccessControlTab({ server, apiKey }: Props) {
       setError(null);
       const [access, agentList] = await Promise.all([
         api.getMcpServerAccess(server.id, apiKey),
-        api.getAgents(),
+        api.getAgents(apiKey),
       ]);
       setAccessData(access);
       setAgents(agentList);

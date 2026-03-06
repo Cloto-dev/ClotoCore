@@ -516,6 +516,38 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         }
     });
 
+    // 6e. Revoked keys TTL cleanup task (every 6 hours, bug-158)
+    {
+        let pool_clone = pool.clone();
+        let revoked_keys_clone = app_state.revoked_keys.clone();
+        let shutdown_clone = app_state.shutdown.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 60 * 60));
+            loop {
+                tokio::select! {
+                    () = shutdown_clone.notified() => {
+                        tracing::info!("Revoked keys cleanup shutting down");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        match db::cleanup_revoked_keys(&pool_clone, 90).await {
+                            Ok(remaining) => {
+                                if let Ok(mut cache) = revoked_keys_clone.write() {
+                                    cache.clear();
+                                    cache.extend(remaining);
+                                }
+                                tracing::debug!("Revoked keys cleanup completed");
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Revoked keys cleanup failed");
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     // 7. Web Server
 
     // Admin endpoints: rate-limited (10 req/s, burst 20)
@@ -619,13 +651,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             get(handlers::get_max_cron_generation).put(handlers::set_max_cron_generation),
         )
         // API key invalidation
-        .route("/system/invalidate-key", post(handlers::invalidate_api_key))
-        .layer(axum::middleware::from_fn_with_state(
-            app_state.clone(),
-            middleware::rate_limit_middleware,
-        ));
+        .route("/system/invalidate-key", post(handlers::invalidate_api_key));
 
-    // Public/read endpoints (no rate limiting)
+    // Read endpoints (authenticated, rate-limited — bug-157)
     let api_routes = Router::new()
         .route("/system/version", get(handlers::version_handler))
         .route("/system/health", get(handlers::health_handler))
@@ -649,6 +677,10 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             get(handlers::get_agent_access),
         )
         .merge(admin_routes)
+        .layer(axum::middleware::from_fn_with_state(
+            app_state.clone(),
+            middleware::rate_limit_middleware,
+        ))
         .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024)); // 10MB for chat attachments
 
     let app = Router::new()

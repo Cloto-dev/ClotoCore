@@ -1046,6 +1046,36 @@ impl SystemHandler {
                                 commands = ?sandboxed_tools,
                                 "⚡ YOLO mode: commands auto-approved"
                             );
+
+                            // Audit log for YOLO auto-approval (bug-177)
+                            let approval_id = uuid::Uuid::new_v4().to_string();
+                            crate::db::spawn_audit_log(
+                                self.pool.clone(),
+                                crate::db::AuditLogEntry {
+                                    timestamp: chrono::Utc::now(),
+                                    event_type: "YOLO_AUTO_APPROVED".to_string(),
+                                    actor_id: Some(agent.id.clone()),
+                                    target_id: Some(approval_id.clone()),
+                                    permission: None,
+                                    result: "SUCCESS".to_string(),
+                                    reason: format!(
+                                        "YOLO auto-approved {} commands: {:?}",
+                                        sandboxed_tools.len(),
+                                        sandboxed_tools
+                                    ),
+                                    metadata: None,
+                                    trace_id: Some(trace_id.to_string()),
+                                },
+                            );
+
+                            self.emit_event(
+                                trace_id,
+                                ClotoEventData::CommandApprovalResult {
+                                    approval_id,
+                                    decision: "auto_approved".to_string(),
+                                },
+                            )
+                            .await;
                         }
                     } else {
                         let mut untrusted_cmds: Vec<serde_json::Value> = Vec::new();

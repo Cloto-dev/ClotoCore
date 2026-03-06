@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { McpServerInfo } from '../../types';
 import { useEventStream } from '../../hooks/useEventStream';
 import { EVENTS_URL } from '../../services/api';
+import { useApiKey } from '../../contexts/ApiKeyContext';
 import { Trash2 } from 'lucide-react';
 
 interface LogEntry {
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function McpServerLogsTab({ server }: Props) {
+  const { apiKey } = useApiKey();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -32,7 +34,7 @@ export function McpServerLogsTab({ server }: Props) {
     }
   }, [server.id]);
 
-  useEventStream(EVENTS_URL, handleEvent);
+  useEventStream(EVENTS_URL, handleEvent, apiKey);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
