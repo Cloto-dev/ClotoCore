@@ -54,7 +54,12 @@ export function GeneralSection() {
       <SectionCard title="Version">
         <div className="flex items-center gap-3">
           <span className="text-2xl font-mono font-black text-brand">v{__APP_VERSION__}</span>
-          <span className="text-[10px] text-content-tertiary font-mono uppercase tracking-widest">Beta 2</span>
+          {(() => {
+            const pre = __APP_VERSION__.split('-').slice(1).join('-');
+            if (!pre) return null;
+            const label = pre.replace(/\./g, ' ');
+            return <span className="text-[10px] text-content-tertiary font-mono uppercase tracking-widest">{label}</span>;
+          })()}
         </div>
       </SectionCard>
     </>
