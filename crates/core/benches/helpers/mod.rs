@@ -10,6 +10,7 @@ use cloto_core::{
 use cloto_shared::{ClotoEvent, ClotoEventData, ClotoMessage, MessageSource};
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
+use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Notify, RwLock};
 
@@ -59,6 +60,8 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         revoked_keys: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
         pending_command_approvals: Arc::new(dashmap::DashMap::new()),
         session_trusted_commands: Arc::new(dashmap::DashMap::new()),
+        active_cron_contexts: Arc::new(dashmap::DashMap::new()),
+        max_cron_generation: Arc::new(AtomicU8::new(2)),
     })
 }
 

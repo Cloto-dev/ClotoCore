@@ -6,8 +6,9 @@
 
 use cloto_core::db::SqliteDataStore;
 use cloto_shared::PluginDataStore;
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use sqlx::SqlitePool;
+use std::hint::black_box;
 
 mod helpers;
 

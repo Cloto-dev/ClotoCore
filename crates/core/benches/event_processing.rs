@@ -4,8 +4,9 @@
 
 #[allow(unused_imports)]
 use cloto_shared::ClotoEvent;
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::VecDeque;
+use std::hint::black_box;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
