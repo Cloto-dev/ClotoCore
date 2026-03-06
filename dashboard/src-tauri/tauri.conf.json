@@ -44,6 +44,11 @@
         "languages": ["English", "Japanese"],
         "installMode": "both"
       }
+    },
+    "macOS": {
+      "entitlements": "entitlements/macos/main.entitlements",
+      "signingIdentity": "-",
+      "minimumSystemVersion": "10.15"
     }
   },
   "plugins": {
