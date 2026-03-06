@@ -1,3 +1,6 @@
+# DEPRECATED: Replaced by Tauri NSIS build in release.yml.
+# Last used: v0.5.11
+#
 # ============================================================
 # Cloto Installer Build Script
 # Compiles the Inno Setup script into an .exe installer.
