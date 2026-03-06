@@ -1,14 +1,4 @@
-import { useState, useCallback } from 'react';
-
-const SESSION_KEY = 'cloto-api-key';
-
-function readStored(): string {
-  try {
-    return sessionStorage.getItem(SESSION_KEY) || '';
-  } catch {
-    return '';
-  }
-}
+import { useSessionStorage } from './useStorage';
 
 export interface ApiKeyHookValue {
   apiKey: string;
@@ -17,21 +7,6 @@ export interface ApiKeyHookValue {
 }
 
 export function useApiKeyProvider(): ApiKeyHookValue {
-  const [apiKey, setApiKeyState] = useState<string>(readStored);
-
-  const setApiKey = useCallback((key: string) => {
-    setApiKeyState(key);
-    try {
-      sessionStorage.setItem(SESSION_KEY, key);
-    } catch { /* storage unavailable */ }
-  }, []);
-
-  const forgetApiKey = useCallback(() => {
-    setApiKeyState('');
-    try {
-      sessionStorage.removeItem(SESSION_KEY);
-    } catch { /* storage unavailable */ }
-  }, []);
-
+  const [apiKey, setApiKey, forgetApiKey] = useSessionStorage('cloto-api-key', '');
   return { apiKey, setApiKey, forgetApiKey };
 }

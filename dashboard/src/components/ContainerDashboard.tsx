@@ -1,7 +1,8 @@
 import { Puzzle, Cpu, Terminal, Lock, ArrowLeft } from 'lucide-react';
 import { AgentMetadata } from '../types';
-import { AgentIcon, agentColor, statusDotColor } from '../lib/agentIdentity';
+import { AgentIcon, agentColor, statusBadgeClass } from '../lib/agentIdentity';
 import { AgentPowerButton } from './AgentPowerButton';
+import { StatusDot, type StatusDotStatus } from './ui/StatusDot';
 
 export function ContainerDashboard({ agent, onBack, onConfigure, onPowerToggle }: {
   agent: AgentMetadata;
@@ -28,7 +29,7 @@ export function ContainerDashboard({ agent, onBack, onConfigure, onPowerToggle }
           <div>
             <h2 className="text-xl font-black text-content-primary tracking-tighter uppercase">{agent.name}</h2>
             <div className="flex items-center gap-2">
-              <span className={`w-1.5 h-1.5 rounded-full ${statusDotColor(agent.status)}`} />
+              <StatusDot status={agent.status === 'online' ? 'online' : agent.status === 'degraded' ? 'degraded' : 'offline'} size="sm" />
               <span className="text-[10px] font-mono text-content-tertiary uppercase tracking-[0.2em]">
                 Container · {agent.enabled ? 'Running' : 'Stopped'}
               </span>

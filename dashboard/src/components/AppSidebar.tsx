@@ -12,13 +12,7 @@ import {
   PanelLeftOpen,
 } from 'lucide-react';
 import { useAgentContext } from '../contexts/AgentContext';
-import { AgentIcon } from '../lib/agentIdentity';
-
-function statusDotClass(status: string) {
-  if (status === 'online') return 'bg-emerald-500';
-  if (status === 'degraded') return 'bg-amber-500 animate-pulse';
-  return 'bg-content-muted';
-}
+import { AgentIcon, statusDotColor } from '../lib/agentIdentity';
 
 const NAV_LINKS: readonly { path: string; icon: typeof Server; label: string; action?: 'settings' | 'agents' }[] = [
   { path: '/', icon: Users, label: 'Agent', action: 'agents' },
@@ -112,7 +106,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
               )}
               <div className="relative flex-shrink-0 w-7 h-7 overflow-hidden rounded-md flex items-center justify-center">
                 <AgentIcon agent={agent} size={28} />
-                <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-surface-secondary ${statusDotClass(agent.status)}`} />
+                <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-surface-secondary ${statusDotColor(agent.status)}`} />
               </div>
               {!collapsed && (
                 <div className="min-w-0 flex-1">
