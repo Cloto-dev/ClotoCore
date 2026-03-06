@@ -96,8 +96,8 @@
       "commit": "2743946",
       "file": "mcp-servers/websearch/server.py",
       "pattern": "Search failed.*\\{e\\}",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-160",
@@ -180,8 +180,8 @@
       "commit": "2743946",
       "file": "mcp-servers/ks22/server.py",
       "pattern": "except Exception:\\s*$",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-167",

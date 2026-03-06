@@ -475,18 +475,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_check_auth_no_key_configured_debug_mode() {
-        // In debug mode (cfg!(debug_assertions) = true), no API key allows access
+    async fn test_check_auth_no_key_configured_requires_env_var() {
+        // H-01: No API key configured requires CLOTO_DEBUG_SKIP_AUTH to skip auth
         let state = create_test_app_state(None).await;
         let headers = HeaderMap::new();
 
+        // Without env var → denied
+        std::env::remove_var("CLOTO_DEBUG_SKIP_AUTH");
         let result = check_auth(&state, &headers);
+        assert!(result.is_err());
 
-        #[cfg(debug_assertions)]
+        // With CLOTO_DEBUG_SKIP_AUTH=1 → allowed
+        std::env::set_var("CLOTO_DEBUG_SKIP_AUTH", "1");
+        let result = check_auth(&state, &headers);
         assert!(result.is_ok());
 
-        #[cfg(not(debug_assertions))]
-        assert!(result.is_err());
+        // Cleanup
+        std::env::remove_var("CLOTO_DEBUG_SKIP_AUTH");
     }
 
     #[tokio::test]

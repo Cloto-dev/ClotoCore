@@ -277,8 +277,7 @@ impl SystemHandler {
                 parent_id,
                 branch_index,
             };
-            if let Err(e) =
-                crate::db::save_chat_message_reliable(&self.pool, &user_chat_msg).await
+            if let Err(e) = crate::db::save_chat_message_reliable(&self.pool, &user_chat_msg).await
             {
                 error!("Chat persist DROPPED user message: {}", e);
             }

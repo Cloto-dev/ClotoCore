@@ -126,7 +126,10 @@ pub async fn post_message(
     let msg = ChatMessageRow {
         id: payload.id.clone(),
         agent_id: agent_id.clone(),
-        user_id: payload.user_id.clone().unwrap_or_else(|| "default".to_string()),
+        user_id: payload
+            .user_id
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
         source: payload.source,
         content: content_str,
         metadata: metadata_str,
