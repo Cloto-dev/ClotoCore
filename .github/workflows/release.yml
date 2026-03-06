@@ -303,9 +303,174 @@ jobs:
           path: tauri-artifacts/*
           retention-days: 7
 
+  build-tauri-linux:
+    name: Build Tauri Installer (Linux)
+    needs: build-dashboard
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate version matches tauri.conf.json
+        shell: bash
+        run: |
+          TAURI_VERSION=$(grep '"version"' dashboard/src-tauri/tauri.conf.json | head -1 | sed 's/.*"\([0-9][^"]*\)".*/\1/')
+          if [[ "${{ steps.version.outputs.version }}" != "$TAURI_VERSION" ]]; then
+            echo "::error::Tag version (${{ steps.version.outputs.version }}) != tauri.conf.json version ($TAURI_VERSION)"
+            exit 1
+          fi
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libxdo-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: dashboard
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          shared-key: release-tauri-linux
+
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: dashboard
+          tauriScript: npx tauri
+
+      - name: Collect Tauri artifacts
+        shell: bash
+        run: |
+          mkdir -p tauri-artifacts
+          find target/release/bundle/deb -type f -name "*.deb" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
+          find target/release/bundle/appimage -type f -name "*.AppImage" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
+          find target/release/bundle -type f -name "*.sig" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
+          echo "Tauri artifacts:"
+          ls -lh tauri-artifacts/
+
+      - name: Upload Tauri artifacts
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: tauri-linux-x64
+          path: tauri-artifacts/*
+          retention-days: 7
+
+  build-tauri-macos:
+    name: Build Tauri Installer (macOS ${{ matrix.arch }})
+    needs: build-dashboard
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: arm64
+          - target: x86_64-apple-darwin
+            arch: x64
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate version matches tauri.conf.json
+        shell: bash
+        run: |
+          TAURI_VERSION=$(grep '"version"' dashboard/src-tauri/tauri.conf.json | head -1 | sed 's/.*"\([0-9][^"]*\)".*/\1/')
+          if [[ "${{ steps.version.outputs.version }}" != "$TAURI_VERSION" ]]; then
+            echo "::error::Tag version (${{ steps.version.outputs.version }}) != tauri.conf.json version ($TAURI_VERSION)"
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: dashboard
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          shared-key: release-tauri-macos-${{ matrix.arch }}
+
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: dashboard
+          tauriScript: npx tauri
+          args: --target ${{ matrix.target }}
+
+      - name: Collect Tauri artifacts
+        shell: bash
+        run: |
+          mkdir -p tauri-artifacts
+          find target/${{ matrix.target }}/release/bundle/dmg -type f -name "*.dmg" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
+          find target/${{ matrix.target }}/release/bundle -type f -name "*.sig" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
+          find target/${{ matrix.target }}/release/bundle -type f -name "*.tar.gz" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
+          echo "Tauri artifacts:"
+          ls -lh tauri-artifacts/
+
+      - name: Upload Tauri artifacts
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: tauri-macos-${{ matrix.arch }}
+          path: tauri-artifacts/*
+          retention-days: 7
+
   release:
     name: Create Release
-    needs: [build, build-tauri]
+    needs: [build, build-tauri, build-tauri-linux, build-tauri-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
@@ -345,38 +510,77 @@ jobs:
           TAG="v${VERSION}"
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Read NSIS zip signature
-          NSIS_ZIP_SIG=""
-          for sig_file in release-files/*_x64-setup.nsis.zip.sig; do
-            if [[ -f "$sig_file" ]]; then
-              NSIS_ZIP_SIG=$(cat "$sig_file")
-              break
-            fi
-          done
+          # Helper: find signature content for a given glob pattern
+          find_sig() {
+            local pattern="$1"
+            for sig_file in $pattern; do
+              if [[ -f "$sig_file" ]]; then
+                cat "$sig_file"
+                return
+              fi
+            done
+          }
 
-          # Determine NSIS zip filename
-          NSIS_ZIP_NAME=""
-          for zip_file in release-files/*_x64-setup.nsis.zip; do
-            if [[ -f "$zip_file" ]]; then
-              NSIS_ZIP_NAME=$(basename "$zip_file")
-              break
-            fi
-          done
+          # Helper: find artifact filename for a given glob pattern
+          find_artifact() {
+            local pattern="$1"
+            for f in $pattern; do
+              if [[ -f "$f" ]]; then
+                basename "$f"
+                return
+              fi
+            done
+          }
 
-          if [[ -z "$NSIS_ZIP_SIG" || -z "$NSIS_ZIP_NAME" ]]; then
-            echo "::warning::NSIS zip or signature not found, skipping latest.json"
+          # Windows (NSIS)
+          NSIS_ZIP_SIG=$(find_sig "release-files/*_x64-setup.nsis.zip.sig")
+          NSIS_ZIP_NAME=$(find_artifact "release-files/*_x64-setup.nsis.zip")
+
+          # Linux (AppImage)
+          LINUX_SIG=$(find_sig "release-files/*.AppImage.sig")
+          LINUX_NAME=$(find_artifact "release-files/*.AppImage")
+
+          # macOS aarch64 (.tar.gz updater bundle)
+          MACOS_ARM_SIG=$(find_sig "release-files/*aarch64*.app.tar.gz.sig")
+          MACOS_ARM_NAME=$(find_artifact "release-files/*aarch64*.app.tar.gz")
+
+          # macOS x86_64 (.tar.gz updater bundle)
+          MACOS_X64_SIG=$(find_sig "release-files/*x64*.app.tar.gz.sig")
+          MACOS_X64_NAME=$(find_artifact "release-files/*x64*.app.tar.gz")
+
+          # Build platforms JSON
+          PLATFORMS="{"
+
+          if [[ -n "$NSIS_ZIP_SIG" && -n "$NSIS_ZIP_NAME" ]]; then
+            PLATFORMS+="\"windows-x86_64\":{\"signature\":\"${NSIS_ZIP_SIG}\",\"url\":\"https://github.com/Cloto-dev/ClotoCore/releases/download/${TAG}/${NSIS_ZIP_NAME}\"}"
+          fi
+
+          if [[ -n "$LINUX_SIG" && -n "$LINUX_NAME" ]]; then
+            [[ "$PLATFORMS" != "{" ]] && PLATFORMS+=","
+            PLATFORMS+="\"linux-x86_64\":{\"signature\":\"${LINUX_SIG}\",\"url\":\"https://github.com/Cloto-dev/ClotoCore/releases/download/${TAG}/${LINUX_NAME}\"}"
+          fi
+
+          if [[ -n "$MACOS_ARM_SIG" && -n "$MACOS_ARM_NAME" ]]; then
+            [[ "$PLATFORMS" != "{" ]] && PLATFORMS+=","
+            PLATFORMS+="\"darwin-aarch64\":{\"signature\":\"${MACOS_ARM_SIG}\",\"url\":\"https://github.com/Cloto-dev/ClotoCore/releases/download/${TAG}/${MACOS_ARM_NAME}\"}"
+          fi
+
+          if [[ -n "$MACOS_X64_SIG" && -n "$MACOS_X64_NAME" ]]; then
+            [[ "$PLATFORMS" != "{" ]] && PLATFORMS+=","
+            PLATFORMS+="\"darwin-x86_64\":{\"signature\":\"${MACOS_X64_SIG}\",\"url\":\"https://github.com/Cloto-dev/ClotoCore/releases/download/${TAG}/${MACOS_X64_NAME}\"}"
+          fi
+
+          PLATFORMS+="}"
+
+          if [[ "$PLATFORMS" == "{}" ]]; then
+            echo "::warning::No platform signatures found, skipping latest.json"
           else
             cat > release-files/latest.json << MANIFEST
           {
             "version": "${VERSION}",
             "notes": "ClotoCore v${VERSION}",
             "pub_date": "${PUB_DATE}",
-            "platforms": {
-              "windows-x86_64": {
-                "signature": "${NSIS_ZIP_SIG}",
-                "url": "https://github.com/Cloto-dev/ClotoCore/releases/download/${TAG}/${NSIS_ZIP_NAME}"
-              }
-            }
+            "platforms": ${PLATFORMS}
           }
           MANIFEST
             echo "Generated latest.json:"
@@ -418,6 +622,12 @@ jobs:
 
           **Windows (Desktop App — recommended):**
           Download **cloto-system_${VERSION}_x64-setup.exe** from the assets below and run the NSIS installer.
+
+          **macOS (Desktop App):**
+          Download the **.dmg** file for your architecture (arm64 for Apple Silicon, x64 for Intel) from the assets below.
+
+          **Linux (Desktop App):**
+          Download the **.deb** (Debian/Ubuntu) or **.AppImage** (universal) from the assets below.
 
           **CLI binary (all platforms):**
           Download the archive for your platform from the assets below.
