@@ -124,7 +124,6 @@ See [MCP Plugin Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) for details.
 ```
 crates/core/        Kernel — event bus, MCP manager, HTTP API, rate limiter
 crates/shared/      Plugin SDK — traits, capability injection, event types, LLM utilities
-crates/cli/         CLI client with interactive TUI
 mcp-servers/        MCP servers (Python): 16 servers across mind, memory, tool, vision, voice
 dashboard/          React/TypeScript web UI (Tauri desktop app)
 scripts/            Build tools, verification scripts
