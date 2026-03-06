@@ -55,9 +55,9 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
   const fetchData = useCallback(async () => {
     try {
       const [memories, episodes, agents] = await Promise.all([
-        api.getMemories(),
-        api.getEpisodes(),
-        api.getAgents(),
+        api.getMemories(effectiveKey),
+        api.getEpisodes(effectiveKey),
+        api.getAgents(effectiveKey),
       ]);
       setMemories(memories);
       setEpisodes(episodes);
@@ -113,7 +113,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
        // H-18: Use debounced fetch to prevent cascading API calls
        debouncedFetchData();
     }
-  });
+  }, effectiveKey);
 
   return (
     <div className={`${isWindowMode ? 'bg-transparent p-4' : 'h-full overflow-y-auto'} relative font-sans text-content-primary overflow-x-hidden animate-in fade-in duration-500`}>

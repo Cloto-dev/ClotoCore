@@ -20,7 +20,7 @@ export function SecurityGuard() {
       abortController?.abort();
       abortController = new AbortController();
       try {
-        const pending = await api.getPendingPermissions();
+        const pending = await api.getPendingPermissions(apiKey);
         if (!abortController.signal.aborted) {
           setRequests(pending);
         }

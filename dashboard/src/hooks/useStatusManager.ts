@@ -3,6 +3,8 @@ import { useEventStream } from './useEventStream';
 import { api, EVENTS_URL } from '../services/api';
 import type { StrictSystemEvent } from '../types';
 import { sendNativeNotification } from '../lib/notifications';
+import { isTauri } from '../lib/tauri';
+import { useApiKey } from '../contexts/ApiKeyContext';
 
 export interface ThoughtLine {
   id: number;
@@ -28,6 +30,7 @@ function eventToThoughtLines(
 }
 
 export const useStatusManager = (fetchMetrics: () => void) => {
+  const { apiKey } = useApiKey();
   const [eventHistory, setEventHistory] = useState<StrictSystemEvent[]>([]);
   const [thoughtLines, setThoughtLines] = useState<ThoughtLine[]>([]);
   const [isHistoryLoaded, setIsHistoryLoaded] = useState(false);
@@ -66,12 +69,12 @@ export const useStatusManager = (fetchMetrics: () => void) => {
     }
   }, [fetchMetrics, isHistoryLoaded]);
 
-  useEventStream(EVENTS_URL, handleEvent);
+  useEventStream(EVENTS_URL, handleEvent, apiKey);
 
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const history: StrictSystemEvent[] = await api.getHistory();
+        const history: StrictSystemEvent[] = await api.getHistory(apiKey);
         const now = Date.now();
 
         setEventHistory(history.map(e => ({ ...e, timestamp: e.timestamp || now })));

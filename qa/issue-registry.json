@@ -70,10 +70,10 @@
       "discovered": "2026-03-01T12:00:00Z",
       "version": "0.4.7",
       "commit": "2743946",
-      "file": "crates/core/src/lib.rs",
-      "pattern": "route.*events.*get\\(handlers::sse_handler\\)",
+      "file": "crates/core/src/handlers.rs",
+      "pattern": "check_auth_with_query",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-158",

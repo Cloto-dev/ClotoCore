@@ -52,7 +52,11 @@ pub struct UpdateAgentRequest {
 /// ```json
 /// [{ "id": "agent-1", "name": "Assistant", "description": "...", "default_engine": "..." }]
 /// ```
-pub async fn get_agents(State(state): State<Arc<AppState>>) -> AppResult<Json<serde_json::Value>> {
+pub async fn get_agents(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
     let agents = state.agent_manager.list_agents().await?;
     ok_data(serde_json::json!(agents))
 }

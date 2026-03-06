@@ -17,8 +17,10 @@ async function throwIfNotOk(res: Response, ctx: string): Promise<void> {
   throw new Error(body?.error?.message || `Failed to ${ctx}: ${res.statusText}`);
 }
 
-async function fetchJson<T>(path: string, ctx: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+async function fetchJson<T>(path: string, ctx: string, apiKey?: string): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (apiKey) headers['X-API-Key'] = apiKey;
+  const res = await fetch(`${API_BASE}${path}`, { headers });
   if (!res.ok) throw new Error(`Failed to ${ctx}: ${res.statusText}`);
   const body = await res.json();
   return body.data as T;
@@ -44,19 +46,20 @@ export const api = {
     return res.json().then(b => b.data);
   },
 
-  getAgents: () => fetchJson<AgentMetadata[]>('/agents', 'fetch agents'),
-  getPendingPermissions: () => fetchJson<PermissionRequest[]>('/permissions/pending', 'fetch pending permissions'),
+  getAgents: (apiKey?: string) => fetchJson<AgentMetadata[]>('/agents', 'fetch agents', apiKey),
+  getPendingPermissions: (apiKey?: string) => fetchJson<PermissionRequest[]>('/permissions/pending', 'fetch pending permissions', apiKey),
   getVersion: () => fetchJson<{ version: string; build_target: string }>('/system/version', 'fetch version'),
-  getMetrics: () => fetchJson<Metrics>('/metrics', 'fetch metrics'),
-  getMemories: async (): Promise<Memory[]> => {
-    const data = await fetchJson<{ memories: Memory[]; count: number }>('/memories', 'fetch memories');
+  getMetrics: (apiKey?: string) => fetchJson<Metrics>('/metrics', 'fetch metrics', apiKey),
+  getMemories: async (apiKey?: string): Promise<Memory[]> => {
+    const data = await fetchJson<{ memories: Memory[]; count: number }>('/memories', 'fetch memories', apiKey);
     return data.memories ?? [];
   },
-  getEpisodes: async (): Promise<Episode[]> => {
-    const data = await fetchJson<{ episodes: Episode[]; count: number }>('/episodes', 'fetch episodes');
+  getEpisodes: async (apiKey?: string): Promise<Episode[]> => {
+    const data = await fetchJson<{ episodes: Episode[]; count: number }>('/episodes', 'fetch episodes', apiKey);
     return data.episodes ?? [];
   },
-  getHistory: () => fetchJson<StrictSystemEvent[]>('/history', 'fetch history'),
+  getHistory: (apiKey?: string) => fetchJson<StrictSystemEvent[]>('/history', 'fetch history', apiKey),
+  getPlugins: (apiKey?: string) => fetchJson<unknown[]>('/plugins', 'fetch plugins', apiKey),
   fetchJson: <T>(path: string, apiKey: string) =>
     fetch(`${API_BASE}${path}`, { headers: { 'X-API-Key': apiKey } })
       .then(r => { if (!r.ok) throw new Error(`${r.statusText}`); return r.json().then((b: any) => b.data) as Promise<T>; }),
@@ -197,8 +200,8 @@ export const api = {
   putMcpServerAccess: (name: string, entries: AccessControlEntry[], apiKey: string) =>
     mutate(`/mcp/servers/${encodeURIComponent(name)}/access`, 'PUT', 'update access control', { entries }, { 'X-API-Key': apiKey }).then(() => {}),
 
-  getAgentAccess: (agentId: string) =>
-    fetchJson<{ agent_id: string; entries: AccessControlEntry[] }>(`/mcp/access/by-agent/${encodeURIComponent(agentId)}`, 'fetch agent access'),
+  getAgentAccess: (agentId: string, apiKey?: string) =>
+    fetchJson<{ agent_id: string; entries: AccessControlEntry[] }>(`/mcp/access/by-agent/${encodeURIComponent(agentId)}`, 'fetch agent access', apiKey),
 
   startMcpServer: (name: string, apiKey: string) =>
     mutate(`/mcp/servers/${encodeURIComponent(name)}/start`, 'POST', 'start MCP server', undefined, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
