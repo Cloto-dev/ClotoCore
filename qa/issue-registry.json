@@ -156,8 +156,8 @@
       "commit": "2743946",
       "file": "dashboard/src/hooks/useStatusManager.ts",
       "pattern": "isHistoryLoaded",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-165",
