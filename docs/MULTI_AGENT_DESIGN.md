@@ -9,16 +9,16 @@
 
 ## 1. Overview
 
-ClotoCore のエージェントが他のエージェントに問い合わせ・委譲を行うための
-マルチエージェント協調システム。Agent-as-Tool (ツール公開) と
-Event-Driven Delegation (イベント委譲) のハイブリッドアーキテクチャで実装する。
+A multi-agent coordination system that enables ClotoCore agents to query and
+delegate tasks to other agents. Implemented as a hybrid architecture combining
+Agent-as-Tool (tool exposure) and Event-Driven Delegation (event-based delegation).
 
 ### 1.1 Design Principles
 
-- **Core Minimalism**: カーネルは委譲のルーティングと安全制御のみ担当
-- **Event-First**: 内部実装はイベントバス経由で疎結合に実現
-- **Permission Isolation**: 委譲先エージェントは自身の権限のみで動作（権限の継承なし）
-- **Loop Prevention**: 委譲深度の上限と呼び出しチェーン追跡で無限ループを防止
+- **Core Minimalism**: The Kernel handles only delegation routing and safety controls
+- **Event-First**: Internal implementation is loosely coupled via the event bus
+- **Permission Isolation**: Delegatee agents operate with their own permissions only (no permission inheritance)
+- **Loop Prevention**: Prevents infinite loops through delegation depth limits and call chain tracking
 
 ### 1.2 Architecture Summary
 
@@ -56,174 +56,175 @@ User → Agent A (agentic loop)
 
 ## 2. Use Cases
 
-### UC-1: Character Interaction (キャラクター間会話)
+### UC-1: Character Interaction
 
 **Layer:** Casual / Entertainment
 **Priority:** Medium
 
-Neuro-Sama と Evil Neuro のように、複数の AI キャラクターが互いに会話する。
-ユーザーが「サフィーとアシスタントで〇〇について議論して」と指示すると、
-エージェント間で複数ターンの対話が発生する。
+Similar to Neuro-Sama and Evil Neuro, multiple AI characters converse with each other.
+When the user instructs "Have Sapphy and the Assistant discuss X," a multi-turn
+dialogue occurs between agents.
 
 **Flow:**
 
 ```
-User: "サフィーとリサーチャーで、Rustの将来性について議論して"
+User: "Have Sapphy and Researcher discuss the future of Rust"
   │
-  ├── Agent A (Sapphy): "私はRustの安全性が最大の強みだと思う。
-  │   リサーチャーさんはどう思う？"
+  ├── Agent A (Sapphy): "I think Rust's safety is its greatest strength.
+  │   What do you think, Researcher?"
   │     │
-  │     └── ask_agent("researcher", "Rustの将来性について意見を聞かせて。
-  │           私は安全性が強みだと主張しています")
+  │     └── ask_agent("researcher", "Share your opinion on the future of Rust.
+  │           I'm arguing that safety is its key strength")
   │           │
-  │           └── Agent B (Researcher): "データで見ると、Stack Overflow の
-  │                 調査で8年連続 most loved language です。ただし..."
+  │           └── Agent B (Researcher): "Looking at the data, it has been
+  │                 the most loved language for 8 consecutive years in the
+  │                 Stack Overflow survey. However..."
   │
-  ├── Agent A: リサーチャーの意見を踏まえて反論/同意
+  ├── Agent A: Responds with a counterargument or agreement based on
+  │   Researcher's opinion
   │     │
-  │     └── ask_agent("researcher", "その点について...")
+  │     └── ask_agent("researcher", "Regarding that point...")
   │
-  └── Agent A: 議論をまとめてユーザーに報告
+  └── Agent A: Summarizes the discussion and reports to the user
 ```
 
 **Requirements:**
-- 複数ターンの委譲を許可 (ただし max_delegation_depth 以内)
-- 各エージェントが自身の人格を維持した応答を生成
-- ユーザーに両方のエージェントの発言が可視化される (SSE イベント)
+- Allow multi-turn delegation (within max_delegation_depth)
+- Each agent generates responses maintaining its own personality
+- Both agents' statements are visible to the user (via SSE events)
 
 **UI Considerations:**
-- チャット画面に複数エージェントのアイコン/名前が表示される
-- 委譲中は「Agent B に問い合わせ中...」のインジケーター表示
-- 議論の各ターンがタイムラインとして閲覧可能
+- Multiple agent icons/names displayed in the chat screen
+- "Querying Agent B..." indicator shown during delegation
+- Each turn of the discussion viewable as a timeline
 
 ---
 
-### UC-2: Specialist Consultation (専門家への相談)
+### UC-2: Specialist Consultation
 
 **Layer:** Casual / Practical
 **Priority:** High
 
-メインのキャラクターエージェントが、自身の知識外の質問を受けた際に
-専門特化エージェントに裏で問い合わせ、キャラクターの口調で回答する。
+When the main character agent receives a question outside its area of expertise,
+it queries a specialist agent behind the scenes and responds in its own character voice.
 
 **Flow:**
 
 ```
-User: "今日の夕食、何がいいかな？"
+User: "What should I have for dinner tonight?"
   │
   └── Agent A (Sapphy — general personality):
         │
-        ├── "料理のことはあの子に聞いてみるね！"
+        ├── "Let me ask someone who knows about cooking!"
         │
-        ├── ask_agent("chef", "ユーザーが夕食のメニューを相談しています。
-        │     季節は3月、簡単に作れるものを3つ提案してください")
+        ├── ask_agent("chef", "The user is asking for dinner suggestions.
+        │     It's March; please suggest 3 easy-to-make dishes")
         │     │
         │     └── Agent B (Chef — cooking specialist):
-        │           "1. 菜の花のペペロンチーノ 2. 春キャベツの回鍋肉 3. ..."
+        │           "1. Rapini aglio e olio 2. Stir-fried spring cabbage 3. ..."
         │
-        └── Agent A: Chef の提案をサフィーの口調で再構成して回答
-              "聞いてきたよ！3月だから春の食材がいいみたい！
-               菜の花のペペロンチーノとか、春キャベツの回鍋肉とか..."
+        └── Agent A: Rephrases Chef's suggestions in Sapphy's voice
+              "I asked around! Since it's March, spring ingredients are the way to go!
+               How about rapini aglio e olio, or stir-fried spring cabbage..."
 ```
 
 **Requirements:**
-- 1 対 1 の単発委譲 (最もシンプルなパターン)
-- 委譲先の応答を委譲元が自身の人格で再解釈
-- 委譲先エージェントの存在をユーザーに明示するかは設定次第
+- One-to-one single-shot delegation (the simplest pattern)
+- The delegator reinterprets the delegatee's response in its own personality
+- Whether the delegatee agent's existence is disclosed to the user is configurable
 
 **Design Notes:**
-- Agent A のシステムプロンプトに「専門分野外は ask_agent で委譲せよ」と指示
-- Agent B は raw な専門情報を返す (人格不要、精度重視)
-- Agent A が人格フィルタとして機能する
+- Agent A's system prompt instructs: "delegate via ask_agent for topics outside your expertise"
+- Agent B returns raw specialist information (no personality needed, accuracy-focused)
+- Agent A functions as a personality filter
 
 ---
 
-### UC-3: Second Opinion (セカンドオピニオン)
+### UC-3: Second Opinion
 
 **Layer:** Casual / Quality
 **Priority:** Medium
 
-ユーザーの質問に対して、メインエージェントが自身の回答を生成した後、
-別エージェントの意見も取り入れて最終回答を補強する。
+After the main agent generates its own response to the user's question,
+it incorporates another agent's opinion to reinforce the final answer.
 
 **Flow:**
 
 ```
-User: "このコードのパフォーマンス、大丈夫かな？"
+User: "Is the performance of this code okay?"
   │
   └── Agent A (Main):
         │
-        ├── [自身で初期分析] "O(n²) のループがありますね..."
+        ├── [Initial self-analysis] "There's an O(n^2) loop here..."
         │
-        ├── ask_agent("reviewer", "以下のコードのパフォーマンスについて
-        │     私は O(n²) の問題を指摘しました。他に見落としはありますか？
-        │     コード: ...")
+        ├── ask_agent("reviewer", "I've flagged an O(n^2) performance issue
+        │     in the following code. Are there any other issues I've missed?
+        │     Code: ...")
         │     │
         │     └── Agent B (Reviewer):
-        │           "O(n²) の指摘は正しい。追加で、メモリアロケーションが
-        │            ループ内で発生している点も問題です..."
+        │           "The O(n^2) observation is correct. Additionally, there's
+        │            a memory allocation occurring inside the loop..."
         │
-        └── Agent A: 両方の分析を統合して最終回答
-              "O(n²) の問題に加えて、もう一つ見つかりました。
-               ループ内のメモリアロケーションも..."
+        └── Agent A: Integrates both analyses into the final response
+              "In addition to the O(n^2) issue, another problem was found.
+               The memory allocation inside the loop is also..."
 ```
 
 **Requirements:**
-- Agent A が先に自身の回答を生成し、その後で委譲
-- 委譲プロンプトに Agent A の分析結果を含める (コンテキスト共有)
-- 最終回答は Agent A が統合責任を持つ
+- Agent A generates its own answer first, then delegates
+- The delegation prompt includes Agent A's analysis (context sharing)
+- Agent A holds integration responsibility for the final answer
 
 **Design Notes:**
-- ConsensusOrchestrator (エンジン協調) の上位概念
-- ConsensusOrchestrator = 同じプロンプトを複数エンジンに投げる
-- UC-3 = Agent A の分析を踏まえて Agent B が補完する (非対称)
+- Higher-level concept of ConsensusOrchestrator (engine coordination)
+- ConsensusOrchestrator = sends the same prompt to multiple engines
+- UC-3 = Agent B supplements based on Agent A's analysis (asymmetric)
 
 ---
 
-### UC-4: Task Decomposition (MCP権限ベースのタスク分割)
+### UC-4: Task Decomposition (MCP Permission-Based Task Splitting)
 
 **Layer:** Technical / Productivity
 **Priority:** High
 
-複雑なタスクを、MCP サーバーのアクセス権限に基づいて複数の
-専門エージェントに分割・委譲する。各エージェントは自身に
-grant されたツールのみを使用する。
+Complex tasks are split and delegated to multiple specialist agents based on
+MCP server access permissions. Each agent uses only the tools granted to it.
 
 **Flow:**
 
 ```
-User: "最新のRustセキュリティ情報を調べて、うちのCargo.tomlに影響があるか確認して"
+User: "Look up the latest Rust security advisories and check if our Cargo.toml is affected"
   │
   └── Agent A (Coordinator — no MCP tools):
         │
-        ├── ask_agent("researcher", "最新のRustセキュリティアドバイザリを
-        │     調査してください。CVE番号、影響クレート、パッチバージョンを
-        │     リストアップしてください")
+        ├── ask_agent("researcher", "Investigate the latest Rust security
+        │     advisories. List the CVE numbers, affected crates, and
+        │     patch versions")
         │     │
         │     └── Agent B (Researcher — websearch MCP granted):
         │           [web_search tool] → "RustSec Advisory: CVE-2026-XXXX..."
         │
-        ├── ask_agent("developer", "以下のセキュリティアドバイザリが
-        │     Cargo.toml に影響するか確認してください。
-        │     アドバイザリ: ... Cargo.toml を読んで確認してください")
+        ├── ask_agent("developer", "Check whether the following security
+        │     advisories affect our Cargo.toml.
+        │     Advisories: ... Please read the Cargo.toml and verify")
         │     │
         │     └── Agent C (Developer — terminal MCP granted):
         │           [terminal: cat Cargo.toml] → [terminal: cargo audit]
-        │           → "影響あり: クレート X のバージョン Y.Z"
+        │           → "Affected: crate X version Y.Z"
         │
-        └── Agent A: 調査結果と影響分析を統合してレポート
+        └── Agent A: Integrates investigation results and impact analysis into a report
 ```
 
 **Requirements:**
-- Coordinator は自身ではツールを持たない (純粋な指揮役)
-- 各 worker エージェントは自身の granted MCP サーバーのみ使用
-- 委譲は並列実行可能 (独立したサブタスクの場合)
-- Coordinator が結果を統合して最終レポートを生成
+- The Coordinator holds no tools itself (purely an orchestration role)
+- Each worker agent uses only its granted MCP servers
+- Delegations can execute in parallel (for independent subtasks)
+- The Coordinator integrates results into the final report
 
 **Design Notes:**
-- 最小権限原則の自然な実現: 各エージェントに必要最小限の権限のみ付与
-- 新しいタスク種別が増えても、MCP サーバーを grant するだけで拡張可能
-- `mcp_access_control` テーブルの既存インフラがそのまま活用できる
+- Natural realization of the principle of least privilege: each agent is granted only the minimum required permissions
+- When new task types arise, extension is as simple as granting additional MCP servers
+- The existing `mcp_access_control` table infrastructure can be used as-is
 
 **Parallel Delegation:**
 ```
@@ -234,95 +235,95 @@ Agent A ─┬── ask_agent("researcher", ...) ──► Agent B ──┐
 
 ---
 
-### UC-5: Review / Verification (レビュー・検証)
+### UC-5: Review / Verification
 
 **Layer:** Technical / Quality
 **Priority:** Medium
 
-あるエージェントの出力を、別のレビュー特化エージェントが検証する。
-コード生成、翻訳、分析など、品質保証が重要なタスクに適用する。
+One agent's output is verified by another agent specialized in review.
+Applied to tasks where quality assurance is critical, such as code generation,
+translation, and analysis.
 
 **Flow:**
 
 ```
-User: "ユーザー認証のミドルウェアを書いて"
+User: "Write an authentication middleware"
   │
   └── Agent A (Developer — terminal MCP granted):
         │
-        ├── [コード生成] auth_middleware.rs を作成
+        ├── [Code generation] Creates auth_middleware.rs
         │
-        ├── ask_agent("reviewer", "以下の認証ミドルウェアのコードを
-        │     レビューしてください。セキュリティ脆弱性、エッジケースの
-        │     見落とし、パフォーマンス問題を指摘してください。
-        │     コード: ```rust ... ```")
+        ├── ask_agent("reviewer", "Please review the following authentication
+        │     middleware code. Identify security vulnerabilities, missed edge
+        │     cases, and performance issues.
+        │     Code: ```rust ... ```")
         │     │
         │     └── Agent B (Reviewer — no MCP tools, reasoning-focused):
-        │           "問題点: 1. タイミング攻撃に対して脆弱 (constant-time
-        │            比較を使用すべき) 2. トークンの有効期限チェックが..."
+        │           "Issues: 1. Vulnerable to timing attacks (should use
+        │            constant-time comparison) 2. Token expiration check is..."
         │
-        ├── [Agent A: レビュー指摘を反映してコードを修正]
+        ├── [Agent A: Revises the code based on review feedback]
         │
-        └── Agent A: "レビューを反映して修正しました。変更点: ..."
+        └── Agent A: "I've applied the review feedback. Changes: ..."
 ```
 
 **Requirements:**
-- Reviewer は読み取り専用 (コード変更権限なし)
-- レビュー結果に基づく修正は元のエージェントが実施
-- 複数ラウンドのレビューサイクルが可能
+- The Reviewer is read-only (no code modification permissions)
+- Fixes based on review results are performed by the original agent
+- Multiple rounds of review cycles are possible
 
 **Design Notes:**
-- UC-2 (専門家相談) の特殊形: 委譲先が「検証」に特化
-- Reviewer エージェントには reasoning-heavy なエンジン (DeepSeek) を割り当て
-- Developer エージェントには tool-capable なエンジン (Cerebras) を割り当て
-- エンジンの得意分野とエージェントの役割を一致させる設計
+- A specialized form of UC-2 (Specialist Consultation) where the delegatee specializes in "verification"
+- The Reviewer agent is assigned a reasoning-heavy engine (DeepSeek)
+- The Developer agent is assigned a tool-capable engine (Cerebras)
+- Design that matches engine strengths to agent roles
 
 ---
 
-### UC-6: Cross-Engine Collaboration (エンジン横断協調)
+### UC-6: Cross-Engine Collaboration
 
 **Layer:** Technical / Advanced
 **Priority:** Low
 
-異なる LLM エンジンを持つエージェント間で協調し、各エンジンの
-得意分野を活かしたタスク処理を行う。ConsensusOrchestrator の
-エージェントレベル拡張。
+Agents with different LLM engines collaborate to leverage each engine's
+strengths for task processing. An agent-level extension of ConsensusOrchestrator.
 
 **Flow:**
 
 ```
-User: "このアルゴリズムの計算量を分析して、改善案を実装して"
+User: "Analyze the computational complexity of this algorithm and implement an improvement"
   │
   └── Agent A (Analyst — DeepSeek engine, reasoning-focused):
         │
-        ├── [深い推論] "現在の計算量は O(n³) です。
-        │     動的計画法で O(n²) に改善可能です。
-        │     状態遷移: dp[i][j] = ..."
+        ├── [Deep reasoning] "The current complexity is O(n^3).
+        │     It can be improved to O(n^2) using dynamic programming.
+        │     State transition: dp[i][j] = ..."
         │
-        ├── ask_agent("implementer", "以下のアルゴリズム改善案を
-        │     実装してください。現在: O(n³), 改善: O(n²) DP。
-        │     状態遷移: dp[i][j] = ... テストケースも作成してください")
+        ├── ask_agent("implementer", "Please implement the following algorithm
+        │     improvement. Current: O(n^3), improved: O(n^2) DP.
+        │     State transition: dp[i][j] = ... Please also create test cases")
         │     │
         │     └── Agent B (Implementer — Cerebras engine, tool-capable):
         │           [terminal: create file] → [terminal: run tests]
-        │           → "実装完了。テスト5/5通過。ベンチマーク: 340ms → 12ms"
+        │           → "Implementation complete. Tests 5/5 passed. Benchmark: 340ms → 12ms"
         │
-        └── Agent A: 分析と実装結果を統合して報告
-              "O(n³) → O(n²) への改善を完了しました。
-               実測で 28x の高速化を確認..."
+        └── Agent A: Integrates analysis and implementation results into a report
+              "Completed the improvement from O(n^3) to O(n^2).
+               Measured a 28x speedup..."
 ```
 
 **Requirements:**
-- 各エージェントが異なる LLM エンジンを使用
-- 推論品質とツール実行能力の分離
-- エンジン特性に基づくタスクの最適割り当て
+- Each agent uses a different LLM engine
+- Separation of reasoning quality and tool execution capability
+- Optimal task assignment based on engine characteristics
 
 **Design Notes:**
-- ConsensusOrchestrator との違い:
-  - Consensus: 同じプロンプトを複数エンジンに投げて統合
-  - UC-6: 異なるプロンプト/タスクを各エンジンの得意分野に割り当て
-- エンジンルーティング (v0.4.x) との統合:
-  - 既存のルーティングルールはメッセージ単位
-  - UC-6 はタスク単位でエージェント (= エンジン) を選択
+- Difference from ConsensusOrchestrator:
+  - Consensus: sends the same prompt to multiple engines and integrates results
+  - UC-6: assigns different prompts/tasks to each engine's area of expertise
+- Integration with engine routing (v0.4.x):
+  - Existing routing rules operate at the message level
+  - UC-6 selects agents (= engines) at the task level
 
 ---
 

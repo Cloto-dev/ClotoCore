@@ -17,8 +17,8 @@ async fn test_system_handler_loop_prevention() {
         .bind(agent_id)
         .execute(&pool).await.unwrap();
 
-    let registry = Arc::new(PluginRegistry::new(5, 10));
-    let agent_manager = AgentManager::new(pool.clone());
+    let registry = Arc::new(PluginRegistry::new(5, 10, 50));
+    let agent_manager = AgentManager::new(pool.clone(), 90_000);
     let (event_tx, mut event_rx) = mpsc::channel(10);
 
     let metrics = Arc::new(cloto_core::managers::SystemMetrics::new());
@@ -36,6 +36,7 @@ async fn test_system_handler_loop_prevention() {
         Arc::new(dashmap::DashMap::new()),
         pool,
         Arc::new(dashmap::DashMap::new()),
+        5, // memory_timeout_secs
     );
 
     // Test User Message → triggers handle_message (agentic loop).

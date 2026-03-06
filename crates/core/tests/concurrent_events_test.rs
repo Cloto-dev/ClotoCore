@@ -12,7 +12,7 @@ use std::sync::Arc;
 async fn test_concurrent_event_dispatch_100() {
     use common::create_mock_plugin;
 
-    let registry = Arc::new(PluginRegistry::new(5, 10));
+    let registry = Arc::new(PluginRegistry::new(5, 10, 50));
     let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<EnvelopedEvent>(256);
 
     // Register 5 mock plugins
@@ -57,7 +57,7 @@ async fn test_concurrent_event_dispatch_100() {
 async fn test_event_depth_limit_prevents_infinite_loop() {
     use common::create_mock_plugin;
 
-    let registry = PluginRegistry::new(2, 2); // depth limit = 2
+    let registry = PluginRegistry::new(2, 2, 50); // depth limit = 2
     let id = ClotoId::new();
     let (plugin, received) = create_mock_plugin(id);
 
@@ -101,7 +101,7 @@ async fn test_event_depth_limit_prevents_infinite_loop() {
 
 #[tokio::test]
 async fn test_dispatch_with_no_plugins_is_safe() {
-    let registry = PluginRegistry::new(5, 10);
+    let registry = PluginRegistry::new(5, 10, 50);
     let (event_tx, _) = tokio::sync::mpsc::channel::<EnvelopedEvent>(10);
 
     let event = cloto_shared::ClotoEvent::new(cloto_shared::ClotoEventData::SystemNotification(

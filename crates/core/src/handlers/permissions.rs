@@ -6,6 +6,9 @@ use crate::{AppResult, AppState};
 
 use super::{check_auth, ok_data, spawn_admin_audit};
 
+/// Fixed actor ID for API-key-authenticated admin operations.
+const ADMIN_ACTOR_ID: &str = "admin";
+
 #[derive(Deserialize)]
 pub struct PermissionDecisionPayload {}
 
@@ -50,7 +53,7 @@ pub async fn approve_permission(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     // Use fixed "admin" actor since auth is via single API key (not user-supplied value)
-    let actor_id = "admin".to_string();
+    let actor_id = ADMIN_ACTOR_ID.to_string();
     crate::update_permission_request(&state.pool, &request_id, "approved", &actor_id).await?;
 
     spawn_admin_audit(
@@ -88,7 +91,7 @@ pub async fn deny_permission(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     // Use fixed "admin" actor since auth is via single API key (not user-supplied value)
-    let actor_id = "admin".to_string();
+    let actor_id = ADMIN_ACTOR_ID.to_string();
     crate::update_permission_request(&state.pool, &request_id, "denied", &actor_id).await?;
 
     spawn_admin_audit(

@@ -12,6 +12,9 @@ use tracing::error;
 use crate::db::{self, AttachmentRow, ChatMessageRow};
 use crate::{AppError, AppResult, AppState};
 
+/// Default user ID when none is provided in the request.
+const DEFAULT_USER_ID: &str = "default";
+
 use super::ok_data;
 
 #[derive(Deserialize)]
@@ -31,8 +34,8 @@ pub async fn get_messages(
 ) -> AppResult<Json<serde_json::Value>> {
     super::check_auth(&state, &headers)?;
 
-    let user_id = params.user_id.as_deref().unwrap_or("default");
-    let limit = params.limit.unwrap_or(50).min(200);
+    let user_id = params.user_id.as_deref().unwrap_or(DEFAULT_USER_ID);
+    let limit = params.limit.unwrap_or(50).min(state.config.max_chat_query_limit);
 
     let messages = db::get_chat_messages(
         &state.pool,
@@ -40,6 +43,7 @@ pub async fn get_messages(
         user_id,
         params.before,
         limit + 1, // fetch one extra to determine has_more
+        state.config.max_chat_query_limit,
     )
     .await?;
 
@@ -179,7 +183,8 @@ pub async fn post_message(
                                     super::utils::mime_to_ext_or(&mime_type, "bin")
                                 );
 
-                                let (storage_type, inline_data, disk_path) = if size <= 65536 {
+                                #[allow(clippy::cast_possible_wrap)]
+                                let (storage_type, inline_data, disk_path) = if size <= state.config.attachment_inline_threshold as i64 {
                                     // <=64KB: store inline
                                     ("inline".to_string(), Some(decoded), None)
                                 } else {
@@ -241,7 +246,7 @@ pub async fn delete_messages(
 ) -> AppResult<Json<serde_json::Value>> {
     super::check_auth(&state, &headers)?;
 
-    let user_id = params.user_id.as_deref().unwrap_or("default");
+    let user_id = params.user_id.as_deref().unwrap_or(DEFAULT_USER_ID);
     let deleted_count = db::delete_chat_messages(&state.pool, &agent_id, user_id).await?;
 
     ok_data(serde_json::json!({
