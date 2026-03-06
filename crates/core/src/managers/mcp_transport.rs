@@ -4,7 +4,7 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Allowed commands for MCP server execution (security whitelist)
 const ALLOWED_COMMANDS: &[&str] = &["npx", "node", "python", "python3", "deno", "bun"];
@@ -137,7 +137,7 @@ impl StdioTransport {
         tokio::spawn(async move {
             let mut reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = reader.next_line().await {
-                warn!("[MCP:{}] {}", cmd_display, line);
+                debug!("[MCP:{}] {}", cmd_display, line);
             }
         });
 
