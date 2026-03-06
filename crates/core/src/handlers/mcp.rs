@@ -921,7 +921,10 @@ pub async fn set_max_cron_generation(
     Json(body): Json<serde_json::Value>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-    let val = body.get("value").and_then(serde_json::Value::as_u64).unwrap_or(2) as u8;
+    let val = body
+        .get("value")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(2) as u8;
     if val > 6 {
         return Err(AppError::Validation(
             "max_cron_generation must be 0-6".into(),
