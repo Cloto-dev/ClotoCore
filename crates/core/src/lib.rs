@@ -194,6 +194,12 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         "📍 Loaded Config: DB={}, DEFAULT_AGENT={}",
         db_display, config.default_agent_id
     );
+    // Full DB path at debug level for troubleshooting persistence issues
+    tracing::debug!("📍 DB full path: {}", config.database_url);
+    tracing::debug!(
+        "📍 exe_dir resolved to: {}",
+        config::exe_dir().display()
+    );
 
     // Principle #5: Warn if admin API key is missing in release builds
     if config.admin_api_key.is_none() && !cfg!(debug_assertions) {

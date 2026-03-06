@@ -54,6 +54,47 @@ pub async fn save_chat_message(pool: &SqlitePool, msg: &ChatMessageRow) -> anyho
     Ok(())
 }
 
+/// Save a chat message with one retry on failure.
+/// Logs context (agent_id, message_id) on error for traceability.
+pub async fn save_chat_message_reliable(
+    pool: &SqlitePool,
+    msg: &ChatMessageRow,
+) -> anyhow::Result<()> {
+    match save_chat_message(pool, msg).await {
+        Ok(()) => Ok(()),
+        Err(first_err) => {
+            tracing::warn!(
+                agent_id = %msg.agent_id,
+                message_id = %msg.id,
+                source = %msg.source,
+                "Chat persist failed (attempt 1/2): {}. Retrying...",
+                first_err,
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            match save_chat_message(pool, msg).await {
+                Ok(()) => {
+                    tracing::info!(
+                        agent_id = %msg.agent_id,
+                        message_id = %msg.id,
+                        "Chat persist succeeded on retry",
+                    );
+                    Ok(())
+                }
+                Err(retry_err) => {
+                    tracing::error!(
+                        agent_id = %msg.agent_id,
+                        message_id = %msg.id,
+                        source = %msg.source,
+                        "Chat persist FAILED after 2 attempts: {}",
+                        retry_err,
+                    );
+                    Err(retry_err)
+                }
+            }
+        }
+    }
+}
+
 /// Row type returned by chat message queries.
 type ChatMessageTuple = (
     String,
