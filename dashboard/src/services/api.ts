@@ -1,5 +1,6 @@
 import { AgentMetadata, ContentBlock, ChatMessage, ClotoMessage, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry } from '../types';
 import { isTauri } from '../lib/tauri';
+import { safeJsonParse } from '../lib/json';
 
 // In Tauri mode, window.location.origin returns "tauri://localhost" which cannot reach
 // the HTTP kernel. We must use the actual loopback address with the kernel port.
@@ -8,11 +9,6 @@ const API_URL = import.meta.env.VITE_API_URL
   || (isTauri ? `http://127.0.0.1:${KERNEL_PORT}/api` : `${window.location.origin}/api`);
 export const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
 export const EVENTS_URL = `${API_BASE}/events`;
-
-/** Safely parse JSON, returning fallback on failure */
-function safeJsonParse<T>(str: string, fallback: T): T {
-  try { return JSON.parse(str); } catch { return fallback; }
-}
 
 /** Throw with detailed error message from JSON body if available */
 async function throwIfNotOk(res: Response, ctx: string): Promise<void> {

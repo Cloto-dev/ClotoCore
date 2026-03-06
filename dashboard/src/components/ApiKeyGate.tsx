@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Lock, Key, X, Eye, EyeOff, AlertTriangle, CheckCircle2, Loader } from 'lucide-react';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { api } from '../services/api';
+import { AlertCard } from './ui/AlertCard';
 
 export function ApiKeyGate() {
   const { apiKey, setApiKey, forgetApiKey } = useApiKey();
@@ -128,10 +129,10 @@ export function ApiKeyGate() {
 
           {/* Validation error */}
           {validationError && (
-            <div className="flex items-start gap-1.5 p-2 bg-red-500/10 rounded-lg border border-red-500/20">
+            <AlertCard className="flex items-start gap-1.5">
               <AlertTriangle size={11} className="text-red-400 flex-shrink-0 mt-0.5" />
-              <span className="text-[10px] text-red-400">{validationError}</span>
-            </div>
+              <span className="text-[10px]">{validationError}</span>
+            </AlertCard>
           )}
 
           {/* Actions */}

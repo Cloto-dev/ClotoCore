@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { McpServerInfo, AccessControlEntry, AccessTreeResponse, AgentMetadata } from '../../types';
 import { api } from '../../services/api';
+import { extractError } from '../../lib/errors';
 import { McpAccessTree } from './McpAccessTree';
 import { McpAccessSummaryBar } from './McpAccessSummaryBar';
+import { AlertCard } from '../ui/AlertCard';
 import { Save } from 'lucide-react';
 
 interface Props {
@@ -38,7 +40,7 @@ export function McpAccessControlTab({ server, apiKey }: Props) {
       }
       setDirty(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load access data');
+      setError(extractError(err, 'Failed to load access data'));
     }
   }
 
@@ -56,7 +58,7 @@ export function McpAccessControlTab({ server, apiKey }: Props) {
       await api.putMcpServerAccess(server.id, toSave, apiKey);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save access control');
+      setError(extractError(err, 'Failed to save access control'));
     } finally {
       setSaving(false);
     }
@@ -68,11 +70,7 @@ export function McpAccessControlTab({ server, apiKey }: Props) {
 
   return (
     <div className="p-4 space-y-4">
-      {error && (
-        <div className="p-2 text-[10px] font-mono text-red-500 bg-red-500/10 rounded border border-red-500/20">
-          {error}
-        </div>
-      )}
+      {error && <AlertCard>{error}</AlertCard>}
 
       {/* Default Policy Display */}
       {accessData && (

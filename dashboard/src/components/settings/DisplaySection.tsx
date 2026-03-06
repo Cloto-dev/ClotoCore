@@ -1,13 +1,12 @@
-import { useState } from 'react';
 import { SectionCard, Toggle } from './common';
+import { useLocalStorage } from '../../hooks/useStorage';
 
 export function DisplaySection() {
-  const [cursorEnabled, setCursorEnabled] = useState(() => localStorage.getItem('cloto-cursor') !== 'off');
+  const [cursorRaw, setCursorRaw] = useLocalStorage('cloto-cursor', 'on');
+  const cursorEnabled = cursorRaw !== 'off';
 
   const handleCursorToggle = () => {
-    const next = !cursorEnabled;
-    setCursorEnabled(next);
-    localStorage.setItem('cloto-cursor', next ? 'on' : 'off');
+    setCursorRaw(cursorEnabled ? 'off' : 'on');
     window.dispatchEvent(new Event('cloto-cursor-toggle'));
   };
 

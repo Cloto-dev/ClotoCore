@@ -1,16 +1,20 @@
 import { useState, useCallback } from 'react';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { useApiKey } from '../contexts/ApiKeyContext';
+import { useAsyncAction } from '../hooks/useAsyncAction';
+import { extractError } from '../lib/errors';
 import { McpServerDetail } from '../components/mcp/McpServerDetail';
 import { Modal } from '../components/Modal';
+import { StatusDot, type StatusDotStatus } from '../components/ui/StatusDot';
+import { AlertCard } from '../components/ui/AlertCard';
 import { api } from '../services/api';
 import { McpServerInfo } from '../types';
 import { Server, Plus, RefreshCw, AlertTriangle } from 'lucide-react';
 
-function statusDot(status: McpServerInfo['status']) {
-  if (status === 'Connected') return 'bg-emerald-500';
-  if (status === 'Error') return 'bg-red-500';
-  return 'bg-content-muted';
+function mcpStatusToDot(status: McpServerInfo['status']): StatusDotStatus {
+  if (status === 'Connected') return 'connected';
+  if (status === 'Error') return 'error';
+  return 'offline';
 }
 
 function statusLabel(status: McpServerInfo['status']) {
@@ -32,7 +36,7 @@ export function McpServersPage() {
   const [newArgs, setNewArgs] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const action = useAsyncAction();
 
   const isValidServerName = (name: string) => /^[a-z][a-z0-9._-]{0,62}[a-z0-9]$/.test(name);
 
@@ -55,46 +59,26 @@ export function McpServersPage() {
 
   const running = servers.filter(s => s.status === 'Connected').length;
 
-  const handleDelete = useCallback(async (id: string) => {
-    try {
-      setActionError(null);
-      await api.deleteMcpServer(id, effectiveKey);
-      if (selectedId === id) setSelectedId(null);
-      refetch();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to delete server');
-    }
-  }, [effectiveKey, selectedId, refetch]);
+  const handleDelete = useCallback((id: string) => action.run(async () => {
+    await api.deleteMcpServer(id, effectiveKey);
+    if (selectedId === id) setSelectedId(null);
+    refetch();
+  }), [effectiveKey, selectedId, refetch, action.run]);
 
-  const handleStart = useCallback(async (id: string) => {
-    try {
-      setActionError(null);
-      await api.startMcpServer(id, effectiveKey);
-      setTimeout(refetch, 500);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to start server');
-    }
-  }, [effectiveKey, refetch]);
+  const handleStart = useCallback((id: string) => action.run(async () => {
+    await api.startMcpServer(id, effectiveKey);
+    setTimeout(refetch, 500);
+  }), [effectiveKey, refetch, action.run]);
 
-  const handleStop = useCallback(async (id: string) => {
-    try {
-      setActionError(null);
-      await api.stopMcpServer(id, effectiveKey);
-      setTimeout(refetch, 500);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to stop server');
-    }
-  }, [effectiveKey, refetch]);
+  const handleStop = useCallback((id: string) => action.run(async () => {
+    await api.stopMcpServer(id, effectiveKey);
+    setTimeout(refetch, 500);
+  }), [effectiveKey, refetch, action.run]);
 
-  const handleRestart = useCallback(async (id: string) => {
-    try {
-      setActionError(null);
-      await api.restartMcpServer(id, effectiveKey);
-      setTimeout(refetch, 500);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to restart server');
-    }
-  }, [effectiveKey, refetch]);
+  const handleRestart = useCallback((id: string) => action.run(async () => {
+    await api.restartMcpServer(id, effectiveKey);
+    setTimeout(refetch, 500);
+  }), [effectiveKey, refetch, action.run]);
 
   async function handleAdd() {
     if (!newName.trim()) return;
@@ -108,7 +92,7 @@ export function McpServersPage() {
       setNewArgs('');
       refetch();
     } catch (err) {
-      setAddError(err instanceof Error ? err.message : 'Failed to add server');
+      setAddError(extractError(err, 'Failed to add server'));
     } finally {
       setAdding(false);
     }
@@ -142,18 +126,16 @@ export function McpServersPage() {
       </div>
 
       {/* Action error banner */}
-      {actionError && (
-        <div className="px-5 py-2 text-[10px] font-mono text-red-500 bg-red-500/10 border-b border-red-500/20 shrink-0">
-          {actionError}
-        </div>
+      {action.error && (
+        <AlertCard className="mx-5 mt-1 shrink-0">{action.error}</AlertCard>
       )}
 
       {/* Connection error */}
       {fetchError && (
-        <div className="mx-5 mt-3 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-2 shrink-0">
+        <AlertCard className="mx-5 mt-3 flex items-center gap-2 shrink-0">
           <AlertTriangle size={12} className="text-red-500 shrink-0" />
-          <span className="text-[10px] font-mono text-red-400">Backend unreachable</span>
-        </div>
+          <span>Backend unreachable</span>
+        </AlertCard>
       )}
 
       {/* Server cards */}
@@ -188,7 +170,7 @@ export function McpServersPage() {
               </div>
               <div className="flex items-center gap-3 text-[10px] font-mono text-content-tertiary">
                 <span className="flex items-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full ${statusDot(server.status)}`} />
+                  <StatusDot status={mcpStatusToDot(server.status)} />
                   {statusLabel(server.status)}
                 </span>
                 <span>{server.tools.length} tools</span>
@@ -218,11 +200,7 @@ export function McpServersPage() {
       {addModalOpen && (
         <Modal title="Add MCP Server" icon={Plus} size="sm" onClose={() => { setAddModalOpen(false); setAddError(null); }}>
           <div className="px-5 py-4 space-y-3">
-            {addError && (
-              <div className="p-2 text-[10px] font-mono text-red-500 bg-red-500/10 rounded border border-red-500/20">
-                {addError}
-              </div>
-            )}
+            {addError && <AlertCard>{addError}</AlertCard>}
 
             <div>
               <label className="block text-[10px] font-mono text-content-muted mb-1">Server Name</label>
