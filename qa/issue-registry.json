@@ -13,7 +13,7 @@
       "file": "crates/shared/src/lib.rs",
       "pattern": "pub struct PluginManifest",
       "expected": "present",
-      "status": "open"
+      "status": "wontfix"
     },
     {
       "id": "bug-140",
@@ -25,7 +25,7 @@
       "file": "crates/core/tests/common/mock_plugin.rs",
       "pattern": "PluginManifest",
       "expected": "present",
-      "status": "open"
+      "status": "wontfix"
     },
     {
       "id": "bug-144",
@@ -168,8 +168,8 @@
       "commit": "2743946",
       "file": "mcp-servers/ks22/server.py",
       "pattern": "min\\(limit, 500\\)",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-166",
@@ -192,8 +192,8 @@
       "commit": "2743946",
       "file": "mcp-servers/ollama/server.py",
       "pattern": "arguments\\.get\\(\"agent\", \\{\\}\\)",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-168",
@@ -203,9 +203,9 @@
       "version": "0.4.7",
       "commit": "2743946",
       "file": "mcp-servers/embedding/server.py",
-      "pattern": "EMBEDDING_HTTP_PORT",
+      "pattern": "1 <= EMBEDDING_HTTP_PORT <= 65535",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-169",
@@ -214,10 +214,10 @@
       "discovered": "2026-03-01T12:00:00Z",
       "version": "0.4.7",
       "commit": "2743946",
-      "file": "mcp-servers/ks22/server.py",
-      "pattern": "def do_store",
+      "file": "mcp-servers/tests/test_ks22_limits.py",
+      "pattern": "_clamp_limit",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-170",
@@ -251,9 +251,9 @@
       "version": "0.4.12",
       "commit": "bc2ea54",
       "file": "dashboard/src/components/settings/AdvancedSection.tsx",
-      "pattern": "auto-approved without manual review",
-      "expected": "present",
-      "status": "open"
+      "pattern": "MCP server permissions are auto-approved",
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-173",
