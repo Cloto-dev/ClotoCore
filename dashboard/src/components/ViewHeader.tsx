@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, HelpCircle, Minus, Square, X, type LucideIcon } from 'lucide-react';
 import { isTauri, minimizeWindow, toggleMaximizeWindow, closeWindow } from '../lib/tauri';
 import { useConnection } from '../contexts/ConnectionContext';
+import { StatusDot } from './ui/StatusDot';
 
 interface ViewHeaderProps {
   icon: LucideIcon;
@@ -66,7 +67,7 @@ export function ViewHeader({ icon: Icon, title, onBack, right, onHelp, navBack, 
         {/* Connection status dot */}
         {!checking && (
           <div className="relative group" title={connected ? 'Backend connected' : 'Backend unreachable'}>
-            <div className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
+            <StatusDot status={connected ? 'online' : 'error'} />
             {/* Tooltip */}
             <div className="absolute top-full right-0 mt-1 px-2 py-1 rounded bg-surface-primary border border-edge shadow-lg text-[9px] font-mono text-content-secondary whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
               {connected ? 'Connected' : 'Backend unreachable'}

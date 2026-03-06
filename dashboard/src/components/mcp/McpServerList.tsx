@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { McpServerInfo } from '../../types';
 import { Server, Plus, RefreshCw, AlertTriangle, X } from 'lucide-react';
+import { AlertCard } from '../ui/AlertCard';
 
 interface Props {
   servers: McpServerInfo[];
@@ -104,10 +105,10 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
 
       {/* Connection error */}
       {error && (
-        <div className="mx-2 mt-1 px-2 py-1.5 rounded bg-red-500/10 border border-red-500/20 flex items-center gap-1.5">
+        <AlertCard className="mx-2 mt-1 flex items-center gap-1.5">
           <AlertTriangle size={10} className="text-red-500 shrink-0" />
-          <span className="text-[9px] font-mono text-red-400 leading-tight">Backend unreachable</span>
-        </div>
+          <span className="text-[9px] leading-tight">Backend unreachable</span>
+        </AlertCard>
       )}
 
       {/* Server list */}

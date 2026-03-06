@@ -13,6 +13,7 @@ import { api, EVENTS_URL } from '../services/api';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useMcpServers } from '../hooks/useMcpServers';
+import { StatusDot } from './ui/StatusDot';
 import { SkeletonThinking } from './SkeletonThinking';
 import { TypewriterMessage } from './TypewriterMessage';
 import { ArtifactPanel } from './ArtifactPanel';
@@ -564,7 +565,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
           <div>
             <h2 className="text-xl font-black text-content-primary tracking-tighter uppercase">{agent.name}</h2>
             <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+              <StatusDot status="online" size="sm" pulse />
               <span className="text-[10px] font-mono text-content-tertiary uppercase tracking-[0.2em]">Connected</span>
             </div>
           </div>
