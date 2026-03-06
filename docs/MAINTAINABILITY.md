@@ -90,33 +90,15 @@ ClotoCore/
 
 ### 🟡 中優先度（3ヶ月以内）
 
-#### C. DB全件取得のページネーション欠如（M-03）
+#### ~~C. DB全件取得のページネーション欠如（M-03）~~ ✅ 解決済み
 
-`db::get_all_json()` が LIMIT なしで全レコードを取得する。
-プラグインが大量データを保存した場合にメモリ枯渇・タイムアウトのリスクあり。
+`db::get_all_json()` に `DEFAULT_MAX_RESULTS = 1_000` + overflow 検出 + `db_timeout()` を実装済み。
 
-```rust
-// 現状（危険）
-"SELECT key, value FROM plugin_data WHERE plugin_id = ?"
-// → 無制限に全件取得
+#### ~~D. グレースフルシャットダウン未実装~~ ✅ 解決済み
 
-// 修正案（Option B: デフォルト上限）
-const DEFAULT_MAX_RESULTS: usize = 1000;
-"SELECT key, value FROM plugin_data WHERE plugin_id = ? LIMIT ?"
-```
-
-#### D. グレースフルシャットダウン未実装
-
-バックグラウンドタスクの JoinHandle が保存されていないため、
-シャットダウン時にクリーンアップができない。
-
-```rust
-// 現状（問題あり）
-tokio::spawn(async move { processor_clone.process_loop(...).await });
-// JoinHandle を破棄している
-
-// 改善: JoinHandle を保存し、シャットダウン時に await
-```
+- `shutdown.notify_one()` → `notify_waiters()` に修正（全タスクへ通知）
+- MCP通知リスナーにシャットダウン信号を追加
+- 全バックグラウンドタスクが `tokio::select!` で shutdown を監視
 
 #### E. エラーメッセージの不明瞭さ（M-05）
 
@@ -216,13 +198,13 @@ if history.len() > MAX_EVENT_HISTORY {
 
 ### 即時対応
 
-- [ ] `qa/issue-registry.json` の bug-017 を `"status": "fixed"` に修正し `verify-issues.sh` を実行
+- [x] `qa/issue-registry.json` の bug-017 — アーカイブ済み（修正確認済み）
+- [x] `db::get_all_json()` に `LIMIT` 追加 — `DEFAULT_MAX_RESULTS = 1_000` 実装済み
+- [x] グレースフルシャットダウン — `notify_waiters()` + 全タスク shutdown 対応
 
 ### 1ヶ月以内
 
 - [ ] `MockPlugin` 実装（`crates/core/tests/mocks/mod.rs`）
-- [ ] `db::get_all_json()` に `LIMIT` 追加
-- [ ] グレースフルシャットダウン実装（JoinHandle の保存）
 
 ### 3ヶ月以内
 

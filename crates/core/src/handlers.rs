@@ -231,7 +231,7 @@ pub async fn shutdown_handler(
         }
 
         info!("👋 Kernel shutting down gracefully.");
-        shutdown.notify_one();
+        shutdown.notify_waiters();
     });
 
     ok_data(serde_json::json!({}))
