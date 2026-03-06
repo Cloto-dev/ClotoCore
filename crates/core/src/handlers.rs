@@ -1,3 +1,9 @@
+//! HTTP API handler routing and sub-handler modules.
+//!
+//! Each sub-module corresponds to a REST API domain (agents, chat, MCP, etc.).
+//! All handlers use the `ok_data()` / `json_data()` response helpers for
+//! consistent envelope formatting.
+
 pub mod agents;
 pub mod assets;
 pub mod chat;

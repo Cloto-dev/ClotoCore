@@ -11,7 +11,7 @@ use std::sync::Arc;
 async fn test_panic_plugin_does_not_crash_normal_plugin() {
     use common::{create_mock_plugin, create_panicking_plugin};
 
-    let registry = PluginRegistry::new(5, 10);
+    let registry = PluginRegistry::new(5, 10, 50);
     let id_panic = ClotoId::new();
     let id_normal = ClotoId::new();
     let (normal_plugin, received_events) = create_mock_plugin(id_normal);
@@ -103,7 +103,7 @@ async fn test_invalid_magic_seal_rejected() {
 
 #[tokio::test]
 async fn test_plugin_registry_empty_on_creation() {
-    let registry = PluginRegistry::new(5, 10);
+    let registry = PluginRegistry::new(5, 10, 50);
     let plugins = registry.plugins.read().await;
     assert!(plugins.is_empty(), "New registry must start empty");
 }
@@ -112,7 +112,7 @@ async fn test_plugin_registry_empty_on_creation() {
 async fn test_cascading_depth_limit_enforced() {
     use common::create_mock_plugin;
 
-    let registry = PluginRegistry::new(5, 3); // depth limit = 3
+    let registry = PluginRegistry::new(5, 3, 50); // depth limit = 3
     let id = ClotoId::new();
     let (plugin, _) = create_mock_plugin(id);
 

@@ -1,93 +1,93 @@
 # ClotoCore Development Guide
 
-開発者が遵守すべきガードレール（制約ルール）と、現在進行中のリファクタリングの状況を統合したドキュメントです。
+A unified document covering the guardrails (constraint rules) that developers must follow, and the current status of ongoing refactoring efforts.
 
 ---
 
-## 1. Refactoring Guardrails (やってはいけないこと)
+## 1. Refactoring Guardrails (What NOT to Do)
 
-コードを変更する前に必ずこのリストを確認し、制約を遵守してください。
+Always review this list before making code changes and adhere to the constraints.
 
 ### 1.1 Security Hardening: Event Envelopes
 
-**目標**: `ClotoEvent` を Kernel が管理する封筒（Envelope）で包み、送信元（Issuer）の改竄を防ぐ。
+**Goal**: Wrap `ClotoEvent` in a Kernel-managed envelope to prevent issuer tampering.
 
-| ステップ | DO NOT | 理由 |
+| Step | DO NOT | Reason |
 | :--- | :--- | :--- |
-| `EventEnvelope` 構造体を作成する | `ClotoEvent` 自体に `issuer_id` を追加してはいけない | プラグインが ID を偽装できてしまうため |
-| `EventProcessor` で `issuer` を検証する | `if plugin_id == "admin"` のようなハードコード特権判定を行ってはいけない | 原則 #2 (Capability over Concrete Type) に反する |
-| プラグインの `on_event` 引数を変更する | プラグイン側で `issuer` を書き換え可能にしてはいけない | 封印後のデータ一貫性を損なうため |
-| SSE 出力を調整する | 既存の JSON フォーマットを破壊してはいけない | Dashboard が壊れる「無限ループ」の典型例 |
-| REST API レスポンスを構築する | `serde_json::json!({ "status": "..." })` を直接書いてはいけない | レスポンスヘルパー (`ok_data`) を経由すること (ARCHITECTURE.md §0.6) |
-| `dispatch_event` のシグネチャを変更する | プラグインの `on_event` 内で `dispatch` を直接呼ばせてはいけない | Kernel を経由しないイベント発行は「なりすまし」の温床 |
+| Create an `EventEnvelope` struct | Do not add `issuer_id` to `ClotoEvent` itself | Plugins could spoof the ID |
+| Verify `issuer` in `EventProcessor` | Do not hard-code privilege checks like `if plugin_id == "admin"` | Violates Principle #2 (Capability over Concrete Type) |
+| Modify `on_event` arguments for plugins | Do not allow plugins to rewrite `issuer` | Compromises data integrity after sealing |
+| Adjust SSE output | Do not break the existing JSON format | A classic example of the "infinite loop" that breaks the Dashboard |
+| Construct REST API responses | Do not directly write `serde_json::json!({ "status": "..." })` | Must go through the response helper (`ok_data`) (ARCHITECTURE.md §0.6) |
+| Modify `dispatch_event` signature | Do not allow plugins to call `dispatch` directly inside `on_event` | Event dispatching that bypasses the Kernel is a vector for spoofing |
 
 ### 1.2 Cascading Protection: Event Depth Tracking
 
-**目標**: イベントの無限ループや過剰連鎖によるリソース枯渇を防ぐ。
+**Goal**: Prevent resource exhaustion caused by infinite loops or excessive event chaining.
 
-| ステップ | DO NOT | 理由 |
+| Step | DO NOT | Reason |
 | :--- | :--- | :--- |
-| `EnvelopedEvent` に `depth: u8` を追加する | `ClotoEvent` に `depth` を追加してはいけない | プラグイン側で深さを偽装できるため |
-| `dispatch_event` で上限チェックする | 上限値をハードコードしてはいけない | `AppConfig.max_event_depth` で設定可能にするため |
-| 再配信時に `parent.depth + 1` を設定する | 全イベントの `depth` を 0 で固定してはいけない | 連鎖を検知できなくなるため |
-| 破棄時にエラーログを出力する | サイレントにイベントを捨ててはいけない | デバッグが不可能になるため |
+| Add `depth: u8` to `EnvelopedEvent` | Do not add `depth` to `ClotoEvent` | Plugins could spoof the depth value |
+| Check the upper limit in `dispatch_event` | Do not hard-code the limit value | Use `AppConfig.max_event_depth` for configurability |
+| Set `parent.depth + 1` on re-dispatch | Do not fix `depth` at 0 for all events | Cascading would become undetectable |
+| Log an error on discard | Do not silently drop events | Debugging would become impossible |
 
 ### 1.3 State Management: Lock Aggregation
 
-**目標**: プラグイン内部の状態管理を単純化し、設定更新時のアトミック性を保証する。
+**Goal**: Simplify internal plugin state management and guarantee atomicity during config updates.
 
-| ステップ | DO NOT | 理由 |
+| Step | DO NOT | Reason |
 | :--- | :--- | :--- |
-| 関連する設定を一つの `struct` にまとめる | 設定値ごとに個別の `RwLock` を使用してはいけない | 更新時の不整合状態を防ぐため |
-| `Arc<RwLock<ConfigStruct>>` を使用する | `Arc<RwLock<Option<Arc<...>>>>` のような深いネストを作ってはいけない | 可読性低下とデッドロックリスク |
-| `on_event` での設定更新をアトミックに行う | 一連の更新途中で `await` や他のロック取得を挟んではいけない | デッドロックと原子性の喪失 |
+| Group related settings into a single `struct` | Do not use separate `RwLock` for each config value | Prevents inconsistent state during updates |
+| Use `Arc<RwLock<ConfigStruct>>` | Do not create deep nesting like `Arc<RwLock<Option<Arc<...>>>>` | Reduces readability and increases deadlock risk |
+| Perform atomic config updates in `on_event` | Do not insert `await` or acquire other locks mid-update | Prevents deadlocks and loss of atomicity |
 
 ### 1.4 Storage & Memory: Chronological Consistency
 
-**目標**: 記憶の想起（Recall）で常に最新の文脈が正確な順序で取得されることを保証する。
+**Goal**: Ensure that memory recall always retrieves the latest context in the correct order.
 
-| ステップ | DO NOT | 理由 |
+| Step | DO NOT | Reason |
 | :--- | :--- | :--- |
-| ソータブルなタイムスタンプをキーに含める | キーの先頭から AgentID を外してはいけない | 範囲検索ができなくなり、他エージェントの記憶が混ざるため |
-| タイムスタンプを固定長文字列にする | 生の時間数値をそのまま文字列にしてはいけない | 辞書順ソートが崩れるため（例: "100" < "9"）。ゼロパディング必須 |
-| `recall` でメッセージを反転させる | Kernel 返却時に古い順のままにしてはいけない | LLM は「下に行くほど新しい」文脈を期待するため |
+| Include a sortable timestamp in the key | Do not remove AgentID from the beginning of the key | Range queries would fail and memories from other agents would mix in |
+| Use fixed-length timestamp strings | Do not convert raw time values directly to strings | Lexicographic sort would break (e.g., "100" < "9"). Zero-padding is required |
+| Reverse messages in `recall` | Do not return them in oldest-first order from the Kernel | LLMs expect context where "newer is further down" |
 
 ### 1.5 UI/UX: Clarity of Agency
 
-**目標**: ユーザーが「Agent（対話相手）」と「Tool（機能）」を混同しないUI/UXを維持する。
+**Goal**: Maintain a UI/UX where users do not confuse "Agents (conversation partners)" with "Tools (functions)."
 
-| ステップ | DO NOT | 理由 |
+| Step | DO NOT | Reason |
 | :--- | :--- | :--- |
-| プラグインのカテゴリ分類を行う | `Tool` カテゴリのプラグインをエージェントリストに表示してはいけない | 認知的負荷の増大を防ぐため |
-| エージェント定義をDBに保存する | 機能提供のみのプラグインを `agents` テーブルに登録してはいけない | エージェントは「人格」に限定すべき |
+| Categorize plugins | Do not display `Tool`-category plugins in the agent list | Prevents increased cognitive load |
+| Store agent definitions in the DB | Do not register function-only plugins in the `agents` table | Agents should be limited to "personas" |
 
 ### 1.6 Physical Safety: HAL Rate Limiting
 
-**目標**: HAL の物理操作でのAI暴走を防ぐ。
+**Goal**: Prevent AI runaway during HAL physical operations.
 
-| ステップ | DO NOT | 理由 |
+| Step | DO NOT | Reason |
 | :--- | :--- | :--- |
-| マウス/キーボード操作を実装する | レートリミットなしに `InputControl` を実行してはいけない | OS全体が操作不能になる「物理的DoS」を防ぐため |
-| 危険な操作を許可する | ユーザーの明示的承認なしに不可逆な操作を行ってはいけない | ハルシネーションによるデータ消失防止 |
+| Implement mouse/keyboard operations | Do not execute `InputControl` without rate limiting | Prevents "physical DoS" that could make the entire OS inoperable |
+| Allow dangerous operations | Do not perform irreversible operations without explicit user approval | Prevents data loss due to hallucination |
 
 ### 1.7 External Process: MCP Resource Control
 
-**目標**: MCP 経由の外部プロセス起動時のリソース枯渇やゾンビプロセスを防ぐ。
+**Goal**: Prevent resource exhaustion and zombie processes when launching external processes via MCP.
 
-| ステップ | DO NOT | 理由 |
+| Step | DO NOT | Reason |
 | :--- | :--- | :--- |
-| 外部プロセスを起動する | PID管理と終了処理なしに起動してはいけない | ゾンビプロセスがメモリやポートを占有し続けるため |
-| MCPツールを実行する | タイムアウト設定なしに外部ツールを呼んではいけない | ハングアップがKernel全体を停止させるため |
+| Launch external processes | Do not launch without PID management and termination handling | Zombie processes would continue to consume memory and ports |
+| Execute MCP tools | Do not call external tools without timeout settings | A hang could halt the entire Kernel |
 
 ### 1.8 Privacy & Biometrics: Camera Usage
 
-**目標**: Webカメラ利用時のプライバシー保護。
+**Goal**: Protect privacy during webcam use.
 
-| ステップ | DO NOT | 理由 |
+| Step | DO NOT | Reason |
 | :--- | :--- | :--- |
-| カメラを起動する | ユーザーの同意なしにバックグラウンドで起動してはいけない | 盗撮・プライバシー侵害防止 |
-| 顔画像を処理する | 顔の生映像をストレージに保存・外部送信してはいけない | 生体情報漏洩防止。座標データのみ配信 |
-| 視線データを共有する | 許可ドメイン以外に視線データをストリーミングしてはいけない | 「何を見ているか」自体が機密情報 |
+| Start the camera | Do not start in the background without user consent | Prevents unauthorized recording and privacy violations |
+| Process facial images | Do not save or externally transmit raw facial video | Prevents biometric data leakage. Stream coordinate data only |
+| Share gaze data | Do not stream gaze data to non-permitted domains | "What someone is looking at" is itself sensitive information |
 
 ---
 
@@ -99,17 +99,17 @@
 
 | Category | Item | Status |
 |----------|------|--------|
-| Security | ダミーAPIキー削除、環境変数ベースに移行 (`db.rs`) | Done |
-| Security | 認証バイパス修正、release buildで`CLOTO_API_KEY`必須化 (`handlers.rs`) | Done |
-| Security | ~~Python Bridge メソッドホワイトリスト導入~~ (deleted with python_bridge) | Done |
-| Security | ~~パストラバーサル対策~~ (deleted with python_bridge) | Done |
-| Security | 未使用DISCORD_TOKEN削除 (`.env`) | Done |
-| Performance | イベント履歴 `Vec` → `VecDeque` (O(1) pop_front) | Done |
-| Performance | ホワイトリスト `Vec` → `HashSet` (O(1) lookup) | Done |
-| Performance | Python Bridge バックグラウンドリーダー JoinHandle 追跡 | Done |
-| Quality | managers.rs イベントディスパッチのネスト削減 | Done |
-| Quality | StatusCore.tsx React import 統合 | Done |
-| Verification | 全11テストパス、警告ゼロ | Done |
+| Security | Removed dummy API key, migrated to environment variable-based auth (`db.rs`) | Done |
+| Security | Fixed auth bypass, enforced `CLOTO_API_KEY` requirement in release builds (`handlers.rs`) | Done |
+| Security | ~~Python Bridge method whitelist~~ (deleted with python_bridge) | Done |
+| Security | ~~Path traversal protection~~ (deleted with python_bridge) | Done |
+| Security | Removed unused DISCORD_TOKEN (`.env`) | Done |
+| Performance | Event history `Vec` → `VecDeque` (O(1) pop_front) | Done |
+| Performance | Whitelist `Vec` → `HashSet` (O(1) lookup) | Done |
+| Performance | Python Bridge background reader JoinHandle tracking | Done |
+| Quality | Reduced nesting in managers.rs event dispatch | Done |
+| Quality | Consolidated React imports in StatusCore.tsx | Done |
+| Verification | All 11 tests passing, zero warnings | Done |
 
 **Audit Score Impact:**
 - Security (C): 55 → ~75
@@ -121,30 +121,30 @@
 
 | Category | Item | Status |
 |----------|------|--------|
-| Security | Human-in-the-Loop 権限承認ワークフロー (`permission_requests` テーブル) | Done |
+| Security | Human-in-the-Loop permission approval workflow (`permission_requests` table) | Done |
 | Security | Rate Limiting: per-IP 10 req/s, burst 20 (`middleware.rs`) | Done |
-| Security | Audit Logging: セキュリティイベント全記録 | Done |
-| Security | .env ファイルパーミッション 0600 (Unix) | Done |
-| Security | BIND_ADDRESS デフォルト 127.0.0.1 (loopback only) | Done |
-| Security | CORS origin スキーム検証 (http/https のみ許可) | Done |
-| Security | cosign keyless署名 (リリースアーティファクト) | Done |
+| Security | Audit Logging: full recording of all security events | Done |
+| Security | .env file permissions 0600 (Unix) | Done |
+| Security | BIND_ADDRESS default 127.0.0.1 (loopback only) | Done |
+| Security | CORS origin scheme validation (allow http/https only) | Done |
+| Security | cosign keyless signing (release artifacts) | Done |
 | Quality | Unit Tests: handlers, db, capabilities, middleware, validation, config | Done |
-| Quality | Input validation モジュール (エージェント作成・設定更新) | Done |
-| Quality | Atomic file writes (.maintenance ファイル) | Done |
-| Feature | Self-Healing Python Bridge (自動再起動、最大3回) | Done (archived — Python Bridge removed in MCP migration) |
+| Quality | Input validation module (agent creation and config updates) | Done |
+| Quality | Atomic file writes (.maintenance file) | Done |
+| Feature | Self-Healing Python Bridge (auto-restart, max 3 attempts) | Done (archived — Python Bridge removed in MCP migration) |
 | Feature | Build Optimization (`CLOTO_SKIP_ICON_EMBED=1`) | Done |
-| Feature | 全コメント英語化 (国際アクセシビリティ) | Done |
-| Feature | Windows GUI インストーラー (Inno Setup) | Done |
-| Feature | GitHub Pages ランディングページ (OS自動検出) | Done |
-| Infra | GitHub Actions リリースワークフロー (5プラットフォーム + インストーラー) | Done |
+| Feature | All comments converted to English (international accessibility) | Done |
+| Feature | Windows GUI installer (Inno Setup) | Done |
+| Feature | GitHub Pages landing page (OS auto-detection) | Done |
+| Infra | GitHub Actions release workflow (5 platforms + installer) | Done |
 
 **Test Count:** 90 tests
 **Audit Score:** 90+/100
 
 ### Remaining Items (Next Phase)
 
-- [ ] Event Envelope: Kernel 管理の封筒によるイベント改竄防止
-- [ ] MCP server hot-reload: ランタイムMCPサーバー再接続
+- [ ] Event Envelope: Kernel-managed envelope for event tampering prevention
+- [ ] MCP server hot-reload: runtime MCP server reconnection
 
 ---
 
@@ -185,7 +185,7 @@ Plugins maintain their own version numbers because they can evolve independently
 ---
 
 *Document History:*
-- 2026-02-08: Guardrails 初版作成 (Event Security, Cascading Protection, Lock Aggregation, Storage Consistency)
-- 2026-02-10: UI/UX Clarity, Physical Safety, MCP Resource Control, Privacy & Biometrics 追加
-- 2026-02-13: REFAC_STATUS.md と統合、Phase 5 完了ステータス追加
-- 2026-02-15: Phase 6 完了ステータス追加、残タスク更新
+- 2026-02-08: Initial guardrails created (Event Security, Cascading Protection, Lock Aggregation, Storage Consistency)
+- 2026-02-10: Added UI/UX Clarity, Physical Safety, MCP Resource Control, Privacy & Biometrics
+- 2026-02-13: Merged with REFAC_STATUS.md, added Phase 5 completion status
+- 2026-02-15: Added Phase 6 completion status, updated remaining tasks

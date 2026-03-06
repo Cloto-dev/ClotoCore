@@ -1,3 +1,9 @@
+//! Event processing pipeline for ClotoCore kernel.
+//!
+//! Receives events via an mpsc channel, enforces cascade depth limits,
+//! broadcasts to SSE subscribers, maintains an event history ring buffer,
+//! and dispatches to the plugin registry for MCP server processing.
+
 use crate::handlers::system::SystemHandler;
 use crate::managers::{AgentManager, PluginManager, PluginRegistry};
 use cloto_shared::{ClotoEvent, Permission};
@@ -5,6 +11,9 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Semaphore};
 use tracing::{debug, error, info, warn};
+
+/// Interval between event history cleanup sweeps in seconds.
+const EVENT_CLEANUP_INTERVAL_SECS: u64 = 300;
 
 pub struct EventProcessor {
     registry: Arc<PluginRegistry>,
@@ -22,6 +31,8 @@ pub struct EventProcessor {
     system_handler: Arc<SystemHandler>,
     /// Per-agent semaphore to serialize agentic loops for the same agent.
     agent_locks: Arc<dashmap::DashMap<String, Arc<Semaphore>>>,
+    /// Maximum event history size for cleanup (count-based cap).
+    max_event_history: usize,
 }
 
 impl EventProcessor {
@@ -37,6 +48,7 @@ impl EventProcessor {
         event_retention_hours: u64, // M-10: Configurable retention period
         consensus: Option<Arc<crate::consensus::ConsensusOrchestrator>>,
         system_handler: Arc<SystemHandler>,
+        max_event_history: usize,
     ) -> Self {
         Self {
             registry,
@@ -51,6 +63,7 @@ impl EventProcessor {
             action_rate_limiter: Arc::new(dashmap::DashMap::new()),
             system_handler,
             agent_locks: Arc::new(dashmap::DashMap::new()),
+            max_event_history,
         }
     }
 
@@ -66,7 +79,7 @@ impl EventProcessor {
     pub fn spawn_cleanup_task(self: Arc<Self>, shutdown: Arc<tokio::sync::Notify>) {
         let processor = self.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(EVENT_CLEANUP_INTERVAL_SECS));
             loop {
                 tokio::select! {
                     () = shutdown.notified() => {
@@ -120,8 +133,6 @@ impl EventProcessor {
     }
 
     pub async fn cleanup_old_events(&self) {
-        const MAX_EVENT_HISTORY: usize = 10_000;
-
         // M-10: Use configurable retention period instead of hardcoded 24h
         #[allow(clippy::cast_possible_wrap)]
         let cutoff =
@@ -138,16 +149,16 @@ impl EventProcessor {
         }
 
         // Apply count-based cap to prevent unbounded growth
-        if history.len() > MAX_EVENT_HISTORY {
-            let excess = history.len() - MAX_EVENT_HISTORY;
+        if history.len() > self.max_event_history {
+            let excess = history.len() - self.max_event_history;
             for _ in 0..excess {
                 history.pop_front();
             }
             tracing::warn!(
                 trimmed = excess,
-                retained = MAX_EVENT_HISTORY,
+                retained = self.max_event_history,
                 "Event history trimmed to {} entries to prevent memory growth",
-                MAX_EVENT_HISTORY
+                self.max_event_history
             );
         }
 

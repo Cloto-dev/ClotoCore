@@ -9,6 +9,9 @@ use tracing::{debug, error, info, warn};
 /// Allowed commands for MCP server execution (security whitelist)
 const ALLOWED_COMMANDS: &[&str] = &["npx", "node", "python", "python3", "deno", "bun"];
 
+/// Buffer size for MCP stdio channel (request and response).
+const MCP_CHANNEL_BUFFER_SIZE: usize = 100;
+
 /// If command is python/python3, resolve to venv Python if available.
 /// Returns (resolved_command, is_venv) tuple.
 fn resolve_python_command(command: &str) -> (String, bool) {
@@ -102,8 +105,8 @@ impl StdioTransport {
         let stdout = child.stdout.take().context("Failed to open stdout")?;
         let stderr = child.stderr.take().context("Failed to open stderr")?;
 
-        let (req_tx, mut req_rx) = mpsc::channel::<String>(100);
-        let (res_tx, res_rx) = mpsc::channel::<String>(100);
+        let (req_tx, mut req_rx) = mpsc::channel::<String>(MCP_CHANNEL_BUFFER_SIZE);
+        let (res_tx, res_rx) = mpsc::channel::<String>(MCP_CHANNEL_BUFFER_SIZE);
 
         // Writer Task
         tokio::spawn(async move {

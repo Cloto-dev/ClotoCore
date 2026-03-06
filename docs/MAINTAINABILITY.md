@@ -1,116 +1,125 @@
 # ClotoCore Maintainability Report
 
-保守性の包括的スキャン結果と改善アクションリストを記録したドキュメントです。
-開発の意思決定や技術的負債の管理に役立てるため、継続的に更新してください。
+A document recording the results of a comprehensive maintainability scan and a list of improvement actions.
+Please update this document continuously to support development decision-making and technical debt management.
 
-**最終更新**: 2026-03-04
-**調査対象バージョン**: 0.5.3
+**Last Updated**: 2026-03-06
+**Target Version**: 0.6.0-alpha.3
 
 ---
 
-## 1. プロジェクト構造概要
+## 1. Project Structure Overview
 
 ```
 ClotoCore/
 ├── crates/
-│   ├── core/        # カーネル・ハンドラー・DB・managers/・ミドルウェア
-│   └── shared/      # 共有トレイト定義
+│   ├── core/        # Kernel: handlers/, db/, managers/, events, middleware
+│   └── shared/      # Shared trait definitions
 ├── mcp-servers/     # 5 MCP servers (cerebras, deepseek, embedding, ks22, terminal)
 ├── dashboard/       # React + TypeScript + Tauri 2.x
-├── scripts/         # ユーティリティスクリプト
-├── qa/              # issue-registry.json（バグ検証の真実の源泉）
-└── .dev-notes/      # 保守ノート（gitignore対象・補足資料）
+├── scripts/         # Utility scripts
+├── qa/              # issue-registry.json (source of truth for bug verification)
+└── .dev-notes/      # Maintenance notes (gitignored, supplementary materials)
 ```
 
-**技術スタック**: Rust（ワークスペース 2 クレート）/ TypeScript + React / Python
+**Tech Stack**: Rust (workspace with 2 crates) / TypeScript + React / Python
 
 ---
 
-## 2. コード規模メトリクス
+## 2. Code Size Metrics
 
-### 主要ファイルのサイズ（行数）
+### Major File Sizes (Line Count)
 
-| ファイル | 行数 | 状態 |
+| File | Lines | Status |
 |---|---|---|
-| `crates/core/src/handlers.rs` | 1668 | ⚠️ 監視中 |
-| `crates/core/src/db.rs` | 1658 | ⚠️ 監視中 |
-| `crates/shared/src/lib.rs` | 654 | 許容範囲 |
-| `crates/core/src/capabilities.rs` | 464 | 良好 |
-| `crates/core/src/managers/` | (ディレクトリ) | 分割済み |
+| `crates/core/src/handlers/system.rs` | 1829 | ⚠️ Under monitoring (agentic loop) |
+| `crates/core/src/handlers/mcp.rs` | 966 | Acceptable |
+| `crates/core/src/managers/mcp.rs` | 1122 | ⚠️ Under monitoring |
+| `crates/core/src/lib.rs` | 769 | Acceptable |
+| `crates/core/src/handlers.rs` | 580 | ✅ Split from 1668 → routing module + 12 sub-handlers |
+| `crates/shared/src/lib.rs` | 560 | Acceptable |
+| `crates/core/src/handlers/agents.rs` | 508 | Good |
+| `crates/core/src/capabilities.rs` | 464 | Good |
+| `crates/core/src/db/mod.rs` | 438 | ✅ Split from 1658 → routing module + 8 sub-modules |
+| `crates/core/src/managers/` | (directory) | 15 modules, ~3,800 total |
+| `crates/core/src/handlers/` | (directory) | 12 modules, ~4,940 total |
+| `crates/core/src/db/` | (directory) | 9 modules, ~1,750 total |
 
-### テスト規模
+### Test Scale
 
-| 項目 | 数値 |
+| Item | Count |
 |---|---|
-| テスト関数総数（`#[test]` + `#[tokio::test]`） | ~90 |
-| `#[cfg(test)]` ブロックを持つファイル | 15 |
-| 統合テストファイル（`crates/core/tests/`） | 16 |
-| 推定カバレッジ | ~35% |
+| Total test functions (`#[test]` + `#[tokio::test]`) | ~90 |
+| Files with `#[cfg(test)]` blocks | 15 |
+| Integration test files (`crates/core/tests/`) | 16 |
+| Estimated coverage | ~35% |
 
 ---
 
-## 3. 問題・懸念事項
+## 3. Issues and Concerns
 
-### 🔴 要即時対応
+### 🔴 Requires Immediate Action
 
-#### A. `qa/issue-registry.json` の bug-017 が誤検知
+#### A. bug-017 in `qa/issue-registry.json` is a false positive
 
-`bug-017`（"CI/CD: cargo audit security check missing"）は `"status": "open"` だが、
-`ci.yml:63-64` に `cargo audit` が既に存在する。**レジストリが現実と不一致**。
-
----
-
-### ✅ 解決済み（参考）
-
-- **`managers.rs` の肥大化**: `managers/` ディレクトリに分割完了
-  (mod.rs, agents.rs, plugin.rs, registry.rs, mcp.rs, mcp_protocol.rs, mcp_transport.rs)
-- **`evolution.rs` の肥大化**: `archive/evolution/` にアーカイブ完了、ファイル削除済み
+`bug-017` ("CI/CD: cargo audit security check missing") has `"status": "open"`, but
+`cargo audit` already exists at `ci.yml:63-64`. **The registry is inconsistent with reality**.
 
 ---
 
-### 🟠 高優先度（1ヶ月以内）
+### ✅ Resolved (For Reference)
 
-#### B. テストカバレッジ不足（~35%）
+- **`managers.rs` bloat**: Split into `managers/` directory completed (15 modules)
+- **`evolution.rs` bloat**: Archived to `archive/evolution/`, file deleted
+- **`db.rs` bloat** (v0.6.0-alpha): Split from 1658 lines into `db/` directory (9 modules: mod.rs, mcp.rs, chat.rs, permissions.rs, cron.rs, audit.rs, api_keys.rs, llm.rs, trusted_commands.rs)
+- **`handlers.rs` bloat** (v0.6.0-alpha): Split from 1668 lines into `handlers/` directory (12 modules: system.rs, mcp.rs, agents.rs, chat.rs, llm.rs, utils.rs, commands.rs, permissions.rs, events.rs, assets.rs, response.rs, cron.rs)
+- **`mcp.rs` refactoring** (bug-144): Extracted mcp_client.rs, mcp_types.rs, mcp_kernel_tool.rs, mcp_health.rs, mcp_tool_validator.rs from monolithic mcp.rs
 
-以下の重要パスが未テスト:
+---
 
-| 未テストシナリオ | 優先度 |
+### 🟠 High Priority (Within 1 Month)
+
+#### B. Insufficient Test Coverage (~35%)
+
+The following critical paths are untested:
+
+| Untested Scenario | Priority |
 |---|---|
-| DBマイグレーションロールバック | HIGH |
-| プラグイン初期化失敗のハンドリング | HIGH |
-| 同時並行イベントストーム（100+イベント/秒） | HIGH |
-| メモリ枯渇（大量イベント履歴） | MEDIUM |
-| レートリミッタークリーンアップの競合状態 | MEDIUM |
-| パーミッション承認ワークフロー | MEDIUM |
+| DB migration rollback | HIGH |
+| Plugin initialization failure handling | HIGH |
+| Concurrent event storm (100+ events/sec) | HIGH |
+| Memory exhaustion (large event history) | MEDIUM |
+| Rate limiter cleanup race condition | MEDIUM |
+| Permission approval workflow | MEDIUM |
 
-モックプラグインが未実装のため、テストが実プラグインに依存している。
-`MockPlugin` 実装（`crates/core/tests/mocks/mod.rs`）が必要。
+Mock plugins are not implemented, so tests depend on real plugins.
+A `MockPlugin` implementation (`crates/core/tests/mocks/mod.rs`) is needed.
 
 ---
 
-### 🟡 中優先度（3ヶ月以内）
+### 🟡 Medium Priority (Within 3 Months)
 
-#### ~~C. DB全件取得のページネーション欠如（M-03）~~ ✅ 解決済み
+#### ~~C. Lack of Pagination for DB Full Retrieval (M-03)~~ ✅ Resolved
 
-`db::get_all_json()` に `DEFAULT_MAX_RESULTS = 1_000` + overflow 検出 + `db_timeout()` を実装済み。
+Implemented `DEFAULT_MAX_RESULTS = 1_000` + overflow detection + `db_timeout()` in `db::get_all_json()`.
 
-#### ~~D. グレースフルシャットダウン未実装~~ ✅ 解決済み
+#### ~~D. Graceful Shutdown Not Implemented~~ ✅ Resolved
 
-- `shutdown.notify_one()` → `notify_waiters()` に修正（全タスクへ通知）
-- MCP通知リスナーにシャットダウン信号を追加
-- 全バックグラウンドタスクが `tokio::select!` で shutdown を監視
+- Fixed `shutdown.notify_one()` to `notify_waiters()` (notifies all tasks)
+- Added shutdown signal to MCP notification listener
+- All background tasks monitor shutdown via `tokio::select!`
 
-#### E. エラーメッセージの不明瞭さ（M-05）
+#### E. Unclear Error Messages (M-05)
 
-DB操作エラー・設定エラーにコンテキスト情報が不足しており、
-デバッグ効率が低下している。エラーに「どのエージェントの」「どの操作で」を付加すること。
+DB operation errors and configuration errors lack context information,
+reducing debugging efficiency. Add "which agent" and "which operation" to errors.
 
-#### F. イベント履歴の上限未設定
+#### F. No Upper Limit on Event History
 
-高頻度イベント時（1000件/分）に 60 分保持で最大 60,000 件 ≈ 60MB が蓄積される可能性がある。
+Under high-frequency events (1000/min), 60-minute retention could accumulate up to 60,000 entries ≈ 60MB.
 
 ```rust
-// 追加推奨
+// Recommended addition
 const MAX_EVENT_HISTORY: usize = 10_000;
 history.retain(|e| e.timestamp > cutoff);
 if history.len() > MAX_EVENT_HISTORY {
@@ -120,118 +129,118 @@ if history.len() > MAX_EVENT_HISTORY {
 
 ---
 
-### 🟢 低優先度
+### 🟢 Low Priority
 
-| 項目 | 内容 | 工数 |
+| Item | Description | Effort |
 |---|---|---|
-| `clone()` 最適化（L-01） | 160+ 呼び出し（大半は正当な Arc clone） | 1-2h |
-| `clippy::pedantic` 有効化 | 追加の lint 指摘を得る | 1h |
-| `rustfmt.toml` 設定 | プロジェクト固有のフォーマット設定 | 30分 |
-| DB接続プール設定の環境変数化 | `SQLX_MAX_CONNECTIONS` を設定可能に | 10分 |
-| レートリミッタークリーンアップ頻度 | 10分 → 2分（低影響） | 5分 |
+| `clone()` optimization (L-01) | 160+ calls (mostly legitimate Arc clones) | 1-2h |
+| Enable `clippy::pedantic` | Get additional lint suggestions | 1h |
+| `rustfmt.toml` configuration | Project-specific formatting settings | 30min |
+| DB connection pool env variable | Make `SQLX_MAX_CONNECTIONS` configurable | 10min |
+| Rate limiter cleanup frequency | 10min to 2min (low impact) | 5min |
 
 ---
 
-## 4. コード品質サマリー
+## 4. Code Quality Summary
 
-### `unwrap()` 使用（総計 245箇所）
+### `unwrap()` Usage (Total: 245 Occurrences)
 
-実態を精査した結果、本番コードへの影響は限定的:
+After detailed examination, the impact on production code is limited:
 
-| カテゴリ | 件数 | 対処 |
+| Category | Count | Action |
 |---|---|---|
-| `#[cfg(test)]` ブロック内 | ~230 | 許容（テスト用途） |
-| ベンチマーク（`benches/`） | ~10 | 許容 |
-| `is_some()` チェック済みの安全な使用 | 2 | 許容 |
-| 本番コードで要確認 | ~5 | 下記参照 |
+| Inside `#[cfg(test)]` blocks | ~230 | Acceptable (test use) |
+| Benchmarks (`benches/`) | ~10 | Acceptable |
+| Safe usage after `is_some()` check | 2 | Acceptable |
+| Production code requiring review | ~5 | See below |
 
-**本番コード内の要確認箇所**:
-- `dashboard/src-tauri/src/lib.rs:108` — Tauri アイコン取得（フレームワーク慣習として許容可）
+**Production code locations requiring review**:
+- `dashboard/src-tauri/src/lib.rs:108` — Tauri icon retrieval (acceptable as framework convention)
 
-### `#[allow(dead_code)]` （12箇所）
+### `#[allow(dead_code)]` (12 Occurrences)
 
-| 箇所 | 理由 | 判定 |
+| Location | Reason | Verdict |
 |---|---|---|
-| `plugins/moderator/src/lib.rs` | 将来の UI 用フィールド | ✅ 正当 |
-| `crates/core/src/handlers.rs:797` | 調査が必要 | ⚠️ 要確認 |
+| `plugins/moderator/src/lib.rs` | Fields for future UI | ✅ Legitimate |
+| `crates/core/src/handlers.rs:797` | Investigation needed | ⚠️ Requires review |
 
-### TODO/FIXME/HACK コメント
+### TODO/FIXME/HACK Comments
 
-**1件のみ**（ほぼゼロ）。優秀な状態。Issue Tracker による管理が徹底されている。
+**Only 1** (virtually zero). Excellent condition. Thorough management via Issue Tracker.
 
 ---
 
-## 5. CI/CD 評価
+## 5. CI/CD Assessment
 
-| チェック | 状態 | 備考 |
+| Check | Status | Notes |
 |---|---|---|
-| `cargo fmt --check` | ✅ | CI 必須 |
-| `cargo clippy -D warnings` | ✅ | CI 必須 |
-| `cargo test --workspace` | ✅ | CI 必須 |
-| `cargo audit` | ✅ | CI 必須（bug-017 は誤検知、修正要） |
-| Dashboard ビルド + テスト | ✅ | CI 必須 |
-| リリース: チェックサム生成 | ✅ | SHA256 |
-| リリース: cosign 署名 | ✅ | キーレス署名、優秀 |
-| GitHub Actions ピン留め | ✅ | 全ステップがコミットハッシュで固定 |
-| 並行 CI 制御 | ✅ | `concurrency` 設定済み |
-| `cargo audit` ローカル | ⚠️ | 開発環境に未インストール |
-| Windows インストーラー | ✅ | Inno Setup + Tauri |
-| クロスコンパイル | ✅ | linux-x64/arm64, macOS-x64/arm64, win-x64 |
+| `cargo fmt --check` | ✅ | CI required |
+| `cargo clippy -D warnings` | ✅ | CI required |
+| `cargo test --workspace` | ✅ | CI required |
+| `cargo audit` | ✅ | CI required (bug-017 is false positive, fix needed) |
+| Dashboard build + test | ✅ | CI required |
+| Release: checksum generation | ✅ | SHA256 |
+| Release: cosign signing | ✅ | Keyless signing, excellent |
+| GitHub Actions pinning | ✅ | All steps pinned to commit hashes |
+| Concurrent CI control | ✅ | `concurrency` configured |
+| `cargo audit` local | ⚠️ | Not installed in dev environment |
+| Windows installer | ✅ | Tauri NSIS (replaced Inno Setup in v0.6.0-alpha.1) |
+| Cross-compilation | ✅ | linux-x64/arm64, macOS-x64/arm64, win-x64 |
 
 ---
 
-## 6. 総合評価
+## 6. Overall Assessment
 
-| 観点 | 評価 | コメント |
+| Aspect | Rating | Comment |
 |---|---|---|
-| CI/CD | **A** | 充実したパイプライン・セキュリティ重視 |
-| セキュリティ | **B+** | 重大脆弱性は修正済み、継続監視が必要 |
-| テスト | **C+** | 105 テスト関数だが推定 35% カバレッジ |
-| コード品質 | **B** | `unwrap` 乱用なし・TODO ほぼゼロは優秀 |
-| ファイル構造 | **B** | `managers.rs` 分割完了、`evolution.rs` アーカイブ済み |
-| ドキュメント | **B+** | v0.5.3 で docs/ を監査・統合・最新化 |
-| 依存関係管理 | **B+** | ワークスペース統一・ロックファイルあり |
+| CI/CD | **A** | Robust pipeline, security-focused |
+| Security | **B+** | Critical vulnerabilities fixed, ongoing monitoring needed |
+| Testing | **C+** | 105 test functions but estimated 35% coverage |
+| Code Quality | **B** | No `unwrap` abuse, near-zero TODOs is excellent |
+| File Structure | **A-** | `managers/`, `db/`, `handlers/` all split into focused modules |
+| Documentation | **A-** | docs/ fully English-unified, architecture and metrics updated for v0.6.0-alpha.3 |
+| Dependency Management | **B+** | Workspace unified, lockfile present |
 
 ---
 
-## 7. アクションリスト
+## 7. Action List
 
-### 即時対応
+### Immediate Action
 
-- [x] `qa/issue-registry.json` の bug-017 — アーカイブ済み（修正確認済み）
-- [x] `db::get_all_json()` に `LIMIT` 追加 — `DEFAULT_MAX_RESULTS = 1_000` 実装済み
-- [x] グレースフルシャットダウン — `notify_waiters()` + 全タスク shutdown 対応
+- [x] bug-017 in `qa/issue-registry.json` — Archived (fix confirmed)
+- [x] Add `LIMIT` to `db::get_all_json()` — `DEFAULT_MAX_RESULTS = 1_000` implemented
+- [x] Graceful shutdown — `notify_waiters()` + all tasks shutdown support
 
-### 1ヶ月以内
+### Within 1 Month
 
-- [ ] `MockPlugin` 実装（`crates/core/tests/mocks/mod.rs`）
+- [ ] Implement `MockPlugin` (`crates/core/tests/mocks/mod.rs`)
 
-### 3ヶ月以内
+### Within 3 Months
 
-- [ ] テストカバレッジ 35% → 60%（DBマイグレーション・プラグイン初期化失敗・並行ストームを優先）
-- [ ] エラーメッセージ改善（M-05）: DB/Config エラーにコンテキストを付加
-- [ ] イベント履歴に上限設定（`MAX_EVENT_HISTORY = 10_000`）
-- [ ] `clippy::pedantic` 有効化と修正
+- [ ] Test coverage 35% to 60% (prioritize DB migration, plugin init failure, concurrent storm)
+- [ ] Error message improvement (M-05): Add context to DB/Config errors
+- [ ] Set upper limit on event history (`MAX_EVENT_HISTORY = 10_000`)
+- [ ] Enable `clippy::pedantic` and fix warnings
 
 ---
 
-## 8. 既修正済みバグ（参考）
+## 8. Previously Fixed Bugs (For Reference)
 
-直近の開発サイクルで 17 件が修正済み（`qa/issue-registry.json` 参照）。
-主要なもの:
+17 bugs were fixed in the recent development cycle (see `qa/issue-registry.json`).
+Key items:
 
-| 重要度 | 内容 |
+| Severity | Description |
 |---|---|
-| CRITICAL | SafeHttpClient の `.expect()` によるパニックリスク |
-| CRITICAL | TUI 端末の panic 時クリーンアップ欠如 |
-| CRITICAL | Python サンドボックスの `socket` モジュール漏れ |
-| HIGH | DeepSeek/Cerebras プラグインの空 API キーサイレント受け入れ |
-| HIGH | CLI の SSE URL パスミスマッチ |
-| HIGH | `logs.rs` でのマルチバイト文字 UTF-8 スライスパニック |
-| HIGH | `config set` コマンドが API キーをディスクに書き込む問題 |
-| HIGH | TUI スクロール位置の未クランプ・方向反転 |
+| CRITICAL | Panic risk from `.expect()` in SafeHttpClient |
+| CRITICAL | Missing panic cleanup for TUI terminal |
+| CRITICAL | `socket` module leak in Python sandbox |
+| HIGH | DeepSeek/Cerebras plugins silently accepting empty API keys |
+| HIGH | CLI SSE URL path mismatch |
+| HIGH | Multi-byte character UTF-8 slice panic in `logs.rs` |
+| HIGH | `config set` command writing API keys to disk |
+| HIGH | TUI scroll position unclamped and direction inverted |
 
 ---
 
-*このドキュメントは保守性スキャンの結果を記録したものです。*
-*次回スキャン推奨時期: **2026-06-04**（3ヶ月後）*
+*This document records the results of a maintainability scan.*
+*Next scan recommended: **2026-06-04** (3 months later)*

@@ -4,6 +4,12 @@ use sqlx::SqlitePool;
 
 use super::db_timeout;
 
+/// Maximum number of audit log write retries.
+const AUDIT_MAX_RETRIES: u32 = 3;
+
+/// Base delay in milliseconds for audit log retry backoff.
+const AUDIT_RETRY_BASE_MS: u64 = 100;
+
 /// Audit log entry structure for security event tracking
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditLogEntry {
@@ -48,21 +54,21 @@ pub async fn write_audit_log(pool: &SqlitePool, entry: AuditLogEntry) -> anyhow:
 /// M-06: Retries up to 3 times with backoff instead of fire-and-forget.
 pub fn spawn_audit_log(pool: SqlitePool, entry: AuditLogEntry) {
     tokio::spawn(async move {
-        for attempt in 0..3u32 {
+        for attempt in 0..AUDIT_MAX_RETRIES {
             match write_audit_log(&pool, entry.clone()).await {
                 Ok(()) => return,
                 Err(e) => {
                     tracing::error!(attempt = attempt + 1, "Failed to write audit log: {}", e);
-                    if attempt < 2 {
+                    if attempt < AUDIT_MAX_RETRIES - 1 {
                         tokio::time::sleep(std::time::Duration::from_millis(
-                            100 * (u64::from(attempt) + 1),
+                            AUDIT_RETRY_BASE_MS * (u64::from(attempt) + 1),
                         ))
                         .await;
                     }
                 }
             }
         }
-        tracing::error!("Audit log entry permanently lost after 3 attempts");
+        tracing::error!("Audit log entry permanently lost after {} attempts", AUDIT_MAX_RETRIES);
     });
 }
 

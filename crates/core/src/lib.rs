@@ -1,3 +1,8 @@
+//! ClotoCore kernel — an AI agent orchestration platform.
+//!
+//! Provides the Axum HTTP server, event-driven plugin system, SQLite persistence,
+//! MCP server management, and the agentic loop that ties agents to reasoning engines.
+
 pub mod capabilities;
 pub mod cli;
 pub mod config;
@@ -17,6 +22,12 @@ pub use db::{
     create_permission_request, get_pending_permission_requests, is_permission_approved,
     query_audit_logs, update_permission_request, write_audit_log, AuditLogEntry, PermissionRequest,
 };
+
+/// Rate limiter stale-entry cleanup interval in seconds.
+const RATE_LIMITER_CLEANUP_SECS: u64 = 600;
+
+/// Revoked API keys TTL cleanup interval in seconds (6 hours).
+const REVOKED_KEYS_CLEANUP_SECS: u64 = 21_600;
 
 use cloto_shared::ClotoEvent;
 use sqlx::SqlitePool;
@@ -234,6 +245,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // 0c. Ensure Python MCP venv exists (auto-setup on first run)
     managers::mcp_venv::ensure_mcp_venv().await;
 
+    // 0d. Set database timeout from config
+    db::set_db_timeout(config.db_timeout_secs);
+
     // 1. データベースの初期化
     use sqlx::sqlite::SqliteConnectOptions;
     use std::str::FromStr;
@@ -250,6 +264,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         config.allowed_hosts.clone(),
         config.plugin_event_timeout_secs,
         config.max_event_depth,
+        config.event_concurrency_limit,
     )?;
     plugin_manager_obj.shutdown = shutdown.clone();
 
@@ -275,6 +290,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let mcp_manager = Arc::new(managers::McpClientManager::new(
         pool.clone(),
         yolo_mode,
+        config.mcp_request_timeout_secs,
     ));
 
     // 4. Initialize External Plugins
@@ -283,7 +299,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let registry_arc = Arc::new(registry);
 
     // 5. Managers & Internal Handlers
-    let agent_manager = AgentManager::new(pool.clone());
+    let agent_manager = AgentManager::new(pool.clone(), config.heartbeat_threshold_ms);
     let (tx, _rx) = tokio::sync::broadcast::channel(100);
 
     let dynamic_router = Arc::new(DynamicRouter {
@@ -320,6 +336,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         session_trusted_commands.clone(),
         pool.clone(),
         active_cron_contexts.clone(),
+        config.memory_timeout_secs,
     ));
 
     // SystemHandler is NOT registered as a plugin — it runs outside the dispatch
@@ -359,7 +376,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     }
 
     // 5. Rate Limiter & App State
-    let rate_limiter = Arc::new(middleware::RateLimiter::new(10, 20));
+    let rate_limiter = Arc::new(middleware::RateLimiter::new(config.rate_limit_per_sec, config.rate_limit_burst));
 
     // Load revoked key hashes into memory
     let revoked_keys = {
@@ -427,6 +444,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         config.event_retention_hours,
         Some(consensus_orchestrator),
         system_handler,
+        config.max_event_history,
     ));
 
     // Start event history cleanup task
@@ -506,6 +524,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     managers::llm_proxy::spawn_llm_proxy(
         pool.clone(),
         config.llm_proxy_port,
+        config.llm_proxy_timeout_secs,
         app_state.shutdown.clone(),
     );
 
@@ -525,7 +544,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let rl = rate_limiter.clone();
     let shutdown_clone = app_state.shutdown.clone();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(RATE_LIMITER_CLEANUP_SECS));
         loop {
             tokio::select! {
                 () = shutdown_clone.notified() => {
@@ -545,7 +564,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         let revoked_keys_clone = app_state.revoked_keys.clone();
         let shutdown_clone = app_state.shutdown.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 60 * 60));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(REVOKED_KEYS_CLEANUP_SECS));
             loop {
                 tokio::select! {
                     () = shutdown_clone.notified() => {

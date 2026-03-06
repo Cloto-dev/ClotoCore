@@ -113,9 +113,9 @@ async fn test_vulnerability_event_forging() {
         .await
         .unwrap();
 
-    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 5, 10).unwrap());
-    let agent_manager = AgentManager::new(pool.clone());
-    let registry = Arc::new(PluginRegistry::new(5, 10));
+    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 5, 10, 50).unwrap());
+    let agent_manager = AgentManager::new(pool.clone(), 90_000);
+    let registry = Arc::new(PluginRegistry::new(5, 10, 50));
 
     // 2. Setup IDs
     let admin_id = ClotoId::new();
@@ -162,6 +162,7 @@ async fn test_vulnerability_event_forging() {
         Arc::new(dashmap::DashMap::new()),
         pool.clone(),
         Arc::new(dashmap::DashMap::new()),
+        5, // memory_timeout_secs
     ));
 
     let processor = EventProcessor::new(
@@ -171,10 +172,11 @@ async fn test_vulnerability_event_forging() {
         tx_broadcast.clone(),
         event_history,
         metrics,
-        1000, // max_history_size
-        24,   // event_retention_hours
-        None, // consensus
+        1000,  // max_history_size
+        24,    // event_retention_hours
+        None,  // consensus
         sys_handler,
+        10_000, // max_event_history
     );
 
     // Run Processor in background

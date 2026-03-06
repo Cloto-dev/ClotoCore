@@ -1,291 +1,294 @@
 # ClotoCore Project Vision
 
 > **"Neuro-Sama for Everyone"**
-> 高度なAIキャラクターを、GUIで誰でも構築・操作できるプラットフォーム
+> A platform where anyone can build and operate advanced AI characters through a GUI
 
 ---
 
-## 1. ClotoCoreとは何か
+## 1. What is ClotoCore?
 
-ClotoCoreは、**AIコンテナ**と**プラグインセット**の組み合わせにより、
-Neuro-Samaのような極めて高度なAIを、質の高いGUIベースで構築・操作可能にする
-Rust製オープンソースプラットフォームである。
+ClotoCore is a Rust-based open-source platform that makes it possible to build and operate
+highly advanced AIs -- comparable to Neuro-Sama -- through a high-quality GUI,
+using the combination of **AI Containers** and **plugin sets**.
 
-チャットボットではない。AIアシスタントでもない。
-**人格を持ち、能力を持ち、ユーザーと関係を築くAIパートナー**を、
-自分のマシンで、自分のデータで、自分の手で作れるようにする。
-
----
-
-## 2. 競合分析：OpenClaw
-
-| 項目 | OpenClaw | ClotoCore |
-|------|----------|------|
-| **言語** | TypeScript | Rust |
-| **UI** | メッセージングプラットフォーム (WhatsApp, Discord等) | GUI ダッシュボード + Tauri デスクトップ |
-| **設計思想** | チャットベースのパーソナルアシスタント | プラグイン構成型AIコンテナ |
-| **セキュリティ** | 広範なローカル権限 | サンドボックス・パーミッション分離 |
-| **拡張** | TypeScript / WASM / Skills | MCP server plugins (any language) |
-| **ライセンス** | Apache 2.0 | BSL 1.1 → MIT (2028) |
-
-### ClotoCoreの差別化ポイント
-
-1. **Rust** — パフォーマンス、メモリ安全性、低リソース
-2. **セキュリティファースト** — SafeHttpClient、MCPプロセス隔離、パーミッション分離
-3. **GUIファースト** — ダッシュボードで非技術者も操作可能
-4. **AIコンテナ** — パッケージ化された人格・能力セットという独自概念
+It is not a chatbot. It is not an AI assistant.
+It is a platform that lets you create **an AI partner with personality, capabilities,
+and the ability to build a relationship with the user** --
+on your own machine, with your own data, with your own hands.
 
 ---
 
-## 3. ターゲットユーザー
+## 2. Competitive Analysis: OpenClaw
 
-### 層1: カジュアル層
+| Aspect | OpenClaw | ClotoCore |
+|--------|----------|-----------|
+| **Language** | TypeScript | Rust |
+| **UI** | Messaging platforms (WhatsApp, Discord, etc.) | GUI Dashboard + Tauri desktop |
+| **Design philosophy** | Chat-based personal assistant | Plugin-composable AI container |
+| **Security** | Broad local permissions | Sandbox and permission isolation |
+| **Extension** | TypeScript / WASM / Skills | MCP server plugins (any language) |
+| **License** | Apache 2.0 | BSL 1.1 → MIT (2028) |
 
-GPT-4oを好んでいた、AIパートナーを求めるユーザー。
+### ClotoCore's Differentiators
 
-**求めているもの:**
-- 人格のあるAI、感情的繋がり、ビジュアル
-- 技術的知識なしで使えるインターフェース
-- プライバシー（データが外部に出ない安心感）
-
-**ClotoCoreが提供するもの:**
-- プリセット「AIコンテナ」をワンクリックでインストール
-- GUIでパラメータ調整（性格、声、見た目）
-- ダッシュボードからリアルタイム会話
-
-**メッセージ:**
-> *「自分だけのAIパートナーを、自分のPCで。データは外に出ません。」*
-
-### 層2: 技術者層
-
-高度なフレームワークを求める開発者・研究者。
-
-**求めているもの:**
-- 拡張可能なフレームワーク
-- Rustの安全性とパフォーマンス
-- プラグイン開発の自由度
-
-**ClotoCoreが提供するもの:**
-- MCP (Model Context Protocol) ベースの拡張モデル（任意言語で MCP Server を記述可能）
-- イベント駆動アーキテクチャ
-- セキュリティサンドボックス
-
-**メッセージ:**
-> *「セキュリティファースト。ClotoCoreはパーミッション分離とサンドボックスで設計されています。」*
+1. **Rust** -- Performance, memory safety, low resource usage
+2. **Security-first** -- SafeHttpClient, MCP process isolation, permission separation
+3. **GUI-first** -- Dashboard enables operation by non-technical users
+4. **AI Containers** -- A unique concept of packaged personality and capability sets
 
 ---
 
-## 4. コアコンセプト：AIコンテナ
+## 3. Target Users
 
-AIコンテナとは、**プラグインセット + 人格定義 + 能力セット**を
-パッケージ化した配布可能な単位である。
+### Tier 1: Casual Users
+
+Users who enjoyed GPT-4o and are seeking an AI partner.
+
+**What they want:**
+- AI with personality, emotional connection, visuals
+- An interface usable without technical knowledge
+- Privacy (the assurance that data stays local)
+
+**What ClotoCore provides:**
+- One-click installation of preset "AI Containers"
+- GUI-based parameter tuning (personality, voice, appearance)
+- Real-time conversation from the dashboard
+
+**Message:**
+> *"Your own AI partner, on your own PC. Your data never leaves."*
+
+### Tier 2: Technical Users
+
+Developers and researchers seeking an advanced framework.
+
+**What they want:**
+- An extensible framework
+- Rust's safety and performance
+- Freedom in plugin development
+
+**What ClotoCore provides:**
+- MCP (Model Context Protocol)-based extension model (write MCP Servers in any language)
+- Event-driven architecture
+- Security sandbox
+
+**Message:**
+> *"Security-first. ClotoCore is designed with permission isolation and sandboxing."*
+
+---
+
+## 4. Core Concept: AI Containers
+
+An AI Container is a distributable unit that packages together
+**a plugin set + personality definition + capability set**.
 
 ```
-AIコンテナ = プラグインセット + 人格定義 + 能力セット
+AI Container = Plugin Set + Personality Definition + Capability Set
 
-例: "Neuro風VTuber" コンテナ
-├── reasoning: DeepSeek (会話エンジン)
-├── vision: カメラ/画面認識プラグイン
-├── personality: キャラクター定義
-├── voice: TTS/STTプラグイン
-└── avatar: Live2D/VRM連携プラグイン
+Example: "Neuro-style VTuber" Container
+├── reasoning: DeepSeek (conversation engine)
+├── vision: Camera/screen recognition plugin
+├── personality: Character definition
+├── voice: TTS/STT plugin
+└── avatar: Live2D/VRM integration plugin
 
-例: "研究アシスタント" コンテナ
+Example: "Research Assistant" Container
 ├── reasoning: Claude / GPT-4o
-├── tools: ファイル検索、Web検索
-├── personality: 学術的・正確性重視
-└── memory: 長期記憶プラグイン
+├── tools: File search, web search
+├── personality: Academic, accuracy-focused
+└── memory: Long-term memory plugin
 ```
 
-### Neuro-Samaから学ぶ設計原則
+### Design Principles Learned from Neuro-Sama
 
-Neuro-samaのアーキテクチャ（C# + Python、複数AIサブシステムの協調）から
-以下の原則をClotoCoreに適用する：
+The following principles are derived from Neuro-Sama's architecture (C# + Python,
+coordination of multiple AI subsystems) and applied to ClotoCore:
 
-1. **複数AIサブシステムの協調** — プラグイン間のイベント連携で実現
-2. **リアルタイムインタラクション** — イベント駆動アーキテクチャで実現
-3. **人格の一貫性** — AIコンテナのpersonality定義で実現
-4. **能力の分離** — 会話・視覚・音声を独立プラグインとして分離
+1. **Coordination of multiple AI subsystems** -- Achieved through event-based inter-plugin communication
+2. **Real-time interaction** -- Achieved through event-driven architecture
+3. **Personality consistency** -- Achieved through the AI Container's personality definition
+4. **Capability separation** -- Conversation, vision, and voice separated as independent plugins
 
 ---
 
-## 5. アーキテクチャレイヤー構造
+## 5. Architecture Layer Structure
 
-ClotoCore は「Neuro-Sama for Everyone」を5つのレイヤーで段階的に実現する。
-各レイヤーは独立しており、上位レイヤーは MCP サーバーの追加で実現可能。
-カーネルの大規模な変更は不要である。
+ClotoCore realizes "Neuro-Sama for Everyone" through five progressive layers.
+Each layer is independent, and upper layers can be realized by adding MCP servers.
+No major Kernel modifications are required.
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  Layer 5: フロントエンド体験                           │
-│  Live2D/VRM アバター、TTS/STT、配信連携                │
+│  Layer 5: Frontend Experience                        │
+│  Live2D/VRM avatar, TTS/STT, streaming integration   │
 │  → MCP: mcp-servers/avatar/, mcp-servers/voice/      │
 ├─────────────────────────────────────────────────────┤
-│  Layer 4: 感情・人格エンジン                           │
-│  内部感情状態、人格の一貫性、気分変動、自発的発話         │
-│  → MCP: mcp-servers/emotion/ (KS22 と連携)           │
+│  Layer 4: Emotion & Personality Engine               │
+│  Internal emotional state, personality consistency,   │
+│  mood fluctuation, spontaneous speech                │
+│  → MCP: mcp-servers/emotion/ (integrated with KS22) │
 ├─────────────────────────────────────────────────────┤
-│  Layer 3: リアルタイムイベント駆動                      │
-│  チャット、視覚入力、音声入力への即座の反応              │
-│  → 既存: SSE + MessageReceived イベント               │
+│  Layer 3: Real-Time Event-Driven                     │
+│  Instant response to chat, visual input, voice input │
+│  → Existing: SSE + MessageReceived event             │
 │  → MCP: mcp-servers/vision/, @playwright/mcp         │
 ├─────────────────────────────────────────────────────┤
-│  Layer 2: 自律トリガー層                              │
-│  Heartbeat (定期チェック)、Cron (スケジュール実行)       │
-│  → カーネル: managers/scheduler.rs (既存パターン踏襲)   │
-│  → 状態永続化: KS22 MCP                              │
+│  Layer 2: Autonomous Trigger Layer                   │
+│  Heartbeat (periodic checks), Cron (scheduled exec)  │
+│  → Kernel: managers/scheduler.rs (follows existing   │
+│    patterns)                                         │
+│  → State persistence: KS22 MCP                       │
 ├─────────────────────────────────────────────────────┤
-│  Layer 1: コアインフラ                      [実装済み]  │
-│  Rust Kernel、Agentic Loop、MCP、KS22 記憶            │
-│  アクセス制御、YOLO mode、Dashboard UI                 │
+│  Layer 1: Core Infrastructure              [Done]    │
+│  Rust Kernel, Agentic Loop, MCP, KS22 memory         │
+│  Access control, YOLO mode, Dashboard UI             │
 └─────────────────────────────────────────────────────┘
 ```
 
-### レイヤー詳細
+### Layer Details
 
-| Layer | 状態 | 実現方法 | カーネル変更 |
-|-------|------|---------|------------|
-| **L1: コアインフラ** | 実装済み | — | — |
-| **L2: 自律トリガー** | 設計済み | `tokio::interval` + CronジョブDB | 最小限 (イベント型+スケジューラ追加) |
-| **L3: リアルタイム駆動** | 部分実装 | MCP サーバー追加 | なし |
-| **L4: 感情エンジン** | 未着手 | MCP サーバー追加 | なし |
-| **L5: アバター連携** | 設計済み | MCP サーバー追加 (Sapphy V2 VRM) | なし |
+| Layer | Status | Implementation | Kernel Changes |
+|-------|--------|----------------|----------------|
+| **L1: Core Infrastructure** | Done | -- | -- |
+| **L2: Autonomous Triggers** | Designed | `tokio::interval` + Cron job DB | Minimal (add event type + scheduler) |
+| **L3: Real-Time Driven** | Partially implemented | Add MCP servers | None |
+| **L4: Emotion Engine** | Not started | Add MCP servers | None |
+| **L5: Avatar Integration** | Designed | Add MCP servers (Sapphy V2 VRM) | None |
 
-### 設計原則：MCP によるレイヤー拡張
+### Design Principle: Layer Extension via MCP
 
-カーネルは「ルーティング + アクセス制御 + agentic loop」に徹し、
-全ての能力拡張を MCP サーバーとして外部に分離する。
+The Kernel focuses on "routing + access control + agentic loop,"
+with all capability extensions separated out as external MCP servers.
 
 ```
 Kernel (Rust)
   │
-  ├── MCP: mind.deepseek     (推論エンジン)         ← L1
-  ├── MCP: mind.cerebras     (推論エンジン)         ← L1
-  ├── MCP: memory.ks22       (長期記憶)             ← L1
-  ├── MCP: tool.terminal     (シェル実行)           ← L1
-  ├── MCP: tool.browser      (@playwright/mcp)      ← L3
-  ├── MCP: sense.vision      (カメラ/画面認識)       ← L3
-  ├── MCP: sense.voice       (STT 音声入力)          ← L3
-  ├── MCP: persona.emotion   (感情状態管理)          ← L4
-  ├── MCP: output.tts        (音声合成)             ← L5
-  └── MCP: output.avatar     (VRM 制御 — Sapphy V2)  ← L5
+  ├── MCP: mind.deepseek     (reasoning engine)        ← L1
+  ├── MCP: mind.cerebras     (reasoning engine)        ← L1
+  ├── MCP: memory.ks22       (long-term memory)        ← L1
+  ├── MCP: tool.terminal     (shell execution)         ← L1
+  ├── MCP: tool.browser      (@playwright/mcp)         ← L3
+  ├── MCP: sense.vision      (camera/screen recognition) ← L3
+  ├── MCP: sense.voice       (STT voice input)         ← L3
+  ├── MCP: persona.emotion   (emotional state mgmt)    ← L4
+  ├── MCP: output.tts        (text-to-speech)          ← L5
+  └── MCP: output.avatar     (VRM control — Sapphy V2) ← L5
 ```
 
-この設計により:
-- カーネルのコードを変更せずに能力を追加できる
-- 各 MCP サーバーは任意の言語で実装可能 (Python, TypeScript, Rust 等)
-- `mcp_access_control` テーブルで per-agent 権限管理が自動適用される
-- コミュニティが独自の MCP サーバーを開発・共有できる
+With this design:
+- Capabilities can be added without modifying the Kernel code
+- Each MCP server can be implemented in any language (Python, TypeScript, Rust, etc.)
+- The `mcp_access_control` table automatically applies per-agent permission management
+- The community can develop and share their own MCP servers
 
-### Neuro-Sama との技術的対応関係
+### Technical Correspondence with Neuro-Sama
 
 | Neuro-Sama (C# + Python) | ClotoCore (Rust + MCP) |
 |--------------------------|----------------------|
-| 複数AIサブシステムの協調 | Kernel が MCP サーバー群をオーケストレーション |
-| リアルタイムインタラクション | SSE イベント + MessageReceived + Heartbeat |
-| 人格の一貫性 | AIコンテナの personality 定義 + persona.emotion MCP |
-| 能力の分離 | 1能力 = 1 MCP サーバー (プロセス隔離) |
-| 連続的な「意識」の模倣 | L2 Heartbeat + L4 感情状態の永続化 |
-| 自発的な発話・行動 | Cron トリガー + 感情エンジンの閾値判定 |
+| Coordination of multiple AI subsystems | Kernel orchestrates MCP server fleet |
+| Real-time interaction | SSE events + MessageReceived + Heartbeat |
+| Personality consistency | AI Container personality definition + persona.emotion MCP |
+| Capability separation | 1 capability = 1 MCP server (process isolation) |
+| Simulating continuous "consciousness" | L2 Heartbeat + L4 emotional state persistence |
+| Spontaneous speech and actions | Cron triggers + emotion engine threshold evaluation |
 
 ---
 
-## 6. ロードマップ
+## 6. Roadmap
 
-### Layer ロードマップ
+### Layer Roadmap
 
-| バージョン | Layer | マイルストーン |
-|-----------|-------|--------------|
-| v0.3.x | L1 完成 | Agentic loop, MCP, KS22, Chat UX, Dashboard |
-| v0.4.x | L2 追加 | Heartbeat/Cron スケジューラ、自律トリガー |
-| v0.5.x | L3 強化 | ブラウザ自動化 (Playwright MCP)、Vision 入力 |
-| v0.6+ | L4 着手 | 感情状態管理、自発的発話 |
-| v1.0+ | L5 着手 | TTS/STT、アバター連携、配信統合 |
+| Version | Layer | Milestone |
+|---------|-------|-----------|
+| v0.3.x | L1 complete | Agentic loop, MCP, KS22, Chat UX, Dashboard |
+| v0.4.x | L2 added | Heartbeat/Cron scheduler, autonomous triggers |
+| v0.5.x | L3 enhanced | Browser automation (Playwright MCP), Vision input |
+| v0.6+ | L4 started | Emotional state management, spontaneous speech |
+| v1.0+ | L5 started | TTS/STT, avatar integration, streaming integration |
 
-### Phase A: 短期 (1-2ヶ月) — 「見せられるもの」を作る
+### Phase A: Short-term (1-2 months) -- "Build something showable"
 
-1. **AIコンテナ仕様を定義する** — JSON/TOML でパッケージング形式を設計
-2. **デモ用コンテナを1つ作る** — DeepSeek + 簡単な人格定義 + ダッシュボード会話
-3. **30秒デモ動画** — 「インストール → コンテナ選択 → 会話」のフロー
-4. **ランディングページ** — 「Build your own AI partner」のメッセージ
+1. **Define the AI Container specification** -- Design a packaging format in JSON/TOML
+2. **Create one demo container** -- DeepSeek + simple personality definition + dashboard conversation
+3. **30-second demo video** -- Flow: "Install → select container → start conversation"
+4. **Landing page** -- Message: "Build your own AI partner"
 
-### Phase B: 中期 (3-6ヶ月) — コミュニティを作る
+### Phase B: Mid-term (3-6 months) -- "Build a community"
 
-5. **AIコンテナのマーケットプレイス構想** — ユーザーが作ったコンテナを共有
-6. **OpenClawからの移行ガイド** — セキュリティ比較を前面に
-7. **r/LocalLLaMA、Hacker Newsへの投稿** — Rust製 × セキュリティの切り口
-8. **Discord コミュニティ開設**
+5. **AI Container marketplace concept** -- Users share their created containers
+6. **Migration guide from OpenClaw** -- Lead with the security comparison
+7. **Post on r/LocalLLaMA, Hacker News** -- Angle: Rust-based + security-first
+8. **Open a Discord community**
 
-### Phase C: 長期 — エコシステムを育てる
+### Phase C: Long-term -- "Grow the ecosystem"
 
-9. **プラグイン開発者向けSDKドキュメント**
-10. **AIコンテナ作成者向けガイド** — 非プログラマでも作れるように
-11. **コンテナマーケットプレイスの実装**
-
----
-
-## 7. 開発方針：一人で抱えない
-
-コアの20%を磨いて、残り80%はコミュニティに任せる設計にする。
-
-### 自分がやること
-
-- コアランタイム（Rust）
-- AIコンテナ仕様設計
-- プラグインSDK
-- セキュリティモデル
-- ビジョンの発信
-
-### コミュニティに任せること
-
-- 個々のプラグイン開発（TTS、Vision、Avatar等）
-- AIコンテナの作成・共有
-- ダッシュボードのUI改善
-- ドキュメント翻訳・拡充
-- プラットフォーム固有の対応
+9. **SDK documentation for plugin developers**
+10. **Guide for AI Container creators** -- Accessible even to non-programmers
+11. **Implement the container marketplace**
 
 ---
 
-## 8. ポジショニングステートメント
+## 7. Development Philosophy: Don't Do It All Alone
 
-**OpenClawが「チャットで指示するAIアシスタント」なら、
-ClotoCoreは「GUIで構築するAIパートナー」である。**
+Polish the core 20%, and design the remaining 80% to be handled by the community.
 
-OpenClawはメッセージングプラットフォーム上のテキストインターフェースに縛られている。
-ClotoCoreは、ビジュアル・音声・人格を持つAIを、
-セキュリティを担保しながらGUIで組み立てる体験を提供する。
+### What we handle
+
+- Core runtime (Rust)
+- AI Container specification design
+- Plugin SDK
+- Security model
+- Vision communication
+
+### What the community handles
+
+- Individual plugin development (TTS, Vision, Avatar, etc.)
+- AI Container creation and sharing
+- Dashboard UI improvements
+- Documentation translation and expansion
+- Platform-specific support
 
 ---
 
-## 9. Layer 5 アバターシステム：Sapphy V2
+## 8. Positioning Statement
 
-### 採用モデル
+**If OpenClaw is "an AI assistant you instruct through chat,"
+ClotoCore is "an AI partner you build through a GUI."**
 
-- **モデル名**: サフィー (Sapphy) V2
-- **作者**: Yueou / 仮想VoidCat
-- **入手先**: https://booth.pm/ja/items/3939858
-- **価格**: ¥5,480 (ユーザーが個別に購入)
-- **形式**: VRM, FBX (Perfect Sync 対応)
-- **ライセンス**: VN3 (個人営利利用可、法人は要問い合わせ)
+OpenClaw is bound to a text interface on messaging platforms.
+ClotoCore provides an experience of assembling an AI with visuals, voice,
+and personality through a GUI, all while ensuring security.
 
-### モデル選定理由
+---
 
-| 観点 | 評価 |
-|------|------|
-| **世界観** | 白銀髪 + シアンアクセント + SF/サイバネティック — ClotoCore ダッシュボードの glass morphism + シアンカラーと一致 |
-| **技術適合** | VRM 形式、ARKit BlendShape 52種、Lipsync 15ビセム、67,542ポリゴン — three.js + @pixiv/three-vrm で WebGL 描画可能 |
-| **表情制御** | 403 BlendShape — MCP ツール `set_expression()` で豊富な表情制御が可能 |
-| **ライセンス** | 個人利用で営利可、改変可、クレジット不要 — ClotoCore BSL 期間中の開発・デモに問題なし |
+## 9. Layer 5 Avatar System: Sapphy V2
 
-### アーキテクチャ
+### Selected Model
+
+- **Model name**: Sapphy V2
+- **Author**: Yueou / Virtual VoidCat
+- **Source**: https://booth.pm/ja/items/3939858
+- **Price**: ¥5,480 (purchased individually by users)
+- **Format**: VRM, FBX (Perfect Sync compatible)
+- **License**: VN3 (personal commercial use allowed; contact required for corporate use)
+
+### Model Selection Rationale
+
+| Aspect | Evaluation |
+|--------|------------|
+| **Aesthetic fit** | Silver-white hair + cyan accents + SF/cybernetic -- matches ClotoCore dashboard's glass morphism + cyan color scheme |
+| **Technical fit** | VRM format, 52 ARKit BlendShapes, 15 lipsync visemes, 67,542 polygons -- renderable via three.js + @pixiv/three-vrm in WebGL |
+| **Expression control** | 403 BlendShapes -- rich expression control possible via MCP tool `set_expression()` |
+| **License** | Commercial use allowed for individuals, modification allowed, no credit required -- no issues for development and demos during ClotoCore's BSL period |
+
+### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  Tauri WebView (three.js + @pixiv/three-vrm)        │
-│  └─ VRM モデル描画 (60fps WebGL)                     │
-│     ├─ BlendShape → 表情・口パク                     │
-│     ├─ SpringBone → 髪・衣装の物理                   │
-│     └─ Gaze → 視線追従                              │
+│  └─ VRM model rendering (60fps WebGL)               │
+│     ├─ BlendShape → expressions & lip sync          │
+│     ├─ SpringBone → hair & clothing physics         │
+│     └─ Gaze → eye tracking                          │
 ├─────────────────────────────────────────────────────┤
 │  avatar.vrm (MCP Server — Layer 5)                  │
 │  Tools:                                              │
@@ -295,28 +298,28 @@ ClotoCoreは、ビジュアル・音声・人格を持つAIを、
 │    ├─ play_animation(name)                           │
 │    └─ set_idle_behavior(mode)                        │
 ├─────────────────────────────────────────────────────┤
-│  連携 MCP サーバー                                    │
-│    ├─ persona.emotion (L4) → 感情 → set_expression  │
-│    ├─ output.tts (L5)     → 音素 → set_mouth_shape  │
-│    └─ vision.gaze_webcam  → 視線 → set_gaze         │
+│  Linked MCP Servers                                  │
+│    ├─ persona.emotion (L4) → emotion → set_expression│
+│    ├─ output.tts (L5)     → phoneme → set_mouth_shape│
+│    └─ vision.gaze_webcam  → gaze   → set_gaze       │
 └─────────────────────────────────────────────────────┘
 ```
 
-### 配布方針
+### Distribution Policy
 
-モデルファイルは有料アセットのため、リポジトリに同梱しない:
+The model file is a paid asset and is not included in the repository:
 
-1. ユーザーが BOOTH から Sapphy V2 を購入
-2. VRM ファイルを `data/avatar/` に配置
-3. ClotoCore が自動検出してアバター描画を有効化
+1. Users purchase Sapphy V2 from BOOTH
+2. Place the VRM file in `data/avatar/`
+3. ClotoCore auto-detects it and enables avatar rendering
 
-`data/avatar/` は `.gitignore` に追加。README にセットアップ手順を記載。
+`data/avatar/` is added to `.gitignore`. Setup instructions are documented in the README.
 
-### 将来の拡張
+### Future Extensions
 
-- 任意の VRM モデルに差し替え可能（Sapphy V2 は推奨モデル、唯一の選択肢ではない）
-- コミュニティが独自のアバター MCP サーバーを開発可能
-- Live2D 対応は別の MCP サーバー (`avatar.live2d`) として追加可能
+- Swappable with any VRM model (Sapphy V2 is the recommended model, not the only option)
+- The community can develop their own avatar MCP servers
+- Live2D support can be added as a separate MCP server (`avatar.live2d`)
 
 ---
 

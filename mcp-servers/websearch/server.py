@@ -22,9 +22,9 @@ from mcp.types import TextContent, Tool
 PROVIDER = os.environ.get("CLOTO_SEARCH_PROVIDER", "auto")
 SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://localhost:8080")
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
-DEFAULT_MAX_RESULTS = 5
-FETCH_MAX_LENGTH = 10000
-REQUEST_TIMEOUT = 15
+DEFAULT_MAX_RESULTS = int(os.environ.get("CLOTO_SEARCH_MAX_RESULTS", "5"))
+FETCH_MAX_LENGTH = int(os.environ.get("CLOTO_FETCH_MAX_LENGTH", "10000"))
+REQUEST_TIMEOUT = int(os.environ.get("CLOTO_SEARCH_TIMEOUT", "15"))
 
 
 # ============================================================
