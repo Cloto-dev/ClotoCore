@@ -25,7 +25,15 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
+from common.validation import validate_str, validate_int, validate_dict, validate_list
+
 logger = logging.getLogger(__name__)
+
+
+def _clamp_limit(limit: int, cap: int) -> int:
+    """Clamp a user-supplied limit to [0, cap], preventing negative bypass."""
+    return min(max(0, limit), cap)
+
 
 # ============================================================
 # Configuration
@@ -971,44 +979,44 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     try:
         if name == "store":
             result = await do_store(
-                arguments.get("agent_id", ""),
-                arguments.get("message", {}),
+                validate_str(arguments, "agent_id"),
+                validate_dict(arguments, "message"),
             )
         elif name == "recall":
             result = await do_recall(
-                arguments.get("agent_id", ""),
-                arguments.get("query", ""),
-                arguments.get("limit", 10),
+                validate_str(arguments, "agent_id"),
+                validate_str(arguments, "query"),
+                validate_int(arguments, "limit", 10),
             )
         elif name == "update_profile":
             result = await do_update_profile(
-                arguments.get("agent_id", ""),
-                arguments.get("history", []),
+                validate_str(arguments, "agent_id"),
+                validate_list(arguments, "history"),
             )
         elif name == "archive_episode":
             result = await do_archive_episode(
-                arguments.get("agent_id", ""),
-                arguments.get("history", []),
+                validate_str(arguments, "agent_id"),
+                validate_list(arguments, "history"),
             )
         elif name == "list_memories":
             result = await do_list_memories(
-                arguments.get("agent_id", ""),
-                arguments.get("limit", 100),
+                validate_str(arguments, "agent_id"),
+                validate_int(arguments, "limit", 100),
             )
         elif name == "list_episodes":
             result = await do_list_episodes(
-                arguments.get("agent_id", ""),
-                arguments.get("limit", 50),
+                validate_str(arguments, "agent_id"),
+                validate_int(arguments, "limit", 50),
             )
         elif name == "delete_memory":
             result = await do_delete_memory(
-                arguments.get("memory_id", 0),
-                arguments.get("agent_id", ""),
+                validate_int(arguments, "memory_id"),
+                validate_str(arguments, "agent_id"),
             )
         elif name == "delete_episode":
             result = await do_delete_episode(
-                arguments.get("episode_id", 0),
-                arguments.get("agent_id", ""),
+                validate_int(arguments, "episode_id"),
+                validate_str(arguments, "agent_id"),
             )
         else:
             result = {"error": f"Unknown tool: {name}"}
@@ -1027,13 +1035,13 @@ async def do_list_memories(agent_id: str, limit: int) -> dict:
         rows = await db.execute_fetchall(
             "SELECT id, agent_id, msg_id, content, source, timestamp, created_at "
             "FROM memories WHERE agent_id = ? ORDER BY created_at DESC LIMIT ?",
-            (agent_id, min(limit, 500)),
+            (agent_id, _clamp_limit(limit, 500)),
         )
     else:
         rows = await db.execute_fetchall(
             "SELECT id, agent_id, msg_id, content, source, timestamp, created_at "
             "FROM memories ORDER BY created_at DESC LIMIT ?",
-            (min(limit, 500),),
+            (_clamp_limit(limit, 500),),
         )
     memories = []
     for row in rows:
@@ -1060,13 +1068,13 @@ async def do_list_episodes(agent_id: str, limit: int) -> dict:
         rows = await db.execute_fetchall(
             "SELECT id, agent_id, summary, keywords, start_time, end_time, created_at "
             "FROM episodes WHERE agent_id = ? ORDER BY created_at DESC LIMIT ?",
-            (agent_id, min(limit, 200)),
+            (agent_id, _clamp_limit(limit, 200)),
         )
     else:
         rows = await db.execute_fetchall(
             "SELECT id, agent_id, summary, keywords, start_time, end_time, created_at "
             "FROM episodes ORDER BY created_at DESC LIMIT ?",
-            (min(limit, 200),),
+            (_clamp_limit(limit, 200),),
         )
     episodes = []
     for row in rows:
