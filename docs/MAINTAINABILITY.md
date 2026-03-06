@@ -14,8 +14,7 @@
 ClotoCore/
 ├── crates/
 │   ├── core/        # カーネル・ハンドラー・DB・managers/・ミドルウェア
-│   ├── shared/      # 共有トレイト定義
-│   └── cli/         # CLIツール
+│   └── shared/      # 共有トレイト定義
 ├── mcp-servers/     # 5 MCP servers (cerebras, deepseek, embedding, ks22, terminal)
 ├── dashboard/       # React + TypeScript + Tauri 2.x
 ├── scripts/         # ユーティリティスクリプト
@@ -23,7 +22,7 @@ ClotoCore/
 └── .dev-notes/      # 保守ノート（gitignore対象・補足資料）
 ```
 
-**技術スタック**: Rust（ワークスペース 3 クレート）/ TypeScript + React / Python
+**技術スタック**: Rust（ワークスペース 2 クレート）/ TypeScript + React / Python
 
 ---
 
@@ -165,7 +164,6 @@ if history.len() > MAX_EVENT_HISTORY {
 | 本番コードで要確認 | ~5 | 下記参照 |
 
 **本番コード内の要確認箇所**:
-- `crates/cli/src/output.rs:97` — `expect()` への置換を検討
 - `dashboard/src-tauri/src/lib.rs:108` — Tauri アイコン取得（フレームワーク慣習として許容可）
 
 ### `#[allow(dead_code)]` （12箇所）
@@ -173,9 +171,7 @@ if history.len() > MAX_EVENT_HISTORY {
 | 箇所 | 理由 | 判定 |
 |---|---|---|
 | `plugins/moderator/src/lib.rs` | 将来の UI 用フィールド | ✅ 正当 |
-| `crates/cli/src/client.rs` (3箇所) | 将来の API レスポンスフィールド | ✅ 正当 |
 | `crates/core/src/handlers.rs:797` | 調査が必要 | ⚠️ 要確認 |
-| `crates/cli/src/tui/app.rs:25, 125` | 調査が必要 | ⚠️ 要確認 |
 
 ### TODO/FIXME/HACK コメント
 
@@ -221,7 +217,6 @@ if history.len() > MAX_EVENT_HISTORY {
 ### 即時対応
 
 - [ ] `qa/issue-registry.json` の bug-017 を `"status": "fixed"` に修正し `verify-issues.sh` を実行
-- [ ] `crates/cli/src/output.rs:97` の `unwrap()` を確認・必要なら `expect()` に置換
 
 ### 1ヶ月以内
 
