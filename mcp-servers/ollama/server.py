@@ -24,6 +24,7 @@ _script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.normpath(os.path.join(_script_dir, "..")))
 
 from common.llm_provider import build_system_prompt, build_chat_messages
+from common.validation import validate_dict, validate_list
 
 # ============================================================
 # Configuration (from environment variables)
@@ -196,9 +197,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 async def handle_think(arguments: dict) -> list[TextContent]:
     """Handle 'think' tool: text generation via local Ollama."""
     try:
-        agent = arguments.get("agent", {})
-        message = arguments.get("message", {})
-        context = arguments.get("context", [])
+        agent = validate_dict(arguments, "agent")
+        message = validate_dict(arguments, "message")
+        context = validate_list(arguments, "context")
 
         messages = build_chat_messages(agent, message, context)
         response_data = await call_ollama_api(messages)
