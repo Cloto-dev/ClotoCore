@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "api_openai")
 EMBEDDING_HTTP_PORT = int(os.environ.get("EMBEDDING_HTTP_PORT", "8401"))
+if not (1 <= EMBEDDING_HTTP_PORT <= 65535):
+    raise ValueError(f"EMBEDDING_HTTP_PORT must be 1-65535, got {EMBEDDING_HTTP_PORT}")
 EMBEDDING_API_KEY = os.environ.get("EMBEDDING_API_KEY", "")
 EMBEDDING_API_URL = os.environ.get(
     "EMBEDDING_API_URL", "https://api.openai.com/v1/embeddings"

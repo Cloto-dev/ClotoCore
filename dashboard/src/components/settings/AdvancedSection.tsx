@@ -52,12 +52,12 @@ export function AdvancedSection() {
               <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
               <div className="space-y-1">
                 <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Warning</p>
-                <p className="text-[10px] text-content-muted">MCP server permissions are auto-approved without manual review. SafetyGate and code validation remain active.</p>
+                <p className="text-[10px] text-content-muted">MCP server connection permissions are auto-approved without manual review. Tool execution still requires approval. SafetyGate and code validation remain active.</p>
               </div>
             </div>
           )}
           {!yoloEnabled && (
-            <p className="text-[10px] text-content-muted">When enabled, MCP server permission requests are automatically approved. SafetyGate post-validation remains active as a safety net.</p>
+            <p className="text-[10px] text-content-muted">When enabled, MCP server connection permission requests are automatically approved. Tool execution approval is unaffected. SafetyGate post-validation remains active as a safety net.</p>
           )}
         </div>
       </SectionCard>
