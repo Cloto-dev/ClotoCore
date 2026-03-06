@@ -290,8 +290,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p tauri-artifacts
-          # NSIS installer and signatures
-          find dashboard/src-tauri/target/release/bundle/nsis -type f \( -name "*.exe" -o -name "*.sig" -o -name "*.zip" -o -name "*.zip.sig" \) -exec cp {} tauri-artifacts/ \;
+          # NSIS installer and signatures (tauri-action outputs to project root target/)
+          find target/release/bundle/nsis -type f \( -name "*.exe" -o -name "*.sig" -o -name "*.zip" -o -name "*.zip.sig" \) -exec cp {} tauri-artifacts/ \;
           echo "Tauri artifacts:"
           ls -lh tauri-artifacts/
 
