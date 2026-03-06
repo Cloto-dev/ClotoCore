@@ -38,7 +38,7 @@ jobs:
         working-directory: dashboard
 
       - name: Upload dashboard artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: dashboard-dist
           path: dashboard/dist/
@@ -220,7 +220,7 @@ jobs:
           $SHA_CMD "cloto_system-${TARGET}" > "cloto_system-${TARGET}.sha256"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: release-${{ matrix.platform }}
           path: |
@@ -297,7 +297,7 @@ jobs:
           ls -lh tauri-artifacts/
 
       - name: Upload Tauri artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: tauri-windows-x64
           path: tauri-artifacts/*
