@@ -50,19 +50,19 @@ All paths relative to `crates/core/src/`.
 
 | MGP Spec | Layer | ClotoCore Component | File |
 |----------|-------|-------------------|------|
-| §2 Capability Negotiation | 1 | `cloto/handshake` | `managers/mcp.rs` |
+| §2 Capability Negotiation | 1 | `cloto/handshake`, `MgpNegotiated` | `managers/mcp.rs`, `managers/mcp_mgp.rs` |
 | §3 Permission Declarations | 3 | Permission Gate (D) | `managers/mcp.rs` |
-| §4 Tool Security Metadata | 1 | `tool_validators` config | `managers/mcp_tool_validator.rs` |
-| §5 Access Control | 4 | `mcp_access_control` table | `db/mcp.rs`, `handlers/mcp.rs` |
-| §6 Audit Trail | 2 | `audit_logs` table | `db/audit.rs`, `handlers/system.rs` |
+| §4 Tool Security Metadata | 1 | `ToolSecurityMetadata`, `effective_risk_level` | `managers/mcp_mgp.rs`, `managers/mcp_tool_validator.rs` |
+| §5 Access Control | 4 | `mcp_access_control` table, delegation anti-spoofing | `db/mcp.rs`, `managers/mcp.rs`, `managers/mcp_kernel_tool.rs` |
+| §6 Audit Trail | 2 | `audit_logs` table, `mgp.audit.replay` | `db/audit.rs`, `managers/mcp_kernel_tool.rs` |
 | §7 Code Safety | 1 | `validate_mcp_code()` | `managers/mcp.rs` |
 | §8–10 Isolation | — | — (see MGP_ISOLATION_DESIGN.md) | — |
-| §11 Lifecycle | 2+4 | `ServerStatus`, `auto_restart` | `managers/mcp.rs` |
-| §12 Streaming | 2+3 | — (not yet implemented) | — |
-| §13 Bidirectional | 2+3+4 | SSE event bus, callbacks | `handlers.rs`, `lib.rs` |
-| §14 Error Handling | — | `JsonRpcError` | `managers/mcp_protocol.rs` |
-| §15 Discovery | 4 | `mcp.toml`, `add_dynamic_server()` | `managers/mcp.rs` |
-| §16 Tool Discovery | 4 | — (not yet implemented) | — |
+| §11 Lifecycle | 2+4 | `ServerStatus`, health checks, graceful shutdown | `managers/mcp_lifecycle.rs`, `managers/mcp_kernel_tool.rs` |
+| §12 Streaming | 2+3 | Stream chunks, progress, flow control, cancellation | `managers/mcp_streaming.rs`, `managers/mcp_kernel_tool.rs` |
+| §13 Bidirectional | 2+3+4 | Event subscriptions, replay, callbacks | `managers/mcp_events.rs`, `managers/mcp_kernel_tool.rs` |
+| §14 Error Handling | — | MGP error codes (1000-5099), structured hints | `managers/mcp_mgp.rs`, `managers/mcp_protocol.rs` |
+| §15 Discovery | 4 | Server registry, runtime register/deregister | `managers/mcp_discovery.rs` |
+| §16 Tool Discovery | 4 | `ToolIndex`, `SessionToolCache`, LLM meta-tools | `managers/mcp_tool_discovery.rs`, `managers/mcp_kernel_tool.rs` |
 
 ### 17.4 License and Distribution Strategy
 
@@ -183,7 +183,8 @@ Compliance badges: `[MGP Tier 1]` `[MGP Tier 2]` `[MGP Tier 3]` `[MGP Tier 4]`
 
 | Phase | Deliverable | Status |
 |-------|-----------|--------|
-| Phase 0 | MGP Specification | Draft complete |
+| Phase 0 | MGP Specification (v0.6.0-draft) | Draft complete |
+| — | ClotoCore Tier 1-4 Implementation (20 kernel tools, 13 extensions) | **Complete** |
 | Phase 1 | Python SDK (Tier 1-2) | Concept |
 | Phase 2 | TypeScript SDK (Tier 1-2) | Concept |
 | Phase 3 | Validation Tool | Concept |
@@ -207,6 +208,7 @@ Compliance badges: `[MGP Tier 1]` `[MGP Tier 2]` `[MGP Tier 3]` `[MGP Tier 4]`
 | 0.5.1-draft | 2026-02-28 | Document consolidation: merged MGP_PATTERNS.md, MGP_ADOPTION.md, MGP_REVIEW_RESPONSE.md into single specification |
 | 0.5.2-draft | 2026-02-28 | Second review response: sequential section numbering (§17-19), `notifications/mgp.event` added to Layer 2, kernel tool visibility rules (§16.8), §14 Layer classification, MCP comparison compressed |
 | 0.6.0-draft | 2026-03-06 | Transport layer analysis (see §18.4) + structural audit & architectural revision (see §18.5) |
+| 0.6.0-impl | 2026-03-07 | ClotoCore Tier 1-4 implementation complete: 20 kernel tools, 13 extensions, bug-182 to bug-226 fixed. New modules: `mcp_mgp.rs`, `mcp_lifecycle.rs`, `mcp_streaming.rs`, `mcp_events.rs`, `mcp_discovery.rs`, `mcp_tool_discovery.rs` |
 
 ### 18.2 Expert Review Response (0.3.0 → 0.4.0)
 
