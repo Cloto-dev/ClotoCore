@@ -72,6 +72,69 @@ pub fn spawn_audit_log(pool: SqlitePool, entry: AuditLogEntry) {
     });
 }
 
+/// Query audit logs since a given ID or timestamp (for MGP audit replay).
+/// Returns `(id, AuditLogEntry)` tuples where `id` serves as the global seq.
+pub async fn query_audit_logs_since(
+    pool: &SqlitePool,
+    since_id: Option<i64>,
+    since_timestamp: Option<&str>,
+    limit: i64,
+) -> anyhow::Result<Vec<(i64, AuditLogEntry)>> {
+    let rows = if let Some(sid) = since_id {
+        db_timeout(
+            sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, Option<String>, String, String, Option<String>, Option<String>)>(
+                "SELECT id, timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id \
+                 FROM audit_logs WHERE id > ? ORDER BY id ASC LIMIT ?"
+            )
+            .bind(sid)
+            .bind(limit)
+            .fetch_all(pool),
+        )
+        .await?
+    } else if let Some(ts) = since_timestamp {
+        db_timeout(
+            sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, Option<String>, String, String, Option<String>, Option<String>)>(
+                "SELECT id, timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id \
+                 FROM audit_logs WHERE timestamp > ? ORDER BY timestamp ASC LIMIT ?"
+            )
+            .bind(ts)
+            .bind(limit)
+            .fetch_all(pool),
+        )
+        .await?
+    } else {
+        db_timeout(
+            sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, Option<String>, String, String, Option<String>, Option<String>)>(
+                "SELECT id, timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id \
+                 FROM audit_logs ORDER BY id ASC LIMIT ?"
+            )
+            .bind(limit)
+            .fetch_all(pool),
+        )
+        .await?
+    };
+
+    let mut logs = Vec::new();
+    for (id, timestamp, event_type, actor, target, perm, result, reason, metadata, trace) in rows {
+        logs.push((
+            id,
+            AuditLogEntry {
+                timestamp: DateTime::parse_from_rfc3339(&timestamp)?.with_timezone(&Utc),
+                event_type,
+                actor_id: actor,
+                target_id: target,
+                permission: perm,
+                result,
+                reason,
+                metadata: metadata.and_then(|s| serde_json::from_str(&s).ok()),
+                trace_id: trace,
+            },
+        ));
+    }
+
+    Ok(logs)
+}
+
 /// Query audit logs from the database (most recent first)
 pub async fn query_audit_logs(pool: &SqlitePool, limit: i64) -> anyhow::Result<Vec<AuditLogEntry>> {
     // Bug #7: Add timeout to prevent indefinite hangs on database locks
