@@ -13,7 +13,7 @@
 
 | Version | Project | Storage | Search | Memory Extraction | Status |
 |---------|---------|---------|--------|-------------------|--------|
-| KS2.0/2.1 | ai_karin | SQLite (WAL, FTS5, vector) | FTS5 + cosine similarity + semantic cache | LLM-powered (DeepSeek Reasoner): profile extraction, episode archival | Reference implementation |
+| KS2.0/2.1 | (predecessor) | SQLite (WAL, FTS5, vector) | FTS5 + cosine similarity + semantic cache | LLM-powered (DeepSeek Reasoner): profile extraction, episode archival | Reference implementation |
 | KS2.2 | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Deprecated (Rust plugin) |
 | KS2.3 | ClotoCore | Dedicated SQLite (`data/ks22_memory.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) | **Current** |
 
@@ -559,7 +559,7 @@ Migration script (`mcp-servers/ks22/migrate.py`):
 4. Insert into destination: `data/ks22_memory.db` → `memories` table
 5. Optionally compute embeddings for migrated memories
 
-### 8.2 From KS2.1 (ai_karin)
+### 8.2 From KS2.1 (predecessor project)
 
 Not automated. KS2.1 used Discord-specific schemas (user_id, guild_id) that don't
 map to ClotoCore's agent_id model. Manual migration may be performed if needed.

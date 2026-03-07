@@ -1,7 +1,7 @@
 """
 Cloto MCP Server: Deep Research
 Agentic RAG with self-evaluation loop, query expansion, and multi-hop reasoning.
-Ported from ai_karin's ResearchCoordinator + RagEngine architecture.
+Based on ResearchCoordinator + RagEngine architecture.
 
 Architecture:
   Query → Expand → Search → Extract → Evaluate → (Score < threshold? Refine & loop) → Synthesize
@@ -90,7 +90,7 @@ def format_search_results(results: list[dict]) -> tuple[str, dict[str, str]]:
 
 
 # ============================================================
-# Prompts (ported from ai_karin/src/prompts.rs)
+# Prompts
 # ============================================================
 
 def query_expansion_prompt(query: str) -> str:
