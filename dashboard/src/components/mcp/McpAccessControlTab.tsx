@@ -1,18 +1,18 @@
 import { useState, useEffect } from 'react';
 import { McpServerInfo, AccessControlEntry, AccessTreeResponse, AgentMetadata } from '../../types';
-import { api } from '../../services/api';
 import { extractError } from '../../lib/errors';
 import { McpAccessTree } from './McpAccessTree';
 import { McpAccessSummaryBar } from './McpAccessSummaryBar';
 import { AlertCard } from '../ui/AlertCard';
 import { Save } from 'lucide-react';
+import { useApi } from '../../hooks/useApi';
 
 interface Props {
   server: McpServerInfo;
-  apiKey: string;
 }
 
-export function McpAccessControlTab({ server, apiKey }: Props) {
+export function McpAccessControlTab({ server }: Props) {
+  const api = useApi();
   const [accessData, setAccessData] = useState<AccessTreeResponse | null>(null);
   const [agents, setAgents] = useState<AgentMetadata[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string>('');
@@ -29,8 +29,8 @@ export function McpAccessControlTab({ server, apiKey }: Props) {
     try {
       setError(null);
       const [access, agentList] = await Promise.all([
-        api.getMcpServerAccess(server.id, apiKey),
-        api.getAgents(apiKey),
+        api.getMcpServerAccess(server.id),
+        api.getAgents(),
       ]);
       setAccessData(access);
       setAgents(agentList);
@@ -55,7 +55,7 @@ export function McpAccessControlTab({ server, apiKey }: Props) {
     try {
       // Only send server_grant and tool_grant entries (capabilities are managed separately)
       const toSave = localEntries.filter(e => e.entry_type !== 'capability');
-      await api.putMcpServerAccess(server.id, toSave, apiKey);
+      await api.putMcpServerAccess(server.id, toSave);
       await loadData();
     } catch (err) {
       setError(extractError(err, 'Failed to save access control'));

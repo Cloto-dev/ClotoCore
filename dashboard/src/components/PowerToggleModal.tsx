@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { Power, Lock } from 'lucide-react';
 import { AgentMetadata } from '../types';
-import { api } from '../services/api';
-import { useApiKey } from '../contexts/ApiKeyContext';
 import { useAsyncAction } from '../hooks/useAsyncAction';
+import { useApi } from '../hooks/useApi';
 
 interface Props {
   agent: AgentMetadata;
@@ -12,14 +11,14 @@ interface Props {
 }
 
 export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
-  const { apiKey } = useApiKey();
+  const api = useApi();
   const [password, setPassword] = useState('');
   const action = useAsyncAction('Failed to toggle power');
 
   const needsPassword = agent.metadata?.has_power_password === 'true';
 
   const handleConfirm = () => action.run(async () => {
-    await api.toggleAgentPower(agent.id, !agent.enabled, apiKey, needsPassword ? password : undefined);
+    await api.toggleAgentPower(agent.id, !agent.enabled, needsPassword ? password : undefined);
     onClose();
     onSuccess();
   });

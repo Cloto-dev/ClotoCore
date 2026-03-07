@@ -273,3 +273,82 @@ export const api = {
   deleteEpisode: (episodeId: number, apiKey: string) =>
     mutate(`/episodes/${episodeId}`, 'DELETE', 'delete episode', undefined, { 'X-API-Key': apiKey }).then(() => {}),
 };
+
+/** Pre-bind apiKey to all API methods, eliminating repetitive key passing. */
+export function createAuthenticatedApi(apiKey: string) {
+  const k = apiKey;
+  return {
+    // Pass-through (no apiKey needed)
+    getHealth: () => api.getHealth(),
+    getVersion: () => api.getVersion(),
+    getAttachmentUrl: (id: string) => api.getAttachmentUrl(id),
+    getAvatarUrl: (id: string) => api.getAvatarUrl(id),
+    // Read
+    getAgents: () => api.getAgents(k),
+    getPendingPermissions: () => api.getPendingPermissions(k),
+    getMetrics: () => api.getMetrics(k),
+    getMemories: () => api.getMemories(k),
+    getEpisodes: () => api.getEpisodes(k),
+    getHistory: () => api.getHistory(k),
+    getPlugins: () => api.getPlugins(k),
+    getAgentAccess: (agentId: string) => api.getAgentAccess(agentId, k),
+    // Generic
+    fetchJson: <T>(path: string) => api.fetchJson<T>(path, k),
+    put: (path: string, body: unknown) => api.put(path, body, k),
+    post: (path: string, payload: unknown) => api.post(path, payload, k),
+    // Agent CRUD
+    createAgent: (payload: Parameters<typeof api.createAgent>[0]) => api.createAgent(payload, k),
+    updateAgent: (id: string, payload: Parameters<typeof api.updateAgent>[1]) => api.updateAgent(id, payload, k),
+    deleteAgent: (agentId: string, password?: string) => api.deleteAgent(agentId, k, password),
+    toggleAgentPower: (agentId: string, enabled: boolean, password?: string) => api.toggleAgentPower(agentId, enabled, k, password),
+    // Chat
+    postChat: (message: Parameters<typeof api.postChat>[0]) => api.postChat(message, k),
+    postChatMessage: (agentId: string, msg: Parameters<typeof api.postChatMessage>[1]) => api.postChatMessage(agentId, msg, k),
+    getChatMessages: (agentId: string, before?: number, limit?: number, userId?: string) => api.getChatMessages(agentId, k, before, limit, userId),
+    deleteChatMessages: (agentId: string, userId?: string) => api.deleteChatMessages(agentId, k, userId),
+    retryResponse: (agentId: string, messageId: string) => api.retryResponse(agentId, messageId, k),
+    // Permissions
+    getPluginPermissions: (pluginId: string) => api.getPluginPermissions(pluginId, k),
+    revokePermission: (pluginId: string, permission: string) => api.revokePermission(pluginId, permission, k),
+    grantPermission: (pluginId: string, permission: string) => api.grantPermission(pluginId, permission, k),
+    approvePermission: (requestId: string, approvedBy: string) => api.approvePermission(requestId, approvedBy, k),
+    denyPermission: (requestId: string, approvedBy: string) => api.denyPermission(requestId, approvedBy, k),
+    // Events
+    postEvent: (eventData: unknown) => api.postEvent(eventData, k),
+    // Command approval
+    approveCommand: (approvalId: string) => api.approveCommand(approvalId, k),
+    trustCommand: (approvalId: string) => api.trustCommand(approvalId, k),
+    denyCommand: (approvalId: string) => api.denyCommand(approvalId, k),
+    // System
+    invalidateApiKey: () => api.invalidateApiKey(k),
+    // MCP servers
+    listMcpServers: () => api.listMcpServers(k),
+    getMcpServerSettings: (name: string) => api.getMcpServerSettings(name, k),
+    updateMcpServerSettings: (name: string, settings: Parameters<typeof api.updateMcpServerSettings>[1]) => api.updateMcpServerSettings(name, settings, k),
+    getMcpServerAccess: (name: string) => api.getMcpServerAccess(name, k),
+    putMcpServerAccess: (name: string, entries: Parameters<typeof api.putMcpServerAccess>[1]) => api.putMcpServerAccess(name, entries, k),
+    startMcpServer: (name: string) => api.startMcpServer(name, k),
+    stopMcpServer: (name: string) => api.stopMcpServer(name, k),
+    restartMcpServer: (name: string) => api.restartMcpServer(name, k),
+    createMcpServer: (payload: Parameters<typeof api.createMcpServer>[0]) => api.createMcpServer(payload, k),
+    deleteMcpServer: (name: string) => api.deleteMcpServer(name, k),
+    // Cron jobs
+    listCronJobs: (agentId?: string) => api.listCronJobs(k, agentId),
+    createCronJob: (payload: Parameters<typeof api.createCronJob>[0]) => api.createCronJob(payload, k),
+    deleteCronJob: (jobId: string) => api.deleteCronJob(jobId, k),
+    toggleCronJob: (jobId: string, enabled: boolean) => api.toggleCronJob(jobId, enabled, k),
+    runCronJobNow: (jobId: string) => api.runCronJobNow(jobId, k),
+    // LLM providers
+    listLlmProviders: () => api.listLlmProviders(k),
+    setLlmProviderKey: (providerId: string, providerApiKey: string) => api.setLlmProviderKey(providerId, k, providerApiKey),
+    deleteLlmProviderKey: (providerId: string) => api.deleteLlmProviderKey(providerId, k),
+    // Avatar
+    uploadAvatar: (agentId: string, file: File) => api.uploadAvatar(agentId, file, k),
+    deleteAvatar: (agentId: string) => api.deleteAvatar(agentId, k),
+    // Memory
+    deleteMemory: (memoryId: number) => api.deleteMemory(memoryId, k),
+    deleteEpisode: (episodeId: number) => api.deleteEpisode(episodeId, k),
+  };
+}
+
+export type AuthenticatedApi = ReturnType<typeof createAuthenticatedApi>;

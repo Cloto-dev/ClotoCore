@@ -9,14 +9,14 @@ Tools:
 """
 
 import asyncio
-import json
 import os
+import sys
 
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
-server = Server("cloto-mcp-stt")
+from common.mcp_utils import ToolRegistry, run_mcp_server
+
+registry = ToolRegistry("cloto-mcp-stt")
 
 STT_MODEL = os.environ.get("STT_MODEL", "base")
 STT_DEVICE = os.environ.get("STT_DEVICE", "auto")
@@ -46,51 +46,31 @@ def _get_model():
     return _model
 
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="transcribe",
-            description="Transcribe an audio file to text using Whisper. Supports WAV, MP3, FLAC, OGG, M4A.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Path to the audio file",
-                    },
-                    "language": {
-                        "type": "string",
-                        "description": f"Language code (default: {STT_LANGUAGE})",
-                    },
-                },
-                "required": ["file_path"],
+@registry.tool(
+    "transcribe",
+    "Transcribe an audio file to text using Whisper. Supports WAV, MP3, FLAC, OGG, M4A.",
+    {
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "Path to the audio file",
             },
-        ),
-        Tool(
-            name="list_models",
-            description="List available Whisper model sizes and current configuration.",
-            inputSchema={"type": "object", "properties": {}},
-        ),
-    ]
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "transcribe":
-        return await _handle_transcribe(arguments)
-    elif name == "list_models":
-        return await _handle_list_models()
-    return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
-
-
-async def _handle_transcribe(args: dict) -> list[TextContent]:
+            "language": {
+                "type": "string",
+                "description": f"Language code (default: {STT_LANGUAGE})",
+            },
+        },
+        "required": ["file_path"],
+    },
+)
+async def handle_transcribe(args: dict) -> dict:
     file_path = args.get("file_path", "")
     if not file_path:
-        return [TextContent(type="text", text=json.dumps({"error": "file_path is required"}))]
+        return {"error": "file_path is required"}
 
     if not os.path.isfile(file_path):
-        return [TextContent(type="text", text=json.dumps({"error": f"File not found: {file_path}"}))]
+        return {"error": f"File not found: {file_path}"}
 
     language = args.get("language", STT_LANGUAGE)
 
@@ -123,49 +103,32 @@ async def _handle_transcribe(args: dict) -> list[TextContent]:
         text, segments, info = await asyncio.to_thread(_transcribe)
         elapsed = round(time.monotonic() - start, 2)
 
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "text": text,
-                        "language": info.language,
-                        "language_probability": round(info.language_probability, 3),
-                        "duration": round(info.duration, 2),
-                        "segments": segments,
-                        "processing_time": elapsed,
-                    },
-                    ensure_ascii=False,
-                ),
-            )
-        ]
+        return {
+            "text": text,
+            "language": info.language,
+            "language_probability": round(info.language_probability, 3),
+            "duration": round(info.duration, 2),
+            "segments": segments,
+            "processing_time": elapsed,
+        }
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+        return {"error": str(e)}
 
 
-async def _handle_list_models() -> list[TextContent]:
-    return [
-        TextContent(
-            type="text",
-            text=json.dumps(
-                {
-                    "available": AVAILABLE_MODELS,
-                    "current": STT_MODEL,
-                    "device": STT_DEVICE,
-                    "language": STT_LANGUAGE,
-                    "loaded": _model is not None,
-                }
-            ),
-        )
-    ]
-
-
-async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream, write_stream, server.create_initialization_options()
-        )
+@registry.tool(
+    "list_models",
+    "List available Whisper model sizes and current configuration.",
+    {"type": "object", "properties": {}},
+)
+async def handle_list_models(args: dict) -> dict:
+    return {
+        "available": AVAILABLE_MODELS,
+        "current": STT_MODEL,
+        "device": STT_DEVICE,
+        "language": STT_LANGUAGE,
+        "loaded": _model is not None,
+    }
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_mcp_server(registry))

@@ -208,23 +208,23 @@ def build_chat_messages(
     return messages
 
 
+def _check_api_error(label: str, response_data: dict) -> None:
+    """Raise ValueError if the response contains an API error (OpenAI or Cerebras format)."""
+    if "error" in response_data:
+        error = response_data["error"]
+        msg = error.get("message", str(error)) if isinstance(error, dict) else str(error)
+        raise ValueError(f"{label} API Error: {msg}")
+    if response_data.get("type", "").endswith("error"):
+        msg = response_data.get("message", "Unknown error")
+        raise ValueError(f"{label} API Error: {msg}")
+
+
 def parse_chat_content(config: ProviderConfig, response_data: dict) -> str:
     """Extract text content from a chat completions response.
 
     Ported from llm::parse_chat_content().
     """
-    label = config.display_name
-
-    # Standard OpenAI error format
-    if "error" in response_data:
-        error = response_data["error"]
-        msg = error.get("message", str(error)) if isinstance(error, dict) else str(error)
-        raise ValueError(f"{label} API Error: {msg}")
-
-    # Cerebras non-standard error format
-    if response_data.get("type", "").endswith("error"):
-        msg = response_data.get("message", "Unknown error")
-        raise ValueError(f"{label} API Error: {msg}")
+    _check_api_error(config.display_name, response_data)
 
     try:
         return response_data["choices"][0]["message"]["content"]
@@ -244,18 +244,7 @@ def parse_chat_think_result(config: ProviderConfig, response_data: dict) -> dict
 
     Ported from llm::parse_chat_think_result().
     """
-    label = config.display_name
-
-    # Standard OpenAI error format
-    if "error" in response_data:
-        error = response_data["error"]
-        msg = error.get("message", str(error)) if isinstance(error, dict) else str(error)
-        raise ValueError(f"{label} API Error: {msg}")
-
-    # Cerebras non-standard error format
-    if response_data.get("type", "").endswith("error"):
-        msg = response_data.get("message", "Unknown error")
-        raise ValueError(f"{label} API Error: {msg}")
+    _check_api_error(config.display_name, response_data)
 
     try:
         choice = response_data["choices"][0]

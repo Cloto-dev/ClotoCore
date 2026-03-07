@@ -17,17 +17,16 @@ import sys
 sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
 import httpx
-from mcp.server import Server
-from mcp.types import TextContent, Tool
+from mcp.server.stdio import stdio_server
+
+from common.mcp_utils import ToolRegistry
+from common.search import create_search_provider
 
 # ============================================================
 # Configuration
 # ============================================================
 
 LLM_PROXY_URL = os.environ.get("LLM_PROXY_URL", "http://127.0.0.1:8082/v1/chat/completions")
-SEARCH_PROVIDER = os.environ.get("CLOTO_SEARCH_PROVIDER", "tavily")
-SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://localhost:8080")
-TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 
 # Model roles — configurable via env
 EXTRACT_PROVIDER = os.environ.get("RESEARCH_EXTRACT_PROVIDER", "cerebras")  # Fast, bulk text
@@ -67,78 +66,12 @@ async def call_llm(provider: str, prompt: str, system: str | None = None) -> str
     return ""
 
 
-# ============================================================
-# Search Providers (inline — reuse websearch patterns)
-# ============================================================
-
-async def _search_searxng(client: httpx.AsyncClient, query: str, max_results: int) -> list[dict]:
-    resp = await client.get(
-        f"{SEARXNG_URL}/search",
-        params={"q": query, "format": "json", "pageno": 1},
-    )
-    resp.raise_for_status()
-    results = resp.json().get("results", [])[:max_results]
-    return [{"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("content", "")} for r in results]
-
-
-async def _search_tavily(client: httpx.AsyncClient, query: str, max_results: int) -> list[dict]:
-    resp = await client.post(
-        "https://api.tavily.com/search",
-        json={"query": query, "max_results": max_results, "api_key": TAVILY_API_KEY},
-    )
-    resp.raise_for_status()
-    results = resp.json().get("results", [])[:max_results]
-    return [{"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("content", "")} for r in results]
-
-
-async def _search_ddg(query: str, max_results: int) -> list[dict]:
-    from ddgs import DDGS
-
-    def _sync() -> list[dict]:
-        with DDGS() as ddgs:
-            raw = ddgs.text(query, max_results=max_results)
-            return [
-                {"title": r.get("title", ""), "url": r.get("href", ""), "snippet": r.get("body", "")}
-                for r in raw
-            ]
-
-    return await asyncio.to_thread(_sync)
+_search_provider = create_search_provider()
 
 
 async def search_web(query: str, max_results: int = 5) -> list[dict]:
-    """Search using configured provider with automatic fallback chain.
-
-    "auto" mode: SearXNG → Tavily (if key set) → DuckDuckGo.
-    """
-    async with httpx.AsyncClient(timeout=SEARCH_TIMEOUT) as client:
-        if SEARCH_PROVIDER == "auto":
-            # Chain: SearXNG → Tavily → DDG
-            providers: list[tuple[str, object]] = [("searxng", client)]
-            if TAVILY_API_KEY:
-                providers.append(("tavily", client))
-            providers.append(("ddg", None))
-
-            last_err: Exception | None = None
-            for name, ctx in providers:
-                try:
-                    if name == "searxng":
-                        return await _search_searxng(ctx, query, max_results)
-                    elif name == "tavily":
-                        return await _search_tavily(ctx, query, max_results)
-                    else:
-                        return await _search_ddg(query, max_results)
-                except Exception as e:
-                    print(f"Research search: {name} failed: {e}", file=sys.stderr)
-                    last_err = e
-            raise last_err or RuntimeError("No search providers available")
-        elif SEARCH_PROVIDER == "searxng":
-            return await _search_searxng(client, query, max_results)
-        elif SEARCH_PROVIDER == "tavily":
-            return await _search_tavily(client, query, max_results)
-        elif SEARCH_PROVIDER == "ddg":
-            return await _search_ddg(query, max_results)
-        else:
-            return await _search_tavily(client, query, max_results)
+    """Search using configured provider with automatic fallback chain."""
+    return await _search_provider.search(query, max_results, "en", None)
 
 
 def format_search_results(results: list[dict]) -> tuple[str, dict[str, str]]:
@@ -346,54 +279,39 @@ async def deep_research(query: str) -> tuple[str, dict[str, str], dict]:
 # MCP Server
 # ============================================================
 
-server = Server("cloto-mcp-research")
+registry = ToolRegistry("cloto-mcp-research")
 
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="deep_research",
-            description=(
-                "Perform deep research on a topic using agentic RAG with self-evaluation. "
-                "Expands the query, searches the web, extracts and evaluates information quality, "
-                "and refines the search if needed (multi-hop reasoning). Returns a synthesized "
-                "research report with source references [REF:G1] etc."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The research question or topic to investigate",
-                    },
-                    "agent_id": {
-                        "type": "string",
-                        "description": "The requesting agent's ID (for context)",
-                    },
-                },
-                "required": ["query"],
+@registry.tool(
+    "deep_research",
+    "Perform deep research on a topic using agentic RAG with self-evaluation. "
+    "Expands the query, searches the web, extracts and evaluates information quality, "
+    "and refines the search if needed (multi-hop reasoning). Returns a synthesized "
+    "research report with source references [REF:G1] etc.",
+    {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The research question or topic to investigate",
             },
-        ),
-    ]
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "deep_research":
-        return await handle_deep_research(arguments)
-    return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
-
-
-async def handle_deep_research(arguments: dict) -> list[TextContent]:
+            "agent_id": {
+                "type": "string",
+                "description": "The requesting agent's ID (for context)",
+            },
+        },
+        "required": ["query"],
+    },
+)
+async def handle_deep_research(arguments: dict) -> dict:
     query = arguments.get("query", "")
     if not query.strip():
-        return [TextContent(type="text", text=json.dumps({"error": "Empty query"}))]
+        return {"error": "Empty query"}
 
     try:
         synthesis, url_map, stats = await deep_research(query)
 
-        response = {
+        return {
             "result": synthesis,
             "sources": url_map,
             "stats": {
@@ -403,12 +321,8 @@ async def handle_deep_research(arguments: dict) -> list[TextContent]:
                 "expanded_queries": stats.get("expanded_queries", []),
             },
         }
-        return [TextContent(type="text", text=json.dumps(response, ensure_ascii=False))]
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({
-            "error": f"Research failed: {e}",
-            "query": query,
-        }))]
+        return {"error": f"Research failed: {e}", "query": query}
 
 
 # ============================================================
@@ -416,9 +330,8 @@ async def handle_deep_research(arguments: dict) -> list[TextContent]:
 # ============================================================
 
 async def main():
-    from mcp.server.stdio import stdio_server
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+        await registry.server.run(read_stream, write_stream, registry.server.create_initialization_options())
 
 
 if __name__ == "__main__":

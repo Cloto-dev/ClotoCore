@@ -392,3 +392,9 @@ A sub-project that shares human gaze data with the AI in real time, enabling low
 These principles define the "correct approach" within ClotoCore. The following criteria are used for code audits:
 1. **Consistency**: Whether each component adheres to the principles described above
 2. **Sustainability**: Whether compliance with the principles is kept "easy" through the SDK and macros
+
+### Related Design Documents
+
+- [TRIGGER_LAYER_DESIGN.md](TRIGGER_LAYER_DESIGN.md) — Heartbeat & Cron autonomous execution (Layer 2)
+- [MGP_SPEC.md](MGP_SPEC.md) — Model General Protocol specification (index)
+- [MGP_ISOLATION_DESIGN.md](MGP_ISOLATION_DESIGN.md) — OS-Level isolation design

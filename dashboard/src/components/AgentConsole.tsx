@@ -9,8 +9,8 @@ import { ChatInputBar } from './ChatInputBar';
 import { CommandApprovalCard } from './CommandApprovalCard';
 import { SystemAlertCard } from './SystemAlertCard';
 import { BranchNavigator } from './BranchNavigator';
-import { api, EVENTS_URL } from '../services/api';
-import { useApiKey } from '../contexts/ApiKeyContext';
+import { EVENTS_URL } from '../services/api';
+import { useApi } from '../hooks/useApi';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { StatusDot } from './ui/StatusDot';
@@ -45,7 +45,7 @@ function LongPressResetButton({ onReset }: { onReset: () => void }) {
 }
 
 /** Migrate legacy localStorage session data to server */
-async function migrateLegacyData(agentId: string, apiKey: string) {
+async function migrateLegacyData(agentId: string, postChatMessage: (agentId: string, msg: { id: string; source: string; content: ContentBlock[] }) => Promise<unknown>) {
   const key = LEGACY_SESSION_KEY_PREFIX + agentId;
   try {
     const raw = localStorage.getItem(key);
@@ -59,11 +59,11 @@ async function migrateLegacyData(agentId: string, apiKey: string) {
     // Migrate each message to server
     for (const msg of legacyMessages) {
       const source = msg.source.type === 'User' ? 'user' : msg.source.type === 'Agent' ? 'agent' : 'system';
-      await api.postChatMessage(agentId, {
+      await postChatMessage(agentId, {
         id: msg.id,
         source,
-        content: [{ type: 'text', text: msg.content }],
-      }, apiKey).catch(() => {}); // Ignore duplicate ID errors
+        content: [{ type: 'text' as const, text: msg.content }],
+      }).catch(() => {}); // Ignore duplicate ID errors
     }
 
     // Remove legacy data
@@ -75,9 +75,9 @@ async function migrateLegacyData(agentId: string, apiKey: string) {
 }
 
 export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => void }) {
-  const { apiKey } = useApiKey();
+  const api = useApi();
   const { identity } = useUserIdentity();
-  const { servers: mcpServers } = useMcpServers(apiKey);
+  const { servers: mcpServers } = useMcpServers();
   const [agentEngines, setAgentEngines] = useState<McpServerInfo[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -129,9 +129,9 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     const loadMessages = async () => {
       try {
         // First, check for legacy localStorage data and migrate
-        await migrateLegacyData(agent.id, apiKey);
+        await migrateLegacyData(agent.id, api.postChatMessage);
 
-        const { messages: loaded, has_more } = await api.getChatMessages(agent.id, apiKey, undefined, 50, identity.id);
+        const { messages: loaded, has_more } = await api.getChatMessages(agent.id, undefined, 50, identity.id);
         // API returns newest-first; reverse for display (oldest at top)
         const reversed = loaded.reverse();
         setMessages(reversed);
@@ -148,7 +148,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       }
     };
     loadMessages();
-  }, [agent.id, apiKey]);
+  }, [agent.id, api]);
 
   // Recovery: if isTyping is true but we missed the SSE response,
   // re-check the server for messages. Triggers on:
@@ -157,7 +157,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const recoverTypingState = useCallback(async () => {
     if (!isTyping || retryParentIdRef.current) return;
     try {
-      const { messages: latest } = await api.getChatMessages(agent.id, apiKey, undefined, 5, identity.id);
+      const { messages: latest } = await api.getChatMessages(agent.id, undefined, 5, identity.id);
       if (latest.length > 0 && latest[0].source === 'agent') {
         const reversed = latest.reverse();
         setMessages(prev => {
@@ -171,7 +171,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     } catch {
       // Silently ignore — next event or timeout will retry
     }
-  }, [isTyping, agent.id, apiKey]);
+  }, [isTyping, agent.id, api]);
 
   useEffect(() => {
     if (!isTyping) return;
@@ -223,7 +223,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
     try {
       const oldestTs = messages[0]?.created_at;
-      const { messages: older, has_more } = await api.getChatMessages(agent.id, apiKey, oldestTs, 50, identity.id);
+      const { messages: older, has_more } = await api.getChatMessages(agent.id, oldestTs, 50, identity.id);
 
       if (older.length > 0) {
         // Preserve scroll position
@@ -247,7 +247,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     } finally {
       setIsLoadingMore(false);
     }
-  }, [agent.id, apiKey, messages, isLoadingMore, hasMore]);
+  }, [agent.id, api, messages, isLoadingMore, hasMore]);
 
   // Subscribe to system-wide events
   useEventStream(EVENTS_URL, (event) => {
@@ -336,7 +336,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
       // Agent response is persisted backend-side (system.rs) before SSE emission.
     }
-  }, apiKey);
+  }, api.apiKey);
 
   // Typewriter completion: move pending response to static messages
   const handleTypewriterComplete = useCallback(() => {
@@ -402,7 +402,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         }
       };
 
-      await api.postChat(clotoMsg, apiKey);
+      await api.postChat(clotoMsg);
     } catch (err) {
       setMessages(prev => prev.filter(m => m.id !== msgId));
       setIsTyping(false);
@@ -434,7 +434,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         timestamp: new Date().toISOString(),
         metadata: { target_agent_id: agent.id, tool_hint: 'speak', skip_user_persist: 'true' }
       };
-      await api.postChat(clotoMsg, apiKey);
+      await api.postChat(clotoMsg);
     } catch (err) {
       console.error('TTS request failed:', err);
     }
@@ -498,7 +498,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
           ...(engineOverride ? { engine_override: engineOverride } : {}),
         }
       };
-      await api.postChat(clotoMsg, apiKey);
+      await api.postChat(clotoMsg);
     } catch (err) {
       setMessages(prev => prev.filter(m => m.id !== editId));
       setIsTyping(false);
@@ -523,7 +523,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     artifactPanel.clearArtifacts();
 
     try {
-      await api.retryResponse(agent.id, userMsgId, apiKey);
+      await api.retryResponse(agent.id, userMsgId);
     } catch (err) {
       setMessages(prev => [...prev, agentResponseMsg]);
       retryParentIdRef.current = null;
@@ -542,7 +542,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     initialLoadDone.current = false;
     artifactPanel.clearArtifacts();
     try {
-      await api.deleteChatMessages(agent.id, apiKey, identity.id);
+      await api.deleteChatMessages(agent.id, identity.id);
     } catch (err) {
       console.error('Failed to delete chat messages:', err);
     }

@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { memo } from 'react';
 import { Clock, Plus, Trash2, Play, Power } from 'lucide-react';
 import { CronJob, AgentMetadata } from '../types';
-import { api } from '../services/api';
-import { useApiKey } from '../contexts/ApiKeyContext';
+import { useApi } from '../hooks/useApi';
 
 function formatSchedule(type: string, value: string): string {
   if (type === 'interval') {
@@ -22,7 +21,7 @@ function formatTimestamp(ms?: number | null): string {
 }
 
 export const CronJobs = memo(function CronJobs() {
-  const { apiKey } = useApiKey();
+  const api = useApi();
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [agents, setAgents] = useState<AgentMetadata[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -38,22 +37,22 @@ export const CronJobs = memo(function CronJobs() {
 
   const fetchJobs = useCallback(async () => {
     try {
-      const data = await api.listCronJobs(apiKey);
+      const data = await api.listCronJobs();
       setJobs(data.jobs);
     } catch (e) { console.error('Failed to fetch cron jobs', e); }
-  }, [apiKey]);
+  }, [api]);
 
   const fetchAgents = useCallback(async () => {
     try {
-      const data = await api.getAgents(apiKey);
+      const data = await api.getAgents();
       setAgents(data);
     } catch (e) { console.error('Failed to fetch agents', e); }
-  }, [apiKey]);
+  }, [api]);
 
   useEffect(() => { fetchJobs(); fetchAgents(); }, [fetchJobs, fetchAgents]);
 
   const handleCreate = async () => {
-    if (!apiKey || !form.agent_id || !form.name || !form.message) return;
+    if (!form.agent_id || !form.name || !form.message) return;
     try {
       await api.createCronJob({
         agent_id: form.agent_id,
@@ -63,7 +62,7 @@ export const CronJobs = memo(function CronJobs() {
         message: form.message,
         engine_id: form.engine_id || undefined,
         hide_prompt: form.hide_prompt || undefined,
-      }, apiKey);
+      });
       setShowForm(false);
       setForm({ agent_id: '', name: '', schedule_type: 'interval', schedule_value: '3600', message: '', engine_id: '', hide_prompt: false });
       fetchJobs();
@@ -71,20 +70,18 @@ export const CronJobs = memo(function CronJobs() {
   };
 
   const handleToggle = async (job: CronJob) => {
-    if (!apiKey) return;
-    await api.toggleCronJob(job.id, !job.enabled, apiKey);
+    await api.toggleCronJob(job.id, !job.enabled);
     fetchJobs();
   };
 
   const handleDelete = async (jobId: string) => {
-    if (!apiKey || !confirm('Delete this cron job?')) return;
-    await api.deleteCronJob(jobId, apiKey);
+    if (!confirm('Delete this cron job?')) return;
+    await api.deleteCronJob(jobId);
     fetchJobs();
   };
 
   const handleRunNow = async (jobId: string) => {
-    if (!apiKey) return;
-    await api.runCronJobNow(jobId, apiKey);
+    await api.runCronJobNow(jobId);
     fetchJobs();
   };
 

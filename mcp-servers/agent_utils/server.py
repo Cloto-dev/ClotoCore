@@ -12,19 +12,19 @@ import ast
 import base64
 import hashlib
 import html
-import json
 import math
 import operator
 import os
 import random
 import secrets
+import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, unquote
 
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
+
+from common.mcp_utils import ToolRegistry, run_mcp_server
 
 # ============================================================
 # Safe math evaluator (no eval/exec)
@@ -174,11 +174,28 @@ def convert_units(value: float, from_unit: str, to_unit: str) -> dict:
 
 
 # ============================================================
-# Tool implementations
+# MCP Server
 # ============================================================
 
+registry = ToolRegistry("cloto-mcp-agent-utils")
 
-def do_get_current_time(args: dict) -> dict:
+
+@registry.tool(
+    "get_current_time",
+    "Get the current date, time, weekday, and unix timestamp.",
+    {
+        "type": "object",
+        "properties": {
+            "timezone": {
+                "type": "string",
+                "description": "Timezone: 'UTC', 'local', or offset like '+09:00' (default: UTC)",
+                "default": "UTC",
+            },
+        },
+        "required": [],
+    },
+)
+async def do_get_current_time(args: dict) -> dict:
     tz_name = args.get("timezone", "UTC")
     if tz_name == "local":
         now = datetime.now().astimezone()
@@ -211,7 +228,23 @@ def do_get_current_time(args: dict) -> dict:
     }
 
 
-def do_calculate(args: dict) -> dict:
+@registry.tool(
+    "calculate",
+    "Evaluate a mathematical expression safely. "
+    "Supports +, -, *, /, //, %, ** and functions: "
+    "sqrt, sin, cos, tan, log, log10, log2, abs, round, min, max, floor, ceil, pi, e.",
+    {
+        "type": "object",
+        "properties": {
+            "expression": {
+                "type": "string",
+                "description": "Math expression (e.g. '2**10', 'sqrt(144)', '355/113')",
+            },
+        },
+        "required": ["expression"],
+    },
+)
+async def do_calculate(args: dict) -> dict:
     expression = args.get("expression", "")
     if not expression:
         return {"error": "expression is required"}
@@ -224,7 +257,34 @@ def do_calculate(args: dict) -> dict:
     return {"expression": expression, "result": result, "display": display}
 
 
-def do_date_math(args: dict) -> dict:
+@registry.tool(
+    "date_math",
+    "Add/subtract time from a date, or calculate the difference between two dates.",
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["add", "subtract", "diff"],
+                "description": "'add'/'subtract' time from date, or 'diff' between two dates",
+            },
+            "date": {
+                "type": "string",
+                "description": "Base date in ISO 8601 format, or 'now' (default: now)",
+            },
+            "date2": {
+                "type": "string",
+                "description": "Second date for 'diff' action (default: now)",
+            },
+            "days": {"type": "integer", "description": "Days to add/subtract"},
+            "hours": {"type": "integer", "description": "Hours to add/subtract"},
+            "minutes": {"type": "integer", "description": "Minutes to add/subtract"},
+            "weeks": {"type": "integer", "description": "Weeks to add/subtract"},
+        },
+        "required": ["action"],
+    },
+)
+async def do_date_math(args: dict) -> dict:
     action = args.get("action", "add")
     date_str = args.get("date", "")
     if not date_str or date_str == "now":
@@ -265,7 +325,24 @@ def do_date_math(args: dict) -> dict:
     }
 
 
-def do_random_number(args: dict) -> dict:
+@registry.tool(
+    "random_number",
+    "Generate random integer(s) within a range.",
+    {
+        "type": "object",
+        "properties": {
+            "min": {"type": "integer", "description": "Minimum value (default: 1)"},
+            "max": {"type": "integer", "description": "Maximum value (default: 100)"},
+            "count": {"type": "integer", "description": "How many numbers (max 100, default: 1)"},
+            "secure": {
+                "type": "boolean",
+                "description": "Use cryptographic RNG (default: false)",
+            },
+        },
+        "required": [],
+    },
+)
+async def do_random_number(args: dict) -> dict:
     min_val = args.get("min", 1)
     max_val = args.get("max", 100)
     count = min(args.get("count", 1), 100)
@@ -285,11 +362,34 @@ def do_random_number(args: dict) -> dict:
     }
 
 
-def do_generate_uuid(_args: dict) -> dict:
+@registry.tool(
+    "generate_uuid",
+    "Generate a random UUID v4.",
+    {"type": "object", "properties": {}, "required": []},
+)
+async def do_generate_uuid(args: dict) -> dict:
     return {"uuid": str(uuid.uuid4())}
 
 
-def do_convert_units(args: dict) -> dict:
+@registry.tool(
+    "convert_units",
+    "Convert between units. Categories: "
+    "length (mm/cm/m/km/in/ft/yd/mi), "
+    "weight (mg/g/kg/t/oz/lb), "
+    "temperature (C/F/K), "
+    "time (ms/s/min/h/d/week), "
+    "data (B/KB/MB/GB/TB).",
+    {
+        "type": "object",
+        "properties": {
+            "value": {"type": "number", "description": "The value to convert"},
+            "from_unit": {"type": "string", "description": "Source unit (e.g. 'km', 'lb', 'F')"},
+            "to_unit": {"type": "string", "description": "Target unit (e.g. 'mi', 'kg', 'C')"},
+        },
+        "required": ["value", "from_unit", "to_unit"],
+    },
+)
+async def do_convert_units(args: dict) -> dict:
     value = args.get("value")
     from_unit = args.get("from_unit", "")
     to_unit = args.get("to_unit", "")
@@ -298,7 +398,28 @@ def do_convert_units(args: dict) -> dict:
     return convert_units(float(value), from_unit, to_unit)
 
 
-def do_encode_decode(args: dict) -> dict:
+@registry.tool(
+    "encode_decode",
+    "Encode or decode text. Supports base64, URL encoding, hex, and HTML entities.",
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["encode", "decode"],
+                "description": "'encode' or 'decode'",
+            },
+            "encoding": {
+                "type": "string",
+                "enum": ["base64", "url", "hex", "html"],
+                "description": "Encoding type",
+            },
+            "text": {"type": "string", "description": "Text to encode/decode"},
+        },
+        "required": ["action", "encoding", "text"],
+    },
+)
+async def do_encode_decode(args: dict) -> dict:
     action = args.get("action", "encode")
     encoding = args.get("encoding", "base64")
     text = args.get("text", "")
@@ -331,7 +452,23 @@ def do_encode_decode(args: dict) -> dict:
     return {"action": action, "encoding": encoding, "input": text, "output": result}
 
 
-def do_hash(args: dict) -> dict:
+@registry.tool(
+    "hash",
+    "Compute a hash of the given text. Supports md5, sha1, sha256, sha512.",
+    {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "Text to hash"},
+            "algorithm": {
+                "type": "string",
+                "enum": ["md5", "sha1", "sha256", "sha512"],
+                "description": "Hash algorithm (default: sha256)",
+            },
+        },
+        "required": ["text"],
+    },
+)
+async def do_hash(args: dict) -> dict:
     text = args.get("text", "")
     algorithm = args.get("algorithm", "sha256")
     if not text:
@@ -347,192 +484,9 @@ def do_hash(args: dict) -> dict:
 
 
 # ============================================================
-# MCP Server
-# ============================================================
-
-server = Server("cloto-mcp-agent-utils")
-
-
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="get_current_time",
-            description="Get the current date, time, weekday, and unix timestamp.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "timezone": {
-                        "type": "string",
-                        "description": "Timezone: 'UTC', 'local', or offset like '+09:00' (default: UTC)",
-                        "default": "UTC",
-                    },
-                },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="calculate",
-            description=(
-                "Evaluate a mathematical expression safely. "
-                "Supports +, -, *, /, //, %, ** and functions: "
-                "sqrt, sin, cos, tan, log, log10, log2, abs, round, min, max, floor, ceil, pi, e."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "expression": {
-                        "type": "string",
-                        "description": "Math expression (e.g. '2**10', 'sqrt(144)', '355/113')",
-                    },
-                },
-                "required": ["expression"],
-            },
-        ),
-        Tool(
-            name="date_math",
-            description="Add/subtract time from a date, or calculate the difference between two dates.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["add", "subtract", "diff"],
-                        "description": "'add'/'subtract' time from date, or 'diff' between two dates",
-                    },
-                    "date": {
-                        "type": "string",
-                        "description": "Base date in ISO 8601 format, or 'now' (default: now)",
-                    },
-                    "date2": {
-                        "type": "string",
-                        "description": "Second date for 'diff' action (default: now)",
-                    },
-                    "days": {"type": "integer", "description": "Days to add/subtract"},
-                    "hours": {"type": "integer", "description": "Hours to add/subtract"},
-                    "minutes": {"type": "integer", "description": "Minutes to add/subtract"},
-                    "weeks": {"type": "integer", "description": "Weeks to add/subtract"},
-                },
-                "required": ["action"],
-            },
-        ),
-        Tool(
-            name="random_number",
-            description="Generate random integer(s) within a range.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "min": {"type": "integer", "description": "Minimum value (default: 1)"},
-                    "max": {"type": "integer", "description": "Maximum value (default: 100)"},
-                    "count": {"type": "integer", "description": "How many numbers (max 100, default: 1)"},
-                    "secure": {
-                        "type": "boolean",
-                        "description": "Use cryptographic RNG (default: false)",
-                    },
-                },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="generate_uuid",
-            description="Generate a random UUID v4.",
-            inputSchema={"type": "object", "properties": {}, "required": []},
-        ),
-        Tool(
-            name="convert_units",
-            description=(
-                "Convert between units. Categories: "
-                "length (mm/cm/m/km/in/ft/yd/mi), "
-                "weight (mg/g/kg/t/oz/lb), "
-                "temperature (C/F/K), "
-                "time (ms/s/min/h/d/week), "
-                "data (B/KB/MB/GB/TB)."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "value": {"type": "number", "description": "The value to convert"},
-                    "from_unit": {"type": "string", "description": "Source unit (e.g. 'km', 'lb', 'F')"},
-                    "to_unit": {"type": "string", "description": "Target unit (e.g. 'mi', 'kg', 'C')"},
-                },
-                "required": ["value", "from_unit", "to_unit"],
-            },
-        ),
-        Tool(
-            name="encode_decode",
-            description="Encode or decode text. Supports base64, URL encoding, hex, and HTML entities.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["encode", "decode"],
-                        "description": "'encode' or 'decode'",
-                    },
-                    "encoding": {
-                        "type": "string",
-                        "enum": ["base64", "url", "hex", "html"],
-                        "description": "Encoding type",
-                    },
-                    "text": {"type": "string", "description": "Text to encode/decode"},
-                },
-                "required": ["action", "encoding", "text"],
-            },
-        ),
-        Tool(
-            name="hash",
-            description="Compute a hash of the given text. Supports md5, sha1, sha256, sha512.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string", "description": "Text to hash"},
-                    "algorithm": {
-                        "type": "string",
-                        "enum": ["md5", "sha1", "sha256", "sha512"],
-                        "description": "Hash algorithm (default: sha256)",
-                    },
-                },
-                "required": ["text"],
-            },
-        ),
-    ]
-
-
-_HANDLERS = {
-    "get_current_time": do_get_current_time,
-    "calculate": do_calculate,
-    "date_math": do_date_math,
-    "random_number": do_random_number,
-    "generate_uuid": do_generate_uuid,
-    "convert_units": do_convert_units,
-    "encode_decode": do_encode_decode,
-    "hash": do_hash,
-}
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    handler = _HANDLERS.get(name)
-    if handler is None:
-        return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
-    try:
-        result = handler(arguments)
-        return [TextContent(type="text", text=json.dumps(result))]
-    except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
-
-
-# ============================================================
 # Entry point
 # ============================================================
 
 
-async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream, write_stream, server.create_initialization_options()
-        )
-
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_mcp_server(registry))

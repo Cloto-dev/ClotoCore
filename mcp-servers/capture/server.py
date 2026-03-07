@@ -15,20 +15,19 @@ OCR Modes (VISION_OCR_MODE env var):
 
 import asyncio
 import base64
-import json
 import logging
 import os
+import sys
 import uuid
 from datetime import datetime, timezone
 
 import httpx
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
+
+from common.mcp_utils import ToolRegistry, run_mcp_server
 
 logger = logging.getLogger(__name__)
-
-server = Server("cloto-mcp-capture")
 
 CAPTURE_OUTPUT_DIR = os.environ.get("CAPTURE_OUTPUT_DIR", "./data/captures")
 VISION_OLLAMA_URL = os.environ.get("VISION_OLLAMA_URL", "http://localhost:11434")
@@ -123,69 +122,27 @@ async def _run_vision(file_path: str, prompt: str, model: str) -> str | None:
 
 
 # ============================================================
-# MCP Tools
+# MCP Server
 # ============================================================
 
+registry = ToolRegistry("cloto-mcp-capture")
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="capture_screen",
-            description="Take a screenshot of the primary monitor and save as PNG. Returns the file path.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "monitor": {
-                        "type": "integer",
-                        "description": "Monitor index (0=all, 1=primary, 2=secondary, etc.)",
-                    },
-                },
+
+@registry.tool(
+    "capture_screen",
+    "Take a screenshot of the primary monitor and save as PNG. Returns the file path.",
+    {
+        "type": "object",
+        "properties": {
+            "monitor": {
+                "type": "integer",
+                "description": "Monitor index (0=all, 1=primary, 2=secondary, etc.)",
             },
-        ),
-        Tool(
-            name="analyze_image",
-            description=(
-                "Analyze an image file using OCR (text extraction) and/or vision model (visual description). "
-                f"Current mode: {VISION_OCR_MODE}. Returns combined analysis."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Path to the image file (PNG, JPEG, etc.)",
-                    },
-                    "prompt": {
-                        "type": "string",
-                        "description": "Question or instruction for the vision model (default: 'Describe this image in detail.')",
-                    },
-                    "model": {
-                        "type": "string",
-                        "description": f"Ollama model to use (default: {VISION_MODEL})",
-                    },
-                    "mode": {
-                        "type": "string",
-                        "description": "Analysis mode: hybrid, vision, ocr (overrides server default)",
-                    },
-                },
-                "required": ["file_path"],
-            },
-        ),
-    ]
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "capture_screen":
-        return await _handle_capture(arguments)
-    elif name == "analyze_image":
-        return await _handle_analyze(arguments)
-    return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
-
-
-async def _handle_capture(args: dict) -> list[TextContent]:
-    monitor_idx = args.get("monitor", 1)
+        },
+    },
+)
+async def handle_capture_screen(arguments: dict) -> dict:
+    monitor_idx = arguments.get("monitor", 1)
 
     try:
         import mss
@@ -210,35 +167,55 @@ async def _handle_capture(args: dict) -> list[TextContent]:
 
         size = await asyncio.to_thread(_capture)
 
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "status": "ok",
-                        "path": os.path.abspath(filepath),
-                        "width": size[0],
-                        "height": size[1],
-                        "monitor": monitor_idx,
-                    }
-                ),
-            )
-        ]
+        return {
+            "status": "ok",
+            "path": os.path.abspath(filepath),
+            "width": size[0],
+            "height": size[1],
+            "monitor": monitor_idx,
+        }
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+        return {"error": str(e)}
 
 
-async def _handle_analyze(args: dict) -> list[TextContent]:
-    file_path = args.get("file_path", "")
+@registry.tool(
+    "analyze_image",
+    "Analyze an image file using OCR (text extraction) and/or vision model (visual description). "
+    f"Current mode: {VISION_OCR_MODE}. Returns combined analysis.",
+    {
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "Path to the image file (PNG, JPEG, etc.)",
+            },
+            "prompt": {
+                "type": "string",
+                "description": "Question or instruction for the vision model (default: 'Describe this image in detail.')",
+            },
+            "model": {
+                "type": "string",
+                "description": f"Ollama model to use (default: {VISION_MODEL})",
+            },
+            "mode": {
+                "type": "string",
+                "description": "Analysis mode: hybrid, vision, ocr (overrides server default)",
+            },
+        },
+        "required": ["file_path"],
+    },
+)
+async def handle_analyze_image(arguments: dict) -> dict:
+    file_path = arguments.get("file_path", "")
     if not file_path:
-        return [TextContent(type="text", text=json.dumps({"error": "file_path is required"}))]
+        return {"error": "file_path is required"}
 
     if not os.path.isfile(file_path):
-        return [TextContent(type="text", text=json.dumps({"error": f"File not found: {file_path}"}))]
+        return {"error": f"File not found: {file_path}"}
 
-    prompt = args.get("prompt", "Describe this image in detail.")
-    model = args.get("model", VISION_MODEL)
-    mode = args.get("mode", VISION_OCR_MODE)
+    prompt = arguments.get("prompt", "Describe this image in detail.")
+    model = arguments.get("model", VISION_MODEL)
+    mode = arguments.get("mode", VISION_OCR_MODE)
 
     ocr_text = None
     vision_text = None
@@ -254,7 +231,7 @@ async def _handle_analyze(args: dict) -> list[TextContent]:
         elif mode == "vision":
             vision_text = await _run_vision(file_path, prompt, model)
         else:
-            return [TextContent(type="text", text=json.dumps({"error": f"Unknown mode: {mode}"}))]
+            return {"error": f"Unknown mode: {mode}"}
 
         # Build combined response
         parts = []
@@ -268,37 +245,27 @@ async def _handle_analyze(args: dict) -> list[TextContent]:
 
         combined = "\n\n".join(parts)
 
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "status": "ok",
-                        "model": model,
-                        "mode": mode,
-                        "response": combined,
-                        "ocr_text": ocr_text or "",
-                        "vision_text": vision_text or "",
-                        "file": file_path,
-                    },
-                    ensure_ascii=False,
-                ),
-            )
-        ]
+        return {
+            "status": "ok",
+            "model": model,
+            "mode": mode,
+            "response": combined,
+            "ocr_text": ocr_text or "",
+            "vision_text": vision_text or "",
+            "file": file_path,
+        }
     except httpx.ConnectError:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": f"Cannot connect to Ollama at {VISION_OLLAMA_URL}. Is Ollama running?",
-                        "hint": "Start Ollama with: ollama serve",
-                    }
-                ),
-            )
-        ]
+        return {
+            "error": f"Cannot connect to Ollama at {VISION_OLLAMA_URL}. Is Ollama running?",
+            "hint": "Start Ollama with: ollama serve",
+        }
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+        return {"error": str(e)}
+
+
+# ============================================================
+# Entry Point
+# ============================================================
 
 
 async def main():
@@ -307,11 +274,7 @@ async def main():
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
     logger.info("Vision OCR mode: %s", VISION_OCR_MODE)
-
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream, write_stream, server.create_initialization_options()
-        )
+    await run_mcp_server(registry)
 
 
 if __name__ == "__main__":

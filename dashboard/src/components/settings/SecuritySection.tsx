@@ -4,9 +4,11 @@ import { SectionCard, Toggle } from './common';
 import { LlmProvidersSection } from './LlmProvidersSection';
 import { useApiKey } from '../../contexts/ApiKeyContext';
 import { api } from '../../services/api';
+import { useApi } from '../../hooks/useApi';
 
 export function SecuritySection() {
-  const { apiKey, setApiKey, forgetApiKey } = useApiKey();
+  const { setApiKey, forgetApiKey } = useApiKey();
+  const authApi = useApi();
   const [newKey, setNewKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState('');
@@ -29,9 +31,9 @@ export function SecuritySection() {
   };
 
   const handleInvalidate = async () => {
-    if (!apiKey) return;
+    if (!authApi.apiKey) return;
     try {
-      await api.invalidateApiKey(apiKey);
+      await authApi.invalidateApiKey();
       forgetApiKey();
       setConfirmInvalidate(false);
     } catch {
@@ -44,8 +46,8 @@ export function SecuritySection() {
       <SectionCard title="API Key">
         <div className="space-y-4">
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${apiKey ? 'bg-green-500' : 'bg-amber-500'}`} />
-            <span className="text-xs text-content-secondary">{apiKey ? 'Configured' : 'Not configured'}</span>
+            <div className={`w-2 h-2 rounded-full ${authApi.apiKey ? 'bg-green-500' : 'bg-amber-500'}`} />
+            <span className="text-xs text-content-secondary">{authApi.apiKey ? 'Configured' : 'Not configured'}</span>
           </div>
 
           <div className="flex gap-2">
@@ -54,7 +56,7 @@ export function SecuritySection() {
                 type={showKey ? 'text' : 'password'}
                 value={newKey}
                 onChange={e => { setNewKey(e.target.value); setError(''); }}
-                placeholder={apiKey ? 'Enter new key to replace' : 'Enter API key'}
+                placeholder={authApi.apiKey ? 'Enter new key to replace' : 'Enter API key'}
                 className="w-full bg-surface-secondary border border-edge rounded-lg px-3 py-2 text-xs font-mono text-content-primary placeholder:text-content-muted focus:outline-none focus:border-brand transition-colors"
               />
               <button
@@ -80,7 +82,7 @@ export function SecuritySection() {
             </div>
           )}
 
-          {apiKey && (
+          {authApi.apiKey && (
             <div className="pt-3 border-t border-edge">
               {!confirmInvalidate ? (
                 <button

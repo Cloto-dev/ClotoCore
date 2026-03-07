@@ -1,29 +1,28 @@
 import { useState, useEffect } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { SectionCard, Toggle } from './common';
-import { useApiKey } from '../../contexts/ApiKeyContext';
-import { api } from '../../services/api';
+import { useApi } from '../../hooks/useApi';
 
 export function AdvancedSection() {
-  const { apiKey } = useApiKey();
+  const api = useApi();
   const [yoloEnabled, setYoloEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [maxCronGen, setMaxCronGen] = useState(2);
 
   useEffect(() => {
-    api.fetchJson<{ enabled: boolean }>('/settings/yolo', apiKey)
+    api.fetchJson<{ enabled: boolean }>('/settings/yolo')
       .then(data => setYoloEnabled(data.enabled))
       .catch(() => {})
       .finally(() => setLoading(false));
-    api.fetchJson<{ value: number }>('/settings/max-cron-generation', apiKey)
+    api.fetchJson<{ value: number }>('/settings/max-cron-generation')
       .then(data => setMaxCronGen(data.value))
       .catch(() => {});
-  }, [apiKey]);
+  }, [api]);
 
   const handleToggle = async () => {
     const next = !yoloEnabled;
     try {
-      await api.put('/settings/yolo', { enabled: next }, apiKey);
+      await api.put('/settings/yolo', { enabled: next });
       setYoloEnabled(next);
     } catch (err) {
       console.error('Failed to toggle YOLO mode:', err);
@@ -33,7 +32,7 @@ export function AdvancedSection() {
   const handleSetMaxCronGen = async (val: number) => {
     const clamped = Math.max(0, Math.min(6, val));
     try {
-      await api.put('/settings/max-cron-generation', { value: clamped }, apiKey);
+      await api.put('/settings/max-cron-generation', { value: clamped });
       setMaxCronGen(clamped);
     } catch (err) {
       console.error('Failed to set max cron generation:', err);
