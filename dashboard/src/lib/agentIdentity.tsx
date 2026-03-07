@@ -1,36 +1,16 @@
 import { useState } from 'react';
-import { User, Cpu } from 'lucide-react';
+import { User } from 'lucide-react';
 import { AgentMetadata } from '../types';
 import { api } from '../services/api';
-
-export type AgentType = 'ai' | 'container';
-
-/** Non-AI container accent color (rose-pink) */
-export const CONTAINER_COLOR = '#e6466a';
 
 /** Get current brand hex from CSS variable */
 function getBrandHex(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--brand-hex').trim() || '#2e4de6';
 }
 
-/**
- * Determine whether an agent is an AI agent or a non-AI container.
- * Priority: metadata.agent_type (explicit) > engine prefix (auto-detect)
- */
-export function isAiAgent(agent: AgentMetadata): boolean {
-  if (agent.metadata?.agent_type === 'ai') return true;
-  if (agent.metadata?.agent_type === 'container') return false;
-  return !!agent.default_engine_id?.startsWith('mind.');
-}
-
 /** Get the accent color for an agent */
-export function agentColor(agent: AgentMetadata): string {
-  return isAiAgent(agent) ? getBrandHex() : CONTAINER_COLOR;
-}
-
-/** Get accent color by type directly (useful in creation forms) */
-export function agentTypeColor(type: AgentType): string {
-  return type === 'ai' ? getBrandHex() : CONTAINER_COLOR;
+export function agentColor(_agent: AgentMetadata): string {
+  return getBrandHex();
 }
 
 /** Render the appropriate icon for an agent (avatar image or fallback icon) */
@@ -48,12 +28,7 @@ export function AgentIcon({ agent, size = 20 }: { agent: AgentMetadata; size?: n
       />
     );
   }
-  return isAiAgent(agent) ? <User size={size} /> : <Cpu size={size} />;
-}
-
-/** Render icon by type directly (useful in creation forms) */
-export function AgentTypeIcon({ type, size = 20 }: { type: AgentType; size?: number }) {
-  return type === 'ai' ? <User size={size} /> : <Cpu size={size} />;
+  return <User size={size} />;
 }
 
 /** Status dot color classes (3-state) */
