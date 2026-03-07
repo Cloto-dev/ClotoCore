@@ -21,6 +21,7 @@ from mcp.server.stdio import stdio_server
 
 from common.mcp_utils import ToolRegistry
 from common.search import create_search_provider
+from common.semantic_cache import SemanticCache
 
 # ============================================================
 # Configuration
@@ -35,7 +36,10 @@ SYNTHESIZE_PROVIDER = os.environ.get("RESEARCH_SYNTHESIZE_PROVIDER", "deepseek")
 
 MAX_RETRIES = int(os.environ.get("RESEARCH_MAX_RETRIES", "3"))
 PASS_SCORE = int(os.environ.get("RESEARCH_PASS_SCORE", "6"))
-CACHE_SCORE = 8
+CACHE_SCORE = int(os.environ.get("RESEARCH_CACHE_SCORE", "8"))
+CACHE_ENABLED = os.environ.get("RESEARCH_CACHE_ENABLED", "true").lower() == "true"
+CACHE_TTL = int(os.environ.get("RESEARCH_CACHE_TTL", "3600"))  # seconds
+CACHE_MAX_ENTRIES = int(os.environ.get("RESEARCH_CACHE_MAX_ENTRIES", "100"))
 REQUEST_TIMEOUT = 30
 SEARCH_TIMEOUT = 15
 
@@ -281,6 +285,8 @@ async def deep_research(query: str) -> tuple[str, dict[str, str], dict]:
 
 registry = ToolRegistry("cloto-mcp-research")
 
+_cache: SemanticCache | None = None
+
 
 @registry.tool(
     "deep_research",
@@ -308,10 +314,17 @@ async def handle_deep_research(arguments: dict) -> dict:
     if not query.strip():
         return {"error": "Empty query"}
 
+    # Check semantic cache
+    if _cache:
+        cached = await _cache.lookup(query)
+        if cached is not None:
+            cached["cache_hit"] = True
+            return cached
+
     try:
         synthesis, url_map, stats = await deep_research(query)
 
-        return {
+        result = {
             "result": synthesis,
             "sources": url_map,
             "stats": {
@@ -321,6 +334,12 @@ async def handle_deep_research(arguments: dict) -> dict:
                 "expanded_queries": stats.get("expanded_queries", []),
             },
         }
+
+        # Cache high-quality results (non-blocking)
+        if _cache and stats["final_score"] >= CACHE_SCORE:
+            asyncio.ensure_future(_cache.store(query, result, stats["final_score"]))
+
+        return result
     except Exception as e:
         return {"error": f"Research failed: {e}", "query": query}
 
@@ -330,8 +349,21 @@ async def handle_deep_research(arguments: dict) -> dict:
 # ============================================================
 
 async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await registry.server.run(read_stream, write_stream, registry.server.create_initialization_options())
+    global _cache
+    if CACHE_ENABLED:
+        _cache = SemanticCache(
+            max_entries=CACHE_MAX_ENTRIES,
+            ttl=CACHE_TTL,
+            min_score=CACHE_SCORE,
+        )
+        await _cache.initialize()
+
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await registry.server.run(read_stream, write_stream, registry.server.create_initialization_options())
+    finally:
+        if _cache:
+            await _cache.close()
 
 
 if __name__ == "__main__":
