@@ -11,6 +11,7 @@ import { AgentProvider } from './contexts/AgentContext'
 import { AppLayout } from './components/AppLayout'
 import { AgentPage } from './pages/AgentPage'
 import { CustomCursor } from './components/CustomCursor'
+import { SetupWizard } from './components/SetupWizard'
 import { isTauri } from './lib/tauri'
 import './i18n';
 import { loadExternalLanguages } from './i18n';
@@ -23,6 +24,9 @@ const McpServersPage = lazy(() => import('./pages/McpServersPage').then(m => ({ 
 const CronJobs = lazy(() => import('./components/CronJobs').then(m => ({ default: m.CronJobs })));
 
 function App() {
+  const [setupDone, setSetupDone] = useState(
+    () => localStorage.getItem('cloto-setup-completed') === '1'
+  );
   const [cursorEnabled, setCursorEnabled] = useState(() => localStorage.getItem('cloto-cursor') !== 'off');
 
   useEffect(() => {
@@ -71,6 +75,16 @@ function App() {
           </p>
         </div>
       </div>
+    );
+  }
+
+  // First-run setup wizard
+  if (!setupDone) {
+    return (
+      <SetupWizard onComplete={() => {
+        localStorage.setItem('cloto-setup-completed', '1');
+        setSetupDone(true);
+      }} />
     );
   }
 

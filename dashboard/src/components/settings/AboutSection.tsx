@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { RefreshCw, Download, CheckCircle, AlertCircle } from 'lucide-react';
+import { RefreshCw, Download, CheckCircle, AlertCircle, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SectionCard } from './common';
 import { isTauri, checkForUpdates, applyUpdate, UpdateInfo } from '../../lib/tauri';
+import { SetupWizard } from '../SetupWizard';
 
 type UpdateState = 'idle' | 'checking' | 'up-to-date' | 'available' | 'updating' | 'updated' | 'error';
 
@@ -11,6 +12,7 @@ export function AboutSection() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [error, setError] = useState('');
   const [updateOutput, setUpdateOutput] = useState('');
+  const [showWizard, setShowWizard] = useState(false);
   const { t } = useTranslation('settings');
 
   const handleCheck = async () => {
@@ -197,6 +199,26 @@ export function AboutSection() {
           ))}
         </div>
       </SectionCard>
+
+      <SectionCard title={t('about.setup')}>
+        <div className="space-y-2">
+          <p className="text-[10px] text-content-tertiary">{t('about.setup_desc')}</p>
+          <button
+            onClick={() => setShowWizard(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand hover:border-brand transition-all"
+          >
+            <RotateCcw size={14} />
+            {t('about.rerun_setup')}
+          </button>
+        </div>
+      </SectionCard>
+
+      {showWizard && (
+        <SetupWizard onComplete={() => {
+          setShowWizard(false);
+          window.dispatchEvent(new CustomEvent('cloto-setup-rerun-complete'));
+        }} />
+      )}
     </>
   );
 }
