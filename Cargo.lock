@@ -166,7 +166,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app"
-version = "0.6.0-alpha.4"
+version = "0.6.0-alpha.5"
 dependencies = [
  "base64 0.21.7",
  "cloto_core",
@@ -954,7 +954,7 @@ checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
 
 [[package]]
 name = "cloto_core"
-version = "0.6.0-alpha.4"
+version = "0.6.0-alpha.5"
 dependencies = [
  "anyhow",
  "argon2",
@@ -995,7 +995,7 @@ dependencies = [
 
 [[package]]
 name = "cloto_shared"
-version = "0.6.0-alpha.4"
+version = "0.6.0-alpha.5"
 dependencies = [
  "anyhow",
  "async-trait",
