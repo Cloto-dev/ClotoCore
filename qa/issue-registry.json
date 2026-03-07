@@ -854,6 +854,54 @@
       "pattern": "Missing required parameter: server_id",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-223",
+      "summary": "Delegation anti-spoofing missing: no original_actor/delegated_via verification (S5.6.3)",
+      "severity": "CRITICAL",
+      "discovered": "2026-03-07T00:00:00Z",
+      "version": "0.6.0-beta.3",
+      "commit": "bb691d5",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "is not a known active agent \\(MGP §5\\.6\\.3",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-224",
+      "summary": "Delegation permission intersection not implemented (S5.6.1)",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-07T00:00:00Z",
+      "version": "0.6.0-beta.3",
+      "commit": "bb691d5",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "does not have access to.*MGP §5\\.6\\.1",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-225",
+      "summary": "Event replay uses seq instead of _mgp.seq (S13.6)",
+      "severity": "HIGH",
+      "discovered": "2026-03-07T00:00:00Z",
+      "version": "0.6.0-beta.3",
+      "commit": "bb691d5",
+      "file": "crates/core/src/managers/mcp_events.rs",
+      "pattern": "\"seq\": seq,",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-226",
+      "summary": "Health status not-found uses state instead of status field (S11.3)",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-07T00:00:00Z",
+      "version": "0.6.0-beta.3",
+      "commit": "bb691d5",
+      "file": "crates/core/src/managers/mcp_kernel_tool.rs",
+      "pattern": "\"state\": \"not_found\"",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

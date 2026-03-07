@@ -14,7 +14,7 @@ pub const MGP_VERSION: &str = "0.6.0";
 /// Extensions offered by the kernel in Tier 1.
 pub const TIER1_CLIENT_EXTENSIONS: &[&str] = &["tool_security"];
 
-/// Extensions offered by the kernel (Tier 2 Security + Tier 3 Communication).
+/// Extensions offered by the kernel (Tier 2 Security + Tier 3 Communication + Tier 4 Intelligence).
 pub const CLIENT_EXTENSIONS: &[&str] = &[
     "tool_security",
     "permissions",
@@ -27,6 +27,8 @@ pub const CLIENT_EXTENSIONS: &[&str] = &[
     "progress",
     "events",
     "callbacks",
+    "discovery",       // Tier 4: §15 Server Discovery
+    "tool_discovery",  // Tier 4: §16 Dynamic Tool Discovery
 ];
 
 // ============================================================
@@ -57,6 +59,14 @@ pub const MGP_ERR_INVALID_TOOL_ARGS: i64 = 4000;
 pub const MGP_ERR_TOOL_NOT_FOUND: i64 = 4001;
 pub const MGP_ERR_TOOL_DISABLED: i64 = 4002;
 pub const MGP_ERR_TOOL_NAME_CONFLICT: i64 = 4003;
+
+// Discovery errors (4100–4199)
+#[allow(dead_code)]
+pub const MGP_ERR_DISCOVERY_UNAVAILABLE: i64 = 4100;
+#[allow(dead_code)]
+pub const MGP_ERR_SERVER_ALREADY_REGISTERED: i64 = 4101;
+#[allow(dead_code)]
+pub const MGP_ERR_CANNOT_DEREGISTER_CONFIG: i64 = 4102;
 
 // External service errors (5000–5099)
 pub const MGP_ERR_UPSTREAM_ERROR: i64 = 5000;
@@ -606,6 +616,8 @@ mod tests {
         assert!(CLIENT_EXTENSIONS.contains(&"progress"));
         assert!(CLIENT_EXTENSIONS.contains(&"events"));
         assert!(CLIENT_EXTENSIONS.contains(&"callbacks"));
-        assert_eq!(CLIENT_EXTENSIONS.len(), 11);
+        assert!(CLIENT_EXTENSIONS.contains(&"discovery"));
+        assert!(CLIENT_EXTENSIONS.contains(&"tool_discovery"));
+        assert_eq!(CLIENT_EXTENSIONS.len(), 13);
     }
 }

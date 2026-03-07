@@ -299,7 +299,7 @@ pub(super) async fn replay(manager: &McpClientManager, args: Value) -> Result<Va
         .take(limit)
         .map(|(seq, channel, data, timestamp)| {
             serde_json::json!({
-                "seq": seq,
+                "_mgp.seq": seq,
                 "channel": channel,
                 "data": data,
                 "timestamp": timestamp,
