@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Users, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings, X, Route } from 'lucide-react';
-import { AgentMetadata } from '../types';
+import { Users, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings, X, Route, Download, Upload } from 'lucide-react';
+import { AgentMetadata, AccessControlEntry } from '../types';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
@@ -51,6 +51,112 @@ export function AgentTerminal({
   const mcpMemories = mcpServers.filter(s => s.id.startsWith('memory.') && s.status === 'Connected');
 
   const DEFAULT_AGENT_ID = 'agent.cloto_default';
+
+  // Import file input
+  const importRef = useRef<HTMLInputElement>(null);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
+
+  const handleExport = async (agent: AgentMetadata) => {
+    try {
+      const accessData = await api.getAgentAccess(agent.id);
+      const mcpAccess = (accessData.entries || [])
+        .filter((e: AccessControlEntry) => e.entry_type === 'server_grant')
+        .map((e: AccessControlEntry) => ({ server_id: e.server_id, permission: e.permission }));
+
+      const { has_avatar, avatar_description, has_power_password, has_password, ...cleanMeta } = agent.metadata || {};
+      const exportData = {
+        cloto_agent_export: 1,
+        exported_at: new Date().toISOString(),
+        agent: {
+          name: agent.name,
+          description: agent.description,
+          default_engine_id: agent.default_engine_id || null,
+          metadata: cleanMeta,
+          required_capabilities: agent.required_capabilities,
+        },
+        mcp_access: mcpAccess,
+        avatar_path: has_avatar === 'true' ? `avatars/${agent.id}.png` : null,
+      };
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${agent.name}.cloto-agent.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Export failed:', e);
+    }
+  };
+
+  const handleImport = async (file: File) => {
+    const warnings: string[] = [];
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      if (!data.cloto_agent_export || !data.agent?.name) {
+        alert(t('import_invalid'));
+        return;
+      }
+
+      const agentData = data.agent;
+      const meta: Record<string, string> = { ...(agentData.metadata || {}), agent_type: agentData.metadata?.agent_type || 'ai' };
+
+      // Check if engine exists
+      let engineId = agentData.default_engine_id || '';
+      if (engineId && !mcpEngines.some(s => s.id === engineId)) {
+        warnings.push(t('import_engine_missing', { engine: engineId }));
+        engineId = '';
+      }
+
+      // Create agent
+      await api.createAgent({
+        name: agentData.name,
+        description: agentData.description || '',
+        default_engine: engineId,
+        metadata: meta,
+      });
+
+      // Find newly created agent to get its ID
+      const allAgents = await api.getAgents();
+      const created = allAgents.find((a: AgentMetadata) => a.name === agentData.name);
+
+      // Restore MCP access
+      if (created && Array.isArray(data.mcp_access) && data.mcp_access.length > 0) {
+        const serverIds = new Set(mcpServers.map(s => s.id));
+        for (const access of data.mcp_access) {
+          if (!serverIds.has(access.server_id)) {
+            warnings.push(t('import_server_skipped', { server: access.server_id }));
+            continue;
+          }
+          try {
+            const tree = await api.getMcpServerAccess(access.server_id);
+            const newEntry: AccessControlEntry = {
+              entry_type: 'server_grant',
+              agent_id: created.id,
+              server_id: access.server_id,
+              permission: access.permission || 'allow',
+              granted_by: 'import',
+              granted_at: new Date().toISOString(),
+            };
+            await api.putMcpServerAccess(access.server_id, [...tree.entries, newEntry]);
+          } catch {
+            warnings.push(t('import_server_skipped', { server: access.server_id }));
+          }
+        }
+      }
+
+      onRefresh();
+      setImportWarnings(warnings);
+      if (warnings.length === 0) {
+        alert(t('import_success', { name: agentData.name }));
+      }
+    } catch (e) {
+      alert(t('import_error', { error: e instanceof Error ? e.message : 'Unknown error' }));
+    }
+  };
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
@@ -168,8 +274,25 @@ export function AgentTerminal({
           {/* Section: Agents */}
           <div className="flex items-center gap-3 mb-4 border-b border-edge pb-2">
             <Users className="text-brand" size={16} />
-            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('title')}</h2>
+            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest flex-1">{t('title')}</h2>
+            <input ref={importRef} type="file" accept=".json" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ''; }} />
+            <button
+              onClick={() => importRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+            >
+              <Upload size={12} /> {t('import_config')}
+            </button>
           </div>
+
+          {/* Import warnings */}
+          {importWarnings.length > 0 && (
+            <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 space-y-1">
+              {importWarnings.map((w, i) => (
+                <p key={i} className="text-[10px] text-amber-400 font-mono">{w}</p>
+              ))}
+              <button onClick={() => setImportWarnings([])} className="text-[10px] text-content-tertiary hover:text-brand mt-1">&times; {tc('close')}</button>
+            </div>
+          )}
 
           {/* Agent Cards Grid */}
           {agents.length === 0 ? (
@@ -218,6 +341,12 @@ export function AgentTerminal({
                           onClick={(e) => { e.stopPropagation(); onSelectAgent(agent); }}
                         >
                           <MessageSquare size={14} /> {t('chat')}
+                        </button>
+                        <button
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+                          onClick={(e) => { e.stopPropagation(); handleExport(agent); }}
+                        >
+                          <Download size={14} /> {t('export_config')}
                         </button>
                         <button
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"

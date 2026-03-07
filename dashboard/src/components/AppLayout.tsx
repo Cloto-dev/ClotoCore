@@ -42,6 +42,16 @@ export function AppLayout() {
 
   const handleToggleSidebar = () => setSidebarRaw(sidebarCollapsed ? 'false' : 'true');
 
+  // Close settings and navigate home when quick setup completes
+  useEffect(() => {
+    const handler = () => {
+      setSettingsOpen(false);
+      navigate('/');
+    };
+    window.addEventListener('cloto-setup-rerun-complete', handler);
+    return () => window.removeEventListener('cloto-setup-rerun-complete', handler);
+  }, [navigate]);
+
   const handleAskAgent = () => {
     setHelpOpen(false);
     navigate('/');
