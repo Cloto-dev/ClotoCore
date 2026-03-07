@@ -468,6 +468,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // 6b2. MCP notification listener — forward Server→Kernel notifications to event bus
     if let Some(mut notif_rx) = mcp_manager.take_notification_receiver().await {
         let notif_event_tx = event_tx.clone();
+        let notif_mcp_manager = mcp_manager.clone();
         let shutdown_clone = app_state.shutdown.clone();
         tokio::spawn(async move {
             loop {
@@ -478,6 +479,22 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                     }
                     notif_opt = notif_rx.recv() => {
                         let Some(notif) = notif_opt else { break };
+
+                        // Intercept callback requests (MGP §13)
+                        if notif.method == "notifications/mgp.callback.request" {
+                            if let Some(ref params) = notif.params {
+                                if let Some(event_data) = managers::mcp::mcp_events_handle_callback(
+                                    &notif_mcp_manager, &notif.server_id, params,
+                                ) {
+                                    let envelope = EnvelopedEvent::system(event_data);
+                                    if let Err(e) = notif_event_tx.send(envelope).await {
+                                        tracing::warn!("Failed to forward callback event: {}", e);
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+
                         // Method-based filtering: MGP notifications → event bus, others → log only
                         if notif.method.starts_with("notifications/mgp.")
                             || notif.method.starts_with("notifications/cloto.")

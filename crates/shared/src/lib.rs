@@ -494,6 +494,14 @@ pub enum ClotoEventData {
         method: String,
         params: serde_json::Value,
     },
+    /// MCP callback request from a server requiring operator/kernel response (MGP §13).
+    McpCallbackRequested {
+        callback_id: String,
+        server_id: String,
+        callback_type: String,
+        message: String,
+        options: Option<Vec<String>>,
+    },
     /// Terminal commands require human approval before execution (batch).
     CommandApprovalRequested {
         approval_id: String,

@@ -1,6 +1,7 @@
 // Kernel-side tool and code validation for MCP servers.
 // Extracted from mcp.rs for separation of concerns.
 
+use super::mcp_mgp::CodeSafetyLevel;
 use anyhow::Result;
 use serde_json::Value;
 use tracing::warn;
@@ -175,9 +176,44 @@ pub(super) const BLOCKED_PATTERNS: &[&str] = &[
 /// Maximum allowed code size in bytes.
 pub(super) const MAX_CODE_SIZE: usize = 10_000;
 
-/// Validate agent-generated Python code for safety.
+/// Allowed imports for Strict and Readonly safety levels.
+const STRICT_ALLOWED_IMPORTS: &[&str] = &[
+    "asyncio", "json", "httpx", "os", "datetime", "time",
+    "math", "re", "hashlib", "base64", "urllib", "typing",
+];
+
+/// Write-operation patterns blocked in Readonly mode.
+const READONLY_BLOCKED_PATTERNS: &[&str] = &[
+    "open(",
+    ".write(",
+    ".writelines(",
+    "os.mkdir",
+    "os.makedirs",
+    "os.rename",
+    "os.replace",
+    "os.remove",
+    "os.unlink",
+    "os.rmdir",
+    "shutil.",
+    "pathlib.Path.write_",
+    ".to_csv(",
+    ".to_json(",
+    ".to_parquet(",
+];
+
+/// Validate agent-generated Python code for safety at the specified level.
 /// Returns Ok(()) if code is safe, Err with list of violations otherwise.
-pub(super) fn validate_mcp_code(code: &str) -> std::result::Result<(), Vec<String>> {
+///
+/// Levels:
+/// - `Unrestricted`: no checks (instant Ok)
+/// - `Standard`: size limit + blocked imports + blocked patterns (original behavior)
+/// - `Strict`: Standard + import allowlist check
+/// - `Readonly`: Strict + write-operation blocking
+pub(super) fn validate_mcp_code(code: &str, level: CodeSafetyLevel) -> std::result::Result<(), Vec<String>> {
+    if level == CodeSafetyLevel::Unrestricted {
+        return Ok(());
+    }
+
     let mut errors = Vec::new();
 
     // L1: Size limit
@@ -192,9 +228,8 @@ pub(super) fn validate_mcp_code(code: &str) -> std::result::Result<(), Vec<Strin
     // Normalize for pattern matching (lowercase for import checks)
     let code_lower = code.to_lowercase();
 
-    // L2: Blocked imports
+    // L2: Blocked imports (Standard, Strict, Readonly)
     for &blocked in BLOCKED_IMPORTS {
-        // Match "import subprocess", "from subprocess", "import subprocess,"
         let import_pattern = format!("import {blocked}");
         let from_pattern = format!("from {blocked}");
         if code_lower.contains(&import_pattern) || code_lower.contains(&from_pattern) {
@@ -202,10 +237,40 @@ pub(super) fn validate_mcp_code(code: &str) -> std::result::Result<(), Vec<Strin
         }
     }
 
-    // L3: Blocked function/attribute patterns
+    // L3: Blocked function/attribute patterns (Standard, Strict, Readonly)
     for &pattern in BLOCKED_PATTERNS {
         if code.contains(pattern) {
             errors.push(format!("Blocked pattern: '{pattern}'"));
+        }
+    }
+
+    // L4: Import allowlist check (Strict, Readonly)
+    if level == CodeSafetyLevel::Strict || level == CodeSafetyLevel::Readonly {
+        for line in code.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("import ") || trimmed.starts_with("from ") {
+                let module = trimmed
+                    .trim_start_matches("from ")
+                    .trim_start_matches("import ")
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .split('.')
+                    .next()
+                    .unwrap_or("");
+                if !module.is_empty() && !STRICT_ALLOWED_IMPORTS.contains(&module) {
+                    errors.push(format!("Import not in strict allowlist: '{module}'"));
+                }
+            }
+        }
+    }
+
+    // L5: Write-operation blocking (Readonly)
+    if level == CodeSafetyLevel::Readonly {
+        for &pattern in READONLY_BLOCKED_PATTERNS {
+            if code.contains(pattern) {
+                errors.push(format!("Readonly violation: write pattern '{pattern}'"));
+            }
         }
     }
 
@@ -213,5 +278,55 @@ pub(super) fn validate_mcp_code(code: &str) -> std::result::Result<(), Vec<Strin
         Ok(())
     } else {
         Err(errors)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unrestricted_allows_anything() {
+        let code = "import subprocess\nos.system('rm -rf /')\neval('bad')";
+        assert!(validate_mcp_code(code, CodeSafetyLevel::Unrestricted).is_ok());
+    }
+
+    #[test]
+    fn standard_blocks_dangerous_imports() {
+        let code = "import subprocess\nprint('hello')";
+        let err = validate_mcp_code(code, CodeSafetyLevel::Standard).unwrap_err();
+        assert!(err.iter().any(|e| e.contains("subprocess")));
+    }
+
+    #[test]
+    fn standard_allows_safe_code() {
+        let code = "import json\nresult = json.dumps({'key': 'value'})";
+        assert!(validate_mcp_code(code, CodeSafetyLevel::Standard).is_ok());
+    }
+
+    #[test]
+    fn strict_blocks_unlisted_imports() {
+        let code = "import requests\nresult = requests.get('http://example.com')";
+        let err = validate_mcp_code(code, CodeSafetyLevel::Strict).unwrap_err();
+        assert!(err.iter().any(|e| e.contains("strict allowlist")));
+    }
+
+    #[test]
+    fn strict_allows_listed_imports() {
+        let code = "import json\nimport httpx\nimport asyncio";
+        assert!(validate_mcp_code(code, CodeSafetyLevel::Strict).is_ok());
+    }
+
+    #[test]
+    fn readonly_blocks_write_operations() {
+        let code = "import json\nf = open('test.txt')";
+        let err = validate_mcp_code(code, CodeSafetyLevel::Readonly).unwrap_err();
+        assert!(err.iter().any(|e| e.contains("Readonly violation")));
+    }
+
+    #[test]
+    fn readonly_allows_read_only_code() {
+        let code = "import json\nresult = json.loads('{\"a\":1}')";
+        assert!(validate_mcp_code(code, CodeSafetyLevel::Readonly).is_ok());
     }
 }
