@@ -166,7 +166,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app"
-version = "0.6.0-beta.2"
+version = "0.6.0-beta.3"
 dependencies = [
  "base64 0.21.7",
  "cloto_core",
@@ -954,7 +954,7 @@ checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
 
 [[package]]
 name = "cloto_core"
-version = "0.6.0-beta.2"
+version = "0.6.0-beta.3"
 dependencies = [
  "anyhow",
  "argon2",
@@ -995,7 +995,7 @@ dependencies = [
 
 [[package]]
 name = "cloto_shared"
-version = "0.6.0-beta.2"
+version = "0.6.0-beta.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5512,12 +5512,12 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.6.2"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f4aa3ad99f2088c990dfa82d367e19cb29268ed67c574d10d0a4bfe71f07e0"
+checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
