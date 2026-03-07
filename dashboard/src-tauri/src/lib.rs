@@ -65,6 +65,31 @@ fn select_script_file(base_dir: String) -> Result<Option<String>, String> {
     Ok(None)
 }
 
+/// Read a text file and return its contents.
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+/// Return the path to `Documents/ClotoCore/languages`, creating it if needed.
+#[tauri::command]
+fn get_languages_dir() -> Result<String, String> {
+    let home = if cfg!(target_os = "windows") {
+        std::env::var("USERPROFILE")
+    } else {
+        std::env::var("HOME")
+    }
+    .map_err(|_| "Cannot determine home directory".to_string())?;
+
+    let dir = std::path::PathBuf::from(home)
+        .join("Documents")
+        .join("ClotoCore")
+        .join("languages");
+
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
 /// Returns the auto-generated API key, or None if the user configured their own in .env.
 #[tauri::command]
 fn get_auto_api_key() -> Option<String> {
@@ -101,7 +126,9 @@ pub fn run() {
             get_kernel_port,
             capture_screen,
             select_script_file,
-            get_auto_api_key
+            get_auto_api_key,
+            read_text_file,
+            get_languages_dir
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

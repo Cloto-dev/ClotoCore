@@ -1,4 +1,5 @@
 import React, { lazy, useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -11,6 +12,7 @@ import { AppLayout } from './components/AppLayout'
 import { AgentPage } from './pages/AgentPage'
 import { CustomCursor } from './components/CustomCursor'
 import { isTauri } from './lib/tauri'
+import './i18n'
 import './compiled-tailwind.css'
 
 declare const __APP_VERSION__: string;
@@ -36,18 +38,10 @@ function App() {
   };
 
   const { connected } = useConnection();
+  const { t } = useTranslation();
 
   // Rotating flavour text for loading screen
-  const BOOT_LINES = [
-    'Initializing neural pathways...',
-    'Calibrating cognitive matrices...',
-    'Establishing secure channels...',
-    'Loading agent consciousness...',
-    'Synchronizing memory cores...',
-    'Bootstrapping reasoning engines...',
-    'Activating local intelligence...',
-    'Verifying system integrity...',
-  ];
+  const BOOT_LINES = t('boot.lines', { returnObjects: true }) as string[];
 
   const pickRandom = useCallback((prev: number) => {
     let next: number;
@@ -68,7 +62,7 @@ function App() {
     return (
       <div className="min-h-screen bg-surface-base flex flex-col items-center justify-center select-none">
         <h1 className="text-4xl font-black tracking-[0.2em] text-content-primary">
-          CLOTO SYSTEM
+          {t('boot.title')}
         </h1>
         <div className="mt-6 h-6 flex items-center justify-center">
           <p key={lineIdx} className="text-[11px] font-mono text-brand/70 uppercase tracking-[0.15em] animate-boot-line">
@@ -85,11 +79,7 @@ function App() {
         {!isTauri && !bannerDismissed && (
           <div className="bg-amber-900/80 border-b border-amber-700 px-4 py-2 flex items-center justify-between font-mono text-xs text-amber-200">
             <span>
-              Browser access is deprecated. Please use the{' '}
-              <a href="https://github.com/Cloto-dev/ClotoCore/releases/latest" target="_blank" rel="noopener noreferrer" className="underline text-amber-100 hover:text-white">
-                Cloto desktop app
-              </a>{' '}
-              for the full experience.
+              {t('browser_banner', { defaultValue: 'Browser access is deprecated. Please use the Cloto desktop app for the full experience.' })}
             </span>
             <button onClick={dismissBanner} className="ml-4 text-amber-400 hover:text-white" aria-label="Dismiss">
               ✕

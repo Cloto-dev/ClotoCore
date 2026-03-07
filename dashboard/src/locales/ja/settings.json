@@ -1,0 +1,49 @@
+{
+  "title": "設定",
+  "sections": {
+    "general": "一般",
+    "security": "セキュリティ",
+    "display": "表示",
+    "advanced": "詳細",
+    "log": "ログ",
+    "about": "情報"
+  },
+  "general": {
+    "theme": "テーマ",
+    "theme_light": "ライト",
+    "theme_dark": "ダーク",
+    "theme_system": "システム",
+    "language": "言語",
+    "export_template": "テンプレート出力",
+    "import_pack": "インポート",
+    "import_success": "\"{{label}}\" ({{code}}) のインポートに成功しました。",
+    "import_error": "インポート失敗: {{error}}",
+    "custom_label": "カスタム",
+    "remove": "削除",
+    "user_identity": "ユーザー情報",
+    "display_name": "表示名",
+    "name_placeholder": "ユーザー",
+    "name_hint": "チャット時にエージェントに表示される名前です。エージェントがあなたを名前で呼ぶことができます。"
+  },
+  "about": {
+    "clotocore": "ClotoCore",
+    "description": "Rust カーネルと MCP ベースのプラグインアーキテクチャで構築された AI エージェントオーケストレーションプラットフォーム。",
+    "updates": "アップデート",
+    "check_for_updates": "アップデートを確認",
+    "checking": "アップデートを確認中...",
+    "up_to_date": "最新です — v{{version}}",
+    "check_again": "再確認",
+    "available": "v{{version}} が利用可能",
+    "update_now": "今すぐアップデート",
+    "recheck": "再確認",
+    "applying": "アップデートを適用中...",
+    "applied": "アップデートが正常に適用されました",
+    "restart_hint": "新しいバージョンを使用するにはアプリケーションを再起動してください。",
+    "license": "ライセンス",
+    "bsl": "Business Source License 1.1",
+    "mit_convert": "2028年2月14日に MIT ライセンスへ移行",
+    "links": "リンク",
+    "repository": "リポジトリ",
+    "contact": "連絡先"
+  }
+}
