@@ -1,8 +1,9 @@
 # MGP Implementation Roadmap
 
-**Status**: Approved
+**Status**: Tier 1-4 Complete
 **Created**: 2026-03-07
 **Base Version**: v0.6.0-beta.3
+**Implementation Commit**: `03b0785` (2026-03-07)
 
 ## Overview
 
@@ -16,14 +17,14 @@ MGP extensions activate only when both client and server negotiate support.
 ## Implementation Order
 
 ```
-Tier 1 → Tier 2 → Delegation → Tier 3 → Tier 4 → SDK Discussion
-                   ↑
-          OS Isolation Phase 1 inserted at optimal timing
+Tier 1 ✅ → Tier 2 ✅ → Tier 3 ✅ → Tier 4 ✅ → Delegation → SDK Discussion
+                                                    ↑
+                                    OS Isolation Phase 1 inserted at optimal timing
 ```
 
 ---
 
-## Tier 1: Capability Negotiation + Metadata
+## Tier 1: Capability Negotiation + Metadata — ✅ Complete
 
 **Scope**: MGP_SPEC.md §1-2, MGP_SECURITY.md §2, §4
 **Effort**: Hours (~70 lines server-side, ~80 lines kernel-side)
@@ -53,7 +54,7 @@ Tier 1 → Tier 2 → Delegation → Tier 3 → Tier 4 → SDK Discussion
 
 ---
 
-## Tier 2: Security
+## Tier 2: Security — ✅ Complete
 
 **Scope**: MGP_SECURITY.md §3, §5-7, MGP_COMMUNICATION.md §14
 **Effort**: ~1 week
@@ -131,7 +132,7 @@ Tier 1 → Tier 2 → Delegation → Tier 3 → Tier 4 → SDK Discussion
 
 ---
 
-## Tier 3: Communication
+## Tier 3: Communication — ✅ Complete
 
 **Scope**: MGP_COMMUNICATION.md §11-13
 **Effort**: 2-4 weeks
@@ -154,10 +155,11 @@ Tier 1 → Tier 2 → Delegation → Tier 3 → Tier 4 → SDK Discussion
 
 ### Key Files
 
-- `crates/core/src/managers/mcp.rs` — lifecycle state machine, streaming
-- `crates/core/src/managers/mcp_health.rs` — health check extensions
-- `crates/core/src/handlers/system.rs` — callback routing
-- `crates/core/src/events.rs` — event subscription infrastructure
+- `crates/core/src/managers/mcp_lifecycle.rs` — lifecycle state machine, restart policies
+- `crates/core/src/managers/mcp_streaming.rs` — stream chunks, progress, flow control
+- `crates/core/src/managers/mcp_events.rs` — event subscriptions, replay, callbacks
+- `crates/core/src/managers/mcp_kernel_tool.rs` — kernel tool schemas and executors
+- `crates/core/src/managers/mcp_health.rs` — health check monitoring
 
 ### Acceptance Criteria
 
@@ -169,7 +171,7 @@ Tier 1 → Tier 2 → Delegation → Tier 3 → Tier 4 → SDK Discussion
 
 ---
 
-## Tier 4: Intelligence
+## Tier 4: Intelligence — ✅ Complete
 
 **Scope**: MGP_DISCOVERY.md §15-16
 **Effort**: 1-2 months
@@ -200,9 +202,10 @@ Tier 1 → Tier 2 → Delegation → Tier 3 → Tier 4 → SDK Discussion
 
 ### Key Files
 
-- `crates/core/src/managers/mcp.rs` — tool index, discovery logic
-- `crates/core/src/managers/mcp_kernel_tool.rs` — kernel tool definitions
-- `crates/core/src/db/` — tool index persistence, session cache
+- `crates/core/src/managers/mcp_discovery.rs` — §15 server discovery (3 kernel tools)
+- `crates/core/src/managers/mcp_tool_discovery.rs` — §16 tool discovery (ToolIndex, SessionToolCache, 4 kernel tools)
+- `crates/core/src/managers/mcp_kernel_tool.rs` — LLM meta-tool schemas, all kernel tool definitions
+- `crates/core/src/managers/mcp.rs` — rich_tool_index integration, execute_tool routing
 
 ### Acceptance Criteria
 
