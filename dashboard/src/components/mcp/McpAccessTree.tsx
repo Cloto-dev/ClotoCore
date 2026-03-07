@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AccessControlEntry, AccessPermission } from '../../types';
 import { ChevronDown, ChevronRight, Key, FolderOpen, Wrench } from 'lucide-react';
 
@@ -10,10 +11,11 @@ interface Props {
   onChange: (entries: AccessControlEntry[]) => void;
 }
 
-function PermissionSelect({ value, inherited, onChange }: {
+function PermissionSelect({ value, inherited, onChange, t }: {
   value: AccessPermission | null;
   inherited: boolean;
   onChange: (v: AccessPermission | 'inherit') => void;
+  t: (key: string) => string;
 }) {
   return (
     <select
@@ -22,16 +24,17 @@ function PermissionSelect({ value, inherited, onChange }: {
       className={`text-[10px] font-mono rounded px-1.5 py-0.5 border transition-colors
         ${value === 'allow' && !inherited ? 'border-green-500/30 bg-green-500/10 text-green-500' :
           value === 'deny' && !inherited ? 'border-red-500/30 bg-red-500/10 text-red-500' :
-          'border-edge bg-glass text-content-muted'}`}
+          'border-edge bg-glass text-content-tertiary'}`}
     >
-      <option value="inherit">(inherited)</option>
-      <option value="allow">Allow</option>
-      <option value="deny">Deny</option>
+      <option value="inherit">{t('access.option_inherited')}</option>
+      <option value="allow">{t('access.option_allow')}</option>
+      <option value="deny">{t('access.option_deny')}</option>
     </select>
   );
 }
 
 export function McpAccessTree({ entries, tools, agentId, serverId, onChange }: Props) {
+  const { t } = useTranslation('mcp');
   const [expanded, setExpanded] = useState(true);
 
   // Find server_grant for this agent+server
@@ -93,11 +96,11 @@ export function McpAccessTree({ entries, tools, agentId, serverId, onChange }: P
       {capabilities.map((cap, i) => (
         <div key={`cap-${i}`} className="flex items-center gap-2 py-1 px-1">
           <Key size={12} className="text-yellow-500 flex-shrink-0" />
-          <span className="text-content-secondary">Capability: {cap.justification ?? cap.server_id}</span>
+          <span className="text-content-secondary">{t('access.capability')} {cap.justification ?? cap.server_id}</span>
           <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded ${
             cap.permission === 'allow' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
           }`}>
-            {cap.permission === 'allow' ? 'Approved' : 'Denied'}
+            {cap.permission === 'allow' ? t('access.approved') : t('access.denied_status')}
           </span>
         </div>
       ))}
@@ -110,12 +113,13 @@ export function McpAccessTree({ entries, tools, agentId, serverId, onChange }: P
         >
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           <FolderOpen size={12} className="text-blue-500 flex-shrink-0" />
-          <span className="text-content-secondary">Server Grant: {serverId}</span>
+          <span className="text-content-secondary">{t('access.server_grant')} {serverId}</span>
           <div className="ml-auto" onClick={e => e.stopPropagation()}>
             <PermissionSelect
               value={serverGrant?.permission ?? null}
               inherited={!serverGrant}
               onChange={handleServerGrantChange}
+              t={t}
             />
           </div>
         </button>
@@ -132,6 +136,7 @@ export function McpAccessTree({ entries, tools, agentId, serverId, onChange }: P
                   value={grant?.permission ?? null}
                   inherited={!grant}
                   onChange={v => handleToolGrantChange(tool, v)}
+                  t={t}
                 />
               </div>
             </div>

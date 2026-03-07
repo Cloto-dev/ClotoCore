@@ -57,7 +57,7 @@ export function AvatarSection({ agent, hasAvatar, avatarKey, avatarDescription, 
         </div>
         {avatarDescription && (
           <div className="text-[11px] text-content-tertiary font-mono bg-glass rounded-lg p-3 border border-edge leading-relaxed">
-            <span className="text-content-muted font-bold">Vision: </span>{avatarDescription}
+            <span className="text-content-tertiary font-bold">Vision: </span>{avatarDescription}
           </div>
         )}
       </div>

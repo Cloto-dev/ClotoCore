@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { memo } from 'react';
 import { Brain, History, User, Trash2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Memory, Episode, AgentMetadata } from '../types';
 import { useEventStream } from '../hooks/useEventStream';
 import { useMetrics, Metrics } from '../hooks/useMetrics';
@@ -18,6 +19,7 @@ function agentDisplayName(agentId: string, agentMap: Map<string, string>): strin
 }
 
 export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { isWindowMode?: boolean }) {
+  const { t } = useTranslation('memory');
   const [memories, setMemories] = useState<Memory[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [agents, setAgents] = useState<AgentMetadata[]>([]);
@@ -122,9 +124,9 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Brain className="text-brand" size={16} />
-              <h2 className="text-xs font-mono uppercase tracking-widest text-content-primary font-bold">Memory Core</h2>
+              <h2 className="text-xs font-mono uppercase tracking-widest text-content-primary font-bold">{t('title')}</h2>
             </div>
-            <span className="text-[10px] font-mono text-content-tertiary">{metrics.ram_usage} / {metrics.total_memories} OBJS</span>
+            <span className="text-[10px] font-mono text-content-tertiary">{metrics.ram_usage} / {metrics.total_memories} {t('objs')}</span>
           </div>
           {/* Agent filter tabs */}
           {agentTabs.length > 0 && (
@@ -137,7 +139,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                     : 'bg-glass-strong text-content-tertiary hover:text-content-secondary border border-edge'
                 }`}
               >
-                All
+                {t('all')}
               </button>
               {agentTabs.map(agentId => (
                 <button
@@ -163,7 +165,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
           <section className={`${isWindowMode ? '' : 'lg:col-span-2'} space-y-4`}>
             <div className="flex items-center gap-3 mb-2 border-b border-edge pb-2">
               <User className="text-brand" size={16} />
-              <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Long-term Memory Banks</h2>
+              <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('long_term')}</h2>
             </div>
             
             <div className={`grid ${isWindowMode ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'} gap-4`}>
@@ -183,7 +185,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDeleteMemory(mem.id); }}
                       className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                      title="Delete memory"
+                      title={t('delete_memory')}
                     >
                       <Trash2 size={12} />
                     </button>
@@ -191,7 +193,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                 </div>
               )) : (
                  <div className="col-span-full py-8 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
-                    No memories archived.
+                    {t('no_memories')}
                  </div>
               )}
             </div>
@@ -200,7 +202,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
           <section className="space-y-4">
             <div className="flex items-center gap-3 mb-2 border-b border-edge pb-2">
               <History className="text-brand" size={16} />
-              <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Episodic Stream</h2>
+              <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('episodic')}</h2>
             </div>
             
             <div className="space-y-3">
@@ -209,18 +211,18 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                   <div className="text-[10px] font-black text-brand mb-1 uppercase tracking-wider flex justify-between items-center">
                     <span>{epi.created_at || "LOG: RECENT"}</span>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-content-muted font-mono">{agentDisplayName(epi.agent_id, agentMap)}</span>
+                      <span className="text-content-tertiary font-mono">{agentDisplayName(epi.agent_id, agentMap)}</span>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteEpisode(epi.id); }}
                         className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                        title="Delete episode"
+                        title={t('delete_episode')}
                       >
                         <Trash2 size={10} />
                       </button>
                     </div>
                   </div>
                   {epi.keywords && (
-                    <div className="text-[9px] font-mono text-content-muted mb-1">{epi.keywords}</div>
+                    <div className="text-[9px] font-mono text-content-tertiary mb-1">{epi.keywords}</div>
                   )}
                   <p className="text-xs text-content-secondary line-clamp-3 font-mono leading-relaxed group-hover:text-content-primary">
                     {epi.summary}
@@ -228,7 +230,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                 </div>
               )) : (
                 <div className="py-8 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
-                  No episodes logged.
+                  {t('no_episodes')}
                 </div>
               )}
             </div>

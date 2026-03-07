@@ -32,7 +32,7 @@ export function LlmProvidersSection() {
 
   return (
     <SectionCard title="LLM Providers">
-      <p className="text-[10px] text-content-muted mb-4">API keys are held by the kernel and never exposed to MCP servers (MGP §13.4).</p>
+      <p className="text-[10px] text-content-tertiary mb-4">API keys are held by the kernel and never exposed to MCP servers (MGP §13.4).</p>
       <div className="space-y-3">
         {providers.map(p => (
           <div key={p.id} className="flex items-center gap-3 p-3 bg-surface-secondary rounded-lg border border-edge-subtle">
@@ -40,7 +40,7 @@ export function LlmProvidersSection() {
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${p.has_key ? 'bg-green-500' : 'bg-amber-500'}`} />
                 <span className="text-xs font-bold text-content-primary">{p.display_name}</span>
-                <span className="text-[9px] font-mono text-content-muted">{p.model_id}</span>
+                <span className="text-[9px] font-mono text-content-tertiary">{p.model_id}</span>
               </div>
               <div className="flex gap-2 mt-2">
                 <input
@@ -48,7 +48,7 @@ export function LlmProvidersSection() {
                   value={keyInputs[p.id] || ''}
                   onChange={e => setKeyInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
                   placeholder={p.has_key ? '••••••• (saved)' : 'Enter API key'}
-                  className="flex-1 bg-surface-base border border-edge rounded px-2 py-1 text-[10px] font-mono text-content-primary placeholder:text-content-muted"
+                  className="flex-1 bg-surface-base border border-edge rounded px-2 py-1 text-[10px] font-mono text-content-primary placeholder:text-content-tertiary"
                 />
                 <button
                   onClick={() => handleSave(p.id)}
@@ -70,7 +70,7 @@ export function LlmProvidersSection() {
           </div>
         ))}
         {providers.length === 0 && (
-          <p className="text-[10px] text-content-muted italic">No providers configured.</p>
+          <p className="text-[10px] text-content-tertiary italic">No providers configured.</p>
         )}
       </div>
     </SectionCard>

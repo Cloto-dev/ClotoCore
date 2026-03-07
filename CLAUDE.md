@@ -117,6 +117,15 @@ This script is the mechanical verification engine that prevents hallucination an
 - Introduce false positives/negatives
 - Compromise audit trail integrity
 
+## Dashboard UI Rules
+
+### Text Readability Minimums
+
+- **Minimum text size**: `text-[9px]` (9px). Never use `text-[8px]` or smaller.
+- **Minimum text color**: `text-content-tertiary`. Never use `text-content-muted` for readable text.
+  - `text-content-muted` is permitted only for decorative elements (borders, disabled icons, dividers).
+  - All user-readable text must use `text-content-tertiary` or higher (`text-content-secondary`, `text-content-primary`).
+
 ## Project Structure
 
 - **Language**: Rust (workspace with multiple crates)

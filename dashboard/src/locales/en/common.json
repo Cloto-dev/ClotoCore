@@ -30,5 +30,18 @@
       "Verifying system integrity..."
     ]
   },
-  "browser_banner": "Browser access is deprecated. Please use the <1>Cloto desktop app</1> for the full experience."
+  "browser_banner": "Browser access is deprecated. Please use the <1>Cloto desktop app</1> for the full experience.",
+  "help": {
+    "navigation": "Navigation",
+    "status_desc": "System health, agent status, and live metrics",
+    "memory_desc": "Browse stored memories and episode archives",
+    "cloto_desc": "Chat with your AI agents",
+    "mcp_desc": "Manage MCP server connections and tools",
+    "cron_desc": "Schedule automated agent tasks",
+    "settings_desc": "Configure API keys, themes, and preferences",
+    "ask_assistant": "Ask Cloto Assistant",
+    "ask_hint": "Chat with the default agent for help and questions",
+    "docs": "Docs",
+    "github": "GitHub"
+  }
 }
