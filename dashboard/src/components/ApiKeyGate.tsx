@@ -119,7 +119,7 @@ export function ApiKeyGate() {
               onKeyDown={e => e.key === 'Enter' && handleSave()}
               placeholder="Enter API key..."
               autoFocus
-              className="w-full pl-7 pr-8 py-2 rounded-lg border border-edge text-xs font-mono text-content-primary bg-surface-base placeholder:text-content-muted focus:outline-none focus:border-brand"
+              className="w-full pl-7 pr-8 py-2 rounded-lg border border-edge text-xs font-mono text-content-primary bg-surface-base placeholder:text-content-tertiary focus:outline-none focus:border-brand"
             />
             <button
               onClick={() => setShow(s => !s)}

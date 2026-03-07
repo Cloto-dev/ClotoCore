@@ -54,7 +54,7 @@ export function ServerAccessSection({ grantedServers, availableServers, agentCol
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="text-xs font-bold text-content-primary">{server.id}</span>
-                  <span className="text-[10px] text-content-muted ml-2 font-mono">{server.tools.length} tools</span>
+                  <span className="text-[10px] text-content-tertiary ml-2 font-mono">{server.tools.length} tools</span>
                 </div>
                 <StatusIcon status={server.status} />
                 <StatusBadge status={server.status} />
@@ -86,7 +86,7 @@ export function ServerAccessSection({ grantedServers, availableServers, agentCol
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="text-xs font-medium text-content-secondary">{server.id}</span>
-                  <span className="text-[10px] text-content-muted ml-2 font-mono">{server.tools.length} tools</span>
+                  <span className="text-[10px] text-content-tertiary ml-2 font-mono">{server.tools.length} tools</span>
                 </div>
                 <StatusIcon status={server.status} />
                 <StatusBadge status={server.status} />

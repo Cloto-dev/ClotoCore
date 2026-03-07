@@ -71,9 +71,10 @@ fn read_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
-/// Return the path to `Documents/ClotoCore/languages`, creating it if needed.
-#[tauri::command]
-fn get_languages_dir() -> Result<String, String> {
+// ── Language Pack Management ──
+
+/// Resolve the languages directory path, creating it if needed.
+fn get_languages_dir_path() -> Result<std::path::PathBuf, String> {
     let home = if cfg!(target_os = "windows") {
         std::env::var("USERPROFILE")
     } else {
@@ -87,7 +88,71 @@ fn get_languages_dir() -> Result<String, String> {
         .join("languages");
 
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.to_string_lossy().into_owned())
+    Ok(dir)
+}
+
+/// Return the path to `Documents/ClotoCore/languages`, creating it if needed.
+#[tauri::command]
+fn get_languages_dir() -> Result<String, String> {
+    get_languages_dir_path().map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Scan the languages directory and return all .json files as (filename, content) pairs.
+#[tauri::command]
+fn scan_languages_dir() -> Result<Vec<(String, String)>, String> {
+    let dir = get_languages_dir_path()?;
+    let mut results = Vec::new();
+    if dir.exists() {
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "json") {
+                let name = path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+                results.push((name, content));
+            }
+        }
+    }
+    Ok(results)
+}
+
+/// Save a language pack JSON file to the languages directory.
+#[tauri::command]
+fn save_language_pack(filename: String, content: String) -> Result<(), String> {
+    let dir = get_languages_dir_path()?;
+    let path = dir.join(format!("{}.json", filename));
+    std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+/// Remove a language pack file from the languages directory.
+#[tauri::command]
+fn remove_language_pack(filename: String) -> Result<(), String> {
+    let dir = get_languages_dir_path()?;
+    let path = dir.join(format!("{}.json", filename));
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Install bundled default language packs if they don't already exist.
+/// Returns the number of packs installed.
+const DEFAULT_JA_PACK: &str = include_str!("../resources/ja.json");
+
+#[tauri::command]
+fn install_default_packs() -> Result<u32, String> {
+    let dir = get_languages_dir_path()?;
+    let mut installed = 0u32;
+    let ja_path = dir.join("ja.json");
+    if !ja_path.exists() {
+        std::fs::write(&ja_path, DEFAULT_JA_PACK).map_err(|e| e.to_string())?;
+        installed += 1;
+    }
+    Ok(installed)
 }
 
 /// Returns the auto-generated API key, or None if the user configured their own in .env.
@@ -128,7 +193,11 @@ pub fn run() {
             select_script_file,
             get_auto_api_key,
             read_text_file,
-            get_languages_dir
+            get_languages_dir,
+            scan_languages_dir,
+            save_language_pack,
+            remove_language_pack,
+            install_default_packs
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

@@ -59,7 +59,7 @@ export function CommandApprovalCard({ approvalId, commands, onResolved }: Props)
     <SystemAlertCard
       icon={<Terminal size={14} />}
       title={`Command Approval${commands.length > 1 ? ` (${commands.length})` : ''}`}
-      trailing={<span className="text-[10px] font-mono text-content-muted">{secondsLeft}s</span>}
+      trailing={<span className="text-[10px] font-mono text-content-tertiary">{secondsLeft}s</span>}
       footer={
         <div className="flex gap-2">
           <button

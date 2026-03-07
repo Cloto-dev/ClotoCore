@@ -74,7 +74,7 @@ export function AboutSection() {
 
           {/* Checking spinner */}
           {updateState === 'checking' && (
-            <div className="flex items-center gap-2 text-xs text-content-muted">
+            <div className="flex items-center gap-2 text-xs text-content-tertiary">
               <RefreshCw size={14} className="animate-spin" />
               {t('about.checking')}
             </div>
@@ -89,7 +89,7 @@ export function AboutSection() {
               </div>
               <button
                 onClick={handleCheck}
-                className="text-[10px] text-content-muted hover:text-brand transition-colors"
+                className="text-[10px] text-content-tertiary hover:text-brand transition-colors"
               >
                 {t('about.check_again')}
               </button>
@@ -103,7 +103,7 @@ export function AboutSection() {
                 <Download size={14} />
                 {t('about.available', { version: updateInfo.latestVersion })}
                 {updateInfo.releaseDate && (
-                  <span className="text-content-muted font-normal">
+                  <span className="text-content-tertiary font-normal">
                     ({formatDate(updateInfo.releaseDate)})
                   </span>
                 )}
@@ -138,7 +138,7 @@ export function AboutSection() {
 
           {/* Updating */}
           {updateState === 'updating' && (
-            <div className="flex items-center gap-2 text-xs text-content-muted">
+            <div className="flex items-center gap-2 text-xs text-content-tertiary">
               <RefreshCw size={14} className="animate-spin" />
               {t('about.applying')}
             </div>
@@ -152,11 +152,11 @@ export function AboutSection() {
                 {t('about.applied')}
               </div>
               {updateOutput && (
-                <div className="text-[10px] text-content-muted font-mono bg-glass rounded-lg p-2 border border-edge">
+                <div className="text-[10px] text-content-tertiary font-mono bg-glass rounded-lg p-2 border border-edge">
                   {updateOutput.slice(0, 300)}
                 </div>
               )}
-              <p className="text-[10px] text-content-muted">{t('about.restart_hint')}</p>
+              <p className="text-[10px] text-content-tertiary">{t('about.restart_hint')}</p>
             </div>
           )}
 
@@ -173,7 +173,7 @@ export function AboutSection() {
       <SectionCard title={t('about.license')}>
         <div className="space-y-2">
           <p className="text-xs text-content-secondary">{t('about.bsl')}</p>
-          <p className="text-[10px] text-content-muted">{t('about.mit_convert')}</p>
+          <p className="text-[10px] text-content-tertiary">{t('about.mit_convert')}</p>
         </div>
       </SectionCard>
 

@@ -71,6 +71,46 @@ export async function getLanguagesDir(): Promise<string | null> {
   }
 }
 
+// ── Language Pack Management ──
+
+/** Scan Documents/ClotoCore/languages/ for all .json packs. Returns (filename, content) pairs. */
+export async function scanLanguagesDir(): Promise<Array<[string, string]>> {
+  if (!isTauri) return [];
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<Array<[string, string]>>('scan_languages_dir');
+  } catch { return []; }
+}
+
+/** Save a language pack JSON file to the languages directory. */
+export async function saveLanguagePack(filename: string, content: string): Promise<boolean> {
+  if (!isTauri) return false;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('save_language_pack', { filename, content });
+    return true;
+  } catch { return false; }
+}
+
+/** Remove a language pack file from the languages directory. */
+export async function removeLanguagePack(filename: string): Promise<boolean> {
+  if (!isTauri) return false;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('remove_language_pack', { filename });
+    return true;
+  } catch { return false; }
+}
+
+/** Install bundled default language packs if they don't exist yet. */
+export async function installDefaultPacks(): Promise<number> {
+  if (!isTauri) return 0;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<number>('install_default_packs');
+  } catch { return 0; }
+}
+
 // ── Auto API Key ──
 
 /** Fetch the auto-generated API key from the Tauri backend. Returns null in browser mode. */

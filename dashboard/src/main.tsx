@@ -12,7 +12,8 @@ import { AppLayout } from './components/AppLayout'
 import { AgentPage } from './pages/AgentPage'
 import { CustomCursor } from './components/CustomCursor'
 import { isTauri } from './lib/tauri'
-import './i18n'
+import './i18n';
+import { loadExternalLanguages } from './i18n';
 import './compiled-tailwind.css'
 
 declare const __APP_VERSION__: string;
@@ -100,18 +101,23 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <ThemeProvider>
-        <ApiKeyProvider>
-          <UserIdentityProvider>
-            <ConnectionProvider>
-              <App />
-            </ConnectionProvider>
-          </UserIdentityProvider>
-        </ApiKeyProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
-  </React.StrictMode>,
-)
+async function bootstrap() {
+  await loadExternalLanguages();
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <ThemeProvider>
+          <ApiKeyProvider>
+            <UserIdentityProvider>
+              <ConnectionProvider>
+                <App />
+              </ConnectionProvider>
+            </UserIdentityProvider>
+          </ApiKeyProvider>
+        </ThemeProvider>
+      </ErrorBoundary>
+    </React.StrictMode>,
+  );
+}
+
+bootstrap();

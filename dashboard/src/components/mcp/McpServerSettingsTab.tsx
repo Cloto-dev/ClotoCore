@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { McpServerInfo, McpServerSettings, DefaultPolicy } from '../../types';
 import { useApi } from '../../hooks/useApi';
 import { Save, RotateCcw, Plus, X, Eye, EyeOff } from 'lucide-react';
@@ -10,6 +11,7 @@ interface Props {
 
 export function McpServerSettingsTab({ server, onRefresh }: Props) {
   const api = useApi();
+  const { t } = useTranslation('mcp');
   const [settings, setSettings] = useState<McpServerSettings | null>(null);
   const [defaultPolicy, setDefaultPolicy] = useState<DefaultPolicy>('opt-in');
   const [saving, setSaving] = useState(false);
@@ -122,22 +124,22 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
 
       {/* Server Configuration */}
       <section>
-        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">Server Configuration</h3>
+        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">{t('settings_tab.server_config')}</h3>
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <label className="text-[10px] font-mono text-content-muted w-20">Command</label>
+            <label className="text-[10px] font-mono text-content-tertiary w-20">{t('settings_tab.command')}</label>
             <span className="text-xs font-mono text-content-secondary bg-glass rounded px-2 py-1 flex-1">
               {settings?.command ?? server.command ?? '—'}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-[10px] font-mono text-content-muted w-20">Args</label>
+            <label className="text-[10px] font-mono text-content-tertiary w-20">{t('settings_tab.args')}</label>
             <span className="text-xs font-mono text-content-secondary bg-glass rounded px-2 py-1 flex-1 truncate">
-              {(settings?.args ?? server.args ?? []).join(' ') || '(none)'}
+              {(settings?.args ?? server.args ?? []).join(' ') || t('settings_tab.none')}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-[10px] font-mono text-content-muted w-20">Transport</label>
+            <label className="text-[10px] font-mono text-content-tertiary w-20">{t('settings_tab.transport')}</label>
             <span className="text-xs font-mono text-content-secondary">stdio</span>
           </div>
         </div>
@@ -145,7 +147,7 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
 
       {/* Environment Variables */}
       <section>
-        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">Environment Variables</h3>
+        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">{t('settings_tab.env_vars')}</h3>
         <div className="space-y-2">
           {envEntries.map(entry => (
             <div key={entry.key} className="flex items-center gap-2">
@@ -158,7 +160,7 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
                   value={entry.value === '***' ? '' : entry.value}
                   onChange={e => updateEnvValue(entry.key, e.target.value || '***')}
                   placeholder={entry.value === '***' ? '••••••• (saved)' : ''}
-                  className="w-full text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 pr-7 text-content-primary placeholder:text-content-muted focus:outline-none focus:border-brand transition-colors"
+                  className="w-full text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 pr-7 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
                 />
                 <button
                   onClick={() => toggleVisibility(entry.key)}
@@ -170,7 +172,7 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
               <button
                 onClick={() => removeEnvEntry(entry.key)}
                 className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
-                title="Remove"
+                title={t('settings_tab.remove')}
               >
                 <X size={12} />
               </button>
@@ -184,7 +186,7 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
               value={newKey}
               onChange={e => setNewKey(e.target.value.toUpperCase())}
               placeholder="KEY"
-              className="w-40 text-[10px] font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-muted focus:outline-none focus:border-brand transition-colors shrink-0"
+              className="w-40 text-[10px] font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors shrink-0"
               onKeyDown={e => e.key === 'Enter' && addEnvEntry()}
             />
             <input
@@ -192,7 +194,7 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
               value={newValue}
               onChange={e => setNewValue(e.target.value)}
               placeholder="value"
-              className="flex-1 text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-muted focus:outline-none focus:border-brand transition-colors"
+              className="flex-1 text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
               onKeyDown={e => e.key === 'Enter' && addEnvEntry()}
             />
             <button
@@ -206,8 +208,8 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
           </div>
 
           {envEntries.length === 0 && (
-            <p className="text-[9px] font-mono text-content-muted py-2">
-              No environment variables configured. Add API keys or other settings above.
+            <p className="text-[9px] font-mono text-content-tertiary py-2">
+              {t('settings_tab.no_env_hint')}
             </p>
           )}
         </div>
@@ -215,37 +217,37 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
 
       {/* Default Policy */}
       <section>
-        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">Default Policy</h3>
+        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">{t('settings_tab.default_policy')}</h3>
         <select
           value={defaultPolicy}
           onChange={e => setDefaultPolicy(e.target.value as DefaultPolicy)}
           className="text-xs font-mono bg-glass border border-edge rounded px-2 py-1 text-content-primary"
         >
-          <option value="opt-in">opt-in (deny by default)</option>
-          <option value="opt-out">opt-out (allow by default)</option>
+          <option value="opt-in">{t('settings_tab.policy_opt_in')}</option>
+          <option value="opt-out">{t('settings_tab.policy_opt_out')}</option>
         </select>
-        <p className="mt-1 text-[9px] font-mono text-content-muted">
+        <p className="mt-1 text-[9px] font-mono text-content-tertiary">
           {defaultPolicy === 'opt-in'
-            ? 'Agents must be explicitly granted access to tools.'
-            : 'All agents have access unless explicitly denied.'}
+            ? t('settings_tab.policy_opt_in_desc')
+            : t('settings_tab.policy_opt_out_desc')}
         </p>
       </section>
 
       {/* Manifest */}
       <section>
-        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">Manifest</h3>
+        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">{t('settings_tab.manifest')}</h3>
         <div className="space-y-1">
           <div className="flex gap-2 text-[10px] font-mono">
-            <span className="text-content-muted w-16">ID</span>
+            <span className="text-content-tertiary w-16">{t('settings_tab.id')}</span>
             <span className="text-content-secondary">{server.id}</span>
           </div>
           <div className="flex gap-2 text-[10px] font-mono">
-            <span className="text-content-muted w-16">Tools</span>
-            <span className="text-content-secondary">{server.tools.join(', ') || '(none)'}</span>
+            <span className="text-content-tertiary w-16">{t('settings_tab.tools')}</span>
+            <span className="text-content-secondary">{server.tools.join(', ') || t('settings_tab.none')}</span>
           </div>
           {settings?.description && (
             <div className="flex gap-2 text-[10px] font-mono">
-              <span className="text-content-muted w-16">Desc</span>
+              <span className="text-content-tertiary w-16">{t('settings_tab.desc')}</span>
               <span className="text-content-secondary">{settings.description}</span>
             </div>
           )}
@@ -259,13 +261,13 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
           disabled={saving || !hasChanges}
           className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-brand/20"
         >
-          <Save size={10} /> {saving ? 'Saving...' : 'Save Changes'}
+          <Save size={10} /> {saving ? t('settings_tab.saving') : t('settings_tab.save_changes')}
         </button>
         <button
           onClick={loadSettings}
           className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-tertiary transition-colors border border-edge"
         >
-          <RotateCcw size={10} /> Reset
+          <RotateCcw size={10} /> {t('settings_tab.reset')}
         </button>
       </div>
     </div>

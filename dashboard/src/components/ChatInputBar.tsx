@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Send, Plus, Mic, MicOff, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { ContentBlock, McpServerInfo } from '../types';
 import { EngineSelector } from './EngineSelector';
 
@@ -23,6 +24,7 @@ interface PendingAttachment {
 }
 
 export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatInputBarProps) {
+  const { t } = useTranslation('agents');
   const [input, setInput] = useState('');
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -167,7 +169,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatI
           onClick={handleFileSelect}
           disabled={disabled}
           className="p-2 rounded-lg text-content-tertiary hover:text-brand hover:bg-glass transition-colors disabled:opacity-30"
-          title="Attach image"
+          title={t('chat_input.attach_image')}
         >
           <Plus size={16} />
         </button>
@@ -181,7 +183,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatI
               ? 'text-red-500 bg-red-500/10 animate-pulse'
               : 'text-content-tertiary hover:text-brand hover:bg-glass'
           }`}
-          title={isRecording ? 'Stop recording' : 'Record audio'}
+          title={isRecording ? t('chat_input.stop_recording') : t('chat_input.record_audio')}
         >
           {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
         </button>
@@ -206,8 +208,8 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatI
           }}
           onPaste={handlePaste}
           disabled={disabled}
-          placeholder={editMode ? "EDIT MESSAGE..." : disabled ? "PROCESSING..." : "ENTER COMMAND..."}
-          className="flex-1 bg-surface-primary border rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none transition-colors placeholder:text-content-muted disabled:opacity-50 shadow-inner border-edge focus:border-brand"
+          placeholder={editMode ? t('chat_input.placeholder_edit') : disabled ? t('chat_input.placeholder_processing') : t('chat_input.placeholder')}
+          className="flex-1 bg-surface-primary border rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none transition-colors placeholder:text-content-tertiary disabled:opacity-50 shadow-inner border-edge focus:border-brand"
           style={editMode ? { borderColor: '#fbbf24' } : undefined}
         />
 
@@ -216,7 +218,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatI
           <button
             onClick={editMode.onCancel}
             className="absolute right-12 p-1.5 text-content-tertiary hover:text-red-400 transition-colors"
-            title="Cancel edit"
+            title={t('chat_input.cancel_edit')}
           >
             <X size={14} />
           </button>

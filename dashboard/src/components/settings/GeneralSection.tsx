@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { Sun, Moon, Monitor, Globe, Upload, Download, X } from 'lucide-react';
+import { useRef, useState, useEffect } from 'react';
+import { Sun, Moon, Monitor, Globe, Upload, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SectionCard } from './common';
 import { useTheme } from '../../hooks/useTheme';
@@ -8,7 +8,6 @@ import {
   exportLanguageTemplate,
   importLanguagePack,
   getCustomLanguages,
-  removeCustomLanguage,
 } from '../../i18n';
 import { isTauri, openFileDialog, readTextFile, getLanguagesDir } from '../../lib/tauri';
 
@@ -23,11 +22,18 @@ export function GeneralSection() {
   const { t, i18n } = useTranslation('settings');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [customLangs, setCustomLangs] = useState(getCustomLanguages);
+  const [customLangs, setCustomLangs] = useState<{ code: string; label: string }[]>([]);
+
+  // Load external languages from filesystem
+  useEffect(() => {
+    getCustomLanguages().then(setCustomLangs);
+  }, []);
+
+  const builtinCodes = new Set(BUILTIN_LANGUAGES.map(l => l.code));
 
   const allLanguages = [
     ...BUILTIN_LANGUAGES,
-    ...customLangs.map(l => ({ ...l, custom: true })),
+    ...customLangs.filter(l => !builtinCodes.has(l.code)).map(l => ({ ...l, custom: true })),
   ];
 
   const themes: { value: 'light' | 'dark' | 'system'; icon: typeof Sun; labelKey: string }[] = [
@@ -47,10 +53,11 @@ export function GeneralSection() {
     URL.revokeObjectURL(url);
   };
 
-  const processImportJson = (json: string) => {
+  const processImportJson = async (json: string) => {
     try {
-      const result = importLanguagePack(json);
-      setCustomLangs(getCustomLanguages());
+      const result = await importLanguagePack(json);
+      const langs = await getCustomLanguages();
+      setCustomLangs(langs);
       i18n.changeLanguage(result.code);
       setImportStatus({
         type: 'success',
@@ -95,11 +102,6 @@ export function GeneralSection() {
 
     // Reset input so same file can be re-imported
     e.target.value = '';
-  };
-
-  const handleRemoveCustom = (code: string) => {
-    removeCustomLanguage(code);
-    setCustomLangs(getCustomLanguages());
   };
 
   return (
@@ -165,24 +167,6 @@ export function GeneralSection() {
             />
           </div>
 
-          {/* Custom language list with remove buttons */}
-          {customLangs.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {customLangs.map(lang => (
-                <span key={lang.code} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface-secondary border border-edge text-[10px] font-mono text-content-secondary">
-                  {lang.label}
-                  <button
-                    onClick={() => handleRemoveCustom(lang.code)}
-                    className="text-content-muted hover:text-red-500 transition-colors"
-                    title={t('general.remove')}
-                  >
-                    <X size={10} />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-
           {/* Import status message */}
           {importStatus && (
             <p className={`text-[10px] ${importStatus.type === 'success' ? 'text-emerald-500' : 'text-red-400'}`}>
@@ -204,7 +188,7 @@ export function GeneralSection() {
               placeholder={t('general.name_placeholder')}
             />
           </div>
-          <p className="text-[10px] text-content-muted">
+          <p className="text-[10px] text-content-tertiary">
             {t('general.name_hint')}
           </p>
         </div>
