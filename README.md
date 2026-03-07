@@ -7,7 +7,7 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-90%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-135%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
@@ -244,18 +244,22 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | GET/PUT | `/api/mcp/servers/:name/settings` | Server settings |
 | GET/PUT | `/api/mcp/servers/:name/access` | Access control |
 | POST | `/api/mcp/servers/:name/start\|stop\|restart` | Server lifecycle |
+| POST | `/api/chat/:agent_id/messages/:message_id/retry` | Retry agent response |
 | GET/PUT | `/api/settings/yolo` | YOLO mode (skip permission prompts) |
+| GET/PUT | `/api/settings/max-cron-generation` | Max cron recursion depth |
 
 </details>
 
 ## Testing
 
-90 tests.
+135 tests (Rust 90 + Python 45).
 
 ```bash
-cargo test                              # all tests
+cargo test                              # all Rust tests
 cargo test --package cloto_core          # kernel only
 cargo test --test '*'                   # integration tests only
+
+cd mcp-servers && .venv/Scripts/python -m pytest tests/ -v  # Python MCP tests
 ```
 
 ## Security
