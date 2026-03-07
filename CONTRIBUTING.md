@@ -89,6 +89,57 @@ cd dashboard && npm run build
 
 See existing servers (e.g., `terminal/server.py`) for reference.
 
+## Adding a New Language (i18n)
+
+The dashboard supports multiple languages via [react-i18next](https://react.i18next.com/). Translation files are JSON-based and organized by namespace.
+
+### Steps
+
+1. Copy the English locale directory:
+   ```bash
+   cp -r dashboard/src/locales/en dashboard/src/locales/{lang_code}
+   ```
+   Use standard language codes: `pt-BR`, `es`, `zh-CN`, `ko`, etc.
+
+2. Translate all JSON values in the new directory. **Do not change the keys** (left side), only the values (right side):
+   ```json
+   {
+     "save": "Salvar",
+     "cancel": "Cancelar"
+   }
+   ```
+
+3. Register the locale in `dashboard/src/i18n.ts`:
+   - Add static imports for each namespace JSON file
+   - Add an entry to the `resources` object
+
+4. Add the language to the `LANGUAGES` array in `dashboard/src/components/settings/GeneralSection.tsx`:
+   ```typescript
+   { code: 'pt-BR', label: 'Português (Brasil)' },
+   ```
+
+5. Verify the build:
+   ```bash
+   cd dashboard && npm run build
+   ```
+
+### Namespace Structure
+
+| File | Contents |
+|------|----------|
+| `common.json` | Buttons, status labels, shared UI text |
+| `nav.json` | Sidebar and header navigation |
+| `agents.json` | Agent management, chat, creation form |
+| `settings.json` | Settings page (all sections) |
+| `mcp.json` | MCP server management |
+
+### Guidelines
+
+- Use the native name for the language label (e.g., `日本語` not `Japanese`)
+- Keep translations concise — UI space is limited
+- If a term has no good translation, keep the English term (e.g., `MCP`, `LLM`)
+- Test the language switch in Settings > General > Language
+
 ## Pull Requests
 
 - Keep PRs small and focused on a single change

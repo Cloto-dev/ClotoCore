@@ -1,0 +1,9 @@
+{
+  "title": "MCP サーバー",
+  "no_servers": "MCP サーバーが登録されていません。",
+  "status": "ステータス",
+  "tools": "ツール",
+  "logs": "ログ",
+  "settings": "設定",
+  "access_control": "アクセス制御"
+}

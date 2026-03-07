@@ -1,0 +1,49 @@
+{
+  "title": "Settings",
+  "sections": {
+    "general": "GENERAL",
+    "security": "SECURITY",
+    "display": "DISPLAY",
+    "advanced": "ADVANCED",
+    "log": "LOG",
+    "about": "ABOUT"
+  },
+  "general": {
+    "theme": "Theme",
+    "theme_light": "Light",
+    "theme_dark": "Dark",
+    "theme_system": "System",
+    "language": "Language",
+    "export_template": "Export Template",
+    "import_pack": "Import",
+    "import_success": "\"{{label}}\" ({{code}}) imported successfully.",
+    "import_error": "Import failed: {{error}}",
+    "custom_label": "custom",
+    "remove": "Remove",
+    "user_identity": "User Identity",
+    "display_name": "Display Name",
+    "name_placeholder": "User",
+    "name_hint": "The name shown to agents when you chat. Agents can use it to address you personally."
+  },
+  "about": {
+    "clotocore": "ClotoCore",
+    "description": "AI agent orchestration platform built on a Rust kernel with MCP-based plugin architecture.",
+    "updates": "Updates",
+    "check_for_updates": "Check for Updates",
+    "checking": "Checking for updates...",
+    "up_to_date": "Up to date — v{{version}}",
+    "check_again": "Check again",
+    "available": "v{{version}} available",
+    "update_now": "Update Now",
+    "recheck": "Recheck",
+    "applying": "Applying update...",
+    "applied": "Update applied successfully",
+    "restart_hint": "Restart the application to use the new version.",
+    "license": "License",
+    "bsl": "Business Source License 1.1",
+    "mit_convert": "Converts to MIT License on 2028-02-14",
+    "links": "Links",
+    "repository": "Repository",
+    "contact": "Contact"
+  }
+}

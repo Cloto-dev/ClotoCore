@@ -1,0 +1,34 @@
+{
+  "save": "Save",
+  "cancel": "Cancel",
+  "delete": "Delete",
+  "create": "Create",
+  "close": "Close",
+  "back": "Back",
+  "confirm": "Confirm",
+  "error": "Error",
+  "loading": "Loading...",
+  "status": {
+    "online": "Online",
+    "offline": "Offline",
+    "degraded": "Degraded",
+    "running": "Running",
+    "stopped": "Stopped",
+    "connected": "Connected",
+    "disconnected": "Disconnected"
+  },
+  "boot": {
+    "title": "CLOTO SYSTEM",
+    "lines": [
+      "Initializing neural pathways...",
+      "Calibrating cognitive matrices...",
+      "Establishing secure channels...",
+      "Loading agent consciousness...",
+      "Synchronizing memory cores...",
+      "Bootstrapping reasoning engines...",
+      "Activating local intelligence...",
+      "Verifying system integrity..."
+    ]
+  },
+  "browser_banner": "Browser access is deprecated. Please use the <1>Cloto desktop app</1> for the full experience."
+}

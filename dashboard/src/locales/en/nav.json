@@ -1,0 +1,11 @@
+{
+  "system": "System",
+  "agent": "Agent",
+  "mcp": "MCP",
+  "cron": "Cron",
+  "memory": "Memory",
+  "settings": "Settings",
+  "collapse": "Collapse",
+  "expand_sidebar": "Expand sidebar",
+  "collapse_sidebar": "Collapse sidebar"
+}
