@@ -10,14 +10,17 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from abc import ABC, abstractmethod
 
 import httpx
 import numpy as np
 from aiohttp import web
-from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
+
+from common.mcp_utils import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -345,82 +348,43 @@ async def run_http_server(port: int) -> None:
 # MCP Server
 # ============================================================
 
-mcp_server = Server("cloto-mcp-embedding")
+registry = ToolRegistry("cloto-mcp-embedding")
 
 
-@mcp_server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="embed",
-            description="Generate vector embeddings for input texts.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "texts": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Texts to embed (batch, max 100)",
-                    }
-                },
-                "required": ["texts"],
-            },
-        ),
-    ]
-
-
-@mcp_server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name != "embed":
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({"error": f"Unknown tool: {name}"}),
-            )
-        ]
-
+@registry.tool(
+    "embed",
+    "Generate vector embeddings for input texts.",
+    {
+        "type": "object",
+        "properties": {
+            "texts": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Texts to embed (batch, max 100)",
+            }
+        },
+        "required": ["texts"],
+    },
+)
+async def handle_embed_tool(arguments: dict) -> dict:
     if _provider is None:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({"error": "Provider not initialized"}),
-            )
-        ]
+        return {"error": "Provider not initialized"}
 
     texts = arguments.get("texts", [])
     if not isinstance(texts, list) or not texts:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {"error": "'texts' must be a non-empty array"}
-                ),
-            )
-        ]
+        return {"error": "'texts' must be a non-empty array"}
 
     if len(texts) > 100:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {"error": "Batch size exceeds limit (max 100)"}
-                ),
-            )
-        ]
+        return {"error": "Batch size exceeds limit (max 100)"}
 
     try:
         embeddings = await _provider.embed(texts)
-        result = {
+        return {
             "embeddings": embeddings,
             "dimensions": _provider.dimensions(),
         }
-        return [TextContent(type="text", text=json.dumps(result))]
     except Exception as e:
-        return [
-            TextContent(
-                type="text", text=json.dumps({"error": str(e)})
-            )
-        ]
+        return {"error": str(e)}
 
 
 # ============================================================
@@ -449,10 +413,10 @@ async def main():
 
     try:
         async with stdio_server() as (read_stream, write_stream):
-            await mcp_server.run(
+            await registry.server.run(
                 read_stream,
                 write_stream,
-                mcp_server.create_initialization_options(),
+                registry.server.create_initialization_options(),
             )
     finally:
         http_task.cancel()

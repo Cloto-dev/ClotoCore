@@ -8,11 +8,12 @@ import asyncio
 import json
 import os
 import shlex
+import sys
 import unicodedata
 
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
+
+from common.mcp_utils import ToolRegistry, run_mcp_server
 
 # ============================================================
 # Configuration (from environment variables)
@@ -112,53 +113,33 @@ def safe_truncate(s: str, max_bytes: int) -> str:
 # MCP Server
 # ============================================================
 
-server = Server("cloto-mcp-terminal")
+registry = ToolRegistry("cloto-mcp-terminal")
 
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="execute_command",
-            description=(
-                "Execute a shell command and return stdout, stderr, and exit code. "
-                "Use this to run scripts, check file contents, inspect system state, "
-                "compile code, run tests, or perform any command-line operation."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to execute",
-                    },
-                    "timeout_secs": {
-                        "type": "integer",
-                        "description": "Timeout in seconds (default: 30, max: 120)",
-                    },
-                },
-                "required": ["command"],
+@registry.tool(
+    "execute_command",
+    "Execute a shell command and return stdout, stderr, and exit code. "
+    "Use this to run scripts, check file contents, inspect system state, "
+    "compile code, run tests, or perform any command-line operation.",
+    {
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "The shell command to execute",
             },
-        )
-    ]
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name != "execute_command":
-        return [TextContent(type="text", text=json.dumps({
-            "exit_code": -1,
-            "stdout": "",
-            "stderr": f"Unknown tool: {name}",
-        }))]
-
+            "timeout_secs": {
+                "type": "integer",
+                "description": "Timeout in seconds (default: 30, max: 120)",
+            },
+        },
+        "required": ["command"],
+    },
+)
+async def handle_execute(arguments: dict) -> dict:
     command = arguments.get("command")
     if not command:
-        return [TextContent(type="text", text=json.dumps({
-            "exit_code": -1,
-            "stdout": "",
-            "stderr": "Missing 'command' argument",
-        }))]
+        return {"exit_code": -1, "stdout": "", "stderr": "Missing 'command' argument"}
 
     # NFKC normalization BEFORE validation so the same string is validated and executed
     command = unicodedata.normalize("NFKC", command)
@@ -169,11 +150,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     try:
         validate_command(command)
     except ValueError as e:
-        return [TextContent(type="text", text=json.dumps({
-            "exit_code": -1,
-            "stdout": "",
-            "stderr": str(e),
-        }))]
+        return {"exit_code": -1, "stdout": "", "stderr": str(e)}
 
     # Ensure working directory exists
     os.makedirs(WORKING_DIR, exist_ok=True)
@@ -182,11 +159,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         try:
             argv = shlex.split(command)
         except ValueError as e:
-            return [TextContent(type="text", text=json.dumps({
-                "exit_code": -1,
-                "stdout": "",
-                "stderr": f"Failed to parse command: {e}",
-            }))]
+            return {"exit_code": -1, "stdout": "", "stderr": f"Failed to parse command: {e}"}
         proc = await asyncio.create_subprocess_exec(
             *argv,
             stdout=asyncio.subprocess.PIPE,
@@ -201,11 +174,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
-            return [TextContent(type="text", text=json.dumps({
-                "exit_code": -1,
-                "stdout": "",
-                "stderr": f"Command timed out after {timeout_secs} seconds",
-            }))]
+            return {"exit_code": -1, "stdout": "", "stderr": f"Command timed out after {timeout_secs} seconds"}
 
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
@@ -224,24 +193,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         exit_code = proc.returncode if proc.returncode is not None else -1
 
-        return [TextContent(type="text", text=json.dumps({
-            "exit_code": exit_code,
-            "stdout": stdout,
-            "stderr": stderr,
-        }))]
+        return {"exit_code": exit_code, "stdout": stdout, "stderr": stderr}
 
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({
-            "exit_code": -1,
-            "stdout": "",
-            "stderr": f"Failed to execute command: {e}",
-        }))]
-
-
-async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+        return {"exit_code": -1, "stdout": "", "stderr": f"Failed to execute command: {e}"}
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_mcp_server(registry))

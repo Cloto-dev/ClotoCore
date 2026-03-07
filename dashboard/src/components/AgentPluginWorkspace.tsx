@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Save, Activity } from 'lucide-react';
 import { AgentMetadata, AccessControlEntry } from '../types';
-import { api } from '../services/api';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
-import { useApiKey } from '../contexts/ApiKeyContext';
+import { useApi } from '../hooks/useApi';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { AvatarSection } from './AvatarSection';
 import { ProfileSection } from './ProfileSection';
@@ -17,11 +16,9 @@ interface Props {
 const DEFAULT_AGENT_ID = 'agent.cloto_default';
 
 export function AgentPluginWorkspace({ agent, onBack }: Props) {
-  const { apiKey } = useApiKey();
-  // Allow empty apiKey — debug backend skips auth when CLOTO_API_KEY is unset
-  const effectiveKey = apiKey || '';
+  const api = useApi();
   const isDefault = agent.id === DEFAULT_AGENT_ID;
-  const { servers } = useMcpServers(effectiveKey);
+  const { servers } = useMcpServers();
 
   const [grantedIds, setGrantedIds] = useState<Set<string>>(new Set());
   const initialGrantedRef = useRef<Set<string>>(new Set());
@@ -82,7 +79,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
 
       // Process added servers
       for (const serverId of added) {
-        const tree = await api.getMcpServerAccess(serverId, effectiveKey);
+        const tree = await api.getMcpServerAccess(serverId);
         const existing = tree.entries.filter(
           e => !(e.agent_id === agent.id && e.entry_type === 'server_grant')
         );
@@ -94,16 +91,16 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
           granted_by: 'admin',
           granted_at: now,
         };
-        await api.putMcpServerAccess(serverId, [...existing, newEntry], effectiveKey);
+        await api.putMcpServerAccess(serverId, [...existing, newEntry]);
       }
 
       // Process removed servers
       for (const serverId of removed) {
-        const tree = await api.getMcpServerAccess(serverId, effectiveKey);
+        const tree = await api.getMcpServerAccess(serverId);
         const filtered = tree.entries.filter(
           e => !(e.agent_id === agent.id && e.entry_type === 'server_grant')
         );
-        await api.putMcpServerAccess(serverId, filtered, effectiveKey);
+        await api.putMcpServerAccess(serverId, filtered);
       }
 
       // Derive default_engine_id and preferred_memory from granted servers
@@ -130,7 +127,6 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
           default_engine_id: engineServer?.id,
           metadata,
         },
-        effectiveKey,
       );
 
       onBack();
@@ -151,7 +147,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
     setIsUploadingAvatar(true);
     setSaveError('');
     try {
-      const result = await api.uploadAvatar(agent.id, file, effectiveKey);
+      const result = await api.uploadAvatar(agent.id, file);
       setAvatarKey(prev => prev + 1);
       setHasAvatar(true);
       setAvatarDescription(result.avatar_description || '');
@@ -166,7 +162,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const handleAvatarDelete = async () => {
     setSaveError('');
     try {
-      await api.deleteAvatar(agent.id, effectiveKey);
+      await api.deleteAvatar(agent.id);
       setAvatarKey(prev => prev + 1);
       setHasAvatar(false);
       setAvatarDescription('');

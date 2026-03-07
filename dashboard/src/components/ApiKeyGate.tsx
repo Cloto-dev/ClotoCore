@@ -3,9 +3,11 @@ import { Lock, Key, X, Eye, EyeOff, AlertTriangle, CheckCircle2, Loader } from '
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { api } from '../services/api';
 import { AlertCard } from './ui/AlertCard';
+import { useApi } from '../hooks/useApi';
 
 export function ApiKeyGate() {
   const { apiKey, setApiKey, forgetApiKey } = useApiKey();
+  const authApi = useApi();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [show, setShow] = useState(false);
@@ -68,7 +70,7 @@ export function ApiKeyGate() {
     setInvalidating(true);
     setInvalidateError('');
     try {
-      await api.invalidateApiKey(apiKey);
+      await authApi.invalidateApiKey();
       forgetApiKey();
       setOpen(false);
       setConfirmInvalidate(false);

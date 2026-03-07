@@ -4,7 +4,7 @@ use axum::Json;
 use std::sync::Arc;
 
 use super::{check_auth, ok_data};
-use crate::handlers::system::CommandApprovalDecision;
+use crate::handlers::command_approval::CommandApprovalDecision;
 use crate::{AppError, AppResult, AppState};
 
 /// POST /api/commands/:approval_id/approve

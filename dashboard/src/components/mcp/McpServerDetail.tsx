@@ -9,7 +9,6 @@ type Tab = 'settings' | 'access' | 'logs';
 
 interface Props {
   server: McpServerInfo;
-  apiKey: string;
   onRefresh: () => void;
   onDelete: (id: string) => Promise<void>;
   onStart: (id: string) => Promise<void>;
@@ -17,7 +16,7 @@ interface Props {
   onRestart: (id: string) => Promise<void>;
 }
 
-export function McpServerDetail({ server, apiKey, onRefresh, onDelete, onStart, onStop, onRestart }: Props) {
+export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, onRestart }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('settings');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
@@ -122,10 +121,10 @@ export function McpServerDetail({ server, apiKey, onRefresh, onDelete, onStart, 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'settings' && (
-          <McpServerSettingsTab server={server} apiKey={apiKey} onRefresh={onRefresh} />
+          <McpServerSettingsTab server={server} onRefresh={onRefresh} />
         )}
         {activeTab === 'access' && (
-          <McpAccessControlTab server={server} apiKey={apiKey} />
+          <McpAccessControlTab server={server} />
         )}
         {activeTab === 'logs' && (
           <McpServerLogsTab server={server} />

@@ -1,10 +1,11 @@
-import { api } from '../services/api';
 import { useRemoteData } from './useRemoteData';
+import { useApi } from './useApi';
 
-export function useMcpServers(apiKey: string) {
+export function useMcpServers() {
+  const api = useApi();
   const { data: servers, ...rest } = useRemoteData(
-    () => api.listMcpServers(apiKey).then(d => d.servers),
-    { key: `mcp-servers:${apiKey}`, errorMessage: 'Failed to connect', minRefetchMs: 400 },
+    () => api.listMcpServers().then(d => d.servers),
+    { key: `mcp-servers:${api.apiKey}`, errorMessage: 'Failed to connect', minRefetchMs: 400 },
   );
   return { servers, ...rest };
 }

@@ -4,8 +4,8 @@ import { Brain, History, User, Trash2 } from 'lucide-react';
 import { Memory, Episode, AgentMetadata } from '../types';
 import { useEventStream } from '../hooks/useEventStream';
 import { useMetrics, Metrics } from '../hooks/useMetrics';
-import { useApiKey } from '../contexts/ApiKeyContext';
-import { api, EVENTS_URL } from '../services/api';
+import { useApi } from '../hooks/useApi';
+import { EVENTS_URL } from '../services/api';
 
 /** Extract a display name from an agent_id like "agent.サフィー___sapphy" */
 function agentDisplayName(agentId: string, agentMap: Map<string, string>): string {
@@ -22,8 +22,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [agents, setAgents] = useState<AgentMetadata[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null); // null = All
-  const { apiKey } = useApiKey();
-  const effectiveKey = apiKey || '';
+  const api = useApi();
   const { metrics: hookMetrics } = useMetrics();
   const metrics: Metrics = hookMetrics ?? { ram_usage: 'N/A', total_memories: 0, total_requests: 0, total_episodes: 0 };
 
@@ -55,9 +54,9 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
   const fetchData = useCallback(async () => {
     try {
       const [memories, episodes, agents] = await Promise.all([
-        api.getMemories(effectiveKey),
-        api.getEpisodes(effectiveKey),
-        api.getAgents(effectiveKey),
+        api.getMemories(),
+        api.getEpisodes(),
+        api.getAgents(),
       ]);
       setMemories(memories);
       setEpisodes(episodes);
@@ -92,7 +91,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
 
   const handleDeleteMemory = async (id: number) => {
     try {
-      await api.deleteMemory(id, effectiveKey);
+      await api.deleteMemory(id);
       setMemories(prev => prev.filter(m => m.id !== id));
     } catch (e) {
       console.error('Failed to delete memory:', e);
@@ -101,7 +100,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
 
   const handleDeleteEpisode = async (id: number) => {
     try {
-      await api.deleteEpisode(id, effectiveKey);
+      await api.deleteEpisode(id);
       setEpisodes(prev => prev.filter(e => e.id !== id));
     } catch (e) {
       console.error('Failed to delete episode:', e);
@@ -113,7 +112,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
        // H-18: Use debounced fetch to prevent cascading API calls
        debouncedFetchData();
     }
-  }, effectiveKey);
+  }, api.apiKey);
 
   return (
     <div className={`${isWindowMode ? 'bg-transparent p-4' : 'h-full overflow-y-auto'} relative font-sans text-content-primary overflow-x-hidden animate-in fade-in duration-500`}>
