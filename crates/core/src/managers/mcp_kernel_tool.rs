@@ -12,7 +12,7 @@ use serde_json::Value;
 use std::sync::atomic::Ordering;
 use tracing::info;
 
-/// Return all kernel tool schemas (create_mcp_server + access control + audit replay + Tier 3).
+/// Return Tier 1-3 kernel tool schemas (create_mcp_server + access control + audit replay + Tier 3).
 /// Only exposed when YOLO mode is enabled.
 pub(super) fn kernel_tool_schemas() -> Vec<Value> {
     vec![
@@ -34,6 +34,24 @@ pub(super) fn kernel_tool_schemas() -> Vec<Value> {
         // Tier 3: Callbacks
         callback_respond_schema(),
     ]
+}
+
+/// Return LLM-visible meta-tool schemas (§1.6.3).
+/// Only `mgp.tools.discover` and `mgp.tools.request` are injected into LLM context.
+pub(super) fn llm_meta_tool_schemas() -> Vec<Value> {
+    vec![
+        super::mcp_tool_discovery::tools_discover_schema(),
+        super::mcp_tool_discovery::tools_request_schema(),
+    ]
+}
+
+/// Return ALL kernel tool schemas (Tier 1-4, for API tools/list responses).
+#[allow(dead_code)]
+pub(super) fn all_kernel_tool_schemas() -> Vec<Value> {
+    let mut schemas = kernel_tool_schemas();
+    schemas.extend(super::mcp_discovery::discovery_tool_schemas());
+    schemas.extend(super::mcp_tool_discovery::tool_discovery_schemas());
+    schemas
 }
 
 fn access_query_schema() -> Value {
@@ -745,7 +763,7 @@ pub(super) async fn execute_health_status(
     let Some(handle) = servers.get(server_id) else {
         return Ok(serde_json::json!({
             "server_id": server_id,
-            "state": "not_found",
+            "status": "not_found",
         }));
     };
 
