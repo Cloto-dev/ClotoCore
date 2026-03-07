@@ -3,12 +3,11 @@ import { Users, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings, X, R
 import { AgentMetadata } from '../types';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { useEventStream } from '../hooks/useEventStream';
-import { AgentIcon, agentColor, AgentTypeIcon, agentTypeColor, isAiAgent } from '../lib/agentIdentity';
+import { AgentIcon, agentColor } from '../lib/agentIdentity';
 
 import { useAgentCreation } from '../hooks/useAgentCreation';
 import { PowerToggleModal } from './PowerToggleModal';
 import { AgentConsole } from './AgentConsole';
-import { ContainerDashboard } from './ContainerDashboard';
 import { AgentPowerButton } from './AgentPowerButton';
 
 import { EVENTS_URL } from '../services/api';
@@ -69,7 +68,7 @@ export function AgentTerminal({
 
   // Creation form
   const {
-    form: newAgent, updateField, handleTypeChange, handleCreate, isCreating, createError,
+    form: newAgent, updateField, handleCreate, isCreating, createError,
     addRoutingRule, updateRoutingRule, removeRoutingRule,
   } = useAgentCreation(onRefresh);
 
@@ -94,17 +93,7 @@ export function AgentTerminal({
   }
 
   if (selectedAgent) {
-    if (isAiAgent(selectedAgent)) {
-      return <AgentConsole key={selectedAgent.id} agent={selectedAgent} onBack={() => onSelectAgent(null)} />;
-    }
-    return (
-      <ContainerDashboard
-        agent={selectedAgent}
-        onBack={() => onSelectAgent(null)}
-        onConfigure={() => setConfiguringAgent(selectedAgent)}
-        onPowerToggle={handlePowerToggle}
-      />
-    );
+    return <AgentConsole key={selectedAgent.id} agent={selectedAgent} onBack={() => onSelectAgent(null)} />;
   }
 
   return (
@@ -188,7 +177,6 @@ export function AgentTerminal({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {agents.map((agent) => {
                 const color = agentColor(agent);
-                const isAi = isAiAgent(agent);
                 return (
                   <div
                     key={agent.id}
@@ -209,9 +197,9 @@ export function AgentTerminal({
                       <AgentPowerButton agent={agent} onPowerToggle={handlePowerToggle} />
                     </div>
 
-                    {/* Row 2: Type · Engine · Memory */}
+                    {/* Row 2: Engine · Memory */}
                     <div className="text-xs font-mono text-content-tertiary mb-2">
-                      {isAi ? 'AI Agent' : 'Container'} · {agent.default_engine_id || 'No engine'}
+                      AI Agent · {agent.default_engine_id || 'No engine'}
                       {agent.metadata?.preferred_memory && ` · ${agent.metadata.preferred_memory}`}
                     </div>
 
@@ -222,14 +210,12 @@ export function AgentTerminal({
                         {agent.id}
                       </span>
                       <div className="flex items-center gap-2">
-                        {isAi && (
-                          <button
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-brand hover:bg-brand/10 transition-all"
-                            onClick={(e) => { e.stopPropagation(); onSelectAgent(agent); }}
-                          >
-                            <MessageSquare size={14} /> Chat
-                          </button>
-                        )}
+                        <button
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-brand hover:bg-brand/10 transition-all"
+                          onClick={(e) => { e.stopPropagation(); onSelectAgent(agent); }}
+                        >
+                          <MessageSquare size={14} /> Chat
+                        </button>
                         <button
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
                           onClick={(e) => { e.stopPropagation(); setConfiguringAgent(agent); }}
@@ -264,35 +250,6 @@ export function AgentTerminal({
           </div>
 
           <div className="space-y-4">
-            {/* Agent Type Selector */}
-            <div>
-              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-2">Type</label>
-              <div className="grid grid-cols-2 gap-2">
-                {([['ai', 'AI Agent', 'LLM-powered'], ['container', 'Container', 'Bridge / Script']] as const).map(([type, label, desc]) => {
-                  const selected = newAgent.type === type;
-                  const color = agentTypeColor(type);
-                  return (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => handleTypeChange(type)}
-                      className={`flex items-center gap-2 p-2.5 rounded-lg border transition-all text-left ${
-                        selected ? 'bg-glass-strong shadow-sm border-brand' : 'bg-glass border-edge hover:border-edge'
-                      }`}
-                    >
-                      <div className="p-1 rounded shrink-0" style={{ backgroundColor: selected ? `${color}20` : undefined, color: selected ? color : '#94a3b8' }}>
-                        <AgentTypeIcon type={type} size={14} />
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-bold text-content-primary">{label}</div>
-                        <div className="text-[8px] text-content-muted">{desc}</div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             <div>
               <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">Name</label>
               <input
@@ -316,7 +273,7 @@ export function AgentTerminal({
 
             <div>
               <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
-                {newAgent.type === 'ai' ? 'LLM Engine' : 'Bridge Engine'}
+                LLM Engine
               </label>
               {mcpEngines.length > 0 ? (
                 <select
@@ -367,7 +324,7 @@ export function AgentTerminal({
             </div>
 
             {/* Engine Routing Rules */}
-            {newAgent.type === 'ai' && mcpEngines.length > 1 && (
+            {mcpEngines.length > 1 && (
               <div>
                 <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-2">
                   <Route size={10} className="inline mr-1" />
@@ -464,11 +421,10 @@ export function AgentTerminal({
             <button
               onClick={handleCreate}
               disabled={!newAgent.name || !newAgent.desc || !newAgent.engine || isCreating}
-              className="w-full text-white py-2 rounded-lg text-xs font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
-              style={{ backgroundColor: agentTypeColor(newAgent.type) }}
+              className="w-full text-white py-2 rounded-lg text-xs font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 bg-brand"
             >
               {isCreating ? <Activity size={14} className="animate-spin" /> : <Plus size={14} />}
-              Create {newAgent.type === 'ai' ? 'AI Agent' : 'Container'}
+              Create Agent
             </button>
           </div>
         </div>

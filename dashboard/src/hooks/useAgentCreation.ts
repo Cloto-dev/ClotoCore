@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { AgentType } from '../lib/agentIdentity';
 import { useApi } from './useApi';
 
 export interface RoutingRuleEntry {
@@ -15,7 +14,6 @@ interface CreationForm {
   desc: string;
   engine: string;
   memory: string;
-  type: AgentType;
   password: string;
   routingRules: RoutingRuleEntry[];
 }
@@ -25,7 +23,6 @@ const INITIAL_FORM: CreationForm = {
   desc: '',
   engine: '',
   memory: '',
-  type: 'ai',
   password: '',
   routingRules: [],
 };
@@ -41,18 +38,13 @@ export function useAgentCreation(onCreated: () => void) {
     setForm(prev => ({ ...prev, [key]: value }));
   };
 
-  const handleTypeChange = (type: AgentType) => {
-    setCreateError(null);
-    setForm(prev => ({ ...prev, type, engine: '', memory: '' }));
-  };
-
   const handleCreate = async () => {
     setIsCreating(true);
     setCreateError(null);
     try {
       const metadata: Record<string, string> = {
         preferred_memory: form.memory,
-        agent_type: form.type,
+        agent_type: 'ai',
       };
       if (form.routingRules.length > 0) {
         metadata.engine_routing = JSON.stringify(form.routingRules);
@@ -98,7 +90,7 @@ export function useAgentCreation(onCreated: () => void) {
   };
 
   return {
-    form, updateField, handleTypeChange, handleCreate, isCreating, createError,
+    form, updateField, handleCreate, isCreating, createError,
     addRoutingRule, updateRoutingRule, removeRoutingRule,
   };
 }

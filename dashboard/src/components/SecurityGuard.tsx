@@ -136,7 +136,7 @@ export function SecurityGuard() {
                    <p className="text-[9px] text-content-tertiary font-mono mb-1">{req.target_resource}</p>
                  )}
                  <p className="text-[10px] text-content-secondary leading-relaxed italic">
-                   {isGranted ? "Resource has been successfully injected into container." : `"${req.justification}"`}
+                   {isGranted ? "Resource has been successfully injected into agent." : `"${req.justification}"`}
                  </p>
               </div>
 
