@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '../services/api';
-import { useApiKey } from '../contexts/ApiKeyContext';
+import { useApi } from './useApi';
 
 export interface Metrics {
   total_requests: number;
@@ -10,16 +9,16 @@ export interface Metrics {
 }
 
 export function useMetrics(pollIntervalMs: number = 10000) {
-  const { apiKey } = useApiKey();
+  const api = useApi();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
 
   const fetchMetrics = useCallback(async () => {
     try {
-      setMetrics(await api.getMetrics(apiKey));
+      setMetrics(await api.getMetrics());
     } catch (e) {
       console.error("Failed to fetch metrics", e);
     }
-  }, [apiKey]);
+  }, [api]);
 
   useEffect(() => {
     fetchMetrics();

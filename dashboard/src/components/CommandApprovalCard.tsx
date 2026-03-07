@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Terminal, Check, Shield, X } from 'lucide-react';
 import { SystemAlertCard } from './SystemAlertCard';
-import { api } from '../services/api';
-import { useApiKey } from '../contexts/ApiKeyContext';
+import { useApi } from '../hooks/useApi';
 
 interface CommandEntry {
   command: string;
@@ -16,8 +15,7 @@ interface Props {
 }
 
 export function CommandApprovalCard({ approvalId, commands, onResolved }: Props) {
-  const { apiKey } = useApiKey();
-  const effectiveKey = apiKey || '';
+  const api = useApi();
   const [status, setStatus] = useState<'pending' | 'acting' | 'resolved'>('pending');
   const [secondsLeft, setSecondsLeft] = useState(60);
 
@@ -40,9 +38,9 @@ export function CommandApprovalCard({ approvalId, commands, onResolved }: Props)
   const handle = async (action: 'approve' | 'trust' | 'deny') => {
     setStatus('acting');
     try {
-      if (action === 'approve') await api.approveCommand(approvalId, effectiveKey);
-      else if (action === 'trust') await api.trustCommand(approvalId, effectiveKey);
-      else await api.denyCommand(approvalId, effectiveKey);
+      if (action === 'approve') await api.approveCommand(approvalId);
+      else if (action === 'trust') await api.trustCommand(approvalId);
+      else await api.denyCommand(approvalId);
       setStatus('resolved');
       onResolved(approvalId);
     } catch {

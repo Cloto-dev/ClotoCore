@@ -12,16 +12,16 @@ Tools:
 """
 
 import asyncio
-import json
 import os
+import sys
 import uuid
 from datetime import datetime, timezone
 
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
 
-server = Server("cloto-mcp-tts")
+from common.mcp_utils import ToolRegistry, run_mcp_server
+
+registry = ToolRegistry("cloto-mcp-tts")
 
 TTS_RATE = int(os.environ.get("TTS_RATE", "150"))
 TTS_VOICE = os.environ.get("TTS_VOICE", "")
@@ -43,64 +43,24 @@ def _get_engine():
     return _engine
 
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="speak",
-            description="Speak text aloud using the system TTS engine. Blocks until playback completes.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "text": {
-                        "type": "string",
-                        "description": "Text to speak aloud",
-                    },
-                },
-                "required": ["text"],
+@registry.tool(
+    "speak",
+    "Speak text aloud using the system TTS engine. Blocks until playback completes.",
+    {
+        "type": "object",
+        "properties": {
+            "text": {
+                "type": "string",
+                "description": "Text to speak aloud",
             },
-        ),
-        Tool(
-            name="synthesize",
-            description="Save spoken text to a WAV file. Returns the file path.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "text": {
-                        "type": "string",
-                        "description": "Text to synthesize",
-                    },
-                    "filename": {
-                        "type": "string",
-                        "description": "Output filename (optional, auto-generated if omitted)",
-                    },
-                },
-                "required": ["text"],
-            },
-        ),
-        Tool(
-            name="list_voices",
-            description="List available TTS voices on this system.",
-            inputSchema={"type": "object", "properties": {}},
-        ),
-    ]
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "speak":
-        return await _handle_speak(arguments)
-    elif name == "synthesize":
-        return await _handle_synthesize(arguments)
-    elif name == "list_voices":
-        return await _handle_list_voices()
-    return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
-
-
-async def _handle_speak(args: dict) -> list[TextContent]:
+        },
+        "required": ["text"],
+    },
+)
+async def handle_speak(args: dict) -> dict:
     text = args.get("text", "")
     if not text:
-        return [TextContent(type="text", text=json.dumps({"error": "text is required"}))]
+        return {"error": "text is required"}
 
     try:
         engine = await asyncio.to_thread(_get_engine)
@@ -110,22 +70,33 @@ async def _handle_speak(args: dict) -> list[TextContent]:
             engine.runAndWait()
 
         await asyncio.to_thread(_speak)
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {"status": "ok", "text": text, "chars": len(text)}
-                ),
-            )
-        ]
+        return {"status": "ok", "text": text, "chars": len(text)}
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+        return {"error": str(e)}
 
 
-async def _handle_synthesize(args: dict) -> list[TextContent]:
+@registry.tool(
+    "synthesize",
+    "Save spoken text to a WAV file. Returns the file path.",
+    {
+        "type": "object",
+        "properties": {
+            "text": {
+                "type": "string",
+                "description": "Text to synthesize",
+            },
+            "filename": {
+                "type": "string",
+                "description": "Output filename (optional, auto-generated if omitted)",
+            },
+        },
+        "required": ["text"],
+    },
+)
+async def handle_synthesize(args: dict) -> dict:
     text = args.get("text", "")
     if not text:
-        return [TextContent(type="text", text=json.dumps({"error": "text is required"}))]
+        return {"error": "text is required"}
 
     filename = args.get("filename") or f"tts_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.wav"
 
@@ -141,24 +112,22 @@ async def _handle_synthesize(args: dict) -> list[TextContent]:
 
         await asyncio.to_thread(_save)
 
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "status": "ok",
-                        "path": os.path.abspath(filepath),
-                        "text": text,
-                        "chars": len(text),
-                    }
-                ),
-            )
-        ]
+        return {
+            "status": "ok",
+            "path": os.path.abspath(filepath),
+            "text": text,
+            "chars": len(text),
+        }
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+        return {"error": str(e)}
 
 
-async def _handle_list_voices() -> list[TextContent]:
+@registry.tool(
+    "list_voices",
+    "List available TTS voices on this system.",
+    {"type": "object", "properties": {}},
+)
+async def handle_list_voices(args: dict) -> dict:
     try:
         engine = await asyncio.to_thread(_get_engine)
         voices = engine.getProperty("voices")
@@ -167,24 +136,10 @@ async def _handle_list_voices() -> list[TextContent]:
             for v in voices
         ]
         current = engine.getProperty("voice")
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {"voices": voice_list, "current": current, "count": len(voice_list)}
-                ),
-            )
-        ]
+        return {"voices": voice_list, "current": current, "count": len(voice_list)}
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
-
-
-async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream, write_stream, server.create_initialization_options()
-        )
+        return {"error": str(e)}
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_mcp_server(registry))

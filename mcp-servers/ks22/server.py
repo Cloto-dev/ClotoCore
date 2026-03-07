@@ -19,13 +19,15 @@ import struct
 import hashlib
 from datetime import datetime, timezone
 
+import sys
+
 import aiosqlite
 import httpx
-from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
 
-from common.validation import validate_str, validate_int, validate_dict, validate_list
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
+
+from common.mcp_utils import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -812,220 +814,10 @@ def _try_parse_json(s: str) -> dict:
 # MCP Server
 # ============================================================
 
-server = Server("cloto-mcp-ks22")
+registry = ToolRegistry("cloto-mcp-ks22")
 
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="store",
-            description="Store a message in agent memory for future recall.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier",
-                    },
-                    "message": {
-                        "type": "object",
-                        "description": "ClotoMessage to store (id, content, source, timestamp, metadata)",
-                    },
-                },
-                "required": ["agent_id", "message"],
-            },
-        ),
-        Tool(
-            name="recall",
-            description="Recall relevant memories using multi-strategy search (vector + FTS5 + keyword).",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier",
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "Search query (empty returns recent memories)",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max memories to return",
-                        "default": 10,
-                    },
-                },
-                "required": ["agent_id", "query"],
-            },
-        ),
-        Tool(
-            name="update_profile",
-            description="Extract user facts from conversation and merge with existing profile.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier",
-                    },
-                    "history": {
-                        "type": "array",
-                        "description": "Recent conversation messages",
-                        "items": {"type": "object"},
-                    },
-                },
-                "required": ["agent_id", "history"],
-            },
-        ),
-        Tool(
-            name="archive_episode",
-            description="Summarize and archive a conversation episode for searchable recall.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier",
-                    },
-                    "history": {
-                        "type": "array",
-                        "description": "Conversation messages to archive",
-                        "items": {"type": "object"},
-                    },
-                },
-                "required": ["agent_id", "history"],
-            },
-        ),
-        Tool(
-            name="list_memories",
-            description="List recent memories for an agent (for dashboard display).",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier (empty for all agents)",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max memories to return",
-                        "default": 100,
-                    },
-                },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="list_episodes",
-            description="List archived episodes for an agent (for dashboard display).",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier (empty for all agents)",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max episodes to return",
-                        "default": 50,
-                    },
-                },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="delete_memory",
-            description="Delete a single memory by ID. Ownership is enforced when agent_id is provided.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent ID for ownership verification (injected by kernel)",
-                    },
-                    "memory_id": {
-                        "type": "integer",
-                        "description": "Memory ID to delete",
-                    },
-                },
-                "required": ["memory_id"],
-            },
-        ),
-        Tool(
-            name="delete_episode",
-            description="Delete a single episode by ID. Ownership is enforced when agent_id is provided.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent ID for ownership verification (injected by kernel)",
-                    },
-                    "episode_id": {
-                        "type": "integer",
-                        "description": "Episode ID to delete",
-                    },
-                },
-                "required": ["episode_id"],
-            },
-        ),
-    ]
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    try:
-        if name == "store":
-            result = await do_store(
-                validate_str(arguments, "agent_id"),
-                validate_dict(arguments, "message"),
-            )
-        elif name == "recall":
-            result = await do_recall(
-                validate_str(arguments, "agent_id"),
-                validate_str(arguments, "query"),
-                validate_int(arguments, "limit", 10),
-            )
-        elif name == "update_profile":
-            result = await do_update_profile(
-                validate_str(arguments, "agent_id"),
-                validate_list(arguments, "history"),
-            )
-        elif name == "archive_episode":
-            result = await do_archive_episode(
-                validate_str(arguments, "agent_id"),
-                validate_list(arguments, "history"),
-            )
-        elif name == "list_memories":
-            result = await do_list_memories(
-                validate_str(arguments, "agent_id"),
-                validate_int(arguments, "limit", 100),
-            )
-        elif name == "list_episodes":
-            result = await do_list_episodes(
-                validate_str(arguments, "agent_id"),
-                validate_int(arguments, "limit", 50),
-            )
-        elif name == "delete_memory":
-            result = await do_delete_memory(
-                validate_int(arguments, "memory_id"),
-                validate_str(arguments, "agent_id"),
-            )
-        elif name == "delete_episode":
-            result = await do_delete_episode(
-                validate_int(arguments, "episode_id"),
-                validate_str(arguments, "agent_id"),
-            )
-        else:
-            result = {"error": f"Unknown tool: {name}"}
-
-        return [TextContent(type="text", text=json.dumps(result))]
-    except Exception as e:
-        return [
-            TextContent(type="text", text=json.dumps({"error": str(e)}))
-        ]
+# Tool registrations are below all do_* functions (auto_tool evaluates at definition time)
 
 
 async def do_list_memories(agent_id: str, limit: int) -> dict:
@@ -1130,6 +922,82 @@ async def do_delete_episode(episode_id: int, agent_id: str = "") -> dict:
     return {"ok": True, "deleted_id": episode_id}
 
 
+# --- Tool registrations (must be after all do_* definitions) ---
+
+registry.auto_tool("store", "Store a message in agent memory for future recall.", {
+    "type": "object",
+    "properties": {
+        "agent_id": {"type": "string", "description": "Agent identifier"},
+        "message": {"type": "object", "description": "ClotoMessage to store (id, content, source, timestamp, metadata)"},
+    },
+    "required": ["agent_id", "message"],
+}, do_store, [("agent_id", str), ("message", dict)])
+
+registry.auto_tool("recall", "Recall relevant memories using multi-strategy search (vector + FTS5 + keyword).", {
+    "type": "object",
+    "properties": {
+        "agent_id": {"type": "string", "description": "Agent identifier"},
+        "query": {"type": "string", "description": "Search query (empty returns recent memories)"},
+        "limit": {"type": "integer", "description": "Max memories to return", "default": 10},
+    },
+    "required": ["agent_id", "query"],
+}, do_recall, [("agent_id", str), ("query", str), ("limit", int, 10)])
+
+registry.auto_tool("update_profile", "Extract user facts from conversation and merge with existing profile.", {
+    "type": "object",
+    "properties": {
+        "agent_id": {"type": "string", "description": "Agent identifier"},
+        "history": {"type": "array", "description": "Recent conversation messages", "items": {"type": "object"}},
+    },
+    "required": ["agent_id", "history"],
+}, do_update_profile, [("agent_id", str), ("history", list)])
+
+registry.auto_tool("archive_episode", "Summarize and archive a conversation episode for searchable recall.", {
+    "type": "object",
+    "properties": {
+        "agent_id": {"type": "string", "description": "Agent identifier"},
+        "history": {"type": "array", "description": "Conversation messages to archive", "items": {"type": "object"}},
+    },
+    "required": ["agent_id", "history"],
+}, do_archive_episode, [("agent_id", str), ("history", list)])
+
+registry.auto_tool("list_memories", "List recent memories for an agent (for dashboard display).", {
+    "type": "object",
+    "properties": {
+        "agent_id": {"type": "string", "description": "Agent identifier (empty for all agents)"},
+        "limit": {"type": "integer", "description": "Max memories to return", "default": 100},
+    },
+    "required": [],
+}, do_list_memories, [("agent_id", str), ("limit", int, 100)])
+
+registry.auto_tool("list_episodes", "List archived episodes for an agent (for dashboard display).", {
+    "type": "object",
+    "properties": {
+        "agent_id": {"type": "string", "description": "Agent identifier (empty for all agents)"},
+        "limit": {"type": "integer", "description": "Max episodes to return", "default": 50},
+    },
+    "required": [],
+}, do_list_episodes, [("agent_id", str), ("limit", int, 50)])
+
+registry.auto_tool("delete_memory", "Delete a single memory by ID. Ownership is enforced when agent_id is provided.", {
+    "type": "object",
+    "properties": {
+        "agent_id": {"type": "string", "description": "Agent ID for ownership verification (injected by kernel)"},
+        "memory_id": {"type": "integer", "description": "Memory ID to delete"},
+    },
+    "required": ["memory_id"],
+}, do_delete_memory, [("memory_id", int), ("agent_id", str)])
+
+registry.auto_tool("delete_episode", "Delete a single episode by ID. Ownership is enforced when agent_id is provided.", {
+    "type": "object",
+    "properties": {
+        "agent_id": {"type": "string", "description": "Agent ID for ownership verification (injected by kernel)"},
+        "episode_id": {"type": "integer", "description": "Episode ID to delete"},
+    },
+    "required": ["episode_id"],
+}, do_delete_episode, [("episode_id", int), ("agent_id", str)])
+
+
 async def main():
     global _embedding_client
 
@@ -1156,8 +1024,8 @@ async def main():
     await get_db()
     try:
         async with stdio_server() as (read_stream, write_stream):
-            await server.run(
-                read_stream, write_stream, server.create_initialization_options()
+            await registry.server.run(
+                read_stream, write_stream, registry.server.create_initialization_options()
             )
     finally:
         await close_db()

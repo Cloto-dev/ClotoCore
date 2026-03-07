@@ -11,8 +11,8 @@ import { AgentConsole } from './AgentConsole';
 import { ContainerDashboard } from './ContainerDashboard';
 import { AgentPowerButton } from './AgentPowerButton';
 
-import { api, EVENTS_URL } from '../services/api';
-import { useApiKey } from '../contexts/ApiKeyContext';
+import { EVENTS_URL } from '../services/api';
+import { useApi } from '../hooks/useApi';
 import { useMcpServers } from '../hooks/useMcpServers';
 
 export interface AgentTerminalProps {
@@ -30,7 +30,7 @@ export function AgentTerminal({
   onRefresh,
   onBack,
 }: AgentTerminalProps) {
-  const { apiKey } = useApiKey();
+  const api = useApi();
   const [configuringAgent, setConfiguringAgent] = useState<AgentMetadata | null>(null);
 
   // Power toggle modal
@@ -44,7 +44,7 @@ export function AgentTerminal({
 
   // MCP-based engine/memory discovery (mind.* = reasoning engines, memory.* = memory backends)
   // Must be called before any conditional returns to satisfy React's Rules of Hooks
-  const { servers: mcpServers } = useMcpServers(apiKey);
+  const { servers: mcpServers } = useMcpServers();
   const mcpEngines = mcpServers.filter(s => s.id.startsWith('mind.') && s.status === 'Connected');
   const mcpMemories = mcpServers.filter(s => s.id.startsWith('memory.') && s.status === 'Connected');
 
@@ -56,7 +56,7 @@ export function AgentTerminal({
     setDeleteError(null);
     try {
       const hasPassword = deleteTarget.metadata?.has_password === 'true';
-      await api.deleteAgent(deleteTarget.id, apiKey, hasPassword ? deletePassword : undefined);
+      await api.deleteAgent(deleteTarget.id, hasPassword ? deletePassword : undefined);
       setDeleteTarget(null);
       setDeletePassword('');
       onRefresh();
@@ -78,7 +78,7 @@ export function AgentTerminal({
     if (event.type === 'AgentPowerChanged') {
       onRefresh();
     }
-  }, apiKey);
+  }, api.apiKey);
 
   const handlePowerToggle = (agent: AgentMetadata) => {
     setPowerTarget(agent);

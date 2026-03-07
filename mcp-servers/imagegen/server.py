@@ -12,82 +12,64 @@ import asyncio
 import base64
 import json
 import os
+import sys
 import uuid
 from datetime import datetime, timezone
 
 import httpx
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
 
-server = Server("cloto-mcp-imagegen")
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
+
+from common.mcp_utils import ToolRegistry, run_mcp_server
+
+registry = ToolRegistry("cloto-mcp-imagegen")
 
 SD_API_URL = os.environ.get("SD_API_URL", "http://127.0.0.1:7860")
 SD_OUTPUT_DIR = os.environ.get("SD_OUTPUT_DIR", "./data/generated")
 
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="generate_image",
-            description="Generate an image from a text prompt using Stable Diffusion. Returns the saved file path.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "prompt": {
-                        "type": "string",
-                        "description": "Text prompt describing the desired image",
-                    },
-                    "negative_prompt": {
-                        "type": "string",
-                        "description": "Negative prompt (things to avoid)",
-                    },
-                    "steps": {
-                        "type": "integer",
-                        "description": "Sampling steps (default: 20)",
-                    },
-                    "width": {
-                        "type": "integer",
-                        "description": "Image width in pixels (default: 512)",
-                    },
-                    "height": {
-                        "type": "integer",
-                        "description": "Image height in pixels (default: 512)",
-                    },
-                    "cfg_scale": {
-                        "type": "number",
-                        "description": "CFG scale / guidance (default: 7.0)",
-                    },
-                    "seed": {
-                        "type": "integer",
-                        "description": "Random seed (-1 for random)",
-                    },
-                },
-                "required": ["prompt"],
+@registry.tool(
+    "generate_image",
+    "Generate an image from a text prompt using Stable Diffusion. Returns the saved file path.",
+    {
+        "type": "object",
+        "properties": {
+            "prompt": {
+                "type": "string",
+                "description": "Text prompt describing the desired image",
             },
-        ),
-        Tool(
-            name="list_models",
-            description="List available Stable Diffusion models.",
-            inputSchema={"type": "object", "properties": {}},
-        ),
-    ]
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "generate_image":
-        return await _handle_generate(arguments)
-    elif name == "list_models":
-        return await _handle_list_models()
-    return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
-
-
-async def _handle_generate(args: dict) -> list[TextContent]:
+            "negative_prompt": {
+                "type": "string",
+                "description": "Negative prompt (things to avoid)",
+            },
+            "steps": {
+                "type": "integer",
+                "description": "Sampling steps (default: 20)",
+            },
+            "width": {
+                "type": "integer",
+                "description": "Image width in pixels (default: 512)",
+            },
+            "height": {
+                "type": "integer",
+                "description": "Image height in pixels (default: 512)",
+            },
+            "cfg_scale": {
+                "type": "number",
+                "description": "CFG scale / guidance (default: 7.0)",
+            },
+            "seed": {
+                "type": "integer",
+                "description": "Random seed (-1 for random)",
+            },
+        },
+        "required": ["prompt"],
+    },
+)
+async def handle_generate(args: dict) -> dict:
     prompt = args.get("prompt", "")
     if not prompt:
-        return [TextContent(type="text", text=json.dumps({"error": "prompt is required"}))]
+        return {"error": "prompt is required"}
 
     payload = {
         "prompt": prompt,
@@ -110,7 +92,7 @@ async def _handle_generate(args: dict) -> list[TextContent]:
 
         images = result.get("images", [])
         if not images:
-            return [TextContent(type="text", text=json.dumps({"error": "No images generated"}))]
+            return {"error": "No images generated"}
 
         os.makedirs(SD_OUTPUT_DIR, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -130,39 +112,30 @@ async def _handle_generate(args: dict) -> list[TextContent]:
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "status": "ok",
-                        "path": os.path.abspath(filepath),
-                        "prompt": prompt,
-                        "seed": seed_used,
-                        "width": payload["width"],
-                        "height": payload["height"],
-                        "steps": payload["steps"],
-                    }
-                ),
-            )
-        ]
+        return {
+            "status": "ok",
+            "path": os.path.abspath(filepath),
+            "prompt": prompt,
+            "seed": seed_used,
+            "width": payload["width"],
+            "height": payload["height"],
+            "steps": payload["steps"],
+        }
     except httpx.ConnectError:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": f"Cannot connect to Stable Diffusion WebUI at {SD_API_URL}",
-                        "hint": "Start SD WebUI with: webui.bat --api (or webui.sh --api)",
-                    }
-                ),
-            )
-        ]
+        return {
+            "error": f"Cannot connect to Stable Diffusion WebUI at {SD_API_URL}",
+            "hint": "Start SD WebUI with: webui.bat --api (or webui.sh --api)",
+        }
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
+        return {"error": str(e)}
 
 
-async def _handle_list_models() -> list[TextContent]:
+@registry.tool(
+    "list_models",
+    "List available Stable Diffusion models.",
+    {"type": "object", "properties": {}},
+)
+async def handle_list_models(args: dict) -> dict:
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(f"{SD_API_URL}/sdapi/v1/sd-models")
@@ -174,34 +147,15 @@ async def _handle_list_models() -> list[TextContent]:
             for m in models
         ]
 
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({"models": model_list, "count": len(model_list)}),
-            )
-        ]
+        return {"models": model_list, "count": len(model_list)}
     except httpx.ConnectError:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": f"Cannot connect to Stable Diffusion WebUI at {SD_API_URL}",
-                        "hint": "Start SD WebUI with: webui.bat --api",
-                    }
-                ),
-            )
-        ]
+        return {
+            "error": f"Cannot connect to Stable Diffusion WebUI at {SD_API_URL}",
+            "hint": "Start SD WebUI with: webui.bat --api",
+        }
     except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
-
-
-async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream, write_stream, server.create_initialization_options()
-        )
+        return {"error": str(e)}
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_mcp_server(registry))

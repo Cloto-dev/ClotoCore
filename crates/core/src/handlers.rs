@@ -7,8 +7,10 @@
 pub mod agents;
 pub mod assets;
 pub mod chat;
+pub(crate) mod command_approval;
 pub mod commands;
 pub mod cron;
+pub(crate) mod engine_routing;
 pub mod events;
 pub mod llm;
 pub mod mcp;

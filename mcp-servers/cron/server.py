@@ -8,11 +8,13 @@ import asyncio
 import json
 import logging
 import os
+import sys
 
 import httpx
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")))
+
+from common.mcp_utils import ToolRegistry, run_mcp_server
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +63,90 @@ async def _api_delete(path: str) -> dict:
         return resp.json()
 
 
-# ============================================================
-# Tool implementations
-# ============================================================
+def _wrap_http_error(fn):
+    """Decorator to catch httpx.HTTPStatusError and return error dict."""
+    async def wrapper(arguments: dict) -> dict:
+        try:
+            return await fn(arguments)
+        except httpx.HTTPStatusError as e:
+            body = e.response.text
+            try:
+                body = json.dumps(e.response.json())
+            except Exception:
+                pass
+            return {"error": f"API {e.response.status_code}: {body}"}
+    wrapper.__name__ = fn.__name__
+    return wrapper
 
 
+# ============================================================
+# MCP Server
+# ============================================================
+
+registry = ToolRegistry("cloto-mcp-cron")
+
+
+@registry.tool(
+    "create_cron_job",
+    "Create a scheduled CRON job for the current agent. "
+    "The job will automatically send the specified message to the agent "
+    "on the defined schedule.",
+    {
+        "type": "object",
+        "properties": {
+            "agent_id": {
+                "type": "string",
+                "description": "Agent identifier (your own agent ID)",
+            },
+            "name": {
+                "type": "string",
+                "description": "Human-readable name for this job (e.g. 'Daily Report')",
+            },
+            "schedule_type": {
+                "type": "string",
+                "enum": ["interval", "cron", "once"],
+                "description": (
+                    "Schedule type: "
+                    "'interval' = repeat every N seconds (min 60), "
+                    "'cron' = standard cron expression (e.g. '0 9 * * *'), "
+                    "'once' = run once at a specific ISO 8601 datetime"
+                ),
+            },
+            "schedule_value": {
+                "type": "string",
+                "description": (
+                    "Schedule value matching schedule_type: "
+                    "seconds for interval, cron expression for cron, "
+                    "ISO 8601 datetime for once"
+                ),
+            },
+            "message": {
+                "type": "string",
+                "description": "The prompt/message sent to the agent when the job fires",
+            },
+            "engine_id": {
+                "type": "string",
+                "description": "Optional: override the LLM engine (e.g. 'mind.deepseek'). Uses agent default if omitted.",
+            },
+            "max_iterations": {
+                "type": "integer",
+                "description": "Max conversation turns per execution (default: 8)",
+                "default": 8,
+            },
+            "hide_prompt": {
+                "type": "boolean",
+                "description": (
+                    "Agent-speak mode: if true, the cron prompt is hidden from chat "
+                    "and only the agent's response is displayed. "
+                    "Default: false (prompt shown as user message)."
+                ),
+                "default": False,
+            },
+        },
+        "required": ["agent_id", "name", "schedule_type", "schedule_value", "message"],
+    },
+)
+@_wrap_http_error
 async def do_create_cron_job(args: dict) -> dict:
     """POST /api/cron/jobs"""
     agent_id = args.get("agent_id", "")
@@ -89,6 +170,21 @@ async def do_create_cron_job(args: dict) -> dict:
     return await _api_post("/api/cron/jobs", payload)
 
 
+@registry.tool(
+    "list_cron_jobs",
+    "List CRON jobs. Filter by agent_id to see only your own jobs.",
+    {
+        "type": "object",
+        "properties": {
+            "agent_id": {
+                "type": "string",
+                "description": "Agent identifier to filter by (optional, omit to list all)",
+            },
+        },
+        "required": [],
+    },
+)
+@_wrap_http_error
 async def do_list_cron_jobs(args: dict) -> dict:
     """GET /api/cron/jobs[?agent_id=X]"""
     params = {}
@@ -97,6 +193,21 @@ async def do_list_cron_jobs(args: dict) -> dict:
     return await _api_get("/api/cron/jobs", params or None)
 
 
+@registry.tool(
+    "delete_cron_job",
+    "Delete a CRON job by its ID.",
+    {
+        "type": "object",
+        "properties": {
+            "job_id": {
+                "type": "string",
+                "description": "The CRON job ID to delete (e.g. 'cron.agent.karin.abc123')",
+            },
+        },
+        "required": ["job_id"],
+    },
+)
+@_wrap_http_error
 async def do_delete_cron_job(args: dict) -> dict:
     """DELETE /api/cron/jobs/:id"""
     job_id = args.get("job_id", "")
@@ -105,6 +216,25 @@ async def do_delete_cron_job(args: dict) -> dict:
     return await _api_delete(f"/api/cron/jobs/{job_id}")
 
 
+@registry.tool(
+    "toggle_cron_job",
+    "Enable or disable a CRON job without deleting it.",
+    {
+        "type": "object",
+        "properties": {
+            "job_id": {
+                "type": "string",
+                "description": "The CRON job ID to toggle",
+            },
+            "enabled": {
+                "type": "boolean",
+                "description": "true to enable, false to disable",
+            },
+        },
+        "required": ["job_id", "enabled"],
+    },
+)
+@_wrap_http_error
 async def do_toggle_cron_job(args: dict) -> dict:
     """POST /api/cron/jobs/:id/toggle"""
     job_id = args.get("job_id", "")
@@ -116,180 +246,27 @@ async def do_toggle_cron_job(args: dict) -> dict:
     return await _api_post(f"/api/cron/jobs/{job_id}/toggle", {"enabled": enabled})
 
 
+@registry.tool(
+    "run_cron_job_now",
+    "Trigger immediate execution of a CRON job (ignores schedule).",
+    {
+        "type": "object",
+        "properties": {
+            "job_id": {
+                "type": "string",
+                "description": "The CRON job ID to trigger",
+            },
+        },
+        "required": ["job_id"],
+    },
+)
+@_wrap_http_error
 async def do_run_cron_job(args: dict) -> dict:
     """POST /api/cron/jobs/:id/run"""
     job_id = args.get("job_id", "")
     if not job_id:
         return {"error": "job_id is required"}
     return await _api_post(f"/api/cron/jobs/{job_id}/run")
-
-
-# ============================================================
-# MCP Server
-# ============================================================
-
-server = Server("cloto-mcp-cron")
-
-
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="create_cron_job",
-            description=(
-                "Create a scheduled CRON job for the current agent. "
-                "The job will automatically send the specified message to the agent "
-                "on the defined schedule."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier (your own agent ID)",
-                    },
-                    "name": {
-                        "type": "string",
-                        "description": "Human-readable name for this job (e.g. 'Daily Report')",
-                    },
-                    "schedule_type": {
-                        "type": "string",
-                        "enum": ["interval", "cron", "once"],
-                        "description": (
-                            "Schedule type: "
-                            "'interval' = repeat every N seconds (min 60), "
-                            "'cron' = standard cron expression (e.g. '0 9 * * *'), "
-                            "'once' = run once at a specific ISO 8601 datetime"
-                        ),
-                    },
-                    "schedule_value": {
-                        "type": "string",
-                        "description": (
-                            "Schedule value matching schedule_type: "
-                            "seconds for interval, cron expression for cron, "
-                            "ISO 8601 datetime for once"
-                        ),
-                    },
-                    "message": {
-                        "type": "string",
-                        "description": "The prompt/message sent to the agent when the job fires",
-                    },
-                    "engine_id": {
-                        "type": "string",
-                        "description": "Optional: override the LLM engine (e.g. 'mind.deepseek'). Uses agent default if omitted.",
-                    },
-                    "max_iterations": {
-                        "type": "integer",
-                        "description": "Max conversation turns per execution (default: 8)",
-                        "default": 8,
-                    },
-                    "hide_prompt": {
-                        "type": "boolean",
-                        "description": (
-                            "Agent-speak mode: if true, the cron prompt is hidden from chat "
-                            "and only the agent's response is displayed. "
-                            "Default: false (prompt shown as user message)."
-                        ),
-                        "default": False,
-                    },
-                },
-                "required": ["agent_id", "name", "schedule_type", "schedule_value", "message"],
-            },
-        ),
-        Tool(
-            name="list_cron_jobs",
-            description="List CRON jobs. Filter by agent_id to see only your own jobs.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent_id": {
-                        "type": "string",
-                        "description": "Agent identifier to filter by (optional, omit to list all)",
-                    },
-                },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="delete_cron_job",
-            description="Delete a CRON job by its ID.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "job_id": {
-                        "type": "string",
-                        "description": "The CRON job ID to delete (e.g. 'cron.agent.karin.abc123')",
-                    },
-                },
-                "required": ["job_id"],
-            },
-        ),
-        Tool(
-            name="toggle_cron_job",
-            description="Enable or disable a CRON job without deleting it.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "job_id": {
-                        "type": "string",
-                        "description": "The CRON job ID to toggle",
-                    },
-                    "enabled": {
-                        "type": "boolean",
-                        "description": "true to enable, false to disable",
-                    },
-                },
-                "required": ["job_id", "enabled"],
-            },
-        ),
-        Tool(
-            name="run_cron_job_now",
-            description="Trigger immediate execution of a CRON job (ignores schedule).",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "job_id": {
-                        "type": "string",
-                        "description": "The CRON job ID to trigger",
-                    },
-                },
-                "required": ["job_id"],
-            },
-        ),
-    ]
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    try:
-        if name == "create_cron_job":
-            result = await do_create_cron_job(arguments)
-        elif name == "list_cron_jobs":
-            result = await do_list_cron_jobs(arguments)
-        elif name == "delete_cron_job":
-            result = await do_delete_cron_job(arguments)
-        elif name == "toggle_cron_job":
-            result = await do_toggle_cron_job(arguments)
-        elif name == "run_cron_job_now":
-            result = await do_run_cron_job(arguments)
-        else:
-            result = {"error": f"Unknown tool: {name}"}
-
-        return [TextContent(type="text", text=json.dumps(result))]
-    except httpx.HTTPStatusError as e:
-        body = e.response.text
-        try:
-            body = json.dumps(e.response.json())
-        except Exception:
-            pass
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({"error": f"API {e.response.status_code}: {body}"}),
-            )
-        ]
-    except Exception as e:
-        return [TextContent(type="text", text=json.dumps({"error": str(e)}))]
 
 
 # ============================================================
@@ -308,10 +285,7 @@ async def main():
         "***" if API_KEY else "(none)",
     )
 
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream, write_stream, server.create_initialization_options()
-        )
+    await run_mcp_server(registry)
 
 
 if __name__ == "__main__":
