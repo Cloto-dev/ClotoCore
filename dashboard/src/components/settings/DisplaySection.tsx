@@ -14,7 +14,7 @@ export function DisplaySection() {
     <SectionCard title="Cursor">
       <div className="space-y-4">
         <Toggle enabled={cursorEnabled} onToggle={handleCursorToggle} label="Custom animated cursor" />
-        <p className="text-[10px] text-content-muted">Replaces the native cursor with an animated trail effect using canvas rendering.</p>
+        <p className="text-[10px] text-content-tertiary">Replaces the native cursor with an animated trail effect using canvas rendering.</p>
       </div>
     </SectionCard>
   );

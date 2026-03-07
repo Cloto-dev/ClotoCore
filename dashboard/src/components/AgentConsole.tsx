@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Activity, Zap, User as UserIcon, RotateCcw, ArrowLeft, Volume2, Pencil, RotateCcw as RetryIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { AgentMetadata, ClotoMessage, ChatMessage, ContentBlock, CommandApprovalRequest, McpServerInfo } from '../types';
 import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
@@ -25,6 +26,7 @@ import { flattenConversation, findBranchPoints } from '../lib/conversationTree';
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
 
 function LongPressResetButton({ onReset }: { onReset: () => void }) {
+  const { t } = useTranslation('agents');
   const { progress, handlers } = useLongPress(1500, onReset);
 
   return (
@@ -39,7 +41,7 @@ function LongPressResetButton({ onReset }: { onReset: () => void }) {
         />
       )}
       <RotateCcw size={10} className={progress > 0 ? 'animate-spin' : ''} />
-      <span className="relative">{progress > 0 ? 'Hold...' : 'Reset'}</span>
+      <span className="relative">{progress > 0 ? t('console.hold') : t('console.reset')}</span>
     </button>
   );
 }
@@ -75,6 +77,7 @@ async function migrateLegacyData(agentId: string, postChatMessage: (agentId: str
 }
 
 export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => void }) {
+  const { t } = useTranslation('agents');
   const api = useApi();
   const { identity } = useUserIdentity();
   const { servers: mcpServers } = useMcpServers();
@@ -566,7 +569,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             <h2 className="text-xl font-black text-content-primary tracking-tighter uppercase">{agent.name}</h2>
             <div className="flex items-center gap-2">
               <StatusDot status="online" size="sm" pulse />
-              <span className="text-[10px] font-mono text-content-tertiary uppercase tracking-[0.2em]">Connected</span>
+              <span className="text-[10px] font-mono text-content-tertiary uppercase tracking-[0.2em]">{t('console.connected')}</span>
             </div>
           </div>
         </div>
@@ -582,20 +585,20 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         {/* Sentinel for lazy loading older messages */}
         {hasMore && <div ref={sentinelRef} className="h-1" />}
         {isLoadingMore && (
-          <div className="text-center text-[9px] font-mono text-content-muted py-2 animate-pulse">
-            Loading older messages...
+          <div className="text-center text-[9px] font-mono text-content-tertiary py-2 animate-pulse">
+            {t('console.loading_older')}
           </div>
         )}
 
         {isLoading ? (
-          <div className="h-full flex flex-col items-center justify-center text-content-muted space-y-4">
+          <div className="h-full flex flex-col items-center justify-center text-content-tertiary space-y-4">
             <Activity size={24} className="animate-pulse" />
-            <p className="text-[10px] font-mono tracking-[0.2em] uppercase">Loading session...</p>
+            <p className="text-[10px] font-mono tracking-[0.2em] uppercase">{t('console.loading_session')}</p>
           </div>
         ) : displayMessages.length === 0 && !pendingResponse && !isTyping ? (
-          <div className="h-full flex flex-col items-center justify-center text-content-muted space-y-4">
+          <div className="h-full flex flex-col items-center justify-center text-content-tertiary space-y-4">
             <Zap size={32} strokeWidth={1} className="opacity-20" />
-            <p className="text-[10px] font-mono tracking-[0.2em] uppercase">Ready for instructions</p>
+            <p className="text-[10px] font-mono tracking-[0.2em] uppercase">{t('console.ready')}</p>
           </div>
         ) : (
           displayMessages.map((msg) => {
@@ -610,7 +613,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                 {isError ? (
                   <SystemAlertCard
                     icon={<Activity size={14} />}
-                    title="Engine Error"
+                    title={t('console.engine_error')}
                   >
                     <div className="text-xs text-content-secondary whitespace-pre-line">{firstText.replace(/^\[Error\]\s*/, '')}</div>
                   </SystemAlertCard>
@@ -639,7 +642,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                         <button
                           onClick={() => speakText(msg.content as ContentBlock[])}
                           className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
-                          title="Read aloud"
+                          title={t('console.read_aloud')}
                         >
                           <Volume2 size={12} />
                         </button>
@@ -647,7 +650,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                           <button
                             onClick={() => handleRetry(msg)}
                             className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
-                            title="Retry response"
+                            title={t('console.retry')}
                           >
                             <RetryIcon size={12} />
                           </button>
@@ -660,7 +663,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                     <button
                       onClick={(e) => { e.stopPropagation(); setEditingMessage(msg); }}
                       className="self-start mt-1 p-1.5 rounded-full hover:bg-glass text-content-primary/40 hover:text-brand transition-all shrink-0"
-                      title="Edit message"
+                      title={t('console.edit_message')}
                     >
                       <Pencil size={13} />
                     </button>
@@ -700,7 +703,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                 onCodeBlock={handleCodeBlockExtracted}
               />
               {pendingResponse.elapsedSecs > 0 && (
-                <div className="mt-1 text-[10px] font-mono text-content-muted">
+                <div className="mt-1 text-[10px] font-mono text-content-tertiary">
                   {pendingResponse.elapsedSecs}s
                 </div>
               )}
@@ -727,7 +730,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                     {step.text}
                   </span>
                   {step.detail && (
-                    <span className={`ml-auto ${step.status === 'fail' ? 'text-red-400/60' : 'text-content-muted'}`}>
+                    <span className={`ml-auto ${step.status === 'fail' ? 'text-red-400/60' : 'text-content-tertiary'}`}>
                       {step.detail}
                     </span>
                   )}

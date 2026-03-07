@@ -122,7 +122,7 @@ export function EngineSelector({ servers, selectedEngine, onSelect, disabled }: 
                     ? 'bg-brand/10 text-brand'
                     : isConnected
                       ? 'text-content-secondary hover:bg-glass hover:text-content-primary'
-                      : 'text-content-muted'
+                      : 'text-content-tertiary'
                 }`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
@@ -132,7 +132,7 @@ export function EngineSelector({ servers, selectedEngine, onSelect, disabled }: 
                   {resolveDisplayName(server)}
                 </span>
                 {!isConnected && (
-                  <span className="ml-auto text-[9px] text-content-muted">offline</span>
+                  <span className="ml-auto text-[9px] text-content-tertiary">offline</span>
                 )}
               </button>
             );

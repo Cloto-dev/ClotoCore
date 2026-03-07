@@ -1,28 +1,30 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
+import {
+  installDefaultPacks,
+  scanLanguagesDir,
+  saveLanguagePack as savePack,
+  removeLanguagePack as removePack,
+} from './lib/tauri';
 
+// Bundled: English only
 import en_common from './locales/en/common.json';
 import en_agents from './locales/en/agents.json';
 import en_settings from './locales/en/settings.json';
 import en_mcp from './locales/en/mcp.json';
 import en_nav from './locales/en/nav.json';
-import ja_common from './locales/ja/common.json';
-import ja_agents from './locales/ja/agents.json';
-import ja_settings from './locales/ja/settings.json';
-import ja_mcp from './locales/ja/mcp.json';
-import ja_nav from './locales/ja/nav.json';
+import en_cron from './locales/en/cron.json';
+import en_memory from './locales/en/memory.json';
 
-const NAMESPACES = ['common', 'agents', 'settings', 'mcp', 'nav'] as const;
-const CUSTOM_LANGS_KEY = 'cloto-custom-languages';
+const NAMESPACES = ['common', 'agents', 'settings', 'mcp', 'nav', 'cron', 'memory'] as const;
 
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
     resources: {
-      en: { common: en_common, agents: en_agents, settings: en_settings, mcp: en_mcp, nav: en_nav },
-      ja: { common: ja_common, agents: ja_agents, settings: ja_settings, mcp: ja_mcp, nav: ja_nav },
+      en: { common: en_common, agents: en_agents, settings: en_settings, mcp: en_mcp, nav: en_nav, cron: en_cron, memory: en_memory },
     },
     fallbackLng: 'en',
     defaultNS: 'common',
@@ -34,42 +36,48 @@ i18n
     },
   });
 
-// Restore custom language packs from localStorage on startup
-function restoreCustomLanguages() {
-  try {
-    const stored = localStorage.getItem(CUSTOM_LANGS_KEY);
-    if (!stored) return;
-    const packs: Record<string, { label: string; resources: Record<string, object> }> = JSON.parse(stored);
-    for (const [code, pack] of Object.entries(packs)) {
+/**
+ * Load all external language packs from Documents/ClotoCore/languages/.
+ * Must be called (and awaited) before React renders.
+ */
+export async function loadExternalLanguages(): Promise<void> {
+  // Ensure bundled default packs are installed on first run
+  await installDefaultPacks();
+
+  const packs = await scanLanguagesDir();
+  for (const [, content] of packs) {
+    try {
+      const pack = JSON.parse(content);
+      if (!pack.code || typeof pack.code !== 'string') continue;
       for (const ns of NAMESPACES) {
-        if (pack.resources[ns]) {
-          i18n.addResourceBundle(code, ns, pack.resources[ns], true, true);
+        if (pack[ns] && typeof pack[ns] === 'object') {
+          i18n.addResourceBundle(pack.code, ns, pack[ns], true, true);
         }
       }
+    } catch {
+      // Skip invalid JSON files
     }
-  } catch {
-    // Silently ignore corrupt data
   }
 }
 
-restoreCustomLanguages();
-
-/** Get list of custom language metadata from localStorage */
-export function getCustomLanguages(): { code: string; label: string }[] {
-  try {
-    const stored = localStorage.getItem(CUSTOM_LANGS_KEY);
-    if (!stored) return [];
-    const packs = JSON.parse(stored);
-    return Object.entries(packs).map(([code, pack]: [string, any]) => ({
-      code,
-      label: pack.label || code,
-    }));
-  } catch {
-    return [];
+/** Get list of external language packs (filesystem-based). */
+export async function getCustomLanguages(): Promise<{ code: string; label: string }[]> {
+  const packs = await scanLanguagesDir();
+  const result: { code: string; label: string }[] = [];
+  for (const [, content] of packs) {
+    try {
+      const pack = JSON.parse(content);
+      if (pack.code && pack.label) {
+        result.push({ code: pack.code, label: pack.label });
+      }
+    } catch {
+      // Skip invalid
+    }
   }
+  return result;
 }
 
-/** Export English locale as a translation template */
+/** Export English locale as a translation template. */
 export function exportLanguageTemplate(): string {
   const template = {
     code: 'LANG_CODE',
@@ -79,12 +87,14 @@ export function exportLanguageTemplate(): string {
     settings: en_settings,
     mcp: en_mcp,
     nav: en_nav,
+    cron: en_cron,
+    memory: en_memory,
   };
   return JSON.stringify(template, null, 2);
 }
 
-/** Import a language pack JSON and register it with i18next */
-export function importLanguagePack(json: string): { code: string; label: string } {
+/** Import a language pack JSON, register with i18next, and save to filesystem. */
+export async function importLanguagePack(json: string): Promise<{ code: string; label: string }> {
   const pack = JSON.parse(json);
 
   if (!pack.code || typeof pack.code !== 'string') {
@@ -104,42 +114,21 @@ export function importLanguagePack(json: string): { code: string; label: string 
     }
   }
 
-  // Persist to localStorage
-  try {
-    const stored = localStorage.getItem(CUSTOM_LANGS_KEY);
-    const packs = stored ? JSON.parse(stored) : {};
-    packs[code] = {
-      label,
-      resources: Object.fromEntries(
-        NAMESPACES.filter(ns => pack[ns]).map(ns => [ns, pack[ns]])
-      ),
-    };
-    localStorage.setItem(CUSTOM_LANGS_KEY, JSON.stringify(packs));
-  } catch {
-    // Storage full or unavailable — language still works for this session
-  }
+  // Persist to filesystem
+  await savePack(code, json);
 
   return { code, label };
 }
 
-/** Remove a custom language pack */
-export function removeCustomLanguage(code: string): void {
+/** Remove a custom language pack (filesystem + i18next). */
+export async function removeCustomLanguage(code: string): Promise<void> {
   // Remove from i18next
   for (const ns of NAMESPACES) {
     i18n.removeResourceBundle(code, ns);
   }
 
-  // Remove from localStorage
-  try {
-    const stored = localStorage.getItem(CUSTOM_LANGS_KEY);
-    if (stored) {
-      const packs = JSON.parse(stored);
-      delete packs[code];
-      localStorage.setItem(CUSTOM_LANGS_KEY, JSON.stringify(packs));
-    }
-  } catch {
-    // Ignore
-  }
+  // Remove from filesystem
+  await removePack(code);
 
   // Switch to fallback if current language was removed
   if (i18n.language === code) {

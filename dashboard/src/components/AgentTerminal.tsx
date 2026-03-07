@@ -134,7 +134,7 @@ export function AgentTerminal({
                 value={deletePassword}
                 onChange={e => setDeletePassword(e.target.value)}
                 placeholder={t('delete.password_placeholder')}
-                className="w-full bg-surface-base border border-edge rounded-xl px-3 py-2 text-xs font-mono text-content-primary placeholder:text-content-muted"
+                className="w-full bg-surface-base border border-edge rounded-xl px-3 py-2 text-xs font-mono text-content-primary placeholder:text-content-tertiary"
               />
             )}
             {deleteError && (
@@ -312,7 +312,7 @@ export function AgentTerminal({
 
             <div>
               <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
-                {t('form.password')} <span className="text-content-muted font-normal normal-case">({t('form.password_optional')})</span>
+                {t('form.password')} <span className="text-content-tertiary font-normal normal-case">({t('form.password_optional')})</span>
               </label>
               <div className="relative">
                 <Lock size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
@@ -332,7 +332,7 @@ export function AgentTerminal({
                 <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-2">
                   <Route size={10} className="inline mr-1" />
                   {t('routing.title')}
-                  <span className="text-content-muted font-normal normal-case ml-1">({t('routing.optional')})</span>
+                  <span className="text-content-tertiary font-normal normal-case ml-1">({t('routing.optional')})</span>
                 </label>
                 <div className="space-y-2">
                   {newAgent.routingRules.map((rule, i) => (
@@ -366,7 +366,7 @@ export function AgentTerminal({
                       </div>
                       {/* CFR + Fallback options */}
                       <div className="flex items-center gap-2 pl-1">
-                        <label className="flex items-center gap-1 text-[9px] text-content-muted cursor-pointer">
+                        <label className="flex items-center gap-1 text-[9px] text-content-tertiary cursor-pointer">
                           <input
                             type="checkbox"
                             checked={rule.cfr || false}
@@ -390,7 +390,7 @@ export function AgentTerminal({
                             </select>
                           </>
                         )}
-                        <span className="text-[9px] text-content-muted ml-1">{t('routing.fallback')}</span>
+                        <span className="text-[9px] text-content-tertiary ml-1">{t('routing.fallback')}</span>
                         <select
                           value={rule.fallback || ''}
                           onChange={e => updateRoutingRule(i, 'fallback', e.target.value || undefined)}
@@ -412,7 +412,7 @@ export function AgentTerminal({
                     <Plus size={10} /> {t('routing.add_rule')}
                   </button>
                 </div>
-                <p className="text-[8px] text-content-muted mt-1 font-mono">
+                <p className="text-[10px] text-content-tertiary mt-1 font-mono">
                   {t('routing.help')}
                 </p>
               </div>

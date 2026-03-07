@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { McpServerInfo } from '../../types';
 import { McpServerSettingsTab } from './McpServerSettingsTab';
 import { McpAccessControlTab } from './McpAccessControlTab';
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, onRestart }: Props) {
+  const { t } = useTranslation('mcp');
   const [activeTab, setActiveTab] = useState<Tab>('settings');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
@@ -34,9 +36,9 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
   }
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'settings', label: 'Settings' },
-    { id: 'access', label: 'Access' },
-    { id: 'logs', label: 'Logs' },
+    { id: 'settings', label: t('detail.tab_settings') },
+    { id: 'access', label: t('detail.tab_access') },
+    { id: 'logs', label: t('detail.tab_logs') },
   ];
 
   return (
@@ -45,15 +47,15 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
       <div className="px-4 py-3 border-b border-edge">
         <div className="flex items-center gap-4 text-[10px] font-mono text-content-tertiary">
           <span className="flex items-center gap-1">
-            Status:
-            <span className={isRunning ? 'text-green-500' : isError ? 'text-red-500' : 'text-content-muted'}>
-              {isRunning ? '● Running' : isError ? '◉ Error' : '○ Stopped'}
+            {t('detail.status')}
+            <span className={isRunning ? 'text-green-500' : isError ? 'text-red-500' : 'text-content-tertiary'}>
+              {isRunning ? `● ${t('status_running')}` : isError ? `◉ ${t('status_error')}` : `○ ${t('status_stopped')}`}
             </span>
           </span>
-          <span>Tools: {server.tools.length} registered</span>
-          {server.is_cloto_sdk && <span className="text-brand">CLOTO SDK</span>}
+          <span>{t('detail.tools_registered', { count: server.tools.length })}</span>
+          {server.is_cloto_sdk && <span className="text-brand">{t('detail.cloto_sdk')}</span>}
           <span className={server.source === 'config' ? 'text-amber-500' : 'text-blue-400'}>
-            {server.source === 'config' ? 'CONFIG' : 'DYNAMIC'}
+            {server.source === 'config' ? t('detail.source_config') : t('detail.source_dynamic')}
           </span>
         </div>
 
@@ -65,7 +67,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
               disabled={actionLoading !== null}
               className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-secondary hover:text-green-500 transition-colors border border-edge"
             >
-              <Play size={10} /> Start
+              <Play size={10} /> {t('detail.start')}
             </button>
           )}
           {isRunning && (
@@ -74,7 +76,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
               disabled={actionLoading !== null}
               className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-secondary hover:text-red-500 transition-colors border border-edge"
             >
-              <Square size={10} /> Stop
+              <Square size={10} /> {t('detail.stop')}
             </button>
           )}
           <button
@@ -82,20 +84,20 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
             disabled={actionLoading !== null}
             className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-secondary hover:text-brand transition-colors border border-edge"
           >
-            <RotateCcw size={10} /> Restart
+            <RotateCcw size={10} /> {t('detail.restart')}
           </button>
           {server.source === 'dynamic' && (
             <>
               <div className="w-px h-4 bg-edge self-center mx-0.5" />
               <button
                 onClick={() => {
-                  if (confirm(`Delete server '${server.id}'?`))
+                  if (confirm(t('detail.delete_confirm', { id: server.id })))
                     handleAction('delete', () => onDelete(server.id));
                 }}
                 disabled={actionLoading !== null}
                 className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-red-500/10 text-content-secondary hover:text-red-500 transition-colors border border-edge"
               >
-                <Trash2 size={10} /> Delete
+                <Trash2 size={10} /> {t('detail.delete')}
               </button>
             </>
           )}
