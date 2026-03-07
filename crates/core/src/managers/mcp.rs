@@ -7,6 +7,7 @@
 pub use super::mcp_client::{McpClient, McpNotification};
 pub use super::mcp_types::*;
 
+use super::mcp_mgp::{self, ToolSecurityMetadata};
 use super::mcp_protocol::{McpConfigFile, McpServerConfig, ToolContent};
 use super::mcp_tool_validator::validate_tool_arguments;
 use super::mcp_transport;
@@ -14,7 +15,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{debug, error, info, warn};
@@ -40,6 +41,11 @@ pub struct McpClientManager {
     notification_tx: mpsc::Sender<McpNotification>,
     notification_rx: Mutex<Option<mpsc::Receiver<McpNotification>>>,
     mcp_request_timeout_secs: u64,
+    /// Lifecycle manager for restart policies (MGP §11)
+    #[allow(dead_code)]
+    pub(super) lifecycle: super::mcp_lifecycle::LifecycleManager,
+    /// Event subscription + callback manager (MGP §13)
+    pub(super) events: super::mcp_events::EventManager,
 }
 
 impl McpClientManager {
@@ -55,6 +61,8 @@ impl McpClientManager {
             notification_tx,
             notification_rx: Mutex::new(Some(notification_rx)),
             mcp_request_timeout_secs,
+            lifecycle: super::mcp_lifecycle::LifecycleManager::new(),
+            events: super::mcp_events::EventManager::new(),
         }
     }
 
@@ -139,8 +147,11 @@ impl McpClientManager {
                         client: None,
                         tools: Vec::new(),
                         handshake: None,
+                        mgp_negotiated: None,
                         status: ServerStatus::Error(e.to_string()),
                         source: ServerSource::Config,
+                        audit_seq: Arc::new(AtomicU64::new(0)),
+                        connected_at: None,
                     });
             }
         }
@@ -188,10 +199,12 @@ impl McpClientManager {
                 args,
                 env: db_env,
                 transport: "stdio".to_string(),
-                auto_restart: true,
+                auto_restart: Some(true),
                 required_permissions: Vec::new(),
                 tool_validators: HashMap::new(),
                 display_name: None,
+                mgp: None,
+                restart_policy: None,
             };
 
             // Regenerate script file if needed
@@ -230,8 +243,11 @@ impl McpClientManager {
                         client: None,
                         tools: Vec::new(),
                         handshake: None,
+                        mgp_negotiated: None,
                         status: ServerStatus::Error(e.to_string()),
                         source: ServerSource::Dynamic,
+                        audit_seq: Arc::new(AtomicU64::new(0)),
+                        connected_at: None,
                     });
             }
         }
@@ -354,9 +370,17 @@ impl McpClientManager {
             id, config.command, config.args
         );
 
+        // Set Connecting status
+        {
+            let mut servers = self.servers.write().await;
+            if let Some(handle) = servers.get_mut(&id) {
+                handle.status = ServerStatus::Connecting;
+            }
+        }
+
         // Retry with exponential backoff (3 attempts)
-        let client = {
-            let mut result: Option<McpClient> = None;
+        let (client, mgp_server_caps) = {
+            let mut result: Option<(McpClient, Option<super::mcp_mgp::MgpServerCapabilities>)> = None;
             let mut last_err = None;
             for attempt in 1..=3u32 {
                 match McpClient::connect(
@@ -369,8 +393,8 @@ impl McpClientManager {
                 )
                 .await
                 {
-                    Ok(c) => {
-                        result = Some(c);
+                    Ok((c, caps)) => {
+                        result = Some((c, caps));
                         break;
                     }
                     Err(e) => {
@@ -387,7 +411,7 @@ impl McpClientManager {
                 }
             }
             match result {
-                Some(c) => c,
+                Some((c, caps)) => (c, caps),
                 None => {
                     return Err(anyhow::anyhow!(
                         "Failed to connect to MCP server '{}' after 3 attempts: {}",
@@ -397,6 +421,191 @@ impl McpClientManager {
                 }
             }
         };
+
+        // MGP capability negotiation (§2)
+        let config_trust = config.mgp.as_ref().and_then(|m| m.trust_level.as_deref());
+        let mgp_negotiated = mcp_mgp::negotiate(mgp_server_caps.as_ref(), config_trust);
+        if let Some(ref mgp) = mgp_negotiated {
+            info!(
+                "MGP negotiated for [{}]: v{}, extensions={:?}, trust={:?}",
+                id, mgp.version, mgp.active_extensions, mgp.trust_level
+            );
+        }
+
+        // ──── MGP Permission Flow (§3): check server-declared permissions ────
+        if let (Some(ref mgp), Some(ref server_caps)) = (&mgp_negotiated, &mgp_server_caps) {
+            if mgp.active_extensions.iter().any(|e| e == "permissions")
+                && !server_caps.permissions_required.is_empty()
+            {
+                // Merge server-declared permissions with config permissions
+                let mut all_perms: Vec<String> = config.required_permissions.clone();
+                for perm in &server_caps.permissions_required {
+                    if !all_perms.contains(perm) {
+                        all_perms.push(perm.clone());
+                    }
+                }
+
+                if self.yolo_mode.load(Ordering::Relaxed) {
+                    // YOLO: auto-approve all server-declared permissions
+                    for perm in &all_perms {
+                        let already_approved =
+                            crate::db::is_permission_approved(&self.pool, &id, perm)
+                                .await
+                                .unwrap_or(false);
+                        if !already_approved {
+                            let request = crate::db::PermissionRequest {
+                                request_id: format!("mgp-{}-{}", id, perm),
+                                created_at: chrono::Utc::now(),
+                                plugin_id: id.clone(),
+                                permission_type: perm.clone(),
+                                target_resource: None,
+                                justification: format!(
+                                    "MGP server '{}' declares '{}' (auto-approved: YOLO mode)",
+                                    id, perm
+                                ),
+                                status: "approved".to_string(),
+                                approved_by: Some(YOLO_APPROVER_ID.to_string()),
+                                approved_at: Some(chrono::Utc::now()),
+                                expires_at: None,
+                                metadata: None,
+                            };
+                            if let Err(e) =
+                                crate::db::create_permission_request(&self.pool, request).await
+                            {
+                                debug!("MGP permission auto-approve note for [{}]: {}", id, e);
+                            }
+                        }
+                    }
+                    // Send mgp/permission/grant RPC (§3.6)
+                    let grant_params = serde_json::json!({
+                        "request_id": format!("perm-{}", id),
+                        "grants": all_perms.iter().map(|p| (p.clone(), serde_json::json!({
+                            "decision": "approved",
+                        }))).collect::<serde_json::Map<String, serde_json::Value>>(),
+                        "approved_by": YOLO_APPROVER_ID,
+                    });
+                    if let Err(e) = client
+                        .call("mgp/permission/grant", Some(grant_params))
+                        .await
+                    {
+                        debug!("Failed to send mgp/permission/grant to [{}]: {}", id, e);
+                    }
+
+                    crate::db::spawn_audit_log(
+                        self.pool.clone(),
+                        crate::db::AuditLogEntry {
+                            timestamp: chrono::Utc::now(),
+                            event_type: "PERMISSION_GRANTED".to_string(),
+                            actor_id: Some(YOLO_APPROVER_ID.to_string()),
+                            target_id: Some(id.clone()),
+                            permission: Some(all_perms.join(",")),
+                            result: "approved".to_string(),
+                            reason: "MGP Permission Flow (YOLO auto-approve)".to_string(),
+                            metadata: None,
+                            trace_id: None,
+                        },
+                    );
+                } else {
+                    // Non-YOLO: check each permission
+                    let mut pending_perms = Vec::new();
+                    for perm in &all_perms {
+                        let approved = crate::db::is_permission_approved(&self.pool, &id, perm)
+                            .await
+                            .unwrap_or(false);
+                        if !approved {
+                            pending_perms.push(perm.clone());
+                            let request = crate::db::PermissionRequest {
+                                request_id: format!("mgp-{}-{}", id, perm),
+                                created_at: chrono::Utc::now(),
+                                plugin_id: id.clone(),
+                                permission_type: perm.clone(),
+                                target_resource: None,
+                                justification: format!(
+                                    "MGP server '{}' declares '{}' permission",
+                                    id, perm
+                                ),
+                                status: "pending".to_string(),
+                                approved_by: None,
+                                approved_at: None,
+                                expires_at: None,
+                                metadata: Some(serde_json::json!({
+                                    "source": "mgp_permission_flow",
+                                    "server_command": config.command,
+                                })),
+                            };
+                            if let Err(e) =
+                                crate::db::create_permission_request(&self.pool, request).await
+                            {
+                                debug!("MGP permission request note for [{}]: {}", id, e);
+                            }
+                        }
+                    }
+
+                    if !pending_perms.is_empty() {
+                        // Send mgp/permission/await RPC (§3.5)
+                        let await_params = serde_json::json!({
+                            "request_id": format!("perm-{}", id),
+                            "permissions": pending_perms,
+                            "policy": "interactive",
+                            "message": "Waiting for operator approval",
+                        });
+                        if let Err(e) = client
+                            .call("mgp/permission/await", Some(await_params))
+                            .await
+                        {
+                            debug!("Failed to send mgp/permission/await to [{}]: {}", id, e);
+                        }
+
+                        crate::db::spawn_audit_log(
+                            self.pool.clone(),
+                            crate::db::AuditLogEntry {
+                                timestamp: chrono::Utc::now(),
+                                event_type: "PERMISSION_DENIED".to_string(),
+                                actor_id: None,
+                                target_id: Some(id.clone()),
+                                permission: Some(pending_perms.join(",")),
+                                result: "pending".to_string(),
+                                reason: "MGP Permission Flow (pending approval)".to_string(),
+                                metadata: None,
+                                trace_id: None,
+                            },
+                        );
+
+                        return Err(anyhow::anyhow!(
+                            "MGP server '{}' blocked: {} permission(s) pending approval: [{}]. \
+                             Approve via dashboard or API, then retry.",
+                            id,
+                            pending_perms.len(),
+                            pending_perms.join(", ")
+                        ));
+                    }
+
+                    // All approved → send grant RPC (§3.6)
+                    let grant_params = serde_json::json!({
+                        "request_id": format!("perm-{}", id),
+                        "grants": all_perms.iter().map(|p| (p.clone(), serde_json::json!({
+                            "decision": "approved",
+                        }))).collect::<serde_json::Map<String, serde_json::Value>>(),
+                        "approved_by": "operator",
+                    });
+                    if let Err(e) = client
+                        .call("mgp/permission/grant", Some(grant_params))
+                        .await
+                    {
+                        debug!("Failed to send mgp/permission/grant to [{}]: {}", id, e);
+                    }
+                }
+            }
+        }
+
+        // Send initialized notification (after Permission Flow completes)
+        if let Err(e) = client.send_initialized_notification().await {
+            return Err(anyhow::anyhow!(
+                "Failed to send initialized notification to [{}]: {}",
+                id,
+                e
+            ));
+        }
 
         // Discover tools
         let tools = match client.list_tools().await {
@@ -417,17 +626,22 @@ impl McpClientManager {
             }
         };
 
-        // Attempt cloto/handshake (optional)
-        let handshake = match client.cloto_handshake().await {
-            Ok(h) => {
-                if h.is_some() {
-                    info!("Cloto handshake succeeded for [MCP] {}", id);
+        // Attempt cloto/handshake (optional, skipped when MGP negotiation succeeded)
+        let handshake = if mgp_negotiated.is_some() {
+            debug!("Skipping cloto/handshake for [MCP] {} (MGP negotiated)", id);
+            None
+        } else {
+            match client.cloto_handshake().await {
+                Ok(h) => {
+                    if h.is_some() {
+                        info!("Cloto handshake succeeded for [MCP] {}", id);
+                    }
+                    h
                 }
-                h
-            }
-            Err(e) => {
-                debug!("Cloto handshake failed for [MCP] {}: {}", id, e);
-                None
+                Err(e) => {
+                    debug!("Cloto handshake failed for [MCP] {}: {}", id, e);
+                    None
+                }
             }
         };
 
@@ -440,8 +654,11 @@ impl McpClientManager {
             client: Some(client_arc),
             tools: tools.clone(),
             handshake,
+            mgp_negotiated,
             status: ServerStatus::Connected,
             source,
+            audit_seq: Arc::new(AtomicU64::new(0)),
+            connected_at: Some(std::time::Instant::now()),
         };
 
         // Register in servers map
@@ -473,6 +690,21 @@ impl McpClientManager {
             id,
             tool_names.len()
         );
+
+        // Audit: SERVER_CONNECTED
+        self.broadcast_audit_event(&crate::db::AuditLogEntry {
+            timestamp: chrono::Utc::now(),
+            event_type: "SERVER_CONNECTED".to_string(),
+            actor_id: Some("kernel".to_string()),
+            target_id: Some(id.clone()),
+            permission: None,
+            result: "success".to_string(),
+            reason: format!("Connected with {} tool(s)", tool_names.len()),
+            metadata: None,
+            trace_id: None,
+        })
+        .await;
+
         Ok(tool_names)
     }
 
@@ -513,6 +745,8 @@ impl McpClientManager {
                 is_cloto_sdk: h.handshake.is_some(),
                 source: h.source,
                 display_name: h.config.display_name.clone(),
+                mgp_supported: h.mgp_negotiated.is_some(),
+                trust_level: h.mgp_negotiated.as_ref().map(|m| format!("{:?}", m.trust_level).to_lowercase()),
             })
             .collect();
 
@@ -529,6 +763,8 @@ impl McpClientManager {
                     is_cloto_sdk: false,
                     source: *source,
                     display_name: config.display_name.clone(),
+                    mgp_supported: false,
+                    trust_level: None,
                 });
             }
         }
@@ -564,12 +800,29 @@ impl McpClientManager {
     // Tool Routing (used by PluginRegistry in Phase 1+)
     // ============================================================
 
+    /// Compute tool security metadata for a tool on a given server handle.
+    fn compute_tool_security(handle: &McpServerHandle, tool_name: &str) -> Option<ToolSecurityMetadata> {
+        let mgp = handle.mgp_negotiated.as_ref()?;
+        if !mgp.active_extensions.iter().any(|e| e == "tool_security") {
+            return None;
+        }
+        let validator = handle.config.tool_validators.get(tool_name).map(String::as_str);
+        let perm_class = mcp_mgp::PermissionRiskClass::from_permissions(&handle.config.required_permissions);
+        let effective = mcp_mgp::derive_effective_risk_level(mgp.trust_level, validator, perm_class);
+        Some(ToolSecurityMetadata {
+            effective_risk_level: effective,
+            trust_level: mgp.trust_level,
+            validator: validator.map(str::to_string),
+            code_safety: None,
+        })
+    }
+
     /// Collect tool schemas from all MCP servers in OpenAI function format.
     /// Includes kernel-native tools (create_mcp_server) only when YOLO mode is enabled.
     pub async fn collect_tool_schemas(&self) -> Vec<Value> {
         let servers = self.servers.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
-            vec![super::mcp_kernel_tool::kernel_tool_schema()]
+            super::mcp_kernel_tool::kernel_tool_schemas()
         } else {
             vec![]
         };
@@ -582,7 +835,8 @@ impl McpClientManager {
                 continue;
             }
             for tool in &handle.tools {
-                schemas.push(mcp_tool_schema(tool));
+                let security = Self::compute_tool_security(handle, &tool.name);
+                schemas.push(mcp_tool_schema(tool, security.as_ref()));
             }
         }
         schemas
@@ -593,7 +847,7 @@ impl McpClientManager {
     pub async fn collect_tool_schemas_for(&self, server_ids: &[String]) -> Vec<Value> {
         let servers = self.servers.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
-            vec![super::mcp_kernel_tool::kernel_tool_schema()]
+            super::mcp_kernel_tool::kernel_tool_schemas()
         } else {
             vec![]
         };
@@ -603,7 +857,8 @@ impl McpClientManager {
                     continue;
                 }
                 for tool in &handle.tools {
-                    schemas.push(mcp_tool_schema(tool));
+                    let security = Self::compute_tool_security(handle, &tool.name);
+                    schemas.push(mcp_tool_schema(tool, security.as_ref()));
                 }
             }
         }
@@ -615,7 +870,7 @@ impl McpClientManager {
     pub async fn collect_tool_schemas_for_agent(&self, agent_id: &str) -> Vec<Value> {
         let servers = self.servers.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
-            vec![super::mcp_kernel_tool::kernel_tool_schema()]
+            super::mcp_kernel_tool::kernel_tool_schemas()
         } else {
             vec![]
         };
@@ -632,7 +887,8 @@ impl McpClientManager {
                     .await
                 {
                     Ok(ref perm) if perm == "allow" => {
-                        schemas.push(mcp_tool_schema(tool));
+                        let security = Self::compute_tool_security(handle, &tool.name);
+                        schemas.push(mcp_tool_schema(tool, security.as_ref()));
                     }
                     _ => {} // deny or error → skip
                 }
@@ -667,9 +923,52 @@ impl McpClientManager {
     /// Handles kernel-native tools (create_mcp_server) internally.
     /// Applies kernel-side validation (A) before forwarding to the MCP server.
     pub async fn execute_tool(&self, tool_name: &str, args: Value) -> Result<Value> {
-        // Kernel-native tool: create_mcp_server
-        if tool_name == "create_mcp_server" {
-            return super::mcp_kernel_tool::execute_create_mcp_server(self, args).await;
+        // Kernel-native tools
+        match tool_name {
+            "create_mcp_server" => {
+                return super::mcp_kernel_tool::execute_create_mcp_server(self, args).await;
+            }
+            "mgp.access.query" => {
+                return super::mcp_kernel_tool::execute_access_query(self, args).await;
+            }
+            "mgp.access.grant" => {
+                return super::mcp_kernel_tool::execute_access_grant(self, args).await;
+            }
+            "mgp.access.revoke" => {
+                return super::mcp_kernel_tool::execute_access_revoke(self, args).await;
+            }
+            "mgp.audit.replay" => {
+                return super::mcp_kernel_tool::execute_audit_replay(self, args).await;
+            }
+            // Tier 3: Lifecycle
+            "mgp.health.ping" => {
+                return super::mcp_kernel_tool::execute_health_ping(self, args).await;
+            }
+            "mgp.health.status" => {
+                return super::mcp_kernel_tool::execute_health_status(self, args).await;
+            }
+            "mgp.lifecycle.shutdown" => {
+                return super::mcp_kernel_tool::execute_lifecycle_shutdown(self, args).await;
+            }
+            // Tier 3: Streaming
+            "mgp.stream.cancel" => {
+                return super::mcp_kernel_tool::execute_stream_cancel(self, args).await;
+            }
+            // Tier 3: Events
+            "mgp.events.subscribe" => {
+                return super::mcp_kernel_tool::execute_events_subscribe(self, args).await;
+            }
+            "mgp.events.unsubscribe" => {
+                return super::mcp_kernel_tool::execute_events_unsubscribe(self, args).await;
+            }
+            "mgp.events.replay" => {
+                return super::mcp_kernel_tool::execute_events_replay(self, args).await;
+            }
+            // Tier 3: Callbacks
+            "mgp.callback.respond" => {
+                return super::mcp_kernel_tool::execute_callback_respond(self, args).await;
+            }
+            _ => {}
         }
 
         let server_id = {
@@ -694,10 +993,38 @@ impl McpClientManager {
 
         // ──── Kernel-side Validation (A): Validate tool arguments before forwarding ────
         if let Some(validator_name) = tool_validators.get(tool_name) {
-            validate_tool_arguments(validator_name, tool_name, &args)?;
+            if let Err(e) = validate_tool_arguments(validator_name, tool_name, &args) {
+                self.broadcast_audit_event(&crate::db::AuditLogEntry {
+                    timestamp: chrono::Utc::now(),
+                    event_type: "TOOL_BLOCKED".to_string(),
+                    actor_id: Some(server_id.clone()),
+                    target_id: Some(tool_name.to_string()),
+                    permission: None,
+                    result: "blocked".to_string(),
+                    reason: e.to_string(),
+                    metadata: None,
+                    trace_id: None,
+                })
+                .await;
+                return Err(e);
+            }
         }
 
         let result = client.call_tool(tool_name, args).await?;
+
+        // Audit: TOOL_EXECUTED
+        self.broadcast_audit_event(&crate::db::AuditLogEntry {
+            timestamp: chrono::Utc::now(),
+            event_type: "TOOL_EXECUTED".to_string(),
+            actor_id: Some(server_id.clone()),
+            target_id: Some(tool_name.to_string()),
+            permission: None,
+            result: if result.is_error == Some(true) { "error" } else { "success" }.to_string(),
+            reason: String::new(),
+            metadata: None,
+            trace_id: None,
+        })
+        .await;
 
         // Convert CallToolResult to a simple JSON value
         if result.is_error == Some(true) {
@@ -735,13 +1062,35 @@ impl McpClientManager {
     }
 
     /// Execute a tool on a specific server by server ID and tool name.
-    /// Applies kernel-side validation (A) before forwarding to the MCP server.
+    /// Applies kernel-side validation (A) and delegation checks (§5.6)
+    /// before forwarding to the MCP server.
     pub async fn call_server_tool(
         &self,
         server_id: &str,
         tool_name: &str,
         args: Value,
     ) -> Result<super::mcp_protocol::CallToolResult> {
+        // ──── §5.6 Delegation Check ────
+        // If _mgp.delegation is present, verify chain depth ≤ 3 and actor validity
+        if let Some(mgp) = args.get("_mgp") {
+            if let Some(delegation) = mgp.get("delegation") {
+                if let Some(chain) = delegation.get("chain").and_then(|c| c.as_array()) {
+                    if chain.len() > 3 {
+                        return Err(anyhow::anyhow!(
+                            "Delegation chain depth {} exceeds maximum of 3",
+                            chain.len()
+                        ));
+                    }
+                }
+                debug!(
+                    server = %server_id,
+                    tool = %tool_name,
+                    delegation = %delegation,
+                    "Delegated tool call"
+                );
+            }
+        }
+
         let (client, tool_validators) = {
             let servers = self.servers.read().await;
             let handle = servers
@@ -792,6 +1141,64 @@ impl McpClientManager {
         }
     }
 
+    /// Broadcast an audit event: persist to DB and send `notifications/mgp.audit`
+    /// to all connected servers that negotiated the "audit" extension.
+    pub async fn broadcast_audit_event(&self, entry: &crate::db::AuditLogEntry) {
+        // 1. Persist locally
+        crate::db::spawn_audit_log(self.pool.clone(), entry.clone());
+
+        // 2. Send to audit-capable servers
+        let servers = self.servers.read().await;
+        for handle in servers.values() {
+            if handle.status != ServerStatus::Connected {
+                continue;
+            }
+            // Only send to servers that negotiated the "audit" extension
+            let has_audit = handle
+                .mgp_negotiated
+                .as_ref()
+                .is_some_and(|m| m.active_extensions.iter().any(|e| e == "audit"));
+            if !has_audit {
+                continue;
+            }
+            let Some(client) = &handle.client else {
+                continue;
+            };
+            let seq = handle
+                .audit_seq
+                .fetch_add(1, Ordering::Relaxed)
+                + 1;
+            let audit_params = serde_json::json!({
+                "_mgp": { "seq": seq },
+                "event_type": entry.event_type,
+                "timestamp": entry.timestamp.to_rfc3339(),
+                "actor": {
+                    "type": if entry.actor_id.as_deref() == Some("kernel") { "kernel" } else { "agent" },
+                    "id": entry.actor_id,
+                },
+                "target": {
+                    "server_id": entry.target_id.as_ref().and_then(|t| t.split(':').next()),
+                    "tool_name": entry.target_id.as_ref().and_then(|t| t.split(':').nth(1)),
+                },
+                "result": entry.result,
+                "details": {
+                    "permission": entry.permission,
+                    "reason": entry.reason,
+                },
+            });
+            if let Err(e) = client
+                .send_notification("notifications/mgp.audit", Some(audit_params))
+                .await
+            {
+                debug!(
+                    server = %handle.id,
+                    error = %e,
+                    "Failed to send audit notification"
+                );
+            }
+        }
+    }
+
     /// Send a config update notification to a specific MCP server.
     pub async fn notify_config_updated(&self, server_id: &str, config: Value) {
         let servers = self.servers.read().await;
@@ -835,10 +1242,12 @@ impl McpClientManager {
             args: args.clone(),
             env: HashMap::new(),
             transport: "stdio".to_string(),
-            auto_restart: true,
+            auto_restart: Some(true),
             required_permissions: Vec::new(),
             tool_validators: HashMap::new(),
             display_name: None,
+            mgp: None,
+            restart_policy: None,
         };
 
         let tool_names = self.connect_server(config, ServerSource::Dynamic).await?;
@@ -916,6 +1325,49 @@ impl McpClientManager {
         Ok(())
     }
 
+    /// Graceful shutdown: set Draining, notify the server, wait timeout, then stop.
+    pub async fn drain_server(&self, id: &str, reason: &str, timeout_ms: u64) -> Result<()> {
+        // Set status to Draining
+        {
+            let mut servers = self.servers.write().await;
+            let handle = servers
+                .get_mut(id)
+                .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", id))?;
+            handle.status = ServerStatus::Draining;
+        }
+
+        // Emit lifecycle notification
+        super::mcp_lifecycle::emit_lifecycle_notification(
+            self, id, "Connected", "Draining", reason,
+        )
+        .await;
+
+        // Notify the target server via standard lifecycle notification (§11.5)
+        {
+            let servers = self.servers.read().await;
+            if let Some(handle) = servers.get(id) {
+                if let Some(client) = &handle.client {
+                    let params = serde_json::json!({
+                        "server_id": id,
+                        "previous_state": "connected",
+                        "new_state": "draining",
+                        "reason": reason,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    });
+                    let _ = client
+                        .send_notification("notifications/mgp.lifecycle", Some(params))
+                        .await;
+                }
+            }
+        }
+
+        // Wait for drain period then stop
+        tokio::time::sleep(std::time::Duration::from_millis(timeout_ms)).await;
+        let _ = self.stop_server(id).await;
+
+        Ok(())
+    }
+
     /// Start a server from stopped_configs or DB.
     pub async fn start_server(&self, id: &str) -> Result<Vec<String>> {
         // Check if already running
@@ -948,10 +1400,12 @@ impl McpClientManager {
             args,
             env: HashMap::new(),
             transport: "stdio".to_string(),
-            auto_restart: true,
+            auto_restart: Some(true),
             required_permissions: Vec::new(),
             tool_validators: HashMap::new(),
             display_name: None,
+            mgp: None,
+            restart_policy: None,
         };
 
         self.connect_server(config, ServerSource::Dynamic).await
@@ -959,6 +1413,13 @@ impl McpClientManager {
 
     /// Restart a server (stop + start).
     pub async fn restart_server(&self, id: &str) -> Result<Vec<String>> {
+        // Set Restarting status before stop
+        {
+            let mut servers = self.servers.write().await;
+            if let Some(handle) = servers.get_mut(id) {
+                handle.status = ServerStatus::Restarting;
+            }
+        }
         // Stop if running (ignore error if already stopped)
         let _ = self.stop_server(id).await;
         self.start_server(id).await
@@ -1054,10 +1515,19 @@ impl McpClientManager {
     // ============================================================
 
     /// Spawn a background task that periodically checks for dead MCP servers
-    /// and auto-restarts them if `auto_restart` is enabled in their config.
+    /// and auto-restarts them based on their restart policy.
     pub fn spawn_health_monitor(self: Arc<Self>, shutdown: Arc<tokio::sync::Notify>) {
         super::mcp_health::spawn_health_monitor(self, shutdown);
     }
+}
+
+/// Public bridge for callback handling from lib.rs notification listener.
+pub fn mcp_events_handle_callback(
+    manager: &McpClientManager,
+    server_id: &str,
+    params: &Value,
+) -> Option<cloto_shared::ClotoEventData> {
+    super::mcp_events::handle_callback_request(manager, server_id, params)
 }
 
 #[cfg(test)]
@@ -1101,12 +1571,128 @@ mod tests {
         let schemas = manager.collect_tool_schemas().await;
         assert!(schemas.is_empty(), "YOLO off should not include kernel tools");
 
-        // YOLO on: kernel tool (create_mcp_server) included
+        // YOLO on: kernel tools included (create_mcp_server + access control + audit)
         let manager_on = McpClientManager::new(pool, true, 120);
         let schemas_on = manager_on.collect_tool_schemas().await;
         assert!(!schemas_on.is_empty(), "YOLO on should include kernel tools");
         let name = schemas_on[0]["function"]["name"].as_str().unwrap();
         assert_eq!(name, "create_mcp_server");
+    }
+
+    #[tokio::test]
+    async fn kernel_tools_include_access_control() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+
+        let manager = McpClientManager::new(pool, true, 120);
+        let schemas = manager.collect_tool_schemas().await;
+        let names: Vec<&str> = schemas
+            .iter()
+            .filter_map(|s| s["function"]["name"].as_str())
+            .collect();
+        assert!(names.contains(&"mgp.access.query"), "Should include mgp.access.query");
+        assert!(names.contains(&"mgp.access.grant"), "Should include mgp.access.grant");
+        assert!(names.contains(&"mgp.access.revoke"), "Should include mgp.access.revoke");
+    }
+
+    #[tokio::test]
+    async fn kernel_tools_include_audit_replay() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+
+        let manager = McpClientManager::new(pool, true, 120);
+        let schemas = manager.collect_tool_schemas().await;
+        let names: Vec<&str> = schemas
+            .iter()
+            .filter_map(|s| s["function"]["name"].as_str())
+            .collect();
+        assert!(names.contains(&"mgp.audit.replay"), "Should include mgp.audit.replay");
+    }
+
+    #[tokio::test]
+    async fn kernel_tools_include_tier3_lifecycle() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+
+        let manager = McpClientManager::new(pool, true, 120);
+        let schemas = manager.collect_tool_schemas().await;
+        let names: Vec<&str> = schemas
+            .iter()
+            .filter_map(|s| s["function"]["name"].as_str())
+            .collect();
+        assert!(names.contains(&"mgp.health.ping"), "Should include mgp.health.ping");
+        assert!(names.contains(&"mgp.health.status"), "Should include mgp.health.status");
+        assert!(names.contains(&"mgp.lifecycle.shutdown"), "Should include mgp.lifecycle.shutdown");
+    }
+
+    #[tokio::test]
+    async fn kernel_tools_include_tier3_streaming() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+
+        let manager = McpClientManager::new(pool, true, 120);
+        let schemas = manager.collect_tool_schemas().await;
+        let names: Vec<&str> = schemas
+            .iter()
+            .filter_map(|s| s["function"]["name"].as_str())
+            .collect();
+        assert!(names.contains(&"mgp.stream.cancel"), "Should include mgp.stream.cancel");
+    }
+
+    #[tokio::test]
+    async fn kernel_tools_include_tier3_events() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+
+        let manager = McpClientManager::new(pool, true, 120);
+        let schemas = manager.collect_tool_schemas().await;
+        let names: Vec<&str> = schemas
+            .iter()
+            .filter_map(|s| s["function"]["name"].as_str())
+            .collect();
+        assert!(names.contains(&"mgp.events.subscribe"), "Should include mgp.events.subscribe");
+        assert!(names.contains(&"mgp.events.unsubscribe"), "Should include mgp.events.unsubscribe");
+        assert!(names.contains(&"mgp.events.replay"), "Should include mgp.events.replay");
+        assert!(names.contains(&"mgp.callback.respond"), "Should include mgp.callback.respond");
+    }
+
+    #[tokio::test]
+    async fn kernel_tools_total_count() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+
+        let manager = McpClientManager::new(pool, true, 120);
+        let schemas = manager.collect_tool_schemas().await;
+        // 5 Tier 2 + 8 Tier 3 = 13 kernel tools
+        assert_eq!(schemas.len(), 13, "Should have 13 kernel tools total");
+    }
+
+    #[tokio::test]
+    async fn server_status_serialization() {
+        let statuses = vec![
+            (ServerStatus::Registered, "Registered"),
+            (ServerStatus::Connecting, "Connecting"),
+            (ServerStatus::Connected, "Connected"),
+            (ServerStatus::Draining, "Draining"),
+            (ServerStatus::Disconnected, "Disconnected"),
+            (ServerStatus::Error("test".into()), "Error"),
+            (ServerStatus::Restarting, "Restarting"),
+        ];
+        for (status, expected) in statuses {
+            let json = serde_json::to_value(&status).unwrap();
+            assert_eq!(json.as_str().unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn server_status_is_operational() {
+        assert!(ServerStatus::Connected.is_operational());
+        assert!(!ServerStatus::Registered.is_operational());
+        assert!(!ServerStatus::Connecting.is_operational());
+        assert!(!ServerStatus::Draining.is_operational());
+        assert!(!ServerStatus::Disconnected.is_operational());
+        assert!(!ServerStatus::Error("x".into()).is_operational());
+        assert!(!ServerStatus::Restarting.is_operational());
     }
 
     #[tokio::test]

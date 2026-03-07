@@ -12,6 +12,160 @@ use serde_json::Value;
 use std::sync::atomic::Ordering;
 use tracing::info;
 
+/// Return all kernel tool schemas (create_mcp_server + access control + audit replay + Tier 3).
+/// Only exposed when YOLO mode is enabled.
+pub(super) fn kernel_tool_schemas() -> Vec<Value> {
+    vec![
+        kernel_tool_schema(),
+        access_query_schema(),
+        access_grant_schema(),
+        access_revoke_schema(),
+        audit_replay_schema(),
+        // Tier 3: Lifecycle
+        health_ping_schema(),
+        health_status_schema(),
+        lifecycle_shutdown_schema(),
+        // Tier 3: Streaming
+        stream_cancel_schema(),
+        // Tier 3: Events
+        events_subscribe_schema(),
+        events_unsubscribe_schema(),
+        events_replay_schema(),
+        // Tier 3: Callbacks
+        callback_respond_schema(),
+    ]
+}
+
+fn access_query_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.access.query",
+            "description": "Query access control entries for an agent or resolve access for a specific tool.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Agent ID to query access entries for"
+                    },
+                    "server_id": {
+                        "type": "string",
+                        "description": "Server ID (required when tool_name is provided)"
+                    },
+                    "tool_name": {
+                        "type": "string",
+                        "description": "Specific tool name to resolve access for"
+                    }
+                },
+                "required": ["agent_id", "server_id"]
+            }
+        }
+    })
+}
+
+fn access_grant_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.access.grant",
+            "description": "Grant access control entry for an agent to a server or tool.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Agent ID to grant access to"
+                    },
+                    "server_id": {
+                        "type": "string",
+                        "description": "Server ID to grant access for"
+                    },
+                    "entry_type": {
+                        "type": "string",
+                        "enum": ["server_grant", "tool_grant"],
+                        "description": "Type of access entry"
+                    },
+                    "tool_name": {
+                        "type": "string",
+                        "description": "Tool name (required for tool_grant)"
+                    },
+                    "permission": {
+                        "type": "string",
+                        "enum": ["allow", "deny"],
+                        "description": "Permission to grant"
+                    },
+                    "justification": {
+                        "type": "string",
+                        "description": "Reason for granting access"
+                    }
+                },
+                "required": ["agent_id", "server_id", "entry_type", "permission"]
+            }
+        }
+    })
+}
+
+fn access_revoke_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.access.revoke",
+            "description": "Revoke an access control entry for an agent.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Agent ID to revoke access from"
+                    },
+                    "server_id": {
+                        "type": "string",
+                        "description": "Server ID to revoke access for"
+                    },
+                    "entry_type": {
+                        "type": "string",
+                        "enum": ["server_grant", "tool_grant"],
+                        "description": "Type of access entry to revoke"
+                    },
+                    "tool_name": {
+                        "type": "string",
+                        "description": "Tool name (for tool_grant revocation)"
+                    }
+                },
+                "required": ["agent_id", "server_id", "entry_type"]
+            }
+        }
+    })
+}
+
+fn audit_replay_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.audit.replay",
+            "description": "Replay audit log entries since a given seq (DB id) or timestamp.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "since_seq": {
+                        "type": "integer",
+                        "description": "Replay entries with id > since_seq"
+                    },
+                    "since_timestamp": {
+                        "type": "string",
+                        "description": "Replay entries with timestamp > since_timestamp (RFC3339)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of entries to return (default 100)"
+                    }
+                }
+            }
+        }
+    })
+}
+
 /// Kernel-native tool schema: create_mcp_server
 pub(super) fn kernel_tool_schema() -> Value {
     serde_json::json!({
@@ -107,7 +261,7 @@ pub(super) async fn execute_create_mcp_server(
     }
 
     // Code safety validation (Layer 5)
-    if let Err(violations) = validate_mcp_code(code) {
+    if let Err(violations) = validate_mcp_code(code, super::mcp_mgp::CodeSafetyLevel::Standard) {
         return Ok(serde_json::json!({
             "status": "rejected",
             "reason": "Code validation failed — review violations and use hints to fix",
@@ -191,4 +345,658 @@ if __name__ == "__main__":
         "tools": tool_names,
         "script_path": script_path.to_string_lossy(),
     }))
+}
+
+// ============================================================
+// Access Control Kernel Tools (MGP §5)
+// ============================================================
+
+/// Execute mgp.access.query — query access entries or resolve tool access.
+pub(super) async fn execute_access_query(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    if !manager.yolo_mode.load(Ordering::Relaxed) {
+        return Ok(serde_json::json!({
+            "status": "rejected",
+            "reason": "Access control tools require YOLO mode (operator-level privilege).",
+        }));
+    }
+
+    let agent_id = args
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: agent_id"))?;
+
+    let server_id = args
+        .get("server_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+    let tool_name = args.get("tool_name").and_then(|v| v.as_str());
+
+    // If tool_name provided → resolve specific tool access
+    if let Some(tn) = tool_name {
+        let permission = crate::db::resolve_tool_access(manager.pool(), agent_id, server_id, tn).await?;
+        return Ok(serde_json::json!({
+            "agent_id": agent_id,
+            "server_id": server_id,
+            "tool_name": tn,
+            "permission": permission,
+        }));
+    }
+
+    // Otherwise → list entries for agent + server
+    let entries = crate::db::get_access_entries_for_agent(manager.pool(), agent_id).await?;
+    let entries_json: Vec<Value> = entries
+        .iter()
+        .filter(|e| e.server_id == server_id)
+        .map(|e| {
+            serde_json::json!({
+                "entry_type": e.entry_type,
+                "server_id": e.server_id,
+                "tool_name": e.tool_name,
+                "permission": e.permission,
+                "granted_by": e.granted_by,
+                "granted_at": e.granted_at,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "agent_id": agent_id,
+        "server_id": server_id,
+        "entries": entries_json,
+    }))
+}
+
+/// Execute mgp.access.grant — create an access control entry.
+pub(super) async fn execute_access_grant(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    if !manager.yolo_mode.load(Ordering::Relaxed) {
+        return Ok(serde_json::json!({
+            "status": "rejected",
+            "reason": "Access control tools require YOLO mode (operator-level privilege).",
+        }));
+    }
+
+    let agent_id = args
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: agent_id"))?;
+    let server_id = args
+        .get("server_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+    let entry_type = args
+        .get("entry_type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: entry_type"))?;
+    let permission = args
+        .get("permission")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: permission"))?;
+    let tool_name = args.get("tool_name").and_then(|v| v.as_str());
+    let justification = args.get("justification").and_then(|v| v.as_str());
+
+    let entry = crate::db::AccessControlEntry {
+        id: None,
+        entry_type: entry_type.to_string(),
+        agent_id: agent_id.to_string(),
+        server_id: server_id.to_string(),
+        tool_name: tool_name.map(str::to_string),
+        permission: permission.to_string(),
+        granted_by: Some("kernel".to_string()),
+        granted_at: chrono::Utc::now().to_rfc3339(),
+        expires_at: None,
+        justification: justification.map(str::to_string),
+        metadata: None,
+    };
+
+    let id = crate::db::save_access_control_entry(manager.pool(), &entry).await?;
+
+    // Audit log
+    crate::db::spawn_audit_log(
+        manager.pool().clone(),
+        crate::db::AuditLogEntry {
+            timestamp: chrono::Utc::now(),
+            event_type: "ACCESS_GRANTED".to_string(),
+            actor_id: Some("kernel".to_string()),
+            target_id: Some(format!("{}:{}", server_id, agent_id)),
+            permission: Some(permission.to_string()),
+            result: "success".to_string(),
+            reason: justification.unwrap_or("mgp.access.grant").to_string(),
+            metadata: tool_name.map(|tn| serde_json::json!({"tool_name": tn})),
+            trace_id: None,
+        },
+    );
+
+    info!(
+        "Access granted: agent={}, server={}, type={}, permission={}",
+        agent_id, server_id, entry_type, permission
+    );
+
+    Ok(serde_json::json!({
+        "status": "granted",
+        "id": id,
+        "agent_id": agent_id,
+        "server_id": server_id,
+        "entry_type": entry_type,
+        "permission": permission,
+    }))
+}
+
+/// Execute mgp.access.revoke — delete an access control entry.
+pub(super) async fn execute_access_revoke(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    if !manager.yolo_mode.load(Ordering::Relaxed) {
+        return Ok(serde_json::json!({
+            "status": "rejected",
+            "reason": "Access control tools require YOLO mode (operator-level privilege).",
+        }));
+    }
+
+    let agent_id = args
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: agent_id"))?;
+    let server_id = args
+        .get("server_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+    let entry_type = args
+        .get("entry_type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: entry_type"))?;
+    let tool_name = args.get("tool_name").and_then(|v| v.as_str());
+
+    let deleted = crate::db::delete_access_entry(
+        manager.pool(),
+        agent_id,
+        server_id,
+        entry_type,
+        tool_name,
+    )
+    .await?;
+
+    // Audit log
+    crate::db::spawn_audit_log(
+        manager.pool().clone(),
+        crate::db::AuditLogEntry {
+            timestamp: chrono::Utc::now(),
+            event_type: "ACCESS_REVOKED".to_string(),
+            actor_id: Some("kernel".to_string()),
+            target_id: Some(format!("{}:{}", server_id, agent_id)),
+            permission: None,
+            result: "success".to_string(),
+            reason: "mgp.access.revoke".to_string(),
+            metadata: tool_name.map(|tn| serde_json::json!({"tool_name": tn})),
+            trace_id: None,
+        },
+    );
+
+    info!(
+        "Access revoked: agent={}, server={}, type={}, deleted={}",
+        agent_id, server_id, entry_type, deleted
+    );
+
+    Ok(serde_json::json!({
+        "status": "revoked",
+        "deleted_count": deleted,
+        "agent_id": agent_id,
+        "server_id": server_id,
+        "entry_type": entry_type,
+    }))
+}
+
+// ============================================================
+// Audit Replay Kernel Tool (MGP §5.6)
+// ============================================================
+
+/// Execute mgp.audit.replay — replay audit log entries.
+pub(super) async fn execute_audit_replay(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    if !manager.yolo_mode.load(Ordering::Relaxed) {
+        return Ok(serde_json::json!({
+            "status": "rejected",
+            "reason": "Audit tools require YOLO mode (operator-level privilege).",
+        }));
+    }
+
+    let since_seq = args.get("since_seq").and_then(|v| v.as_i64());
+    let since_timestamp = args.get("since_timestamp").and_then(|v| v.as_str());
+    let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
+
+    let entries = crate::db::query_audit_logs_since(
+        manager.pool(),
+        since_seq,
+        since_timestamp,
+        limit,
+    )
+    .await?;
+
+    let events_json: Vec<Value> = entries
+        .iter()
+        .map(|(id, e)| {
+            serde_json::json!({
+                "seq": id,
+                "timestamp": e.timestamp.to_rfc3339(),
+                "event_type": e.event_type,
+                "actor": {
+                    "type": "kernel",
+                    "id": e.actor_id,
+                },
+                "target": {
+                    "server_id": e.target_id,
+                    "tool_name": e.metadata.as_ref()
+                        .and_then(|m| m.get("tool_name"))
+                        .and_then(|v| v.as_str()),
+                },
+                "permission": e.permission,
+                "result": e.result,
+                "reason": e.reason,
+                "metadata": e.metadata,
+            })
+        })
+        .collect();
+
+    let next_seq = events_json.last().and_then(|e| e.get("seq")).cloned();
+    let has_more = events_json.len() as i64 == limit;
+
+    Ok(serde_json::json!({
+        "events": events_json,
+        "has_more": has_more,
+        "next_seq": next_seq,
+    }))
+}
+
+// ============================================================
+// Tier 3: Lifecycle Kernel Tools (MGP §11)
+// ============================================================
+
+fn health_ping_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.health.ping",
+            "description": "Check if a specific MCP server is alive and responsive.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "server_id": {
+                        "type": "string",
+                        "description": "ID of the MCP server to ping"
+                    }
+                },
+                "required": ["server_id"]
+            }
+        }
+    })
+}
+
+fn health_status_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.health.status",
+            "description": "Get detailed health status of an MCP server including state, tools, and MGP info.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "server_id": {
+                        "type": "string",
+                        "description": "ID of the MCP server to query"
+                    }
+                },
+                "required": ["server_id"]
+            }
+        }
+    })
+}
+
+fn lifecycle_shutdown_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.lifecycle.shutdown",
+            "description": "Initiate graceful shutdown of an MCP server (Draining → Disconnected).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "server_id": {
+                        "type": "string",
+                        "description": "ID of the MCP server to shut down"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "enum": ["operator_request", "configuration_change", "resource_limit", "idle_timeout", "kernel_shutdown"],
+                        "description": "Shutdown reason category"
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "description": "Timeout in milliseconds before forced stop (default 5000)"
+                    }
+                },
+                "required": ["server_id", "reason"]
+            }
+        }
+    })
+}
+
+/// Execute mgp.health.ping — check server liveness.
+pub(super) async fn execute_health_ping(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    let server_id = args
+        .get("server_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+
+    let servers = manager.servers.read().await;
+    let Some(handle) = servers.get(server_id) else {
+        return Ok(serde_json::json!({
+            "server_id": server_id,
+            "status": "not_found",
+        }));
+    };
+
+    let start = std::time::Instant::now();
+    let is_alive = handle
+        .client
+        .as_ref()
+        .is_some_and(|c| c.is_alive());
+    let _elapsed_ms = start.elapsed().as_millis();
+
+    let health = if is_alive && handle.status.is_operational() {
+        "healthy"
+    } else if is_alive {
+        "degraded"
+    } else {
+        "unhealthy"
+    };
+
+    let uptime_secs = handle.connected_at.map(|t| t.elapsed().as_secs());
+
+    Ok(serde_json::json!({
+        "status": health,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "uptime_secs": uptime_secs,
+        "server_id": server_id,
+    }))
+}
+
+/// Execute mgp.health.status — detailed server health info.
+pub(super) async fn execute_health_status(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    let server_id = args
+        .get("server_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+
+    let servers = manager.servers.read().await;
+    let Some(handle) = servers.get(server_id) else {
+        return Ok(serde_json::json!({
+            "server_id": server_id,
+            "state": "not_found",
+        }));
+    };
+
+    let status = if handle.status.is_operational() {
+        "healthy"
+    } else {
+        "unhealthy"
+    };
+
+    let uptime_secs = handle.connected_at.map(|t| t.elapsed().as_secs());
+
+    Ok(serde_json::json!({
+        "server_id": server_id,
+        "status": status,
+        "uptime_secs": uptime_secs,
+        "tools_available": handle.tools.iter().filter(|_| handle.status.is_operational()).count(),
+        "tools_total": handle.tools.len(),
+        "pending_requests": 0,
+        "resources": {},
+        "checks": {
+            "mgp_negotiated": handle.mgp_negotiated.is_some(),
+        },
+    }))
+}
+
+/// Execute mgp.lifecycle.shutdown — graceful shutdown with draining.
+pub(super) async fn execute_lifecycle_shutdown(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    let server_id = args
+        .get("server_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?
+        .to_string();
+    let reason = args
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: reason"))?;
+    let timeout_ms = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(5000);
+
+    manager.drain_server(&server_id, reason, timeout_ms).await?;
+
+    Ok(serde_json::json!({
+        "accepted": true,
+        "pending_requests": 0,
+        "estimated_drain_ms": timeout_ms,
+    }))
+}
+
+// ============================================================
+// Tier 3: Streaming Kernel Tools (MGP §12)
+// ============================================================
+
+fn stream_cancel_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.stream.cancel",
+            "description": "Cancel an active streaming tool call.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "server_id": {
+                        "type": "string",
+                        "description": "ID of the MCP server"
+                    },
+                    "request_id": {
+                        "type": "integer",
+                        "description": "Request ID of the streaming call to cancel"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Reason for cancellation (default: user_cancelled)"
+                    }
+                },
+                "required": ["server_id", "request_id"]
+            }
+        }
+    })
+}
+
+/// Execute mgp.stream.cancel — cancel a streaming call.
+pub(super) async fn execute_stream_cancel(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    let server_id = args
+        .get("server_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+    let request_id = args
+        .get("request_id")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: request_id"))?;
+
+    let reason = args
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("user_cancelled");
+
+    let result = super::mcp_streaming::cancel_stream(manager, server_id, request_id, reason).await?;
+
+    Ok(serde_json::json!({
+        "server_id": server_id,
+        "request_id": request_id,
+        "cancelled": true,
+        "partial_result": result.get("partial_result"),
+    }))
+}
+
+// ============================================================
+// Tier 3: Event Kernel Tools (MGP §13)
+// ============================================================
+
+fn events_subscribe_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.events.subscribe",
+            "description": "Subscribe an MCP server to event channels.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "server_id": {
+                        "type": "string",
+                        "description": "ID of the subscribing MCP server"
+                    },
+                    "channels": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Event channels to subscribe to (e.g., ['lifecycle', 'tools'])"
+                    },
+                    "filter": {
+                        "type": "object",
+                        "description": "Optional filter criteria for events"
+                    }
+                },
+                "required": ["channels"]
+            }
+        }
+    })
+}
+
+fn events_unsubscribe_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.events.unsubscribe",
+            "description": "Unsubscribe an MCP server from event channels.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subscription_id": {
+                        "type": "string",
+                        "description": "Subscription ID to remove"
+                    }
+                },
+                "required": ["subscription_id"]
+            }
+        }
+    })
+}
+
+fn events_replay_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.events.replay",
+            "description": "Replay buffered events from after a given sequence number.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subscription_id": {
+                        "type": "string",
+                        "description": "Subscription ID to replay events for"
+                    },
+                    "after_seq": {
+                        "type": "integer",
+                        "description": "Replay events with _mgp.seq strictly greater than this value"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of events to return (default: 100, max: 1000)"
+                    }
+                },
+                "required": ["subscription_id", "after_seq"]
+            }
+        }
+    })
+}
+
+/// Execute mgp.events.subscribe — register event subscription.
+pub(super) async fn execute_events_subscribe(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    super::mcp_events::subscribe(manager, args).await
+}
+
+/// Execute mgp.events.unsubscribe — remove event subscription.
+pub(super) async fn execute_events_unsubscribe(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    super::mcp_events::unsubscribe(manager, args).await
+}
+
+/// Execute mgp.events.replay — replay buffered events.
+pub(super) async fn execute_events_replay(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    super::mcp_events::replay(manager, args).await
+}
+
+// ============================================================
+// Tier 3: Callback Kernel Tools (MGP §13)
+// ============================================================
+
+fn callback_respond_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.callback.respond",
+            "description": "Respond to a pending callback request from an MCP server.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "callback_id": {
+                        "type": "string",
+                        "description": "ID of the callback to respond to"
+                    },
+                    "response": {
+                        "type": "string",
+                        "description": "Response value or selected option"
+                    }
+                },
+                "required": ["callback_id", "response"]
+            }
+        }
+    })
+}
+
+/// Execute mgp.callback.respond — respond to a pending callback.
+pub(super) async fn execute_callback_respond(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    super::mcp_events::respond_to_callback(manager, args).await
 }
