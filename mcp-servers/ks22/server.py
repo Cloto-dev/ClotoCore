@@ -1,7 +1,7 @@
 """
 Cloto MCP Server: KS2.3 Memory
 Persistent memory with FTS5 full-text search and pluggable vector embedding.
-Ported from plugins/ks22/src/lib.rs + ai_karin KS2.1 architecture.
+Ported from plugins/ks22/src/lib.rs with KS2.1 architecture enhancements.
 
 Phase 1: store, recall (FTS5 + keyword) — COMPLETE
 Phase 2: Vector embedding integration (cosine similarity search) — COMPLETE

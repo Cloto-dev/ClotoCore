@@ -3,7 +3,7 @@
 Uses embedding similarity to match queries and return cached responses,
 avoiding redundant multi-step RAG pipelines for previously-answered queries.
 
-Design ported from ai_karin KS2.1 SemanticCache (storage.rs + rag_service.rs).
+Design based on KS2.1 SemanticCache architecture.
 """
 
 import hashlib
