@@ -15,7 +15,6 @@ pub mod managers;
 pub mod middleware;
 pub mod platform;
 pub mod test_utils;
-pub mod validation;
 
 // Re-export audit log and permission request types for external use
 pub use db::{
@@ -90,9 +89,9 @@ pub struct AppState {
     /// Loaded from DB at startup; updated on POST /api/system/invalidate-key.
     pub revoked_keys: Arc<std::sync::RwLock<std::collections::HashSet<String>>>,
     /// Pending command approval requests (kernel ↔ API handler bridge).
-    pub pending_command_approvals: handlers::system::PendingApprovals,
+    pub pending_command_approvals: handlers::command_approval::PendingApprovals,
     /// Session-scoped trusted command names (cleared on restart).
-    pub session_trusted_commands: handlers::system::SessionTrustedCommands,
+    pub session_trusted_commands: handlers::command_approval::SessionTrustedCommands,
     /// Per-agent active CRON execution contexts (for recursion depth tracking).
     pub active_cron_contexts: ActiveCronContexts,
     /// Maximum allowed CRON recursion depth (0-6, default 2).
@@ -310,9 +309,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
 
     // 🔌 System Handler の登録
-    let pending_command_approvals: handlers::system::PendingApprovals =
+    let pending_command_approvals: handlers::command_approval::PendingApprovals =
         Arc::new(dashmap::DashMap::new());
-    let session_trusted_commands: handlers::system::SessionTrustedCommands =
+    let session_trusted_commands: handlers::command_approval::SessionTrustedCommands =
         Arc::new(dashmap::DashMap::new());
     let active_cron_contexts: ActiveCronContexts = Arc::new(dashmap::DashMap::new());
     let max_cron_generation = Arc::new(AtomicU8::new(

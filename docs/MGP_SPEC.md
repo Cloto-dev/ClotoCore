@@ -240,3 +240,12 @@ existence for any system managing more than ~20 tools.
 | [MGP_DISCOVERY.md](MGP_DISCOVERY.md) | §15-§16 | Discovery & Intelligence |
 | [MGP_GUIDE.md](MGP_GUIDE.md) | §17-§20 | Implementation, History, Patterns |
 | [MGP_ISOLATION_DESIGN.md](MGP_ISOLATION_DESIGN.md) | (§8-§10 reserved) | OS-Level Isolation |
+
+### Cross-References
+
+| Section | Detailed Coverage |
+|---------|------------------|
+| §2-7 Security & Capabilities | [MGP_SECURITY.md](MGP_SECURITY.md) |
+| §11-14 Communication & Errors | [MGP_COMMUNICATION.md](MGP_COMMUNICATION.md) |
+| §15-16 Discovery & Registration | [MGP_DISCOVERY.md](MGP_DISCOVERY.md) |
+| §17-19 Implementation Guide | [MGP_GUIDE.md](MGP_GUIDE.md) |

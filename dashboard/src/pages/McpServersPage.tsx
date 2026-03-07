@@ -1,15 +1,14 @@
 import { useState, useCallback } from 'react';
 import { useMcpServers } from '../hooks/useMcpServers';
-import { useApiKey } from '../contexts/ApiKeyContext';
 import { useAsyncAction } from '../hooks/useAsyncAction';
 import { extractError } from '../lib/errors';
 import { McpServerDetail } from '../components/mcp/McpServerDetail';
 import { Modal } from '../components/Modal';
 import { StatusDot, type StatusDotStatus } from '../components/ui/StatusDot';
 import { AlertCard } from '../components/ui/AlertCard';
-import { api } from '../services/api';
 import { McpServerInfo } from '../types';
 import { Server, Plus, RefreshCw, AlertTriangle } from 'lucide-react';
+import { useApi } from '../hooks/useApi';
 
 function mcpStatusToDot(status: McpServerInfo['status']): StatusDotStatus {
   if (status === 'Connected') return 'connected';
@@ -24,9 +23,8 @@ function statusLabel(status: McpServerInfo['status']) {
 }
 
 export function McpServersPage() {
-  const { apiKey } = useApiKey();
-  const effectiveKey = apiKey || '';
-  const { servers, isLoading, error: fetchError, refetch } = useMcpServers(effectiveKey);
+  const api = useApi();
+  const { servers, isLoading, error: fetchError, refetch } = useMcpServers();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
 
@@ -60,25 +58,25 @@ export function McpServersPage() {
   const running = servers.filter(s => s.status === 'Connected').length;
 
   const handleDelete = useCallback((id: string) => action.run(async () => {
-    await api.deleteMcpServer(id, effectiveKey);
+    await api.deleteMcpServer(id);
     if (selectedId === id) setSelectedId(null);
     refetch();
-  }), [effectiveKey, selectedId, refetch, action.run]);
+  }), [api, selectedId, refetch, action.run]);
 
   const handleStart = useCallback((id: string) => action.run(async () => {
-    await api.startMcpServer(id, effectiveKey);
+    await api.startMcpServer(id);
     setTimeout(refetch, 500);
-  }), [effectiveKey, refetch, action.run]);
+  }), [api, refetch, action.run]);
 
   const handleStop = useCallback((id: string) => action.run(async () => {
-    await api.stopMcpServer(id, effectiveKey);
+    await api.stopMcpServer(id);
     setTimeout(refetch, 500);
-  }), [effectiveKey, refetch, action.run]);
+  }), [api, refetch, action.run]);
 
   const handleRestart = useCallback((id: string) => action.run(async () => {
-    await api.restartMcpServer(id, effectiveKey);
+    await api.restartMcpServer(id);
     setTimeout(refetch, 500);
-  }), [effectiveKey, refetch, action.run]);
+  }), [api, refetch, action.run]);
 
   async function handleAdd() {
     if (!newName.trim()) return;
@@ -86,7 +84,7 @@ export function McpServersPage() {
     setAddError(null);
     try {
       const args = newArgs.trim() ? newArgs.split(/\s+/) : [];
-      await api.createMcpServer({ name: newName.trim(), command: newCommand, args }, effectiveKey);
+      await api.createMcpServer({ name: newName.trim(), command: newCommand, args });
       setAddModalOpen(false);
       setNewName('');
       setNewArgs('');
@@ -186,7 +184,6 @@ export function McpServersPage() {
         <Modal title={selectedServer.id} icon={Server} size="lg" onClose={() => setSelectedId(null)}>
           <McpServerDetail
             server={selectedServer}
-            apiKey={effectiveKey}
             onRefresh={refetch}
             onDelete={handleDelete}
             onStart={handleStart}

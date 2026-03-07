@@ -1,15 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { McpServerInfo, McpServerSettings, DefaultPolicy } from '../../types';
-import { api } from '../../services/api';
+import { useApi } from '../../hooks/useApi';
 import { Save, RotateCcw, Plus, X, Eye, EyeOff } from 'lucide-react';
 
 interface Props {
   server: McpServerInfo;
-  apiKey: string;
   onRefresh: () => void;
 }
 
-export function McpServerSettingsTab({ server, apiKey, onRefresh }: Props) {
+export function McpServerSettingsTab({ server, onRefresh }: Props) {
+  const api = useApi();
   const [settings, setSettings] = useState<McpServerSettings | null>(null);
   const [defaultPolicy, setDefaultPolicy] = useState<DefaultPolicy>('opt-in');
   const [saving, setSaving] = useState(false);
@@ -25,7 +25,7 @@ export function McpServerSettingsTab({ server, apiKey, onRefresh }: Props) {
   const loadSettings = useCallback(async () => {
     try {
       setError(null);
-      const data = await api.getMcpServerSettings(server.id, apiKey);
+      const data = await api.getMcpServerSettings(server.id);
       setSettings(data);
       setDefaultPolicy(data.default_policy);
 
@@ -39,7 +39,7 @@ export function McpServerSettingsTab({ server, apiKey, onRefresh }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings');
     }
-  }, [server.id, apiKey]);
+  }, [server.id, api]);
 
   useEffect(() => {
     loadSettings();
@@ -60,7 +60,6 @@ export function McpServerSettingsTab({ server, apiKey, onRefresh }: Props) {
       await api.updateMcpServerSettings(
         server.id,
         { default_policy: defaultPolicy, env: envObj },
-        apiKey,
       );
       await loadSettings();
       onRefresh();

@@ -3,9 +3,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
-/// Marker string in LLM responses that triggers CFR escalation.
-const ESCALATION_MARKER: &str = "[[ESCALATE]]";
-
 /// Maximum number of tool call entries kept in the agentic loop history.
 const MAX_TOOL_HISTORY: usize = 100;
 
@@ -16,144 +13,10 @@ use crate::managers::{AgentManager, McpClientManager, PluginRegistry};
 use cloto_shared::{
     AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, Plugin, ThinkResult, ToolCall,
 };
-use dashmap::DashMap;
 use sqlx::SqlitePool;
-use std::collections::HashSet;
-use tokio::sync::oneshot;
 
-// ── Engine Routing Rules (CFR + Fallback + Escalation) ──
-
-#[derive(serde::Deserialize)]
-struct RoutingRule {
-    #[serde(rename = "match")]
-    condition: String,
-    engine: String,
-    /// Cost-First Router: try this engine first, escalate if [[ESCALATE]] in response.
-    #[serde(default)]
-    cfr: bool,
-    /// Engine to escalate to when CFR engine returns [[ESCALATE]].
-    escalate_to: Option<String>,
-    /// Engine to fall back to on 429/5xx/connection errors.
-    fallback: Option<String>,
-}
-
-impl RoutingRule {
-    fn matches(&self, message: &str) -> bool {
-        if self.condition == "default" {
-            return true;
-        }
-        if let Some(kw) = self.condition.strip_prefix("contains:") {
-            return message.to_lowercase().contains(&kw.to_lowercase());
-        }
-        if let Some(len) = self.condition.strip_prefix("length:>") {
-            if let Ok(n) = len.parse::<usize>() {
-                return message.len() > n;
-            }
-        }
-        if self.condition == "tools_likely" {
-            let tool_keywords = [
-                "調べ",
-                "検索",
-                "実行",
-                "ファイル",
-                "search",
-                "run",
-                "execute",
-                "find",
-                "research",
-            ];
-            return tool_keywords
-                .iter()
-                .any(|k| message.to_lowercase().contains(k));
-        }
-        false
-    }
-}
-
-/// Result of engine routing evaluation.
-struct EngineSelection {
-    engine_id: String,
-    cfr: bool,
-    escalate_to: Option<String>,
-    fallback: Option<String>,
-}
-
-fn evaluate_engine_routing(
-    message: &str,
-    metadata: &std::collections::HashMap<String, String>,
-    connected_servers: &[String],
-    default_engine_id: &str,
-) -> EngineSelection {
-    let selection = (|| -> Option<EngineSelection> {
-        let rules_json = metadata.get("engine_routing")?;
-        let rules: Vec<RoutingRule> = serde_json::from_str(rules_json).ok()?;
-
-        for rule in &rules {
-            if !connected_servers.contains(&rule.engine) {
-                continue;
-            }
-            if rule.matches(message) {
-                // Validate escalate_to and fallback targets are connected
-                let escalate_to = rule
-                    .escalate_to
-                    .as_ref()
-                    .filter(|e| connected_servers.contains(e))
-                    .cloned();
-                let fallback = rule
-                    .fallback
-                    .as_ref()
-                    .filter(|f| connected_servers.contains(f))
-                    .cloned();
-                return Some(EngineSelection {
-                    engine_id: rule.engine.clone(),
-                    cfr: rule.cfr && escalate_to.is_some(),
-                    escalate_to,
-                    fallback,
-                });
-            }
-        }
-        None
-    })();
-
-    selection.unwrap_or(EngineSelection {
-        engine_id: default_engine_id.to_string(),
-        cfr: false,
-        escalate_to: None,
-        fallback: None,
-    })
-}
-
-/// Check if response content contains an escalation marker.
-fn needs_escalation(content: &str) -> bool {
-    content.contains(ESCALATION_MARKER)
-}
-
-/// Check if an error is retriable (rate limit, server error, connection).
-fn is_retriable_error(e: &anyhow::Error) -> bool {
-    let msg = e.to_string();
-    msg.contains("rate_limited")
-        || msg.contains("provider_error")
-        || msg.contains("connection_failed")
-        || msg.contains("timeout")
-        || msg.contains("429")
-        || msg.contains("502")
-        || msg.contains("503")
-}
-
-/// User's decision on a command approval request.
-#[derive(Debug, Clone, PartialEq)]
-pub enum CommandApprovalDecision {
-    Approve,
-    Trust,
-    Deny,
-}
-
-/// In-memory pending command approval requests (approval_id → oneshot sender).
-pub type PendingApprovals = Arc<DashMap<String, oneshot::Sender<CommandApprovalDecision>>>;
-
-/// Session-scoped trusted command names (agent_id → set of command names).
-/// Cleared on kernel restart.
-pub type SessionTrustedCommands = Arc<DashMap<String, HashSet<String>>>;
+use super::command_approval::{self, PendingApprovals, SessionTrustedCommands};
+use super::engine_routing::{evaluate_engine_routing, is_retriable_error, needs_escalation, EngineSelection};
 
 pub struct SystemHandler {
     registry: Arc<PluginRegistry>,
@@ -1029,220 +892,22 @@ impl SystemHandler {
                     tool_history.push(assistant_msg);
 
                     // ── Batch Command Approval Gate ──
-                    // Collect all untrusted sandboxed tool calls and request approval once.
-                    // Covers execute_command and any tool with a "sandbox" validator.
                     let yolo =
                         self.registry.mcp_manager.as_ref().is_some_and(|m| {
                             m.yolo_mode.load(std::sync::atomic::Ordering::Relaxed)
                         });
-                    let mut denied_call_ids: std::collections::HashSet<String> =
-                        std::collections::HashSet::new();
-
-                    if yolo {
-                        // Bug #6: YOLO mode — still emit observability log for audit trail
-                        let sandboxed_tools: Vec<&str> = calls
-                            .iter()
-                            .filter(|c| {
-                                c.arguments
-                                    .get("command")
-                                    .and_then(|v| v.as_str())
-                                    .is_some()
-                            })
-                            .map(|c| {
-                                c.arguments
-                                    .get("command")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("?")
-                            })
-                            .collect();
-                        if !sandboxed_tools.is_empty() {
-                            info!(
-                                agent_id = %agent.id,
-                                commands = ?sandboxed_tools,
-                                "⚡ YOLO mode: commands auto-approved"
-                            );
-
-                            // Audit log for YOLO auto-approval (bug-177)
-                            let approval_id = uuid::Uuid::new_v4().to_string();
-                            crate::db::spawn_audit_log(
-                                self.pool.clone(),
-                                crate::db::AuditLogEntry {
-                                    timestamp: chrono::Utc::now(),
-                                    event_type: "YOLO_AUTO_APPROVED".to_string(),
-                                    actor_id: Some(agent.id.clone()),
-                                    target_id: Some(approval_id.clone()),
-                                    permission: None,
-                                    result: "SUCCESS".to_string(),
-                                    reason: format!(
-                                        "YOLO auto-approved {} commands: {:?}",
-                                        sandboxed_tools.len(),
-                                        sandboxed_tools
-                                    ),
-                                    metadata: None,
-                                    trace_id: Some(trace_id.to_string()),
-                                },
-                            );
-
-                            self.emit_event(
-                                trace_id,
-                                ClotoEventData::CommandApprovalResult {
-                                    approval_id,
-                                    decision: "auto_approved".to_string(),
-                                },
-                            )
-                            .await;
-                        }
-                    } else {
-                        let mut untrusted_cmds: Vec<serde_json::Value> = Vec::new();
-                        for call in &calls {
-                            // Check if tool has a "sandbox" validator (includes execute_command
-                            // and any other sandboxed tools configured in mcp.toml)
-                            let has_sandbox_validator =
-                                if let Some(ref mcp) = self.registry.mcp_manager {
-                                    mcp.get_tool_validator(&call.name).await.as_deref()
-                                        == Some("sandbox")
-                                } else {
-                                    false
-                                };
-                            if !has_sandbox_validator {
-                                continue;
-                            }
-                            let Some(cmd_str) =
-                                call.arguments.get("command").and_then(|v| v.as_str())
-                            else {
-                                continue;
-                            };
-                            let db_trusted =
-                                crate::db::is_command_trusted(&self.pool, &agent.id, cmd_str)
-                                    .await
-                                    .unwrap_or(false);
-                            let cmd_name = cmd_str.split_whitespace().next().unwrap_or(cmd_str);
-                            let session_trusted = self
-                                .session_trusted_commands
-                                .get(&agent.id)
-                                .is_some_and(|set| set.contains(cmd_name));
-                            if !db_trusted && !session_trusted {
-                                untrusted_cmds.push(serde_json::json!({
-                                    "call_id": call.id,
-                                    "command": cmd_str,
-                                    "command_name": cmd_name,
-                                }));
-                            }
-                        }
-
-                        if !untrusted_cmds.is_empty() {
-                            let approval_id = uuid::Uuid::new_v4().to_string();
-                            info!(agent_id = %agent.id, count = untrusted_cmds.len(), "🔒 Commands require approval");
-
-                            let (atx, arx) = oneshot::channel();
-                            self.pending_approvals.insert(approval_id.clone(), atx);
-
-                            self.emit_event(
-                                trace_id,
-                                ClotoEventData::CommandApprovalRequested {
-                                    approval_id: approval_id.clone(),
-                                    agent_id: agent.id.clone(),
-                                    commands: untrusted_cmds.clone(),
-                                },
-                            )
-                            .await;
-
-                            let decision = tokio::time::timeout(Duration::from_secs(60), arx).await;
-                            self.pending_approvals.remove(&approval_id);
-
-                            match decision {
-                                Ok(Ok(CommandApprovalDecision::Approve)) => {
-                                    for cmd in &untrusted_cmds {
-                                        if let Some(c) = cmd.get("command").and_then(|v| v.as_str())
-                                        {
-                                            let _ = crate::db::add_trusted_command(
-                                                &self.pool, &agent.id, c,
-                                            )
-                                            .await;
-                                        }
-                                    }
-                                    info!(approval_id = %approval_id, "✅ Commands approved (exact)");
-                                    self.emit_event(
-                                        trace_id,
-                                        ClotoEventData::CommandApprovalResult {
-                                            approval_id,
-                                            decision: "approved".to_string(),
-                                        },
-                                    )
-                                    .await;
-                                }
-                                Ok(Ok(CommandApprovalDecision::Trust)) => {
-                                    for cmd in &untrusted_cmds {
-                                        if let Some(n) =
-                                            cmd.get("command_name").and_then(|v| v.as_str())
-                                        {
-                                            self.session_trusted_commands
-                                                .entry(agent.id.clone())
-                                                .or_default()
-                                                .insert(n.to_string());
-                                        }
-                                    }
-                                    info!(approval_id = %approval_id, "✅ Command names trusted (session)");
-                                    self.emit_event(
-                                        trace_id,
-                                        ClotoEventData::CommandApprovalResult {
-                                            approval_id,
-                                            decision: "trusted".to_string(),
-                                        },
-                                    )
-                                    .await;
-                                }
-                                Ok(Ok(CommandApprovalDecision::Deny)) => {
-                                    warn!(approval_id = %approval_id, "🚫 Commands denied by user");
-                                    self.emit_event(
-                                        trace_id,
-                                        ClotoEventData::CommandApprovalResult {
-                                            approval_id,
-                                            decision: "denied by user".to_string(),
-                                        },
-                                    )
-                                    .await;
-                                    for cmd in &untrusted_cmds {
-                                        if let Some(id) =
-                                            cmd.get("call_id").and_then(|v| v.as_str())
-                                        {
-                                            denied_call_ids.insert(id.to_string());
-                                        }
-                                    }
-                                }
-                                Ok(Err(_)) | Err(_) => {
-                                    let reason = if decision.is_err() {
-                                        "timeout (60s)"
-                                    } else {
-                                        "channel closed"
-                                    };
-                                    warn!(approval_id = %approval_id, reason = reason, "🚫 Commands denied (no response)");
-                                    info!(
-                                        approval_id = %approval_id,
-                                        agent_id = %agent.id,
-                                        commands = ?untrusted_cmds,
-                                        reason = reason,
-                                        "📋 Approval gate audit: commands blocked due to {}", reason
-                                    );
-                                    self.emit_event(
-                                        trace_id,
-                                        ClotoEventData::CommandApprovalResult {
-                                            approval_id,
-                                            decision: reason.to_string(),
-                                        },
-                                    )
-                                    .await;
-                                    for cmd in &untrusted_cmds {
-                                        if let Some(id) =
-                                            cmd.get("call_id").and_then(|v| v.as_str())
-                                        {
-                                            denied_call_ids.insert(id.to_string());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    let denied_call_ids = command_approval::run_approval_gate(
+                        &calls,
+                        &agent.id,
+                        trace_id,
+                        yolo,
+                        self.registry.mcp_manager.as_ref(),
+                        &self.pending_approvals,
+                        &self.session_trusted_commands,
+                        &self.pool,
+                        &self.sender,
+                    )
+                    .await;
 
                     // Execute each tool call
                     for call in &calls {

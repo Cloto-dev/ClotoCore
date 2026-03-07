@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Lock, Unlock, AlertTriangle, X, Check, ShieldAlert } from 'lucide-react';
 import { PermissionRequest } from '../types';
-import { api } from '../services/api';
-import { useApiKey } from '../contexts/ApiKeyContext';
 import { Spinner } from '../lib/Spinner';
+import { useApi } from '../hooks/useApi';
 
 export function SecurityGuard() {
-  const { apiKey } = useApiKey();
+  const api = useApi();
   const [requests, setRequests] = useState<PermissionRequest[]>([]);
   const [authorizingIds, setAuthorizingIds] = useState<string[]>([]);
   const [grantedIds, setGrantedIds] = useState<string[]>([]);
@@ -20,7 +19,7 @@ export function SecurityGuard() {
       abortController?.abort();
       abortController = new AbortController();
       try {
-        const pending = await api.getPendingPermissions(apiKey);
+        const pending = await api.getPendingPermissions();
         if (!abortController.signal.aborted) {
           setRequests(pending);
         }
@@ -44,7 +43,7 @@ export function SecurityGuard() {
     setError(null);
 
     try {
-      await api.approvePermission(req.request_id, 'admin', apiKey);
+      await api.approvePermission(req.request_id, 'admin');
       setAuthorizingIds(prev => prev.filter(id => id !== reqId));
       setGrantedIds(prev => [...prev, reqId]);
 
@@ -62,7 +61,7 @@ export function SecurityGuard() {
 
   const handleDeny = async (req: PermissionRequest) => {
     try {
-      await api.denyPermission(req.request_id, 'admin', apiKey);
+      await api.denyPermission(req.request_id, 'admin');
       setRequests(prev => prev.filter(r => r.request_id !== req.request_id));
       setError(null);
     } catch (err) {

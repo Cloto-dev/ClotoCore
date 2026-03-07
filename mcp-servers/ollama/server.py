@@ -15,15 +15,13 @@ import os
 import sys
 
 import httpx
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
 
 # Resolve parent directory for common module import.
 _script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.normpath(os.path.join(_script_dir, "..")))
 
 from common.llm_provider import build_system_prompt, build_chat_messages
+from common.mcp_utils import ToolRegistry, run_mcp_server
 from common.validation import validate_dict, validate_list
 
 # ============================================================
@@ -115,87 +113,24 @@ async def fetch_ollama_models() -> list[dict]:
 # MCP Server
 # ============================================================
 
-server = Server("cloto-mcp-ollama")
+registry = ToolRegistry("cloto-mcp-ollama")
 
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="think",
-            description=(
-                "Generate a text response using a local Ollama model. "
-                "No API key required — runs entirely on local hardware."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "agent": {
-                        "type": "object",
-                        "description": "Agent metadata (name, description, metadata)",
-                    },
-                    "message": {
-                        "type": "object",
-                        "description": "User message with 'content' field",
-                    },
-                    "context": {
-                        "type": "array",
-                        "description": "Conversation context messages",
-                        "items": {"type": "object"},
-                    },
-                },
-                "required": ["agent", "message", "context"],
-            },
-        ),
-        Tool(
-            name="list_models",
-            description=(
-                "List all locally installed Ollama models with size and modification date."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-        ),
-        Tool(
-            name="switch_model",
-            description=(
-                "Switch the active Ollama model for this session. "
-                "The model must be locally installed (use list_models to check)."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "model": {
-                        "type": "string",
-                        "description": "Model name to switch to (e.g., 'llama3.1', 'mistral', 'qwen2.5')",
-                    },
-                },
-                "required": ["model"],
-            },
-        ),
-    ]
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "think":
-        return await handle_think(arguments)
-    elif name == "list_models":
-        return await handle_list_models()
-    elif name == "switch_model":
-        return await handle_switch_model(arguments)
-    else:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({"error": f"Unknown tool: {name}"}),
-            )
-        ]
-
-
-async def handle_think(arguments: dict) -> list[TextContent]:
-    """Handle 'think' tool: text generation via local Ollama."""
+@registry.tool(
+    "think",
+    "Generate a text response using a local Ollama model. "
+    "No API key required — runs entirely on local hardware.",
+    {
+        "type": "object",
+        "properties": {
+            "agent": {"type": "object", "description": "Agent metadata (name, description, metadata)"},
+            "message": {"type": "object", "description": "User message with 'content' field"},
+            "context": {"type": "array", "description": "Conversation context messages", "items": {"type": "object"}},
+        },
+        "required": ["agent", "message", "context"],
+    },
+)
+async def handle_think(arguments: dict) -> dict:
     try:
         agent = validate_dict(arguments, "agent")
         message = validate_dict(arguments, "message")
@@ -205,31 +140,22 @@ async def handle_think(arguments: dict) -> list[TextContent]:
         response_data = await call_ollama_api(messages)
         content = parse_chat_content(response_data)
 
-        return [
-            TextContent(
-                type="text", text=json.dumps({"type": "final", "content": content})
-            )
-        ]
+        return {"type": "final", "content": content}
     except httpx.ConnectError:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({
-                    "error": f"Cannot connect to Ollama at {BASE_URL}. "
-                             f"Is Ollama running? Start it with: ollama serve"
-                }),
-            )
-        ]
+        return {
+            "error": f"Cannot connect to Ollama at {BASE_URL}. "
+                     f"Is Ollama running? Start it with: ollama serve"
+        }
     except Exception as e:
-        return [
-            TextContent(
-                type="text", text=json.dumps({"error": str(e)})
-            )
-        ]
+        return {"error": str(e)}
 
 
-async def handle_list_models() -> list[TextContent]:
-    """Handle 'list_models' tool: list locally installed models."""
+@registry.tool(
+    "list_models",
+    "List all locally installed Ollama models with size and modification date.",
+    {"type": "object", "properties": {}},
+)
+async def handle_list_models(arguments: dict) -> dict:
     try:
         async with _model_lock:
             active = _active_model
@@ -246,107 +172,67 @@ async def handle_list_models() -> list[TextContent]:
                 "quantization": m.get("details", {}).get("quantization_level", ""),
             })
 
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({
-                    "active_model": active,
-                    "models": result,
-                    "count": len(result),
-                }),
-            )
-        ]
+        return {"active_model": active, "models": result, "count": len(result)}
     except httpx.ConnectError:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({
-                    "error": f"Cannot connect to Ollama at {BASE_URL}. "
-                             f"Is Ollama running? Start it with: ollama serve"
-                }),
-            )
-        ]
+        return {
+            "error": f"Cannot connect to Ollama at {BASE_URL}. "
+                     f"Is Ollama running? Start it with: ollama serve"
+        }
     except Exception as e:
-        return [
-            TextContent(
-                type="text", text=json.dumps({"error": str(e)})
-            )
-        ]
+        return {"error": str(e)}
 
 
-async def handle_switch_model(arguments: dict) -> list[TextContent]:
-    """Handle 'switch_model' tool: change active model."""
+@registry.tool(
+    "switch_model",
+    "Switch the active Ollama model for this session. "
+    "The model must be locally installed (use list_models to check).",
+    {
+        "type": "object",
+        "properties": {
+            "model": {"type": "string", "description": "Model name to switch to (e.g., 'llama3.1', 'mistral', 'qwen2.5')"},
+        },
+        "required": ["model"],
+    },
+)
+async def handle_switch_model(arguments: dict) -> dict:
     global _active_model
 
     model = arguments.get("model", "").strip()
     if not model:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({"error": "Model name is required"}),
-            )
-        ]
+        return {"error": "Model name is required"}
 
-    # Verify model is locally available
     try:
         models = await fetch_ollama_models()
         available_names = [m.get("name", "") for m in models]
-        # Match both exact name and name without tag (e.g., "llama3.1" matches "llama3.1:latest")
         found = any(
             model == name or model == name.split(":")[0]
             for name in available_names
         )
 
         if not found:
-            return [
-                TextContent(
-                    type="text",
-                    text=json.dumps({
-                        "error": f"Model '{model}' is not installed locally",
-                        "available": available_names,
-                        "hint": f"Install it with: ollama pull {model}",
-                    }),
-                )
-            ]
+            return {
+                "error": f"Model '{model}' is not installed locally",
+                "available": available_names,
+                "hint": f"Install it with: ollama pull {model}",
+            }
 
         async with _model_lock:
             previous = _active_model
             _active_model = model
 
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({
-                    "status": "switched",
-                    "previous_model": previous,
-                    "active_model": model,
-                }),
-            )
-        ]
+        return {
+            "status": "switched",
+            "previous_model": previous,
+            "active_model": model,
+        }
     except httpx.ConnectError:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({
-                    "error": f"Cannot connect to Ollama at {BASE_URL}. "
-                             f"Is Ollama running? Start it with: ollama serve"
-                }),
-            )
-        ]
+        return {
+            "error": f"Cannot connect to Ollama at {BASE_URL}. "
+                     f"Is Ollama running? Start it with: ollama serve"
+        }
     except Exception as e:
-        return [
-            TextContent(
-                type="text", text=json.dumps({"error": str(e)})
-            )
-        ]
-
-
-async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream, write_stream, server.create_initialization_options()
-        )
+        return {"error": str(e)}
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_mcp_server(registry))

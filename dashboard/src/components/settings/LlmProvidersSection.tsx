@@ -1,33 +1,32 @@
 import { useState, useEffect } from 'react';
 import { SectionCard } from './common';
-import { useApiKey } from '../../contexts/ApiKeyContext';
-import { api } from '../../services/api';
+import { useApi } from '../../hooks/useApi';
 
 export function LlmProvidersSection() {
-  const { apiKey } = useApiKey();
+  const api = useApi();
   const [providers, setProviders] = useState<Array<{ id: string; display_name: string; has_key: boolean; model_id: string }>>([]);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
 
   useEffect(() => {
-    api.listLlmProviders(apiKey || '').then(d => setProviders(d.providers)).catch(() => {});
-  }, [apiKey]);
+    api.listLlmProviders().then(d => setProviders(d.providers)).catch(() => {});
+  }, [api]);
 
   const handleSave = async (providerId: string) => {
     if (!keyInputs[providerId]?.trim()) return;
     setSaving(providerId);
     try {
-      await api.setLlmProviderKey(providerId, apiKey || '', keyInputs[providerId].trim());
+      await api.setLlmProviderKey(providerId, keyInputs[providerId].trim());
       setKeyInputs(prev => ({ ...prev, [providerId]: '' }));
-      const d = await api.listLlmProviders(apiKey);
+      const d = await api.listLlmProviders();
       setProviders(d.providers);
     } catch { /* ignore */ }
     setSaving(null);
   };
 
   const handleDelete = async (providerId: string) => {
-    await api.deleteLlmProviderKey(providerId, apiKey || '');
-    const d = await api.listLlmProviders(apiKey || '');
+    await api.deleteLlmProviderKey(providerId);
+    const d = await api.listLlmProviders();
     setProviders(d.providers);
   };
 

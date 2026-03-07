@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { api } from '../services/api';
 import { AgentType } from '../lib/agentIdentity';
-import { useApiKey } from '../contexts/ApiKeyContext';
+import { useApi } from './useApi';
 
 export interface RoutingRuleEntry {
   match: string;
@@ -32,7 +31,7 @@ const INITIAL_FORM: CreationForm = {
 };
 
 export function useAgentCreation(onCreated: () => void) {
-  const { apiKey } = useApiKey();
+  const api = useApi();
   const [form, setForm] = useState<CreationForm>(INITIAL_FORM);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -64,7 +63,7 @@ export function useAgentCreation(onCreated: () => void) {
         default_engine: form.engine,
         metadata,
         password: form.password || undefined
-      }, apiKey);
+      });
       setForm(INITIAL_FORM);
       onCreated();
     } catch (e) {
