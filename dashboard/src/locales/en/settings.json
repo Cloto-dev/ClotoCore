@@ -44,6 +44,9 @@
     "mit_convert": "Converts to MIT License on 2028-02-14",
     "links": "Links",
     "repository": "Repository",
-    "contact": "Contact"
+    "contact": "Contact",
+    "setup": "Quick Setup",
+    "setup_desc": "Re-run the initial setup wizard to change language, theme, and display name.",
+    "rerun_setup": "Re-open Quick Setup"
   }
 }

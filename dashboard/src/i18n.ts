@@ -16,15 +16,16 @@ import en_mcp from './locales/en/mcp.json';
 import en_nav from './locales/en/nav.json';
 import en_cron from './locales/en/cron.json';
 import en_memory from './locales/en/memory.json';
+import en_wizard from './locales/en/wizard.json';
 
-const NAMESPACES = ['common', 'agents', 'settings', 'mcp', 'nav', 'cron', 'memory'] as const;
+const NAMESPACES = ['common', 'agents', 'settings', 'mcp', 'nav', 'cron', 'memory', 'wizard'] as const;
 
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
     resources: {
-      en: { common: en_common, agents: en_agents, settings: en_settings, mcp: en_mcp, nav: en_nav, cron: en_cron, memory: en_memory },
+      en: { common: en_common, agents: en_agents, settings: en_settings, mcp: en_mcp, nav: en_nav, cron: en_cron, memory: en_memory, wizard: en_wizard },
     },
     fallbackLng: 'en',
     defaultNS: 'common',
@@ -45,6 +46,7 @@ export async function loadExternalLanguages(): Promise<void> {
   await installDefaultPacks();
 
   const packs = await scanLanguagesDir();
+  const loadedCodes = new Set<string>();
   for (const [, content] of packs) {
     try {
       const pack = JSON.parse(content);
@@ -54,8 +56,19 @@ export async function loadExternalLanguages(): Promise<void> {
           i18n.addResourceBundle(pack.code, ns, pack[ns], true, true);
         }
       }
+      loadedCodes.add(pack.code);
     } catch {
       // Skip invalid JSON files
+    }
+  }
+
+  // First launch: auto-detect browser language and apply if a matching pack exists.
+  // LanguageDetector may have fallen back to 'en' at init time because external
+  // packs weren't loaded yet. Re-apply the detected language now that packs are available.
+  if (!localStorage.getItem('cloto-language')) {
+    const browserLang = navigator.language.split('-')[0];
+    if (browserLang !== 'en' && (loadedCodes.has(browserLang) || i18n.hasResourceBundle(browserLang, 'common'))) {
+      i18n.changeLanguage(browserLang);
     }
   }
 }
@@ -89,6 +102,7 @@ export function exportLanguageTemplate(): string {
     nav: en_nav,
     cron: en_cron,
     memory: en_memory,
+    wizard: en_wizard,
   };
   return JSON.stringify(template, null, 2);
 }
