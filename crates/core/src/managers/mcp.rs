@@ -36,7 +36,7 @@ pub struct McpClientManager {
     /// Arc<AtomicBool> allows runtime toggle via API without restart.
     pub yolo_mode: Arc<AtomicBool>,
     /// Preserved configs from stopped servers, enabling restart for config-loaded servers
-    stopped_configs: RwLock<HashMap<String, (McpServerConfig, ServerSource)>>,
+    pub(super) stopped_configs: RwLock<HashMap<String, (McpServerConfig, ServerSource)>>,
     /// Shared notification channel — all MCP servers' notifications are collected here
     notification_tx: mpsc::Sender<McpNotification>,
     notification_rx: Mutex<Option<mpsc::Receiver<McpNotification>>>,
@@ -46,6 +46,10 @@ pub struct McpClientManager {
     pub(super) lifecycle: super::mcp_lifecycle::LifecycleManager,
     /// Event subscription + callback manager (MGP §13)
     pub(super) events: super::mcp_events::EventManager,
+    /// Rich tool index for dynamic discovery (MGP §16)
+    pub(super) rich_tool_index: super::mcp_tool_discovery::ToolIndex,
+    /// Per-agent session tool cache (MGP §16.7)
+    pub(super) session_cache: super::mcp_tool_discovery::SessionToolCache,
 }
 
 impl McpClientManager {
@@ -63,6 +67,8 @@ impl McpClientManager {
             mcp_request_timeout_secs,
             lifecycle: super::mcp_lifecycle::LifecycleManager::new(),
             events: super::mcp_events::EventManager::new(),
+            rich_tool_index: super::mcp_tool_discovery::ToolIndex::new(),
+            session_cache: super::mcp_tool_discovery::SessionToolCache::new(),
         }
     }
 
@@ -673,6 +679,15 @@ impl McpClientManager {
         if !id.starts_with("mind.") {
             let mut index = self.tool_index.write().await;
             for tool in &tools {
+                // §1.6.3: Reject tools with reserved mgp.* namespace
+                if tool.name.starts_with("mgp.") {
+                    warn!(
+                        tool = %tool.name,
+                        server = %id,
+                        "Server tool conflicts with reserved mgp.* namespace — skipping"
+                    );
+                    continue;
+                }
                 if let Some(existing) = index.get(&tool.name) {
                     warn!(
                         tool = %tool.name,
@@ -683,6 +698,22 @@ impl McpClientManager {
                 }
                 index.insert(tool.name.clone(), id.clone());
             }
+
+            // Populate rich tool index for §16 dynamic discovery.
+            // Pre-compute security metadata to avoid async lock in sync closure.
+            let security_map: std::collections::HashMap<String, super::mcp_mgp::ToolSecurityMetadata> = {
+                let servers = self.servers.read().await;
+                if let Some(h) = servers.get(&id) {
+                    tools.iter()
+                        .filter_map(|t| Self::compute_tool_security(h, &t.name).map(|s| (t.name.clone(), s)))
+                        .collect()
+                } else {
+                    std::collections::HashMap::new()
+                }
+            };
+            self.rich_tool_index.add_server_tools(&id, &tools, |tool_name| {
+                security_map.get(tool_name).cloned()
+            });
         }
 
         info!(
@@ -718,6 +749,8 @@ impl McpClientManager {
         for tool in &handle.tools {
             index.remove(&tool.name);
         }
+        // Clean up rich tool index (§16)
+        self.rich_tool_index.remove_server_tools(id);
         // Clean up stopped_configs too (permanent removal)
         let mut stopped = self.stopped_configs.write().await;
         stopped.remove(id);
@@ -818,7 +851,8 @@ impl McpClientManager {
     }
 
     /// Collect tool schemas from all MCP servers in OpenAI function format.
-    /// Includes kernel-native tools (create_mcp_server) only when YOLO mode is enabled.
+    /// Includes kernel-native tools when YOLO mode is enabled.
+    /// Always includes §16 meta-tools (mgp.tools.discover, mgp.tools.request) for LLM context.
     pub async fn collect_tool_schemas(&self) -> Vec<Value> {
         let servers = self.servers.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
@@ -826,6 +860,8 @@ impl McpClientManager {
         } else {
             vec![]
         };
+        // §16: Always include LLM meta-tools for dynamic discovery
+        schemas.extend(super::mcp_kernel_tool::llm_meta_tool_schemas());
         for handle in servers.values() {
             if handle.status != ServerStatus::Connected {
                 continue;
@@ -968,6 +1004,29 @@ impl McpClientManager {
             "mgp.callback.respond" => {
                 return super::mcp_kernel_tool::execute_callback_respond(self, args).await;
             }
+            // Tier 4: Discovery (§15)
+            "mgp.discovery.list" => {
+                return super::mcp_discovery::execute_discovery_list(self, args).await;
+            }
+            "mgp.discovery.register" => {
+                return super::mcp_discovery::execute_discovery_register(self, args).await;
+            }
+            "mgp.discovery.deregister" => {
+                return super::mcp_discovery::execute_discovery_deregister(self, args).await;
+            }
+            // Tier 4: Tool Discovery (§16)
+            "mgp.tools.discover" => {
+                return super::mcp_tool_discovery::execute_tools_discover(self, args).await;
+            }
+            "mgp.tools.request" => {
+                return super::mcp_tool_discovery::execute_tools_request(self, args).await;
+            }
+            "mgp.tools.session" => {
+                return super::mcp_tool_discovery::execute_tools_session(self, args).await;
+            }
+            "mgp.tools.session.evict" => {
+                return super::mcp_tool_discovery::execute_tools_session_evict(self, args).await;
+            }
             _ => {}
         }
 
@@ -1071,7 +1130,8 @@ impl McpClientManager {
         args: Value,
     ) -> Result<super::mcp_protocol::CallToolResult> {
         // ──── §5.6 Delegation Check ────
-        // If _mgp.delegation is present, verify chain depth ≤ 3 and actor validity
+        // If _mgp.delegation is present, verify chain depth ≤ 3, actor validity,
+        // anti-spoofing (§5.6.3), and permission intersection (§5.6.1).
         if let Some(mgp) = args.get("_mgp") {
             if let Some(delegation) = mgp.get("delegation") {
                 if let Some(chain) = delegation.get("chain").and_then(|c| c.as_array()) {
@@ -1082,6 +1142,71 @@ impl McpClientManager {
                         ));
                     }
                 }
+
+                // §5.6.3: Verify original_actor is a known, active agent
+                if let Some(original_actor) = delegation.get("original_actor").and_then(|v| v.as_str()) {
+                    let agent_exists: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM agents WHERE id = ? AND enabled = 1)"
+                    )
+                    .bind(original_actor)
+                    .fetch_one(&self.pool)
+                    .await
+                    .unwrap_or(false);
+
+                    if !agent_exists {
+                        warn!(
+                            original_actor = %original_actor,
+                            server = %server_id,
+                            tool = %tool_name,
+                            "Delegation rejected: unknown or inactive original_actor (§5.6.3)"
+                        );
+                        return Err(anyhow::anyhow!(
+                            "Delegation rejected: original_actor '{}' is not a known active agent (MGP §5.6.3, code 1000)",
+                            original_actor
+                        ));
+                    }
+
+                    // §5.6.1: Permission intersection — verify original_actor has access to target tool
+                    let permission = crate::db::resolve_tool_access(
+                        &self.pool, original_actor, server_id, tool_name
+                    ).await.unwrap_or_else(|_| "deny".to_string());
+
+                    if permission == "deny" {
+                        warn!(
+                            original_actor = %original_actor,
+                            server = %server_id,
+                            tool = %tool_name,
+                            "Delegation rejected: original_actor lacks access (§5.6.1)"
+                        );
+                        return Err(anyhow::anyhow!(
+                            "Delegation rejected: original_actor '{}' does not have access to {}.{} (MGP §5.6.1, code 1000)",
+                            original_actor, server_id, tool_name
+                        ));
+                    }
+                }
+
+                // §5.6.3: Verify delegated_via is a known, operational server
+                if let Some(delegated_via) = delegation.get("delegated_via").and_then(|v| v.as_str()) {
+                    let valid = {
+                        let servers = self.servers.read().await;
+                        servers.get(delegated_via)
+                            .is_some_and(|h| h.status.is_operational())
+                    };
+
+                    if !valid {
+                        warn!(
+                            delegated_via = %delegated_via,
+                            server = %server_id,
+                            tool = %tool_name,
+                            "Delegation rejected: unknown or non-operational delegated_via (§5.6.3)"
+                        );
+                        return Err(anyhow::anyhow!(
+                            "Delegation rejected: delegated_via '{}' is not a known operational server (MGP §5.6.3, code 1000)",
+                            delegated_via
+                        ));
+                    }
+                }
+
                 debug!(
                     server = %server_id,
                     tool = %tool_name,
@@ -1316,6 +1441,9 @@ impl McpClientManager {
             .ok_or_else(|| anyhow::anyhow!("Server '{}' not found or already stopped", id))?;
         let mut index = self.tool_index.write().await;
         index.retain(|_, server_id| server_id != id);
+
+        // Clean up rich tool index (§16)
+        self.rich_tool_index.remove_server_tools(id);
 
         // Preserve config for restart capability (works for both config and dynamic)
         let mut stopped = self.stopped_configs.write().await;
@@ -1569,7 +1697,8 @@ mod tests {
         // YOLO off: no kernel tools
         let manager = McpClientManager::new(pool.clone(), false, 120);
         let schemas = manager.collect_tool_schemas().await;
-        assert!(schemas.is_empty(), "YOLO off should not include kernel tools");
+        // §16: meta-tools (discover + request) are always included even with YOLO off
+        assert_eq!(schemas.len(), 2, "YOLO off should only include meta-tools");
 
         // YOLO on: kernel tools included (create_mcp_server + access control + audit)
         let manager_on = McpClientManager::new(pool, true, 120);
@@ -1663,8 +1792,8 @@ mod tests {
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
-        // 5 Tier 2 + 8 Tier 3 = 13 kernel tools
-        assert_eq!(schemas.len(), 13, "Should have 13 kernel tools total");
+        // 5 Tier 2 + 8 Tier 3 = 13 Tier 1-3 tools + 2 Tier 4 meta-tools = 15
+        assert_eq!(schemas.len(), 15, "Should have 15 kernel tools total (13 + 2 meta-tools)");
     }
 
     #[tokio::test]
