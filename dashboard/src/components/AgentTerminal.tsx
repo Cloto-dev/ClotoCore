@@ -278,9 +278,9 @@ export function AgentTerminal({
             <input ref={importRef} type="file" accept=".json" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ''; }} />
             <button
               onClick={() => importRef.current?.click()}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
             >
-              <Upload size={12} /> {t('import_config')}
+              <Upload size={14} /> {t('import_config')}
             </button>
           </div>
 
