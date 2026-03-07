@@ -342,12 +342,14 @@ export function AgentTerminal({
                         >
                           <MessageSquare size={14} /> {t('chat')}
                         </button>
-                        <button
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
-                          onClick={(e) => { e.stopPropagation(); handleExport(agent); }}
-                        >
-                          <Download size={14} /> {t('export_config')}
-                        </button>
+                        {agent.id !== DEFAULT_AGENT_ID && (
+                          <button
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+                            onClick={(e) => { e.stopPropagation(); handleExport(agent); }}
+                          >
+                            <Download size={14} /> {t('export_config')}
+                          </button>
+                        )}
                         <button
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
                           onClick={(e) => { e.stopPropagation(); setConfiguringAgent(agent); }}
