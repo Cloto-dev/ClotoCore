@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Cpu,
   Users,
@@ -13,12 +14,12 @@ import {
 import { useAgentContext } from '../contexts/AgentContext';
 import { AgentIcon, statusDotColor } from '../lib/agentIdentity';
 
-const NAV_LINKS: readonly { path: string; icon: typeof Server; label: string; action?: 'settings' | 'agents' }[] = [
-  { path: '/', icon: Users, label: 'Agent', action: 'agents' },
-  { path: '/mcp-servers', icon: Server, label: 'MCP' },
-  { path: '/cron', icon: Clock, label: 'Cron' },
-  { path: '/dashboard', icon: Brain, label: 'Memory' },
-  { path: '#settings', icon: Settings, label: 'Settings', action: 'settings' },
+const NAV_LINKS: readonly { path: string; icon: typeof Server; labelKey: string; action?: 'settings' | 'agents' }[] = [
+  { path: '/', icon: Users, labelKey: 'agent', action: 'agents' },
+  { path: '/mcp-servers', icon: Server, labelKey: 'mcp' },
+  { path: '/cron', icon: Clock, labelKey: 'cron' },
+  { path: '/dashboard', icon: Brain, labelKey: 'memory' },
+  { path: '#settings', icon: Settings, labelKey: 'settings', action: 'settings' },
 ] as const;
 
 interface AppSidebarProps {
@@ -30,6 +31,7 @@ interface AppSidebarProps {
 export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collapsed, onToggleCollapse }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation('nav');
   const {
     agents,
     selectedAgentId,
@@ -68,7 +70,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
       {/* System / Kernel */}
       <button
         onClick={handleSelectSystem}
-        title={collapsed ? 'System' : undefined}
+        title={collapsed ? t('system') : undefined}
         className={`relative mx-2 flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 ${
           systemActive && isAgentPageActive
             ? 'bg-surface-primary shadow-sm text-brand ring-1 ring-brand/20'
@@ -79,7 +81,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
           <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-brand rounded-r-full" />
         )}
         <Cpu size={24} className="shrink-0" />
-        {!collapsed && <span className="text-[11px] font-bold tracking-wide uppercase">System</span>}
+        {!collapsed && <span className="text-[11px] font-bold tracking-wide uppercase">{t('system')}</span>}
       </button>
 
       <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
@@ -120,7 +122,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
 
       {/* Nav Links */}
       <div className="px-2 flex flex-col gap-0.5">
-        {NAV_LINKS.map(({ path, icon: Icon, label, action }) => {
+        {NAV_LINKS.map(({ path, icon: Icon, labelKey, action }) => {
+          const label = t(labelKey);
           const isActive = action === 'agents'
             ? isAgentPageActive && !selectedAgentId && !systemActive
             : !action && isNavActive(path);
@@ -155,11 +158,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
       <div className="px-2">
         <button
           onClick={onToggleCollapse}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? t('expand_sidebar') : t('collapse_sidebar')}
           className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-content-tertiary hover:text-content-secondary hover:bg-glass-strong w-full`}
         >
           {collapsed ? <PanelLeftOpen size={24} className="shrink-0" /> : <PanelLeftClose size={24} className="shrink-0" />}
-          {!collapsed && <span className="text-[10px] font-mono uppercase tracking-wide">Collapse</span>}
+          {!collapsed && <span className="text-[10px] font-mono uppercase tracking-wide">{t('collapse')}</span>}
         </button>
       </div>
     </div>

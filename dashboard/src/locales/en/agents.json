@@ -1,0 +1,40 @@
+{
+  "title": "Agents",
+  "create_agent": "Create Agent",
+  "no_agents": "No agents registered. Create one to get started.",
+  "ai_agent": "AI Agent",
+  "no_engine": "No engine",
+  "chat": "Chat",
+  "config": "Config",
+  "delete": {
+    "title": "Delete Agent",
+    "irreversible": "Irreversible operation",
+    "warning": "All chat history for this agent will be permanently deleted. This cannot be undone.",
+    "password_placeholder": "Enter agent password to confirm"
+  },
+  "form": {
+    "type": "Type",
+    "name": "Name",
+    "name_placeholder": "e.g. Mike",
+    "description": "Description",
+    "desc_placeholder": "Describe the agent's role",
+    "llm_engine": "LLM Engine",
+    "select": "Select...",
+    "no_engines": "No engines available",
+    "memory": "Memory",
+    "memory_none": "None",
+    "password": "Password",
+    "password_optional": "optional",
+    "password_placeholder": "Power toggle password"
+  },
+  "routing": {
+    "title": "Engine Routing",
+    "optional": "optional",
+    "add_rule": "Add Rule",
+    "select_engine": "Select...",
+    "escalate_to": "Escalate to...",
+    "fallback": "Fallback:",
+    "fallback_none": "None",
+    "help": "Conditions: contains:keyword, length:>N, tools_likely, default | CFR: try fast engine first, escalate on [[ESCALATE]]"
+  }
+}

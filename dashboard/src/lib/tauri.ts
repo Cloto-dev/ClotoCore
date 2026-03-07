@@ -47,6 +47,30 @@ export async function closeWindow() {
   await getCurrentWindow().close();
 }
 
+// ── File Helpers ──
+
+/** Read a text file via the Tauri backend. Returns null in browser mode. */
+export async function readTextFile(path: string): Promise<string | null> {
+  if (!isTauri) return null;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<string>('read_text_file', { path });
+  } catch {
+    return null;
+  }
+}
+
+/** Get the languages directory (Documents/ClotoCore/languages), creating it if needed. */
+export async function getLanguagesDir(): Promise<string | null> {
+  if (!isTauri) return null;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<string>('get_languages_dir');
+  } catch {
+    return null;
+  }
+}
+
 // ── Auto API Key ──
 
 /** Fetch the auto-generated API key from the Tauri backend. Returns null in browser mode. */
