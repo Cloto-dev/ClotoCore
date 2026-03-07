@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { memo } from 'react';
 import { Clock, Plus, Trash2, Play, Power } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { CronJob, AgentMetadata } from '../types';
 import { useApi } from '../hooks/useApi';
 
@@ -22,6 +23,8 @@ function formatTimestamp(ms?: number | null): string {
 
 export const CronJobs = memo(function CronJobs() {
   const api = useApi();
+  const { t } = useTranslation('cron');
+  const { t: tc } = useTranslation('common');
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [agents, setAgents] = useState<AgentMetadata[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -75,7 +78,7 @@ export const CronJobs = memo(function CronJobs() {
   };
 
   const handleDelete = async (jobId: string) => {
-    if (!confirm('Delete this cron job?')) return;
+    if (!confirm(t('delete_confirm'))) return;
     await api.deleteCronJob(jobId);
     fetchJobs();
   };
@@ -92,59 +95,59 @@ export const CronJobs = memo(function CronJobs() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Clock className="text-brand" size={16} />
-            <h2 className="text-xs font-mono uppercase tracking-widest text-content-primary font-bold">Cron Jobs</h2>
+            <h2 className="text-xs font-mono uppercase tracking-widest text-content-primary font-bold">{t('title')}</h2>
           </div>
           <button
             onClick={() => setShowForm(!showForm)}
             className="flex items-center gap-1.5 px-3 py-1 rounded bg-brand/10 text-brand hover:bg-brand/20 text-[10px] font-mono uppercase tracking-wider transition-colors"
           >
-            <Plus size={12} /> New Job
+            <Plus size={12} /> {t('new_job')}
           </button>
         </div>
         {/* Create Form */}
         {showForm && (
           <div className="bg-glass-strong backdrop-blur-sm p-6 rounded-lg border border-edge space-y-4">
-            <h3 className="text-xs font-bold text-content-secondary uppercase tracking-widest">New Cron Job</h3>
+            <h3 className="text-xs font-bold text-content-secondary uppercase tracking-widest">{t('new_cron_job')}</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">Agent</label>
+                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">{t('agent')}</label>
                 <select
                   value={form.agent_id}
                   onChange={e => setForm({ ...form, agent_id: e.target.value })}
                   className="w-full bg-surface-secondary border border-edge rounded px-3 py-2 text-xs font-mono text-content-primary"
                 >
-                  <option value="">Select agent...</option>
+                  <option value="">{t('select_agent')}</option>
                   {agents.filter(a => a.enabled).map(a => (
                     <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">Name</label>
+                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">{t('name')}</label>
                 <input
                   value={form.name}
                   onChange={e => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. Morning briefing"
+                  placeholder={t('name_placeholder')}
                   className="w-full bg-surface-secondary border border-edge rounded px-3 py-2 text-xs font-mono text-content-primary"
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">Schedule Type</label>
+                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">{t('schedule_type')}</label>
                 <select
                   value={form.schedule_type}
                   onChange={e => setForm({ ...form, schedule_type: e.target.value })}
                   className="w-full bg-surface-secondary border border-edge rounded px-3 py-2 text-xs font-mono text-content-primary"
                 >
-                  <option value="interval">Interval (seconds)</option>
-                  <option value="cron">Cron Expression</option>
-                  <option value="once">One-shot (ISO 8601)</option>
+                  <option value="interval">{t('type_interval')}</option>
+                  <option value="cron">{t('type_cron')}</option>
+                  <option value="once">{t('type_once')}</option>
                 </select>
               </div>
               <div>
                 <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">
-                  {form.schedule_type === 'interval' ? 'Interval (seconds, min 60)' :
-                   form.schedule_type === 'cron' ? 'Cron Expression (e.g. 0 9 * * *)' :
-                   'Run At (ISO 8601)'}
+                  {form.schedule_type === 'interval' ? t('label_interval') :
+                   form.schedule_type === 'cron' ? t('label_cron') :
+                   t('label_once')}
                 </label>
                 <input
                   value={form.schedule_value}
@@ -154,11 +157,11 @@ export const CronJobs = memo(function CronJobs() {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">Message (prompt sent to agent)</label>
+                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">{t('message')}</label>
                 <textarea
                   value={form.message}
                   onChange={e => setForm({ ...form, message: e.target.value })}
-                  placeholder="e.g. Summarize today's tasks and send a briefing."
+                  placeholder={t('message_placeholder')}
                   rows={3}
                   className="w-full bg-surface-secondary border border-edge rounded px-3 py-2 text-xs font-mono text-content-primary resize-none"
                 />
@@ -172,7 +175,7 @@ export const CronJobs = memo(function CronJobs() {
                     className="rounded border-edge bg-surface-secondary"
                   />
                   <span className="text-[10px] font-mono text-content-tertiary uppercase">
-                    エージェント発言モード（プロンプトを非表示にし、応答のみチャットに表示）
+                    {t('hide_prompt')}
                   </span>
                 </label>
               </div>
@@ -183,13 +186,13 @@ export const CronJobs = memo(function CronJobs() {
                 disabled={!form.agent_id || !form.name || !form.message}
                 className="px-4 py-2 bg-brand text-white rounded text-xs font-mono uppercase tracking-wider hover:bg-brand/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                Create Job
+                {t('create_job')}
               </button>
               <button
                 onClick={() => setShowForm(false)}
                 className="px-4 py-2 bg-surface-secondary border border-edge text-content-secondary rounded text-xs font-mono uppercase tracking-wider hover:bg-surface-secondary/80 transition-colors"
               >
-                Cancel
+                {tc('cancel')}
               </button>
             </div>
           </div>
@@ -209,7 +212,7 @@ export const CronJobs = memo(function CronJobs() {
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`w-2 h-2 rounded-full ${job.enabled ? 'bg-green-500' : 'bg-gray-500'}`} />
                     <span className="text-sm font-medium text-content-primary truncate">{job.name}</span>
-                    <span className="text-[10px] font-mono text-content-muted px-1.5 py-0.5 bg-surface-secondary rounded">{job.schedule_type}</span>
+                    <span className="text-[10px] font-mono text-content-tertiary px-1.5 py-0.5 bg-surface-secondary rounded">{job.schedule_type}</span>
                     {job.hide_prompt && (
                       <span className="text-[10px] font-mono text-brand px-1.5 py-0.5 bg-brand/10 rounded">agent</span>
                     )}
@@ -218,11 +221,11 @@ export const CronJobs = memo(function CronJobs() {
                     )}
                   </div>
                   <div className="text-[10px] font-mono text-content-tertiary space-y-0.5">
-                    <div>Agent: <span className="text-content-secondary">{job.agent_id}</span></div>
-                    <div>Schedule: <span className="text-content-secondary">{formatSchedule(job.schedule_type, job.schedule_value)}</span></div>
-                    <div>Next: <span className="text-content-secondary">{job.next_run_at < Number.MAX_SAFE_INTEGER ? formatTimestamp(job.next_run_at) : '—'}</span></div>
+                    <div>{t('agent_label')} <span className="text-content-secondary">{job.agent_id}</span></div>
+                    <div>{t('schedule_label')} <span className="text-content-secondary">{formatSchedule(job.schedule_type, job.schedule_value)}</span></div>
+                    <div>{t('next_label')} <span className="text-content-secondary">{job.next_run_at < Number.MAX_SAFE_INTEGER ? formatTimestamp(job.next_run_at) : '—'}</span></div>
                     {job.last_run_at && (
-                      <div>Last: <span className="text-content-secondary">{formatTimestamp(job.last_run_at)}</span>
+                      <div>{t('last_label')} <span className="text-content-secondary">{formatTimestamp(job.last_run_at)}</span>
                         {job.last_status && (
                           <span className={`ml-2 px-1 py-0.5 rounded text-[9px] ${job.last_status === 'success' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
                             {job.last_status}
@@ -231,18 +234,18 @@ export const CronJobs = memo(function CronJobs() {
                       </div>
                     )}
                   </div>
-                  <div className="mt-1 text-[10px] font-mono text-content-muted truncate" title={job.message}>
-                    Prompt: {job.message}
+                  <div className="mt-1 text-[10px] font-mono text-content-tertiary truncate" title={job.message}>
+                    {t('prompt_label')} {job.message}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={() => handleRunNow(job.id)} title="Run now" className="p-1.5 rounded hover:bg-brand/10 text-content-tertiary hover:text-brand transition-colors">
+                  <button onClick={() => handleRunNow(job.id)} title={t('run_now')} className="p-1.5 rounded hover:bg-brand/10 text-content-tertiary hover:text-brand transition-colors">
                     <Play size={14} />
                   </button>
-                  <button onClick={() => handleToggle(job)} title={job.enabled ? 'Disable' : 'Enable'} className="p-1.5 rounded hover:bg-brand/10 text-content-tertiary hover:text-brand transition-colors">
+                  <button onClick={() => handleToggle(job)} title={job.enabled ? t('disable') : t('enable')} className="p-1.5 rounded hover:bg-brand/10 text-content-tertiary hover:text-brand transition-colors">
                     <Power size={14} className={job.enabled ? 'text-green-500' : 'text-gray-500'} />
                   </button>
-                  <button onClick={() => handleDelete(job.id)} title="Delete" className="p-1.5 rounded hover:bg-red-500/10 text-content-tertiary hover:text-red-400 transition-colors">
+                  <button onClick={() => handleDelete(job.id)} title={tc('delete')} className="p-1.5 rounded hover:bg-red-500/10 text-content-tertiary hover:text-red-400 transition-colors">
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -250,7 +253,7 @@ export const CronJobs = memo(function CronJobs() {
             </div>
           )) : (
             <div className="py-12 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
-              No cron jobs configured. Create one to enable autonomous agent execution.
+              {t('no_jobs')}
             </div>
           )}
         </div>

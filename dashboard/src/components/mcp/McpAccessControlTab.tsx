@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { McpServerInfo, AccessControlEntry, AccessTreeResponse, AgentMetadata } from '../../types';
 import { extractError } from '../../lib/errors';
 import { McpAccessTree } from './McpAccessTree';
@@ -13,6 +14,7 @@ interface Props {
 
 export function McpAccessControlTab({ server }: Props) {
   const api = useApi();
+  const { t } = useTranslation('mcp');
   const [accessData, setAccessData] = useState<AccessTreeResponse | null>(null);
   const [agents, setAgents] = useState<AgentMetadata[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string>('');
@@ -75,10 +77,10 @@ export function McpAccessControlTab({ server }: Props) {
       {/* Default Policy Display */}
       {accessData && (
         <div className="text-[10px] font-mono text-content-tertiary">
-          Default Policy: <span className="text-content-secondary">{accessData.default_policy}</span>
+          {t('access.default_policy')} <span className="text-content-secondary">{accessData.default_policy}</span>
           {accessData.default_policy === 'opt-in'
-            ? ' (deny by default)'
-            : ' (allow by default)'}
+            ? ` ${t('access.deny_by_default')}`
+            : ` ${t('access.allow_by_default')}`}
         </div>
       )}
 
@@ -91,7 +93,7 @@ export function McpAccessControlTab({ server }: Props) {
 
       {/* Agent Selector */}
       <div className="flex items-center gap-2">
-        <label className="text-[10px] font-mono text-content-muted">Agent:</label>
+        <label className="text-[10px] font-mono text-content-tertiary">{t('access.agent')}</label>
         <select
           value={selectedAgent}
           onChange={e => setSelectedAgent(e.target.value)}
@@ -124,13 +126,13 @@ export function McpAccessControlTab({ server }: Props) {
             disabled={saving}
             className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand disabled:opacity-40 transition-colors border border-brand/20"
           >
-            <Save size={10} /> {saving ? 'Saving...' : 'Save Access Changes'}
+            <Save size={10} /> {saving ? t('access.saving') : t('access.save_changes')}
           </button>
           <button
             onClick={loadData}
             className="px-3 py-1.5 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-tertiary transition-colors border border-edge"
           >
-            Discard
+            {t('access.discard')}
           </button>
         </div>
       )}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Save, Activity } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { AgentMetadata, AccessControlEntry } from '../types';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { useApi } from '../hooks/useApi';
@@ -16,6 +17,8 @@ interface Props {
 const DEFAULT_AGENT_ID = 'agent.cloto_default';
 
 export function AgentPluginWorkspace({ agent, onBack }: Props) {
+  const { t } = useTranslation('agents');
+  const { t: tc } = useTranslation('common');
   const api = useApi();
   const isDefault = agent.id === DEFAULT_AGENT_ID;
   const { servers } = useMcpServers();
@@ -141,7 +144,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
-      setSaveError('Avatar must be under 5MB');
+      setSaveError(t('plugin_workspace.avatar_too_large'));
       return;
     }
     setIsUploadingAvatar(true);
@@ -189,19 +192,19 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
             <AgentIcon agent={agent} size={40} />
           </div>
           <div>
-            <h1 className="text-xl font-black tracking-tighter text-content-primary uppercase">{agent.name} · MCP Access</h1>
-            <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em]">Server Access Control</p>
+            <h1 className="text-xl font-black tracking-tighter text-content-primary uppercase">{agent.name} · {t('plugin_workspace.mcp_access')}</h1>
+            <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em]">{t('plugin_workspace.server_access_control')}</p>
           </div>
         </div>
         <div className="bg-glass-subtle backdrop-blur-sm px-4 py-2 rounded-md flex items-center gap-3 shadow-sm border border-edge">
-          <span className="text-[9px] uppercase font-bold text-content-tertiary tracking-widest">{grantedIds.size} granted</span>
+          <span className="text-[9px] uppercase font-bold text-content-tertiary tracking-widest">{t('plugin_workspace.granted_count', { count: grantedIds.size })}</span>
         </div>
       </header>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 no-scrollbar">
         {isLoading ? (
-          <div className="py-12 text-center text-content-muted font-mono text-xs animate-pulse">Loading...</div>
+          <div className="py-12 text-center text-content-tertiary font-mono text-xs animate-pulse">{tc('loading')}</div>
         ) : (
           <>
             {/* Avatar (protected for default agent) */}
@@ -248,7 +251,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
             onClick={onBack}
             className="px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:bg-surface-secondary transition-all"
           >
-            Cancel
+            {tc('cancel')}
           </button>
           <button
             onClick={handleSave}
@@ -256,7 +259,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
             className="flex items-center gap-1.5 px-6 py-2 rounded-lg bg-brand text-white text-xs font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-50"
           >
             {isSaving ? <Activity size={14} className="animate-spin" /> : <Save size={14} />}
-            Save
+            {tc('save')}
           </button>
         </div>
       </div>

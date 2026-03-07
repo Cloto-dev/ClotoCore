@@ -51,19 +51,19 @@ export function AdvancedSection() {
               <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
               <div className="space-y-1">
                 <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Warning</p>
-                <p className="text-[10px] text-content-muted">MCP server connection permissions are auto-approved without manual review. Tool execution still requires approval. SafetyGate and code validation remain active.</p>
+                <p className="text-[10px] text-content-tertiary">MCP server connection permissions are auto-approved without manual review. Tool execution still requires approval. SafetyGate and code validation remain active.</p>
               </div>
             </div>
           )}
           {!yoloEnabled && (
-            <p className="text-[10px] text-content-muted">When enabled, MCP server connection permission requests are automatically approved. Tool execution approval is unaffected. SafetyGate post-validation remains active as a safety net.</p>
+            <p className="text-[10px] text-content-tertiary">When enabled, MCP server connection permission requests are automatically approved. Tool execution approval is unaffected. SafetyGate post-validation remains active as a safety net.</p>
           )}
         </div>
       </SectionCard>
 
       <SectionCard title="CRON Recursion Limit">
         <div className="space-y-3">
-          <p className="text-[10px] text-content-muted">
+          <p className="text-[10px] text-content-tertiary">
             Maximum generations a CRON job can recursively create child CRON jobs. 0 disables recursion entirely.
           </p>
           <div className="flex items-center gap-3">

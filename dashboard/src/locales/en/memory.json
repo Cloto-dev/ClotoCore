@@ -1,0 +1,11 @@
+{
+  "title": "Memory Core",
+  "objs": "OBJS",
+  "all": "All",
+  "long_term": "Long-term Memory Banks",
+  "no_memories": "No memories archived.",
+  "episodic": "Episodic Stream",
+  "no_episodes": "No episodes logged.",
+  "delete_memory": "Delete memory",
+  "delete_episode": "Delete episode"
+}

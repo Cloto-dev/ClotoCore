@@ -36,5 +36,32 @@
     "fallback": "Fallback:",
     "fallback_none": "None",
     "help": "Conditions: contains:keyword, length:>N, tools_likely, default | CFR: try fast engine first, escalate on [[ESCALATE]]"
+  },
+  "console": {
+    "hold": "Hold...",
+    "reset": "Reset",
+    "connected": "Connected",
+    "loading_older": "Loading older messages...",
+    "loading_session": "Loading session...",
+    "ready": "Ready for instructions",
+    "engine_error": "Engine Error",
+    "read_aloud": "Read aloud",
+    "retry": "Retry response",
+    "edit_message": "Edit message"
+  },
+  "chat_input": {
+    "placeholder": "ENTER COMMAND...",
+    "placeholder_edit": "EDIT MESSAGE...",
+    "placeholder_processing": "PROCESSING...",
+    "attach_image": "Attach image",
+    "stop_recording": "Stop recording",
+    "record_audio": "Record audio",
+    "cancel_edit": "Cancel edit"
+  },
+  "plugin_workspace": {
+    "mcp_access": "MCP Access",
+    "server_access_control": "Server Access Control",
+    "granted_count": "{{count}} granted",
+    "avatar_too_large": "Avatar must be under 5MB"
   }
 }
