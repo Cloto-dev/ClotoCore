@@ -139,19 +139,48 @@ fn remove_language_pack(filename: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Install bundled default language packs if they don't already exist.
-/// Returns the number of packs installed.
+/// Install or update bundled default language packs.
+///
+/// Uses a snapshot file (`.ja.bundled`) to detect user edits:
+/// - If `ja.json` matches the snapshot → user hasn't edited → safe to overwrite
+/// - If `ja.json` differs from the snapshot → user customized → skip update
+/// - If `ja.json` or snapshot doesn't exist → fresh install → write both
+///
+/// Returns the number of packs installed or updated.
 const DEFAULT_JA_PACK: &str = include_str!("../resources/ja.json");
 
 #[tauri::command]
 fn install_default_packs() -> Result<u32, String> {
     let dir = get_languages_dir_path()?;
     let mut installed = 0u32;
+
     let ja_path = dir.join("ja.json");
-    if !ja_path.exists() {
+    let snapshot_path = dir.join(".ja.bundled");
+
+    let needs_write = if ja_path.exists() {
+        let existing = std::fs::read_to_string(&ja_path).unwrap_or_default();
+        let snapshot = std::fs::read_to_string(&snapshot_path).unwrap_or_default();
+
+        if existing.trim() == DEFAULT_JA_PACK.trim() {
+            // Already up to date
+            false
+        } else if !snapshot_path.exists() || existing.trim() == snapshot.trim() {
+            // No snapshot (pre-update install) or file matches snapshot → user hasn't edited
+            true
+        } else {
+            // File differs from snapshot → user has customized, skip
+            false
+        }
+    } else {
+        true
+    };
+
+    if needs_write {
         std::fs::write(&ja_path, DEFAULT_JA_PACK).map_err(|e| e.to_string())?;
+        std::fs::write(&snapshot_path, DEFAULT_JA_PACK).map_err(|e| e.to_string())?;
         installed += 1;
     }
+
     Ok(installed)
 }
 

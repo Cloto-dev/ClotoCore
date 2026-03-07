@@ -1,0 +1,23 @@
+{
+  "welcome_title": "Welcome to Cloto",
+  "welcome_desc": "AI agent orchestration platform built with a Rust kernel and MCP-based plugin architecture.",
+  "get_started": "Get Started",
+  "select_language": "Choose your language",
+  "select_theme": "Choose your theme",
+  "theme_light": "Light",
+  "theme_dark": "Dark",
+  "theme_system": "System",
+  "enter_name": "What should agents call you?",
+  "name_placeholder": "Your name",
+  "name_hint": "This name will be visible to your AI agents during conversations.",
+  "quick_guide": "Quick Guide",
+  "guide_agents": "Chat with AI agents, create new ones, and manage their settings.",
+  "guide_mcp": "Connect and manage MCP server plugins for extended capabilities.",
+  "guide_cron": "Schedule automated tasks for your agents.",
+  "guide_memory": "Browse saved memories and episode archives.",
+  "guide_settings": "Configure API keys, themes, language, and advanced options.",
+  "finish": "Start Using Cloto",
+  "next": "Next",
+  "back": "Back",
+  "step_of": "{{current}} of {{total}}"
+}

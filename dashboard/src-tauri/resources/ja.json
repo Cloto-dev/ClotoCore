@@ -113,7 +113,14 @@
       "server_access_control": "サーバーアクセス制御",
       "granted_count": "{{count}} 件許可",
       "avatar_too_large": "アバターは 5MB 以下にしてください"
-    }
+    },
+    "export_config": "エクスポート",
+    "import_config": "構成インポート",
+    "import_success": "エージェント \"{{name}}\" のインポートに成功しました。",
+    "import_error": "インポート失敗: {{error}}",
+    "import_invalid": "無効なエージェント構成ファイルです。",
+    "import_engine_missing": "エンジン \"{{engine}}\" が見つかりません。未設定で作成します。",
+    "import_server_skipped": "MCP サーバー \"{{server}}\" が見つかりません。スキップしました。"
   },
   "settings": {
     "title": "設定",
@@ -161,7 +168,10 @@
       "mit_convert": "2028年2月14日に MIT ライセンスへ移行",
       "links": "リンク",
       "repository": "リポジトリ",
-      "contact": "連絡先"
+      "contact": "連絡先",
+      "setup": "クイックセットアップ",
+      "setup_desc": "初期セットアップウィザードを再表示して、言語・テーマ・表示名を変更できます。",
+      "rerun_setup": "クイックセットアップを再表示"
     }
   },
   "mcp": {
@@ -316,5 +326,28 @@
     "no_episodes": "記録されたエピソードはありません。",
     "delete_memory": "メモリを削除",
     "delete_episode": "エピソードを削除"
+  },
+  "wizard": {
+    "welcome_title": "Cloto へようこそ",
+    "welcome_desc": "Rust カーネルと MCP ベースのプラグインアーキテクチャで構築された AI エージェントオーケストレーションプラットフォーム。",
+    "get_started": "はじめる",
+    "select_language": "言語を選択",
+    "select_theme": "テーマを選択",
+    "theme_light": "ライト",
+    "theme_dark": "ダーク",
+    "theme_system": "システム",
+    "enter_name": "エージェントに何と呼ばれたいですか？",
+    "name_placeholder": "あなたの名前",
+    "name_hint": "この名前は会話中に AI エージェントに表示されます。",
+    "quick_guide": "クイックガイド",
+    "guide_agents": "AI エージェントとチャット、新規作成、設定の管理。",
+    "guide_mcp": "MCP サーバープラグインの接続と管理。",
+    "guide_cron": "エージェントの自動タスクをスケジュール。",
+    "guide_memory": "保存されたメモリとエピソードアーカイブの閲覧。",
+    "guide_settings": "API キー、テーマ、言語、詳細オプションの設定。",
+    "finish": "Cloto を使い始める",
+    "next": "次へ",
+    "back": "戻る",
+    "step_of": "{{current}} / {{total}}"
   }
 }
