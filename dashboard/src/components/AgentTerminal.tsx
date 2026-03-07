@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Users, Activity, Zap, Plus, Lock, Trash2, MessageSquare, Settings, X, Route } from 'lucide-react';
 import { AgentMetadata } from '../types';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
@@ -30,6 +31,8 @@ export function AgentTerminal({
   onBack,
 }: AgentTerminalProps) {
   const api = useApi();
+  const { t } = useTranslation('agents');
+  const { t: tc } = useTranslation('common');
   const [configuringAgent, setConfiguringAgent] = useState<AgentMetadata | null>(null);
 
   // Power toggle modal
@@ -114,8 +117,8 @@ export function AgentTerminal({
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-red-500/10 text-red-500"><Trash2 size={18} /></div>
               <div>
-                <h3 className="font-bold text-content-primary text-sm">Delete Agent</h3>
-                <p className="text-[10px] text-content-tertiary font-mono mt-0.5">Irreversible operation</p>
+                <h3 className="font-bold text-content-primary text-sm">{t('delete.title')}</h3>
+                <p className="text-[10px] text-content-tertiary font-mono mt-0.5">{t('delete.irreversible')}</p>
               </div>
             </div>
             <div className="bg-surface-secondary rounded-xl p-3 space-y-1">
@@ -123,14 +126,14 @@ export function AgentTerminal({
               <p className="text-[10px] text-content-tertiary font-mono">{deleteTarget.id}</p>
             </div>
             <p className="text-xs text-content-secondary">
-              All chat history for this agent will be permanently deleted. This cannot be undone.
+              {t('delete.warning')}
             </p>
             {deleteTarget.metadata?.has_password === 'true' && (
               <input
                 type="password"
                 value={deletePassword}
                 onChange={e => setDeletePassword(e.target.value)}
-                placeholder="Enter agent password to confirm"
+                placeholder={t('delete.password_placeholder')}
                 className="w-full bg-surface-base border border-edge rounded-xl px-3 py-2 text-xs font-mono text-content-primary placeholder:text-content-muted"
               />
             )}
@@ -143,7 +146,7 @@ export function AgentTerminal({
                 disabled={isDeleting}
                 className="flex-1 py-2 rounded-xl border border-edge text-xs font-bold text-content-secondary hover:bg-surface-secondary transition-all disabled:opacity-50"
               >
-                Cancel
+                {tc('cancel')}
               </button>
               <button
                 onClick={handleDeleteConfirm}
@@ -151,7 +154,7 @@ export function AgentTerminal({
                 className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
               >
                 {isDeleting ? <Activity size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                Delete
+                {tc('delete')}
               </button>
             </div>
           </div>
@@ -165,13 +168,13 @@ export function AgentTerminal({
           {/* Section: Agents */}
           <div className="flex items-center gap-3 mb-4 border-b border-edge pb-2">
             <Users className="text-brand" size={16} />
-            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Agents</h2>
+            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('title')}</h2>
           </div>
 
           {/* Agent Cards Grid */}
           {agents.length === 0 ? (
             <div className="py-12 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
-              No agents registered. Create one to get started.
+              {t('no_agents')}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -199,7 +202,7 @@ export function AgentTerminal({
 
                     {/* Row 2: Engine · Memory */}
                     <div className="text-xs font-mono text-content-tertiary mb-2">
-                      AI Agent · {agent.default_engine_id || 'No engine'}
+                      {t('ai_agent')} · {agent.default_engine_id || t('no_engine')}
                       {agent.metadata?.preferred_memory && ` · ${agent.metadata.preferred_memory}`}
                     </div>
 
@@ -214,13 +217,13 @@ export function AgentTerminal({
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-brand hover:bg-brand/10 transition-all"
                           onClick={(e) => { e.stopPropagation(); onSelectAgent(agent); }}
                         >
-                          <MessageSquare size={14} /> Chat
+                          <MessageSquare size={14} /> {t('chat')}
                         </button>
                         <button
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
                           onClick={(e) => { e.stopPropagation(); setConfiguringAgent(agent); }}
                         >
-                          <Settings size={14} /> Config
+                          <Settings size={14} /> {t('config')}
                         </button>
                         {agent.id !== DEFAULT_AGENT_ID && (
                           <button
@@ -246,34 +249,34 @@ export function AgentTerminal({
           {/* Section header */}
           <div className="flex items-center gap-3 mb-6 border-b border-edge pb-2">
             <Zap className="text-brand" size={16} />
-            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Create Agent</h2>
+            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('create_agent')}</h2>
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">Name</label>
+              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">{t('form.name')}</label>
               <input
                 type="text"
                 value={newAgent.name}
                 onChange={e => updateField('name', e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
-                placeholder="e.g. Mike"
+                placeholder={t('form.name_placeholder')}
               />
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">Description</label>
+              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">{t('form.description')}</label>
               <textarea
                 value={newAgent.desc}
                 onChange={e => updateField('desc', e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary h-16 resize-none"
-                placeholder="Describe the agent's role"
+                placeholder={t('form.desc_placeholder')}
               />
             </div>
 
             <div>
               <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
-                LLM Engine
+                {t('form.llm_engine')}
               </label>
               {mcpEngines.length > 0 ? (
                 <select
@@ -281,26 +284,26 @@ export function AgentTerminal({
                   onChange={e => updateField('engine', e.target.value)}
                   className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
                 >
-                  <option value="">Select...</option>
+                  <option value="">{t('form.select')}</option>
                   {mcpEngines.map(s => (
                     <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
                   ))}
                 </select>
               ) : (
                 <div className="w-full px-2 py-1.5 rounded-lg border border-dashed border-content-muted text-[10px] text-content-tertiary font-mono text-center">
-                  No engines available
+                  {t('form.no_engines')}
                 </div>
               )}
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">Memory</label>
+              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">{t('form.memory')}</label>
               <select
                 value={newAgent.memory}
                 onChange={e => updateField('memory', e.target.value)}
                 className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
               >
-                <option value="">None</option>
+                <option value="">{t('form.memory_none')}</option>
                 {mcpMemories.map(s => (
                   <option key={s.id} value={s.id}>{s.id.replace('memory.', '')}</option>
                 ))}
@@ -309,7 +312,7 @@ export function AgentTerminal({
 
             <div>
               <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
-                Password <span className="text-content-muted font-normal normal-case">(optional)</span>
+                {t('form.password')} <span className="text-content-muted font-normal normal-case">({t('form.password_optional')})</span>
               </label>
               <div className="relative">
                 <Lock size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
@@ -318,7 +321,7 @@ export function AgentTerminal({
                   value={newAgent.password}
                   onChange={e => updateField('password', e.target.value)}
                   className="w-full pl-8 pr-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
-                  placeholder="Power toggle password"
+                  placeholder={t('form.password_placeholder')}
                 />
               </div>
             </div>
@@ -328,8 +331,8 @@ export function AgentTerminal({
               <div>
                 <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-2">
                   <Route size={10} className="inline mr-1" />
-                  Engine Routing
-                  <span className="text-content-muted font-normal normal-case ml-1">(optional)</span>
+                  {t('routing.title')}
+                  <span className="text-content-muted font-normal normal-case ml-1">({t('routing.optional')})</span>
                 </label>
                 <div className="space-y-2">
                   {newAgent.routingRules.map((rule, i) => (
@@ -348,7 +351,7 @@ export function AgentTerminal({
                           onChange={e => updateRoutingRule(i, 'engine', e.target.value)}
                           className="w-28 px-1 py-1 rounded border border-edge text-[10px] font-mono bg-surface-primary focus:outline-none focus:border-brand"
                         >
-                          <option value="">Select...</option>
+                          <option value="">{t('routing.select_engine')}</option>
                           {mcpEngines.map(s => (
                             <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
                           ))}
@@ -380,20 +383,20 @@ export function AgentTerminal({
                               onChange={e => updateRoutingRule(i, 'escalate_to', e.target.value || undefined)}
                               className="w-24 px-1 py-0.5 rounded border border-edge text-[9px] font-mono bg-surface-primary focus:outline-none focus:border-brand"
                             >
-                              <option value="">Escalate to...</option>
+                              <option value="">{t('routing.escalate_to')}</option>
                               {mcpEngines.filter(s => s.id !== rule.engine).map(s => (
                                 <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
                               ))}
                             </select>
                           </>
                         )}
-                        <span className="text-[9px] text-content-muted ml-1">Fallback:</span>
+                        <span className="text-[9px] text-content-muted ml-1">{t('routing.fallback')}</span>
                         <select
                           value={rule.fallback || ''}
                           onChange={e => updateRoutingRule(i, 'fallback', e.target.value || undefined)}
                           className="w-24 px-1 py-0.5 rounded border border-edge text-[9px] font-mono bg-surface-primary focus:outline-none focus:border-brand"
                         >
-                          <option value="">None</option>
+                          <option value="">{t('routing.fallback_none')}</option>
                           {mcpEngines.filter(s => s.id !== rule.engine).map(s => (
                             <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
                           ))}
@@ -406,11 +409,11 @@ export function AgentTerminal({
                     onClick={addRoutingRule}
                     className="w-full py-1 rounded border border-dashed border-edge text-[10px] font-bold text-content-tertiary hover:text-brand hover:border-brand transition-all flex items-center justify-center gap-1"
                   >
-                    <Plus size={10} /> Add Rule
+                    <Plus size={10} /> {t('routing.add_rule')}
                   </button>
                 </div>
                 <p className="text-[8px] text-content-muted mt-1 font-mono">
-                  Conditions: contains:keyword, length:&gt;N, tools_likely, default | CFR: try fast engine first, escalate on [[ESCALATE]]
+                  {t('routing.help')}
                 </p>
               </div>
             )}
@@ -424,7 +427,7 @@ export function AgentTerminal({
               className="w-full text-white py-2 rounded-lg text-xs font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 bg-brand"
             >
               {isCreating ? <Activity size={14} className="animate-spin" /> : <Plus size={14} />}
-              Create Agent
+              {t('create_agent')}
             </button>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { RefreshCw, Download, CheckCircle, AlertCircle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { SectionCard } from './common';
 import { isTauri, checkForUpdates, applyUpdate, UpdateInfo } from '../../lib/tauri';
 
@@ -10,6 +11,7 @@ export function AboutSection() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [error, setError] = useState('');
   const [updateOutput, setUpdateOutput] = useState('');
+  const { t } = useTranslation('settings');
 
   const handleCheck = async () => {
     setUpdateState('checking');
@@ -48,16 +50,16 @@ export function AboutSection() {
 
   return (
     <>
-      <SectionCard title="ClotoCore">
+      <SectionCard title={t('about.clotocore')}>
         <div className="space-y-3">
           <p className="text-xs text-content-secondary leading-relaxed">
-            AI agent orchestration platform built on a Rust kernel with MCP-based plugin architecture.
+            {t('about.description')}
           </p>
           <div className="text-2xl font-mono font-black text-brand">v{__APP_VERSION__}</div>
         </div>
       </SectionCard>
 
-      <SectionCard title="Updates">
+      <SectionCard title={t('about.updates')}>
         <div className="space-y-3">
           {/* Check button */}
           {(updateState === 'idle' || updateState === 'error') && (
@@ -66,7 +68,7 @@ export function AboutSection() {
               className="flex items-center gap-2 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand hover:border-brand transition-all"
             >
               <RefreshCw size={14} />
-              Check for Updates
+              {t('about.check_for_updates')}
             </button>
           )}
 
@@ -74,7 +76,7 @@ export function AboutSection() {
           {updateState === 'checking' && (
             <div className="flex items-center gap-2 text-xs text-content-muted">
               <RefreshCw size={14} className="animate-spin" />
-              Checking for updates...
+              {t('about.checking')}
             </div>
           )}
 
@@ -83,13 +85,13 @@ export function AboutSection() {
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-xs text-emerald-500 font-bold">
                 <CheckCircle size={14} />
-                Up to date — v{updateInfo?.currentVersion}
+                {t('about.up_to_date', { version: updateInfo?.currentVersion })}
               </div>
               <button
                 onClick={handleCheck}
                 className="text-[10px] text-content-muted hover:text-brand transition-colors"
               >
-                Check again
+                {t('about.check_again')}
               </button>
             </div>
           )}
@@ -99,7 +101,7 @@ export function AboutSection() {
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-xs text-brand font-bold">
                 <Download size={14} />
-                v{updateInfo.latestVersion} available
+                {t('about.available', { version: updateInfo.latestVersion })}
                 {updateInfo.releaseDate && (
                   <span className="text-content-muted font-normal">
                     ({formatDate(updateInfo.releaseDate)})
@@ -121,14 +123,14 @@ export function AboutSection() {
                     className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-xs font-bold shadow-sm hover:shadow-md transition-all"
                   >
                     <Download size={14} />
-                    Update Now
+                    {t('about.update_now')}
                   </button>
                 )}
                 <button
                   onClick={handleCheck}
                   className="px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand transition-all"
                 >
-                  Recheck
+                  {t('about.recheck')}
                 </button>
               </div>
             </div>
@@ -138,7 +140,7 @@ export function AboutSection() {
           {updateState === 'updating' && (
             <div className="flex items-center gap-2 text-xs text-content-muted">
               <RefreshCw size={14} className="animate-spin" />
-              Applying update...
+              {t('about.applying')}
             </div>
           )}
 
@@ -147,14 +149,14 @@ export function AboutSection() {
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-xs text-emerald-500 font-bold">
                 <CheckCircle size={14} />
-                Update applied successfully
+                {t('about.applied')}
               </div>
               {updateOutput && (
                 <div className="text-[10px] text-content-muted font-mono bg-glass rounded-lg p-2 border border-edge">
                   {updateOutput.slice(0, 300)}
                 </div>
               )}
-              <p className="text-[10px] text-content-muted">Restart the application to use the new version.</p>
+              <p className="text-[10px] text-content-muted">{t('about.restart_hint')}</p>
             </div>
           )}
 
@@ -168,21 +170,21 @@ export function AboutSection() {
         </div>
       </SectionCard>
 
-      <SectionCard title="License">
+      <SectionCard title={t('about.license')}>
         <div className="space-y-2">
-          <p className="text-xs text-content-secondary">Business Source License 1.1</p>
-          <p className="text-[10px] text-content-muted">Converts to MIT License on 2028-02-14</p>
+          <p className="text-xs text-content-secondary">{t('about.bsl')}</p>
+          <p className="text-[10px] text-content-muted">{t('about.mit_convert')}</p>
         </div>
       </SectionCard>
 
-      <SectionCard title="Links">
+      <SectionCard title={t('about.links')}>
         <div className="space-y-3">
           {[
-            { label: 'Repository', value: 'github.com/Cloto-dev/ClotoCore', href: 'https://github.com/Cloto-dev/ClotoCore' },
-            { label: 'Contact', value: 'ClotoCore@proton.me', href: 'mailto:ClotoCore@proton.me' },
+            { labelKey: 'about.repository', value: 'github.com/Cloto-dev/ClotoCore', href: 'https://github.com/Cloto-dev/ClotoCore' },
+            { labelKey: 'about.contact', value: 'ClotoCore@proton.me', href: 'mailto:ClotoCore@proton.me' },
           ].map(link => (
-            <div key={link.label} className="flex items-center justify-between">
-              <span className="text-[10px] text-content-tertiary uppercase tracking-widest font-bold">{link.label}</span>
+            <div key={link.labelKey} className="flex items-center justify-between">
+              <span className="text-[10px] text-content-tertiary uppercase tracking-widest font-bold">{t(link.labelKey)}</span>
               <a
                 href={link.href}
                 target="_blank"
