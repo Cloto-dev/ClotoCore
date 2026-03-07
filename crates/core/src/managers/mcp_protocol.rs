@@ -85,7 +85,10 @@ pub struct InitializeParams {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ClientCapabilities {}
+pub struct ClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mgp: Option<super::mcp_mgp::MgpClientCapabilities>,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -135,6 +138,28 @@ pub enum ToolContent {
 }
 
 // ============================================================
+// Streaming Types (MGP §12)
+// ============================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamChunk {
+    pub request_id: i64,
+    pub index: u32,
+    pub content: ToolContent,
+    pub done: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamProgress {
+    pub request_id: i64,
+    pub progress: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_remaining_ms: Option<u64>,
+}
+
+// ============================================================
 // Cloto Custom MCP Extensions
 // ============================================================
 
@@ -157,6 +182,48 @@ pub struct ClotoHandshakeResult {
     pub seal: Option<String>,
 }
 
+// ============================================================
+// Restart Policy (MGP §11)
+// ============================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RestartStrategy {
+    Never,
+    OnFailure,
+    Always,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestartPolicy {
+    pub strategy: RestartStrategy,
+    #[serde(default = "default_max_restarts")]
+    pub max_restarts: u32,
+    #[serde(default = "default_restart_window_secs")]
+    pub restart_window_secs: u64,
+    #[serde(default = "default_backoff_base_ms")]
+    pub backoff_base_ms: u64,
+    #[serde(default = "default_backoff_max_ms")]
+    pub backoff_max_ms: u64,
+}
+
+fn default_max_restarts() -> u32 { 5 }
+fn default_restart_window_secs() -> u64 { 300 }
+fn default_backoff_base_ms() -> u64 { 1000 }
+fn default_backoff_max_ms() -> u64 { 30000 }
+
+impl Default for RestartPolicy {
+    fn default() -> Self {
+        Self {
+            strategy: RestartStrategy::OnFailure,
+            max_restarts: default_max_restarts(),
+            restart_window_secs: default_restart_window_secs(),
+            backoff_base_ms: default_backoff_base_ms(),
+            backoff_max_ms: default_backoff_max_ms(),
+        }
+    }
+}
+
 /// MCP Server configuration (from mcp.toml or database)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
@@ -168,8 +235,10 @@ pub struct McpServerConfig {
     pub env: std::collections::HashMap<String, String>,
     #[serde(default = "default_transport")]
     pub transport: String,
+    /// Legacy field — prefer `restart_policy`. When restart_policy is None,
+    /// auto_restart controls fallback: Some(true) → OnFailure, Some(false)/None → Never.
     #[serde(default)]
-    pub auto_restart: bool,
+    pub auto_restart: Option<bool>,
     /// Required permissions for this MCP server (Permission gate: D).
     /// In non-YOLO mode, all permissions must be approved before the server starts.
     #[serde(default)]
@@ -181,10 +250,32 @@ pub struct McpServerConfig {
     /// Human-readable display name for the UI (e.g., "DeepSeek", "Cerebras").
     #[serde(default)]
     pub display_name: Option<String>,
+    /// MGP configuration for this server (optional, from mcp.toml `[servers.mgp]`).
+    #[serde(default)]
+    pub mgp: Option<super::mcp_mgp::MgpServerConfig>,
+    /// Restart policy for this server (MGP §11).
+    #[serde(default)]
+    pub restart_policy: Option<RestartPolicy>,
 }
 
 fn default_transport() -> String {
     "stdio".to_string()
+}
+
+impl McpServerConfig {
+    /// Returns the effective restart policy, respecting legacy auto_restart fallback.
+    pub fn effective_restart_policy(&self) -> RestartPolicy {
+        self.restart_policy.clone().unwrap_or_else(|| {
+            if self.auto_restart.unwrap_or(false) {
+                RestartPolicy::default() // OnFailure
+            } else {
+                RestartPolicy {
+                    strategy: RestartStrategy::Never,
+                    ..Default::default()
+                }
+            }
+        })
+    }
 }
 
 /// Top-level config structure for mcp.toml

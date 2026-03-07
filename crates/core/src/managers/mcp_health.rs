@@ -1,15 +1,16 @@
 //! MCP server health monitor.
 //!
 //! Periodically checks for dead MCP server processes and auto-restarts
-//! them when `auto_restart` is enabled in the server configuration.
+//! them using LifecycleManager restart policies and backoff (§11.6).
 
 use super::mcp::McpClientManager;
+use super::mcp_protocol::RestartPolicy;
 use super::mcp_types::ServerStatus;
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Spawn a background task that periodically checks for dead MCP servers
-/// and auto-restarts them if `auto_restart` is enabled in their config.
+/// and auto-restarts them based on their restart policy (§11.6).
 /// Follows the `tokio::select!` + `Arc<Notify>` shutdown pattern from events.rs.
 pub(super) fn spawn_health_monitor(
     manager: Arc<McpClientManager>,
@@ -32,22 +33,20 @@ pub(super) fn spawn_health_monitor(
 }
 
 /// Scan all registered MCP servers and restart any that have died
-/// (process exited / channel closed) if their config has `auto_restart: true`.
+/// (process exited / channel closed) if their restart policy allows it.
 async fn check_and_restart_dead_servers(manager: &McpClientManager) {
-    let dead_servers: Vec<String> = {
+    let dead_servers: Vec<(String, ServerStatus, RestartPolicy)> = {
         let servers = manager.servers.read().await;
         servers
             .iter()
             .filter_map(|(id, handle)| {
-                if !handle.config.auto_restart {
-                    return None;
-                }
+                let policy = handle.config.effective_restart_policy();
                 let is_dead = match &handle.client {
                     Some(client) => !client.is_alive(),
                     None => matches!(handle.status, ServerStatus::Error(_)),
                 };
                 if is_dead {
-                    Some(id.clone())
+                    Some((id.clone(), handle.status.clone(), policy))
                 } else {
                     None
                 }
@@ -55,8 +54,24 @@ async fn check_and_restart_dead_servers(manager: &McpClientManager) {
             .collect()
     };
 
-    for server_id in dead_servers {
-        warn!(server_id = %server_id, "MCP server died, attempting auto-restart");
+    for (server_id, status, policy) in dead_servers {
+        if !manager.lifecycle.should_restart(&server_id, &policy, &status) {
+            debug!(
+                server_id = %server_id,
+                strategy = ?policy.strategy,
+                "Restart policy denied restart for dead server"
+            );
+            continue;
+        }
+
+        let backoff = manager.lifecycle.calculate_backoff(&server_id, &policy);
+        warn!(
+            server_id = %server_id,
+            backoff_ms = %backoff.as_millis(),
+            "MCP server died, waiting backoff before auto-restart"
+        );
+        tokio::time::sleep(backoff).await;
+
         match manager.restart_server(&server_id).await {
             Ok(tools) => {
                 info!(
@@ -64,6 +79,7 @@ async fn check_and_restart_dead_servers(manager: &McpClientManager) {
                     tools = tools.len(),
                     "MCP server auto-restarted successfully"
                 );
+                manager.lifecycle.reset_counter(&server_id);
             }
             Err(e) => {
                 error!(
@@ -71,7 +87,6 @@ async fn check_and_restart_dead_servers(manager: &McpClientManager) {
                     error = %e,
                     "MCP server auto-restart failed"
                 );
-                // Update status to Error so the UI reflects the failure
                 let mut servers = manager.servers.write().await;
                 if let Some(handle) = servers.get_mut(&server_id) {
                     handle.status = ServerStatus::Error(format!("Auto-restart failed: {}", e));

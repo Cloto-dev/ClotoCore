@@ -198,6 +198,44 @@ pub async fn put_access_entries(
     .await
 }
 
+/// Delete an access control entry for an agent/server/entry_type combination.
+/// If `tool_name` is Some, additionally filters by tool_name.
+pub async fn delete_access_entry(
+    pool: &SqlitePool,
+    agent_id: &str,
+    server_id: &str,
+    entry_type: &str,
+    tool_name: Option<&str>,
+) -> anyhow::Result<u64> {
+    let rows = if let Some(tn) = tool_name {
+        db_timeout(
+            sqlx::query(
+                "DELETE FROM mcp_access_control \
+                 WHERE agent_id = ? AND server_id = ? AND entry_type = ? AND tool_name = ?",
+            )
+            .bind(agent_id)
+            .bind(server_id)
+            .bind(entry_type)
+            .bind(tn)
+            .execute(pool),
+        )
+        .await?
+    } else {
+        db_timeout(
+            sqlx::query(
+                "DELETE FROM mcp_access_control \
+                 WHERE agent_id = ? AND server_id = ? AND entry_type = ? AND tool_name IS NULL",
+            )
+            .bind(agent_id)
+            .bind(server_id)
+            .bind(entry_type)
+            .execute(pool),
+        )
+        .await?
+    };
+    Ok(rows.rows_affected())
+}
+
 /// Resolve tool access for an agent.
 /// Priority: tool_grant > server_grant > default_policy
 pub async fn resolve_tool_access(
