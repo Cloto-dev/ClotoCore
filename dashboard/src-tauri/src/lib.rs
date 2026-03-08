@@ -4,8 +4,8 @@ use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-/// Holds the auto-generated API key (only set when CLOTO_API_KEY was absent from .env).
-static AUTO_GENERATED_KEY: OnceLock<String> = OnceLock::new();
+/// Holds the API key for the dashboard (auto-generated or from .env).
+static DASHBOARD_API_KEY: OnceLock<String> = OnceLock::new();
 
 /// Generate a cryptographically random API key (64 hex chars).
 fn generate_api_key() -> String {
@@ -184,10 +184,10 @@ fn install_default_packs() -> Result<u32, String> {
     Ok(installed)
 }
 
-/// Returns the auto-generated API key, or None if the user configured their own in .env.
+/// Returns the API key for dashboard use (auto-generated or from .env).
 #[tauri::command]
 fn get_auto_api_key() -> Option<String> {
-    AUTO_GENERATED_KEY.get().cloned()
+    DASHBOARD_API_KEY.get().cloned()
 }
 
 #[allow(clippy::too_many_lines)]
@@ -298,11 +298,16 @@ pub fn run() {
             // Load .env before spawn so we can inspect CLOTO_API_KEY synchronously.
             dotenvy::dotenv().ok();
 
-            // Auto-generate API key if not configured in .env
-            if std::env::var("CLOTO_API_KEY").is_err() {
-                let key = generate_api_key();
-                std::env::set_var("CLOTO_API_KEY", &key);
-                let _ = AUTO_GENERATED_KEY.set(key);
+            // Provide API key to dashboard: use .env key if present, otherwise auto-generate
+            match std::env::var("CLOTO_API_KEY") {
+                Ok(key) => {
+                    let _ = DASHBOARD_API_KEY.set(key);
+                }
+                Err(_) => {
+                    let key = generate_api_key();
+                    std::env::set_var("CLOTO_API_KEY", &key);
+                    let _ = DASHBOARD_API_KEY.set(key);
+                }
             }
 
             tauri::async_runtime::spawn(async move {
