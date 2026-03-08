@@ -140,6 +140,14 @@ pub async fn create_agent(
         }
     }
 
+    // Collect server IDs to grant before metadata is moved
+    let mut servers_to_grant = vec![payload.default_engine.clone()];
+    if let Some(mem) = metadata.get("preferred_memory") {
+        if !mem.is_empty() {
+            servers_to_grant.push(mem.clone());
+        }
+    }
+
     let agent_id = state
         .agent_manager
         .create_agent(
@@ -156,6 +164,28 @@ pub async fn create_agent(
             payload.password.as_deref(),
         )
         .await?;
+
+    // Auto-grant access to the selected engine and memory servers
+    let now = chrono::Utc::now().to_rfc3339();
+    for server_id in &servers_to_grant {
+        let entry = crate::db::mcp::AccessControlEntry {
+            id: None,
+            entry_type: "server_grant".to_string(),
+            agent_id: agent_id.clone(),
+            server_id: server_id.clone(),
+            tool_name: None,
+            permission: "allow".to_string(),
+            granted_by: Some("system".to_string()),
+            granted_at: now.clone(),
+            expires_at: None,
+            justification: Some("Auto-granted during agent creation".to_string()),
+            metadata: None,
+        };
+        if let Err(e) = crate::db::mcp::save_access_control_entry(&state.pool, &entry).await {
+            warn!(server_id, error = %e, "Failed to auto-grant server access during agent creation");
+        }
+    }
+
     ok_data(serde_json::json!({ "id": agent_id }))
 }
 

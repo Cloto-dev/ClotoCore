@@ -938,6 +938,18 @@
       "pattern": "entry\\.get\\(\"role\"\\) == \"tool\"",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-230",
+      "summary": "Agent creation does not grant MCP access to selected engine/memory servers — server_grant entries missing from mcp_access_control",
+      "severity": "HIGH",
+      "discovered": "2026-03-08T12:00:00Z",
+      "version": "0.6.0",
+      "commit": "7e19523",
+      "file": "crates/core/src/handlers/agents.rs",
+      "pattern": "Auto-granted during agent creation",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }
