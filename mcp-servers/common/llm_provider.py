@@ -513,6 +513,11 @@ async def handle_think_with_tools(
                     safe = name.replace(".", "_")
                     if safe != name:
                         fn["name"] = safe
+            elif entry.get("role") == "tool" and "name" in entry:
+                name = entry.get("name", "")
+                safe = name.replace(".", "_")
+                if safe != name:
+                    entry = {**entry, "name": safe}
             messages.append(entry)
 
         response_data = await call_llm_api(config, messages, tools)
