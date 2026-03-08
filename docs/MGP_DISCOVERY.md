@@ -270,6 +270,49 @@ When `strategy: "semantic"` is requested but the kernel has no embeddings availa
 it SHOULD fall back to keyword search and include `"fallback_strategy": "keyword"` in
 the response metadata.
 
+#### Implementation Status & Design Decisions
+
+**Current implementation (v0.6.0):**
+
+| Strategy | Status | Implementation |
+|----------|--------|----------------|
+| Keyword | Implemented | String matching with relevance scoring (name 1.0, description 0.5, keywords 0.3, category 0.2) |
+| Category | Implemented | Server prefix and tool name prefix extraction |
+| Semantic | Not implemented | Falls back to keyword with `"fallback_strategy": "keyword"` |
+
+**Measured context reduction (v0.6.0, keyword-only):**
+
+| Scenario | Total tools | Full injection | Session cache | Reduction |
+|----------|-------------|----------------|---------------|-----------|
+| Typical task (8 tools needed) | 41 (11 servers) | 8,405 tokens | 1,709 tokens | **79.7%** |
+| Heavy task (20 tools needed) | 60 (6 servers) | 12,744 tokens | 4,248 tokens | **66.7%** |
+
+**Semantic search design (future):**
+
+The kernel MUST NOT embed AI models internally (§1.1 Core Minimalism: *"The Kernel is
+the stage, not the actor"*). When semantic search is implemented, it will use the
+`tool.embedding` MCP server as a dedicated service:
+
+```
+tool.embedding connected:
+  ├─ Agent-facing: embed_text, embed_batch, similarity_search (general purpose)
+  └─ Kernel-facing: semantic search precision enhancement (optional optimization)
+
+tool.embedding disconnected:
+  ├─ Agent-facing: unavailable
+  └─ Kernel-facing: keyword fallback (degraded but functional)
+```
+
+Key architectural constraints:
+- `tool.embedding` serves dual roles (agent tool + kernel optimization) but the kernel
+  MUST NOT depend on it. All kernel functions must operate without `tool.embedding`.
+- Semantic search improves **selection quality** (finding the right tools), not
+  **context reduction rate** (which is controlled by the session cache token budget).
+- Adding semantic search increases discovery latency (<1ms keyword → 50-200ms embedding)
+  but this is negligible relative to LLM inference time (2,000-15,000ms).
+- Implementation priority is low while total tool count remains under ~100, as keyword +
+  category search provides sufficient precision at this scale.
+
 ### 16.5 Mode A: Dynamic Tool Discovery
 
 The LLM searches for tools based on a natural language description of what it needs.
