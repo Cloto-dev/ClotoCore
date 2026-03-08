@@ -37,7 +37,7 @@ fn capture_screen() -> Result<String, String> {
     let monitors = Monitor::all().map_err(|e| format!("Failed to enumerate monitors: {}", e))?;
     let primary = monitors
         .into_iter()
-        .find(xcap::Monitor::is_primary)
+        .find(|m| m.is_primary().unwrap_or(false))
         .or_else(|| Monitor::all().ok().and_then(|m| m.into_iter().next()))
         .ok_or_else(|| "No monitor found".to_string())?;
 
