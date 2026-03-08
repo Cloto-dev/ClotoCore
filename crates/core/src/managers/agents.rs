@@ -28,7 +28,10 @@ pub struct AgentManager {
 impl AgentManager {
     #[must_use]
     pub fn new(pool: SqlitePool, heartbeat_threshold_ms: i64) -> Self {
-        Self { pool, heartbeat_threshold_ms }
+        Self {
+            pool,
+            heartbeat_threshold_ms,
+        }
     }
 
     fn row_to_metadata(&self, row: AgentRow) -> AgentMetadata {
@@ -85,7 +88,8 @@ impl AgentManager {
         .fetch_all(&self.pool)
         .await?;
 
-        let agents: Vec<AgentMetadata> = rows.into_iter().map(|r| self.row_to_metadata(r)).collect();
+        let agents: Vec<AgentMetadata> =
+            rows.into_iter().map(|r| self.row_to_metadata(r)).collect();
 
         for agent in &agents {
             debug!(

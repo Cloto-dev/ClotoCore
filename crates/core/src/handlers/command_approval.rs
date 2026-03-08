@@ -150,7 +150,10 @@ async fn collect_untrusted_commands(
 
 /// Process the user's approval decision and return denied call IDs.
 async fn process_approval_decision(
-    decision: Result<Result<CommandApprovalDecision, oneshot::error::RecvError>, tokio::time::error::Elapsed>,
+    decision: Result<
+        Result<CommandApprovalDecision, oneshot::error::RecvError>,
+        tokio::time::error::Elapsed,
+    >,
     approval_id: &str,
     agent_id: &str,
     untrusted_cmds: &[serde_json::Value],

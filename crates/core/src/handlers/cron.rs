@@ -90,7 +90,8 @@ pub async fn create_cron_job(
         last_run_at: None,
         last_status: None,
         last_error: None,
-        max_iterations: max_iterations.or(Some(i32::from(state.config.cron_default_max_iterations))),
+        max_iterations: max_iterations
+            .or(Some(i32::from(state.config.cron_default_max_iterations))),
         created_at: String::new(), // set by DB default
         hide_prompt,
         cron_generation,

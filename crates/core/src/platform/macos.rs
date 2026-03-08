@@ -67,8 +67,7 @@ pub fn install_service(prefix: &Path, _user: Option<&str>) -> anyhow::Result<()>
 
     // Ensure logs directory exists
     let logs_dir = prefix.join("logs");
-    std::fs::create_dir_all(&logs_dir)
-        .context("Failed to create logs directory")?;
+    std::fs::create_dir_all(&logs_dir).context("Failed to create logs directory")?;
 
     info!("Writing launchd plist to {}", plist.display());
     std::fs::write(&plist, &content)

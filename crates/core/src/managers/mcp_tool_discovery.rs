@@ -753,9 +753,7 @@ pub(super) async fn execute_tools_request(
         risk_level_max: preferred_risk,
     };
 
-    let results = manager
-        .rich_tool_index
-        .search_keyword(&query, 10, &filter);
+    let results = manager.rich_tool_index.search_keyword(&query, 10, &filter);
 
     if results.is_empty() {
         return Ok(serde_json::json!({
@@ -1129,8 +1127,7 @@ mod tests {
         }
 
         // Add exactly 1000 tokens (10 tools × 100 tokens)
-        let tools: Vec<(String, usize)> =
-            (0..10).map(|i| (format!("t{i}"), 100)).collect();
+        let tools: Vec<(String, usize)> = (0..10).map(|i| (format!("t{i}"), 100)).collect();
         cache.cache_tools("agent_exact", &tools);
 
         let state = cache.get_session_state("agent_exact").unwrap();
@@ -1156,8 +1153,7 @@ mod tests {
         }
 
         // Fill to 900
-        let tools: Vec<(String, usize)> =
-            (0..9).map(|i| (format!("t{i}"), 100)).collect();
+        let tools: Vec<(String, usize)> = (0..9).map(|i| (format!("t{i}"), 100)).collect();
         cache.cache_tools("agent_over", &tools);
 
         // Wait to establish LRU ordering
@@ -1167,7 +1163,11 @@ mod tests {
         cache.cache_tools("agent_over", &[("t_big".to_string(), 200)]);
 
         let state = cache.get_session_state("agent_over").unwrap();
-        assert!(state.total_tokens <= 1000, "Budget must not be exceeded: {}", state.total_tokens);
+        assert!(
+            state.total_tokens <= 1000,
+            "Budget must not be exceeded: {}",
+            state.total_tokens
+        );
         // The big tool should be present
         assert!(state.cached.contains(&"t_big".to_string()));
         // At least one old tool was evicted
@@ -1284,8 +1284,14 @@ mod tests {
 
         let estimated = estimate_tokens(&schema);
         // 50 properties × ~80 chars each ≈ 4000 chars ÷ 4 ≈ 1000 tokens + overhead
-        assert!(estimated > 500, "Large schema should estimate > 500 tokens, got {estimated}");
-        assert!(estimated < 5000, "Estimate should be reasonable, got {estimated}");
+        assert!(
+            estimated > 500,
+            "Large schema should estimate > 500 tokens, got {estimated}"
+        );
+        assert!(
+            estimated < 5000,
+            "Estimate should be reasonable, got {estimated}"
+        );
     }
 
     /// Stress test: duplicate tool insertion is idempotent (touch only).
@@ -1299,16 +1305,22 @@ mod tests {
         }
 
         let state = cache.get_session_state("agent_dup").unwrap();
-        assert_eq!(state.cached.len(), 1, "Duplicate adds must not create extra entries");
-        assert_eq!(state.total_tokens, 200, "Token count must not grow from duplicates");
+        assert_eq!(
+            state.cached.len(),
+            1,
+            "Duplicate adds must not create extra entries"
+        );
+        assert_eq!(
+            state.total_tokens, 200,
+            "Token count must not grow from duplicates"
+        );
     }
 
     /// Stress test: mass eviction returns correct count.
     #[test]
     fn stress_mass_eviction() {
         let cache = SessionToolCache::new();
-        let tools: Vec<(String, usize)> =
-            (0..100).map(|i| (format!("tool_{i}"), 50)).collect();
+        let tools: Vec<(String, usize)> = (0..100).map(|i| (format!("tool_{i}"), 50)).collect();
         cache.cache_tools("agent_mass", &tools);
 
         // Evict all
@@ -1358,7 +1370,10 @@ mod tests {
         index.add_server_tools("srv", &tools, |_| None);
 
         let results = index.search_keyword("zzzzzyyyy", 50, &ToolSearchFilter::default());
-        assert!(results.is_empty(), "Non-matching query must return no results");
+        assert!(
+            results.is_empty(),
+            "Non-matching query must return no results"
+        );
     }
 
     // ============================================================
@@ -1413,69 +1428,138 @@ mod tests {
         // tts: 3 tools (2-4 params)
         // gaze: 5 tools (3-6 params)
         let server_configs: Vec<(&str, Vec<(&str, &str, usize)>)> = vec![
-            ("tool.terminal", vec![
-                ("execute_command", "Execute a shell command in the terminal", 5),
-                ("read_file", "Read the contents of a file from the filesystem", 3),
-                ("write_file", "Write content to a file on the filesystem", 4),
-                ("list_directory", "List files and directories in a path", 3),
-                ("get_system_info", "Get system information and resource usage", 2),
-            ]),
-            ("tool.agent_utils", vec![
-                ("create_agent", "Create a new agent with specified configuration", 4),
-                ("update_agent", "Update an existing agent's settings", 3),
-                ("delete_agent", "Delete an agent by ID", 2),
-                ("list_agents", "List all registered agents", 2),
-                ("assign_plugin", "Assign a plugin to an agent", 3),
-                ("unassign_plugin", "Remove a plugin assignment from an agent", 3),
-                ("get_agent_status", "Get the current status of an agent", 2),
-                ("set_agent_mode", "Set the operational mode of an agent", 3),
-            ]),
-            ("tool.cron", vec![
-                ("create_schedule", "Create a new scheduled task", 5),
-                ("update_schedule", "Update an existing schedule", 4),
-                ("delete_schedule", "Delete a scheduled task", 2),
-                ("list_schedules", "List all scheduled tasks", 2),
-                ("trigger_schedule", "Manually trigger a scheduled task", 3),
-            ]),
-            ("tool.embedding", vec![
-                ("embed_text", "Generate embeddings for text input", 2),
-                ("embed_batch", "Generate embeddings for multiple texts", 3),
-                ("similarity_search", "Find similar texts using embeddings", 4),
-            ]),
-            ("tool.websearch", vec![
-                ("search_web", "Search the web using a query string", 4),
-                ("fetch_url", "Fetch and extract content from a URL", 3),
-                ("search_news", "Search recent news articles", 3),
-            ]),
-            ("tool.research", vec![
-                ("deep_research", "Conduct deep research on a topic", 5),
-                ("summarize_sources", "Summarize multiple research sources", 4),
-            ]),
-            ("tool.capture", vec![
-                ("screenshot", "Capture a screenshot of the screen", 4),
-                ("screen_region", "Capture a specific region of the screen", 6),
-            ]),
-            ("tool.imagegen", vec![
-                ("generate_image", "Generate an image from text prompt", 6),
-                ("edit_image", "Edit an existing image with instructions", 8),
-                ("upscale_image", "Upscale an image to higher resolution", 5),
-            ]),
-            ("tool.stt", vec![
-                ("transcribe_audio", "Transcribe audio to text", 3),
-                ("transcribe_stream", "Transcribe streaming audio in real-time", 4),
-            ]),
-            ("tool.tts", vec![
-                ("synthesize_speech", "Convert text to speech audio", 4),
-                ("list_voices", "List available TTS voices", 2),
-                ("set_voice", "Set the default TTS voice", 3),
-            ]),
-            ("tool.gaze", vec![
-                ("track_gaze", "Start eye gaze tracking", 3),
-                ("get_gaze_position", "Get current gaze position", 2),
-                ("calibrate", "Run gaze tracker calibration", 4),
-                ("set_sensitivity", "Adjust gaze tracking sensitivity", 3),
-                ("get_heatmap", "Generate a gaze heatmap for a session", 5),
-            ]),
+            (
+                "tool.terminal",
+                vec![
+                    (
+                        "execute_command",
+                        "Execute a shell command in the terminal",
+                        5,
+                    ),
+                    (
+                        "read_file",
+                        "Read the contents of a file from the filesystem",
+                        3,
+                    ),
+                    ("write_file", "Write content to a file on the filesystem", 4),
+                    ("list_directory", "List files and directories in a path", 3),
+                    (
+                        "get_system_info",
+                        "Get system information and resource usage",
+                        2,
+                    ),
+                ],
+            ),
+            (
+                "tool.agent_utils",
+                vec![
+                    (
+                        "create_agent",
+                        "Create a new agent with specified configuration",
+                        4,
+                    ),
+                    ("update_agent", "Update an existing agent's settings", 3),
+                    ("delete_agent", "Delete an agent by ID", 2),
+                    ("list_agents", "List all registered agents", 2),
+                    ("assign_plugin", "Assign a plugin to an agent", 3),
+                    (
+                        "unassign_plugin",
+                        "Remove a plugin assignment from an agent",
+                        3,
+                    ),
+                    ("get_agent_status", "Get the current status of an agent", 2),
+                    ("set_agent_mode", "Set the operational mode of an agent", 3),
+                ],
+            ),
+            (
+                "tool.cron",
+                vec![
+                    ("create_schedule", "Create a new scheduled task", 5),
+                    ("update_schedule", "Update an existing schedule", 4),
+                    ("delete_schedule", "Delete a scheduled task", 2),
+                    ("list_schedules", "List all scheduled tasks", 2),
+                    ("trigger_schedule", "Manually trigger a scheduled task", 3),
+                ],
+            ),
+            (
+                "tool.embedding",
+                vec![
+                    ("embed_text", "Generate embeddings for text input", 2),
+                    ("embed_batch", "Generate embeddings for multiple texts", 3),
+                    (
+                        "similarity_search",
+                        "Find similar texts using embeddings",
+                        4,
+                    ),
+                ],
+            ),
+            (
+                "tool.websearch",
+                vec![
+                    ("search_web", "Search the web using a query string", 4),
+                    ("fetch_url", "Fetch and extract content from a URL", 3),
+                    ("search_news", "Search recent news articles", 3),
+                ],
+            ),
+            (
+                "tool.research",
+                vec![
+                    ("deep_research", "Conduct deep research on a topic", 5),
+                    (
+                        "summarize_sources",
+                        "Summarize multiple research sources",
+                        4,
+                    ),
+                ],
+            ),
+            (
+                "tool.capture",
+                vec![
+                    ("screenshot", "Capture a screenshot of the screen", 4),
+                    (
+                        "screen_region",
+                        "Capture a specific region of the screen",
+                        6,
+                    ),
+                ],
+            ),
+            (
+                "tool.imagegen",
+                vec![
+                    ("generate_image", "Generate an image from text prompt", 6),
+                    ("edit_image", "Edit an existing image with instructions", 8),
+                    ("upscale_image", "Upscale an image to higher resolution", 5),
+                ],
+            ),
+            (
+                "tool.stt",
+                vec![
+                    ("transcribe_audio", "Transcribe audio to text", 3),
+                    (
+                        "transcribe_stream",
+                        "Transcribe streaming audio in real-time",
+                        4,
+                    ),
+                ],
+            ),
+            (
+                "tool.tts",
+                vec![
+                    ("synthesize_speech", "Convert text to speech audio", 4),
+                    ("list_voices", "List available TTS voices", 2),
+                    ("set_voice", "Set the default TTS voice", 3),
+                ],
+            ),
+            (
+                "tool.gaze",
+                vec![
+                    ("track_gaze", "Start eye gaze tracking", 3),
+                    ("get_gaze_position", "Get current gaze position", 2),
+                    ("calibrate", "Run gaze tracker calibration", 4),
+                    ("set_sensitivity", "Adjust gaze tracking sensitivity", 3),
+                    ("get_heatmap", "Generate a gaze heatmap for a session", 5),
+                ],
+            ),
         ];
 
         let mut total_tools = 0;
@@ -1496,7 +1580,11 @@ mod tests {
         let full_injection_tokens: usize = all_entries.iter().map(|e| e.estimated_tokens).sum();
 
         // Simulate a typical task: agent needs terminal + websearch (8 tools out of 41)
-        let task_results = index.search_keyword("execute command file search web", 8, &ToolSearchFilter::default());
+        let task_results = index.search_keyword(
+            "execute command file search web",
+            8,
+            &ToolSearchFilter::default(),
+        );
 
         let session_tokens: usize = task_results.iter().map(|(e, _)| e.estimated_tokens).sum();
 
@@ -1508,16 +1596,29 @@ mod tests {
 
         // Print measurement results (visible in test output with --nocapture)
         eprintln!("\n=== Context Reduction Measurement ===");
-        eprintln!("Total tools across {} servers: {}", server_configs.len(), total_tools);
+        eprintln!(
+            "Total tools across {} servers: {}",
+            server_configs.len(),
+            total_tools
+        );
         eprintln!("Full injection tokens: {}", full_injection_tokens);
-        eprintln!("Session cache tokens (8 task-relevant tools): {}", session_tokens);
+        eprintln!(
+            "Session cache tokens (8 task-relevant tools): {}",
+            session_tokens
+        );
         eprintln!("Reduction: {:.1}%", reduction_pct);
-        eprintln!("Budget: {} tokens (session uses {:.1}% of budget)",
-            DEFAULT_MAX_TOKENS, (session_tokens as f64 / DEFAULT_MAX_TOKENS as f64) * 100.0);
+        eprintln!(
+            "Budget: {} tokens (session uses {:.1}% of budget)",
+            DEFAULT_MAX_TOKENS,
+            (session_tokens as f64 / DEFAULT_MAX_TOKENS as f64) * 100.0
+        );
         eprintln!("=====================================\n");
 
         // Assertions: meaningful reduction must be achieved
-        assert!(total_tools >= 40, "Realistic deployment should have 40+ tools, got {total_tools}");
+        assert!(
+            total_tools >= 40,
+            "Realistic deployment should have 40+ tools, got {total_tools}"
+        );
         assert!(
             reduction_pct >= 50.0,
             "Context reduction must be at least 50% for typical task, got {reduction_pct:.1}%"
@@ -1555,14 +1656,23 @@ mod tests {
         let full_tokens: usize = all_entries.iter().map(|e| e.estimated_tokens).sum();
 
         // Heavy task: agent wants 20 tools (worst case but still selective)
-        let results = index.search_keyword("data processing action", 20, &ToolSearchFilter::default());
+        let results =
+            index.search_keyword("data processing action", 20, &ToolSearchFilter::default());
         let session_tokens: usize = results.iter().map(|(e, _)| e.estimated_tokens).sum();
 
         let reduction_pct = ((full_tokens - session_tokens) as f64 / full_tokens as f64) * 100.0;
 
         eprintln!("\n=== Context Reduction (Heavy Task) ===");
-        eprintln!("Total tools: {}, Full tokens: {}", index.total_count(), full_tokens);
-        eprintln!("Requested tools: {}, Session tokens: {}", results.len(), session_tokens);
+        eprintln!(
+            "Total tools: {}, Full tokens: {}",
+            index.total_count(),
+            full_tokens
+        );
+        eprintln!(
+            "Requested tools: {}, Session tokens: {}",
+            results.len(),
+            session_tokens
+        );
         eprintln!("Reduction: {:.1}%", reduction_pct);
         eprintln!("=======================================\n");
 
@@ -1587,7 +1697,8 @@ mod tests {
 
         eprintln!("\n=== Token Estimation Accuracy ===");
         for (name, params, min, max) in &test_cases {
-            let tool = make_realistic_tool(name, &format!("A tool with {params} parameters"), *params);
+            let tool =
+                make_realistic_tool(name, &format!("A tool with {params} parameters"), *params);
             let tokens = estimate_tokens(&tool.input_schema) + SCHEMA_OVERHEAD_TOKENS;
             eprintln!("  {name} ({params} params): {tokens} tokens");
             assert!(

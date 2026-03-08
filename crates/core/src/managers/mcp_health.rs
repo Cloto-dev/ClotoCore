@@ -55,7 +55,10 @@ async fn check_and_restart_dead_servers(manager: &McpClientManager) {
     };
 
     for (server_id, status, policy) in dead_servers {
-        if !manager.lifecycle.should_restart(&server_id, &policy, &status) {
+        if !manager
+            .lifecycle
+            .should_restart(&server_id, &policy, &status)
+        {
             debug!(
                 server_id = %server_id,
                 strategy = ?policy.strategy,
