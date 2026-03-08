@@ -68,7 +68,10 @@ pub fn spawn_audit_log(pool: SqlitePool, entry: AuditLogEntry) {
                 }
             }
         }
-        tracing::error!("Audit log entry permanently lost after {} attempts", AUDIT_MAX_RETRIES);
+        tracing::error!(
+            "Audit log entry permanently lost after {} attempts",
+            AUDIT_MAX_RETRIES
+        );
     });
 }
 
