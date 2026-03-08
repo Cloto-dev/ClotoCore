@@ -53,7 +53,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI3NkFDNzdFQUQ3REZGQUQKUldTdC8zMnRmc2RxSis4MURQamx5SVA2TkxBS2VpZ1pNazFWK2kyQ25lVk1DSWxCbXJmbHNDV0UK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUxMDY3QTQ2RDdENThDQzkKUldUSmpOWFhSbm9HNGVYRDZ3K2F4cDBlMjFYblhBVUl1UmVub3R2MDV6NVVTcWN3cDVVUG1LY24K",
       "endpoints": [
         "https://github.com/Cloto-dev/ClotoCore/releases/latest/download/latest.json"
       ]
