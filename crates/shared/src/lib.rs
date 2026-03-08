@@ -480,6 +480,13 @@ pub enum ClotoEventData {
         duration_ms: u64,
         iteration: u8,
     },
+    /// Intermediate reasoning text from the LLM before executing tool calls.
+    AgentThinking {
+        agent_id: String,
+        engine_id: String,
+        content: String,
+        iteration: u8,
+    },
     /// An agentic loop completed (all tool calls resolved).
     AgenticLoopCompleted {
         agent_id: String,

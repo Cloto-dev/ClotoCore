@@ -896,6 +896,19 @@ impl SystemHandler {
                     });
                     if let Some(ref content) = assistant_content {
                         assistant_msg["content"] = serde_json::json!(content);
+                        // Emit thinking event so the frontend can show intermediate reasoning
+                        if !content.is_empty() {
+                            self.emit_event(
+                                trace_id,
+                                ClotoEventData::AgentThinking {
+                                    agent_id: agent.id.clone(),
+                                    engine_id: engine_id.to_string(),
+                                    content: content.clone(),
+                                    iteration,
+                                },
+                            )
+                            .await;
+                        }
                     }
                     tool_history.push(assistant_msg);
 
