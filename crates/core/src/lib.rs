@@ -346,7 +346,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // It is passed directly to EventProcessor instead.
 
     // Load MCP servers from config file (mcp.toml)
-    {
+    // Priority boot: connect default agent's granted servers first, defer the rest.
+    let deferred_mcp_configs = {
         let config_path = config.mcp_config_path.clone().unwrap_or_else(|| {
             config::exe_dir()
                 .join("data")
@@ -367,10 +368,44 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 managers::McpClientManager::resolve_project_path(fallback).unwrap_or(config_path)
             }
         };
-        if let Err(e) = mcp_manager.load_config_file(&config_path).await {
-            tracing::warn!(error = %e, "Failed to load MCP config file");
+
+        match mcp_manager.parse_config_file(&config_path) {
+            Ok(all_configs) => {
+                // Get default agent's granted server IDs for priority boot
+                let granted_ids = agent_manager
+                    .get_granted_server_ids(&config.default_agent_id)
+                    .await
+                    .unwrap_or_default();
+
+                let (priority, deferred): (Vec<_>, Vec<_>) = all_configs
+                    .into_iter()
+                    .partition(|c| granted_ids.contains(&c.id));
+
+                if !priority.is_empty() {
+                    info!(
+                        count = priority.len(),
+                        agent = %config.default_agent_id,
+                        "⚡ Priority boot: connecting granted MCP servers"
+                    );
+                    mcp_manager.connect_server_configs(&priority).await;
+                }
+
+                if !deferred.is_empty() {
+                    info!(
+                        count = deferred.len(),
+                        "⏳ Deferring {} non-priority MCP server(s) to background",
+                        deferred.len()
+                    );
+                }
+
+                deferred
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to parse MCP config file");
+                Vec::new()
+            }
         }
-    }
+    };
 
     // Restore persisted dynamic MCP servers from database
     if let Err(e) = mcp_manager.restore_from_db().await {
@@ -465,7 +500,24 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         app_state.shutdown.clone(),
     );
 
-    // 6b. MCP health monitor — auto-restart dead servers (bug-142)
+    // 6b. MCP deferred boot — connect non-priority servers in background
+    if !deferred_mcp_configs.is_empty() {
+        let deferred_mcp = mcp_manager.clone();
+        let deferred_shutdown = app_state.shutdown.clone();
+        tokio::spawn(async move {
+            // Brief yield to let the HTTP server start accepting connections
+            tokio::task::yield_now().await;
+            info!(
+                count = deferred_mcp_configs.len(),
+                "🔌 Background: connecting deferred MCP servers"
+            );
+            deferred_mcp.connect_server_configs(&deferred_mcp_configs).await;
+            let _ = &deferred_shutdown; // hold reference to prevent premature shutdown
+            info!("✅ Background MCP server boot complete");
+        });
+    }
+
+    // 6b2. MCP health monitor — auto-restart dead servers (bug-142)
     Arc::clone(&mcp_manager).spawn_health_monitor(app_state.shutdown.clone());
 
     // 6b2. MCP notification listener — forward Server→Kernel notifications to event bus
@@ -702,6 +754,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         )
         .route("/mcp/servers/:name/start", post(handlers::start_mcp_server))
         .route("/mcp/servers/:name/stop", post(handlers::stop_mcp_server))
+        // Direct tool call for coordinator-pattern servers (MGP §5.6, §19.1)
+        .route("/mcp/call", post(handlers::call_mcp_tool))
         // Settings
         .route(
             "/settings/yolo",

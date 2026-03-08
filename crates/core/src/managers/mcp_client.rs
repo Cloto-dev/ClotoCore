@@ -242,9 +242,13 @@ impl McpClient {
         info!("MCP Initialized: {:?}", result);
 
         // Extract MGP server capabilities from response (if present)
+        // Primary: capabilities.mgp (direct). Fallback: capabilities.experimental.mgp (Python SDK compatible)
         let mgp_server_caps = result
             .get("capabilities")
-            .and_then(|caps| caps.get("mgp"))
+            .and_then(|caps| {
+                caps.get("mgp")
+                    .or_else(|| caps.get("experimental").and_then(|exp| exp.get("mgp")))
+            })
             .and_then(|mgp| serde_json::from_value::<MgpServerCapabilities>(mgp.clone()).ok());
 
         Ok(mgp_server_caps)

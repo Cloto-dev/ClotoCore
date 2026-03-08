@@ -228,6 +228,17 @@ pub(super) fn kernel_tool_schema() -> Value {
                             "You may add helper functions and use httpx for HTTP requests. ",
                             "Do not include imports already provided (asyncio, json, mcp.server, mcp.types).",
                         )
+                    },
+                    "server_type": {
+                        "type": "string",
+                        "enum": ["basic", "coordinator"],
+                        "description": concat!(
+                            "Server type. 'basic' (default): standard MGP server. ",
+                            "'coordinator': adds delegate() helper for calling other MCP servers ",
+                            "via the kernel API (MGP §5.6, §19.1). Coordinator servers receive ",
+                            "CLOTO_KERNEL_URL and CLOTO_API_KEY as environment variables.",
+                        ),
+                        "default": "basic"
                     }
                 },
                 "required": ["name", "description", "code"]
@@ -262,6 +273,16 @@ pub(super) async fn execute_create_mcp_server(
         .get("code")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: code"))?;
+    let server_type = args
+        .get("server_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("basic");
+    if server_type != "basic" && server_type != "coordinator" {
+        return Err(anyhow::anyhow!(
+            "Invalid server_type '{}': must be 'basic' or 'coordinator'",
+            server_type
+        ));
+    }
 
     // Validate name (same rules as handlers.rs)
     if name.is_empty() || name.len() > 64 {
@@ -299,9 +320,93 @@ pub(super) async fn execute_create_mcp_server(
         }));
     }
 
-    // Generate script from template
-    let script = format!(
-        r#""""MCP Server: {name} — {desc}"""
+    // Generate script from template (MGP-capable)
+    let server_id = format!("agent.{name}");
+    let mgp_version = super::mcp_mgp::MGP_VERSION;
+    let desc_escaped = description.replace('"', r#"\""#);
+
+    let script = if server_type == "coordinator" {
+        format!(
+            r#""""MGP Coordinator Server: {name} — {desc}"""
+import asyncio
+import json
+import os
+import datetime
+import httpx
+
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import TextContent, Tool
+
+app = Server("{name}")
+
+KERNEL_URL = os.environ.get("CLOTO_KERNEL_URL", "http://127.0.0.1:8081")
+
+
+async def delegate(server_id: str, tool_name: str, arguments: dict,
+                   original_actor: str, chain: list = None) -> dict:
+    """Delegate a tool call to another MCP server via the kernel (MGP section 5.6)."""
+    delegation_chain = list(chain or [])
+    delegation_chain.append({{
+        "server_id": "{server_id}",
+        "tool_name": tool_name,
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z"
+    }})
+    if len(delegation_chain) > 3:
+        raise ValueError("Delegation chain depth exceeds maximum of 3")
+    payload = {{
+        "server_id": server_id,
+        "tool_name": tool_name,
+        "arguments": {{
+            **arguments,
+            "_mgp": {{
+                "delegation": {{
+                    "original_actor": original_actor,
+                    "delegated_via": "{server_id}",
+                    "chain": delegation_chain
+                }}
+            }}
+        }}
+    }}
+    api_key = os.environ.get("CLOTO_API_KEY", "")
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{{KERNEL_URL}}/api/mcp/call",
+            json=payload,
+            headers={{"X-API-Key": api_key}}
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+{code}
+
+async def main():
+    init_options = app.create_initialization_options()
+    if init_options.capabilities:
+        init_options.capabilities.experimental = {{
+            "mgp": {{
+                "version": "{mgp_version}",
+                "extensions": ["tool_security", "delegation"],
+                "server_id": "{server_id}",
+                "trust_level": "untrusted"
+            }}
+        }}
+    async with stdio_server() as (read, write):
+        await app.run(read, write, init_options)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+"#,
+            name = name,
+            desc = desc_escaped,
+            code = code,
+            mgp_version = mgp_version,
+            server_id = server_id,
+        )
+    } else {
+        format!(
+            r#""""MCP Server: {name} — {desc}"""
 import asyncio
 import json
 
@@ -314,16 +419,29 @@ app = Server("{name}")
 {code}
 
 async def main():
+    init_options = app.create_initialization_options()
+    if init_options.capabilities:
+        init_options.capabilities.experimental = {{
+            "mgp": {{
+                "version": "{mgp_version}",
+                "extensions": ["tool_security"],
+                "server_id": "{server_id}",
+                "trust_level": "untrusted"
+            }}
+        }}
     async with stdio_server() as (read, write):
-        await app.run(read, write, app.create_initialization_options())
+        await app.run(read, write, init_options)
 
 if __name__ == "__main__":
     asyncio.run(main())
 "#,
-        name = name,
-        desc = description.replace('"', r#"\""#),
-        code = code,
-    );
+            name = name,
+            desc = desc_escaped,
+            code = code,
+            mgp_version = mgp_version,
+            server_id = server_id,
+        )
+    };
 
     // Write script file
     let scripts_dir = std::path::Path::new("scripts");
@@ -335,8 +453,23 @@ if __name__ == "__main__":
     std::fs::write(&script_path, &script)
         .map_err(|e| anyhow::anyhow!("Failed to write script: {}", e))?;
 
+    // Build env vars (coordinator servers get kernel URL for delegation calls)
+    let mut env = std::collections::HashMap::new();
+    if server_type == "coordinator" {
+        let port = std::env::var("PORT").unwrap_or_else(|_| "8081".to_string());
+        env.insert(
+            "CLOTO_KERNEL_URL".to_string(),
+            format!("http://127.0.0.1:{}", port),
+        );
+        if let Ok(api_key) = std::env::var("CLOTO_API_KEY") {
+            env.insert("CLOTO_API_KEY".to_string(), api_key);
+        }
+    }
+
     // Register and connect the server
-    let server_id = format!("agent.{name}");
+    let mgp_config = Some(super::mcp_mgp::MgpServerConfig {
+        trust_level: Some("untrusted".to_string()),
+    });
     let tool_names = manager
         .add_dynamic_server(
             server_id.clone(),
@@ -344,6 +477,8 @@ if __name__ == "__main__":
             vec![script_path.to_string_lossy().to_string()],
             Some(script),
             Some(description.to_string()),
+            mgp_config,
+            env,
         )
         .await
         .map_err(|e| anyhow::anyhow!("Failed to start server: {}", e))?;
