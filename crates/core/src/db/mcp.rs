@@ -94,6 +94,14 @@ pub async fn save_access_control_entry(
     pool: &SqlitePool,
     entry: &AccessControlEntry,
 ) -> anyhow::Result<i64> {
+    // Ensure the server exists in mcp_servers (config-loaded servers may not be persisted yet)
+    sqlx::query(
+        "INSERT OR IGNORE INTO mcp_servers (name, command, args, created_at) VALUES (?, 'config-loaded', '[]', strftime('%s', 'now'))",
+    )
+    .bind(&entry.server_id)
+    .execute(pool)
+    .await?;
+
     db_timeout(
         sqlx::query_scalar::<_, i64>(
             "INSERT INTO mcp_access_control \
@@ -157,6 +165,15 @@ pub async fn put_access_entries(
 ) -> anyhow::Result<()> {
     db_timeout_op(async {
         let mut tx = pool.begin().await.map_err(|e| anyhow::anyhow!("Failed to begin transaction: {}", e))?;
+
+        // Ensure the server exists in mcp_servers (config-loaded servers may not be persisted yet)
+        sqlx::query(
+            "INSERT OR IGNORE INTO mcp_servers (name, command, args, created_at) VALUES (?, 'config-loaded', '[]', strftime('%s', 'now'))",
+        )
+        .bind(server_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to ensure server record: {}", e))?;
 
         // Delete existing server_grant and tool_grant entries (preserve capability entries)
         sqlx::query(
