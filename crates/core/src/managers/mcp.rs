@@ -1794,8 +1794,8 @@ mod tests {
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
-        // 5 Tier 2 + 8 Tier 3 = 13 Tier 1-3 tools + 2 Tier 4 meta-tools = 15
-        assert_eq!(schemas.len(), 15, "Should have 15 kernel tools total (13 + 2 meta-tools)");
+        // 5 Tier 2 + 8 Tier 3 = 13 Tier 1-3 + 3 discovery + 2 session = 18 YOLO tools + 2 meta-tools = 20
+        assert_eq!(schemas.len(), 20, "Should have 20 kernel tools total (18 YOLO + 2 meta-tools)");
     }
 
     #[tokio::test]

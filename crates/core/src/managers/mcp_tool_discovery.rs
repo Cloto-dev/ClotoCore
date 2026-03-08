@@ -566,7 +566,7 @@ pub(super) fn tools_request_schema() -> Value {
     })
 }
 
-fn tools_session_schema() -> Value {
+pub(super) fn tools_session_schema() -> Value {
     serde_json::json!({
         "type": "function",
         "function": {
@@ -580,7 +580,7 @@ fn tools_session_schema() -> Value {
     })
 }
 
-fn tools_session_evict_schema() -> Value {
+pub(super) fn tools_session_evict_schema() -> Value {
     serde_json::json!({
         "type": "function",
         "function": {
