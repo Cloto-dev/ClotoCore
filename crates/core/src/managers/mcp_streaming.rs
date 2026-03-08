@@ -98,9 +98,7 @@ pub(super) async fn cancel_stream(
         "request_id": request_id,
         "reason": reason,
     });
-    let result = client
-        .call("mgp/stream/cancel", Some(params))
-        .await?;
+    let result = client.call("mgp/stream/cancel", Some(params)).await?;
 
     debug!(server = %server_id, request_id = %request_id, reason = %reason, "Stream cancel sent");
     Ok(result)

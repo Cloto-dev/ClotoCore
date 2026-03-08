@@ -207,10 +207,18 @@ pub struct RestartPolicy {
     pub backoff_max_ms: u64,
 }
 
-fn default_max_restarts() -> u32 { 5 }
-fn default_restart_window_secs() -> u64 { 300 }
-fn default_backoff_base_ms() -> u64 { 1000 }
-fn default_backoff_max_ms() -> u64 { 30000 }
+fn default_max_restarts() -> u32 {
+    5
+}
+fn default_restart_window_secs() -> u64 {
+    300
+}
+fn default_backoff_base_ms() -> u64 {
+    1000
+}
+fn default_backoff_max_ms() -> u64 {
+    30000
+}
 
 impl Default for RestartPolicy {
     fn default() -> Self {

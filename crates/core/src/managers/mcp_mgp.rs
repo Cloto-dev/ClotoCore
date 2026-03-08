@@ -27,9 +27,9 @@ pub const CLIENT_EXTENSIONS: &[&str] = &[
     "progress",
     "events",
     "callbacks",
-    "discovery",       // Tier 4: §15 Server Discovery
-    "tool_discovery",  // Tier 4: §16 Dynamic Tool Discovery
-    "delegation",      // §5.6 Delegated Execution
+    "discovery",      // Tier 4: §15 Server Discovery
+    "tool_discovery", // Tier 4: §16 Dynamic Tool Discovery
+    "delegation",     // §5.6 Delegated Execution
 ];
 
 // ============================================================
@@ -420,7 +420,11 @@ mod tests {
     fn derive_risk_experimental_sandbox() {
         // max(Dangerous, Moderate, Safe) = Dangerous
         assert_eq!(
-            derive_effective_risk_level(TrustLevel::Experimental, Some("sandbox"), PermissionRiskClass::Safe),
+            derive_effective_risk_level(
+                TrustLevel::Experimental,
+                Some("sandbox"),
+                PermissionRiskClass::Safe
+            ),
             RiskLevel::Dangerous
         );
     }
@@ -437,19 +441,35 @@ mod tests {
     fn derive_risk_validator_mappings() {
         // §4.6: readonly→Safe, sandbox→Moderate, none→Dangerous
         assert_eq!(
-            derive_effective_risk_level(TrustLevel::Core, Some("readonly"), PermissionRiskClass::Safe),
+            derive_effective_risk_level(
+                TrustLevel::Core,
+                Some("readonly"),
+                PermissionRiskClass::Safe
+            ),
             RiskLevel::Safe
         );
         assert_eq!(
-            derive_effective_risk_level(TrustLevel::Core, Some("sandbox"), PermissionRiskClass::Safe),
+            derive_effective_risk_level(
+                TrustLevel::Core,
+                Some("sandbox"),
+                PermissionRiskClass::Safe
+            ),
             RiskLevel::Moderate
         );
         assert_eq!(
-            derive_effective_risk_level(TrustLevel::Core, Some("network_restricted"), PermissionRiskClass::Safe),
+            derive_effective_risk_level(
+                TrustLevel::Core,
+                Some("network_restricted"),
+                PermissionRiskClass::Safe
+            ),
             RiskLevel::Moderate
         );
         assert_eq!(
-            derive_effective_risk_level(TrustLevel::Core, Some("code_safety"), PermissionRiskClass::Safe),
+            derive_effective_risk_level(
+                TrustLevel::Core,
+                Some("code_safety"),
+                PermissionRiskClass::Safe
+            ),
             RiskLevel::Moderate
         );
         assert_eq!(
@@ -524,8 +544,12 @@ mod tests {
         };
         let result = negotiate(Some(&server), None).unwrap();
         // Tier 2: both tool_security and permissions are now in CLIENT_EXTENSIONS
-        assert!(result.active_extensions.contains(&"tool_security".to_string()));
-        assert!(result.active_extensions.contains(&"permissions".to_string()));
+        assert!(result
+            .active_extensions
+            .contains(&"tool_security".to_string()));
+        assert!(result
+            .active_extensions
+            .contains(&"permissions".to_string()));
         // No config_trust → falls through to server declaration
         assert_eq!(result.trust_level, TrustLevel::Standard);
     }
@@ -578,11 +602,26 @@ mod tests {
 
     #[test]
     fn code_safety_level_from_str_lossy() {
-        assert_eq!(CodeSafetyLevel::from_str_lossy("unrestricted"), CodeSafetyLevel::Unrestricted);
-        assert_eq!(CodeSafetyLevel::from_str_lossy("strict"), CodeSafetyLevel::Strict);
-        assert_eq!(CodeSafetyLevel::from_str_lossy("readonly"), CodeSafetyLevel::Readonly);
-        assert_eq!(CodeSafetyLevel::from_str_lossy("unknown"), CodeSafetyLevel::Standard);
-        assert_eq!(CodeSafetyLevel::from_str_lossy(""), CodeSafetyLevel::Standard);
+        assert_eq!(
+            CodeSafetyLevel::from_str_lossy("unrestricted"),
+            CodeSafetyLevel::Unrestricted
+        );
+        assert_eq!(
+            CodeSafetyLevel::from_str_lossy("strict"),
+            CodeSafetyLevel::Strict
+        );
+        assert_eq!(
+            CodeSafetyLevel::from_str_lossy("readonly"),
+            CodeSafetyLevel::Readonly
+        );
+        assert_eq!(
+            CodeSafetyLevel::from_str_lossy("unknown"),
+            CodeSafetyLevel::Standard
+        );
+        assert_eq!(
+            CodeSafetyLevel::from_str_lossy(""),
+            CodeSafetyLevel::Standard
+        );
     }
 
     #[test]

@@ -44,7 +44,11 @@ impl PluginManager {
 
     /// Initialize the plugin registry (no Rust SDK plugins — all external plugins are MCP).
     pub async fn initialize_all(&self) -> anyhow::Result<PluginRegistry> {
-        let registry = PluginRegistry::new(self.event_timeout_secs, self.max_event_depth, self.event_concurrency_limit);
+        let registry = PluginRegistry::new(
+            self.event_timeout_secs,
+            self.max_event_depth,
+            self.event_concurrency_limit,
+        );
         info!("✅ Plugin registry initialized (MCP-only mode)");
         Ok(registry)
     }

@@ -3,7 +3,9 @@
 //! Each `McpClient` manages a single MCP server connection over stdio transport,
 //! handling initialization, tool calls, notifications, and shutdown.
 
-use super::mcp_mgp::{MgpClientCapabilities, MgpServerCapabilities, MGP_VERSION, CLIENT_EXTENSIONS};
+use super::mcp_mgp::{
+    MgpClientCapabilities, MgpServerCapabilities, CLIENT_EXTENSIONS, MGP_VERSION,
+};
 use super::mcp_protocol::{
     CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, ClotoHandshakeParams,
     ClotoHandshakeResult, InitializeParams, JsonRpcRequest, ListToolsResult,
@@ -131,7 +133,9 @@ impl McpClient {
                                 || notif.method == "notifications/mgp.stream.progress";
                             if is_stream {
                                 if let Some(ref params) = notif.params {
-                                    if let Some(req_id) = params.get("request_id").and_then(|v| v.as_i64()) {
+                                    if let Some(req_id) =
+                                        params.get("request_id").and_then(|v| v.as_i64())
+                                    {
                                         let collectors = stream_collectors.lock().await;
                                         if let Some(tx) = collectors.get(&req_id) {
                                             let _ = tx.try_send(params.clone());
@@ -290,7 +294,10 @@ impl McpClient {
         &self,
         name: &str,
         args: Value,
-    ) -> Result<(mpsc::Receiver<Value>, oneshot::Receiver<Result<CallToolResult>>)> {
+    ) -> Result<(
+        mpsc::Receiver<Value>,
+        oneshot::Receiver<Result<CallToolResult>>,
+    )> {
         use super::mcp_protocol::CallToolParams;
 
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
