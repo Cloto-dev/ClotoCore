@@ -1,7 +1,7 @@
-//! Kernel-native `create_mcp_server` tool implementation.
+//! Kernel-native tool implementations.
 //!
-//! Allows agents to dynamically create MCP servers at runtime by generating
-//! Python code, validating it against security rules, and spawning a new process.
+//! Includes `create_mcp_server` (dynamic MCP server creation) and `ask_agent`
+//! (inter-agent delegation for specialist consultation).
 
 use super::mcp::McpClientManager;
 use super::mcp_tool_validator::{
@@ -33,6 +33,8 @@ pub(super) fn kernel_tool_schemas() -> Vec<Value> {
         events_replay_schema(),
         // Tier 3: Callbacks
         callback_respond_schema(),
+        // Inter-agent delegation
+        ask_agent_schema(),
     ];
     // Tier 4: Discovery (§15)
     schemas.extend(super::mcp_discovery::discovery_tool_schemas());
@@ -50,7 +52,6 @@ pub(super) fn llm_meta_tool_schemas() -> Vec<Value> {
         super::mcp_tool_discovery::tools_request_schema(),
     ]
 }
-
 
 fn access_query_schema() -> Value {
     serde_json::json!({
@@ -503,10 +504,7 @@ if __name__ == "__main__":
 // ============================================================
 
 /// Execute mgp.access.query — query access entries or resolve tool access.
-pub(super) async fn execute_access_query(
-    manager: &McpClientManager,
-    args: Value,
-) -> Result<Value> {
+pub(super) async fn execute_access_query(manager: &McpClientManager, args: Value) -> Result<Value> {
     if !manager.yolo_mode.load(Ordering::Relaxed) {
         return Ok(serde_json::json!({
             "status": "rejected",
@@ -527,7 +525,8 @@ pub(super) async fn execute_access_query(
 
     // If tool_name provided → resolve specific tool access
     if let Some(tn) = tool_name {
-        let permission = crate::db::resolve_tool_access(manager.pool(), agent_id, server_id, tn).await?;
+        let permission =
+            crate::db::resolve_tool_access(manager.pool(), agent_id, server_id, tn).await?;
         return Ok(serde_json::json!({
             "agent_id": agent_id,
             "server_id": server_id,
@@ -561,10 +560,7 @@ pub(super) async fn execute_access_query(
 }
 
 /// Execute mgp.access.grant — create an access control entry.
-pub(super) async fn execute_access_grant(
-    manager: &McpClientManager,
-    args: Value,
-) -> Result<Value> {
+pub(super) async fn execute_access_grant(manager: &McpClientManager, args: Value) -> Result<Value> {
     if !manager.yolo_mode.load(Ordering::Relaxed) {
         return Ok(serde_json::json!({
             "status": "rejected",
@@ -664,14 +660,9 @@ pub(super) async fn execute_access_revoke(
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: entry_type"))?;
     let tool_name = args.get("tool_name").and_then(|v| v.as_str());
 
-    let deleted = crate::db::delete_access_entry(
-        manager.pool(),
-        agent_id,
-        server_id,
-        entry_type,
-        tool_name,
-    )
-    .await?;
+    let deleted =
+        crate::db::delete_access_entry(manager.pool(), agent_id, server_id, entry_type, tool_name)
+            .await?;
 
     // Audit log
     crate::db::spawn_audit_log(
@@ -708,10 +699,7 @@ pub(super) async fn execute_access_revoke(
 // ============================================================
 
 /// Execute mgp.audit.replay — replay audit log entries.
-pub(super) async fn execute_audit_replay(
-    manager: &McpClientManager,
-    args: Value,
-) -> Result<Value> {
+pub(super) async fn execute_audit_replay(manager: &McpClientManager, args: Value) -> Result<Value> {
     if !manager.yolo_mode.load(Ordering::Relaxed) {
         return Ok(serde_json::json!({
             "status": "rejected",
@@ -723,13 +711,9 @@ pub(super) async fn execute_audit_replay(
     let since_timestamp = args.get("since_timestamp").and_then(|v| v.as_str());
     let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
 
-    let entries = crate::db::query_audit_logs_since(
-        manager.pool(),
-        since_seq,
-        since_timestamp,
-        limit,
-    )
-    .await?;
+    let entries =
+        crate::db::query_audit_logs_since(manager.pool(), since_seq, since_timestamp, limit)
+            .await?;
 
     let events_json: Vec<Value> = entries
         .iter()
@@ -840,10 +824,7 @@ fn lifecycle_shutdown_schema() -> Value {
 }
 
 /// Execute mgp.health.ping — check server liveness.
-pub(super) async fn execute_health_ping(
-    manager: &McpClientManager,
-    args: Value,
-) -> Result<Value> {
+pub(super) async fn execute_health_ping(manager: &McpClientManager, args: Value) -> Result<Value> {
     let server_id = args
         .get("server_id")
         .and_then(|v| v.as_str())
@@ -858,10 +839,7 @@ pub(super) async fn execute_health_ping(
     };
 
     let start = std::time::Instant::now();
-    let is_alive = handle
-        .client
-        .as_ref()
-        .is_some_and(|c| c.is_alive());
+    let is_alive = handle.client.as_ref().is_some_and(|c| c.is_alive());
     let _elapsed_ms = start.elapsed().as_millis();
 
     let health = if is_alive && handle.status.is_operational() {
@@ -1001,7 +979,8 @@ pub(super) async fn execute_stream_cancel(
         .and_then(|v| v.as_str())
         .unwrap_or("user_cancelled");
 
-    let result = super::mcp_streaming::cancel_stream(manager, server_id, request_id, reason).await?;
+    let result =
+        super::mcp_streaming::cancel_stream(manager, server_id, request_id, reason).await?;
 
     Ok(serde_json::json!({
         "server_id": server_id,
@@ -1150,4 +1129,258 @@ pub(super) async fn execute_callback_respond(
     args: Value,
 ) -> Result<Value> {
     super::mcp_events::respond_to_callback(manager, args).await
+}
+
+// ── Inter-Agent Delegation ──
+
+/// Schema for `ask_agent` — inter-agent question/delegation tool.
+fn ask_agent_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "ask_agent",
+            "description": "Ask another agent a question or delegate a task. The target agent processes the prompt using its own LLM engine and system prompt, then returns a response. Context isolation is enforced: the target agent cannot see the caller's conversation history.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_agent_id": {
+                        "type": "string",
+                        "description": "The ID of the agent to ask (e.g., 'agent.chef', 'agent.reviewer'). Use the agent list to discover available agents."
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "The question or task to send to the target agent"
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Optional additional context to include with the prompt"
+                    }
+                },
+                "required": ["target_agent_id", "prompt"]
+            }
+        }
+    })
+}
+
+/// Maximum delegation chain depth (prevents infinite delegation loops).
+const MAX_DELEGATION_DEPTH: usize = 3;
+
+/// Execute `ask_agent` — delegate a question/task to another agent.
+///
+/// The calling agent's `agent_id` is injected by the kernel (anti-spoofing).
+/// The target agent processes the prompt with its own LLM engine and system prompt.
+/// Context isolation: the target agent does NOT receive the caller's conversation history.
+pub(super) async fn execute_ask_agent(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    // 1. YOLO mode check — inter-agent delegation is a privileged operation
+    if !manager.yolo_mode.load(Ordering::Relaxed) {
+        return Ok(serde_json::json!({
+            "status": "rejected",
+            "reason": "ask_agent requires YOLO mode to be enabled (inter-agent delegation is a privileged operation)."
+        }));
+    }
+
+    // 2. Extract parameters
+    let target_agent_id = args
+        .get("target_agent_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: target_agent_id"))?;
+
+    let prompt = args
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: prompt"))?;
+
+    let context = args
+        .get("context")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // 3. Get calling agent's ID (injected by kernel anti-spoofing)
+    let caller_agent_id = args
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+
+    // 4. Prevent self-delegation
+    if caller_agent_id == target_agent_id {
+        return Ok(serde_json::json!({
+            "status": "rejected",
+            "reason": "Cannot delegate to self."
+        }));
+    }
+
+    // 5. Delegation chain validation
+    let delegation_chain: Vec<String> = args
+        .get("_delegation_chain")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+
+    if delegation_chain.len() >= MAX_DELEGATION_DEPTH {
+        return Ok(serde_json::json!({
+            "status": "rejected",
+            "reason": format!(
+                "Delegation chain depth {} exceeds maximum of {}.",
+                delegation_chain.len(),
+                MAX_DELEGATION_DEPTH
+            ),
+            "chain": delegation_chain,
+        }));
+    }
+
+    // 6. Circular reference detection
+    if delegation_chain.contains(&target_agent_id.to_string()) {
+        return Ok(serde_json::json!({
+            "status": "rejected",
+            "reason": format!(
+                "Circular delegation detected: '{}' is already in the delegation chain.",
+                target_agent_id
+            ),
+            "chain": delegation_chain,
+        }));
+    }
+
+    // 7. Look up target agent
+    let agent_mgr = super::agents::AgentManager::new(manager.pool().clone(), 30_000);
+    let (agent_meta, engine_id) = match agent_mgr.get_agent_config(target_agent_id).await {
+        Ok(config) => config,
+        Err(_) => {
+            return Ok(serde_json::json!({
+                "status": "error",
+                "reason": format!("Agent '{}' not found.", target_agent_id)
+            }));
+        }
+    };
+
+    // 8. Check agent is enabled
+    if !agent_meta.enabled {
+        return Ok(serde_json::json!({
+            "status": "error",
+            "reason": format!("Agent '{}' is powered off.", target_agent_id)
+        }));
+    }
+
+    // 9. Check engine exists
+    if !manager.has_server(&engine_id).await {
+        return Ok(serde_json::json!({
+            "status": "error",
+            "reason": format!(
+                "Engine '{}' for agent '{}' is not available.",
+                engine_id, target_agent_id
+            )
+        }));
+    }
+
+    // 10. Build the message content
+    let full_prompt = if context.is_empty() {
+        prompt.to_string()
+    } else {
+        format!("{}\n\nContext:\n{}", prompt, context)
+    };
+
+    // 11. Construct the think() call arguments
+    //     Uses the same format as SystemHandler::engine_think() (system.rs:1051-1060)
+    let think_args = serde_json::json!({
+        "agent": serde_json::to_value(&agent_meta)?,
+        "message": {
+            "id": format!("delegation-{}", chrono::Utc::now().timestamp_millis()),
+            "source": { "Agent": { "id": caller_agent_id } },
+            "content": full_prompt,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "metadata": {
+                "delegation": "true",
+                "delegated_by": caller_agent_id,
+            }
+        },
+        "context": [],
+    });
+
+    info!(
+        "ask_agent: {} → {} (engine: {}, chain depth: {})",
+        caller_agent_id,
+        target_agent_id,
+        engine_id,
+        delegation_chain.len() + 1
+    );
+
+    // 12. Call the target agent's engine
+    let result = match manager
+        .call_server_tool(&engine_id, "think", think_args)
+        .await
+    {
+        Ok(result) => result,
+        Err(e) => {
+            // Audit: delegation failed
+            manager
+                .broadcast_audit_event(&crate::db::AuditLogEntry {
+                    timestamp: chrono::Utc::now(),
+                    event_type: "DELEGATION_FAILED".to_string(),
+                    actor_id: Some(caller_agent_id.to_string()),
+                    target_id: Some(target_agent_id.to_string()),
+                    permission: None,
+                    result: "error".to_string(),
+                    reason: e.to_string(),
+                    metadata: None,
+                    trace_id: None,
+                })
+                .await;
+            return Ok(serde_json::json!({
+                "status": "error",
+                "reason": format!("Engine call failed: {}", e),
+                "source_agent": caller_agent_id,
+                "target_agent": target_agent_id,
+            }));
+        }
+    };
+
+    // 13. Extract response text from CallToolResult
+    let response_text: String = result
+        .content
+        .iter()
+        .filter_map(|c| match c {
+            super::mcp_protocol::ToolContent::Text { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Parse response — engine returns JSON with { type: "final", content: "..." }
+    let response = if let Ok(parsed) = serde_json::from_str::<Value>(&response_text) {
+        parsed
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&response_text)
+            .to_string()
+    } else {
+        response_text
+    };
+
+    // 14. Audit log: DELEGATION_EXECUTED
+    manager
+        .broadcast_audit_event(&crate::db::AuditLogEntry {
+            timestamp: chrono::Utc::now(),
+            event_type: "DELEGATION_EXECUTED".to_string(),
+            actor_id: Some(caller_agent_id.to_string()),
+            target_id: Some(target_agent_id.to_string()),
+            permission: None,
+            result: "success".to_string(),
+            reason: String::new(),
+            metadata: Some(serde_json::json!({
+                "engine_id": engine_id,
+                "chain_depth": delegation_chain.len() + 1,
+            })),
+            trace_id: None,
+        })
+        .await;
+
+    // 15. Return structured response
+    Ok(serde_json::json!({
+        "status": "success",
+        "source_agent": caller_agent_id,
+        "target_agent": target_agent_id,
+        "engine_id": engine_id,
+        "response": response,
+    }))
 }
