@@ -404,7 +404,8 @@ impl McpClientManager {
 
         // Retry with exponential backoff (3 attempts)
         let (client, mgp_server_caps) = {
-            let mut result: Option<(McpClient, Option<super::mcp_mgp::MgpServerCapabilities>)> = None;
+            let mut result: Option<(McpClient, Option<super::mcp_mgp::MgpServerCapabilities>)> =
+                None;
             let mut last_err = None;
             for attempt in 1..=3u32 {
                 match McpClient::connect(
@@ -719,19 +720,26 @@ impl McpClientManager {
 
             // Populate rich tool index for §16 dynamic discovery.
             // Pre-compute security metadata to avoid async lock in sync closure.
-            let security_map: std::collections::HashMap<String, super::mcp_mgp::ToolSecurityMetadata> = {
+            let security_map: std::collections::HashMap<
+                String,
+                super::mcp_mgp::ToolSecurityMetadata,
+            > = {
                 let servers = self.servers.read().await;
                 if let Some(h) = servers.get(&id) {
-                    tools.iter()
-                        .filter_map(|t| Self::compute_tool_security(h, &t.name).map(|s| (t.name.clone(), s)))
+                    tools
+                        .iter()
+                        .filter_map(|t| {
+                            Self::compute_tool_security(h, &t.name).map(|s| (t.name.clone(), s))
+                        })
                         .collect()
                 } else {
                     std::collections::HashMap::new()
                 }
             };
-            self.rich_tool_index.add_server_tools(&id, &tools, |tool_name| {
-                security_map.get(tool_name).cloned()
-            });
+            self.rich_tool_index
+                .add_server_tools(&id, &tools, |tool_name| {
+                    security_map.get(tool_name).cloned()
+                });
         }
 
         info!(
@@ -797,7 +805,10 @@ impl McpClientManager {
                 source: h.source,
                 display_name: h.config.display_name.clone(),
                 mgp_supported: h.mgp_negotiated.is_some(),
-                trust_level: h.mgp_negotiated.as_ref().map(|m| format!("{:?}", m.trust_level).to_lowercase()),
+                trust_level: h
+                    .mgp_negotiated
+                    .as_ref()
+                    .map(|m| format!("{:?}", m.trust_level).to_lowercase()),
             })
             .collect();
 
@@ -852,14 +863,23 @@ impl McpClientManager {
     // ============================================================
 
     /// Compute tool security metadata for a tool on a given server handle.
-    fn compute_tool_security(handle: &McpServerHandle, tool_name: &str) -> Option<ToolSecurityMetadata> {
+    fn compute_tool_security(
+        handle: &McpServerHandle,
+        tool_name: &str,
+    ) -> Option<ToolSecurityMetadata> {
         let mgp = handle.mgp_negotiated.as_ref()?;
         if !mgp.active_extensions.iter().any(|e| e == "tool_security") {
             return None;
         }
-        let validator = handle.config.tool_validators.get(tool_name).map(String::as_str);
-        let perm_class = mcp_mgp::PermissionRiskClass::from_permissions(&handle.config.required_permissions);
-        let effective = mcp_mgp::derive_effective_risk_level(mgp.trust_level, validator, perm_class);
+        let validator = handle
+            .config
+            .tool_validators
+            .get(tool_name)
+            .map(String::as_str);
+        let perm_class =
+            mcp_mgp::PermissionRiskClass::from_permissions(&handle.config.required_permissions);
+        let effective =
+            mcp_mgp::derive_effective_risk_level(mgp.trust_level, validator, perm_class);
         Some(ToolSecurityMetadata {
             effective_risk_level: effective,
             trust_level: mgp.trust_level,
@@ -1047,6 +1067,10 @@ impl McpClientManager {
             "mgp.tools.session.evict" => {
                 return super::mcp_tool_discovery::execute_tools_session_evict(self, args).await;
             }
+            // Inter-agent delegation
+            "ask_agent" => {
+                return super::mcp_kernel_tool::execute_ask_agent(self, args).await;
+            }
             _ => {}
         }
 
@@ -1098,7 +1122,12 @@ impl McpClientManager {
             actor_id: Some(server_id.clone()),
             target_id: Some(tool_name.to_string()),
             permission: None,
-            result: if result.is_error == Some(true) { "error" } else { "success" }.to_string(),
+            result: if result.is_error == Some(true) {
+                "error"
+            } else {
+                "success"
+            }
+            .to_string(),
             reason: String::new(),
             metadata: None,
             trace_id: None,
@@ -1164,9 +1193,11 @@ impl McpClientManager {
                 }
 
                 // §5.6.3: Verify original_actor is a known, active agent
-                if let Some(original_actor) = delegation.get("original_actor").and_then(|v| v.as_str()) {
+                if let Some(original_actor) =
+                    delegation.get("original_actor").and_then(|v| v.as_str())
+                {
                     let agent_exists: bool = sqlx::query_scalar(
-                        "SELECT EXISTS(SELECT 1 FROM agents WHERE id = ? AND enabled = 1)"
+                        "SELECT EXISTS(SELECT 1 FROM agents WHERE id = ? AND enabled = 1)",
                     )
                     .bind(original_actor)
                     .fetch_one(&self.pool)
@@ -1188,8 +1219,13 @@ impl McpClientManager {
 
                     // §5.6.1: Permission intersection — verify original_actor has access to target tool
                     let permission = crate::db::resolve_tool_access(
-                        &self.pool, original_actor, server_id, tool_name
-                    ).await.unwrap_or_else(|_| "deny".to_string());
+                        &self.pool,
+                        original_actor,
+                        server_id,
+                        tool_name,
+                    )
+                    .await
+                    .unwrap_or_else(|_| "deny".to_string());
 
                     if permission == "deny" {
                         warn!(
@@ -1206,10 +1242,13 @@ impl McpClientManager {
                 }
 
                 // §5.6.3: Verify delegated_via is a known, operational server
-                if let Some(delegated_via) = delegation.get("delegated_via").and_then(|v| v.as_str()) {
+                if let Some(delegated_via) =
+                    delegation.get("delegated_via").and_then(|v| v.as_str())
+                {
                     let valid = {
                         let servers = self.servers.read().await;
-                        servers.get(delegated_via)
+                        servers
+                            .get(delegated_via)
                             .is_some_and(|h| h.status.is_operational())
                     };
 
@@ -1309,10 +1348,7 @@ impl McpClientManager {
             let Some(client) = &handle.client else {
                 continue;
             };
-            let seq = handle
-                .audit_seq
-                .fetch_add(1, Ordering::Relaxed)
-                + 1;
+            let seq = handle.audit_seq.fetch_add(1, Ordering::Relaxed) + 1;
             let audit_params = serde_json::json!({
                 "_mgp": { "seq": seq },
                 "event_type": entry.event_type,
@@ -1488,7 +1524,11 @@ impl McpClientManager {
 
         // Emit lifecycle notification
         super::mcp_lifecycle::emit_lifecycle_notification(
-            self, id, "Connected", "Draining", reason,
+            self,
+            id,
+            "Connected",
+            "Draining",
+            reason,
         )
         .await;
 
@@ -1725,7 +1765,10 @@ mod tests {
         // YOLO on: kernel tools included (create_mcp_server + access control + audit)
         let manager_on = McpClientManager::new(pool, true, 120);
         let schemas_on = manager_on.collect_tool_schemas().await;
-        assert!(!schemas_on.is_empty(), "YOLO on should include kernel tools");
+        assert!(
+            !schemas_on.is_empty(),
+            "YOLO on should include kernel tools"
+        );
         let name = schemas_on[0]["function"]["name"].as_str().unwrap();
         assert_eq!(name, "create_mcp_server");
     }
@@ -1741,9 +1784,18 @@ mod tests {
             .iter()
             .filter_map(|s| s["function"]["name"].as_str())
             .collect();
-        assert!(names.contains(&"mgp.access.query"), "Should include mgp.access.query");
-        assert!(names.contains(&"mgp.access.grant"), "Should include mgp.access.grant");
-        assert!(names.contains(&"mgp.access.revoke"), "Should include mgp.access.revoke");
+        assert!(
+            names.contains(&"mgp.access.query"),
+            "Should include mgp.access.query"
+        );
+        assert!(
+            names.contains(&"mgp.access.grant"),
+            "Should include mgp.access.grant"
+        );
+        assert!(
+            names.contains(&"mgp.access.revoke"),
+            "Should include mgp.access.revoke"
+        );
     }
 
     #[tokio::test]
@@ -1757,7 +1809,10 @@ mod tests {
             .iter()
             .filter_map(|s| s["function"]["name"].as_str())
             .collect();
-        assert!(names.contains(&"mgp.audit.replay"), "Should include mgp.audit.replay");
+        assert!(
+            names.contains(&"mgp.audit.replay"),
+            "Should include mgp.audit.replay"
+        );
     }
 
     #[tokio::test]
@@ -1771,9 +1826,18 @@ mod tests {
             .iter()
             .filter_map(|s| s["function"]["name"].as_str())
             .collect();
-        assert!(names.contains(&"mgp.health.ping"), "Should include mgp.health.ping");
-        assert!(names.contains(&"mgp.health.status"), "Should include mgp.health.status");
-        assert!(names.contains(&"mgp.lifecycle.shutdown"), "Should include mgp.lifecycle.shutdown");
+        assert!(
+            names.contains(&"mgp.health.ping"),
+            "Should include mgp.health.ping"
+        );
+        assert!(
+            names.contains(&"mgp.health.status"),
+            "Should include mgp.health.status"
+        );
+        assert!(
+            names.contains(&"mgp.lifecycle.shutdown"),
+            "Should include mgp.lifecycle.shutdown"
+        );
     }
 
     #[tokio::test]
@@ -1787,7 +1851,10 @@ mod tests {
             .iter()
             .filter_map(|s| s["function"]["name"].as_str())
             .collect();
-        assert!(names.contains(&"mgp.stream.cancel"), "Should include mgp.stream.cancel");
+        assert!(
+            names.contains(&"mgp.stream.cancel"),
+            "Should include mgp.stream.cancel"
+        );
     }
 
     #[tokio::test]
@@ -1801,10 +1868,22 @@ mod tests {
             .iter()
             .filter_map(|s| s["function"]["name"].as_str())
             .collect();
-        assert!(names.contains(&"mgp.events.subscribe"), "Should include mgp.events.subscribe");
-        assert!(names.contains(&"mgp.events.unsubscribe"), "Should include mgp.events.unsubscribe");
-        assert!(names.contains(&"mgp.events.replay"), "Should include mgp.events.replay");
-        assert!(names.contains(&"mgp.callback.respond"), "Should include mgp.callback.respond");
+        assert!(
+            names.contains(&"mgp.events.subscribe"),
+            "Should include mgp.events.subscribe"
+        );
+        assert!(
+            names.contains(&"mgp.events.unsubscribe"),
+            "Should include mgp.events.unsubscribe"
+        );
+        assert!(
+            names.contains(&"mgp.events.replay"),
+            "Should include mgp.events.replay"
+        );
+        assert!(
+            names.contains(&"mgp.callback.respond"),
+            "Should include mgp.callback.respond"
+        );
     }
 
     #[tokio::test]
@@ -1814,8 +1893,12 @@ mod tests {
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
-        // 5 Tier 2 + 8 Tier 3 = 13 Tier 1-3 + 3 discovery + 2 session = 18 YOLO tools + 2 meta-tools = 20
-        assert_eq!(schemas.len(), 20, "Should have 20 kernel tools total (18 YOLO + 2 meta-tools)");
+        // 5 Tier 2 + 8 Tier 3 + 1 ask_agent = 14 Tier 1-3 + 3 discovery + 2 session = 19 YOLO tools + 2 meta-tools = 21
+        assert_eq!(
+            schemas.len(),
+            21,
+            "Should have 21 kernel tools total (19 YOLO + 2 meta-tools)"
+        );
     }
 
     #[tokio::test]
