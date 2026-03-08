@@ -51,3 +51,50 @@ pub async fn delete_llm_provider_key(pool: &SqlitePool, id: &str) -> anyhow::Res
         .await?;
     Ok(())
 }
+
+/// Sync API keys from environment variables into the llm_providers table.
+///
+/// For each known provider, checks for `{PREFIX}_API_KEY` in the environment.
+/// Only updates rows where the current api_key is empty (never overwrites
+/// keys that were set via the Dashboard UI or API).
+pub async fn sync_env_api_keys(pool: &SqlitePool) {
+    let mappings: &[(&str, &str)] = &[
+        ("deepseek", "DEEPSEEK_API_KEY"),
+        ("cerebras", "CEREBRAS_API_KEY"),
+        ("claude", "CLAUDE_API_KEY"),
+        ("ollama", "OLLAMA_API_KEY"),
+    ];
+
+    for &(provider_id, env_var) in mappings {
+        if let Ok(key) = std::env::var(env_var) {
+            if key.is_empty() {
+                continue;
+            }
+            let result = sqlx::query(
+                "UPDATE llm_providers SET api_key = ? WHERE id = ? AND api_key = ''",
+            )
+            .bind(&key)
+            .bind(provider_id)
+            .execute(pool)
+            .await;
+
+            match result {
+                Ok(r) if r.rows_affected() > 0 => {
+                    tracing::info!(
+                        provider = %provider_id,
+                        "Synced API key from env var {}",
+                        env_var,
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        provider = %provider_id,
+                        error = %e,
+                        "Failed to sync API key from env",
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+}
