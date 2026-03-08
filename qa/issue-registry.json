@@ -950,6 +950,18 @@
       "pattern": "Auto-granted during agent creation",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-231",
+      "summary": "Agent deletion does not clean up KS22 memories/profiles/episodes, mcp_access_control, or trusted_commands — orphaned data causes persona leakage on agent re-creation",
+      "severity": "HIGH",
+      "discovered": "2026-03-08T15:00:00Z",
+      "version": "0.6.0",
+      "commit": "1fae4ee",
+      "file": "crates/core/src/managers/agents.rs",
+      "pattern": "DELETE FROM mcp_access_control WHERE agent_id",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }
