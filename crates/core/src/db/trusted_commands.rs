@@ -19,6 +19,19 @@ pub async fn is_command_trusted(
     Ok(count > 0)
 }
 
+/// Delete all trusted commands for an agent (used during agent deletion).
+pub async fn delete_trusted_commands_for_agent(
+    pool: &SqlitePool,
+    agent_id: &str,
+) -> anyhow::Result<u64> {
+    let query_future = sqlx::query("DELETE FROM trusted_commands WHERE agent_id = ?")
+        .bind(agent_id)
+        .execute(pool);
+
+    let result = db_timeout(query_future).await?;
+    Ok(result.rows_affected())
+}
+
 /// Add a trusted command entry (exact match).
 pub async fn add_trusted_command(
     pool: &SqlitePool,
