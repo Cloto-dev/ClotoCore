@@ -86,10 +86,17 @@ impl McpClientManager {
     /// This allows `mcp.toml` to use portable paths like
     /// `"mcp-servers/terminal/server.py"` instead of absolute ones.
     pub async fn load_config_file(&self, config_path: &str) -> Result<()> {
+        let configs = self.parse_config_file(config_path)?;
+        self.connect_server_configs(&configs).await;
+        Ok(())
+    }
+
+    /// Parse mcp.toml and resolve paths, returning server configs without connecting.
+    pub fn parse_config_file(&self, config_path: &str) -> Result<Vec<McpServerConfig>> {
         let path = std::path::Path::new(config_path);
         if !path.exists() {
             info!("No MCP config file at {}, skipping", config_path);
-            return Ok(());
+            return Ok(Vec::new());
         }
 
         let content = std::fs::read_to_string(path).context("Failed to read MCP config file")?;
@@ -107,32 +114,45 @@ impl McpClientManager {
             )
         });
 
-        let total = config.servers.len();
         info!(
-            "Loading {} MCP server(s) from {} (base_dir={})",
-            total,
+            "Parsed {} MCP server(s) from {} (base_dir={})",
+            config.servers.len(),
             config_path,
             base_dir.display()
         );
 
-        let mut failed = 0usize;
-        for mut server_config in config.servers {
-            // Resolve relative paths in args against the base directory
-            server_config.args = server_config
-                .args
-                .into_iter()
-                .map(|arg| {
-                    let p = std::path::Path::new(&arg);
-                    if p.is_relative() {
-                        let resolved = base_dir.join(p);
-                        if resolved.exists() {
-                            return resolved.to_string_lossy().to_string();
+        let resolved: Vec<McpServerConfig> = config
+            .servers
+            .into_iter()
+            .map(|mut server_config| {
+                // Resolve relative paths in args against the base directory
+                server_config.args = server_config
+                    .args
+                    .into_iter()
+                    .map(|arg| {
+                        let p = std::path::Path::new(&arg);
+                        if p.is_relative() {
+                            let resolved = base_dir.join(p);
+                            if resolved.exists() {
+                                return resolved.to_string_lossy().to_string();
+                            }
                         }
-                    }
-                    arg
-                })
-                .collect();
+                        arg
+                    })
+                    .collect();
+                server_config
+            })
+            .collect();
 
+        Ok(resolved)
+    }
+
+    /// Connect a list of server configs, registering failures with Error status.
+    pub async fn connect_server_configs(&self, configs: &[McpServerConfig]) {
+        let total = configs.len();
+        let mut failed = 0usize;
+
+        for server_config in configs {
             if let Err(e) = self
                 .connect_server(server_config.clone(), ServerSource::Config)
                 .await
@@ -149,7 +169,7 @@ impl McpClientManager {
                     .entry(server_config.id.clone())
                     .or_insert_with(|| McpServerHandle {
                         id: server_config.id.clone(),
-                        config: server_config,
+                        config: server_config.clone(),
                         client: None,
                         tools: Vec::new(),
                         handshake: None,
@@ -171,8 +191,6 @@ impl McpClientManager {
                 total
             );
         }
-
-        Ok(())
     }
 
     /// Restore persisted MCP servers from the database.
@@ -1362,18 +1380,20 @@ impl McpClientManager {
         args: Vec<String>,
         script_content: Option<String>,
         description: Option<String>,
+        mgp: Option<super::mcp_mgp::MgpServerConfig>,
+        env: HashMap<String, String>,
     ) -> Result<Vec<String>> {
         let config = McpServerConfig {
             id: id.clone(),
             command: command.clone(),
             args: args.clone(),
-            env: HashMap::new(),
+            env: env.clone(),
             transport: "stdio".to_string(),
             auto_restart: Some(true),
             required_permissions: Vec::new(),
             tool_validators: HashMap::new(),
             display_name: None,
-            mgp: None,
+            mgp,
             restart_policy: None,
         };
 
@@ -1388,7 +1408,7 @@ impl McpClientManager {
             description,
             created_at: chrono::Utc::now().timestamp(),
             is_active: true,
-            env: "{}".to_string(),
+            env: serde_json::to_string(&env)?,
         };
         crate::db::save_mcp_server(&self.pool, &record).await?;
 

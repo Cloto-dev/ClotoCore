@@ -402,6 +402,8 @@ if __name__ == "__main__":
             body.get("description")
                 .and_then(|v| v.as_str())
                 .map(String::from),
+            None,
+            std::collections::HashMap::new(),
         )
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to add MCP server: {}", e)))?;
@@ -848,6 +850,39 @@ pub async fn stop_mcp_server(
     check_auth(&state, &headers)?;
     let result = state.mcp_manager.stop_server(&name).await.map(|()| None);
     server_lifecycle(&state, &name, "stopped", "MCP_SERVER_STOPPED", result).await
+}
+
+// ============================================================
+// Direct Tool Call API (MGP §5.6 Coordinator Pattern)
+// ============================================================
+
+#[derive(Deserialize)]
+pub struct CallMcpToolRequest {
+    pub server_id: String,
+    pub tool_name: String,
+    #[serde(default)]
+    pub arguments: serde_json::Value,
+}
+
+/// POST /api/mcp/call — Direct tool call for coordinator-pattern servers (MGP §5.6, §19.1).
+/// Delegation validation (anti-spoofing, permission intersection, chain depth) is enforced
+/// by `call_server_tool()` when `_mgp.delegation` is present in arguments.
+pub async fn call_mcp_tool(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<CallMcpToolRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let result = state
+        .mcp_manager
+        .call_server_tool(&body.server_id, &body.tool_name, body.arguments)
+        .await
+        .map_err(AppError::Internal)?;
+
+    let value = serde_json::to_value(result)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to serialize result: {}", e)))?;
+    ok_data(value)
 }
 
 // ============================================================

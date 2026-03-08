@@ -34,7 +34,7 @@ pub use cron::{
 pub use events::post_event_handler;
 pub use llm::{delete_llm_provider_key, list_llm_providers, set_llm_provider_key};
 pub use mcp::{
-    apply_plugin_settings, create_mcp_server, delete_mcp_server, get_agent_access,
+    apply_plugin_settings, call_mcp_tool, create_mcp_server, delete_mcp_server, get_agent_access,
     get_max_cron_generation, get_mcp_server_access, get_mcp_server_settings, get_plugin_config,
     get_plugin_permissions, get_plugins, get_yolo_mode, grant_permission_handler, list_mcp_servers,
     put_mcp_server_access, restart_mcp_server, revoke_permission_handler, set_max_cron_generation,
