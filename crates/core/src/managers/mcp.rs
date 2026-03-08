@@ -910,6 +910,8 @@ impl McpClientManager {
         } else {
             vec![]
         };
+        // §16: Always include LLM meta-tools for dynamic discovery
+        schemas.extend(super::mcp_kernel_tool::llm_meta_tool_schemas());
         for (server_id, handle) in servers.iter() {
             if handle.status != ServerStatus::Connected {
                 continue;

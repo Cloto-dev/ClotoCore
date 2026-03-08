@@ -256,6 +256,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let pool = sqlx::SqlitePool::connect_with(opts).await?;
     db::init_db(&pool, &config.database_url).await?;
 
+    // 1b. Sync API keys from environment variables into llm_providers table
+    db::sync_env_api_keys(&pool).await;
+
     // 2. Plugin Manager Setup
     let shutdown = Arc::new(Notify::new());
     let mut plugin_manager_obj = PluginManager::new(

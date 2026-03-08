@@ -300,6 +300,45 @@ class LlmApiError(Exception):
         self.status_code = status_code
 
 
+def _sanitize_tool_names(tools: list[dict]) -> tuple[list[dict], dict[str, str]]:
+    """Replace dots in tool names with underscores for LLM API compatibility.
+
+    Many LLM providers (DeepSeek, OpenAI) require tool names to match
+    ^[a-zA-Z0-9_-]+$. MGP tools use dots (e.g. mgp.health.ping).
+
+    Returns (sanitized_tools, reverse_map) where reverse_map maps
+    sanitized names back to original names.
+    """
+    sanitized = []
+    reverse_map: dict[str, str] = {}
+    for tool in tools:
+        fn = tool.get("function", {})
+        original_name = fn.get("name", "")
+        safe_name = original_name.replace(".", "_")
+        if safe_name != original_name:
+            reverse_map[safe_name] = original_name
+            tool = json.loads(json.dumps(tool))  # deep copy
+            tool["function"]["name"] = safe_name
+        sanitized.append(tool)
+    return sanitized, reverse_map
+
+
+def _restore_tool_names(response_data: dict, reverse_map: dict[str, str]) -> dict:
+    """Restore original tool names (with dots) in LLM response."""
+    if not reverse_map:
+        return response_data
+    try:
+        for choice in response_data.get("choices", []):
+            for tc in choice.get("message", {}).get("tool_calls", []):
+                fn = tc.get("function", {})
+                name = fn.get("name", "")
+                if name in reverse_map:
+                    fn["name"] = reverse_map[name]
+    except (KeyError, TypeError):
+        pass
+    return response_data
+
+
 async def call_llm_api(
     config: ProviderConfig,
     messages: list[dict],
@@ -312,8 +351,10 @@ async def call_llm_api(
         "stream": False,
     }
 
+    reverse_map: dict[str, str] = {}
     if tools and model_supports_tools(config):
-        body["tools"] = tools
+        sanitized, reverse_map = _sanitize_tool_names(tools)
+        body["tools"] = sanitized
 
     try:
         async with httpx.AsyncClient(timeout=config.request_timeout) as client:
@@ -348,7 +389,7 @@ async def call_llm_api(
             code = "unknown"
         raise LlmApiError(msg, code, response.status_code)
 
-    return response.json()
+    return _restore_tool_names(response.json(), reverse_map)
 
 
 # ============================================================
@@ -462,8 +503,17 @@ async def handle_think_with_tools(
         tool_history = arguments.get("tool_history", [])
 
         messages = build_chat_messages(agent, message, context, tools=tools)
-        # Append tool history (assistant messages with tool_calls + tool results)
-        messages.extend(tool_history)
+        # Sanitize dot-names in tool_history for LLM API compatibility
+        for entry in tool_history:
+            if "tool_calls" in entry:
+                entry = json.loads(json.dumps(entry))  # deep copy
+                for tc in entry.get("tool_calls", []):
+                    fn = tc.get("function", {})
+                    name = fn.get("name", "")
+                    safe = name.replace(".", "_")
+                    if safe != name:
+                        fn["name"] = safe
+            messages.append(entry)
 
         response_data = await call_llm_api(config, messages, tools)
         result = parse_chat_think_result(config, response_data)
