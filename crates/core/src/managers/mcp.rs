@@ -1071,6 +1071,13 @@ impl McpClientManager {
             "ask_agent" => {
                 return super::mcp_kernel_tool::execute_ask_agent(self, args).await;
             }
+            // GUI documentation
+            "gui.map" => {
+                return super::mcp_kernel_tool::execute_gui_map(self, args).await;
+            }
+            "gui.read" => {
+                return super::mcp_kernel_tool::execute_gui_read(self, args).await;
+            }
             _ => {}
         }
 
@@ -1893,11 +1900,11 @@ mod tests {
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
-        // 5 Tier 2 + 8 Tier 3 + 1 ask_agent = 14 Tier 1-3 + 3 discovery + 2 session = 19 YOLO tools + 2 meta-tools = 21
+        // 5 Tier 2 + 8 Tier 3 + 1 ask_agent + 2 gui = 16 Tier 1-3 + 3 discovery + 2 session = 21 YOLO tools + 2 meta-tools = 23
         assert_eq!(
             schemas.len(),
-            21,
-            "Should have 21 kernel tools total (19 YOLO + 2 meta-tools)"
+            23,
+            "Should have 23 kernel tools total (21 YOLO + 2 meta-tools)"
         );
     }
 

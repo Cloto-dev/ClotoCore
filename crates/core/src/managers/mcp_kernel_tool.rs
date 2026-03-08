@@ -35,6 +35,9 @@ pub(super) fn kernel_tool_schemas() -> Vec<Value> {
         callback_respond_schema(),
         // Inter-agent delegation
         ask_agent_schema(),
+        // GUI documentation
+        gui_map_schema(),
+        gui_read_schema(),
     ];
     // Tier 4: Discovery (§15)
     schemas.extend(super::mcp_discovery::discovery_tool_schemas());
@@ -1382,5 +1385,162 @@ pub(super) async fn execute_ask_agent(
         "target_agent": target_agent_id,
         "engine_id": engine_id,
         "response": response,
+    }))
+}
+
+// ────────────────────────────────────────────────────────────────────
+// GUI Documentation Tools
+// ────────────────────────────────────────────────────────────────────
+
+fn gui_map_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "gui.map",
+            "description": "Returns the ClotoCore dashboard component map — a structured overview of all UI pages, components, and their purposes. Use this first to identify which source files are relevant to the user's question, then use gui.read to read specific files.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    })
+}
+
+fn gui_read_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "gui.read",
+            "description": "Read a dashboard source file to understand UI implementation details. The path must be relative to dashboard/src/ (e.g., 'components/AgentTerminal.tsx'). Use gui.map first to identify which files to read.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path relative to dashboard/src/ (e.g., 'components/AgentTerminal.tsx', 'hooks/useAgents.ts')"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    })
+}
+
+/// Execute gui.map: read and return the component map file.
+pub(super) async fn execute_gui_map(
+    _manager: &McpClientManager,
+    _args: Value,
+) -> Result<Value> {
+    let map_path = std::path::Path::new("docs/gui/component-map.md");
+    if !map_path.exists() {
+        return Ok(serde_json::json!({
+            "status": "error",
+            "reason": "Component map file not found at docs/gui/component-map.md"
+        }));
+    }
+
+    let content = tokio::fs::read_to_string(map_path)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read component map: {}", e))?;
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "content": content,
+    }))
+}
+
+/// Allowed file extensions for gui.read (source code only).
+const GUI_READ_ALLOWED_EXTENSIONS: &[&str] = &["tsx", "ts", "json", "css", "md"];
+
+/// Maximum file size for gui.read (200KB).
+const GUI_READ_MAX_SIZE: u64 = 200 * 1024;
+
+/// Execute gui.read: read a specific dashboard source file with path traversal protection.
+pub(super) async fn execute_gui_read(
+    _manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    let rel_path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: path"))?;
+
+    // Reject obviously malicious input
+    if rel_path.contains("..") || rel_path.starts_with('/') || rel_path.starts_with('\\') {
+        return Ok(serde_json::json!({
+            "status": "error",
+            "reason": "Invalid path: must be relative to dashboard/src/ without '..' traversal"
+        }));
+    }
+
+    // Check extension
+    let ext = std::path::Path::new(rel_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    if !GUI_READ_ALLOWED_EXTENSIONS.contains(&ext) {
+        return Ok(serde_json::json!({
+            "status": "error",
+            "reason": format!(
+                "File type '.{}' not allowed. Allowed: {}",
+                ext,
+                GUI_READ_ALLOWED_EXTENSIONS.join(", ")
+            )
+        }));
+    }
+
+    // Build and canonicalize paths
+    let base_dir = std::path::Path::new("dashboard/src");
+    let target = base_dir.join(rel_path);
+
+    // Canonicalize both to resolve symlinks and verify containment
+    let canonical_base = match base_dir.canonicalize() {
+        Ok(p) => p,
+        Err(_) => {
+            return Ok(serde_json::json!({
+                "status": "error",
+                "reason": "Dashboard source directory not found"
+            }));
+        }
+    };
+    let canonical_target = match target.canonicalize() {
+        Ok(p) => p,
+        Err(_) => {
+            return Ok(serde_json::json!({
+                "status": "error",
+                "reason": format!("File not found: {}", rel_path)
+            }));
+        }
+    };
+
+    // Path traversal protection: ensure resolved path is under dashboard/src/
+    if !canonical_target.starts_with(&canonical_base) {
+        return Ok(serde_json::json!({
+            "status": "error",
+            "reason": "Path traversal detected: resolved path is outside dashboard/src/"
+        }));
+    }
+
+    // Check file size
+    let metadata = tokio::fs::metadata(&canonical_target)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read file metadata: {}", e))?;
+    if metadata.len() > GUI_READ_MAX_SIZE {
+        return Ok(serde_json::json!({
+            "status": "error",
+            "reason": format!("File too large ({} bytes, max {} bytes)", metadata.len(), GUI_READ_MAX_SIZE)
+        }));
+    }
+
+    let content = tokio::fs::read_to_string(&canonical_target)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read file: {}", e))?;
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "path": rel_path,
+        "size_bytes": metadata.len(),
+        "content": content,
     }))
 }
