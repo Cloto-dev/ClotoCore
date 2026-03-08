@@ -29,7 +29,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
 
 # Screen capture
-xcap = "0.0.13"
+xcap = "0.8"
 image = "0.25"
 base64 = "0.21"
 
