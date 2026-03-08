@@ -70,13 +70,12 @@ pub async fn sync_env_api_keys(pool: &SqlitePool) {
             if key.is_empty() {
                 continue;
             }
-            let result = sqlx::query(
-                "UPDATE llm_providers SET api_key = ? WHERE id = ? AND api_key = ''",
-            )
-            .bind(&key)
-            .bind(provider_id)
-            .execute(pool)
-            .await;
+            let result =
+                sqlx::query("UPDATE llm_providers SET api_key = ? WHERE id = ? AND api_key = ''")
+                    .bind(&key)
+                    .bind(provider_id)
+                    .execute(pool)
+                    .await;
 
             match result {
                 Ok(r) if r.rows_affected() > 0 => {

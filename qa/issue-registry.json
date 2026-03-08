@@ -59,8 +59,8 @@
       "version": "0.4.7",
       "commit": "2743946",
       "file": "crates/core/src/handlers/system.rs",
-      "pattern": "MEMORY_TIMEOUT",
-      "expected": "present",
+      "pattern": "Duration::from_secs\\(5\\)",
+      "expected": "absent",
       "status": "fixed"
     },
     {
@@ -107,7 +107,7 @@
       "version": "0.4.7",
       "commit": "2743946",
       "file": "mcp-servers/websearch/server.py",
-      "pattern": "async def aclose",
+      "pattern": "\\.aclose\\(\\)",
       "expected": "present",
       "status": "fixed"
     },
@@ -310,7 +310,7 @@
       "discovered": "2026-03-03T00:00:00Z",
       "version": "0.4.22",
       "commit": "101b803",
-      "file": "crates/core/src/handlers/system.rs",
+      "file": "crates/core/src/handlers/command_approval.rs",
       "pattern": "YOLO mode: commands auto-approved",
       "expected": "present",
       "status": "fixed"
