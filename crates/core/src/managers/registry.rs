@@ -296,9 +296,9 @@ impl PluginRegistry {
 
         // 2. MCP servers: check access via resolve_tool_access, then execute
         if let Some(ref mcp) = self.mcp_manager {
-            // Kernel-native tools (mgp.*, create_mcp_server, ask_agent) are not in tool_index,
+            // Kernel-native tools (mgp.*, gui.*, create_mcp_server, ask_agent) are not in tool_index,
             // so bypass access check and let execute_tool() handle them directly.
-            if tool_name.starts_with("mgp.") || tool_name == "create_mcp_server" || tool_name == "ask_agent" {
+            if tool_name.starts_with("mgp.") || tool_name.starts_with("gui.") || tool_name == "create_mcp_server" || tool_name == "ask_agent" {
                 return mcp.execute_tool(tool_name, args).await;
             }
 
