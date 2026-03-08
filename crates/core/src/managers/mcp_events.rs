@@ -130,12 +130,17 @@ impl EventManager {
             .iter()
             .filter(|e| e.seq > after_seq)
             .filter(|e| {
-                channels.map_or(true, |chs| {
-                    chs.iter().any(|c| c == &e.channel || c == "*")
-                })
+                channels.map_or(true, |chs| chs.iter().any(|c| c == &e.channel || c == "*"))
             })
             .take(limit)
-            .map(|e| (e.seq, e.channel.clone(), e.data.clone(), e.timestamp.clone()))
+            .map(|e| {
+                (
+                    e.seq,
+                    e.channel.clone(),
+                    e.data.clone(),
+                    e.timestamp.clone(),
+                )
+            })
             .collect()
     }
 
@@ -193,7 +198,9 @@ impl EventManager {
         if !cb.responded {
             return None;
         }
-        cb.recorded_response.as_ref().map(|r| (cb.server_id.clone(), r.clone()))
+        cb.recorded_response
+            .as_ref()
+            .map(|r| (cb.server_id.clone(), r.clone()))
     }
 
     /// Check if a callback type is llm_completion (§13.4).
@@ -230,7 +237,11 @@ pub(super) async fn subscribe(manager: &McpClientManager, args: Value) -> Result
         return Err(anyhow::anyhow!("channels must not be empty"));
     }
 
-    let sub_id = format!("sub-{}-{}", server_id, chrono::Utc::now().timestamp_millis());
+    let sub_id = format!(
+        "sub-{}-{}",
+        server_id,
+        chrono::Utc::now().timestamp_millis()
+    );
     let sub = EventSubscription {
         id: sub_id.clone(),
         server_id: server_id.to_string(),
@@ -274,10 +285,7 @@ pub(super) async fn replay(manager: &McpClientManager, args: Value) -> Result<Va
         .get("subscription_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: subscription_id"))?;
-    let after_seq = args
-        .get("after_seq")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let after_seq = args.get("after_seq").and_then(|v| v.as_u64()).unwrap_or(0);
     let limit = args
         .get("limit")
         .and_then(|v| v.as_u64())
@@ -289,10 +297,12 @@ pub(super) async fn replay(manager: &McpClientManager, args: Value) -> Result<Va
         let subs = manager.events.subscriptions.lock().unwrap();
         subs.get(sub_id).map(|s| s.channels.clone())
     };
-    let channels = channels
-        .ok_or_else(|| anyhow::anyhow!("Subscription '{}' not found", sub_id))?;
+    let channels =
+        channels.ok_or_else(|| anyhow::anyhow!("Subscription '{}' not found", sub_id))?;
 
-    let events = manager.events.replay_events(after_seq, limit + 1, Some(&channels));
+    let events = manager
+        .events
+        .replay_events(after_seq, limit + 1, Some(&channels));
     let has_more = events.len() > limit;
     let events_json: Vec<Value> = events
         .into_iter()
@@ -308,7 +318,10 @@ pub(super) async fn replay(manager: &McpClientManager, args: Value) -> Result<Va
         .collect();
 
     let truncated = after_seq > 0
-        && manager.events.min_buffered_seq().map_or(false, |min| min > after_seq + 1);
+        && manager
+            .events
+            .min_buffered_seq()
+            .map_or(false, |min| min > after_seq + 1);
 
     Ok(serde_json::json!({
         "subscription_id": sub_id,
@@ -320,21 +333,21 @@ pub(super) async fn replay(manager: &McpClientManager, args: Value) -> Result<Va
 
 /// Deliver an event to all matching subscribers via `notifications/mgp.event`.
 #[allow(dead_code)]
-pub(super) async fn deliver_event(
-    manager: &McpClientManager,
-    channel: &str,
-    data: &Value,
-) {
+pub(super) async fn deliver_event(manager: &McpClientManager, channel: &str, data: &Value) {
     let (seq, timestamp) = manager.events.buffer_event(channel, data);
     let matching = manager.events.matching_subscriptions(channel);
 
     let servers = manager.servers.read().await;
     for sub in matching {
-        let Some(handle) = servers.get(&sub.server_id) else { continue };
+        let Some(handle) = servers.get(&sub.server_id) else {
+            continue;
+        };
         if !handle.status.is_operational() {
             continue;
         }
-        let Some(client) = &handle.client else { continue };
+        let Some(client) = &handle.client else {
+            continue;
+        };
         let params = serde_json::json!({
             "_mgp.seq": seq,
             "subscription_id": sub.id,
@@ -363,12 +376,16 @@ pub(super) fn handle_callback_request(
     params: &Value,
 ) -> Option<cloto_shared::ClotoEventData> {
     let callback_id = params.get("callback_id")?.as_str()?;
-    let callback_type = params.get("type").and_then(|v| v.as_str()).unwrap_or("generic");
+    let callback_type = params
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("generic");
     let message = params.get("message").and_then(|v| v.as_str()).unwrap_or("");
-    let options = params
-        .get("options")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect());
+    let options = params.get("options").and_then(|v| v.as_array()).map(|arr| {
+        arr.iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect()
+    });
 
     let is_new = manager.events.register_callback(
         callback_id,
@@ -402,10 +419,7 @@ pub(super) fn handle_callback_request(
 }
 
 /// Execute mgp.callback.respond — respond to a pending callback.
-pub(super) async fn respond_to_callback(
-    manager: &McpClientManager,
-    args: Value,
-) -> Result<Value> {
+pub(super) async fn respond_to_callback(manager: &McpClientManager, args: Value) -> Result<Value> {
     let callback_id = args
         .get("callback_id")
         .and_then(|v| v.as_str())
@@ -418,7 +432,9 @@ pub(super) async fn respond_to_callback(
     let server_id = manager
         .events
         .resolve_callback(callback_id, response)
-        .ok_or_else(|| anyhow::anyhow!("Callback '{}' not found or already responded", callback_id))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("Callback '{}' not found or already responded", callback_id)
+        })?;
 
     // Send response to the originating server
     let servers = manager.servers.read().await;

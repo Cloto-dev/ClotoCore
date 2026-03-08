@@ -49,8 +49,8 @@ async fn create_test_processor(
         event_history.clone(),
         metrics,
         max_history_size,
-        24,     // event_retention_hours
-        None,   // consensus
+        24,   // event_retention_hours
+        None, // consensus
         sys_handler,
         10_000, // max_event_history
     ));

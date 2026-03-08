@@ -35,7 +35,10 @@ pub async fn get_messages(
     super::check_auth(&state, &headers)?;
 
     let user_id = params.user_id.as_deref().unwrap_or(DEFAULT_USER_ID);
-    let limit = params.limit.unwrap_or(50).min(state.config.max_chat_query_limit);
+    let limit = params
+        .limit
+        .unwrap_or(50)
+        .min(state.config.max_chat_query_limit);
 
     let messages = db::get_chat_messages(
         &state.pool,
@@ -184,23 +187,24 @@ pub async fn post_message(
                                 );
 
                                 #[allow(clippy::cast_possible_wrap)]
-                                let (storage_type, inline_data, disk_path) = if size <= state.config.attachment_inline_threshold as i64 {
-                                    // <=64KB: store inline
-                                    ("inline".to_string(), Some(decoded), None)
-                                } else {
-                                    // >64KB: store on disk
-                                    let dir = format!("data/attachments/{}", &msg.id);
-                                    let path = format!("{}/{}", dir, filename);
-                                    if let Err(e) = tokio::fs::create_dir_all(&dir).await {
-                                        error!("Failed to create attachment dir: {}", e);
-                                        continue;
-                                    }
-                                    if let Err(e) = tokio::fs::write(&path, &decoded).await {
-                                        error!("Failed to write attachment file: {}", e);
-                                        continue;
-                                    }
-                                    ("disk".to_string(), None, Some(path))
-                                };
+                                let (storage_type, inline_data, disk_path) =
+                                    if size <= state.config.attachment_inline_threshold as i64 {
+                                        // <=64KB: store inline
+                                        ("inline".to_string(), Some(decoded), None)
+                                    } else {
+                                        // >64KB: store on disk
+                                        let dir = format!("data/attachments/{}", &msg.id);
+                                        let path = format!("{}/{}", dir, filename);
+                                        if let Err(e) = tokio::fs::create_dir_all(&dir).await {
+                                            error!("Failed to create attachment dir: {}", e);
+                                            continue;
+                                        }
+                                        if let Err(e) = tokio::fs::write(&path, &decoded).await {
+                                            error!("Failed to write attachment file: {}", e);
+                                            continue;
+                                        }
+                                        ("disk".to_string(), None, Some(path))
+                                    };
 
                                 let att = AttachmentRow {
                                     id: att_id,
