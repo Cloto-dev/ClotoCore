@@ -275,11 +275,11 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
           ts: Date.now(),
         }]);
       }
-      if (event.type === 'Thought' && event.payload?.content) {
+      if (event.type === 'AgentThinking' && event.data?.agent_id === agent.id && event.data.content) {
         setThinkingSteps(prev => [...prev, {
           id: thinkingIdRef.current++,
           status: 'thought',
-          text: event.payload.content.slice(0, 120),
+          text: event.data.content.slice(0, 120),
           ts: Date.now(),
         }]);
       }
@@ -719,14 +719,15 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             </div>
             <div className="flex-1 space-y-0.5 py-1">
               {thinkingSteps.map(step => (
-                <div key={step.id} className="flex items-center gap-2 text-[10px] font-mono animate-in fade-in duration-200">
+                <div key={step.id} className={`flex items-center gap-2 text-[10px] font-mono animate-in fade-in duration-200 ${step.status === 'thought' ? 'italic' : ''}`}>
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                     step.status === 'ok' ? 'bg-brand'
                     : step.status === 'fail' ? 'bg-red-500'
                     : step.status === 'done' ? 'bg-emerald-500'
+                    : step.status === 'thought' ? 'bg-blue-400 animate-pulse'
                     : 'bg-amber-500 animate-pulse'
                   }`} />
-                  <span className={`${step.status === 'fail' ? 'text-red-400' : 'text-content-tertiary'}`}>
+                  <span className={`${step.status === 'fail' ? 'text-red-400' : step.status === 'thought' ? 'text-content-secondary' : 'text-content-tertiary'}`}>
                     {step.text}
                   </span>
                   {step.detail && (
