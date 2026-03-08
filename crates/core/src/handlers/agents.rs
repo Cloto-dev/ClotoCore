@@ -298,7 +298,44 @@ pub async fn delete_agent(
         .and_then(|v| v.as_str());
     super::utils::verify_agent_password(&state, &id, password, "delete this agent").await?;
 
+    // Look up the agent's preferred memory server BEFORE deletion
+    let memory_server_id = state
+        .agent_manager
+        .get_agent_config(&id)
+        .await
+        .ok()
+        .and_then(|(meta, _)| meta.metadata.get("preferred_memory").cloned())
+        .filter(|s| !s.is_empty());
+
     state.agent_manager.delete_agent(&id).await?;
+
+    // Clean up KS22 memory data (best-effort, don't fail the delete)
+    if let Some(ref mem_server) = memory_server_id {
+        let args = serde_json::json!({ "agent_id": id });
+        match state
+            .mcp_manager
+            .call_server_tool(mem_server, "delete_agent_data", args)
+            .await
+        {
+            Ok(result) => {
+                tracing::info!(
+                    agent_id = %id,
+                    memory_server = %mem_server,
+                    "KS22 agent data cleanup: {:?}",
+                    result
+                );
+            }
+            Err(e) => {
+                warn!(
+                    agent_id = %id,
+                    memory_server = %mem_server,
+                    error = %e,
+                    "Failed to clean up KS22 agent data (agent already deleted from core DB)"
+                );
+            }
+        }
+    }
+
     ok_data(serde_json::json!({}))
 }
 

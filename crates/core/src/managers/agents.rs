@@ -263,7 +263,12 @@ impl AgentManager {
         Ok(row.0)
     }
 
-    /// Delete an agent and all associated data (chat messages, attachments via cascade).
+    /// Delete an agent and all associated data (chat messages, attachments,
+    /// MCP access control entries, trusted commands).
+    ///
+    /// Note: KS22 memory data cleanup is handled separately by the caller
+    /// (handler layer) via MCP tool call, since the agent manager does not
+    /// have access to the MCP client manager.
     pub async fn delete_agent(&self, agent_id: &str) -> anyhow::Result<()> {
         // Clean up avatar file from disk
         if let Ok(Some(path)) = self.get_avatar_path(agent_id).await {
@@ -274,6 +279,16 @@ impl AgentManager {
         sqlx::query("DELETE FROM chat_messages WHERE agent_id = ?")
             .bind(agent_id)
             .execute(&self.pool)
+            .await?;
+
+        // Clean up MCP access control entries (no FK to agents table)
+        sqlx::query("DELETE FROM mcp_access_control WHERE agent_id = ?")
+            .bind(agent_id)
+            .execute(&self.pool)
+            .await?;
+
+        // Clean up trusted commands (no FK to agents table)
+        crate::db::trusted_commands::delete_trusted_commands_for_agent(&self.pool, agent_id)
             .await?;
 
         let result = sqlx::query("DELETE FROM agents WHERE id = ?")

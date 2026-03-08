@@ -964,6 +964,44 @@ async def do_delete_memory(memory_id: int, agent_id: str = "") -> dict:
     return {"ok": True, "deleted_id": memory_id}
 
 
+async def do_delete_agent_data(agent_id: str) -> dict:
+    """Delete ALL data for a specific agent (memories, profiles, episodes).
+
+    Called by the kernel during agent deletion to prevent orphaned data.
+    Requires a non-empty agent_id to prevent accidental full-table wipe.
+    """
+    if not agent_id:
+        return {"error": "agent_id is required for bulk deletion"}
+
+    db = await get_db()
+    mem_cursor = await db.execute(
+        "DELETE FROM memories WHERE agent_id = ?", (agent_id,)
+    )
+    prof_cursor = await db.execute(
+        "DELETE FROM profiles WHERE agent_id = ?", (agent_id,)
+    )
+    ep_cursor = await db.execute(
+        "DELETE FROM episodes WHERE agent_id = ?", (agent_id,)
+    )
+    await db.commit()
+
+    result = {
+        "ok": True,
+        "agent_id": agent_id,
+        "deleted_memories": mem_cursor.rowcount,
+        "deleted_profiles": prof_cursor.rowcount,
+        "deleted_episodes": ep_cursor.rowcount,
+    }
+    logger.info(
+        "Deleted agent data for %s: %d memories, %d profiles, %d episodes",
+        agent_id,
+        mem_cursor.rowcount,
+        prof_cursor.rowcount,
+        ep_cursor.rowcount,
+    )
+    return result
+
+
 async def do_delete_episode(episode_id: int, agent_id: str = "") -> dict:
     """Delete a single episode by ID (FTS5 triggers handle index cleanup).
 
@@ -1039,6 +1077,14 @@ registry.auto_tool("list_episodes", "List archived episodes for an agent (for da
     },
     "required": [],
 }, do_list_episodes, [("agent_id", str), ("limit", int, 50)])
+
+registry.auto_tool("delete_agent_data", "Delete ALL data (memories, profiles, episodes) for a specific agent. Used by kernel during agent deletion.", {
+    "type": "object",
+    "properties": {
+        "agent_id": {"type": "string", "description": "Agent ID whose data should be purged"},
+    },
+    "required": ["agent_id"],
+}, do_delete_agent_data, [("agent_id", str)])
 
 registry.auto_tool("delete_memory", "Delete a single memory by ID. Ownership is enforced when agent_id is provided.", {
     "type": "object",
