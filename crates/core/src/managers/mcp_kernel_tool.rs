@@ -12,10 +12,10 @@ use serde_json::Value;
 use std::sync::atomic::Ordering;
 use tracing::info;
 
-/// Return Tier 1-3 kernel tool schemas (create_mcp_server + access control + audit replay + Tier 3).
+/// Return Tier 1-4 kernel tool schemas (create_mcp_server + access control + audit replay + Tier 3 + Tier 4).
 /// Only exposed when YOLO mode is enabled.
 pub(super) fn kernel_tool_schemas() -> Vec<Value> {
-    vec![
+    let mut schemas = vec![
         kernel_tool_schema(),
         access_query_schema(),
         access_grant_schema(),
@@ -33,7 +33,13 @@ pub(super) fn kernel_tool_schemas() -> Vec<Value> {
         events_replay_schema(),
         // Tier 3: Callbacks
         callback_respond_schema(),
-    ]
+    ];
+    // Tier 4: Discovery (§15)
+    schemas.extend(super::mcp_discovery::discovery_tool_schemas());
+    // Tier 4: Tool Discovery session tools (§16)
+    schemas.push(super::mcp_tool_discovery::tools_session_schema());
+    schemas.push(super::mcp_tool_discovery::tools_session_evict_schema());
+    schemas
 }
 
 /// Return LLM-visible meta-tool schemas (§1.6.3).
@@ -45,14 +51,6 @@ pub(super) fn llm_meta_tool_schemas() -> Vec<Value> {
     ]
 }
 
-/// Return ALL kernel tool schemas (Tier 1-4, for API tools/list responses).
-#[allow(dead_code)]
-pub(super) fn all_kernel_tool_schemas() -> Vec<Value> {
-    let mut schemas = kernel_tool_schemas();
-    schemas.extend(super::mcp_discovery::discovery_tool_schemas());
-    schemas.extend(super::mcp_tool_discovery::tool_discovery_schemas());
-    schemas
-}
 
 fn access_query_schema() -> Value {
     serde_json::json!({
