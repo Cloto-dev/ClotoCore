@@ -29,6 +29,7 @@ pub const CLIENT_EXTENSIONS: &[&str] = &[
     "callbacks",
     "discovery",       // Tier 4: §15 Server Discovery
     "tool_discovery",  // Tier 4: §16 Dynamic Tool Discovery
+    "delegation",      // §5.6 Delegated Execution
 ];
 
 // ============================================================
@@ -618,6 +619,7 @@ mod tests {
         assert!(CLIENT_EXTENSIONS.contains(&"callbacks"));
         assert!(CLIENT_EXTENSIONS.contains(&"discovery"));
         assert!(CLIENT_EXTENSIONS.contains(&"tool_discovery"));
-        assert_eq!(CLIENT_EXTENSIONS.len(), 13);
+        assert!(CLIENT_EXTENSIONS.contains(&"delegation"));
+        assert_eq!(CLIENT_EXTENSIONS.len(), 14);
     }
 }
