@@ -413,7 +413,10 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     }
 
     // 5. Rate Limiter & App State
-    let rate_limiter = Arc::new(middleware::RateLimiter::new(config.rate_limit_per_sec, config.rate_limit_burst));
+    let rate_limiter = Arc::new(middleware::RateLimiter::new(
+        config.rate_limit_per_sec,
+        config.rate_limit_burst,
+    ));
 
     // Load revoked key hashes into memory
     let revoked_keys = {
@@ -511,7 +514,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 count = deferred_mcp_configs.len(),
                 "🔌 Background: connecting deferred MCP servers"
             );
-            deferred_mcp.connect_server_configs(&deferred_mcp_configs).await;
+            deferred_mcp
+                .connect_server_configs(&deferred_mcp_configs)
+                .await;
             let _ = &deferred_shutdown; // hold reference to prevent premature shutdown
             info!("✅ Background MCP server boot complete");
         });
@@ -615,7 +620,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let rl = rate_limiter.clone();
     let shutdown_clone = app_state.shutdown.clone();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(RATE_LIMITER_CLEANUP_SECS));
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_secs(RATE_LIMITER_CLEANUP_SECS));
         loop {
             tokio::select! {
                 () = shutdown_clone.notified() => {
@@ -635,7 +641,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         let revoked_keys_clone = app_state.revoked_keys.clone();
         let shutdown_clone = app_state.shutdown.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(REVOKED_KEYS_CLEANUP_SECS));
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(REVOKED_KEYS_CLEANUP_SECS));
             loop {
                 tokio::select! {
                     () = shutdown_clone.notified() => {

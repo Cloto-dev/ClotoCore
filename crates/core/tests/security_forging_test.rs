@@ -172,9 +172,9 @@ async fn test_vulnerability_event_forging() {
         tx_broadcast.clone(),
         event_history,
         metrics,
-        1000,  // max_history_size
-        24,    // event_retention_hours
-        None,  // consensus
+        1000, // max_history_size
+        24,   // event_retention_hours
+        None, // consensus
         sys_handler,
         10_000, // max_event_history
     );

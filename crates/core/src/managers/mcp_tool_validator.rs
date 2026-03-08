@@ -178,8 +178,8 @@ pub(super) const MAX_CODE_SIZE: usize = 10_000;
 
 /// Allowed imports for Strict and Readonly safety levels.
 const STRICT_ALLOWED_IMPORTS: &[&str] = &[
-    "asyncio", "json", "httpx", "os", "datetime", "time",
-    "math", "re", "hashlib", "base64", "urllib", "typing",
+    "asyncio", "json", "httpx", "os", "datetime", "time", "math", "re", "hashlib", "base64",
+    "urllib", "typing",
 ];
 
 /// Write-operation patterns blocked in Readonly mode.
@@ -209,7 +209,10 @@ const READONLY_BLOCKED_PATTERNS: &[&str] = &[
 /// - `Standard`: size limit + blocked imports + blocked patterns (original behavior)
 /// - `Strict`: Standard + import allowlist check
 /// - `Readonly`: Strict + write-operation blocking
-pub(super) fn validate_mcp_code(code: &str, level: CodeSafetyLevel) -> std::result::Result<(), Vec<String>> {
+pub(super) fn validate_mcp_code(
+    code: &str,
+    level: CodeSafetyLevel,
+) -> std::result::Result<(), Vec<String>> {
     if level == CodeSafetyLevel::Unrestricted {
         return Ok(());
     }

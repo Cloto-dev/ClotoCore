@@ -16,7 +16,9 @@ use cloto_shared::{
 use sqlx::SqlitePool;
 
 use super::command_approval::{self, PendingApprovals, SessionTrustedCommands};
-use super::engine_routing::{evaluate_engine_routing, is_retriable_error, needs_escalation, EngineSelection};
+use super::engine_routing::{
+    evaluate_engine_routing, is_retriable_error, needs_escalation, EngineSelection,
+};
 
 pub struct SystemHandler {
     registry: Arc<PluginRegistry>,
@@ -686,7 +688,13 @@ impl SystemHandler {
             // Episode auto-archival check (background, non-blocking)
             let ep_memory_timeout = Duration::from_secs(self.memory_timeout_secs);
             tokio::spawn(async move {
-                Self::maybe_archive_episode(&ep_mcp, &ep_server_id, &ep_agent_id, ep_memory_timeout).await;
+                Self::maybe_archive_episode(
+                    &ep_mcp,
+                    &ep_server_id,
+                    &ep_agent_id,
+                    ep_memory_timeout,
+                )
+                .await;
             });
         }
 
@@ -1366,7 +1374,12 @@ impl SystemHandler {
     }
 
     /// Auto-archive episode when enough unarchived memories accumulate.
-    async fn maybe_archive_episode(mcp: &Arc<McpClientManager>, server_id: &str, agent_id: &str, memory_timeout: Duration) {
+    async fn maybe_archive_episode(
+        mcp: &Arc<McpClientManager>,
+        server_id: &str,
+        agent_id: &str,
+        memory_timeout: Duration,
+    ) {
         // 1. Fetch recent memories
         let Ok(Ok(mem_result)) = tokio::time::timeout(
             memory_timeout,

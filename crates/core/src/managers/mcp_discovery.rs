@@ -199,9 +199,8 @@ pub(super) async fn execute_discovery_list(
 
             // Extension filter
             if let Some(ref required_ext) = filter_extensions {
-                let server_ext: Vec<String> = mgp
-                    .map(|m| m.active_extensions.clone())
-                    .unwrap_or_default();
+                let server_ext: Vec<String> =
+                    mgp.map(|m| m.active_extensions.clone()).unwrap_or_default();
                 if !required_ext.iter().all(|e| server_ext.contains(e)) {
                     continue;
                 }
@@ -236,7 +235,10 @@ pub(super) async fn execute_discovery_list(
         let stopped = manager.stopped_configs.read().await;
         for (id, (config, _source)) in stopped.iter() {
             // Check if already included from active servers
-            if servers_json.iter().any(|s| s.get("id").and_then(|v| v.as_str()) == Some(id)) {
+            if servers_json
+                .iter()
+                .any(|s| s.get("id").and_then(|v| v.as_str()) == Some(id))
+            {
                 continue;
             }
             servers_json.push(serde_json::json!({
@@ -285,10 +287,7 @@ pub(super) async fn execute_discovery_register(
     {
         let servers = manager.servers.read().await;
         if servers.contains_key(id) {
-            return Err(anyhow::anyhow!(
-                "Server '{}' is already registered",
-                id
-            ));
+            return Err(anyhow::anyhow!("Server '{}' is already registered", id));
         }
     }
 
@@ -302,9 +301,9 @@ pub(super) async fn execute_discovery_register(
         })
         .unwrap_or_default();
 
-    let mgp_config = args.get("mgp").and_then(|v| {
-        serde_json::from_value::<super::mcp_mgp::MgpServerConfig>(v.clone()).ok()
-    });
+    let mgp_config = args
+        .get("mgp")
+        .and_then(|v| serde_json::from_value::<super::mcp_mgp::MgpServerConfig>(v.clone()).ok());
 
     let config = super::mcp_protocol::McpServerConfig {
         id: id.to_string(),
@@ -322,10 +321,7 @@ pub(super) async fn execute_discovery_register(
 
     info!(id = %id, command = %command, "Registering dynamic server via mgp.discovery.register");
 
-    match manager
-        .connect_server(config, ServerSource::Dynamic)
-        .await
-    {
+    match manager.connect_server(config, ServerSource::Dynamic).await {
         Ok(tools) => Ok(serde_json::json!({
             "id": id,
             "status": "connected",

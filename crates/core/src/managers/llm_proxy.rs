@@ -52,10 +52,7 @@ pub fn spawn_llm_proxy(pool: SqlitePool, port: u16, timeout_secs: u64, shutdown:
             return;
         }
     };
-    let state = Arc::new(ProxyState {
-        pool,
-        http_client,
-    });
+    let state = Arc::new(ProxyState { pool, http_client });
 
     let app = Router::new()
         .route(LLM_PROXY_ENDPOINT, post(proxy_handler))

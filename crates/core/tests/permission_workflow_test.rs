@@ -123,7 +123,8 @@ async fn test_db_permission_grant_roundtrip() {
     .unwrap();
 
     // Use AgentManager pool is separate; test the SQL directly
-    let manager = cloto_core::managers::PluginManager::new(pool.clone(), vec![], 5, 10, 50).unwrap();
+    let manager =
+        cloto_core::managers::PluginManager::new(pool.clone(), vec![], 5, 10, 50).unwrap();
 
     // Grant permission via PluginManager
     manager

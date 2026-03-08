@@ -32,7 +32,12 @@ impl LifecycleManager {
     }
 
     /// Determine whether a server should be restarted based on its policy and status.
-    pub fn should_restart(&self, server_id: &str, policy: &RestartPolicy, status: &ServerStatus) -> bool {
+    pub fn should_restart(
+        &self,
+        server_id: &str,
+        policy: &RestartPolicy,
+        status: &ServerStatus,
+    ) -> bool {
         match policy.strategy {
             RestartStrategy::Never => false,
             RestartStrategy::OnFailure => {
@@ -50,11 +55,13 @@ impl LifecycleManager {
         let mut counters = self.restart_counters.lock().unwrap();
         let now = Instant::now();
 
-        let counter = counters.entry(server_id.to_string()).or_insert(RestartCounter {
-            count: 0,
-            window_start: now,
-            last_restart: now,
-        });
+        let counter = counters
+            .entry(server_id.to_string())
+            .or_insert(RestartCounter {
+                count: 0,
+                window_start: now,
+                last_restart: now,
+            });
 
         // Reset window if expired
         let window = Duration::from_secs(policy.restart_window_secs);
@@ -71,11 +78,13 @@ impl LifecycleManager {
         let mut counters = self.restart_counters.lock().unwrap();
         let now = Instant::now();
 
-        let counter = counters.entry(server_id.to_string()).or_insert(RestartCounter {
-            count: 0,
-            window_start: now,
-            last_restart: now,
-        });
+        let counter = counters
+            .entry(server_id.to_string())
+            .or_insert(RestartCounter {
+                count: 0,
+                window_start: now,
+                last_restart: now,
+            });
 
         counter.count += 1;
         counter.last_restart = now;
@@ -114,7 +123,9 @@ pub(super) async fn emit_lifecycle_notification(
         if !has_lifecycle {
             continue;
         }
-        let Some(client) = &handle.client else { continue };
+        let Some(client) = &handle.client else {
+            continue;
+        };
         let params = serde_json::json!({
             "server_id": server_id,
             "previous_state": from,
