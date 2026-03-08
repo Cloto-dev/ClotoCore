@@ -902,6 +902,42 @@
       "pattern": "\"state\": \"not_found\"",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-227",
+      "summary": "Tier 4 Discovery schemas (mgp.discovery.*) missing from kernel_tool_schemas — invisible to agents",
+      "severity": "HIGH",
+      "discovered": "2026-03-08T00:00:00Z",
+      "version": "0.6.0-beta.3",
+      "commit": "7cb2864",
+      "file": "crates/core/src/managers/mcp_kernel_tool.rs",
+      "pattern": "fn all_kernel_tool_schemas",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-228",
+      "summary": "Session tool schemas (mgp.tools.session/session.evict) missing from kernel_tool_schemas — invisible to agents",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-08T00:00:00Z",
+      "version": "0.6.0-beta.3",
+      "commit": "7cb2864",
+      "file": "crates/core/src/managers/mcp_tool_discovery.rs",
+      "pattern": "^fn tools_session_schema\\(\\)",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-229",
+      "summary": "handle_think_with_tools missing sanitization for role:tool entries in tool_history (latent dot-name risk)",
+      "severity": "LOW",
+      "discovered": "2026-03-08T00:00:00Z",
+      "version": "0.6.0-beta.3",
+      "commit": "7cb2864",
+      "file": "mcp-servers/common/llm_provider.py",
+      "pattern": "entry\\.get\\(\"role\"\\) == \"tool\"",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }
