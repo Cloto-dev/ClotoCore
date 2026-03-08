@@ -173,6 +173,7 @@ async fn proxy_handler(
                         warn!(
                             provider = %provider_id,
                             status = %status,
+                            body = %resp_body,
                             "LLM provider returned error"
                         );
                         // Translate HTTP status into user-friendly error with code
@@ -205,11 +206,22 @@ async fn proxy_handler(
                                 "unknown",
                             ),
                         };
+                        // Include upstream error detail so MCP servers can surface it
+                        let upstream_detail = resp_body
+                            .get("error")
+                            .and_then(|e| e.get("message"))
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("");
+                        let full_msg = if upstream_detail.is_empty() {
+                            msg
+                        } else {
+                            format!("{}: {}", msg, upstream_detail)
+                        };
                         (
                             StatusCode::from_u16(status.as_u16())
                                 .unwrap_or(StatusCode::BAD_GATEWAY),
                             Json(serde_json::json!({
-                                "error": { "message": msg, "code": code }
+                                "error": { "message": full_msg, "code": code }
                             })),
                         )
                     }
