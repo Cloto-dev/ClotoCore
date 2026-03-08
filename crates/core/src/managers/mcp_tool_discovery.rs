@@ -1054,4 +1054,547 @@ mod tests {
         assert!(s1.cached.contains(&"tool_a".to_string()));
         assert!(s2.cached.contains(&"tool_b".to_string()));
     }
+
+    // ============================================================
+    // Stress / Load Tests
+    // ============================================================
+
+    /// Stress test: 200 tools registered, search performance and correctness.
+    #[test]
+    fn stress_tool_index_200_tools() {
+        let index = ToolIndex::new();
+        let tools: Vec<McpTool> = (0..200)
+            .map(|i| {
+                make_tool(
+                    &format!("tool_{i}"),
+                    &format!("Tool number {i} for processing data batch {}", i % 10),
+                )
+            })
+            .collect();
+        index.add_server_tools("srv.stress", &tools, |_| None);
+        assert_eq!(index.total_count(), 200);
+
+        // Keyword search still returns bounded results
+        let results = index.search_keyword("processing data", 10, &ToolSearchFilter::default());
+        assert!(results.len() <= 10);
+        assert!(!results.is_empty());
+
+        // All results have positive relevance scores
+        for (_, score) in &results {
+            assert!(*score > 0.0);
+        }
+    }
+
+    /// Stress test: 500 tools across 10 servers.
+    #[test]
+    fn stress_tool_index_multi_server() {
+        let index = ToolIndex::new();
+        for srv in 0..10 {
+            let tools: Vec<McpTool> = (0..50)
+                .map(|i| {
+                    make_tool(
+                        &format!("action_{i}"),
+                        &format!("Perform action {i} on server {srv}"),
+                    )
+                })
+                .collect();
+            index.add_server_tools(&format!("srv.batch{srv}"), &tools, |_| None);
+        }
+        assert_eq!(index.total_count(), 500);
+
+        // Category search by server prefix works
+        let results = index.search_category(&["batch3".to_string()], 100);
+        assert_eq!(results.len(), 50);
+
+        // Removing one server leaves the rest intact
+        index.remove_server_tools("srv.batch0");
+        assert_eq!(index.total_count(), 450);
+    }
+
+    /// Budget boundary: tools that exactly fill the budget.
+    #[test]
+    fn stress_budget_exact_fill() {
+        let cache = SessionToolCache::new();
+        {
+            let mut sessions = cache.sessions.lock().unwrap();
+            sessions.insert(
+                "agent_exact".to_string(),
+                AgentSession {
+                    pinned: Vec::new(),
+                    cached: HashMap::new(),
+                    max_tokens: 1000,
+                    pinned_reserve: 0,
+                },
+            );
+        }
+
+        // Add exactly 1000 tokens (10 tools × 100 tokens)
+        let tools: Vec<(String, usize)> =
+            (0..10).map(|i| (format!("t{i}"), 100)).collect();
+        cache.cache_tools("agent_exact", &tools);
+
+        let state = cache.get_session_state("agent_exact").unwrap();
+        assert_eq!(state.cached.len(), 10);
+        assert_eq!(state.total_tokens, 1000);
+    }
+
+    /// Budget boundary: one token over budget triggers LRU eviction.
+    #[test]
+    fn stress_budget_one_over() {
+        let cache = SessionToolCache::new();
+        {
+            let mut sessions = cache.sessions.lock().unwrap();
+            sessions.insert(
+                "agent_over".to_string(),
+                AgentSession {
+                    pinned: Vec::new(),
+                    cached: HashMap::new(),
+                    max_tokens: 1000,
+                    pinned_reserve: 0,
+                },
+            );
+        }
+
+        // Fill to 900
+        let tools: Vec<(String, usize)> =
+            (0..9).map(|i| (format!("t{i}"), 100)).collect();
+        cache.cache_tools("agent_over", &tools);
+
+        // Wait to establish LRU ordering
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Add a 200-token tool — total would be 1100 > 1000, so LRU eviction
+        cache.cache_tools("agent_over", &[("t_big".to_string(), 200)]);
+
+        let state = cache.get_session_state("agent_over").unwrap();
+        assert!(state.total_tokens <= 1000, "Budget must not be exceeded: {}", state.total_tokens);
+        // The big tool should be present
+        assert!(state.cached.contains(&"t_big".to_string()));
+        // At least one old tool was evicted
+        assert!(state.cached.len() < 10);
+    }
+
+    /// Stress test: 50 concurrent agents each with independent budgets.
+    #[test]
+    fn stress_concurrent_agents_independence() {
+        let cache = SessionToolCache::new();
+
+        for a in 0..50 {
+            let agent_id = format!("agent_{a}");
+            let tools: Vec<(String, usize)> = (0..5)
+                .map(|i| (format!("{agent_id}.tool_{i}"), 100))
+                .collect();
+            cache.cache_tools(&agent_id, &tools);
+        }
+
+        // Each agent should have exactly 5 tools, 500 tokens
+        for a in 0..50 {
+            let state = cache.get_session_state(&format!("agent_{a}")).unwrap();
+            assert_eq!(state.cached.len(), 5);
+            assert_eq!(state.total_tokens, 500);
+        }
+    }
+
+    /// Stress test: LRU eviction with many insertions preserves most recent.
+    #[test]
+    fn stress_lru_eviction_ordering() {
+        let cache = SessionToolCache::new();
+        {
+            let mut sessions = cache.sessions.lock().unwrap();
+            sessions.insert(
+                "agent_lru".to_string(),
+                AgentSession {
+                    pinned: Vec::new(),
+                    cached: HashMap::new(),
+                    max_tokens: 500,
+                    pinned_reserve: 0,
+                },
+            );
+        }
+
+        // Insert 20 tools sequentially (200 tokens each, budget 500)
+        // Only last 2 should survive (200 × 2 = 400 ≤ 500)
+        for i in 0..20 {
+            cache.cache_tools("agent_lru", &[(format!("tool_{i}"), 200)]);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        let state = cache.get_session_state("agent_lru").unwrap();
+        assert!(state.total_tokens <= 500);
+        // Most recent tool must be present
+        assert!(
+            state.cached.contains(&"tool_19".to_string()),
+            "Most recent tool must survive LRU eviction"
+        );
+    }
+
+    /// Stress test: pinned tools survive LRU eviction under budget pressure.
+    #[test]
+    fn stress_pinned_survives_budget_pressure() {
+        let cache = SessionToolCache::new();
+        {
+            let mut sessions = cache.sessions.lock().unwrap();
+            sessions.insert(
+                "agent_pin".to_string(),
+                AgentSession {
+                    pinned: vec!["pinned_tool".to_string()],
+                    cached: HashMap::new(),
+                    max_tokens: 500,
+                    pinned_reserve: 200,
+                },
+            );
+        }
+
+        // Add pinned tool first
+        cache.cache_tools("agent_pin", &[("pinned_tool".to_string(), 200)]);
+
+        // Fill remaining budget and exceed it
+        for i in 0..10 {
+            cache.cache_tools("agent_pin", &[(format!("tool_{i}"), 200)]);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        let state = cache.get_session_state("agent_pin").unwrap();
+        assert!(state.total_tokens <= 500);
+        // Pinned tool must survive all evictions
+        assert!(
+            state.cached.contains(&"pinned_tool".to_string()),
+            "Pinned tool must never be evicted"
+        );
+    }
+
+    /// Stress test: large schemas with realistic token estimates.
+    #[test]
+    fn stress_large_schema_token_estimation() {
+        // Build a tool with a large input_schema
+        let mut properties = serde_json::Map::new();
+        for i in 0..50 {
+            properties.insert(
+                format!("param_{i}"),
+                serde_json::json!({
+                    "type": "string",
+                    "description": format!("Parameter number {i} with a moderately long description text")
+                }),
+            );
+        }
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": properties,
+        });
+
+        let estimated = estimate_tokens(&schema);
+        // 50 properties × ~80 chars each ≈ 4000 chars ÷ 4 ≈ 1000 tokens + overhead
+        assert!(estimated > 500, "Large schema should estimate > 500 tokens, got {estimated}");
+        assert!(estimated < 5000, "Estimate should be reasonable, got {estimated}");
+    }
+
+    /// Stress test: duplicate tool insertion is idempotent (touch only).
+    #[test]
+    fn stress_duplicate_insertion_idempotent() {
+        let cache = SessionToolCache::new();
+
+        // Add same tool 100 times
+        for _ in 0..100 {
+            cache.cache_tools("agent_dup", &[("same_tool".to_string(), 200)]);
+        }
+
+        let state = cache.get_session_state("agent_dup").unwrap();
+        assert_eq!(state.cached.len(), 1, "Duplicate adds must not create extra entries");
+        assert_eq!(state.total_tokens, 200, "Token count must not grow from duplicates");
+    }
+
+    /// Stress test: mass eviction returns correct count.
+    #[test]
+    fn stress_mass_eviction() {
+        let cache = SessionToolCache::new();
+        let tools: Vec<(String, usize)> =
+            (0..100).map(|i| (format!("tool_{i}"), 50)).collect();
+        cache.cache_tools("agent_mass", &tools);
+
+        // Evict all
+        let tool_ids: Vec<String> = (0..100).map(|i| format!("tool_{i}")).collect();
+        let evicted = cache.evict("agent_mass", &tool_ids);
+        assert_eq!(evicted, 100);
+
+        let state = cache.get_session_state("agent_mass").unwrap();
+        assert!(state.cached.is_empty());
+        assert_eq!(state.total_tokens, 0);
+    }
+
+    /// Stress test: evict non-existent tools returns 0.
+    #[test]
+    fn stress_evict_nonexistent() {
+        let cache = SessionToolCache::new();
+        cache.cache_tools("agent_ne", &[("real_tool".to_string(), 100)]);
+
+        let evicted = cache.evict("agent_ne", &["fake_tool".to_string()]);
+        assert_eq!(evicted, 0);
+
+        // Original tool untouched
+        let state = cache.get_session_state("agent_ne").unwrap();
+        assert_eq!(state.cached.len(), 1);
+    }
+
+    /// Edge case: empty query on non-empty index.
+    #[test]
+    fn stress_empty_query_on_large_index() {
+        let index = ToolIndex::new();
+        let tools: Vec<McpTool> = (0..100)
+            .map(|i| make_tool(&format!("tool_{i}"), &format!("Description {i}")))
+            .collect();
+        index.add_server_tools("srv", &tools, |_| None);
+
+        let results = index.search_keyword("", 50, &ToolSearchFilter::default());
+        assert!(results.is_empty(), "Empty query must return no results");
+    }
+
+    /// Edge case: search with no matching terms on large index.
+    #[test]
+    fn stress_no_match_on_large_index() {
+        let index = ToolIndex::new();
+        let tools: Vec<McpTool> = (0..100)
+            .map(|i| make_tool(&format!("tool_{i}"), &format!("Description {i}")))
+            .collect();
+        index.add_server_tools("srv", &tools, |_| None);
+
+        let results = index.search_keyword("zzzzzyyyy", 50, &ToolSearchFilter::default());
+        assert!(results.is_empty(), "Non-matching query must return no results");
+    }
+
+    // ============================================================
+    // Context Reduction Measurement Tests
+    // ============================================================
+
+    /// Helper: create a realistic tool schema with N parameters.
+    fn make_realistic_tool(name: &str, desc: &str, param_count: usize) -> McpTool {
+        let mut properties = serde_json::Map::new();
+        let mut required = Vec::new();
+        for i in 0..param_count {
+            properties.insert(
+                format!("param_{i}"),
+                serde_json::json!({
+                    "type": if i % 3 == 0 { "string" } else if i % 3 == 1 { "number" } else { "boolean" },
+                    "description": format!("Parameter {i} for {name}: controls behavior aspect {i}")
+                }),
+            );
+            if i < param_count / 2 {
+                required.push(serde_json::Value::String(format!("param_{i}")));
+            }
+        }
+        McpTool {
+            name: name.to_string(),
+            description: Some(desc.to_string()),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            }),
+        }
+    }
+
+    /// Measure context reduction: realistic MCP server deployment.
+    ///
+    /// Simulates a typical ClotoCore setup with multiple MCP servers
+    /// and measures the token savings when using session cache vs full injection.
+    #[test]
+    fn measure_context_reduction_realistic() {
+        let index = ToolIndex::new();
+
+        // Simulate realistic MCP server tool distribution:
+        // terminal: 5 tools (3-5 params each)
+        // agent_utils: 8 tools (2-4 params)
+        // cron: 5 tools (2-3 params)
+        // embedding: 3 tools (1-2 params)
+        // websearch: 3 tools (2-4 params)
+        // research: 2 tools (3-5 params)
+        // capture: 2 tools (4-6 params)
+        // imagegen: 3 tools (5-8 params)
+        // stt: 2 tools (2-3 params)
+        // tts: 3 tools (2-4 params)
+        // gaze: 5 tools (3-6 params)
+        let server_configs: Vec<(&str, Vec<(&str, &str, usize)>)> = vec![
+            ("tool.terminal", vec![
+                ("execute_command", "Execute a shell command in the terminal", 5),
+                ("read_file", "Read the contents of a file from the filesystem", 3),
+                ("write_file", "Write content to a file on the filesystem", 4),
+                ("list_directory", "List files and directories in a path", 3),
+                ("get_system_info", "Get system information and resource usage", 2),
+            ]),
+            ("tool.agent_utils", vec![
+                ("create_agent", "Create a new agent with specified configuration", 4),
+                ("update_agent", "Update an existing agent's settings", 3),
+                ("delete_agent", "Delete an agent by ID", 2),
+                ("list_agents", "List all registered agents", 2),
+                ("assign_plugin", "Assign a plugin to an agent", 3),
+                ("unassign_plugin", "Remove a plugin assignment from an agent", 3),
+                ("get_agent_status", "Get the current status of an agent", 2),
+                ("set_agent_mode", "Set the operational mode of an agent", 3),
+            ]),
+            ("tool.cron", vec![
+                ("create_schedule", "Create a new scheduled task", 5),
+                ("update_schedule", "Update an existing schedule", 4),
+                ("delete_schedule", "Delete a scheduled task", 2),
+                ("list_schedules", "List all scheduled tasks", 2),
+                ("trigger_schedule", "Manually trigger a scheduled task", 3),
+            ]),
+            ("tool.embedding", vec![
+                ("embed_text", "Generate embeddings for text input", 2),
+                ("embed_batch", "Generate embeddings for multiple texts", 3),
+                ("similarity_search", "Find similar texts using embeddings", 4),
+            ]),
+            ("tool.websearch", vec![
+                ("search_web", "Search the web using a query string", 4),
+                ("fetch_url", "Fetch and extract content from a URL", 3),
+                ("search_news", "Search recent news articles", 3),
+            ]),
+            ("tool.research", vec![
+                ("deep_research", "Conduct deep research on a topic", 5),
+                ("summarize_sources", "Summarize multiple research sources", 4),
+            ]),
+            ("tool.capture", vec![
+                ("screenshot", "Capture a screenshot of the screen", 4),
+                ("screen_region", "Capture a specific region of the screen", 6),
+            ]),
+            ("tool.imagegen", vec![
+                ("generate_image", "Generate an image from text prompt", 6),
+                ("edit_image", "Edit an existing image with instructions", 8),
+                ("upscale_image", "Upscale an image to higher resolution", 5),
+            ]),
+            ("tool.stt", vec![
+                ("transcribe_audio", "Transcribe audio to text", 3),
+                ("transcribe_stream", "Transcribe streaming audio in real-time", 4),
+            ]),
+            ("tool.tts", vec![
+                ("synthesize_speech", "Convert text to speech audio", 4),
+                ("list_voices", "List available TTS voices", 2),
+                ("set_voice", "Set the default TTS voice", 3),
+            ]),
+            ("tool.gaze", vec![
+                ("track_gaze", "Start eye gaze tracking", 3),
+                ("get_gaze_position", "Get current gaze position", 2),
+                ("calibrate", "Run gaze tracker calibration", 4),
+                ("set_sensitivity", "Adjust gaze tracking sensitivity", 3),
+                ("get_heatmap", "Generate a gaze heatmap for a session", 5),
+            ]),
+        ];
+
+        let mut total_tools = 0;
+        for (server_id, tools_config) in &server_configs {
+            let tools: Vec<McpTool> = tools_config
+                .iter()
+                .map(|(name, desc, params)| make_realistic_tool(name, desc, *params))
+                .collect();
+            total_tools += tools.len();
+            index.add_server_tools(server_id, &tools, |_| None);
+        }
+
+        // Calculate full injection cost (all tools)
+        let all_entries = {
+            let entries = index.entries.lock().unwrap();
+            entries.clone()
+        };
+        let full_injection_tokens: usize = all_entries.iter().map(|e| e.estimated_tokens).sum();
+
+        // Simulate a typical task: agent needs terminal + websearch (8 tools out of 41)
+        let task_results = index.search_keyword("execute command file search web", 8, &ToolSearchFilter::default());
+
+        let session_tokens: usize = task_results.iter().map(|(e, _)| e.estimated_tokens).sum();
+
+        let reduction_pct = if full_injection_tokens > 0 {
+            ((full_injection_tokens - session_tokens) as f64 / full_injection_tokens as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        // Print measurement results (visible in test output with --nocapture)
+        eprintln!("\n=== Context Reduction Measurement ===");
+        eprintln!("Total tools across {} servers: {}", server_configs.len(), total_tools);
+        eprintln!("Full injection tokens: {}", full_injection_tokens);
+        eprintln!("Session cache tokens (8 task-relevant tools): {}", session_tokens);
+        eprintln!("Reduction: {:.1}%", reduction_pct);
+        eprintln!("Budget: {} tokens (session uses {:.1}% of budget)",
+            DEFAULT_MAX_TOKENS, (session_tokens as f64 / DEFAULT_MAX_TOKENS as f64) * 100.0);
+        eprintln!("=====================================\n");
+
+        // Assertions: meaningful reduction must be achieved
+        assert!(total_tools >= 40, "Realistic deployment should have 40+ tools, got {total_tools}");
+        assert!(
+            reduction_pct >= 50.0,
+            "Context reduction must be at least 50% for typical task, got {reduction_pct:.1}%"
+        );
+        assert!(
+            session_tokens <= DEFAULT_MAX_TOKENS,
+            "Session tokens ({session_tokens}) must fit within budget ({DEFAULT_MAX_TOKENS})"
+        );
+    }
+
+    /// Measure context reduction: worst case (agent needs many tools).
+    #[test]
+    fn measure_context_reduction_heavy_task() {
+        let index = ToolIndex::new();
+
+        // 60 tools across 6 servers with varying complexity
+        for srv in 0..6 {
+            let tools: Vec<McpTool> = (0..10)
+                .map(|i| {
+                    let params = 2 + (i % 5); // 2-6 params
+                    make_realistic_tool(
+                        &format!("action_{i}"),
+                        &format!("Perform action {i} involving data processing and transformation"),
+                        params,
+                    )
+                })
+                .collect();
+            index.add_server_tools(&format!("tool.service{srv}"), &tools, |_| None);
+        }
+
+        let all_entries = {
+            let entries = index.entries.lock().unwrap();
+            entries.clone()
+        };
+        let full_tokens: usize = all_entries.iter().map(|e| e.estimated_tokens).sum();
+
+        // Heavy task: agent wants 20 tools (worst case but still selective)
+        let results = index.search_keyword("data processing action", 20, &ToolSearchFilter::default());
+        let session_tokens: usize = results.iter().map(|(e, _)| e.estimated_tokens).sum();
+
+        let reduction_pct = ((full_tokens - session_tokens) as f64 / full_tokens as f64) * 100.0;
+
+        eprintln!("\n=== Context Reduction (Heavy Task) ===");
+        eprintln!("Total tools: {}, Full tokens: {}", index.total_count(), full_tokens);
+        eprintln!("Requested tools: {}, Session tokens: {}", results.len(), session_tokens);
+        eprintln!("Reduction: {:.1}%", reduction_pct);
+        eprintln!("=======================================\n");
+
+        // Even heavy tasks should save something
+        assert!(
+            reduction_pct >= 20.0,
+            "Even heavy tasks should achieve 20%+ reduction, got {reduction_pct:.1}%"
+        );
+    }
+
+    /// Measure per-tool token overhead accuracy.
+    #[test]
+    fn measure_token_estimation_accuracy() {
+        // Test with various schema complexities
+        let test_cases: Vec<(&str, usize, usize, usize)> = vec![
+            // (name, param_count, expected_min_tokens, expected_max_tokens)
+            ("simple_tool", 1, 100, 300),
+            ("medium_tool", 5, 150, 600),
+            ("complex_tool", 10, 300, 1200),
+            ("heavy_tool", 20, 600, 2500),
+        ];
+
+        eprintln!("\n=== Token Estimation Accuracy ===");
+        for (name, params, min, max) in &test_cases {
+            let tool = make_realistic_tool(name, &format!("A tool with {params} parameters"), *params);
+            let tokens = estimate_tokens(&tool.input_schema) + SCHEMA_OVERHEAD_TOKENS;
+            eprintln!("  {name} ({params} params): {tokens} tokens");
+            assert!(
+                tokens >= *min && tokens <= *max,
+                "{name}: {tokens} tokens outside expected range [{min}, {max}]"
+            );
+        }
+        eprintln!("=================================\n");
+    }
 }
