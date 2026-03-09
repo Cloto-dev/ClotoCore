@@ -1,6 +1,6 @@
-"""Tests for ks22 _clamp_limit boundary values (bug-165 verification)."""
+"""Tests for cpersona _clamp_limit boundary values (bug-165 verification)."""
 
-from ks22.server import _clamp_limit
+from cpersona.server import _clamp_limit
 
 
 def test_clamp_normal():

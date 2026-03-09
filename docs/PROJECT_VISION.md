@@ -125,7 +125,7 @@ No major Kernel modifications are required.
 │  Layer 4: Emotion & Personality Engine               │
 │  Internal emotional state, personality consistency,   │
 │  mood fluctuation, spontaneous speech                │
-│  → MCP: mcp-servers/emotion/ (integrated with KS22) │
+│  → MCP: mcp-servers/emotion/ (integrated with CPersona) │
 ├─────────────────────────────────────────────────────┤
 │  Layer 3: Real-Time Event-Driven                     │
 │  Instant response to chat, visual input, voice input │
@@ -136,10 +136,10 @@ No major Kernel modifications are required.
 │  Heartbeat (periodic checks), Cron (scheduled exec)  │
 │  → Kernel: managers/scheduler.rs (follows existing   │
 │    patterns)                                         │
-│  → State persistence: KS22 MCP                       │
+│  → State persistence: CPersona MCP                       │
 ├─────────────────────────────────────────────────────┤
 │  Layer 1: Core Infrastructure              [Done]    │
-│  Rust Kernel, Agentic Loop, MCP, KS22 memory         │
+│  Rust Kernel, Agentic Loop, MCP, CPersona memory         │
 │  Access control, YOLO mode, Dashboard UI             │
 └─────────────────────────────────────────────────────┘
 ```
@@ -164,7 +164,7 @@ Kernel (Rust)
   │
   ├── MCP: mind.deepseek     (reasoning engine)        ← L1
   ├── MCP: mind.cerebras     (reasoning engine)        ← L1
-  ├── MCP: memory.ks22       (long-term memory)        ← L1
+  ├── MCP: memory.cpersona       (long-term memory)        ← L1
   ├── MCP: tool.terminal     (shell execution)         ← L1
   ├── MCP: tool.browser      (@playwright/mcp)         ← L3
   ├── MCP: sense.vision      (camera/screen recognition) ← L3
@@ -199,7 +199,7 @@ With this design:
 
 | Version | Layer | Milestone |
 |---------|-------|-----------|
-| v0.3.x | L1 complete | Agentic loop, MCP, KS22, Chat UX, Dashboard |
+| v0.3.x | L1 complete | Agentic loop, MCP, CPersona, Chat UX, Dashboard |
 | v0.4.x | L2 added | Heartbeat/Cron scheduler, autonomous triggers |
 | v0.5.x | L3 enhanced | Browser automation (Playwright MCP), Vision input |
 | v0.6+ | L4 started | Emotional state management, spontaneous speech |

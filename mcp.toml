@@ -77,16 +77,16 @@ OLLAMA_MODEL = "${OLLAMA_MODEL}"
 OLLAMA_ENABLE_THINKING = "${OLLAMA_ENABLE_THINKING}"
 
 [[servers]]
-id = "memory.ks22"
+id = "memory.cpersona"
 command = "python"
-args = ["mcp-servers/ks22/server.py"]
+args = ["mcp-servers/cpersona/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
-KS22_EMBEDDING_MODE = "http"
-KS22_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
-KS22_LLM_PROVIDER = "cerebras"
-KS22_LLM_MODEL = "gpt-oss-120b"
+CPERSONA_EMBEDDING_MODE = "http"
+CPERSONA_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
+CPERSONA_LLM_PROVIDER = "cerebras"
+CPERSONA_LLM_MODEL = "gpt-oss-120b"
 
 [[servers]]
 id = "tool.embedding"

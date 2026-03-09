@@ -310,7 +310,7 @@ pub async fn delete_agent(
 
     state.agent_manager.delete_agent(&id).await?;
 
-    // Clean up KS22 memory data (best-effort, don't fail the delete)
+    // Clean up CPersona memory data (best-effort, don't fail the delete)
     if let Some(ref mem_server) = memory_server_id {
         let args = serde_json::json!({ "agent_id": id });
         match state
@@ -322,7 +322,7 @@ pub async fn delete_agent(
                 tracing::info!(
                     agent_id = %id,
                     memory_server = %mem_server,
-                    "KS22 agent data cleanup: {:?}",
+                    "CPersona agent data cleanup: {:?}",
                     result
                 );
             }
@@ -331,7 +331,7 @@ pub async fn delete_agent(
                     agent_id = %id,
                     memory_server = %mem_server,
                     error = %e,
-                    "Failed to clean up KS22 agent data (agent already deleted from core DB)"
+                    "Failed to clean up CPersona agent data (agent already deleted from core DB)"
                 );
             }
         }

@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from ks22.server import EmbeddingClient
+from cpersona.server import EmbeddingClient
 
 # ---------------------------------------------------------------------------
 # Mock embedding server (simulates 50ms network + compute latency)
