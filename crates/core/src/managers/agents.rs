@@ -308,11 +308,11 @@ impl AgentManager {
         name: Option<&str>,
         description: Option<&str>,
         default_engine_id: Option<String>,
-        metadata: HashMap<String, String>,
+        metadata: Option<HashMap<String, String>>,
     ) -> anyhow::Result<()> {
-        let metadata_json = serde_json::to_string(&metadata)?;
+        let metadata_json = metadata.map(|m| serde_json::to_string(&m)).transpose()?;
         sqlx::query(
-            "UPDATE agents SET metadata = ?, \
+            "UPDATE agents SET metadata = COALESCE(?, metadata), \
              name = COALESCE(?, name), \
              description = COALESCE(?, description), \
              default_engine_id = COALESCE(?, default_engine_id) \

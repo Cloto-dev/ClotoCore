@@ -19,7 +19,6 @@ const SCHEMA_OVERHEAD_TOKENS: usize = 100;
 
 /// Default context budget.
 const DEFAULT_MAX_TOKENS: usize = 8000;
-const DEFAULT_PINNED_RESERVE: usize = 2000;
 
 // ============================================================
 // Tool Index (§16.4)
@@ -28,7 +27,6 @@ const DEFAULT_PINNED_RESERVE: usize = 2000;
 /// A single entry in the searchable tool index.
 #[derive(Debug, Clone)]
 pub(super) struct ToolIndexEntry {
-    #[allow(dead_code)]
     pub tool_id: String,
     pub server_id: String,
     pub name: String,
@@ -288,8 +286,6 @@ fn estimate_tokens(schema: &Value) -> usize {
 
 #[derive(Debug, Clone)]
 struct CachedTool {
-    #[allow(dead_code)]
-    tool_id: String,
     last_used: Instant,
     estimated_tokens: usize,
 }
@@ -299,8 +295,6 @@ struct AgentSession {
     pinned: Vec<String>,
     cached: HashMap<String, CachedTool>,
     max_tokens: usize,
-    #[allow(dead_code)]
-    pinned_reserve: usize,
 }
 
 /// Public session state returned by queries.
@@ -332,7 +326,6 @@ impl SessionToolCache {
                 pinned: Vec::new(),
                 cached: HashMap::new(),
                 max_tokens: DEFAULT_MAX_TOKENS,
-                pinned_reserve: DEFAULT_PINNED_RESERVE,
             });
 
         let mut added = 0;
@@ -349,7 +342,6 @@ impl SessionToolCache {
             session.cached.insert(
                 tool_id.clone(),
                 CachedTool {
-                    tool_id: tool_id.clone(),
                     last_used: Instant::now(),
                     estimated_tokens: *est_tokens,
                 },
@@ -398,7 +390,6 @@ impl SessionToolCache {
     }
 
     /// Set pinned tools for an agent.
-    #[allow(dead_code)]
     pub fn set_pinned(&self, agent_id: &str, tool_ids: Vec<String>) {
         let mut sessions = self.sessions.lock().unwrap();
         let session = sessions
@@ -407,13 +398,11 @@ impl SessionToolCache {
                 pinned: Vec::new(),
                 cached: HashMap::new(),
                 max_tokens: DEFAULT_MAX_TOKENS,
-                pinned_reserve: DEFAULT_PINNED_RESERVE,
             });
         session.pinned = tool_ids;
     }
 
     /// Touch a tool (update last_used for LRU).
-    #[allow(dead_code)]
     pub fn touch(&self, agent_id: &str, tool_id: &str) {
         let mut sessions = self.sessions.lock().unwrap();
         if let Some(session) = sessions.get_mut(agent_id) {
@@ -452,16 +441,6 @@ impl SessionToolCache {
 // Kernel Tool Schemas (§16)
 // ============================================================
 
-/// Return all §16 tool discovery kernel tool schemas.
-#[allow(dead_code)]
-pub(super) fn tool_discovery_schemas() -> Vec<Value> {
-    vec![
-        tools_discover_schema(),
-        tools_request_schema(),
-        tools_session_schema(),
-        tools_session_evict_schema(),
-    ]
-}
 
 /// Schema for mgp.tools.discover (public for llm_meta_tool_schemas).
 pub(super) fn tools_discover_schema() -> Value {
@@ -574,7 +553,13 @@ pub(super) fn tools_session_schema() -> Value {
             "description": "Query the current session's loaded tools and context budget usage.",
             "parameters": {
                 "type": "object",
-                "properties": {}
+                "properties": {
+                    "pinned": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Set pinned tools for this agent (exempt from LRU eviction)"
+                    }
+                }
             }
         }
     })
@@ -818,7 +803,7 @@ pub(super) async fn execute_tools_request(
 
 /// Execute mgp.tools.session — query session state (§16.7).
 pub(super) async fn execute_tools_session(
-    _manager: &McpClientManager,
+    manager: &McpClientManager,
     args: Value,
 ) -> Result<Value> {
     let agent_id = args
@@ -826,7 +811,16 @@ pub(super) async fn execute_tools_session(
         .and_then(|v| v.as_str())
         .unwrap_or("default");
 
-    let state = _manager.session_cache.get_session_state(agent_id);
+    // Handle pinned tool update if provided (§16.7)
+    if let Some(pinned_arr) = args.get("pinned").and_then(|v| v.as_array()) {
+        let pinned: Vec<String> = pinned_arr
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        manager.session_cache.set_pinned(agent_id, pinned);
+    }
+
+    let state = manager.session_cache.get_session_state(agent_id);
 
     match state {
         Some(s) => Ok(serde_json::json!({
@@ -1023,7 +1017,6 @@ mod tests {
                     pinned: Vec::new(),
                     cached: HashMap::new(),
                     max_tokens: 500,
-                    pinned_reserve: 0,
                 },
             );
         }
@@ -1121,7 +1114,6 @@ mod tests {
                     pinned: Vec::new(),
                     cached: HashMap::new(),
                     max_tokens: 1000,
-                    pinned_reserve: 0,
                 },
             );
         }
@@ -1147,7 +1139,6 @@ mod tests {
                     pinned: Vec::new(),
                     cached: HashMap::new(),
                     max_tokens: 1000,
-                    pinned_reserve: 0,
                 },
             );
         }
@@ -1207,7 +1198,6 @@ mod tests {
                     pinned: Vec::new(),
                     cached: HashMap::new(),
                     max_tokens: 500,
-                    pinned_reserve: 0,
                 },
             );
         }
@@ -1240,7 +1230,6 @@ mod tests {
                     pinned: vec!["pinned_tool".to_string()],
                     cached: HashMap::new(),
                     max_tokens: 500,
-                    pinned_reserve: 200,
                 },
             );
         }

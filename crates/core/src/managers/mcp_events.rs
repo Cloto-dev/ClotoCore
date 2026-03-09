@@ -17,7 +17,6 @@ use tracing::{debug, info};
 // ============================================================
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct EventSubscription {
     pub id: String,
     pub server_id: String,
@@ -26,7 +25,6 @@ pub struct EventSubscription {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 struct BufferedEvent {
     seq: u64,
     channel: String,
@@ -34,7 +32,6 @@ struct BufferedEvent {
     timestamp: String,
 }
 
-#[allow(dead_code)]
 const MAX_BUFFER_SIZE: usize = 1000;
 
 // ============================================================
@@ -42,7 +39,6 @@ const MAX_BUFFER_SIZE: usize = 1000;
 // ============================================================
 
 #[derive(Debug)]
-#[allow(dead_code)]
 struct PendingCallback {
     server_id: String,
     callback_type: String,
@@ -58,7 +54,6 @@ struct PendingCallback {
 // EventManager
 // ============================================================
 
-#[allow(dead_code)]
 pub struct EventManager {
     pub(super) subscriptions: Mutex<HashMap<String, EventSubscription>>,
     event_buffer: Mutex<VecDeque<BufferedEvent>>,
@@ -191,7 +186,6 @@ impl EventManager {
     }
 
     /// Get the recorded response for a previously responded callback (§13.4 dedup re-send).
-    #[allow(dead_code)]
     pub fn get_recorded_response(&self, callback_id: &str) -> Option<(String, String)> {
         let cbs = self.callbacks.lock().unwrap();
         let cb = cbs.get(callback_id)?;
@@ -204,11 +198,36 @@ impl EventManager {
     }
 
     /// Check if a callback type is llm_completion (§13.4).
-    #[allow(dead_code)]
     pub fn is_llm_completion(&self, callback_id: &str) -> bool {
         let cbs = self.callbacks.lock().unwrap();
         cbs.get(callback_id)
             .is_some_and(|cb| cb.callback_type == "llm_completion")
+    }
+
+    /// Return info about all pending (unresponded) callbacks.
+    #[allow(clippy::type_complexity)]
+    pub fn pending_callbacks(&self) -> Vec<(String, String, String, Option<Vec<String>>, u64)> {
+        let cbs = self.callbacks.lock().unwrap();
+        cbs.iter()
+            .filter(|(_, cb)| !cb.responded)
+            .map(|(id, cb)| {
+                (
+                    id.clone(),
+                    cb.server_id.clone(),
+                    cb.message.clone(),
+                    cb.options.clone(),
+                    cb.created_at.elapsed().as_secs(),
+                )
+            })
+            .collect()
+    }
+
+    /// Remove callbacks that have been responded to and are older than `timeout`.
+    pub fn cleanup_stale_callbacks(&self, timeout: std::time::Duration) -> usize {
+        let mut cbs = self.callbacks.lock().unwrap();
+        let before = cbs.len();
+        cbs.retain(|_, cb| !cb.responded || cb.created_at.elapsed() < timeout);
+        before - cbs.len()
     }
 }
 
@@ -332,13 +351,30 @@ pub(super) async fn replay(manager: &McpClientManager, args: Value) -> Result<Va
 }
 
 /// Deliver an event to all matching subscribers via `notifications/mgp.event`.
-#[allow(dead_code)]
+/// Check if event data matches a subscription filter (§8.3).
+/// For each key in the filter object, the event data must contain the same value.
+fn event_matches_filter(data: &Value, filter: &Value) -> bool {
+    let Some(filter_obj) = filter.as_object() else {
+        return true;
+    };
+    let Some(data_obj) = data.as_object() else {
+        return false;
+    };
+    filter_obj.iter().all(|(k, v)| data_obj.get(k) == Some(v))
+}
+
 pub(super) async fn deliver_event(manager: &McpClientManager, channel: &str, data: &Value) {
     let (seq, timestamp) = manager.events.buffer_event(channel, data);
     let matching = manager.events.matching_subscriptions(channel);
 
     let servers = manager.servers.read().await;
     for sub in matching {
+        // Apply subscription filter (§8.3)
+        if let Some(ref filter) = sub.filter {
+            if !event_matches_filter(data, filter) {
+                continue;
+            }
+        }
         let Some(handle) = servers.get(&sub.server_id) else {
             continue;
         };
@@ -368,14 +404,30 @@ pub(super) async fn deliver_event(manager: &McpClientManager, channel: &str, dat
     }
 }
 
+/// Result of handling an incoming callback request.
+pub enum CallbackHandleResult {
+    /// New callback — emit event to UI.
+    NewCallback(Box<cloto_shared::ClotoEventData>),
+    /// Duplicate callback with a previously recorded response — re-send it.
+    DuplicateWithResponse {
+        server_id: String,
+        callback_id: String,
+        response: String,
+    },
+    /// Duplicate callback but no response recorded yet.
+    DuplicateNoResponse,
+}
+
 /// Handle an incoming `notifications/mgp.callback.request` from a server.
-/// Returns event data for the UI if the callback is new.
-pub(super) fn handle_callback_request(
+/// Returns a `CallbackHandleResult` indicating how the caller should proceed.
+pub fn handle_callback_request(
     manager: &McpClientManager,
     server_id: &str,
     params: &Value,
-) -> Option<cloto_shared::ClotoEventData> {
-    let callback_id = params.get("callback_id")?.as_str()?;
+) -> CallbackHandleResult {
+    let Some(callback_id) = params.get("callback_id").and_then(|v| v.as_str()) else {
+        return CallbackHandleResult::DuplicateNoResponse;
+    };
     let callback_type = params
         .get("type")
         .and_then(|v| v.as_str())
@@ -397,9 +449,14 @@ pub(super) fn handle_callback_request(
 
     if !is_new {
         debug!(callback_id = %callback_id, "Duplicate callback request — will re-send recorded response if available");
-        // §13.4: kernel MUST re-send previously recorded response for dedup'd callbacks
-        // The caller should check resolve state and re-send via mgp/callback/respond
-        return None;
+        if let Some((server_id, response)) = manager.events.get_recorded_response(callback_id) {
+            return CallbackHandleResult::DuplicateWithResponse {
+                server_id,
+                callback_id: callback_id.to_string(),
+                response,
+            };
+        }
+        return CallbackHandleResult::DuplicateNoResponse;
     }
 
     info!(
@@ -409,13 +466,13 @@ pub(super) fn handle_callback_request(
         "Callback request received"
     );
 
-    Some(cloto_shared::ClotoEventData::McpCallbackRequested {
+    CallbackHandleResult::NewCallback(Box::new(cloto_shared::ClotoEventData::McpCallbackRequested {
         callback_id: callback_id.to_string(),
         server_id: server_id.to_string(),
         callback_type: callback_type.to_string(),
         message: message.to_string(),
         options,
-    })
+    }))
 }
 
 /// Execute mgp.callback.respond — respond to a pending callback.
@@ -435,6 +492,11 @@ pub(super) async fn respond_to_callback(manager: &McpClientManager, args: Value)
         .ok_or_else(|| {
             anyhow::anyhow!("Callback '{}' not found or already responded", callback_id)
         })?;
+
+    let is_llm = manager.events.is_llm_completion(callback_id);
+    if is_llm {
+        debug!(callback_id = %callback_id, "LLM completion callback — routing response");
+    }
 
     // Send response to the originating server
     let servers = manager.servers.read().await;

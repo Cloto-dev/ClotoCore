@@ -11,9 +11,6 @@ use serde_json::Value;
 /// Current MGP protocol version.
 pub const MGP_VERSION: &str = "0.6.0";
 
-/// Extensions offered by the kernel in Tier 1.
-pub const TIER1_CLIENT_EXTENSIONS: &[&str] = &["tool_security"];
-
 /// Extensions offered by the kernel (Tier 2 Security + Tier 3 Communication + Tier 4 Intelligence).
 pub const CLIENT_EXTENSIONS: &[&str] = &[
     "tool_security",
@@ -62,11 +59,8 @@ pub const MGP_ERR_TOOL_DISABLED: i64 = 4002;
 pub const MGP_ERR_TOOL_NAME_CONFLICT: i64 = 4003;
 
 // Discovery errors (4100–4199)
-#[allow(dead_code)]
 pub const MGP_ERR_DISCOVERY_UNAVAILABLE: i64 = 4100;
-#[allow(dead_code)]
 pub const MGP_ERR_SERVER_ALREADY_REGISTERED: i64 = 4101;
-#[allow(dead_code)]
 pub const MGP_ERR_CANNOT_DEREGISTER_CONFIG: i64 = 4102;
 
 // External service errors (5000–5099)
@@ -78,7 +72,7 @@ pub const MGP_ERR_UPSTREAM_UNAVAILABLE: i64 = 5002;
 // MGP Error Recovery (§14.5)
 // ============================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MgpErrorRecovery {
     pub category: String,
     pub retryable: bool,
@@ -104,6 +98,210 @@ pub fn build_mgp_error_data(recovery: Option<MgpErrorRecovery>) -> Value {
             "_mgp": serde_json::to_value(&rec).unwrap_or_default()
         }),
         None => serde_json::json!({ "_mgp": {} }),
+    }
+}
+
+// ============================================================
+// MgpError — Typed MGP error for runtime error handling (§14)
+// ============================================================
+
+/// Structured MGP error carrying a spec-defined error code, human-readable message,
+/// and optional recovery hints (§14.3–§14.5).
+#[derive(Debug, Clone)]
+pub struct MgpError {
+    pub code: i64,
+    pub message: String,
+    pub recovery: Option<MgpErrorRecovery>,
+}
+
+impl std::fmt::Display for MgpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MGP-{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for MgpError {}
+
+impl MgpError {
+    /// Create an MgpError with a specific code and message.
+    pub fn new(code: i64, msg: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: msg.into(),
+            recovery: None,
+        }
+    }
+
+    /// Attach recovery hints to this error.
+    pub fn with_recovery(mut self, recovery: MgpErrorRecovery) -> Self {
+        self.recovery = Some(recovery);
+        self
+    }
+
+    // ── Security errors (1000–1099) ──
+
+    pub fn permission_denied(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_PERMISSION_DENIED, msg)
+    }
+
+    pub fn access_denied(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_ACCESS_DENIED, msg)
+    }
+
+    pub fn auth_required(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_AUTH_REQUIRED, msg)
+    }
+
+    pub fn auth_expired(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_AUTH_EXPIRED, msg)
+    }
+
+    pub fn validation_blocked(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_VALIDATION_BLOCKED, msg)
+    }
+
+    pub fn code_safety_violation(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_CODE_SAFETY_VIOLATION, msg)
+    }
+
+    // ── Lifecycle errors (2000–2099) ──
+
+    pub fn server_not_ready(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_SERVER_NOT_READY, msg).with_recovery(MgpErrorRecovery {
+            category: "lifecycle".into(),
+            retryable: true,
+            retry_after_ms: Some(1000),
+            retry_strategy: Some("exponential".into()),
+            max_retries: Some(5),
+            ..Default::default()
+        })
+    }
+
+    pub fn server_draining(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_SERVER_DRAINING, msg).with_recovery(MgpErrorRecovery {
+            category: "lifecycle".into(),
+            retryable: true,
+            retry_after_ms: Some(2000),
+            ..Default::default()
+        })
+    }
+
+    pub fn server_restarting(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_SERVER_RESTARTING, msg).with_recovery(MgpErrorRecovery {
+            category: "lifecycle".into(),
+            retryable: true,
+            retry_after_ms: Some(3000),
+            retry_strategy: Some("exponential".into()),
+            max_retries: Some(3),
+            ..Default::default()
+        })
+    }
+
+    // ── Resource errors (3000–3099) ──
+
+    pub fn rate_limited(msg: impl Into<String>, retry_after_ms: u64) -> Self {
+        Self::new(MGP_ERR_RATE_LIMITED, msg).with_recovery(MgpErrorRecovery {
+            category: "resource".into(),
+            retryable: true,
+            retry_after_ms: Some(retry_after_ms),
+            ..Default::default()
+        })
+    }
+
+    pub fn resource_exhausted(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_RESOURCE_EXHAUSTED, msg)
+    }
+
+    pub fn quota_exceeded(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_QUOTA_EXCEEDED, msg)
+    }
+
+    pub fn timeout(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_TIMEOUT, msg).with_recovery(MgpErrorRecovery {
+            category: "resource".into(),
+            retryable: true,
+            retry_after_ms: Some(1000),
+            retry_strategy: Some("exponential".into()),
+            max_retries: Some(3),
+            ..Default::default()
+        })
+    }
+
+    // ── Validation errors (4000–4099) ──
+
+    pub fn invalid_tool_args(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_INVALID_TOOL_ARGS, msg)
+    }
+
+    pub fn tool_not_found(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_TOOL_NOT_FOUND, msg)
+    }
+
+    pub fn tool_disabled(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_TOOL_DISABLED, msg)
+    }
+
+    pub fn tool_name_conflict(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_TOOL_NAME_CONFLICT, msg)
+    }
+
+    // ── Discovery errors (4100–4199) ──
+
+    pub fn discovery_unavailable(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_DISCOVERY_UNAVAILABLE, msg)
+    }
+
+    pub fn server_already_registered(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_SERVER_ALREADY_REGISTERED, msg)
+    }
+
+    pub fn cannot_deregister_config(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_CANNOT_DEREGISTER_CONFIG, msg)
+    }
+
+    // ── External service errors (5000–5099) ──
+
+    pub fn upstream_error(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_UPSTREAM_ERROR, msg).with_recovery(MgpErrorRecovery {
+            category: "upstream".into(),
+            retryable: true,
+            retry_after_ms: Some(2000),
+            retry_strategy: Some("exponential".into()),
+            max_retries: Some(3),
+            ..Default::default()
+        })
+    }
+
+    pub fn upstream_timeout(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_UPSTREAM_TIMEOUT, msg).with_recovery(MgpErrorRecovery {
+            category: "upstream".into(),
+            retryable: true,
+            retry_after_ms: Some(2000),
+            retry_strategy: Some("exponential".into()),
+            max_retries: Some(3),
+            ..Default::default()
+        })
+    }
+
+    pub fn upstream_unavailable(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_UPSTREAM_UNAVAILABLE, msg).with_recovery(MgpErrorRecovery {
+            category: "upstream".into(),
+            retryable: true,
+            retry_after_ms: Some(5000),
+            retry_strategy: Some("exponential".into()),
+            max_retries: Some(5),
+            ..Default::default()
+        })
+    }
+
+    /// Serialize to JSON-RPC error object.
+    #[must_use]
+    pub fn to_json_rpc_error(&self) -> Value {
+        serde_json::json!({
+            "code": self.code,
+            "message": self.message,
+            "data": build_mgp_error_data(self.recovery.clone()),
+        })
     }
 }
 
@@ -660,5 +858,37 @@ mod tests {
         assert!(CLIENT_EXTENSIONS.contains(&"tool_discovery"));
         assert!(CLIENT_EXTENSIONS.contains(&"delegation"));
         assert_eq!(CLIENT_EXTENSIONS.len(), 14);
+    }
+
+    #[test]
+    fn mgp_error_display_format() {
+        let err = MgpError::permission_denied("test denied");
+        assert_eq!(format!("{}", err), "MGP-1000: test denied");
+
+        let err = MgpError::tool_not_found("no such tool");
+        assert_eq!(format!("{}", err), "MGP-4001: no such tool");
+    }
+
+    #[test]
+    fn mgp_error_to_json_rpc_error_structure() {
+        let err = MgpError::server_not_ready("not ready");
+        let json = err.to_json_rpc_error();
+        assert_eq!(json["code"], MGP_ERR_SERVER_NOT_READY);
+        assert_eq!(json["message"], "not ready");
+        assert!(json["data"]["_mgp"].is_object());
+        // server_not_ready has built-in recovery hints
+        assert_eq!(json["data"]["_mgp"]["retryable"], true);
+    }
+
+    #[test]
+    fn mgp_error_with_recovery_hints() {
+        let err = MgpError::permission_denied("denied").with_recovery(MgpErrorRecovery {
+            category: "permission".to_string(),
+            retryable: false,
+            ..Default::default()
+        });
+        let json = err.to_json_rpc_error();
+        assert_eq!(json["data"]["_mgp"]["retryable"], false);
+        assert_eq!(json["data"]["_mgp"]["category"], "permission");
     }
 }

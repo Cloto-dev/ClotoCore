@@ -878,7 +878,10 @@ pub async fn call_mcp_tool(
         .mcp_manager
         .call_server_tool(&body.server_id, &body.tool_name, body.arguments)
         .await
-        .map_err(AppError::Internal)?;
+        .map_err(|e| match e.downcast::<crate::managers::mcp_mgp::MgpError>() {
+            Ok(mgp) => AppError::Mgp(Box::new(mgp)),
+            Err(other) => AppError::Internal(other),
+        })?;
 
     let value = serde_json::to_value(result)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to serialize result: {}", e)))?;

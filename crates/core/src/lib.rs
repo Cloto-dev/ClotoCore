@@ -103,6 +103,7 @@ pub enum AppError {
     Internal(anyhow::Error),
     NotFound(String),
     Validation(String),
+    Mgp(Box<managers::mcp_mgp::MgpError>),
 }
 
 impl axum::response::IntoResponse for AppError {
@@ -136,6 +137,22 @@ impl axum::response::IntoResponse for AppError {
                 "ValidationError".to_string(),
                 m,
             ),
+            AppError::Mgp(ref e) => {
+                let status = match e.code {
+                    1000 | 1001 | 1010 | 1011 => axum::http::StatusCode::FORBIDDEN,
+                    1002 | 1003 => axum::http::StatusCode::UNAUTHORIZED,
+                    2000..=2002 => axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    3000 | 3002 => axum::http::StatusCode::TOO_MANY_REQUESTS,
+                    3003 | 5001 => axum::http::StatusCode::GATEWAY_TIMEOUT,
+                    4000 => axum::http::StatusCode::BAD_REQUEST,
+                    4001..=4003 | 4100..=4102 => axum::http::StatusCode::NOT_FOUND,
+                    _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                };
+                let body = axum::Json(serde_json::json!({
+                    "error": e.to_json_rpc_error()
+                }));
+                return (status, body).into_response();
+            }
         };
 
         let body = axum::Json(serde_json::json!({
@@ -152,6 +169,12 @@ impl axum::response::IntoResponse for AppError {
 impl From<anyhow::Error> for AppError {
     fn from(err: anyhow::Error) -> Self {
         AppError::Internal(err)
+    }
+}
+
+impl From<managers::mcp_mgp::MgpError> for AppError {
+    fn from(err: managers::mcp_mgp::MgpError) -> Self {
+        AppError::Mgp(Box::new(err))
     }
 }
 
@@ -543,16 +566,63 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                         // Intercept callback requests (MGP §13)
                         if notif.method == "notifications/mgp.callback.request" {
                             if let Some(ref params) = notif.params {
-                                if let Some(event_data) = managers::mcp::mcp_events_handle_callback(
+                                match managers::mcp::mcp_events_handle_callback(
                                     &notif_mcp_manager, &notif.server_id, params,
                                 ) {
-                                    let envelope = EnvelopedEvent::system(event_data);
-                                    if let Err(e) = notif_event_tx.send(envelope).await {
-                                        tracing::warn!("Failed to forward callback event: {}", e);
+                                    managers::mcp::CallbackHandleResult::NewCallback(event_data) => {
+                                        let envelope = EnvelopedEvent::system(*event_data);
+                                        if let Err(e) = notif_event_tx.send(envelope).await {
+                                            tracing::warn!("Failed to forward callback event: {}", e);
+                                        }
                                     }
+                                    managers::mcp::CallbackHandleResult::DuplicateWithResponse {
+                                        server_id,
+                                        callback_id,
+                                        response,
+                                    } => {
+                                        let mgr = notif_mcp_manager.clone();
+                                        tokio::spawn(async move {
+                                            let servers = mgr.servers.read().await;
+                                            if let Some(handle) = servers.get(&server_id) {
+                                                if let Some(client) = &handle.client {
+                                                    let params = serde_json::json!({
+                                                        "callback_id": callback_id,
+                                                        "response": response,
+                                                    });
+                                                    let _ = client.call("mgp/callback/respond", Some(params)).await;
+                                                }
+                                            }
+                                        });
+                                    }
+                                    managers::mcp::CallbackHandleResult::DuplicateNoResponse => {}
                                 }
                             }
                             continue;
+                        }
+
+                        // Intercept stream chunks for gap detection (MGP §12)
+                        if notif.method == "notifications/mgp.stream.chunk" {
+                            if let Some(ref params) = notif.params {
+                                let request_id = params
+                                    .get("request_id")
+                                    .and_then(|v| v.as_i64())
+                                    .unwrap_or(-1);
+                                let index = params
+                                    .get("index")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0) as u32;
+                                let done = params
+                                    .get("done")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false);
+                                let mgr = notif_mcp_manager.clone();
+                                let sid = notif.server_id.clone();
+                                tokio::spawn(async move {
+                                    mgr.handle_stream_chunk(&sid, request_id, index, done)
+                                        .await;
+                                });
+                            }
+                            // Fall through to normal notification forwarding
                         }
 
                         // Method-based filtering: MGP notifications → event bus, others → log only

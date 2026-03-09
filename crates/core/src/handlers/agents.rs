@@ -34,7 +34,8 @@ pub struct UpdateAgentRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub default_engine_id: Option<String>,
-    pub metadata: HashMap<String, String>,
+    #[serde(default)]
+    pub metadata: Option<HashMap<String, String>>,
 }
 
 /// List all registered agents.
