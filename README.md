@@ -7,7 +7,7 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-163%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-174%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
@@ -32,6 +32,12 @@ Example: "VTuber AI" Container          Example: "Research Assistant" Container
 ├── voice: TTS/STT plugin               └── memory: Long-term memory plugin
 └── avatar: Live2D/VRM plugin
 ```
+
+<div align="center">
+
+![ClotoCore Dashboard — Agent Management](docs/images/dashboard-agents.png)
+
+</div>
 
 ## Why ClotoCore?
 
