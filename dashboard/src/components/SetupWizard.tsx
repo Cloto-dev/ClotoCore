@@ -19,6 +19,8 @@ const TOTAL_STEPS = 6;
 // Preset Definitions
 // ============================================================
 
+import { MINIMAL_SERVERS, STANDARD_SERVERS, ADVANCED_SERVERS, EXPERT_SERVERS } from '../lib/presets';
+
 const ENGINE_IDS = ['mind.cerebras', 'mind.deepseek', 'mind.claude', 'mind.ollama'] as const;
 
 interface PresetDef {
@@ -28,30 +30,13 @@ interface PresetDef {
   servers: string[];
 }
 
-const STANDARD_SERVERS = [
-  'memory.ks22', 'tool.cron', 'tool.terminal',
-  'tool.websearch', 'tool.research', 'tool.agent_utils',
-];
-
-const ADVANCED_SERVERS = [
-  ...STANDARD_SERVERS,
-  'tool.imagegen', 'vision.capture', 'tool.embedding',
-];
-
-const EXPERT_SERVERS = [
-  ...ADVANCED_SERVERS,
-  'vision.gaze_webcam', 'voice.stt', 'voice.tts',
-];
-
-const MINIMAL_SERVERS = ['memory.ks22', 'tool.agent_utils'];
-
 const ALL_SELECTABLE_SERVER_IDS = [
-  'memory.ks22', 'tool.terminal', 'tool.cron', 'tool.websearch',
+  'memory.cpersona', 'tool.terminal', 'tool.cron', 'tool.websearch',
   'tool.research', 'tool.agent_utils', 'tool.embedding', 'tool.imagegen',
   'vision.capture', 'vision.gaze_webcam', 'voice.stt', 'voice.tts',
 ] as const;
 
-/** Map server ID → translation key (e.g., "memory.ks22" → "server_memory_ks22") */
+/** Map server ID → translation key (e.g., "memory.cpersona" → "server_memory_cpersona") */
 function serverTKey(id: string): string {
   return `server_${id.replace('.', '_')}`;
 }
