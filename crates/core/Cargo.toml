@@ -35,7 +35,7 @@ argon2 = "0.5"
 clap = { version = "4", features = ["derive"] }
 rand = "0.8"
 subtle = "2"
-toml = "0.9"
+toml = "1.0"
 cron = "0.15"
 uuid.workspace = true
 base64 = "0.22"
