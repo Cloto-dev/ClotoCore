@@ -962,6 +962,78 @@
       "pattern": "DELETE FROM mcp_access_control WHERE agent_id",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-232",
+      "summary": "AgentConsole.tsx: msg.metadata.elapsed_secs rendered as JSX child but typed as {} (not ReactNode)",
+      "severity": "LOW",
+      "discovered": "2026-03-09T00:00:00Z",
+      "version": "0.6.0",
+      "commit": "7d008de",
+      "file": "dashboard/src/components/AgentConsole.tsx",
+      "pattern": "\\{msg\\.metadata\\.elapsed_secs\\}s",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-233",
+      "summary": "ContentBlockView.tsx: parsed.hint is unknown type used as JSX child without type narrowing",
+      "severity": "LOW",
+      "discovered": "2026-03-09T00:00:00Z",
+      "version": "0.6.0",
+      "commit": "7d008de",
+      "file": "dashboard/src/components/ContentBlockView.tsx",
+      "pattern": "parsed\\.hint &&",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-234",
+      "summary": "ErrorBoundary.tsx and api.ts: import.meta.env not typed — missing Vite client type reference",
+      "severity": "LOW",
+      "discovered": "2026-03-09T00:00:00Z",
+      "version": "0.6.0",
+      "commit": "7d008de",
+      "file": "dashboard/tsconfig.json",
+      "pattern": "vite/client",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-235",
+      "summary": "McpAccessSummaryBar.tsx: AgentCount t prop typed as (key,opts?)=>string, incompatible with i18next TFunction",
+      "severity": "LOW",
+      "discovered": "2026-03-09T00:00:00Z",
+      "version": "0.6.0",
+      "commit": "7d008de",
+      "file": "dashboard/src/components/mcp/McpAccessSummaryBar.tsx",
+      "pattern": "t: \\(key: string, opts\\?: object\\) => string",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-236",
+      "summary": "test/setup.ts: global.HTMLMediaElement references fail — missing global type declaration for test env",
+      "severity": "LOW",
+      "discovered": "2026-03-09T00:00:00Z",
+      "version": "0.6.0",
+      "commit": "7d008de",
+      "file": "dashboard/src/test/setup.ts",
+      "pattern": "global\\.HTMLMediaElement",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-237",
+      "summary": "test/setup.ts: mock object cast as MediaStream lacks required properties — needs unknown intermediate cast",
+      "severity": "LOW",
+      "discovered": "2026-03-09T00:00:00Z",
+      "version": "0.6.0",
+      "commit": "7d008de",
+      "file": "dashboard/src/test/setup.ts",
+      "pattern": "\\} as MediaStream\\)",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

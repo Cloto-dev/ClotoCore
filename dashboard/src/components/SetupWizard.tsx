@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sun, Moon, Monitor, Users, Server, Clock, Brain, Settings } from 'lucide-react';
+import { Sun, Moon, Monitor, Users, Server, Clock, Brain, Settings, Layers, Zap, Shield, Box, ChevronDown } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
+import { useApiKey } from '../contexts/ApiKeyContext';
+import { createAuthenticatedApi } from '../services/api';
+import { getAutoApiKey } from '../lib/tauri';
 import { getCustomLanguages } from '../i18n';
 
 const BUILTIN_LANGUAGES = [
@@ -10,7 +13,70 @@ const BUILTIN_LANGUAGES = [
   { code: 'ja', label: '日本語' },
 ];
 
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 6;
+
+// ============================================================
+// Preset Definitions
+// ============================================================
+
+const ENGINE_IDS = ['mind.cerebras', 'mind.deepseek', 'mind.claude', 'mind.ollama'] as const;
+
+interface PresetDef {
+  id: string;
+  icon: typeof Layers;
+  defaultEngine: string;
+  servers: string[];
+}
+
+const STANDARD_SERVERS = [
+  'memory.ks22', 'tool.cron', 'tool.terminal',
+  'tool.websearch', 'tool.research', 'tool.agent_utils',
+];
+
+const ADVANCED_SERVERS = [
+  ...STANDARD_SERVERS,
+  'tool.imagegen', 'vision.capture', 'tool.embedding',
+];
+
+const EXPERT_SERVERS = [
+  ...ADVANCED_SERVERS,
+  'vision.gaze_webcam', 'voice.stt', 'voice.tts',
+];
+
+const MINIMAL_SERVERS = ['memory.ks22', 'tool.agent_utils'];
+
+const ALL_SELECTABLE_SERVER_IDS = [
+  'memory.ks22', 'tool.terminal', 'tool.cron', 'tool.websearch',
+  'tool.research', 'tool.agent_utils', 'tool.embedding', 'tool.imagegen',
+  'vision.capture', 'vision.gaze_webcam', 'voice.stt', 'voice.tts',
+] as const;
+
+/** Map server ID → translation key (e.g., "memory.ks22" → "server_memory_ks22") */
+function serverTKey(id: string): string {
+  return `server_${id.replace('.', '_')}`;
+}
+
+/** Map engine ID → translation key (e.g., "mind.cerebras" → "engine_cerebras") */
+function engineTKey(id: string): string {
+  return `engine_${id.replace('mind.', '')}`;
+}
+
+const MANUAL_START_SERVERS = new Set([
+  'vision.gaze_webcam', 'vision.capture', 'tool.imagegen', 'voice.stt', 'voice.tts',
+]);
+
+const PRESETS: PresetDef[] = [
+  { id: 'standard', icon: Layers, defaultEngine: 'mind.cerebras', servers: STANDARD_SERVERS },
+  { id: 'advanced', icon: Zap, defaultEngine: 'mind.deepseek', servers: ADVANCED_SERVERS },
+  { id: 'expert', icon: Shield, defaultEngine: 'mind.deepseek', servers: EXPERT_SERVERS },
+  { id: 'minimal', icon: Box, defaultEngine: 'mind.cerebras', servers: MINIMAL_SERVERS },
+];
+
+const DEFAULT_AGENT_ID = 'agent.cloto_default';
+
+// ============================================================
+// Component
+// ============================================================
 
 interface Props {
   onComplete: () => void;
@@ -21,8 +87,15 @@ export function SetupWizard({ onComplete }: Props) {
   const { t, i18n } = useTranslation('wizard');
   const { preference, setPreference } = useTheme();
   const { identity, setIdentity } = useUserIdentity();
+  const { apiKey } = useApiKey();
   const [customLangs, setCustomLangs] = useState<{ code: string; label: string }[]>([]);
   const [displayName, setDisplayName] = useState(identity.name === 'User' ? '' : identity.name);
+
+  // Preset state
+  const [selectedPreset, setSelectedPreset] = useState<string>('advanced');
+  const [selectedEngine, setSelectedEngine] = useState('mind.deepseek');
+  const [customServers, setCustomServers] = useState<Set<string>>(new Set(STANDARD_SERVERS));
+  const [applying, setApplying] = useState(false);
 
   useEffect(() => {
     getCustomLanguages().then(setCustomLangs);
@@ -37,6 +110,100 @@ export function SetupWizard({ onComplete }: Props) {
   const next = () => setStep(s => Math.min(s + 1, TOTAL_STEPS - 1));
   const back = () => setStep(s => Math.max(s - 1, 0));
 
+  // When preset changes, sync engine and custom servers
+  const handlePresetSelect = (presetId: string) => {
+    setSelectedPreset(presetId);
+    if (presetId !== 'custom') {
+      const preset = PRESETS.find(p => p.id === presetId);
+      if (preset) {
+        setSelectedEngine(preset.defaultEngine);
+        setCustomServers(new Set(preset.servers));
+      }
+    }
+  };
+
+  const toggleCustomServer = (serverId: string) => {
+    setCustomServers(prev => {
+      const next = new Set(prev);
+      if (next.has(serverId)) next.delete(serverId);
+      else next.add(serverId);
+      return next;
+    });
+  };
+
+  const getActiveServers = (): string[] => {
+    const base = selectedPreset === 'custom'
+      ? Array.from(customServers)
+      : (PRESETS.find(p => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
+    // Always include the selected engine in server grants
+    if (selectedEngine && !base.includes(selectedEngine)) {
+      return [...base, selectedEngine];
+    }
+    return base;
+  };
+
+  // Apply preset to backend
+  const applyPreset = async () => {
+    // Resolve API key: context → sessionStorage → direct Tauri invoke
+    let key = apiKey || sessionStorage.getItem('cloto-api-key') || '';
+    if (!key) {
+      const tauriKey = await getAutoApiKey();
+      if (tauriKey) {
+        key = tauriKey;
+        sessionStorage.setItem('cloto-api-key', key);
+      }
+    }
+    if (!key) {
+      console.warn('[SetupWizard] API key not available, skipping preset apply');
+      return;
+    }
+    setApplying(true);
+    try {
+      const authedApi = createAuthenticatedApi(key);
+      const servers = getActiveServers();
+
+      // Update engine (omit metadata to preserve existing values)
+      await authedApi.updateAgent(DEFAULT_AGENT_ID, {
+        default_engine_id: selectedEngine,
+      });
+
+      // Update server grants: PUT each server with a server_grant entry
+      // First get current grants, then compute diff
+      const currentAccess = await authedApi.getAgentAccess(DEFAULT_AGENT_ID);
+      const currentGranted = new Set(
+        currentAccess.entries
+          .filter(e => e.entry_type === 'server_grant' && e.permission === 'allow')
+          .map(e => e.server_id)
+      );
+
+      const desired = new Set(servers);
+
+      // Add new grants
+      for (const serverId of desired) {
+        if (!currentGranted.has(serverId)) {
+          await authedApi.putMcpServerAccess(serverId, [{
+            entry_type: 'server_grant',
+            agent_id: DEFAULT_AGENT_ID,
+            server_id: serverId,
+            permission: 'allow',
+            granted_at: new Date().toISOString(),
+          }]);
+        }
+      }
+
+      // Remove revoked grants
+      for (const serverId of currentGranted) {
+        if (!desired.has(serverId)) {
+          await authedApi.putMcpServerAccess(serverId, []);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to apply preset:', e);
+    } finally {
+      setApplying(false);
+    }
+  };
+
   const handleFinish = () => {
     if (displayName.trim()) {
       setIdentity(identity.id, displayName.trim());
@@ -48,6 +215,18 @@ export function SetupWizard({ onComplete }: Props) {
     if (displayName.trim()) {
       setIdentity(identity.id, displayName.trim());
     }
+  };
+
+  // Step 4: apply preset then advance
+  const handlePresetNext = async () => {
+    await applyPreset();
+    next();
+  };
+
+  // Step 4: skip (use defaults)
+  const handlePresetSkip = () => {
+    setSelectedPreset('standard');
+    next();
   };
 
   const themes = [
@@ -149,6 +328,18 @@ export function SetupWizard({ onComplete }: Props) {
           )}
 
           {step === 4 && (
+            <PresetStep
+              t={t}
+              selectedPreset={selectedPreset}
+              selectedEngine={selectedEngine}
+              customServers={customServers}
+              onSelectPreset={handlePresetSelect}
+              onSelectEngine={setSelectedEngine}
+              onToggleServer={toggleCustomServer}
+            />
+          )}
+
+          {step === 5 && (
             <div className="space-y-5 w-full">
               <h2 className="text-xl font-bold text-content-primary text-center">
                 {t('quick_guide')}
@@ -194,10 +385,26 @@ export function SetupWizard({ onComplete }: Props) {
             ))}
           </div>
 
-          {/* Next / Finish button */}
+          {/* Next / Skip / Finish button */}
           <div className="w-20 flex justify-end">
             {step === 0 ? (
               <div /> // Welcome has its own CTA
+            ) : step === 4 ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handlePresetSkip}
+                  className="text-[11px] text-content-tertiary hover:text-content-primary transition-colors"
+                >
+                  {t('preset_skip')}
+                </button>
+                <button
+                  onClick={handlePresetNext}
+                  disabled={applying}
+                  className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {applying ? '...' : t('next')}
+                </button>
+              </div>
             ) : step < TOTAL_STEPS - 1 ? (
               <button
                 onClick={next}
@@ -215,6 +422,151 @@ export function SetupWizard({ onComplete }: Props) {
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Preset Step Sub-component
+// ============================================================
+
+interface PresetStepProps {
+  t: (key: string) => string;
+  selectedPreset: string;
+  selectedEngine: string;
+  customServers: Set<string>;
+  onSelectPreset: (id: string) => void;
+  onSelectEngine: (id: string) => void;
+  onToggleServer: (id: string) => void;
+}
+
+function PresetStep({
+  t, selectedPreset, selectedEngine, customServers,
+  onSelectPreset, onSelectEngine, onToggleServer,
+}: PresetStepProps) {
+  const presetCards = [
+    ...PRESETS.map(p => ({ id: p.id, icon: p.icon })),
+    { id: 'custom', icon: Settings },
+  ];
+
+  const activeServers = selectedPreset === 'custom'
+    ? customServers
+    : new Set(PRESETS.find(p => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
+
+  const hasManualStart = Array.from(activeServers).some(s => MANUAL_START_SERVERS.has(s));
+
+  return (
+    <div className="space-y-4 w-full">
+      <div className="text-center">
+        <h2 className="text-xl font-bold text-content-primary">{t('preset_title')}</h2>
+        <p className="text-[11px] text-content-tertiary mt-1">{t('preset_desc')}</p>
+      </div>
+
+      {/* Preset Cards */}
+      <div className="grid grid-cols-5 gap-2">
+        {presetCards.map(({ id, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => onSelectPreset(id)}
+            className={`flex flex-col items-center gap-1.5 p-3 rounded-xl text-center transition-all ${
+              selectedPreset === id
+                ? 'bg-brand text-white shadow-md'
+                : 'bg-surface-secondary text-content-secondary hover:text-content-primary border border-edge hover:border-brand'
+            }`}
+          >
+            <Icon size={18} />
+            <span className="text-[10px] font-bold leading-tight">
+              {t(`preset_${id}`)}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Description */}
+      <p className="text-[11px] text-content-secondary text-center px-4">
+        {t(`preset_${selectedPreset}_desc`)}
+      </p>
+
+      {/* Engine selector */}
+      <div className="space-y-1.5">
+        <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-wider">
+          {t('preset_engine')}
+        </label>
+        <div className="relative">
+          <select
+            value={selectedEngine}
+            onChange={e => onSelectEngine(e.target.value)}
+            className="w-full px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-xs text-content-primary focus:border-brand focus:outline-none appearance-none"
+          >
+            {ENGINE_IDS.map(id => (
+              <option key={id} value={id}>{t(engineTKey(id))}</option>
+            ))}
+          </select>
+          <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-content-tertiary pointer-events-none" />
+        </div>
+      </div>
+
+      {/* Server list / Custom checkboxes */}
+      <div className="space-y-1.5">
+        <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-wider">
+          {t('preset_servers')}
+        </label>
+        {selectedPreset === 'custom' ? (
+          <div className="grid grid-cols-2 gap-1.5 max-h-[120px] overflow-y-auto pr-1">
+            {ALL_SELECTABLE_SERVER_IDS.map(id => (
+              <label
+                key={id}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] cursor-pointer transition-colors ${
+                  customServers.has(id)
+                    ? 'bg-brand/10 text-content-primary border border-brand/30'
+                    : 'bg-surface-secondary text-content-tertiary border border-transparent hover:border-edge'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={customServers.has(id)}
+                  onChange={() => onToggleServer(id)}
+                  className="sr-only"
+                />
+                <div className={`w-3 h-3 rounded border flex items-center justify-center shrink-0 ${
+                  customServers.has(id)
+                    ? 'bg-brand border-brand'
+                    : 'border-edge'
+                }`}>
+                  {customServers.has(id) && (
+                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                      <path d="M1.5 4L3 5.5L6.5 2" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+                <span className="truncate">{t(serverTKey(id))}</span>
+                {MANUAL_START_SERVERS.has(id) && (
+                  <span className="text-[9px] text-amber-500 shrink-0">*</span>
+                )}
+              </label>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {Array.from(activeServers).map(id => (
+              <span
+                key={id}
+                className="px-2 py-1 bg-surface-secondary border border-edge rounded-md text-[10px] text-content-secondary"
+              >
+                {t(serverTKey(id))}
+                {MANUAL_START_SERVERS.has(id) && (
+                  <span className="text-amber-500 ml-0.5">*</span>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
+        {hasManualStart && (
+          <p className="text-[9px] text-amber-500">
+            * {t('preset_manual_note')}
+          </p>
+        )}
       </div>
     </div>
   );
