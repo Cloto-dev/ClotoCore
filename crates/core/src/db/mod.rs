@@ -38,7 +38,7 @@ pub fn set_db_timeout(secs: u64) {
     let _ = DB_TIMEOUT.set(secs);
 }
 
-fn db_timeout_secs() -> u64 {
+pub(super) fn db_timeout_secs() -> u64 {
     *DB_TIMEOUT.get().unwrap_or(&DEFAULT_DB_TIMEOUT_SECS)
 }
 
@@ -55,16 +55,6 @@ where
         .map_err(|e| anyhow::anyhow!("Database operation failed: {}", e))
 }
 
-/// Timeout wrapper for multi-query operations returning anyhow::Result.
-pub(crate) async fn db_timeout_op<T, F>(future: F) -> anyhow::Result<T>
-where
-    F: std::future::Future<Output = anyhow::Result<T>>,
-{
-    let secs = db_timeout_secs();
-    timeout(Duration::from_secs(secs), future)
-        .await
-        .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", secs))?
-}
 
 pub struct SqliteDataStore {
     pool: SqlitePool,

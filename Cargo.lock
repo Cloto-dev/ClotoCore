@@ -1072,12 +1072,10 @@ version = "0.6.1"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum",
  "chrono",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "tokio",
  "tracing",
  "uuid",
 ]
