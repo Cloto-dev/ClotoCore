@@ -27,10 +27,12 @@ pub(super) fn kernel_tool_schemas() -> Vec<Value> {
         lifecycle_shutdown_schema(),
         // Tier 3: Streaming
         stream_cancel_schema(),
+        stream_pace_schema(),
         // Tier 3: Events
         events_subscribe_schema(),
         events_unsubscribe_schema(),
         events_replay_schema(),
+        events_pending_callbacks_schema(),
         // Tier 3: Callbacks
         callback_respond_schema(),
         // Inter-agent delegation
@@ -963,6 +965,38 @@ fn stream_cancel_schema() -> Value {
     })
 }
 
+fn stream_pace_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.stream.pace",
+            "description": "Control the output rate of a streaming tool call (§12.8).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "server_id": {
+                        "type": "string",
+                        "description": "Server hosting the streaming tool"
+                    },
+                    "request_id": {
+                        "type": "number",
+                        "description": "The streaming request ID to pace"
+                    },
+                    "max_chunks_per_second": {
+                        "type": "number",
+                        "description": "Maximum chunks per second the server should send"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Reason for pacing"
+                    }
+                },
+                "required": ["server_id", "request_id", "max_chunks_per_second"]
+            }
+        }
+    })
+}
+
 /// Execute mgp.stream.cancel — cancel a streaming call.
 pub(super) async fn execute_stream_cancel(
     manager: &McpClientManager,
@@ -985,11 +1019,43 @@ pub(super) async fn execute_stream_cancel(
     let result =
         super::mcp_streaming::cancel_stream(manager, server_id, request_id, reason).await?;
 
+    manager.stream_assembler.remove(server_id, request_id);
+
     Ok(serde_json::json!({
         "server_id": server_id,
         "request_id": request_id,
         "cancelled": true,
         "partial_result": result.get("partial_result"),
+    }))
+}
+
+/// Execute mgp.stream.pace — control output rate of a streaming tool call.
+pub(super) async fn execute_stream_pace(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
+    let server_id = args
+        .get("server_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+    let request_id = args
+        .get("request_id")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: request_id"))?;
+    let max_chunks = args
+        .get("max_chunks_per_second")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: max_chunks_per_second"))?
+        as u32;
+    let reason = args.get("reason").and_then(|v| v.as_str());
+
+    super::mcp_streaming::send_pace(manager, server_id, request_id, max_chunks, reason).await?;
+
+    Ok(serde_json::json!({
+        "server_id": server_id,
+        "request_id": request_id,
+        "max_chunks_per_second": max_chunks,
+        "paced": true,
     }))
 }
 
@@ -1074,6 +1140,20 @@ fn events_replay_schema() -> Value {
     })
 }
 
+fn events_pending_callbacks_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "mgp.events.pending_callbacks",
+            "description": "List all pending (unresponded) callbacks with their age.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    })
+}
+
 /// Execute mgp.events.subscribe — register event subscription.
 pub(super) async fn execute_events_subscribe(
     manager: &McpClientManager,
@@ -1096,6 +1176,27 @@ pub(super) async fn execute_events_replay(
     args: Value,
 ) -> Result<Value> {
     super::mcp_events::replay(manager, args).await
+}
+
+/// Execute mgp.events.pending_callbacks — list pending (unresponded) callbacks.
+pub(super) async fn execute_events_pending_callbacks(
+    manager: &McpClientManager,
+    _args: Value,
+) -> Result<Value> {
+    let pending = manager.events.pending_callbacks();
+    let items: Vec<Value> = pending
+        .into_iter()
+        .map(|(id, server_id, message, options, age_secs)| {
+            serde_json::json!({
+                "callback_id": id,
+                "server_id": server_id,
+                "message": message,
+                "options": options,
+                "age_secs": age_secs,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({ "pending": items, "count": items.len() }))
 }
 
 // ============================================================

@@ -5,6 +5,7 @@
 //! forwarding kernel events as MCP notifications.
 
 pub use super::mcp_client::{McpClient, McpNotification};
+pub use super::mcp_events::CallbackHandleResult;
 pub use super::mcp_types::*;
 
 use super::mcp_mgp::{self, ToolSecurityMetadata};
@@ -42,7 +43,6 @@ pub struct McpClientManager {
     notification_rx: Mutex<Option<mpsc::Receiver<McpNotification>>>,
     mcp_request_timeout_secs: u64,
     /// Lifecycle manager for restart policies (MGP §11)
-    #[allow(dead_code)]
     pub(super) lifecycle: super::mcp_lifecycle::LifecycleManager,
     /// Event subscription + callback manager (MGP §13)
     pub(super) events: super::mcp_events::EventManager,
@@ -50,6 +50,8 @@ pub struct McpClientManager {
     pub(super) rich_tool_index: super::mcp_tool_discovery::ToolIndex,
     /// Per-agent session tool cache (MGP §16.7)
     pub(super) session_cache: super::mcp_tool_discovery::SessionToolCache,
+    /// Stream chunk assembler for gap detection (MGP §12)
+    pub(super) stream_assembler: super::mcp_streaming::StreamAssembler,
 }
 
 impl McpClientManager {
@@ -69,6 +71,7 @@ impl McpClientManager {
             events: super::mcp_events::EventManager::new(),
             rich_tool_index: super::mcp_tool_discovery::ToolIndex::new(),
             session_cache: super::mcp_tool_discovery::SessionToolCache::new(),
+            stream_assembler: super::mcp_streaming::StreamAssembler::new(),
         }
     }
 
@@ -762,6 +765,17 @@ impl McpClientManager {
         })
         .await;
 
+        super::mcp_lifecycle::emit_lifecycle_notification(
+            self, &id, "Registered", "Connected", "Server connected"
+        ).await;
+
+        super::mcp_events::deliver_event(self, "lifecycle", &serde_json::json!({
+            "server_id": id,
+            "previous_state": "Registered",
+            "new_state": "Connected",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        })).await;
+
         Ok(tool_names)
     }
 
@@ -1030,6 +1044,9 @@ impl McpClientManager {
             "mgp.stream.cancel" => {
                 return super::mcp_kernel_tool::execute_stream_cancel(self, args).await;
             }
+            "mgp.stream.pace" => {
+                return super::mcp_kernel_tool::execute_stream_pace(self, args).await;
+            }
             // Tier 3: Events
             "mgp.events.subscribe" => {
                 return super::mcp_kernel_tool::execute_events_subscribe(self, args).await;
@@ -1039,6 +1056,10 @@ impl McpClientManager {
             }
             "mgp.events.replay" => {
                 return super::mcp_kernel_tool::execute_events_replay(self, args).await;
+            }
+            "mgp.events.pending_callbacks" => {
+                return super::mcp_kernel_tool::execute_events_pending_callbacks(self, args)
+                    .await;
             }
             // Tier 3: Callbacks
             "mgp.callback.respond" => {
@@ -1083,21 +1104,28 @@ impl McpClientManager {
 
         let server_id = {
             let index = self.tool_index.read().await;
-            index
-                .get(tool_name)
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("MCP tool '{}' not found", tool_name))?
+            index.get(tool_name).cloned().ok_or_else(|| {
+                anyhow::Error::new(mcp_mgp::MgpError::tool_not_found(format!(
+                    "MCP tool '{}' not found",
+                    tool_name
+                )))
+            })?
         };
 
         let (client, tool_validators) = {
             let servers = self.servers.read().await;
-            let handle = servers
-                .get(&server_id)
-                .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not found", server_id))?;
-            let client = handle
-                .client
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not connected", server_id))?;
+            let handle = servers.get(&server_id).ok_or_else(|| {
+                anyhow::Error::new(mcp_mgp::MgpError::tool_not_found(format!(
+                    "MCP server '{}' not found",
+                    server_id
+                )))
+            })?;
+            let client = handle.client.clone().ok_or_else(|| {
+                anyhow::Error::new(mcp_mgp::MgpError::server_not_ready(format!(
+                    "MCP server '{}' not connected",
+                    server_id
+                )))
+            })?;
             (client, handle.config.tool_validators.clone())
         };
 
@@ -1140,6 +1168,16 @@ impl McpClientManager {
             trace_id: None,
         })
         .await;
+
+        // Update LRU timestamp in session cache (MGP §16.7)
+        self.session_cache.touch("default", tool_name);
+
+        super::mcp_events::deliver_event(self, "tools", &serde_json::json!({
+            "server_id": server_id,
+            "tool_name": tool_name,
+            "result": if result.is_error == Some(true) { "error" } else { "success" },
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        })).await;
 
         // Convert CallToolResult to a simple JSON value
         if result.is_error == Some(true) {
@@ -1192,10 +1230,10 @@ impl McpClientManager {
             if let Some(delegation) = mgp.get("delegation") {
                 if let Some(chain) = delegation.get("chain").and_then(|c| c.as_array()) {
                     if chain.len() > 3 {
-                        return Err(anyhow::anyhow!(
+                        return Err(mcp_mgp::MgpError::permission_denied(format!(
                             "Delegation chain depth {} exceeds maximum of 3",
                             chain.len()
-                        ));
+                        )).into());
                     }
                 }
 
@@ -1218,10 +1256,10 @@ impl McpClientManager {
                             tool = %tool_name,
                             "Delegation rejected: unknown or inactive original_actor (§5.6.3)"
                         );
-                        return Err(anyhow::anyhow!(
-                            "Delegation rejected: original_actor '{}' is not a known active agent (MGP §5.6.3, code 1000)",
+                        return Err(mcp_mgp::MgpError::permission_denied(format!(
+                            "Delegation rejected: original_actor '{}' is not a known active agent (MGP §5.6.3)",
                             original_actor
-                        ));
+                        )).into());
                     }
 
                     // §5.6.1: Permission intersection — verify original_actor has access to target tool
@@ -1241,10 +1279,10 @@ impl McpClientManager {
                             tool = %tool_name,
                             "Delegation rejected: original_actor lacks access (§5.6.1)"
                         );
-                        return Err(anyhow::anyhow!(
-                            "Delegation rejected: original_actor '{}' does not have access to {}.{} (MGP §5.6.1, code 1000)",
+                        return Err(mcp_mgp::MgpError::access_denied(format!(
+                            "Delegation rejected: original_actor '{}' does not have access to {}.{} (MGP §5.6.1)",
                             original_actor, server_id, tool_name
-                        ));
+                        )).into());
                     }
                 }
 
@@ -1266,10 +1304,10 @@ impl McpClientManager {
                             tool = %tool_name,
                             "Delegation rejected: unknown or non-operational delegated_via (§5.6.3)"
                         );
-                        return Err(anyhow::anyhow!(
-                            "Delegation rejected: delegated_via '{}' is not a known operational server (MGP §5.6.3, code 1000)",
+                        return Err(mcp_mgp::MgpError::permission_denied(format!(
+                            "Delegation rejected: delegated_via '{}' is not a known operational server (MGP §5.6.3)",
                             delegated_via
-                        ));
+                        )).into());
                     }
                 }
 
@@ -1284,13 +1322,18 @@ impl McpClientManager {
 
         let (client, tool_validators) = {
             let servers = self.servers.read().await;
-            let handle = servers
-                .get(server_id)
-                .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not found", server_id))?;
-            let client = handle
-                .client
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not connected", server_id))?;
+            let handle = servers.get(server_id).ok_or_else(|| {
+                anyhow::Error::new(mcp_mgp::MgpError::tool_not_found(format!(
+                    "MCP server '{}' not found",
+                    server_id
+                )))
+            })?;
+            let client = handle.client.clone().ok_or_else(|| {
+                anyhow::Error::new(mcp_mgp::MgpError::server_not_ready(format!(
+                    "MCP server '{}' not connected",
+                    server_id
+                )))
+            })?;
             (client, handle.config.tool_validators.clone())
         };
 
@@ -1300,6 +1343,42 @@ impl McpClientManager {
         }
 
         client.call_tool(tool_name, args).await
+    }
+
+    /// Handle an incoming stream chunk notification: track sequence, detect gaps,
+    /// request retransmission if needed, and clean up on stream completion (MGP §12).
+    pub async fn handle_stream_chunk(
+        &self,
+        server_id: &str,
+        request_id: i64,
+        index: u32,
+        done: bool,
+    ) -> Option<Vec<u32>> {
+        // Skip duplicate chunks (§12.5 retransmission dedup)
+        if self.stream_assembler.is_duplicate(server_id, request_id, index) {
+            tracing::debug!(
+                server_id, request_id, index,
+                "Skipping duplicate stream chunk"
+            );
+            return None;
+        }
+        let gaps = self.stream_assembler.record_chunk(server_id, request_id, index);
+        if done {
+            self.stream_assembler.remove(server_id, request_id);
+        }
+        if let Some(ref gap_indices) = gaps {
+            if let Err(e) = super::mcp_streaming::send_gap_notification(
+                self,
+                server_id,
+                request_id,
+                gap_indices.clone(),
+            )
+            .await
+            {
+                tracing::debug!(error = %e, "Failed to send stream gap notification");
+            }
+        }
+        gaps
     }
 
     // ============================================================
@@ -1539,6 +1618,13 @@ impl McpClientManager {
         )
         .await;
 
+        super::mcp_events::deliver_event(self, "lifecycle", &serde_json::json!({
+            "server_id": id,
+            "previous_state": "Connected",
+            "new_state": "Draining",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        })).await;
+
         // Notify the target server via standard lifecycle notification (§11.5)
         {
             let servers = self.servers.read().await;
@@ -1617,6 +1703,18 @@ impl McpClientManager {
                 handle.status = ServerStatus::Restarting;
             }
         }
+
+        super::mcp_lifecycle::emit_lifecycle_notification(
+            self, id, "Connected", "Restarting", "Server restart initiated"
+        ).await;
+
+        super::mcp_events::deliver_event(self, "lifecycle", &serde_json::json!({
+            "server_id": id,
+            "previous_state": "Connected",
+            "new_state": "Restarting",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        })).await;
+
         // Stop if running (ignore error if already stopped)
         let _ = self.stop_server(id).await;
         self.start_server(id).await
@@ -1723,7 +1821,7 @@ pub fn mcp_events_handle_callback(
     manager: &McpClientManager,
     server_id: &str,
     params: &Value,
-) -> Option<cloto_shared::ClotoEventData> {
+) -> super::mcp_events::CallbackHandleResult {
     super::mcp_events::handle_callback_request(manager, server_id, params)
 }
 
@@ -1900,11 +1998,11 @@ mod tests {
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
-        // 5 Tier 2 + 8 Tier 3 + 1 ask_agent + 2 gui = 16 Tier 1-3 + 3 discovery + 2 session = 21 YOLO tools + 2 meta-tools = 23
+        // 5 Tier 2 + 9 Tier 3 + 1 ask_agent + 2 gui = 17 Tier 1-3 + 3 discovery + 3 session = 23 YOLO tools + 2 meta-tools = 25
         assert_eq!(
             schemas.len(),
-            23,
-            "Should have 23 kernel tools total (21 YOLO + 2 meta-tools)"
+            25,
+            "Should have 25 kernel tools total (23 YOLO + 2 meta-tools)"
         );
     }
 
