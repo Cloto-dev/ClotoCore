@@ -166,7 +166,7 @@
       "discovered": "2026-03-01T12:00:00Z",
       "version": "0.4.7",
       "commit": "2743946",
-      "file": "mcp-servers/ks22/server.py",
+      "file": "mcp-servers/cpersona/server.py",
       "pattern": "min\\(limit, 500\\)",
       "expected": "absent",
       "status": "fixed"
@@ -178,7 +178,7 @@
       "discovered": "2026-03-01T12:00:00Z",
       "version": "0.4.7",
       "commit": "2743946",
-      "file": "mcp-servers/ks22/server.py",
+      "file": "mcp-servers/cpersona/server.py",
       "pattern": "except Exception:\\s*$",
       "expected": "absent",
       "status": "fixed"
@@ -214,7 +214,7 @@
       "discovered": "2026-03-01T12:00:00Z",
       "version": "0.4.7",
       "commit": "2743946",
-      "file": "mcp-servers/tests/test_ks22_limits.py",
+      "file": "mcp-servers/tests/test_cpersona_limits.py",
       "pattern": "_clamp_limit",
       "expected": "present",
       "status": "fixed"
@@ -953,7 +953,7 @@
     },
     {
       "id": "bug-231",
-      "summary": "Agent deletion does not clean up KS22 memories/profiles/episodes, mcp_access_control, or trusted_commands — orphaned data causes persona leakage on agent re-creation",
+      "summary": "Agent deletion does not clean up CPersona memories/profiles/episodes, mcp_access_control, or trusted_commands — orphaned data causes persona leakage on agent re-creation",
       "severity": "HIGH",
       "discovered": "2026-03-08T15:00:00Z",
       "version": "0.6.0",
@@ -1032,6 +1032,30 @@
       "commit": "7d008de",
       "file": "dashboard/src/test/setup.ts",
       "pattern": "\\} as MediaStream\\)",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-238",
+      "summary": "Agent config avatar upload bypasses Save button — api.uploadAvatar called immediately on file select",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-09T02:30:00Z",
+      "version": "0.6.0",
+      "commit": "081a651",
+      "file": "dashboard/src/components/AgentPluginWorkspace.tsx",
+      "pattern": "api\\.uploadAvatar\\(agent\\.id, file\\)",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-239",
+      "summary": "Agent config avatar delete bypasses Save button — api.deleteAvatar called immediately on click",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-09T02:30:00Z",
+      "version": "0.6.0",
+      "commit": "081a651",
+      "file": "dashboard/src/components/AgentPluginWorkspace.tsx",
+      "pattern": "api\\.deleteAvatar\\(agent\\.id\\);\\n\\s+setAvatarKey",
       "expected": "absent",
       "status": "fixed"
     }
