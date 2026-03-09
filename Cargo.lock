@@ -1544,7 +1544,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
 dependencies = [
- "libloading 0.7.4",
+ "libloading 0.8.9",
 ]
 
 [[package]]
@@ -8833,9 +8833,9 @@ dependencies = [
 
 [[package]]
 name = "xcap"
-version = "0.8.3"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bdf4c8d4c33dfab96fb585cdf991a7bd86d754ac35edd4b80477a9b739892b2"
+checksum = "00572af641296603d14ada988a53d44c16e70340a802678a7861bcc77740daa9"
 dependencies = [
  "dispatch2",
  "image",
