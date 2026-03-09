@@ -170,14 +170,14 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
             
             <div className={`grid ${isWindowMode ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'} gap-4`}>
               {filteredMemories.length > 0 ? filteredMemories.map((mem) => (
-                <div key={mem.id} className="bg-glass-strong backdrop-blur-sm p-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group">
+                <div key={mem.id} className="bg-glass-strong backdrop-blur-sm p-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group flex flex-col max-h-48">
                   <div className="flex items-center gap-3 mb-2">
                     <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-brand/10 transition-colors">
                       <User size={12} className="text-content-tertiary group-hover:text-brand" />
                     </div>
                     <span className="text-[10px] font-mono text-content-tertiary">{agentDisplayName(mem.agent_id, agentMap)}</span>
                   </div>
-                  <div className="text-xs font-medium leading-relaxed text-content-secondary whitespace-pre-wrap line-clamp-6 font-mono">
+                  <div className="flex-1 min-h-0 text-xs font-medium leading-relaxed text-content-secondary whitespace-pre-wrap line-clamp-6 font-mono">
                     {mem.content}
                   </div>
                   <div className="mt-2 pt-2 border-t border-edge-subtle flex justify-between items-center">

@@ -273,9 +273,11 @@ def parse_chat_think_result(config: ProviderConfig, response_data: dict) -> dict
                 )
 
         if calls:
+            # Prefer content, fall back to reasoning_content (DeepSeek R1 etc.)
+            assistant_content = message_obj.get("content") or message_obj.get("reasoning_content")
             return {
                 "type": "tool_calls",
-                "assistant_content": message_obj.get("content"),
+                "assistant_content": assistant_content,
                 "calls": calls,
             }
 

@@ -568,8 +568,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
           <div>
             <h2 className="text-xl font-black text-content-primary tracking-tighter uppercase">{agent.name}</h2>
             <div className="flex items-center gap-2">
-              <StatusDot status="online" size="sm" pulse />
-              <span className="text-[10px] font-mono text-content-tertiary uppercase tracking-[0.2em]">{t('console.connected')}</span>
+              <StatusDot status={agent.enabled ? 'online' : 'offline'} size="sm" />
+              <span className="text-[10px] font-mono text-content-tertiary uppercase tracking-[0.2em]">{agent.enabled ? t('console.connected') : t('console.offline')}</span>
             </div>
           </div>
         </div>

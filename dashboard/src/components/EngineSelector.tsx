@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Zap, ChevronDown } from 'lucide-react';
 import { McpServerInfo } from '../types';
+import { displayServerId } from '../lib/format';
 
 interface EngineSelectorProps {
   servers: McpServerInfo[];
@@ -12,7 +13,7 @@ interface EngineSelectorProps {
 
 function resolveDisplayName(server: McpServerInfo): string {
   if (server.display_name) return server.display_name;
-  const shortId = server.id.replace('mind.', '');
+  const shortId = displayServerId(server.id);
   return shortId.charAt(0).toUpperCase() + shortId.slice(1);
 }
 
