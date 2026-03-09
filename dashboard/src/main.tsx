@@ -1,4 +1,4 @@
-import React, { lazy, useState, useEffect, useCallback } from 'react'
+import React, { lazy, Suspense, useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
@@ -22,6 +22,7 @@ declare const __APP_VERSION__: string;
 const MemoryCore = lazy(() => import('./components/MemoryCore').then(m => ({ default: m.MemoryCore })));
 const McpServersPage = lazy(() => import('./pages/McpServersPage').then(m => ({ default: m.McpServersPage })));
 const CronJobs = lazy(() => import('./components/CronJobs').then(m => ({ default: m.CronJobs })));
+const VrmViewerPage = lazy(() => import('./vrm/VrmViewerPage').then(m => ({ default: m.VrmViewerPage })));
 
 function App() {
   const [setupDone, setSetupDone] = useState(
@@ -45,6 +46,9 @@ function App() {
   const { connected } = useConnection();
   const { t } = useTranslation();
 
+  // VRM viewer window bypasses connection gate (it loads VRM directly from API)
+  const isVrmRoute = window.location.pathname.startsWith('/vrm-viewer/');
+
   // Rotating flavour text for loading screen
   const BOOT_LINES = t('boot.lines', { returnObjects: true }) as string[];
 
@@ -63,7 +67,7 @@ function App() {
   }, [connected, pickRandom]);
 
   // Full-screen loading screen while backend is unreachable
-  if (!connected) {
+  if (!connected && !isVrmRoute) {
     return (
       <div className="min-h-screen bg-surface-base flex flex-col items-center justify-center select-none">
         <h1 className="text-4xl font-black tracking-[0.2em] text-content-primary">
@@ -78,8 +82,8 @@ function App() {
     );
   }
 
-  // First-run setup wizard
-  if (!setupDone) {
+  // First-run setup wizard (skip for VRM viewer window)
+  if (!setupDone && !isVrmRoute) {
     return (
       <SetupWizard onComplete={() => {
         localStorage.setItem('cloto-setup-completed', '1');
@@ -102,6 +106,7 @@ function App() {
           </div>
         )}
         <Routes>
+          <Route path="/vrm-viewer/:agentId" element={<Suspense fallback={null}><VrmViewerPage /></Suspense>} />
           <Route element={<AppLayout />}>
             <Route path="/" element={<AgentPage />} />
             <Route path="/dashboard" element={<MemoryCore />} />

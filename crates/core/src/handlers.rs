@@ -23,8 +23,8 @@ pub use response::{json_data, ok_data};
 
 // Re-export all handler functions so that existing `handlers::*` paths in lib.rs continue to work.
 pub use agents::{
-    create_agent, delete_agent, delete_avatar, get_agents, get_avatar, power_toggle, update_agent,
-    upload_avatar,
+    create_agent, delete_agent, delete_avatar, delete_vrm, get_agents, get_avatar, get_vrm,
+    power_toggle, update_agent, upload_avatar, upload_vrm,
 };
 pub use chat::chat_handler;
 pub use commands::{approve_command, deny_command, trust_command};

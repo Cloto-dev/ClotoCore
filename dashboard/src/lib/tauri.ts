@@ -47,6 +47,80 @@ export async function closeWindow() {
   await getCurrentWindow().close();
 }
 
+// ── VRM Window ──
+
+// Track VRM window state at module level to avoid getByLabel race conditions
+let vrmWindowOpen = false;
+let vrmWindowRef: any = null;
+
+/** Toggle VRM avatar window. Tauri: native window. Browser: popup. */
+export async function openVrmWindow(agentId: string, apiKey?: string): Promise<void> {
+  const keyParam = apiKey ? `?key=${encodeURIComponent(apiKey)}` : '';
+  const path = `/vrm-viewer/${encodeURIComponent(agentId)}${keyParam}`;
+
+  if (isTauri) {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+    const label = 'vrm-viewer';
+
+    // Toggle off: close existing window
+    if (vrmWindowOpen && vrmWindowRef) {
+      try { await vrmWindowRef.destroy(); } catch { /* already gone */ }
+      vrmWindowOpen = false;
+      vrmWindowRef = null;
+      return;
+    }
+
+    // Safety: also check via Tauri API in case state is stale
+    try {
+      const existing = await WebviewWindow.getByLabel(label);
+      if (existing) {
+        await existing.destroy();
+        vrmWindowOpen = false;
+        vrmWindowRef = null;
+        return;
+      }
+    } catch { /* fine */ }
+
+    // Toggle on: create new window
+    try {
+      const win = new WebviewWindow(label, {
+        url: path,
+        title: 'VRM Avatar',
+        width: 400,
+        height: 600,
+        minWidth: 200,
+        minHeight: 300,
+        resizable: true,
+        decorations: false,
+        transparent: true,
+        shadow: false,
+        alwaysOnTop: true,
+      });
+
+      vrmWindowRef = win;
+      vrmWindowOpen = true;
+
+      // Clean up tracking when window is destroyed (e.g. user closes via OS)
+      win.once('tauri://destroyed', () => {
+        vrmWindowOpen = false;
+        vrmWindowRef = null;
+      });
+      win.once('tauri://error', () => {
+        vrmWindowOpen = false;
+        vrmWindowRef = null;
+      });
+    } catch (e) {
+      console.error('[VRM] Failed to create window:', e);
+      vrmWindowOpen = false;
+      vrmWindowRef = null;
+    }
+  } else {
+    // Browser fallback: popup window
+    const url = `${window.location.origin}${path}`;
+    window.open(url, 'vrm-viewer', 'width=400,height=600,resizable=yes');
+  }
+}
+
 // ── File Helpers ──
 
 /** Read a text file via the Tauri backend. Returns null in browser mode. */

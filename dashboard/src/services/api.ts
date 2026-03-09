@@ -267,6 +267,24 @@ export const api = {
     return `${API_BASE}/agents/${encodeURIComponent(agentId)}/avatar`;
   },
 
+  // VRM Model Management
+  async uploadVrm(agentId: string, file: File, apiKey: string): Promise<{ vrm_path?: string }> {
+    const res = await fetch(`${API_BASE}/agents/${encodeURIComponent(agentId)}/vrm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'model/gltf-binary', 'X-API-Key': apiKey },
+      body: file,
+    });
+    await throwIfNotOk(res, 'upload VRM');
+    return res.json().then((b: { data: { vrm_path?: string } }) => b.data);
+  },
+
+  deleteVrm: (agentId: string, apiKey: string) =>
+    mutate(`/agents/${encodeURIComponent(agentId)}/vrm`, 'DELETE', 'delete VRM', undefined, { 'X-API-Key': apiKey }).then(() => {}),
+
+  getVrmUrl(agentId: string): string {
+    return `${API_BASE}/agents/${encodeURIComponent(agentId)}/vrm`;
+  },
+
   // Memory Management
   deleteMemory: (memoryId: number, apiKey: string) =>
     mutate(`/memories/${memoryId}`, 'DELETE', 'delete memory', undefined, { 'X-API-Key': apiKey }).then(() => {}),
@@ -346,6 +364,10 @@ export function createAuthenticatedApi(apiKey: string) {
     // Avatar
     uploadAvatar: (agentId: string, file: File) => api.uploadAvatar(agentId, file, k),
     deleteAvatar: (agentId: string) => api.deleteAvatar(agentId, k),
+    // VRM
+    uploadVrm: (agentId: string, file: File) => api.uploadVrm(agentId, file, k),
+    deleteVrm: (agentId: string) => api.deleteVrm(agentId, k),
+    getVrmUrl: (agentId: string) => api.getVrmUrl(agentId),
     // Memory
     deleteMemory: (memoryId: number) => api.deleteMemory(memoryId, k),
     deleteEpisode: (episodeId: number) => api.deleteEpisode(episodeId, k),
