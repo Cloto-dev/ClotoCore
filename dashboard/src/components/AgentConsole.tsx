@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Activity, Zap, User as UserIcon, RotateCcw, ArrowLeft, Volume2, Pencil, RotateCcw as RetryIcon } from 'lucide-react';
+import { Activity, Zap, User as UserIcon, RotateCcw, ArrowLeft, Volume2, Pencil, RotateCcw as RetryIcon, Box } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AgentMetadata, ClotoMessage, ChatMessage, ContentBlock, CommandApprovalRequest, McpServerInfo } from '../types';
 import { useEventStream } from '../hooks/useEventStream';
@@ -21,6 +21,8 @@ import { ArtifactPanel } from './ArtifactPanel';
 import { useArtifacts } from '../hooks/useArtifacts';
 import { sendNativeNotification } from '../lib/notifications';
 import { flattenConversation, findBranchPoints } from '../lib/conversationTree';
+import { openVrmWindow } from '../lib/tauri';
+import { useGazeBroadcast } from '../vrm/useGazeBroadcast';
 
 // Legacy localStorage key prefix for migration
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
@@ -101,6 +103,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const artifactPanel = useArtifacts();
   const [activeBranches, setActiveBranches] = useState<Record<string, number>>({});
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+  const hasVrm = agent.metadata?.has_vrm === 'true';
+  useGazeBroadcast(hasVrm);
 
   // Flatten branching conversation to linear display
   const displayMessages = useMemo(
@@ -581,7 +585,19 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
             </div>
           </div>
         </div>
-        <LongPressResetButton onReset={handleReset} />
+        <div className="flex items-center gap-2">
+          {hasVrm && (
+            <button
+              onClick={() => openVrmWindow(agent.id, api.apiKey)}
+              className="px-3 py-1.5 rounded-full border border-edge text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5 transition-all text-content-tertiary hover:text-brand hover:border-brand/30"
+              title="Open 3D Avatar Window"
+            >
+              <Box size={10} />
+              <span>VRM</span>
+            </button>
+          )}
+          <LongPressResetButton onReset={handleReset} />
+        </div>
       </div>
 
       {/* Content area: chat + optional artifact panel */}

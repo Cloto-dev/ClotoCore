@@ -262,6 +262,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     if let Err(e) = std::fs::create_dir_all(data_dir.join("avatars")) {
         tracing::warn!("Failed to create data/avatars directory: {}", e);
     }
+    if let Err(e) = std::fs::create_dir_all(data_dir.join("vrm")) {
+        tracing::warn!("Failed to create data/vrm directory: {}", e);
+    }
     tracing::info!("📁 Data directory: {}", data_dir.display());
 
     // 0c. Ensure Python MCP venv exists (auto-setup on first run)
@@ -765,6 +768,12 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 .post(handlers::upload_avatar)
                 .delete(handlers::delete_avatar),
         )
+        .route(
+            "/agents/:id/vrm",
+            get(handlers::get_vrm)
+                .post(handlers::upload_vrm)
+                .delete(handlers::delete_vrm),
+        )
         .route("/events/publish", post(handlers::post_event_handler))
         // Cron job management (Layer 2: Autonomous Trigger)
         .route(
@@ -873,7 +882,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             app_state.clone(),
             middleware::rate_limit_middleware,
         ))
-        .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024)); // 10MB for chat attachments
+        .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024)); // 50MB for VRM uploads
 
     let app = Router::new()
         .nest("/api", api_routes.with_state(app_state.clone()))

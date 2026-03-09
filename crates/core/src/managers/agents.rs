@@ -17,6 +17,7 @@ struct AgentRow {
     power_password_hash: Option<String>,
     avatar_path: Option<String>,
     avatar_description: Option<String>,
+    vrm_path: Option<String>,
 }
 
 #[derive(Clone)]
@@ -46,6 +47,9 @@ impl AgentManager {
         if row.avatar_path.is_some() {
             meta.insert("has_avatar".to_string(), "true".to_string());
         }
+        if row.vrm_path.is_some() {
+            meta.insert("has_vrm".to_string(), "true".to_string());
+        }
         let mut agent = AgentMetadata {
             id: row.id,
             name: row.name,
@@ -68,7 +72,7 @@ impl AgentManager {
         let row: AgentRow = sqlx::query_as(
             "SELECT id, name, description, enabled, last_seen, default_engine_id, \
              required_capabilities, metadata, power_password_hash, avatar_path, \
-             avatar_description FROM agents WHERE id = ?",
+             avatar_description, vrm_path FROM agents WHERE id = ?",
         )
         .bind(agent_id)
         .fetch_one(&self.pool)
@@ -83,7 +87,7 @@ impl AgentManager {
         let rows: Vec<AgentRow> = sqlx::query_as(
             "SELECT id, name, description, enabled, last_seen, default_engine_id, \
              required_capabilities, metadata, power_password_hash, avatar_path, \
-             avatar_description FROM agents",
+             avatar_description, vrm_path FROM agents",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -263,6 +267,34 @@ impl AgentManager {
         Ok(row.0)
     }
 
+    /// Set the VRM model path for an agent.
+    pub async fn set_vrm(&self, agent_id: &str, vrm_path: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE agents SET vrm_path = ? WHERE id = ?")
+            .bind(vrm_path)
+            .bind(agent_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Clear the VRM model for an agent.
+    pub async fn clear_vrm(&self, agent_id: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE agents SET vrm_path = NULL WHERE id = ?")
+            .bind(agent_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Get just the VRM model path for serving.
+    pub async fn get_vrm_path(&self, agent_id: &str) -> anyhow::Result<Option<String>> {
+        let row: (Option<String>,) = sqlx::query_as("SELECT vrm_path FROM agents WHERE id = ?")
+            .bind(agent_id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.0)
+    }
+
     /// Delete an agent and all associated data (chat messages, attachments,
     /// MCP access control entries, trusted commands).
     ///
@@ -272,6 +304,10 @@ impl AgentManager {
     pub async fn delete_agent(&self, agent_id: &str) -> anyhow::Result<()> {
         // Clean up avatar file from disk
         if let Ok(Some(path)) = self.get_avatar_path(agent_id).await {
+            let _ = tokio::fs::remove_file(&path).await;
+        }
+        // Clean up VRM file from disk
+        if let Ok(Some(path)) = self.get_vrm_path(agent_id).await {
             let _ = tokio::fs::remove_file(&path).await;
         }
 

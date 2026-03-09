@@ -24,5 +24,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'three-vrm': ['three', '@pixiv/three-vrm'],
+        },
+      },
+    },
   }
 })
