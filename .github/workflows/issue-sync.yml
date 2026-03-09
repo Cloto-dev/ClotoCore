@@ -1,0 +1,28 @@
+name: Issue Registry ↔ GitHub Sync
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master]
+    paths:
+      - "qa/issue-registry.json"
+
+jobs:
+  sync-issues:
+    name: Sync Registry ↔ GitHub Issues
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: bash scripts/sync-issues-to-github.sh
