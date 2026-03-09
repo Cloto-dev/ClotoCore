@@ -2,7 +2,7 @@
 
 > **Status:** Implemented (Phase 1-4 complete as of v0.5.9)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
-> **MCP Server ID:** `memory.ks22`
+> **MCP Server ID:** `memory.cpersona`
 > **Companion Server:** `memory.embedding` (pluggable vector embedding)
 
 ---
@@ -15,7 +15,7 @@
 |---------|---------|---------|--------|-------------------|--------|
 | KS2.0/2.1 | (predecessor) | SQLite (WAL, FTS5, vector) | FTS5 + cosine similarity + semantic cache | LLM-powered (DeepSeek Reasoner): profile extraction, episode archival | Reference implementation |
 | KS2.2 | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Deprecated (Rust plugin) |
-| KS2.3 | ClotoCore | Dedicated SQLite (`data/ks22_memory.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) | **Current** |
+| KS2.3 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) | **Current** |
 
 ### 1.2 KS2.1 Capabilities Lost in KS2.2 (restored in KS2.3)
 
@@ -63,7 +63,7 @@ capabilities were dropped and subsequently restored in KS2.3:
                │ stdio                  │ stdio
                ▼                        ▼
 ┌──────────────────────┐  ┌────────────────────────────────────┐
-│  memory.ks22           │  │  memory.embedding                    │
+│  memory.cpersona           │  │  memory.embedding                    │
 │  (~40MB)             │  │  (~40-490MB depending on provider) │
 │                      │  │                                    │
 │  Tools:              │  │  Tools:                            │
@@ -72,7 +72,7 @@ capabilities were dropped and subsequently restored in KS2.3:
 │  - update_profile    │  │                                    │
 │  - archive_episode   │  │  Providers:                        │
 │                      │  │  - onnx_miniml (local, ~490MB)     │
-│  DB: ks22_memory.db  │  │  - api_openai  (remote, ~40MB)    │
+│  DB: cpersona.db  │  │  - api_openai  (remote, ~40MB)    │
 │  (SQLite, FTS5)      │  │  - api_deepseek (remote, ~40MB)   │
 │                      │  │                                    │
 │  Embedding Client ───┼──┤  HTTP: localhost:PORT/embed        │
@@ -85,11 +85,11 @@ capabilities were dropped and subsequently restored in KS2.3:
 MCP servers cannot call each other directly (stdio is kernel-only). The embedding
 server exposes a **lightweight HTTP endpoint** alongside MCP stdio for internal use.
 
-| KS22 Embedding Mode | How it works | KS22 Memory | Embedding Server |
+| CPersona Embedding Mode | How it works | CPersona Memory | Embedding Server |
 |---------------------|-------------|-------------|-----------------|
-| `http` | KS22 calls embedding server's HTTP endpoint | ~40MB | Required (~40-490MB) |
-| `api` | KS22 calls external API directly (OpenAI/DeepSeek) | ~40MB | Not required |
-| `local` | KS22 loads ONNX model in-process | ~490MB | Not required |
+| `http` | CPersona calls embedding server's HTTP endpoint | ~40MB | Required (~40-490MB) |
+| `api` | CPersona calls external API directly (OpenAI/DeepSeek) | ~40MB | Not required |
+| `local` | CPersona loads ONNX model in-process | ~490MB | Not required |
 | `none` | Vector search disabled (FTS5 + keyword only) | ~40MB | Not required |
 
 ---
@@ -271,7 +271,7 @@ Summarize and archive a conversation episode.
 
 ## 4. Database Schema
 
-**File:** `data/ks22_memory.db` (independent from kernel's `cloto_memories.db`)
+**File:** `data/cpersona.db` (independent from kernel's `cloto_memories.db`)
 
 ### 4.1 memories
 
@@ -360,7 +360,7 @@ END;
 
 ### 4.4 Schema Versioning
 
-The KS22 MCP server manages its own schema migrations at startup using a simple
+The CPersona MCP server manages its own schema migrations at startup using a simple
 version table:
 
 ```sql
@@ -376,10 +376,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 ### 5.1 Overview
 
-Dedicated MCP server for vector embedding generation. Decoupled from KS22 so that:
-- The embedding model can be swapped without modifying KS22
+Dedicated MCP server for vector embedding generation. Decoupled from CPersona so that:
+- The embedding model can be swapped without modifying CPersona
 - Other MCP servers can reuse embeddings in the future
-- Heavy models (~490MB) don't inflate KS22's memory footprint
+- Heavy models (~490MB) don't inflate CPersona's memory footprint
 
 ### 5.2 MCP Tools
 
@@ -407,7 +407,7 @@ Dedicated MCP server for vector embedding generation. Decoupled from KS22 so tha
 
 ### 5.3 HTTP Endpoint
 
-For KS22 direct access (bypasses kernel MCP routing):
+For CPersona direct access (bypasses kernel MCP routing):
 
 ```
 POST http://127.0.0.1:{HTTP_PORT}/embed
@@ -452,30 +452,30 @@ auto_restart = true
 env = { EMBEDDING_PROVIDER = "onnx_miniml", EMBEDDING_HTTP_PORT = "8401" }
 
 [[servers]]
-id = "memory.ks22"
+id = "memory.cpersona"
 command = "python"
-args = ["-m", "cloto_mcp_ks22"]
+args = ["-m", "cloto_mcp_cpersona"]
 transport = "stdio"
 auto_restart = true
 env = {
-    KS22_DB_PATH = "data/ks22_memory.db",
-    KS22_EMBEDDING_MODE = "http",
-    KS22_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
+    CPERSONA_DB_PATH = "data/cpersona.db",
+    CPERSONA_EMBEDDING_MODE = "http",
+    CPERSONA_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
 }
 ```
 
-### 6.2 KS22 Environment Variables
+### 6.2 CPersona Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KS22_DB_PATH` | `data/ks22_memory.db` | Path to KS22's dedicated SQLite database |
-| `KS22_EMBEDDING_MODE` | `none` | Embedding strategy: `http`, `api`, `local`, `none` |
-| `KS22_EMBEDDING_URL` | — | URL for `http` mode (embedding server endpoint) |
-| `KS22_EMBEDDING_API_KEY` | — | API key for `api` mode |
-| `KS22_EMBEDDING_API_URL` | — | API endpoint for `api` mode |
-| `KS22_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Model name for `local` mode |
-| `KS22_MAX_MEMORIES` | `500` | Max memories loaded per recall (OOM guard) |
-| `KS22_FTS_ENABLED` | `true` | Enable FTS5 episode search |
+| `CPERSONA_DB_PATH` | `data/cpersona.db` | Path to CPersona's dedicated SQLite database |
+| `CPERSONA_EMBEDDING_MODE` | `none` | Embedding strategy: `http`, `api`, `local`, `none` |
+| `CPERSONA_EMBEDDING_URL` | — | URL for `http` mode (embedding server endpoint) |
+| `CPERSONA_EMBEDDING_API_KEY` | — | API key for `api` mode |
+| `CPERSONA_EMBEDDING_API_URL` | — | API endpoint for `api` mode |
+| `CPERSONA_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Model name for `local` mode |
+| `CPERSONA_MAX_MEMORIES` | `500` | Max memories loaded per recall (OOM guard) |
+| `CPERSONA_FTS_ENABLED` | `true` | Enable FTS5 episode search |
 
 ---
 
@@ -496,7 +496,7 @@ if let Some(mem) = plugin.as_memory() {
 ### 7.2 New Flow (MCP Dual Dispatch)
 
 ```rust
-// system.rs — after KS22 MCP migration
+// system.rs — after CPersona MCP migration
 // 1. Try Rust plugin first (backward compatible)
 let memory_plugin = registry.find_memory().await;
 
@@ -511,7 +511,7 @@ let mcp_memory = if memory_plugin.is_none() {
 let context = if let Some(ref plugin) = memory_plugin {
     plugin.as_memory().unwrap().recall(...).await?
 } else if let Some(ref mcp) = mcp_memory {
-    let result = mcp.call_tool("memory.ks22", "recall", args).await?;
+    let result = mcp.call_tool("memory.cpersona", "recall", args).await?;
     parse_recall_result(&result)?  // JSON → Vec<ClotoMessage>
 } else {
     vec![]
@@ -546,17 +546,17 @@ pub async fn find_memory_server(&self) -> Option<String> {
 Existing KS2.2 data lives in `cloto_memories.db` → `plugin_data` table:
 
 ```
-plugin_id = 'memory.ks22'
+plugin_id = 'memory.cpersona'
 key = 'mem:{agent_id}:{timestamp}:{hash}'
 value = JSON(ClotoMessage)
 ```
 
-Migration script (`mcp-servers/ks22/migrate.py`):
+Migration script (`mcp-servers/cpersona/migrate.py`):
 
-1. Connect to source: `data/cloto_memories.db` → `plugin_data WHERE plugin_id='memory.ks22'`
+1. Connect to source: `data/cloto_memories.db` → `plugin_data WHERE plugin_id='memory.cpersona'`
 2. For each row, parse `key` to extract `agent_id` and `timestamp`
 3. Deserialize `value` as ClotoMessage JSON
-4. Insert into destination: `data/ks22_memory.db` → `memories` table
+4. Insert into destination: `data/cpersona.db` → `memories` table
 5. Optionally compute embeddings for migrated memories
 
 ### 8.2 From KS2.1 (predecessor project)
@@ -570,18 +570,18 @@ map to ClotoCore's agent_id model. Manual migration may be performed if needed.
 
 ### Phase 1: MCP Pipeline — **Completed**
 
-- [x] `mcp-servers/ks22/server.py` with `store` and `recall` tools
+- [x] `mcp-servers/cpersona/server.py` with `store` and `recall` tools
 - [x] `recall`: FTS5 + keyword fallback (no vector search)
 - [x] `update_profile`: Stub (no LLM)
 - [x] `archive_episode`: Simple concatenation (no LLM)
-- [x] Dedicated SQLite database (`data/ks22_memory.db`)
+- [x] Dedicated SQLite database (`data/cpersona.db`)
 - [x] Kernel Memory Resolver update (`system.rs`, `registry.rs`, `mcp.rs`)
-- [x] Remove Rust `plugins/ks22/` dependency
+- [x] Remove Rust `plugins/cpersona/` dependency
 
 ### Phase 2: Embedding Integration — **Completed** (v0.4.15)
 
 - [x] `mcp-servers/embedding/server.py` with `embed` tool + HTTP endpoint
-- [x] KS22 `EmbeddingClient` interface with provider abstraction
+- [x] CPersona `EmbeddingClient` interface with provider abstraction
 - [x] Vector columns populated on `store` and `archive_episode`
 - [x] `recall` vector search path activated (ONNX MiniLM, cosine similarity)
 - [x] Auto-download ONNX model on first startup
@@ -598,7 +598,7 @@ map to ClotoCore's agent_id model. Manual migration may be performed if needed.
 
 ## 10. Memory Footprint Summary
 
-| Configuration | KS22 | Embedding | Total | Search Quality |
+| Configuration | CPersona | Embedding | Total | Search Quality |
 |--------------|------|-----------|-------|---------------|
 | `none` (FTS5 only) | ~40MB | — | **~40MB** | Good (FTS5 + keyword) |
 | `http` + ONNX MiniLM | ~40MB | ~490MB | **~530MB** | Excellent (vector + FTS5) |

@@ -311,7 +311,7 @@ pub async fn init_db(pool: &SqlitePool, database_url: &str) -> anyhow::Result<()
     info!("Applying runtime configurations...");
 
     // Configs that depend on runtime environment
-    sqlx::query("INSERT OR REPLACE INTO plugin_configs (plugin_id, config_key, config_value) VALUES ('memory.ks22', 'database_url', ?)")
+    sqlx::query("INSERT OR REPLACE INTO plugin_configs (plugin_id, config_key, config_value) VALUES ('memory.cpersona', 'database_url', ?)")
         .bind(database_url)
         .execute(pool).await?;
 

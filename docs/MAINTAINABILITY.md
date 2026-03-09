@@ -15,7 +15,7 @@ ClotoCore/
 ├── crates/
 │   ├── core/        # Kernel: handlers/, db/, managers/, events, middleware
 │   └── shared/      # Shared trait definitions
-├── mcp-servers/     # 5 MCP servers (cerebras, deepseek, embedding, ks22, terminal)
+├── mcp-servers/     # 5 MCP servers (cerebras, cpersona, deepseek, embedding, terminal)
 ├── dashboard/       # React + TypeScript + Tauri 2.x
 ├── scripts/         # Utility scripts
 ├── qa/              # issue-registry.json (source of truth for bug verification)

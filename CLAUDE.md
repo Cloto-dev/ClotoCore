@@ -130,7 +130,7 @@ This script is the mechanical verification engine that prevents hallucination an
 
 - **Language**: Rust (workspace with multiple crates)
 - **Core**: `crates/core/` - kernel, handlers, database, middleware
-- **MCP Servers**: `mcp-servers/` - cerebras, deepseek, embedding, ks22, terminal
+- **MCP Servers**: `mcp-servers/` - cerebras, cpersona, deepseek, embedding, terminal
 - **Dashboard**: `dashboard/` - React/TypeScript web UI
 - **Scripts**: `scripts/` - build, verification, and utility scripts
 - **QA**: `qa/` - issue registry and quality assurance data

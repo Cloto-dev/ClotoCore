@@ -382,7 +382,7 @@ A three-tier context management architecture prevents context window overflow.
 |------|---------|----------|
 | **Active** | Current turn messages, active tool schemas | Never (current turn) |
 | **Summary** | Compressed older messages | Re-summarize when full |
-| **Archive** | Full history in memory server (KS22 etc.) | Never (persistent) |
+| **Archive** | Full history in memory server (CPersona etc.) | Never (persistent) |
 
 **MGP Primitives Used:** Tool calls, Context Budget (§16.8), Tool Discovery (§16),
 Lifecycle (§11)
