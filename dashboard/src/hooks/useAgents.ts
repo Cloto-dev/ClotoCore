@@ -7,7 +7,7 @@ export function useAgents() {
   const fetcher = useCallback(() => api.getAgents(), [api]);
   const { data: agents, ...rest } = useRemoteData(
     fetcher,
-    { key: 'agents', errorMessage: 'Failed to fetch agents' },
+    { key: `agents:${api.apiKey}`, errorMessage: 'Failed to fetch agents' },
   );
   return { agents, ...rest };
 }

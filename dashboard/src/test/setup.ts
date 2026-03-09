@@ -8,8 +8,9 @@ afterEach(() => {
 });
 
 // Mock MediaPipe and browser APIs
-global.HTMLMediaElement.prototype.play = vi.fn(() => Promise.resolve());
-global.HTMLMediaElement.prototype.pause = vi.fn();
+(globalThis as Record<string, unknown>).HTMLMediaElement = globalThis.HTMLMediaElement ?? class {};
+HTMLMediaElement.prototype.play = vi.fn(() => Promise.resolve());
+HTMLMediaElement.prototype.pause = vi.fn();
 
 // Mock canvas
 HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
@@ -71,7 +72,7 @@ Object.defineProperty(navigator, 'mediaDevices', {
         getTracks: () => [],
         getVideoTracks: () => [],
         getAudioTracks: () => [],
-      } as MediaStream)
+      } as unknown as MediaStream)
     ),
   },
   writable: true,
