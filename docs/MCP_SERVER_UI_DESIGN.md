@@ -150,7 +150,7 @@ the MCP page adopts a **Card Grid + Modal Detail** pattern instead of Master-Det
 │  └─────────────┘ └─────────────┘ └─────────────┘           │
 │  ┌─────────────┐ ┌─────────────┐                            │
 │  │ 🔌 memory.  │ │ 🔌 tool.    │                            │
-│  │ ks22        │ │ embedding   │                            │
+│  │ cpersona    │ │ embedding   │                            │
 │  │ ● Running   │ │ ● Running   │                            │
 │  │ 3 tools SDK │ │ 2 tools     │                            │
 │  └─────────────┘ └─────────────┘                            │

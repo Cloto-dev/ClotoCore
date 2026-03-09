@@ -6,7 +6,7 @@
 ## Problem
 
 ClotoCore migrations grant MCP access permissions (`server_grant` entries) to the
-default agent (`agent.cloto_default`) for bundled servers such as `memory.ks22`,
+default agent (`agent.cloto_default`) for bundled servers such as `memory.cpersona`,
 `tool.terminal`, etc. However, the MCP servers themselves must be manually registered
 in the `mcp_servers` table. Without server registration, access permissions are
 meaningless.
@@ -82,7 +82,7 @@ Servers in `mcp-servers/` that should be auto-registered:
 
 | Server ID | Directory | Description |
 |-----------|-----------|-------------|
-| `memory.ks22` | `mcp-servers/ks22/` | Memory backend |
+| `memory.cpersona` | `mcp-servers/cpersona/` | Memory backend |
 | `tool.terminal` | `mcp-servers/terminal/` | Terminal access |
 | `mind.cerebras` | `mcp-servers/cerebras/` | Cerebras LLM engine |
 | `mind.deepseek` | `mcp-servers/deepseek/` | DeepSeek LLM engine |

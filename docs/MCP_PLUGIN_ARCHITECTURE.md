@@ -89,7 +89,7 @@ Results of evaluating alternatives:
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐ │
 │  │ mind.*      │ │ memory.*    │ │ tool.*          │ │
 │  │ (Reasoning) │ │ (Memory)    │ │ (Execution)     │ │
-│  │ deepseek    │ │ ks22        │ │ terminal        │ │
+│  │ deepseek    │ │ cpersona        │ │ terminal        │ │
 │  │ cerebras    │ │             │ │ (user plugins)  │ │
 │  └─────────────┘ └─────────────┘ └─────────────────┘ │
 └──────────────────────────────────────────────────────┘
@@ -108,7 +108,7 @@ User Message
   │    │    │    └─ JSON-RPC: {"method": "tools/call", "params": {"name": "think", ...}}
   │    │    │    └─ Response: {"result": {"content": [{"type": "text", "text": "..."}]}}
   │    │    │
-  │    │    ├─ MCP Client Manager → invoke memory.ks22 "store" Tool
+  │    │    ├─ MCP Client Manager → invoke memory.cpersona "store" Tool
   │    │    │
   │    │    └─ Event Bus → SSE broadcast
   │    │
@@ -272,7 +272,7 @@ Each MCP Server returns the following manifest via `cloto/handshake`:
 | Namespace | Purpose | Examples |
 |-----------|---------|---------|
 | `mind.*` | Reasoning engines (LLM) | `mind.deepseek`, `mind.cerebras` |
-| `memory.*` | Memory and knowledge management | `memory.ks22` |
+| `memory.*` | Memory and knowledge management | `memory.cpersona` |
 | `tool.*` | Tool execution | `tool.terminal`, `tool.embedding`, `tool.web-search` |
 | `adapter.*` | External protocol bridges | `adapter.discord`, `adapter.slack` |
 | `vision.*` | Vision / perception | `vision.screen`, `vision.gaze` |
@@ -458,7 +458,7 @@ Components removed or archived as part of the MCP migration:
 ### Phase 3: Remaining Plugin Migration — **Completed**
 
 - [x] `mind.cerebras` → MCP Server
-- [x] `memory.ks22` → MCP Server (store/recall Tools)
+- [x] `memory.cpersona` → MCP Server (store/recall Tools)
 - [x] `tool.embedding` → MCP Server
 
 ### Phase 4: Rust Plugin SDK Removal — **Partial**
