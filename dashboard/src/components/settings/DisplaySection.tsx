@@ -1,7 +1,9 @@
+import { useTranslation } from 'react-i18next';
 import { SectionCard, Toggle } from './common';
 import { useLocalStorage } from '../../hooks/useStorage';
 
 export function DisplaySection() {
+  const { t } = useTranslation('settings');
   const [cursorRaw, setCursorRaw] = useLocalStorage('cloto-cursor', 'on');
   const cursorEnabled = cursorRaw !== 'off';
 
@@ -11,10 +13,10 @@ export function DisplaySection() {
   };
 
   return (
-    <SectionCard title="Cursor">
+    <SectionCard title={t('display.cursor_title')}>
       <div className="space-y-4">
-        <Toggle enabled={cursorEnabled} onToggle={handleCursorToggle} label="Custom animated cursor" />
-        <p className="text-xs text-content-tertiary">Replaces the native cursor with an animated trail effect using canvas rendering.</p>
+        <Toggle enabled={cursorEnabled} onToggle={handleCursorToggle} label={t('display.cursor_label')} />
+        <p className="text-xs text-content-tertiary">{t('display.cursor_desc')}</p>
       </div>
     </SectionCard>
   );

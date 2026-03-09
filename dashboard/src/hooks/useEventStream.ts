@@ -3,7 +3,8 @@ import { useEffect, useRef } from 'react';
 // Singleton SSE connection shared across all consumers
 // Prevents multiple EventSource instances to the same endpoint
 
-type Handler = (data: any) => void;
+type ServerEvent = { type: string; data: Record<string, unknown>; [key: string]: unknown };
+type Handler = (data: ServerEvent) => void;
 
 // Exponential backoff constants
 const INITIAL_DELAY_MS = 5000;
@@ -72,7 +73,7 @@ function disconnect() {
 
 export function useEventStream(
   url: string,
-  onMessage: (data: any) => void,
+  onMessage: (data: ServerEvent) => void,
   apiKey?: string,
 ) {
   const handlerRef = useRef(onMessage);

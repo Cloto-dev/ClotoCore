@@ -91,7 +91,10 @@
     "save_changes": "Save Changes",
     "saving": "Saving...",
     "reset": "Reset",
-    "remove": "Remove"
+    "remove": "Remove",
+    "placeholder_key": "KEY",
+    "placeholder_value": "value",
+    "add": "Add"
   },
   "logs": {
     "event_log": "Event Log",

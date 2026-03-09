@@ -1,4 +1,5 @@
 import { type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface SkeletonThinkingProps {
   agentColor: string;
@@ -6,6 +7,7 @@ interface SkeletonThinkingProps {
 }
 
 export function SkeletonThinking({ agentColor, agentIcon }: SkeletonThinkingProps) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-start gap-3 message-enter">
       <div
@@ -15,7 +17,7 @@ export function SkeletonThinking({ agentColor, agentIcon }: SkeletonThinkingProp
         {agentIcon}
       </div>
       <div className="pt-2 text-sm text-content-tertiary font-mono animate-pulse">
-        Thinking...
+        {t('skeleton_thinking')}
       </div>
     </div>
   );

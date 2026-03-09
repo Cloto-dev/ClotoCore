@@ -48,5 +48,42 @@
     "setup": "Quick Setup",
     "setup_desc": "Re-run the initial setup wizard to change language, theme, and display name.",
     "rerun_setup": "Re-open Quick Setup"
+  },
+  "advanced": {
+    "yolo_title": "YOLO Mode",
+    "auto_approve_label": "Auto-approve MCP permissions",
+    "yolo_warning": "MCP server connection permissions are auto-approved without manual review. Tool execution still requires approval. SafetyGate and code validation remain active.",
+    "yolo_desc": "When enabled, MCP server connection permission requests are automatically approved. Tool execution approval is unaffected. SafetyGate post-validation remains active as a safety net.",
+    "cron_limit_title": "CRON Recursion Limit",
+    "cron_limit_desc": "Maximum generations a CRON job can recursively create child CRON jobs. 0 disables recursion entirely.",
+    "cron_limit_hint": "(0-6, default: 2)"
+  },
+  "llm_providers": {
+    "title": "LLM Providers",
+    "desc": "API keys are held by the kernel and never exposed to MCP servers (MGP §13.4).",
+    "placeholder_new": "Enter API key",
+    "placeholder_saved": "••••••• (saved)",
+    "clear": "Clear",
+    "empty": "No providers configured."
+  },
+  "security": {
+    "api_key_title": "API Key",
+    "configured": "Configured",
+    "not_configured": "Not configured",
+    "placeholder_replace": "Enter new key to replace",
+    "placeholder_new": "Enter API key",
+    "invalidate_label": "Invalidate current key (system-wide)",
+    "invalidate_confirm_desc": "This will revoke the key for all clients.",
+    "error_invalid_key": "Invalid API key",
+    "error_invalidate_failed": "Failed to invalidate key"
+  },
+  "display": {
+    "cursor_title": "Cursor",
+    "cursor_label": "Custom animated cursor",
+    "cursor_desc": "Replaces the native cursor with an animated trail effect using canvas rendering."
+  },
+  "log": {
+    "title": "Event Log",
+    "awaiting_signal": "AWAITING_SIGNAL..."
   }
 }

@@ -186,7 +186,7 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
               type="text"
               value={newKey}
               onChange={e => setNewKey(e.target.value.toUpperCase())}
-              placeholder="KEY"
+              placeholder={t('settings_tab.placeholder_key')}
               className="w-40 text-[10px] font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors shrink-0"
               onKeyDown={e => e.key === 'Enter' && addEnvEntry()}
             />
@@ -194,7 +194,7 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
               type="password"
               value={newValue}
               onChange={e => setNewValue(e.target.value)}
-              placeholder="value"
+              placeholder={t('settings_tab.placeholder_value')}
               className="flex-1 text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
               onKeyDown={e => e.key === 'Enter' && addEnvEntry()}
             />
@@ -202,7 +202,7 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
               onClick={addEnvEntry}
               disabled={!newKey.trim()}
               className="p-1 rounded text-brand hover:bg-brand/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
-              title="Add"
+              title={t('settings_tab.add')}
             >
               <Plus size={14} />
             </button>

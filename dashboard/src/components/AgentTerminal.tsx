@@ -288,8 +288,8 @@ export function AgentTerminal({
           {/* Import warnings */}
           {importWarnings.length > 0 && (
             <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 space-y-1">
-              {importWarnings.map((w, i) => (
-                <p key={i} className="text-[10px] text-amber-400 font-mono">{w}</p>
+              {importWarnings.map((w) => (
+                <p key={w} className="text-[10px] text-amber-400 font-mono">{w}</p>
               ))}
               <button onClick={() => setImportWarnings([])} className="text-[10px] text-content-tertiary hover:text-brand mt-1">&times; {tc('close')}</button>
             </div>
