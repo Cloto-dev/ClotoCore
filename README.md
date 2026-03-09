@@ -7,7 +7,7 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-135%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-163%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
@@ -127,6 +127,7 @@ crates/shared/      Plugin SDK — traits, capability injection, event types, LL
 mcp-servers/        MCP servers (Python): 16 servers across mind, memory, tool, vision, voice
 dashboard/          React/TypeScript web UI (Tauri desktop app)
 scripts/            Build tools, verification scripts
+qa/                 Issue registry and quality assurance data
 docs/               Architecture, vision, specs, design documents
 ```
 
@@ -181,6 +182,23 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `CONSENSUS_SYNTHESIZER` | (none) | Consensus synthesis engine ID |
 | `CONSENSUS_MIN_PROPOSALS` | `2` | Minimum proposals before synthesis |
 | `CONSENSUS_SESSION_TIMEOUT_SECS` | `60` | Consensus session timeout |
+| `CLOTO_EVENT_CONCURRENCY` | `50` | Event processing concurrency limit (1-500) |
+| `CLOTO_MAX_EVENT_HISTORY` | `10000` | Maximum event history buffer (100-1000000) |
+| `CLOTO_DB_TIMEOUT_SECS` | `10` | Database operation timeout (1-120) |
+| `CLOTO_MEMORY_TIMEOUT_SECS` | `5` | Memory retrieval timeout (1-60) |
+| `CLOTO_HEARTBEAT_THRESHOLD_MS` | `90000` | Agent heartbeat threshold (10000-600000) |
+| `CLOTO_MCP_REQUEST_TIMEOUT_SECS` | `120` | MCP request timeout (10-600) |
+| `CLOTO_LLM_PROXY_TIMEOUT_SECS` | `180` | LLM proxy HTTP timeout (30-600) |
+| `CLOTO_RATE_LIMIT_PER_SEC` | `10` | Rate limit requests/sec (1-1000) |
+| `CLOTO_RATE_LIMIT_BURST` | `20` | Rate limit burst size (1-10000) |
+| `CLOTO_MAX_CHAT_QUERY_LIMIT` | `200` | Max chat messages per query (10-10000) |
+| `CLOTO_ATTACHMENT_INLINE_THRESHOLD` | `65536` | Attachment inline threshold in bytes (0-10485760) |
+| `CLOTO_UPDATE_REPO` | `Cloto-dev/ClotoCore` | GitHub repo for update checks |
+| `CLOTO_MAX_CRON_GENERATION` | (none) | Maximum cron recursion depth |
+| `CLOTO_CRON_DEFAULT_MAX_ITERATIONS` | `8` | Default max iterations for cron jobs (1-64) |
+| `TAVILY_API_KEY` | (none) | Tavily search API key |
+| `OLLAMA_MODEL` | (none) | Ollama model name |
+| `OLLAMA_ENABLE_THINKING` | (none) | Enable Ollama thinking mode |
 
 </details>
 
@@ -244,6 +262,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | GET/PUT | `/api/mcp/servers/:name/settings` | Server settings |
 | GET/PUT | `/api/mcp/servers/:name/access` | Access control |
 | POST | `/api/mcp/servers/:name/start\|stop\|restart` | Server lifecycle |
+| POST | `/api/mcp/call` | Call MCP tool directly |
 | POST | `/api/chat/:agent_id/messages/:message_id/retry` | Retry agent response |
 | GET/PUT | `/api/settings/yolo` | YOLO mode (skip permission prompts) |
 | GET/PUT | `/api/settings/max-cron-generation` | Max cron recursion depth |
@@ -252,7 +271,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 
 ## Testing
 
-135 tests (Rust 90 + Python 45).
+163 tests (Rust 98 + Python 65).
 
 ```bash
 cargo test                              # all Rust tests
@@ -278,6 +297,12 @@ See [Architecture](docs/ARCHITECTURE.md) for the full security model.
 - [Project Vision](docs/PROJECT_VISION.md) — Strategic direction and roadmap
 - [Development](docs/DEVELOPMENT.md) — Coding standards, guardrails, PR process
 - [MGP Spec](docs/MGP_SPEC.md) — Model Gateway Protocol specification
+- [MGP Guide](docs/MGP_GUIDE.md) — MGP usage guide
+- [MGP Security](docs/MGP_SECURITY.md) — MGP security model
+- [MGP Isolation](docs/MGP_ISOLATION_DESIGN.md) — MGP isolation design
+- [MGP Communication](docs/MGP_COMMUNICATION.md) — MGP communication protocol
+- [MGP Discovery](docs/MGP_DISCOVERY.md) — MGP service discovery
+- [MGP Implementation Roadmap](docs/MGP_IMPLEMENTATION_ROADMAP.md) — MGP implementation roadmap
 - [MCP Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) — MCP server communication protocol
 - [CPersona Memory](docs/CPERSONA_MEMORY_DESIGN.md) — Memory system design
 - [Discord Bridge](docs/DISCORD_BRIDGE_DESIGN.md) — Discord integration design
