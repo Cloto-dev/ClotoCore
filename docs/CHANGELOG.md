@@ -7,6 +7,118 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.1] — 2026-03-09
+
+### Added
+- `ask_agent` kernel tool for inter-agent delegation
+- `AgentThinking` SSE events for LLM intermediate reasoning display
+- `gui.map` and `gui.read` kernel tools for dynamic UI documentation
+- Agent config presets with deferred avatar save
+- MGP dead code integrated into runtime (Phase 0-5)
+- GitHub Issue Sync workflow: auto-create/close GitHub Issues from `qa/issue-registry.json`
+
+### Changed
+- Rename `memory.ks22` to `memory.cpersona` across entire codebase
+- Auto-grant MCP access on agent creation
+- Settings screen text sizes increased for readability
+
+### Fixed
+- Comprehensive data cleanup on agent deletion (bug-231)
+- Dashboard API key delivery in Tauri mode and FK violations in MCP access control
+- `useAgents` cache race condition, wizard UX improvements, and 6 pre-existing TS errors
+- Dashboard UI/UX improvements and LLM thinking event support
+
+### Documentation
+- Backfill CHANGELOG entries for v0.6.0-alpha.4 through v0.6.0 stable (MGP content)
+
+---
+
+## [0.6.0] — 2026-03-08
+
+### Added
+- **MGP (Model General Protocol) Tier 1-4 implementation complete**
+  - Tier 1: Security primitives — protocol-level access control and audit trails
+  - Tier 2: Observability — monitoring, metrics, and diagnostic capabilities
+  - Tier 3: Bidirectional communication — server→kernel notifications and tool discovery
+  - Tier 4: Intelligence Layer — context management, adaptive behavior, and compliance
+- 17 MGP kernel tools in `mgp.*` namespace (access control, audit, lifecycle, streaming, discovery)
+- MGP server creation with coordinator pattern
+- Priority boot sequence for MGP servers
+- Tool discovery stress tests and context reduction measurements
+
+### Fixed
+- MGP Tier 1-3 spec compliance (bug-182 to bug-222)
+- Missing Tier 4 tool schemas registered; `tool_history` sanitization hardened
+- MGP kernel tool execution and LLM provider integration
+- Stale connection status threshold removed for immediate disconnect detection
+- Linux Tauri build deps: added libgbm-dev, libegl-dev, libxcb1-dev
+- macOS CI: upgrade xcap 0.0.13 → 0.8
+- Linux CI: switch to ubuntu-24.04 for libspa 0.9.2 compatibility
+
+### Documentation
+- MGP implementation roadmap added
+- MGP documentation updated to reflect Tier 1-4 completion
+
+---
+
+## [0.6.0-beta.3] — 2026-03-07
+
+### Added
+- First-run setup wizard
+- Agent config export/import
+
+### Fixed
+- Hide export button for default agent (Cloto Assistant)
+
+---
+
+## [0.6.0-beta.2] — 2026-03-07
+
+### Added
+- Modular i18n with react-i18next (EN + JA)
+- Filesystem-based language packs with extended translations and text readability enforcement
+
+### Removed
+- Container agent type from dashboard
+
+---
+
+## [0.6.0-beta.1] — 2026-03-07
+
+### Added
+- Semantic cache for research server
+- TTL-based LRU cache for query embeddings in KS22
+
+### Removed
+- Predecessor project references from codebase
+
+---
+
+## [0.6.0-alpha.5] — 2026-03-07
+
+### Changed
+- Codebase reduced by ~1,400 LOC with structural improvements
+
+### Fixed
+- 5 LOW bugs resolved, Python MCP test base added, 2 reclassified as wontfix
+
+### Removed
+- Orphaned `runtime_plugins` and `agent_plugins` tables dropped
+
+---
+
+## [0.6.0-alpha.4] — 2026-03-06
+
+### Added
+- Cross-platform Tauri desktop app support (Linux + macOS)
+- macOS code signing and notarization configuration
+- Configurable settings extracted from hardcoded values
+
+### Fixed
+- Version prerelease label auto-generation from package version
+
+---
+
 ## [0.6.0-alpha.3] — 2026-03-06
 
 ### Fixed
@@ -34,10 +146,18 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ## [0.6.0-alpha.1] — 2026-03-05
 
+### Added
+- MGP specification v0.6.0-draft: structural audit, architectural revision, split into maintainable part files
+- SearXNG self-hosted search via Docker Compose
+- Multi-provider search fallback chain for MCP
+- Reliable chat message persistence with retry logic
+
 ### Changed
 - Replace Inno Setup installer with Tauri NSIS installer (Windows)
+- Dashboard: extract shared UI components and utility hooks
 
 ### Fixed
+- MGP integrity scan findings resolved (S1-S3, I1-I3, X1)
 - Windows console windows appearing from MCP server child processes
 - Kernel images blocked by CSP `img-src` directive
 - Release pipeline: Ed25519 signing, artifact paths, macOS runner, cosign verification

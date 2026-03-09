@@ -69,9 +69,22 @@ Each entry in `qa/issue-registry.json` → `issues[]`:
   "file": "path/relative/to/project/root",
   "pattern": "grep-P-compatible-regex",
   "expected": "present",
-  "status": "open"
+  "status": "open",
+  "github_issue": 123
 }
 ```
+
+- `github_issue` is **optional** — do NOT set it manually. It is auto-populated by the
+  GitHub Actions workflow (`issue-sync.yml`) when the PR adding the entry is merged.
+
+### GitHub Issue Sync
+
+The `issue-sync` workflow (`scripts/sync-issues-to-github.sh`) runs on PR merge and performs:
+
+1. **Auto-create**: New registry entries without `github_issue` → creates a GitHub Issue
+   with `bug`, severity label, and `auto-created` label, then commits the issue number back.
+2. **Auto-close**: Entries that changed to `status: "fixed"` with a `github_issue` →
+   closes the linked GitHub Issue with a resolution comment.
 
 ### Fix Phase
 
