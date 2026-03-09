@@ -19,7 +19,7 @@ dotenvy = "0.15"
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "sqlite", "macros"] }
 async-trait.workspace = true
 axum.workspace = true
-tower = { version = "0.4", features = ["util"] }
+tower = { version = "0.5", features = ["util"] }
 reqwest.workspace = true
 tower-http.workspace = true
 futures.workspace = true
