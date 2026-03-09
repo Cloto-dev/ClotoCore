@@ -115,52 +115,16 @@ pub(crate) fn check_auth_with_query(
                 cloto_shared::Permission::AdminAccess,
             )));
         }
-    }
-    Ok(())
-}
-
-pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()> {
-    use subtle::ConstantTimeEq;
-    if let Some(ref required_key) = state.config.admin_api_key {
-        let auth_header = headers.get("X-API-Key").and_then(|h| h.to_str().ok());
-
-        let matches: bool = match auth_header {
-            Some(provided) => provided.as_bytes().ct_eq(required_key.as_bytes()).into(),
-            None => false,
-        };
-        if !matches {
-            return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
-                cloto_shared::Permission::AdminAccess,
-            )));
-        }
-        // Check revocation: reject key even if it matches, if it has been invalidated
-        if let Some(provided) = auth_header {
-            let hash = crate::db::hash_api_key(provided);
-            if let Ok(revoked) = state.revoked_keys.read() {
-                if revoked.contains(&hash) {
-                    tracing::warn!("🚫 Rejected revoked API key");
-                    return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
-                        cloto_shared::Permission::AdminAccess,
-                    )));
-                }
-            }
-        }
-    } else {
-        // H-01: Require explicit opt-in via env var to skip auth (not just debug_assertions)
-        let skip_auth = std::env::var("CLOTO_DEBUG_SKIP_AUTH")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
-        if !skip_auth {
-            return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
-                cloto_shared::Permission::AdminAccess,
-            )));
-        }
         tracing::warn!(
             "⚠️  SECURITY: Admin API access without authentication (CLOTO_DEBUG_SKIP_AUTH=true)"
         );
         tracing::warn!("⚠️  Set CLOTO_API_KEY in .env before deploying to production");
     }
     Ok(())
+}
+
+pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()> {
+    check_auth_with_query(state, headers, &std::collections::HashMap::new())
 }
 
 pub(crate) fn spawn_admin_audit(
@@ -353,10 +317,32 @@ pub async fn get_metrics(
 
 /// Get stored agent memories via CPersona MCP server.
 ///
+/// Parse the first text content from a CPersona MCP tool result as JSON.
+fn parse_cpersona_result(result: &crate::managers::mcp_protocol::CallToolResult) -> Option<serde_json::Value> {
+    if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) = result.content.first() {
+        serde_json::from_str::<serde_json::Value>(text).ok()
+    } else {
+        None
+    }
+}
+
+/// Call a CPersona MCP tool, returning parsed JSON or a fallback on error.
+async fn call_cpersona_with_fallback(
+    state: &AppState,
+    tool: &str,
+    args: serde_json::Value,
+    fallback: serde_json::Value,
+) -> AppResult<Json<serde_json::Value>> {
+    match state.mcp_manager.call_server_tool("memory.cpersona", tool, args).await {
+        Ok(result) => ok_data(parse_cpersona_result(&result).unwrap_or(fallback)),
+        Err(e) => {
+            tracing::warn!("CPersona {} failed: {}", tool, e);
+            ok_data(fallback)
+        }
+    }
+}
+
 /// **Route:** `GET /api/memories`
-///
-/// # Authentication
-/// No authentication required (read-only).
 ///
 /// # Response
 /// Returns recent memories from CPersona memory server.
@@ -366,30 +352,9 @@ pub async fn get_memories(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "agent_id": "", "limit": 100 });
-    match state
-        .mcp_manager
-        .call_server_tool("memory.cpersona", "list_memories", args)
-        .await
-    {
-        Ok(result) => {
-            if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) =
-                result.content.first()
-            {
-                if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
-                    return ok_data(data);
-                }
-            }
-            ok_data(serde_json::json!({ "memories": [], "count": 0 }))
-        }
-        Err(e) => {
-            tracing::warn!("CPersona list_memories failed: {}", e);
-            ok_data(serde_json::json!({ "memories": [], "count": 0 }))
-        }
-    }
+    call_cpersona_with_fallback(&state, "list_memories", args, serde_json::json!({ "memories": [], "count": 0 })).await
 }
 
-/// Get archived episodes via CPersona MCP server.
-///
 /// **Route:** `GET /api/episodes`
 ///
 /// # Response
@@ -400,30 +365,9 @@ pub async fn get_episodes(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "agent_id": "", "limit": 50 });
-    match state
-        .mcp_manager
-        .call_server_tool("memory.cpersona", "list_episodes", args)
-        .await
-    {
-        Ok(result) => {
-            if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) =
-                result.content.first()
-            {
-                if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
-                    return ok_data(data);
-                }
-            }
-            ok_data(serde_json::json!({ "episodes": [], "count": 0 }))
-        }
-        Err(e) => {
-            tracing::warn!("CPersona list_episodes failed: {}", e);
-            ok_data(serde_json::json!({ "episodes": [], "count": 0 }))
-        }
-    }
+    call_cpersona_with_fallback(&state, "list_episodes", args, serde_json::json!({ "episodes": [], "count": 0 })).await
 }
 
-/// Delete a memory by ID via CPersona MCP server.
-///
 /// **Route:** `DELETE /api/memories/:id`
 pub async fn delete_memory(
     State(state): State<Arc<AppState>>,
@@ -432,23 +376,13 @@ pub async fn delete_memory(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "memory_id": id });
-    let result = state
-        .mcp_manager
+    let result = state.mcp_manager
         .call_server_tool("memory.cpersona", "delete_memory", args)
         .await
         .map_err(AppError::Internal)?;
-
-    if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) = result.content.first()
-    {
-        if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
-            return ok_data(data);
-        }
-    }
-    ok_data(serde_json::json!({}))
+    ok_data(parse_cpersona_result(&result).unwrap_or(serde_json::json!({})))
 }
 
-/// Delete an episode by ID via CPersona MCP server.
-///
 /// **Route:** `DELETE /api/episodes/:id`
 pub async fn delete_episode(
     State(state): State<Arc<AppState>>,
@@ -457,19 +391,11 @@ pub async fn delete_episode(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "episode_id": id });
-    let result = state
-        .mcp_manager
+    let result = state.mcp_manager
         .call_server_tool("memory.cpersona", "delete_episode", args)
         .await
         .map_err(AppError::Internal)?;
-
-    if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) = result.content.first()
-    {
-        if let Ok(data) = serde_json::from_str::<serde_json::Value>(text) {
-            return ok_data(data);
-        }
-    }
-    ok_data(serde_json::json!({}))
+    ok_data(parse_cpersona_result(&result).unwrap_or(serde_json::json!({})))
 }
 
 // ============================================================

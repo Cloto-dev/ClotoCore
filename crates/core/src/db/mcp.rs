@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
-use super::{db_timeout, db_timeout_op};
+use super::db_timeout;
 
 // ============================================================
 // MCP Dynamic Server Persistence
@@ -163,7 +163,8 @@ pub async fn put_access_entries(
     server_id: &str,
     entries: &[AccessControlEntry],
 ) -> anyhow::Result<()> {
-    db_timeout_op(async {
+    let secs = super::db_timeout_secs();
+    tokio::time::timeout(std::time::Duration::from_secs(secs), async {
         let mut tx = pool.begin().await.map_err(|e| anyhow::anyhow!("Failed to begin transaction: {}", e))?;
 
         // Ensure the server exists in mcp_servers (config-loaded servers may not be persisted yet)
@@ -213,6 +214,7 @@ pub async fn put_access_entries(
         Ok(())
     })
     .await
+    .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", secs))?
 }
 
 /// Delete an access control entry for an agent/server/entry_type combination.
