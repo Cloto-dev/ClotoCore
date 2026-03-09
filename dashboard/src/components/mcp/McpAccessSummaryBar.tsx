@@ -15,7 +15,7 @@ interface Props {
   onToolClick?: (tool: string) => void;
 }
 
-function AgentCount({ count, t }: { count: number; t: (key: string, opts?: object) => string }) {
+function AgentCount({ count, t }: { count: number; t: (key: string, opts?: Record<string, unknown>) => string }) {
   if (count === 0) return <>{'\u2014'}</>;
   return <>{t(count === 1 ? 'access.agent_count_one' : 'access.agent_count_other', { count })}</>;
 }

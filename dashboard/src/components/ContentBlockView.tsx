@@ -141,7 +141,7 @@ export function ContentBlockView({ block }: { block: ContentBlock }) {
         return (
           <div className="bg-black/10 rounded-lg p-2 mt-1 text-[10px] font-mono border-l-2 border-red-400">
             {parsed.error as string}
-            {parsed.hint && <div className="text-content-tertiary mt-1">{parsed.hint as string}</div>}
+            {typeof parsed.hint === 'string' && <div className="text-content-tertiary mt-1">{parsed.hint}</div>}
           </div>
         );
       }

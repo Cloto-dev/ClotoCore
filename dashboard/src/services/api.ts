@@ -65,7 +65,7 @@ export const api = {
       .then(r => { if (!r.ok) throw new Error(`${r.statusText}`); return r.json().then((b: any) => b.data) as Promise<T>; }),
   put: (path: string, body: unknown, apiKey: string) =>
     mutate(path, 'PUT', path, body, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
-  updateAgent: (id: string, payload: { name?: string, description?: string, default_engine_id?: string, metadata: Record<string, string> }, apiKey: string) =>
+  updateAgent: (id: string, payload: { name?: string, description?: string, default_engine_id?: string, metadata?: Record<string, string> }, apiKey: string) =>
     mutate(`/agents/${id}`, 'POST', 'update agent', payload, { 'X-API-Key': apiKey }).then(() => {}),
 
   getPluginPermissions: async (pluginId: string, apiKey: string): Promise<string[]> => {
