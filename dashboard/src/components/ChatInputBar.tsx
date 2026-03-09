@@ -38,7 +38,8 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatI
   useEffect(() => {
     if (editMode) {
       setInput(editMode.initialContent);
-      setTimeout(() => inputRef.current?.focus(), 50);
+      const timerId = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(timerId);
     }
   }, [editMode?.messageId]);
 

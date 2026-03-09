@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { SectionCard } from './common';
 import { useEventStream } from '../../hooks/useEventStream';
 import { EVENTS_URL } from '../../services/api';
@@ -6,6 +7,7 @@ import { useApi } from '../../hooks/useApi';
 
 export function LogSection() {
   const api = useApi();
+  const { t } = useTranslation('settings');
   const [logs, setLogs] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pendingLogs = useRef<string[]>([]);
@@ -34,9 +36,9 @@ export function LogSection() {
   }, [logs]);
 
   return (
-    <SectionCard title="Event Log">
+    <SectionCard title={t('log.title')}>
       <div ref={scrollRef} className="h-[60vh] overflow-y-auto font-mono text-[11px] space-y-1 no-scrollbar">
-        {logs.length === 0 && <div className="opacity-30">AWAITING_SIGNAL...</div>}
+        {logs.length === 0 && <div className="opacity-30">{t('log.awaiting_signal')}</div>}
         {logs.map((log, i) => (
           <div key={i} className="text-content-secondary animate-in fade-in slide-in-from-left-1 duration-300">
             <span className="opacity-50 mr-2">&gt;</span>{log}

@@ -43,5 +43,9 @@
     "ask_hint": "Chat with the default agent for help and questions",
     "docs": "Docs",
     "github": "GitHub"
-  }
+  },
+  "error_boundary_title": "System Error",
+  "error_boundary_message": "An unexpected error occurred",
+  "error_boundary_restart": "Restart",
+  "skeleton_thinking": "Thinking..."
 }

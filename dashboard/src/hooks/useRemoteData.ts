@@ -71,13 +71,17 @@ export function useRemoteData<T>(
   }, [key, fetchCached, minRefetchMs, errorMessage]);
 
   useEffect(() => {
+    let cancelled = false;
     fetchCached()
-      .then(d => { setData(d); setError(null); })
+      .then(d => { if (!cancelled) { setData(d); setError(null); } })
       .catch(err => {
-        setError(extractError(err, errorMessage));
-        console.error(`${errorMessage}:`, err);
+        if (!cancelled) {
+          setError(extractError(err, errorMessage));
+          console.error(`${errorMessage}:`, err);
+        }
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+    return () => { cancelled = true; };
   }, [fetchCached, errorMessage]);
 
   return { data, isLoading, error, refetch };

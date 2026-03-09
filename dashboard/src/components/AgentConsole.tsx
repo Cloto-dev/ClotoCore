@@ -509,6 +509,14 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     }
   };
 
+  const handleChatSend = useCallback((blocks: ContentBlock[], rawText: string, engineOverride: string | null) => {
+    if (editingMessage) {
+      handleEditMessage(blocks, rawText, engineOverride);
+    } else {
+      sendMessage(blocks, rawText, engineOverride);
+    }
+  }, [editingMessage, handleEditMessage, sendMessage]);
+
   // Retry handler: remove old response immediately, re-generate in place
   const handleRetry = async (agentResponseMsg: ChatMessage) => {
     if (isTyping || pendingResponse) return;
@@ -760,13 +768,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
       {/* Input Area */}
       <ChatInputBar
-        onSend={(blocks, rawText, engineOverride) => {
-          if (editingMessage) {
-            handleEditMessage(blocks, rawText, engineOverride);
-          } else {
-            sendMessage(blocks, rawText, engineOverride);
-          }
-        }}
+        onSend={handleChatSend}
         disabled={isTyping || !!pendingResponse}
         servers={agentEngines}
         editMode={editingMessage ? {

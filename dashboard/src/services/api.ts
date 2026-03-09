@@ -17,10 +17,10 @@ async function throwIfNotOk(res: Response, ctx: string): Promise<void> {
   throw new Error(body?.error?.message || `Failed to ${ctx}: ${res.statusText}`);
 }
 
-async function fetchJson<T>(path: string, ctx: string, apiKey?: string): Promise<T> {
+async function fetchJson<T>(path: string, ctx: string, apiKey?: string, signal?: AbortSignal): Promise<T> {
   const headers: Record<string, string> = {};
   if (apiKey) headers['X-API-Key'] = apiKey;
-  const res = await fetch(`${API_BASE}${path}`, { headers });
+  const res = await fetch(`${API_BASE}${path}`, { headers, signal });
   if (!res.ok) throw new Error(`Failed to ${ctx}: ${res.statusText}`);
   const body = await res.json();
   return body.data as T;
@@ -28,11 +28,12 @@ async function fetchJson<T>(path: string, ctx: string, apiKey?: string): Promise
 
 async function mutate(
   path: string, method: string, ctx: string,
-  body?: unknown, extraHeaders?: Record<string, string>,
+  body?: unknown, extraHeaders?: Record<string, string>, signal?: AbortSignal,
 ): Promise<Response> {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    signal,
     ...(body !== undefined && { body: JSON.stringify(body) }),
   });
   if (!res.ok) throw new Error(`Failed to ${ctx}: ${res.statusText}`);
@@ -62,7 +63,7 @@ export const api = {
   getPlugins: (apiKey?: string) => fetchJson<unknown[]>('/plugins', 'fetch plugins', apiKey),
   fetchJson: <T>(path: string, apiKey: string) =>
     fetch(`${API_BASE}${path}`, { headers: { 'X-API-Key': apiKey } })
-      .then(r => { if (!r.ok) throw new Error(`${r.statusText}`); return r.json().then((b: any) => b.data) as Promise<T>; }),
+      .then(r => { if (!r.ok) throw new Error(`${r.statusText}`); return r.json().then((b: { data: T }) => b.data); }),
   put: (path: string, body: unknown, apiKey: string) =>
     mutate(path, 'PUT', path, body, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
   updateAgent: (id: string, payload: { name?: string, description?: string, default_engine_id?: string, metadata?: Record<string, string> }, apiKey: string) =>
@@ -156,11 +157,11 @@ export const api = {
     if (!res.ok) throw new Error(`Failed to fetch chat messages: ${res.statusText}`);
     const data = (await res.json()).data;
     return {
-      messages: data.messages.map((m: any) => ({
+      messages: (data.messages as Array<Record<string, unknown>>).map(m => ({
         ...m,
         content: typeof m.content === 'string' ? safeJsonParse(m.content, m.content) : m.content,
         metadata: m.metadata ? (typeof m.metadata === 'string' ? safeJsonParse(m.metadata, {}) : m.metadata) : undefined,
-      })),
+      })) as ChatMessage[],
       has_more: data.has_more,
     };
   },
@@ -256,7 +257,7 @@ export const api = {
       body: file,
     });
     await throwIfNotOk(res, 'upload avatar');
-    return res.json().then((b: any) => b.data);
+    return res.json().then((b: { data: { avatar_description?: string } }) => b.data);
   },
 
   deleteAvatar: (agentId: string, apiKey: string) =>
