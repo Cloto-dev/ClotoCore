@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { SectionCard, Toggle } from './common';
 import { useApi } from '../../hooks/useApi';
 
 export function AdvancedSection() {
   const api = useApi();
+  const { t } = useTranslation('settings');
   const [yoloEnabled, setYoloEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [maxCronGen, setMaxCronGen] = useState(2);
@@ -41,30 +43,29 @@ export function AdvancedSection() {
 
   return (
     <>
-      <SectionCard title="YOLO Mode">
+      <SectionCard title={t('advanced.yolo_title')}>
         <div className="space-y-4">
           {!loading && (
-            <Toggle enabled={yoloEnabled} onToggle={handleToggle} label="Auto-approve MCP permissions" />
+            <Toggle enabled={yoloEnabled} onToggle={handleToggle} label={t('advanced.auto_approve_label')} />
           )}
           {yoloEnabled && (
             <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
               <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
               <div className="space-y-1">
-                <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">Warning</p>
-                <p className="text-xs text-content-tertiary">MCP server connection permissions are auto-approved without manual review. Tool execution still requires approval. SafetyGate and code validation remain active.</p>
+                <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">{t('advanced.yolo_warning')}</p>
               </div>
             </div>
           )}
           {!yoloEnabled && (
-            <p className="text-xs text-content-tertiary">When enabled, MCP server connection permission requests are automatically approved. Tool execution approval is unaffected. SafetyGate post-validation remains active as a safety net.</p>
+            <p className="text-xs text-content-tertiary">{t('advanced.yolo_desc')}</p>
           )}
         </div>
       </SectionCard>
 
-      <SectionCard title="CRON Recursion Limit">
+      <SectionCard title={t('advanced.cron_limit_title')}>
         <div className="space-y-3">
           <p className="text-xs text-content-tertiary">
-            Maximum generations a CRON job can recursively create child CRON jobs. 0 disables recursion entirely.
+            {t('advanced.cron_limit_desc')}
           </p>
           <div className="flex items-center gap-3">
             <input
@@ -75,7 +76,7 @@ export function AdvancedSection() {
               onChange={e => handleSetMaxCronGen(Number(e.target.value))}
               className="w-16 bg-surface-secondary border border-edge rounded px-2 py-1 text-xs font-mono text-content-primary"
             />
-            <span className="text-xs text-content-tertiary">(0-6, default: 2)</span>
+            <span className="text-xs text-content-tertiary">{t('advanced.cron_limit_hint')}</span>
           </div>
         </div>
       </SectionCard>

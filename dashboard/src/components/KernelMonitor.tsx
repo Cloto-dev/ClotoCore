@@ -44,7 +44,7 @@ export const KernelMonitor: React.FC<KernelMonitorProps> = ({ onClose }) => {
           <div key={stat.label} className="bg-glass-strong p-4 rounded-2xl border border-edge-subtle shadow-sm">
             <div className="flex items-center gap-2 mb-2">
               <stat.icon size={14} className="text-brand" />
-              <span className="text-[8px] font-black text-content-tertiary uppercase tracking-widest">{stat.label}</span>
+              <span className="text-[9px] font-black text-content-tertiary uppercase tracking-widest">{stat.label}</span>
             </div>
             <div className="text-xl font-mono font-bold text-content-primary">{stat.val}</div>
           </div>

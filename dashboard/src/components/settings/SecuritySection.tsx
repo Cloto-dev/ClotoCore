@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { SectionCard, Toggle } from './common';
 import { LlmProvidersSection } from './LlmProvidersSection';
 import { useApiKey } from '../../contexts/ApiKeyContext';
@@ -9,6 +10,8 @@ import { useApi } from '../../hooks/useApi';
 export function SecuritySection() {
   const { setApiKey, forgetApiKey } = useApiKey();
   const authApi = useApi();
+  const { t } = useTranslation('settings');
+  const { t: tc } = useTranslation();
   const [newKey, setNewKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState('');
@@ -24,7 +27,7 @@ export function SecuritySection() {
       setApiKey(newKey.trim());
       setNewKey('');
     } catch {
-      setError('Invalid API key');
+      setError(t('security.error_invalid_key'));
     } finally {
       setSaving(false);
     }
@@ -37,17 +40,17 @@ export function SecuritySection() {
       forgetApiKey();
       setConfirmInvalidate(false);
     } catch {
-      setError('Failed to invalidate key');
+      setError(t('security.error_invalidate_failed'));
     }
   };
 
   return (
     <>
-      <SectionCard title="API Key">
+      <SectionCard title={t('security.api_key_title')}>
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${authApi.apiKey ? 'bg-green-500' : 'bg-amber-500'}`} />
-            <span className="text-xs text-content-secondary">{authApi.apiKey ? 'Configured' : 'Not configured'}</span>
+            <span className="text-xs text-content-secondary">{authApi.apiKey ? t('security.configured') : t('security.not_configured')}</span>
           </div>
 
           <div className="flex gap-2">
@@ -56,7 +59,7 @@ export function SecuritySection() {
                 type={showKey ? 'text' : 'password'}
                 value={newKey}
                 onChange={e => { setNewKey(e.target.value); setError(''); }}
-                placeholder={authApi.apiKey ? 'Enter new key to replace' : 'Enter API key'}
+                placeholder={authApi.apiKey ? t('security.placeholder_replace') : t('security.placeholder_new')}
                 className="w-full bg-surface-secondary border border-edge rounded-lg px-3 py-2 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
               />
               <button
@@ -71,7 +74,7 @@ export function SecuritySection() {
               disabled={!newKey.trim() || saving}
               className="px-4 py-2 bg-brand text-white text-xs font-bold rounded-lg disabled:opacity-40 hover:bg-brand/90 transition-colors"
             >
-              {saving ? '...' : 'Save'}
+              {saving ? '...' : tc('save')}
             </button>
           </div>
 
@@ -89,13 +92,13 @@ export function SecuritySection() {
                   onClick={() => setConfirmInvalidate(true)}
                   className="text-xs text-red-400 hover:text-red-300 font-bold uppercase tracking-widest transition-colors"
                 >
-                  Invalidate current key (system-wide)
+                  {t('security.invalidate_label')}
                 </button>
               ) : (
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-red-400">This will revoke the key for all clients.</span>
-                  <button onClick={handleInvalidate} className="px-3 py-1 bg-red-500 text-white text-xs font-bold rounded-lg">Confirm</button>
-                  <button onClick={() => setConfirmInvalidate(false)} className="px-3 py-1 bg-surface-secondary text-content-secondary text-xs font-bold rounded-lg border border-edge">Cancel</button>
+                  <span className="text-xs text-red-400">{t('security.invalidate_confirm_desc')}</span>
+                  <button onClick={handleInvalidate} className="px-3 py-1 bg-red-500 text-white text-xs font-bold rounded-lg">{tc('confirm')}</button>
+                  <button onClick={() => setConfirmInvalidate(false)} className="px-3 py-1 bg-surface-secondary text-content-secondary text-xs font-bold rounded-lg border border-edge">{tc('cancel')}</button>
                 </div>
               )}
             </div>

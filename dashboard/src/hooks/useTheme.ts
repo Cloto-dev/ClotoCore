@@ -65,7 +65,7 @@ export function useThemeProvider() {
 
   useEffect(() => {
     applyTheme(resolveTheme(preference));
-  }, []);
+  }, [preference, applyTheme]);
 
   useEffect(() => {
     if (preference !== 'system') return;
