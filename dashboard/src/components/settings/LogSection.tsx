@@ -35,7 +35,7 @@ export function LogSection() {
 
   return (
     <SectionCard title="Event Log">
-      <div ref={scrollRef} className="h-[60vh] overflow-y-auto font-mono text-[10px] space-y-1 no-scrollbar">
+      <div ref={scrollRef} className="h-[60vh] overflow-y-auto font-mono text-[11px] space-y-1 no-scrollbar">
         {logs.length === 0 && <div className="opacity-30">AWAITING_SIGNAL...</div>}
         {logs.map((log, i) => (
           <div key={i} className="text-content-secondary animate-in fade-in slide-in-from-left-1 duration-300">

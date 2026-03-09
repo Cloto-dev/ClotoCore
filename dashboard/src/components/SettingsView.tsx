@@ -37,7 +37,7 @@ export function SettingsView({ onBack }: { onBack?: () => void }) {
           <button
             key={id}
             onClick={() => setActiveSection(id)}
-            className={`flex items-center gap-3 px-5 py-3 text-xs font-bold tracking-widest uppercase transition-all ${
+            className={`flex items-center gap-3 px-5 py-3 text-sm font-bold tracking-widest uppercase transition-all ${
               activeSection === id
                 ? 'text-brand bg-brand/5 border-r-2 border-brand'
                 : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-secondary'
