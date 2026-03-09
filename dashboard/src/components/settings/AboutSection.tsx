@@ -91,7 +91,7 @@ export function AboutSection() {
               </div>
               <button
                 onClick={handleCheck}
-                className="text-[10px] text-content-tertiary hover:text-brand transition-colors"
+                className="text-xs text-content-tertiary hover:text-brand transition-colors"
               >
                 {t('about.check_again')}
               </button>
@@ -154,11 +154,11 @@ export function AboutSection() {
                 {t('about.applied')}
               </div>
               {updateOutput && (
-                <div className="text-[10px] text-content-tertiary font-mono bg-glass rounded-lg p-2 border border-edge">
+                <div className="text-xs text-content-tertiary font-mono bg-glass rounded-lg p-2 border border-edge">
                   {updateOutput.slice(0, 300)}
                 </div>
               )}
-              <p className="text-[10px] text-content-tertiary">{t('about.restart_hint')}</p>
+              <p className="text-xs text-content-tertiary">{t('about.restart_hint')}</p>
             </div>
           )}
 
@@ -175,7 +175,7 @@ export function AboutSection() {
       <SectionCard title={t('about.license')}>
         <div className="space-y-2">
           <p className="text-xs text-content-secondary">{t('about.bsl')}</p>
-          <p className="text-[10px] text-content-tertiary">{t('about.mit_convert')}</p>
+          <p className="text-xs text-content-tertiary">{t('about.mit_convert')}</p>
         </div>
       </SectionCard>
 
@@ -186,7 +186,7 @@ export function AboutSection() {
             { labelKey: 'about.contact', value: 'ClotoCore@proton.me', href: 'mailto:ClotoCore@proton.me' },
           ].map(link => (
             <div key={link.labelKey} className="flex items-center justify-between">
-              <span className="text-[10px] text-content-tertiary uppercase tracking-widest font-bold">{t(link.labelKey)}</span>
+              <span className="text-xs text-content-tertiary uppercase tracking-widest font-bold">{t(link.labelKey)}</span>
               <a
                 href={link.href}
                 target="_blank"
@@ -202,7 +202,7 @@ export function AboutSection() {
 
       <SectionCard title={t('about.setup')}>
         <div className="space-y-2">
-          <p className="text-[10px] text-content-tertiary">{t('about.setup_desc')}</p>
+          <p className="text-xs text-content-tertiary">{t('about.setup_desc')}</p>
           <button
             onClick={() => setShowWizard(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand hover:border-brand transition-all"

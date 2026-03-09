@@ -76,7 +76,7 @@ export function SecuritySection() {
           </div>
 
           {error && (
-            <div className="flex items-center gap-2 text-red-400 text-[10px]">
+            <div className="flex items-center gap-2 text-red-400 text-xs">
               <AlertTriangle size={12} />
               {error}
             </div>
@@ -87,15 +87,15 @@ export function SecuritySection() {
               {!confirmInvalidate ? (
                 <button
                   onClick={() => setConfirmInvalidate(true)}
-                  className="text-[10px] text-red-400 hover:text-red-300 font-bold uppercase tracking-widest transition-colors"
+                  className="text-xs text-red-400 hover:text-red-300 font-bold uppercase tracking-widest transition-colors"
                 >
                   Invalidate current key (system-wide)
                 </button>
               ) : (
                 <div className="flex items-center gap-3">
-                  <span className="text-[10px] text-red-400">This will revoke the key for all clients.</span>
-                  <button onClick={handleInvalidate} className="px-3 py-1 bg-red-500 text-white text-[10px] font-bold rounded-lg">Confirm</button>
-                  <button onClick={() => setConfirmInvalidate(false)} className="px-3 py-1 bg-surface-secondary text-content-secondary text-[10px] font-bold rounded-lg border border-edge">Cancel</button>
+                  <span className="text-xs text-red-400">This will revoke the key for all clients.</span>
+                  <button onClick={handleInvalidate} className="px-3 py-1 bg-red-500 text-white text-xs font-bold rounded-lg">Confirm</button>
+                  <button onClick={() => setConfirmInvalidate(false)} className="px-3 py-1 bg-surface-secondary text-content-secondary text-xs font-bold rounded-lg border border-edge">Cancel</button>
                 </div>
               )}
             </div>
