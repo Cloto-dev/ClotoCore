@@ -146,14 +146,14 @@ export function GeneralSection() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleExport}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-[10px] font-bold text-content-tertiary hover:text-brand hover:border-brand transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-xs font-bold text-content-tertiary hover:text-brand hover:border-brand transition-all"
             >
               <Download size={12} />
               {t('general.export_template')}
             </button>
             <button
               onClick={handleImportClick}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-[10px] font-bold text-content-tertiary hover:text-brand hover:border-brand transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-xs font-bold text-content-tertiary hover:text-brand hover:border-brand transition-all"
             >
               <Upload size={12} />
               {t('general.import_pack')}
@@ -169,7 +169,7 @@ export function GeneralSection() {
 
           {/* Import status message */}
           {importStatus && (
-            <p className={`text-[10px] ${importStatus.type === 'success' ? 'text-emerald-500' : 'text-red-400'}`}>
+            <p className={`text-xs ${importStatus.type === 'success' ? 'text-emerald-500' : 'text-red-400'}`}>
               {importStatus.message}
             </p>
           )}
@@ -179,7 +179,7 @@ export function GeneralSection() {
       <SectionCard title={t('general.user_identity')}>
         <div className="space-y-3">
           <div>
-            <label className="text-[10px] text-content-tertiary font-bold uppercase tracking-widest block mb-1">{t('general.display_name')}</label>
+            <label className="text-xs text-content-tertiary font-bold uppercase tracking-widest block mb-1">{t('general.display_name')}</label>
             <input
               type="text"
               value={identity.name}
@@ -188,7 +188,7 @@ export function GeneralSection() {
               placeholder={t('general.name_placeholder')}
             />
           </div>
-          <p className="text-[10px] text-content-tertiary">
+          <p className="text-xs text-content-tertiary">
             {t('general.name_hint')}
           </p>
         </div>
