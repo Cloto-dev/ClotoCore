@@ -26,6 +26,13 @@ pub(super) fn spawn_health_monitor(
                 }
                 _ = interval.tick() => {
                     check_and_restart_dead_servers(&manager).await;
+                    // Clean up responded callbacks older than 5 minutes (§13.4)
+                    let cleaned = manager.events.cleanup_stale_callbacks(
+                        std::time::Duration::from_secs(300),
+                    );
+                    if cleaned > 0 {
+                        debug!(count = cleaned, "Cleaned up stale callbacks");
+                    }
                 }
             }
         }
@@ -83,6 +90,17 @@ async fn check_and_restart_dead_servers(manager: &McpClientManager) {
                     "MCP server auto-restarted successfully"
                 );
                 manager.lifecycle.reset_counter(&server_id);
+
+                super::mcp_lifecycle::emit_lifecycle_notification(
+                    manager, &server_id, "Error", "Connected", "Auto-restart succeeded"
+                ).await;
+
+                super::mcp_events::deliver_event(manager, "lifecycle", &serde_json::json!({
+                    "server_id": server_id,
+                    "previous_state": "Error",
+                    "new_state": "Connected",
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                })).await;
             }
             Err(e) => {
                 error!(
@@ -94,6 +112,18 @@ async fn check_and_restart_dead_servers(manager: &McpClientManager) {
                 if let Some(handle) = servers.get_mut(&server_id) {
                     handle.status = ServerStatus::Error(format!("Auto-restart failed: {}", e));
                 }
+
+                super::mcp_lifecycle::emit_lifecycle_notification(
+                    manager, &server_id, "Connected", "Error",
+                    &format!("Auto-restart failed: {}", e)
+                ).await;
+
+                super::mcp_events::deliver_event(manager, "lifecycle", &serde_json::json!({
+                    "server_id": server_id,
+                    "previous_state": "Connected",
+                    "new_state": "Error",
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                })).await;
             }
         }
     }
