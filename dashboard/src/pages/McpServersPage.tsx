@@ -167,7 +167,7 @@ export function McpServersPage() {
                 <Server size={14} className="text-content-tertiary group-hover:text-brand transition-colors shrink-0" />
                 <span className="text-xs font-mono font-bold text-content-primary truncate">{displayServerId(server.id)}</span>
                 {server.source === 'config' && (
-                  <span className="text-[8px] font-mono text-amber-500/70 shrink-0" title="Config-loaded">CONFIG</span>
+                  <span className="text-[9px] font-mono text-amber-500/70 shrink-0" title="Config-loaded">CONFIG</span>
                 )}
               </div>
               <div className="flex items-center gap-3 text-[10px] font-mono text-content-tertiary">

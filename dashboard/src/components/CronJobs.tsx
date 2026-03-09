@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { memo } from 'react';
-import { Clock, Plus, Trash2, Play, Power } from 'lucide-react';
+import { Clock, Plus, Trash2, Play, Power, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CronJob, AgentMetadata } from '../types';
 import { useApi } from '../hooks/useApi';
+import { Modal } from './Modal';
 
 function formatSchedule(type: string, value: string): string {
   if (type === 'interval') {
@@ -28,6 +29,8 @@ export const CronJobs = memo(function CronJobs() {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [agents, setAgents] = useState<AgentMetadata[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const [form, setForm] = useState({
     agent_id: '',
     name: '',
@@ -69,7 +72,7 @@ export const CronJobs = memo(function CronJobs() {
       setShowForm(false);
       setForm({ agent_id: '', name: '', schedule_type: 'interval', schedule_value: '3600', message: '', engine_id: '', hide_prompt: false });
       fetchJobs();
-    } catch (e: any) { alert(e.message); }
+    } catch (e: unknown) { setNotification({ type: 'error', message: e instanceof Error ? e.message : String(e) }); }
   };
 
   const handleToggle = async (job: CronJob) => {
@@ -77,10 +80,15 @@ export const CronJobs = memo(function CronJobs() {
     fetchJobs();
   };
 
-  const handleDelete = async (jobId: string) => {
-    if (!confirm(t('delete_confirm'))) return;
-    await api.deleteCronJob(jobId);
-    fetchJobs();
+  const handleDelete = (jobId: string) => {
+    setConfirmDialog({
+      message: t('delete_confirm'),
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        await api.deleteCronJob(jobId);
+        fetchJobs();
+      },
+    });
   };
 
   const handleRunNow = async (jobId: string) => {
@@ -258,6 +266,39 @@ export const CronJobs = memo(function CronJobs() {
           )}
         </div>
       </div>
+      {/* Notification banner */}
+      {notification && (
+        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-xs font-mono border ${
+          notification.type === 'error'
+            ? 'bg-red-500/10 border-red-500/30 text-red-400'
+            : 'bg-green-500/10 border-green-500/30 text-green-400'
+        } animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+          {notification.type === 'error' && <AlertTriangle size={14} />}
+          <span>{notification.message}</span>
+          <button onClick={() => setNotification(null)} className="ml-2 opacity-60 hover:opacity-100">&times;</button>
+        </div>
+      )}
+
+      {/* Confirm dialog */}
+      {confirmDialog && (
+        <Modal title={tc('confirm')} onClose={() => setConfirmDialog(null)}>
+          <p className="text-sm text-content-secondary mb-4">{confirmDialog.message}</p>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setConfirmDialog(null)}
+              className="px-3 py-1.5 text-xs font-bold rounded bg-surface-secondary border border-edge text-content-secondary hover:bg-surface-secondary/80"
+            >
+              {tc('cancel')}
+            </button>
+            <button
+              onClick={confirmDialog.onConfirm}
+              className="px-3 py-1.5 text-xs font-bold rounded bg-red-500 text-white hover:bg-red-600"
+            >
+              {tc('confirm')}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 });

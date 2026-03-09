@@ -52,7 +52,7 @@ function App() {
     let next: number;
     do { next = Math.floor(Math.random() * BOOT_LINES.length); } while (next === prev);
     return next;
-  }, []);
+  }, [BOOT_LINES]);
 
   const [lineIdx, setLineIdx] = useState(() => Math.floor(Math.random() * BOOT_LINES.length));
 

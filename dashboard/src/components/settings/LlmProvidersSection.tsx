@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { SectionCard } from './common';
 import { useApi } from '../../hooks/useApi';
 
 export function LlmProvidersSection() {
   const api = useApi();
+  const { t } = useTranslation('settings');
+  const { t: tc } = useTranslation();
   const [providers, setProviders] = useState<Array<{ id: string; display_name: string; has_key: boolean; model_id: string }>>([]);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
@@ -31,8 +34,8 @@ export function LlmProvidersSection() {
   };
 
   return (
-    <SectionCard title="LLM Providers">
-      <p className="text-xs text-content-tertiary mb-4">API keys are held by the kernel and never exposed to MCP servers (MGP §13.4).</p>
+    <SectionCard title={t('llm_providers.title')}>
+      <p className="text-xs text-content-tertiary mb-4">{t('llm_providers.desc')}</p>
       <div className="space-y-3">
         {providers.map(p => (
           <div key={p.id} className="flex items-center gap-3 p-3 bg-surface-secondary rounded-lg border border-edge-subtle">
@@ -47,7 +50,7 @@ export function LlmProvidersSection() {
                   type="password"
                   value={keyInputs[p.id] || ''}
                   onChange={e => setKeyInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
-                  placeholder={p.has_key ? '••••••• (saved)' : 'Enter API key'}
+                  placeholder={p.has_key ? t('llm_providers.placeholder_saved') : t('llm_providers.placeholder_new')}
                   className="flex-1 bg-surface-base border border-edge rounded px-2 py-1 text-xs font-mono text-content-primary placeholder:text-content-tertiary"
                 />
                 <button
@@ -55,14 +58,14 @@ export function LlmProvidersSection() {
                   disabled={!keyInputs[p.id]?.trim() || saving === p.id}
                   className="px-3 py-1 bg-brand text-white text-xs font-bold rounded disabled:opacity-40"
                 >
-                  {saving === p.id ? '...' : 'Save'}
+                  {saving === p.id ? '...' : tc('save')}
                 </button>
                 {p.has_key && (
                   <button
                     onClick={() => handleDelete(p.id)}
                     className="px-2 py-1 text-red-400 text-xs hover:bg-red-500/10 rounded"
                   >
-                    Clear
+                    {t('llm_providers.clear')}
                   </button>
                 )}
               </div>
@@ -70,7 +73,7 @@ export function LlmProvidersSection() {
           </div>
         ))}
         {providers.length === 0 && (
-          <p className="text-xs text-content-tertiary italic">No providers configured.</p>
+          <p className="text-xs text-content-tertiary italic">{t('llm_providers.empty')}</p>
         )}
       </div>
     </SectionCard>
