@@ -1,4 +1,5 @@
 import { Pencil } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   name: string;
@@ -8,15 +9,16 @@ interface Props {
 }
 
 export function ProfileSection({ name, description, onNameChange, onDescriptionChange }: Props) {
+  const { t } = useTranslation('agents');
   return (
     <section>
       <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
         <Pencil className="text-brand" size={16} />
-        <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Profile</h2>
+        <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('plugin_workspace.profile')}</h2>
       </div>
       <div className="space-y-3">
         <div>
-          <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">Name</label>
+          <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">{t('plugin_workspace.profile_name')}</label>
           <input
             type="text"
             value={name}
@@ -26,7 +28,7 @@ export function ProfileSection({ name, description, onNameChange, onDescriptionC
           />
         </div>
         <div>
-          <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">Description</label>
+          <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">{t('plugin_workspace.profile_description')}</label>
           <textarea
             value={description}
             onChange={e => onDescriptionChange(e.target.value)}

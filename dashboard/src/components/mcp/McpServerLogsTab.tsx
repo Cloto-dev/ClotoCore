@@ -5,6 +5,7 @@ import { useEventStream } from '../../hooks/useEventStream';
 import { EVENTS_URL } from '../../services/api';
 import { useApi } from '../../hooks/useApi';
 import { Trash2 } from 'lucide-react';
+import { displayServerId } from '../../lib/format';
 
 interface LogEntry {
   timestamp: string;
@@ -47,7 +48,7 @@ export function McpServerLogsTab({ server }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-edge">
         <span className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary">
-          {t('logs.event_log')} — {server.id}
+          {t('logs.event_log')} — {displayServerId(server.id)}
         </span>
         <button
           onClick={() => setLogs([])}

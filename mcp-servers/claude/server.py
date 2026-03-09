@@ -167,10 +167,14 @@ def _parse_anthropic_response(response_data: dict) -> dict:
     text_parts: list[str] = []
     tool_calls: list[dict] = []
 
+    thinking_parts: list[str] = []
+
     for block in content_blocks:
         block_type = block.get("type", "")
         if block_type == "text":
             text_parts.append(block.get("text", ""))
+        elif block_type == "thinking":
+            thinking_parts.append(block.get("thinking", ""))
         elif block_type == "tool_use":
             tool_calls.append({
                 "id": block.get("id", ""),
@@ -180,9 +184,13 @@ def _parse_anthropic_response(response_data: dict) -> dict:
 
     # Tool calls detected
     if stop_reason == "tool_use" and tool_calls:
+        # Prefer text content, fall back to thinking content (extended thinking models)
+        assistant_content = "\n".join(text_parts) if text_parts else (
+            "\n".join(thinking_parts) if thinking_parts else None
+        )
         return {
             "type": "tool_calls",
-            "assistant_content": "\n".join(text_parts) if text_parts else None,
+            "assistant_content": assistant_content,
             "calls": tool_calls,
         }
 

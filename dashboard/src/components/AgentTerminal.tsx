@@ -5,6 +5,7 @@ import { AgentMetadata, AccessControlEntry } from '../types';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { useEventStream } from '../hooks/useEventStream';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
+import { displayServerId } from '../lib/format';
 
 import { useAgentCreation } from '../hooks/useAgentCreation';
 import { PowerToggleModal } from './PowerToggleModal';
@@ -325,8 +326,8 @@ export function AgentTerminal({
 
                     {/* Row 2: Engine · Memory */}
                     <div className="text-xs font-mono text-content-tertiary mb-2">
-                      {t('ai_agent')} · {agent.default_engine_id || t('no_engine')}
-                      {agent.metadata?.preferred_memory && ` · ${agent.metadata.preferred_memory}`}
+                      {t('ai_agent')} · {agent.default_engine_id ? displayServerId(agent.default_engine_id) : t('no_engine')}
+                      {agent.metadata?.preferred_memory && ` · ${displayServerId(agent.metadata.preferred_memory)}`}
                     </div>
 
                     {/* Divider + Actions */}
@@ -417,7 +418,7 @@ export function AgentTerminal({
                 >
                   <option value="">{t('form.select')}</option>
                   {mcpEngines.map(s => (
-                    <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
+                    <option key={s.id} value={s.id}>{displayServerId(s.id)}</option>
                   ))}
                 </select>
               ) : (
@@ -436,7 +437,7 @@ export function AgentTerminal({
               >
                 <option value="">{t('form.memory_none')}</option>
                 {mcpMemories.map(s => (
-                  <option key={s.id} value={s.id}>{s.id.replace('memory.', '')}</option>
+                  <option key={s.id} value={s.id}>{displayServerId(s.id)}</option>
                 ))}
               </select>
             </div>
@@ -484,7 +485,7 @@ export function AgentTerminal({
                         >
                           <option value="">{t('routing.select_engine')}</option>
                           {mcpEngines.map(s => (
-                            <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
+                            <option key={s.id} value={s.id}>{displayServerId(s.id)}</option>
                           ))}
                         </select>
                         <button
@@ -516,7 +517,7 @@ export function AgentTerminal({
                             >
                               <option value="">{t('routing.escalate_to')}</option>
                               {mcpEngines.filter(s => s.id !== rule.engine).map(s => (
-                                <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
+                                <option key={s.id} value={s.id}>{displayServerId(s.id)}</option>
                               ))}
                             </select>
                           </>
@@ -529,7 +530,7 @@ export function AgentTerminal({
                         >
                           <option value="">{t('routing.fallback_none')}</option>
                           {mcpEngines.filter(s => s.id !== rule.engine).map(s => (
-                            <option key={s.id} value={s.id}>{s.id.replace('mind.', '')}</option>
+                            <option key={s.id} value={s.id}>{displayServerId(s.id)}</option>
                           ))}
                         </select>
                       </div>
