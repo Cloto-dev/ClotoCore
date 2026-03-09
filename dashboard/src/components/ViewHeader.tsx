@@ -53,8 +53,8 @@ export function ViewHeader({ icon: Icon, title, onBack, right, onHelp, navBack, 
           </button>
         </div>
       )}
-      <Icon size={14} className="text-brand" />
-      <h1 className="text-xs font-mono uppercase tracking-widest text-content-primary">{title}</h1>
+      <Icon size={14} className="text-brand shrink-0" />
+      <h1 className="text-xs font-mono uppercase tracking-widest text-content-primary leading-none">{title}</h1>
       {right && <div className="ml-auto flex items-center gap-3">{right}</div>}
 
       {/* Help + Connection indicator + Window Controls */}
@@ -66,7 +66,7 @@ export function ViewHeader({ icon: Icon, title, onBack, right, onHelp, navBack, 
         )}
         {/* Connection status dot */}
         {!checking && (
-          <div className="relative group" title={connected ? 'Backend connected' : 'Backend unreachable'}>
+          <div className="relative group flex items-center" title={connected ? 'Backend connected' : 'Backend unreachable'}>
             <StatusDot status={connected ? 'online' : 'error'} />
             {/* Tooltip */}
             <div className="absolute top-full right-0 mt-1 px-2 py-1 rounded bg-surface-primary border border-edge shadow-lg text-[9px] font-mono text-content-secondary whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
@@ -82,7 +82,7 @@ export function ViewHeader({ icon: Icon, title, onBack, right, onHelp, navBack, 
               <Minus size={14} />
             </button>
             <button onClick={toggleMaximizeWindow} className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors">
-              <Square size={12} />
+              <Square size={13} />
             </button>
             <button onClick={closeWindow} className="p-1.5 ml-1 rounded hover:bg-red-500/20 text-content-tertiary hover:text-red-500 transition-colors">
               <X size={14} />

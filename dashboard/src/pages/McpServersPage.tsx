@@ -6,6 +6,7 @@ import { extractError } from '../lib/errors';
 import { McpServerDetail } from '../components/mcp/McpServerDetail';
 import { Modal } from '../components/Modal';
 import { StatusDot, type StatusDotStatus } from '../components/ui/StatusDot';
+import { displayServerId } from '../lib/format';
 import { AlertCard } from '../components/ui/AlertCard';
 import { McpServerInfo } from '../types';
 import { Server, Plus, RefreshCw, AlertTriangle } from 'lucide-react';
@@ -164,7 +165,7 @@ export function McpServersPage() {
             >
               <div className="flex items-center gap-2.5 mb-2">
                 <Server size={14} className="text-content-tertiary group-hover:text-brand transition-colors shrink-0" />
-                <span className="text-xs font-mono font-bold text-content-primary truncate">{server.id}</span>
+                <span className="text-xs font-mono font-bold text-content-primary truncate">{displayServerId(server.id)}</span>
                 {server.source === 'config' && (
                   <span className="text-[8px] font-mono text-amber-500/70 shrink-0" title="Config-loaded">CONFIG</span>
                 )}
