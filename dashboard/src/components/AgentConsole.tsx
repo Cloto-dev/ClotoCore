@@ -636,7 +636,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
                       <div className="mt-2 flex items-center gap-2">
                         {msg.metadata?.elapsed_secs != null && (
                           <span className="text-xs font-mono text-content-tertiary">
-                            {msg.metadata.elapsed_secs}s
+                            {String(msg.metadata.elapsed_secs)}s
                           </span>
                         )}
                         <button
