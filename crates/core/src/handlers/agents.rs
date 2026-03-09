@@ -550,6 +550,103 @@ pub async fn get_avatar(
     ))
 }
 
+// ============================================================
+// VRM Model Management
+// ============================================================
+
+/// Maximum VRM file size: 50 MB
+const VRM_MAX_BYTES: usize = 50 * 1024 * 1024;
+
+/// Upload a VRM model for an agent.
+///
+/// **Route:** `POST /api/agents/:id/vrm`
+///
+/// Accepts raw VRM bytes (model/gltf-binary).
+pub async fn upload_vrm(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    if body.len() > VRM_MAX_BYTES {
+        return Err(AppError::Validation(format!(
+            "VRM file too large ({} bytes, max {} bytes)",
+            body.len(),
+            VRM_MAX_BYTES
+        )));
+    }
+
+    // Verify agent exists
+    state.agent_manager.get_agent_config(&id).await?;
+
+    // Save to disk
+    let vrm_path = state.data_dir.join("vrm").join(format!("{}.vrm", id));
+    let vrm_path_str = vrm_path.to_string_lossy().to_string();
+    tokio::fs::write(&vrm_path, &body)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to write VRM file: {}", e)))?;
+
+    state.agent_manager.set_vrm(&id, &vrm_path_str).await?;
+
+    ok_data(serde_json::json!({ "vrm_path": vrm_path_str }))
+}
+
+/// Serve an agent's VRM model.
+///
+/// **Route:** `GET /api/agents/:id/vrm`
+///
+/// No authentication required (read-only).
+pub async fn get_vrm(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let vrm_path = state
+        .agent_manager
+        .get_vrm_path(&id)
+        .await?
+        .ok_or_else(|| AppError::Validation("No VRM model set".to_string()))?;
+
+    let data = tokio::fs::read(&vrm_path)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to read VRM file: {}", e)))?;
+
+    Ok((
+        StatusCode::OK,
+        [
+            (
+                axum::http::header::CONTENT_TYPE,
+                HeaderValue::from_static("model/gltf-binary"),
+            ),
+            (
+                axum::http::header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=3600"),
+            ),
+        ],
+        data,
+    ))
+}
+
+/// Delete an agent's VRM model.
+///
+/// **Route:** `DELETE /api/agents/:id/vrm`
+pub async fn delete_vrm(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    if let Ok(Some(path)) = state.agent_manager.get_vrm_path(&id).await {
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    state.agent_manager.clear_vrm(&id).await?;
+
+    ok_data(serde_json::json!({}))
+}
+
 /// Delete an agent's avatar.
 ///
 /// **Route:** `DELETE /api/agents/:id/avatar`
