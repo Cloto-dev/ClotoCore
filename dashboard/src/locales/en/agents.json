@@ -77,6 +77,11 @@
     "tools_count": "{{count}} tools",
     "available": "Available",
     "grant": "Grant",
+    "preset": "Preset",
+    "preset_minimal": "Minimal",
+    "preset_standard": "Standard",
+    "preset_advanced": "Advanced",
+    "preset_expert": "Expert",
     "status_connected": "Connected",
     "status_disconnected": "Disconnected",
     "status_error": "Error"

@@ -9,13 +9,15 @@ interface Props {
   hasAvatar: boolean;
   avatarKey: number;
   avatarDescription: string;
-  isUploading: boolean;
+  previewUrl: string | null;
   onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onDelete: () => void;
 }
 
-export function AvatarSection({ agent, hasAvatar, avatarKey, avatarDescription, isUploading, onUpload, onDelete }: Props) {
+export function AvatarSection({ agent, hasAvatar, avatarKey, avatarDescription, previewUrl, onUpload, onDelete }: Props) {
   const { t } = useTranslation('agents');
+  const displayUrl = previewUrl ?? (hasAvatar ? `${api.getAvatarUrl(agent.id)}?v=${avatarKey}` : null);
+
   return (
     <section>
       <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
@@ -25,9 +27,9 @@ export function AvatarSection({ agent, hasAvatar, avatarKey, avatarDescription, 
       <div className="space-y-3">
         <div className="flex items-center gap-4">
           <div className="w-24 h-24 rounded-lg border border-edge overflow-hidden flex items-center justify-center bg-glass-strong shrink-0">
-            {hasAvatar ? (
+            {displayUrl ? (
               <img
-                src={`${api.getAvatarUrl(agent.id)}?v=${avatarKey}`}
+                src={displayUrl}
                 alt="Avatar"
                 className="w-full h-full object-cover"
               />
@@ -36,15 +38,14 @@ export function AvatarSection({ agent, hasAvatar, avatarKey, avatarDescription, 
             )}
           </div>
           <div className="flex flex-col gap-2">
-            <label className={`cursor-pointer inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand hover:border-brand transition-all ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+            <label className="cursor-pointer inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand hover:border-brand transition-all">
               <Upload size={14} />
-              {isUploading ? t('plugin_workspace.avatar_analyzing') : t('plugin_workspace.avatar_upload')}
+              {t('plugin_workspace.avatar_upload')}
               <input
                 type="file"
                 accept="image/png,image/jpeg,image/gif,image/webp"
                 className="hidden"
                 onChange={onUpload}
-                disabled={isUploading}
               />
             </label>
             {hasAvatar && (
