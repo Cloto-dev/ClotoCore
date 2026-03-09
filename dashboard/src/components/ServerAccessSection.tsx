@@ -1,6 +1,7 @@
 import { Server, Plus, X, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { McpServerInfo } from '../types';
-import { agentColor } from '../lib/agentIdentity';
+import { displayServerId } from '../lib/format';
 
 const StatusIcon = ({ status }: { status: McpServerInfo['status'] }) => {
   switch (status) {
@@ -10,15 +11,20 @@ const StatusIcon = ({ status }: { status: McpServerInfo['status'] }) => {
   }
 };
 
-const StatusBadge = ({ status }: { status: McpServerInfo['status'] }) => (
-  <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-    status === 'Connected' ? 'bg-emerald-500/10 text-emerald-500' :
-    status === 'Error' ? 'bg-red-500/10 text-red-500' :
-    'bg-surface-secondary text-content-tertiary'
-  }`}>
-    {status}
-  </span>
-);
+const StatusBadge = ({ status, t }: { status: McpServerInfo['status']; t: (key: string) => string }) => {
+  const labelKey = status === 'Connected' ? 'plugin_workspace.status_connected'
+    : status === 'Error' ? 'plugin_workspace.status_error'
+    : 'plugin_workspace.status_disconnected';
+  return (
+    <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+      status === 'Connected' ? 'bg-emerald-500/10 text-emerald-500' :
+      status === 'Error' ? 'bg-red-500/10 text-red-500' :
+      'bg-surface-secondary text-content-tertiary'
+    }`}>
+      {t(labelKey)}
+    </span>
+  );
+};
 
 interface Props {
   grantedServers: McpServerInfo[];
@@ -29,17 +35,18 @@ interface Props {
 }
 
 export function ServerAccessSection({ grantedServers, availableServers, agentColorHex, onGrant, onRevoke }: Props) {
+  const { t } = useTranslation('agents');
   return (
     <>
       {/* Granted Servers */}
       <section>
         <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
           <Server className="text-brand" size={16} />
-          <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Granted Servers</h2>
+          <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('plugin_workspace.granted_servers')}</h2>
         </div>
         {grantedServers.length === 0 ? (
           <div className="py-8 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
-            No servers granted. Add from the list below.
+            {t('plugin_workspace.no_servers_granted')}
           </div>
         ) : (
           <div className="space-y-2">
@@ -53,11 +60,11 @@ export function ServerAccessSection({ grantedServers, availableServers, agentCol
                   <Server size={16} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <span className="text-xs font-bold text-content-primary">{server.id}</span>
-                  <span className="text-[10px] text-content-tertiary ml-2 font-mono">{server.tools.length} tools</span>
+                  <span className="text-sm font-bold text-content-primary">{displayServerId(server.id)}</span>
+                  <span className="text-xs text-content-tertiary ml-2 font-mono">{t('plugin_workspace.tools_count', { count: server.tools.length })}</span>
                 </div>
                 <StatusIcon status={server.status} />
-                <StatusBadge status={server.status} />
+                <StatusBadge status={server.status} t={t} />
                 <span className="p-1.5 rounded text-content-muted group-hover:text-red-500 transition-all opacity-0 group-hover:opacity-100">
                   <X size={14} />
                 </span>
@@ -72,7 +79,7 @@ export function ServerAccessSection({ grantedServers, availableServers, agentCol
         <section>
           <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
             <Plus className="text-brand" size={16} />
-            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">Available</h2>
+            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('plugin_workspace.available')}</h2>
           </div>
           <div className="space-y-2">
             {availableServers.map(server => (
@@ -85,13 +92,13 @@ export function ServerAccessSection({ grantedServers, availableServers, agentCol
                   <Server size={16} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <span className="text-xs font-medium text-content-secondary">{server.id}</span>
-                  <span className="text-[10px] text-content-tertiary ml-2 font-mono">{server.tools.length} tools</span>
+                  <span className="text-sm font-medium text-content-secondary">{displayServerId(server.id)}</span>
+                  <span className="text-xs text-content-tertiary ml-2 font-mono">{t('plugin_workspace.tools_count', { count: server.tools.length })}</span>
                 </div>
                 <StatusIcon status={server.status} />
-                <StatusBadge status={server.status} />
+                <StatusBadge status={server.status} t={t} />
                 <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold text-brand opacity-0 group-hover:opacity-100 transition-all">
-                  <Plus size={10} /> Grant
+                  <Plus size={10} /> {t('plugin_workspace.grant')}
                 </span>
               </div>
             ))}

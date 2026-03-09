@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { McpServerInfo } from '../../types';
 import { Server, Plus, RefreshCw, AlertTriangle, X } from 'lucide-react';
 import { AlertCard } from '../ui/AlertCard';
+import { displayServerId } from '../../lib/format';
 
 interface Props {
   servers: McpServerInfo[];
@@ -131,7 +132,7 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
           >
             <span className="text-[10px]">{statusIndicator(server.status)}</span>
             <Server size={12} className="text-content-tertiary flex-shrink-0" />
-            <span className="truncate">{server.id}</span>
+            <span className="truncate">{displayServerId(server.id)}</span>
             {server.source === 'config' && (
               <span className="text-[8px] text-amber-500/70 flex-shrink-0" title="Config-loaded">C</span>
             )}

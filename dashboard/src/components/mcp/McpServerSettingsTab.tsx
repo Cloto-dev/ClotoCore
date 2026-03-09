@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { McpServerInfo, McpServerSettings, DefaultPolicy } from '../../types';
 import { useApi } from '../../hooks/useApi';
 import { Save, RotateCcw, Plus, X, Eye, EyeOff } from 'lucide-react';
+import { displayServerId } from '../../lib/format';
 
 interface Props {
   server: McpServerInfo;
@@ -239,7 +240,7 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
         <div className="space-y-1">
           <div className="flex gap-2 text-[10px] font-mono">
             <span className="text-content-tertiary w-16">{t('settings_tab.id')}</span>
-            <span className="text-content-secondary">{server.id}</span>
+            <span className="text-content-secondary">{displayServerId(server.id)}</span>
           </div>
           <div className="flex gap-2 text-[10px] font-mono">
             <span className="text-content-tertiary w-16">{t('settings_tab.tools')}</span>
