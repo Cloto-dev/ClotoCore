@@ -266,7 +266,7 @@ impl AgentManager {
     /// Delete an agent and all associated data (chat messages, attachments,
     /// MCP access control entries, trusted commands).
     ///
-    /// Note: KS22 memory data cleanup is handled separately by the caller
+    /// Note: CPersona memory data cleanup is handled separately by the caller
     /// (handler layer) via MCP tool call, since the agent manager does not
     /// have access to the MCP client manager.
     pub async fn delete_agent(&self, agent_id: &str) -> anyhow::Result<()> {

@@ -30,7 +30,7 @@
   "engine_deepseek": "DeepSeek",
   "engine_claude": "Claude",
   "engine_ollama": "Ollama (Local)",
-  "server_memory_ks22": "KS22 Memory",
+  "server_memory_cpersona": "CPersona Memory",
   "server_tool_terminal": "Terminal",
   "server_tool_cron": "Cron Scheduler",
   "server_tool_websearch": "Web Search",

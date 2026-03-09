@@ -1,7 +1,7 @@
 """
-Cloto MCP Server: KS2.3 Memory
+Cloto MCP Server: CPersona Memory
 Persistent memory with FTS5 full-text search and pluggable vector embedding.
-Ported from plugins/ks22/src/lib.rs with KS2.1 architecture enhancements.
+Ported from legacy KS22 plugin with KS2.1 architecture enhancements.
 
 Phase 1: store, recall (FTS5 + keyword) — COMPLETE
 Phase 2: Vector embedding integration (cosine similarity search) — COMPLETE
@@ -43,32 +43,32 @@ def _clamp_limit(limit: int, cap: int) -> int:
 # Configuration
 # ============================================================
 
-DB_PATH = os.environ.get("KS22_DB_PATH", "data/ks22_memory.db")
-MAX_MEMORIES = int(os.environ.get("KS22_MAX_MEMORIES", "500"))
-FTS_ENABLED = os.environ.get("KS22_FTS_ENABLED", "true").lower() == "true"
+DB_PATH = os.environ.get("CPERSONA_DB_PATH", "data/cpersona.db")
+MAX_MEMORIES = int(os.environ.get("CPERSONA_MAX_MEMORIES", "500"))
+FTS_ENABLED = os.environ.get("CPERSONA_FTS_ENABLED", "true").lower() == "true"
 
 # Embedding configuration
-EMBEDDING_MODE = os.environ.get("KS22_EMBEDDING_MODE", "none")
-EMBEDDING_URL = os.environ.get("KS22_EMBEDDING_URL", "")
-EMBEDDING_API_KEY = os.environ.get("KS22_EMBEDDING_API_KEY", "")
+EMBEDDING_MODE = os.environ.get("CPERSONA_EMBEDDING_MODE", "none")
+EMBEDDING_URL = os.environ.get("CPERSONA_EMBEDDING_URL", "")
+EMBEDDING_API_KEY = os.environ.get("CPERSONA_EMBEDDING_API_KEY", "")
 EMBEDDING_API_URL = os.environ.get(
-    "KS22_EMBEDDING_API_URL", "https://api.openai.com/v1/embeddings"
+    "CPERSONA_EMBEDDING_API_URL", "https://api.openai.com/v1/embeddings"
 )
-EMBEDDING_MODEL = os.environ.get("KS22_EMBEDDING_MODEL", "text-embedding-3-small")
+EMBEDDING_MODEL = os.environ.get("CPERSONA_EMBEDDING_MODEL", "text-embedding-3-small")
 
 # Vector search threshold (cosine similarity, 0.0-1.0)
-VECTOR_MIN_SIMILARITY = float(os.environ.get("KS22_VECTOR_MIN_SIMILARITY", "0.3"))
+VECTOR_MIN_SIMILARITY = float(os.environ.get("CPERSONA_VECTOR_MIN_SIMILARITY", "0.3"))
 
 # Embedding cache (query deduplication)
-EMBEDDING_CACHE_SIZE = int(os.environ.get("KS22_EMBEDDING_CACHE_SIZE", "256"))
-EMBEDDING_CACHE_TTL = int(os.environ.get("KS22_EMBEDDING_CACHE_TTL", "300"))  # seconds
+EMBEDDING_CACHE_SIZE = int(os.environ.get("CPERSONA_EMBEDDING_CACHE_SIZE", "256"))
+EMBEDDING_CACHE_TTL = int(os.environ.get("CPERSONA_EMBEDDING_CACHE_TTL", "300"))  # seconds
 
 # LLM proxy configuration (for Phase 3: memory extraction)
 LLM_PROXY_URL = os.environ.get(
-    "KS22_LLM_PROXY_URL", "http://127.0.0.1:8082/v1/chat/completions"
+    "CPERSONA_LLM_PROXY_URL", "http://127.0.0.1:8082/v1/chat/completions"
 )
-LLM_PROVIDER = os.environ.get("KS22_LLM_PROVIDER", "cerebras")
-LLM_MODEL = os.environ.get("KS22_LLM_MODEL", "gpt-oss-120b")
+LLM_PROVIDER = os.environ.get("CPERSONA_LLM_PROVIDER", "cerebras")
+LLM_MODEL = os.environ.get("CPERSONA_LLM_MODEL", "gpt-oss-120b")
 
 # ============================================================
 # Embedding Client
@@ -875,7 +875,7 @@ def _try_parse_json(s: str) -> dict:
 # MCP Server
 # ============================================================
 
-registry = ToolRegistry("cloto-mcp-ks22")
+registry = ToolRegistry("cloto-mcp-cpersona")
 
 
 # Tool registrations are below all do_* functions (auto_tool evaluates at definition time)

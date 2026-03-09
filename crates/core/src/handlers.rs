@@ -351,7 +351,7 @@ pub async fn get_metrics(
     }))
 }
 
-/// Get stored agent memories via KS22 MCP server.
+/// Get stored agent memories via CPersona MCP server.
 ///
 /// **Route:** `GET /api/memories`
 ///
@@ -359,7 +359,7 @@ pub async fn get_metrics(
 /// No authentication required (read-only).
 ///
 /// # Response
-/// Returns recent memories from KS22 memory server.
+/// Returns recent memories from CPersona memory server.
 pub async fn get_memories(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -368,7 +368,7 @@ pub async fn get_memories(
     let args = serde_json::json!({ "agent_id": "", "limit": 100 });
     match state
         .mcp_manager
-        .call_server_tool("memory.ks22", "list_memories", args)
+        .call_server_tool("memory.cpersona", "list_memories", args)
         .await
     {
         Ok(result) => {
@@ -382,18 +382,18 @@ pub async fn get_memories(
             ok_data(serde_json::json!({ "memories": [], "count": 0 }))
         }
         Err(e) => {
-            tracing::warn!("KS22 list_memories failed: {}", e);
+            tracing::warn!("CPersona list_memories failed: {}", e);
             ok_data(serde_json::json!({ "memories": [], "count": 0 }))
         }
     }
 }
 
-/// Get archived episodes via KS22 MCP server.
+/// Get archived episodes via CPersona MCP server.
 ///
 /// **Route:** `GET /api/episodes`
 ///
 /// # Response
-/// Returns recent episodes from KS22 memory server.
+/// Returns recent episodes from CPersona memory server.
 pub async fn get_episodes(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -402,7 +402,7 @@ pub async fn get_episodes(
     let args = serde_json::json!({ "agent_id": "", "limit": 50 });
     match state
         .mcp_manager
-        .call_server_tool("memory.ks22", "list_episodes", args)
+        .call_server_tool("memory.cpersona", "list_episodes", args)
         .await
     {
         Ok(result) => {
@@ -416,13 +416,13 @@ pub async fn get_episodes(
             ok_data(serde_json::json!({ "episodes": [], "count": 0 }))
         }
         Err(e) => {
-            tracing::warn!("KS22 list_episodes failed: {}", e);
+            tracing::warn!("CPersona list_episodes failed: {}", e);
             ok_data(serde_json::json!({ "episodes": [], "count": 0 }))
         }
     }
 }
 
-/// Delete a memory by ID via KS22 MCP server.
+/// Delete a memory by ID via CPersona MCP server.
 ///
 /// **Route:** `DELETE /api/memories/:id`
 pub async fn delete_memory(
@@ -434,7 +434,7 @@ pub async fn delete_memory(
     let args = serde_json::json!({ "memory_id": id });
     let result = state
         .mcp_manager
-        .call_server_tool("memory.ks22", "delete_memory", args)
+        .call_server_tool("memory.cpersona", "delete_memory", args)
         .await
         .map_err(AppError::Internal)?;
 
@@ -447,7 +447,7 @@ pub async fn delete_memory(
     ok_data(serde_json::json!({}))
 }
 
-/// Delete an episode by ID via KS22 MCP server.
+/// Delete an episode by ID via CPersona MCP server.
 ///
 /// **Route:** `DELETE /api/episodes/:id`
 pub async fn delete_episode(
@@ -459,7 +459,7 @@ pub async fn delete_episode(
     let args = serde_json::json!({ "episode_id": id });
     let result = state
         .mcp_manager
-        .call_server_tool("memory.ks22", "delete_episode", args)
+        .call_server_tool("memory.cpersona", "delete_episode", args)
         .await
         .map_err(AppError::Internal)?;
 

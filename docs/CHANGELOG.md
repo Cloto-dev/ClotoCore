@@ -92,7 +92,7 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 ### Added
 - `tool.cron` MCP server: stateless CRON job management via kernel REST API (create, list, delete, toggle, run now)
 - `tool.agent_utils` MCP server: 8 deterministic utility tools (time, math, date arithmetic, random, UUID, unit conversion, encode/decode, hash)
-- Default MCP server grants for Cloto Assistant: memory.ks22, tool.cron, tool.terminal, tool.websearch, tool.research, tool.agent_utils
+- Default MCP server grants for Cloto Assistant: memory.cpersona, tool.cron, tool.terminal, tool.websearch, tool.research, tool.agent_utils
 - Cydonia 24B v4.3 (TheDrummer) Q4_K_M Ollama model support with ChatML template
 
 ### Fixed
@@ -312,7 +312,7 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 - Align ARCHITECTURE.md, DEVELOPMENT.md, PROJECT_VISION.md with MCP-only architecture
 - Update SCHEMA.md with 3 missing tables (runtime_plugins, revoked_keys, agent_plugins)
 - Update MAINTAINABILITY.md metrics (crate count, file sizes, test count)
-- Correct MCP server naming convention (core.ks22 → memory.ks22)
+- Correct MCP server naming convention (core.cpersona → memory.cpersona)
 - Clean up commit history (157 → 1 commit, author unified)
 
 ---
@@ -326,7 +326,7 @@ a Rust kernel with MCP-based plugin architecture.
 
 - Event-driven Rust kernel with actor-model plugin system
 - MCP (Model Context Protocol) as the sole plugin interface
-- 5 MCP servers: Cerebras, DeepSeek, Embedding, KS22 Memory, Terminal
+- 5 MCP servers: Cerebras, CPersona Memory, DeepSeek, Embedding, Terminal
 - ConsensusOrchestrator for multi-engine LLM coordination
 - SQLite persistence with 24 migrations
 - Rate limiting, audit logging, and permission isolation

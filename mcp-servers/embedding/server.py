@@ -3,7 +3,7 @@ Cloto MCP Server: Vector Embedding
 Pluggable embedding provider with HTTP endpoint for inter-server communication.
 Providers: api_openai (OpenAI-compatible API), onnx_miniml (local MiniLM ONNX).
 
-Design: docs/KS22_MEMORY_DESIGN.md Section 5
+Design: docs/CPERSONA_MEMORY_DESIGN.md Section 5
 """
 
 import asyncio
@@ -280,7 +280,7 @@ def create_provider() -> EmbeddingProvider:
 
 
 # ============================================================
-# HTTP Endpoint (for KS22 inter-server communication)
+# HTTP Endpoint (for CPersona inter-server communication)
 # ============================================================
 
 _provider: EmbeddingProvider | None = None

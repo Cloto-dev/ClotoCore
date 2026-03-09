@@ -103,7 +103,7 @@ All plugin functionality is delivered via **MCP (Model Context Protocol)** serve
 | `mind.cerebras` | Reasoning | Ultra-high-speed reasoning via Cerebras API |
 | `mind.claude` | Reasoning | Anthropic Claude API (native Messages API) |
 | `mind.ollama` | Reasoning | Local model inference via Ollama |
-| `memory.ks22` | Memory | Persistent memory with FTS5 search + vector embedding |
+| `memory.cpersona` | Memory | Persistent memory with FTS5 search + vector embedding |
 | `tool.terminal` | Tool | Sandboxed shell command execution |
 | `tool.agent_utils` | Tool | Deterministic utilities (time, math, UUID, hash, etc.) |
 | `tool.cron` | Tool | Stateless CRON job management via kernel REST API |
@@ -279,7 +279,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the full security model.
 - [Development](docs/DEVELOPMENT.md) — Coding standards, guardrails, PR process
 - [MGP Spec](docs/MGP_SPEC.md) — Model Gateway Protocol specification
 - [MCP Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) — MCP server communication protocol
-- [KS22 Memory](docs/KS22_MEMORY_DESIGN.md) — Memory system design
+- [CPersona Memory](docs/CPERSONA_MEMORY_DESIGN.md) — Memory system design
 - [Discord Bridge](docs/DISCORD_BRIDGE_DESIGN.md) — Discord integration design
 - [Database Schema](docs/SCHEMA.md) — SQLite schema reference
 - [Changelog](docs/CHANGELOG.md) — Development history
