@@ -32,7 +32,7 @@ export function LlmProvidersSection() {
 
   return (
     <SectionCard title="LLM Providers">
-      <p className="text-[10px] text-content-tertiary mb-4">API keys are held by the kernel and never exposed to MCP servers (MGP §13.4).</p>
+      <p className="text-xs text-content-tertiary mb-4">API keys are held by the kernel and never exposed to MCP servers (MGP §13.4).</p>
       <div className="space-y-3">
         {providers.map(p => (
           <div key={p.id} className="flex items-center gap-3 p-3 bg-surface-secondary rounded-lg border border-edge-subtle">
@@ -48,19 +48,19 @@ export function LlmProvidersSection() {
                   value={keyInputs[p.id] || ''}
                   onChange={e => setKeyInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
                   placeholder={p.has_key ? '••••••• (saved)' : 'Enter API key'}
-                  className="flex-1 bg-surface-base border border-edge rounded px-2 py-1 text-[10px] font-mono text-content-primary placeholder:text-content-tertiary"
+                  className="flex-1 bg-surface-base border border-edge rounded px-2 py-1 text-xs font-mono text-content-primary placeholder:text-content-tertiary"
                 />
                 <button
                   onClick={() => handleSave(p.id)}
                   disabled={!keyInputs[p.id]?.trim() || saving === p.id}
-                  className="px-3 py-1 bg-brand text-white text-[10px] font-bold rounded disabled:opacity-40"
+                  className="px-3 py-1 bg-brand text-white text-xs font-bold rounded disabled:opacity-40"
                 >
                   {saving === p.id ? '...' : 'Save'}
                 </button>
                 {p.has_key && (
                   <button
                     onClick={() => handleDelete(p.id)}
-                    className="px-2 py-1 text-red-400 text-[10px] hover:bg-red-500/10 rounded"
+                    className="px-2 py-1 text-red-400 text-xs hover:bg-red-500/10 rounded"
                   >
                     Clear
                   </button>
@@ -70,7 +70,7 @@ export function LlmProvidersSection() {
           </div>
         ))}
         {providers.length === 0 && (
-          <p className="text-[10px] text-content-tertiary italic">No providers configured.</p>
+          <p className="text-xs text-content-tertiary italic">No providers configured.</p>
         )}
       </div>
     </SectionCard>
