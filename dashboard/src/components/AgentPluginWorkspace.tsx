@@ -33,11 +33,13 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const [agentName, setAgentName] = useState(agent.name);
   const [agentDescription, setAgentDescription] = useState(agent.description);
 
-  // Avatar state
+  // Avatar state (deferred — only persisted on Save)
   const [avatarKey, setAvatarKey] = useState(0);
   const [hasAvatar, setHasAvatar] = useState(agent.metadata?.has_avatar === 'true');
   const [avatarDescription, setAvatarDescription] = useState(agent.metadata?.avatar_description || '');
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [pendingAvatarDelete, setPendingAvatarDelete] = useState(false);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
 
   // Load current access entries for this agent
   useEffect(() => {
@@ -69,11 +71,27 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
     });
   };
 
+  const applyPreset = (presetServerIds: string[]) => {
+    setGrantedIds(prev => {
+      // Keep existing mind.* engines, replace everything else with preset
+      const engines = [...prev].filter(id => id.startsWith('mind.'));
+      return new Set([...engines, ...presetServerIds]);
+    });
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     setSaveError('');
 
     try {
+      // --- Avatar operations (deferred until Save) ---
+      if (pendingAvatarDelete && !pendingAvatarFile) {
+        await api.deleteAvatar(agent.id);
+      }
+      if (pendingAvatarFile) {
+        await api.uploadAvatar(agent.id, pendingAvatarFile);
+      }
+
       const initial = initialGrantedRef.current;
       const added = [...grantedIds].filter(id => !initial.has(id));
       const removed = [...initial].filter(id => !grantedIds.has(id));
@@ -132,6 +150,9 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
         },
       );
 
+      // Clean up preview URL
+      if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+
       onBack();
     } catch (err: any) {
       setSaveError(err?.message || 'Failed to save configuration');
@@ -140,38 +161,31 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
     }
   };
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
       setSaveError(t('plugin_workspace.avatar_too_large'));
       return;
     }
-    setIsUploadingAvatar(true);
-    setSaveError('');
-    try {
-      const result = await api.uploadAvatar(agent.id, file);
-      setAvatarKey(prev => prev + 1);
-      setHasAvatar(true);
-      setAvatarDescription(result.avatar_description || '');
-    } catch (err: any) {
-      setSaveError(err?.message || 'Failed to upload avatar');
-    } finally {
-      setIsUploadingAvatar(false);
-      e.target.value = '';
-    }
+    // Store file locally — upload deferred to Save
+    if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+    setPendingAvatarFile(file);
+    setPendingAvatarDelete(false);
+    setAvatarPreviewUrl(URL.createObjectURL(file));
+    setHasAvatar(true);
+    setAvatarDescription('');
+    e.target.value = '';
   };
 
-  const handleAvatarDelete = async () => {
-    setSaveError('');
-    try {
-      await api.deleteAvatar(agent.id);
-      setAvatarKey(prev => prev + 1);
-      setHasAvatar(false);
-      setAvatarDescription('');
-    } catch (err: any) {
-      setSaveError(err?.message || 'Failed to delete avatar');
-    }
+  const handleAvatarDelete = () => {
+    // Mark for deletion locally — actual delete deferred to Save
+    if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+    setPendingAvatarFile(null);
+    setPendingAvatarDelete(true);
+    setAvatarPreviewUrl(null);
+    setHasAvatar(false);
+    setAvatarDescription('');
   };
 
   const grantedServers = servers.filter(s => grantedIds.has(s.id));
@@ -214,7 +228,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
                 hasAvatar={hasAvatar}
                 avatarKey={avatarKey}
                 avatarDescription={avatarDescription}
-                isUploading={isUploadingAvatar}
+                previewUrl={avatarPreviewUrl}
                 onUpload={handleAvatarUpload}
                 onDelete={handleAvatarDelete}
               />
@@ -235,8 +249,10 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
               grantedServers={grantedServers}
               availableServers={availableServers}
               agentColorHex={agentColor(agent)}
+              grantedIds={grantedIds}
               onGrant={grantServer}
               onRevoke={revokeServer}
+              onApplyPreset={applyPreset}
             />
           </>
         )}

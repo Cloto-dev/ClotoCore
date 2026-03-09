@@ -1,7 +1,8 @@
-import { Server, Plus, X, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
+import { Server, Plus, X, Wifi, WifiOff, AlertTriangle, Layers } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { McpServerInfo } from '../types';
 import { displayServerId } from '../lib/format';
+import { SERVER_PRESETS, detectPreset } from '../lib/presets';
 
 const StatusIcon = ({ status }: { status: McpServerInfo['status'] }) => {
   switch (status) {
@@ -30,14 +31,47 @@ interface Props {
   grantedServers: McpServerInfo[];
   availableServers: McpServerInfo[];
   agentColorHex: string;
+  grantedIds: Set<string>;
   onGrant: (serverId: string) => void;
   onRevoke: (serverId: string) => void;
+  onApplyPreset: (serverIds: string[]) => void;
 }
 
-export function ServerAccessSection({ grantedServers, availableServers, agentColorHex, onGrant, onRevoke }: Props) {
+export function ServerAccessSection({ grantedServers, availableServers, agentColorHex, grantedIds, onGrant, onRevoke, onApplyPreset }: Props) {
   const { t } = useTranslation('agents');
+  const activePreset = detectPreset(grantedIds);
+
   return (
     <>
+      {/* Preset Selector */}
+      <section>
+        <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
+          <Layers className="text-brand" size={16} />
+          <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('plugin_workspace.preset')}</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {SERVER_PRESETS.map(preset => {
+            const isActive = activePreset === preset.id;
+            return (
+              <button
+                key={preset.id}
+                onClick={() => onApplyPreset(preset.servers)}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider border transition-all ${
+                  isActive
+                    ? 'border-brand bg-brand/10 text-brand'
+                    : 'border-edge bg-glass text-content-secondary hover:border-brand/40 hover:text-brand'
+                }`}
+              >
+                {t(`plugin_workspace.preset_${preset.id}`)}
+                <span className="ml-1.5 text-[9px] font-mono text-content-tertiary">
+                  {preset.servers.length}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Granted Servers */}
       <section>
         <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
