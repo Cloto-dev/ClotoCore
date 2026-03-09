@@ -15,7 +15,6 @@ use tracing::{debug, info};
 // ============================================================
 
 /// Return all §15 discovery kernel tool schemas.
-#[allow(dead_code)]
 pub(super) fn discovery_tool_schemas() -> Vec<Value> {
     vec![
         discovery_list_schema(),
@@ -265,8 +264,10 @@ pub(super) async fn execute_discovery_register(
     args: Value,
 ) -> Result<Value> {
     if !manager.yolo_mode.load(Ordering::Relaxed) {
-        return Err(anyhow::anyhow!(
-            "mgp.discovery.register requires YOLO mode to be enabled"
+        return Err(anyhow::Error::new(
+            super::mcp_mgp::MgpError::permission_denied(
+                "mgp.discovery.register requires YOLO mode to be enabled",
+            ),
         ));
     }
 
@@ -287,7 +288,12 @@ pub(super) async fn execute_discovery_register(
     {
         let servers = manager.servers.read().await;
         if servers.contains_key(id) {
-            return Err(anyhow::anyhow!("Server '{}' is already registered", id));
+            return Err(anyhow::Error::new(
+                super::mcp_mgp::MgpError::server_already_registered(format!(
+                    "Server '{}' is already registered",
+                    id
+                )),
+            ));
         }
     }
 
@@ -350,9 +356,11 @@ pub(super) async fn execute_discovery_deregister(
         let servers = manager.servers.read().await;
         if let Some(handle) = servers.get(id) {
             if handle.source == ServerSource::Config {
-                return Err(anyhow::anyhow!(
-                    "Cannot deregister config-loaded server '{}'. Use lifecycle.shutdown instead.",
-                    id
+                return Err(anyhow::Error::new(
+                    super::mcp_mgp::MgpError::cannot_deregister_config(format!(
+                        "Cannot deregister config-loaded server '{}'. Use lifecycle.shutdown instead.",
+                        id
+                    )),
                 ));
             }
         }

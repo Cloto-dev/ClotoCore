@@ -10,19 +10,16 @@ use std::sync::Mutex;
 use tracing::debug;
 
 /// Tracks per-request stream state for gap detection.
-#[allow(dead_code)]
 pub(super) struct StreamAssembler {
     trackers: Mutex<HashMap<(String, i64), StreamTracker>>,
 }
 
-#[allow(dead_code)]
 struct StreamTracker {
     expected_index: u32,
     received_count: u32,
     gaps: Vec<u32>,
 }
 
-#[allow(dead_code)]
 impl StreamAssembler {
     pub fn new() -> Self {
         Self {
@@ -105,7 +102,6 @@ pub(super) async fn cancel_stream(
 }
 
 /// Send a `notifications/mgp.stream.gap` notification to request retransmission of missing chunks (§12.9).
-#[allow(dead_code)]
 pub(super) async fn send_gap_notification(
     manager: &McpClientManager,
     server_id: &str,
@@ -134,7 +130,6 @@ pub(super) async fn send_gap_notification(
 }
 
 /// Send a `notifications/mgp.stream.pace` notification to control server output rate (§12.8).
-#[allow(dead_code)]
 pub(super) async fn send_pace(
     manager: &McpClientManager,
     server_id: &str,

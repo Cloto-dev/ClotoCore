@@ -11,19 +11,16 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tracing::info;
 
-#[allow(dead_code)]
 pub(super) struct RestartCounter {
     pub count: u32,
     pub window_start: Instant,
     pub last_restart: Instant,
 }
 
-#[allow(dead_code)]
 pub(super) struct LifecycleManager {
     restart_counters: Mutex<HashMap<String, RestartCounter>>,
 }
 
-#[allow(dead_code)]
 impl LifecycleManager {
     pub fn new() -> Self {
         Self {
