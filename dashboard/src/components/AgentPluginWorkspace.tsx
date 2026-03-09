@@ -41,6 +41,9 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const [pendingAvatarDelete, setPendingAvatarDelete] = useState(false);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
 
+  // VRM state (immediate — uploaded/deleted on action, not deferred to Save)
+  const [hasVrm, setHasVrm] = useState(agent.metadata?.has_vrm === 'true');
+
   // Load current access entries for this agent
   useEffect(() => {
     api.getAgentAccess(agent.id)
@@ -130,10 +133,11 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
       const memoryServer = grantedServers.find(s => s.id.startsWith('memory.'));
 
       const metadata: Record<string, string> = { ...agent.metadata };
-      // Remove backend-injected avatar fields (managed by avatar API, not metadata column)
+      // Remove backend-injected fields (managed by their respective APIs, not metadata column)
       delete metadata.has_avatar;
       delete metadata.avatar_description;
       delete metadata.has_power_password;
+      delete metadata.has_vrm;
       if (memoryServer) {
         metadata.preferred_memory = memoryServer.id;
       } else {
@@ -188,6 +192,31 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
     setAvatarDescription('');
   };
 
+  const handleVrmUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      setSaveError('VRM file too large (max 50MB)');
+      return;
+    }
+    try {
+      await api.uploadVrm(agent.id, file);
+      setHasVrm(true);
+    } catch (err: any) {
+      setSaveError(err?.message || 'Failed to upload VRM');
+    }
+    e.target.value = '';
+  };
+
+  const handleVrmDelete = async () => {
+    try {
+      await api.deleteVrm(agent.id);
+      setHasVrm(false);
+    } catch (err: any) {
+      setSaveError(err?.message || 'Failed to delete VRM');
+    }
+  };
+
   const grantedServers = servers.filter(s => grantedIds.has(s.id));
   const availableServers = servers.filter(s => !grantedIds.has(s.id));
 
@@ -226,11 +255,14 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
               <AvatarSection
                 agent={agent}
                 hasAvatar={hasAvatar}
+                hasVrm={hasVrm}
                 avatarKey={avatarKey}
                 avatarDescription={avatarDescription}
                 previewUrl={avatarPreviewUrl}
                 onUpload={handleAvatarUpload}
                 onDelete={handleAvatarDelete}
+                onVrmUpload={handleVrmUpload}
+                onVrmDelete={handleVrmDelete}
               />
             )}
 

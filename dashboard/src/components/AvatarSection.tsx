@@ -1,4 +1,4 @@
-import { Camera, Upload, X } from 'lucide-react';
+import { Camera, Upload, X, Box } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AgentMetadata } from '../types';
 import { api } from '../services/api';
@@ -7,14 +7,17 @@ import { AgentIcon } from '../lib/agentIdentity';
 interface Props {
   agent: AgentMetadata;
   hasAvatar: boolean;
+  hasVrm: boolean;
   avatarKey: number;
   avatarDescription: string;
   previewUrl: string | null;
   onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onDelete: () => void;
+  onVrmUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onVrmDelete: () => void;
 }
 
-export function AvatarSection({ agent, hasAvatar, avatarKey, avatarDescription, previewUrl, onUpload, onDelete }: Props) {
+export function AvatarSection({ agent, hasAvatar, hasVrm, avatarKey, avatarDescription, previewUrl, onUpload, onDelete, onVrmUpload, onVrmDelete }: Props) {
   const { t } = useTranslation('agents');
   const displayUrl = previewUrl ?? (hasAvatar ? `${api.getAvatarUrl(agent.id)}?v=${avatarKey}` : null);
 
@@ -63,6 +66,40 @@ export function AvatarSection({ agent, hasAvatar, avatarKey, avatarDescription, 
             <span className="text-content-tertiary font-bold">{t('plugin_workspace.avatar_vision')} </span>{avatarDescription}
           </div>
         )}
+
+        {/* VRM 3D Model section */}
+        <div className="pt-3 border-t border-edge-subtle">
+          <div className="flex items-center gap-2 mb-2">
+            <Box size={14} className="text-brand" />
+            <span className="text-[11px] font-bold text-content-secondary uppercase tracking-widest">VRM 3D Model</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {hasVrm ? (
+              <>
+                <span className="text-[10px] font-mono text-brand/80 bg-brand/5 px-2 py-1 rounded border border-brand/20">
+                  VRM Loaded
+                </span>
+                <button
+                  onClick={onVrmDelete}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-500/20 bg-red-500/5 text-[10px] font-bold text-red-400/70 hover:text-red-500 hover:border-red-500/40 hover:bg-red-500/10 transition-all"
+                >
+                  <X size={12} /> Remove
+                </button>
+              </>
+            ) : (
+              <label className="cursor-pointer inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand hover:border-brand transition-all">
+                <Upload size={14} />
+                Upload VRM
+                <input
+                  type="file"
+                  accept=".vrm,model/gltf-binary"
+                  className="hidden"
+                  onChange={onVrmUpload}
+                />
+              </label>
+            )}
+          </div>
+        </div>
       </div>
     </section>
   );
