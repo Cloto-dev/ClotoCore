@@ -322,11 +322,13 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             None => config.yolo_mode, // fall back to env var
         }
     };
-    let mcp_manager = Arc::new(managers::McpClientManager::new(
+    let mut mcp_manager = managers::McpClientManager::new(
         pool.clone(),
         yolo_mode,
         config.mcp_request_timeout_secs,
-    ));
+    );
+    mcp_manager.configure_isolation(&config);
+    let mcp_manager = Arc::new(mcp_manager);
 
     // 4. Initialize External Plugins
     let mut registry = plugin_manager.initialize_all().await?;

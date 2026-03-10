@@ -1780,27 +1780,27 @@
     },
     {
       "id": "bug-299",
-      "summary": "P5: MCP servers can instantiate unrestricted HTTP clients",
+      "summary": "P5: MCP servers HTTP restriction via proxy-only isolation (MGP §8-10)",
       "severity": "HIGH",
       "discovered": "2026-03-10T00:00:00Z",
       "version": "0.6.2",
       "commit": "8c09a10",
-      "file": "mcp-servers/common/llm_provider.py",
-      "pattern": "httpx\\.AsyncClient",
+      "file": "crates/core/src/managers/mcp_transport.rs",
+      "pattern": "HTTP_PROXY",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-300",
-      "summary": "P5: No runtime capability injection for MCP servers",
+      "summary": "P5: Runtime capability injection via mgp/permission/grant RPC",
       "severity": "MEDIUM",
       "discovered": "2026-03-10T00:00:00Z",
       "version": "0.6.2",
       "commit": "8c09a10",
-      "file": "crates/core/src/events.rs",
-      "pattern": "on_capability_injected",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "deliver_permission_grant",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-301",
@@ -1816,15 +1816,15 @@
     },
     {
       "id": "bug-302",
-      "summary": "P8: No runtime permission escalation flow for plugins",
+      "summary": "P8: Permission escalation connected — approve triggers mgp/permission/grant",
       "severity": "HIGH",
       "discovered": "2026-03-10T00:00:00Z",
       "version": "0.6.2",
       "commit": "8c09a10",
       "file": "crates/core/src/handlers/permissions.rs",
-      "pattern": "fn get_pending_permissions",
+      "pattern": "deliver_permission_grant",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-303",
