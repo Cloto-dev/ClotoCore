@@ -76,7 +76,8 @@ export function VrmViewerPage() {
         setAgentState('responding');
         idleTimeoutRef.current = setTimeout(() => setAgentState('idle'), 3000);
         // Trigger lip sync: generate visemes from response text
-        if (evtData.content && agentId) {
+        // Skip when auto_spoken — the kernel already triggered VOICEVOX speech
+        if (evtData.content && agentId && !evtData.auto_spoken) {
           api.generateVisemes(agentId, evtData.content as string, apiKey)
             .then((timeline) => {
               controllerRef.current?.playVisemes(timeline.entries);

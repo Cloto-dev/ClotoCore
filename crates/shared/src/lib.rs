@@ -448,6 +448,10 @@ pub enum ClotoEventData {
         engine_id: String,
         content: String,
         source_message_id: String,
+        /// When true, the kernel will auto-speak this response via output.avatar.
+        /// Dashboard should skip text-based viseme generation to avoid conflicts.
+        #[serde(default)]
+        auto_spoken: bool,
     },
     /// 複数プラグインによる合意形成の開始
     ConsensusRequested {
