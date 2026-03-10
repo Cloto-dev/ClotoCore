@@ -1691,8 +1691,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/managers/agents.rs",
       "pattern": "avatar_path: Option<String>",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-292",
@@ -1703,8 +1703,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/managers/agents.rs",
       "pattern": "vrm_path: Option<String>",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-293",
@@ -1727,8 +1727,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/managers/agents.rs",
       "pattern": "\"avatar_description\"\\.to_string\\(\\)",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-295",

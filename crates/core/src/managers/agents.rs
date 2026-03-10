@@ -15,9 +15,6 @@ struct AgentRow {
     required_capabilities: sqlx::types::Json<Vec<cloto_shared::CapabilityType>>,
     metadata: sqlx::types::Json<HashMap<String, String>>,
     power_password_hash: Option<String>,
-    avatar_path: Option<String>,
-    avatar_description: Option<String>,
-    vrm_path: Option<String>,
 }
 
 #[derive(Clone)]
@@ -41,13 +38,11 @@ impl AgentManager {
         if has_pw {
             meta.insert("has_power_password".to_string(), "true".to_string());
         }
-        if let Some(ref desc) = row.avatar_description {
-            meta.insert("avatar_description".to_string(), desc.clone());
-        }
-        if row.avatar_path.is_some() {
+        // Avatar/VRM presence flags derived from metadata (P4: data lives in metadata JSON)
+        if meta.contains_key("avatar_path") {
             meta.insert("has_avatar".to_string(), "true".to_string());
         }
-        if row.vrm_path.is_some() {
+        if meta.contains_key("vrm_path") {
             meta.insert("has_vrm".to_string(), "true".to_string());
         }
         let mut agent = AgentMetadata {
@@ -71,8 +66,7 @@ impl AgentManager {
     ) -> anyhow::Result<(AgentMetadata, String)> {
         let row: AgentRow = sqlx::query_as(
             "SELECT id, name, description, enabled, last_seen, default_engine_id, \
-             required_capabilities, metadata, power_password_hash, avatar_path, \
-             avatar_description, vrm_path FROM agents WHERE id = ?",
+             required_capabilities, metadata, power_password_hash FROM agents WHERE id = ?",
         )
         .bind(agent_id)
         .fetch_one(&self.pool)
@@ -86,8 +80,7 @@ impl AgentManager {
     pub async fn list_agents(&self) -> anyhow::Result<Vec<AgentMetadata>> {
         let rows: Vec<AgentRow> = sqlx::query_as(
             "SELECT id, name, description, enabled, last_seen, default_engine_id, \
-             required_capabilities, metadata, power_password_hash, avatar_path, \
-             avatar_description, vrm_path FROM agents",
+             required_capabilities, metadata, power_password_hash FROM agents",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -233,65 +226,86 @@ impl AgentManager {
             .collect())
     }
 
-    /// Set the avatar path and description for an agent.
+    /// Set the avatar path and description for an agent (stored in metadata JSON).
     pub async fn set_avatar(
         &self,
         agent_id: &str,
         avatar_path: &str,
         avatar_description: Option<&str>,
     ) -> anyhow::Result<()> {
-        sqlx::query("UPDATE agents SET avatar_path = ?, avatar_description = ? WHERE id = ?")
-            .bind(avatar_path)
-            .bind(avatar_description)
-            .bind(agent_id)
-            .execute(&self.pool)
-            .await?;
+        let desc_val = avatar_description.unwrap_or("");
+        sqlx::query(
+            "UPDATE agents SET metadata = json_set(\
+             COALESCE(metadata, '{}'), '$.avatar_path', ?, '$.avatar_description', ?) \
+             WHERE id = ?",
+        )
+        .bind(avatar_path)
+        .bind(desc_val)
+        .bind(agent_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
-    /// Clear the avatar for an agent (removes path and description).
+    /// Clear the avatar for an agent (removes from metadata JSON).
     pub async fn clear_avatar(&self, agent_id: &str) -> anyhow::Result<()> {
-        sqlx::query("UPDATE agents SET avatar_path = NULL, avatar_description = NULL WHERE id = ?")
-            .bind(agent_id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE agents SET metadata = json_remove(\
+             COALESCE(metadata, '{}'), '$.avatar_path', '$.avatar_description') \
+             WHERE id = ?",
+        )
+        .bind(agent_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
-    /// Get just the avatar path for serving.
+    /// Get just the avatar path for serving (from metadata JSON).
     pub async fn get_avatar_path(&self, agent_id: &str) -> anyhow::Result<Option<String>> {
-        let row: (Option<String>,) = sqlx::query_as("SELECT avatar_path FROM agents WHERE id = ?")
-            .bind(agent_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let row: (Option<String>,) = sqlx::query_as(
+            "SELECT json_extract(metadata, '$.avatar_path') FROM agents WHERE id = ?",
+        )
+        .bind(agent_id)
+        .fetch_one(&self.pool)
+        .await?;
         Ok(row.0)
     }
 
-    /// Set the VRM model path for an agent.
+    /// Set the VRM model path for an agent (stored in metadata JSON).
     pub async fn set_vrm(&self, agent_id: &str, vrm_path: &str) -> anyhow::Result<()> {
-        sqlx::query("UPDATE agents SET vrm_path = ? WHERE id = ?")
-            .bind(vrm_path)
-            .bind(agent_id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE agents SET metadata = json_set(\
+             COALESCE(metadata, '{}'), '$.vrm_path', ?) \
+             WHERE id = ?",
+        )
+        .bind(vrm_path)
+        .bind(agent_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
-    /// Clear the VRM model for an agent.
+    /// Clear the VRM model for an agent (removes from metadata JSON).
     pub async fn clear_vrm(&self, agent_id: &str) -> anyhow::Result<()> {
-        sqlx::query("UPDATE agents SET vrm_path = NULL WHERE id = ?")
-            .bind(agent_id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE agents SET metadata = json_remove(\
+             COALESCE(metadata, '{}'), '$.vrm_path') \
+             WHERE id = ?",
+        )
+        .bind(agent_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
-    /// Get just the VRM model path for serving.
+    /// Get just the VRM model path for serving (from metadata JSON).
     pub async fn get_vrm_path(&self, agent_id: &str) -> anyhow::Result<Option<String>> {
-        let row: (Option<String>,) = sqlx::query_as("SELECT vrm_path FROM agents WHERE id = ?")
-            .bind(agent_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let row: (Option<String>,) = sqlx::query_as(
+            "SELECT json_extract(metadata, '$.vrm_path') FROM agents WHERE id = ?",
+        )
+        .bind(agent_id)
+        .fetch_one(&self.pool)
+        .await?;
         Ok(row.0)
     }
 
@@ -302,11 +316,10 @@ impl AgentManager {
     /// (handler layer) via MCP tool call, since the agent manager does not
     /// have access to the MCP client manager.
     pub async fn delete_agent(&self, agent_id: &str) -> anyhow::Result<()> {
-        // Clean up avatar file from disk
+        // Clean up avatar/VRM files from disk (paths stored in metadata JSON)
         if let Ok(Some(path)) = self.get_avatar_path(agent_id).await {
             let _ = tokio::fs::remove_file(&path).await;
         }
-        // Clean up VRM file from disk
         if let Ok(Some(path)) = self.get_vrm_path(agent_id).await {
             let _ = tokio::fs::remove_file(&path).await;
         }
