@@ -45,6 +45,8 @@ pub struct McpClientManager {
     notification_tx: mpsc::Sender<McpNotification>,
     notification_rx: Mutex<Option<mpsc::Receiver<McpNotification>>>,
     mcp_request_timeout_secs: u64,
+    /// Kernel event bus sender — set after AppState creation for PermissionRequested emission.
+    kernel_event_tx: Mutex<Option<mpsc::Sender<crate::EnvelopedEvent>>>,
     /// Lifecycle manager for restart policies (MGP §11)
     pub(super) lifecycle: super::mcp_lifecycle::LifecycleManager,
     /// Event subscription + callback manager (MGP §13)
@@ -80,7 +82,13 @@ impl McpClientManager {
             session_cache: super::mcp_tool_discovery::SessionToolCache::new(),
             stream_assembler: super::mcp_streaming::StreamAssembler::new(),
             dispatcher: super::capability_dispatcher::CapabilityDispatcher::new(),
+            kernel_event_tx: Mutex::new(None),
         }
+    }
+
+    /// Set the kernel event bus sender (called once after AppState creation).
+    pub async fn set_kernel_event_tx(&self, tx: mpsc::Sender<crate::EnvelopedEvent>) {
+        *self.kernel_event_tx.lock().await = Some(tx);
     }
 
     /// Take the notification receiver (can only be called once).
@@ -350,7 +358,7 @@ impl McpClientManager {
                                 "MCP server '{}' requires '{}' (auto-approved: YOLO mode)",
                                 id, perm
                             ),
-                            status: "approved".to_string(),
+                            status: "auto-approved".to_string(),
                             approved_by: Some(YOLO_APPROVER_ID.to_string()),
                             approved_at: Some(chrono::Utc::now()),
                             expires_at: None,
@@ -407,6 +415,23 @@ impl McpClientManager {
                 }
 
                 if !pending_perms.is_empty() {
+                    // P8: Emit PermissionRequested events so SecurityGuard UI can display them
+                    if let Some(tx) = self.kernel_event_tx.lock().await.as_ref() {
+                        for perm in &pending_perms {
+                            let data = cloto_shared::ClotoEventData::PermissionRequested {
+                                plugin_id: id.clone(),
+                                permission: perm.clone(),
+                                reason: format!(
+                                    "MCP server '{}' requires '{}' permission",
+                                    id, perm
+                                ),
+                            };
+                            let envelope = crate::EnvelopedEvent::system(data);
+                            if let Err(e) = tx.send(envelope).await {
+                                debug!("Failed to emit PermissionRequested event: {}", e);
+                            }
+                        }
+                    }
                     return Err(anyhow::anyhow!(
                         "MCP server '{}' blocked: {} permission(s) pending approval: [{}]. \
                          Approve via dashboard or API, then retry.",
@@ -517,7 +542,7 @@ impl McpClientManager {
                                     "MGP server '{}' declares '{}' (auto-approved: YOLO mode)",
                                     id, perm
                                 ),
-                                status: "approved".to_string(),
+                                status: "auto-approved".to_string(),
                                 approved_by: Some(YOLO_APPROVER_ID.to_string()),
                                 approved_at: Some(chrono::Utc::now()),
                                 expires_at: None,
