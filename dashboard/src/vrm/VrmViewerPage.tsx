@@ -11,7 +11,7 @@ import { VrmSceneManager } from './engine/VrmSceneManager';
 import { VrmModelLoader } from './engine/VrmModelLoader';
 import { VrmAnimationController } from './engine/VrmAnimationController';
 import { useEventStream } from '../hooks/useEventStream';
-import { EVENTS_URL, api } from '../services/api';
+import { API_BASE, EVENTS_URL, api } from '../services/api';
 import { AvatarAgentState } from './engine/types';
 import { isTauri } from '../lib/tauri';
 
@@ -28,9 +28,38 @@ export function VrmViewerPage() {
   // Read API key from URL search params (passed by opener)
   const apiKey = new URLSearchParams(window.location.search).get('key') || undefined;
 
-  // SSE subscription for agent state
+  // SSE subscription for agent state + lip sync + MGP avatar commands
   useEventStream(EVENTS_URL, (event) => {
-    if (!event.data || event.data.agent_id !== agentId) return;
+    // MGP server notifications (output.avatar)
+    if (event.type === 'McpNotification') {
+      const d = event.data as Record<string, unknown>;
+      const serverId = d?.server_id as string | undefined;
+      const params = d?.params as Record<string, unknown> | undefined;
+      if (!params) return;
+      const channel = params.channel as string | undefined;
+      const data = params.data as Record<string, unknown> | undefined;
+      if (!data || data.agent_id !== agentId) return;
+
+      // output.avatar server channels (includes VOICEVOX TTS)
+      if (serverId === 'output.avatar') {
+        if (channel === 'avatar_set_expression') {
+          controllerRef.current?.setExpression(data.expression as string, (data.intensity as number) ?? 1.0);
+        } else if (channel === 'avatar_set_idle_behavior') {
+          controllerRef.current?.setIdleBehavior(data as Record<string, unknown>);
+        } else if (channel === 'viseme_correction') {
+          controllerRef.current?.playVisemes((data.entries as Array<{ viseme: string; start_ms: number; duration_ms: number }>) ?? []);
+        } else if (channel === 'avatar_speech_play') {
+          const audioUrl = `${API_BASE}${data.audio_url as string}`;
+          const timeline = (data.viseme_timeline as Array<{ viseme: string; start_ms: number; duration_ms: number }>) ?? [];
+          controllerRef.current?.playSpeech(audioUrl, timeline);
+        }
+      }
+
+      return;
+    }
+
+    const evtData = event.data as Record<string, unknown> | undefined;
+    if (!evtData || evtData.agent_id !== agentId) return;
 
     switch (event.type) {
       case 'AgentThinking':
@@ -41,10 +70,19 @@ export function VrmViewerPage() {
         clearIdleTimeout();
         setAgentState('responding');
         idleTimeoutRef.current = setTimeout(() => setAgentState('idle'), 3000);
+        // Trigger lip sync: generate visemes from response text
+        if (evtData.content && agentId) {
+          api.generateVisemes(agentId, evtData.content as string, apiKey)
+            .then((timeline) => {
+              controllerRef.current?.playVisemes(timeline.entries);
+            })
+            .catch((err) => console.warn('[VRM] Viseme generation failed:', err));
+        }
         break;
       case 'AgenticLoopCompleted':
         clearIdleTimeout();
         setAgentState('idle');
+        controllerRef.current?.stopVisemes();
         break;
     }
   }, apiKey);

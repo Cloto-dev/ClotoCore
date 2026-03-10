@@ -285,6 +285,19 @@ export const api = {
     return `${API_BASE}/agents/${encodeURIComponent(agentId)}/vrm`;
   },
 
+  // Viseme Generation
+  async generateVisemes(agentId: string, text: string, apiKey?: string): Promise<{ entries: Array<{ viseme: string; start_ms: number; duration_ms: number }>; total_duration_ms: number }> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['X-API-Key'] = apiKey;
+    const res = await fetch(`${API_BASE}/agents/${encodeURIComponent(agentId)}/visemes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ text }),
+    });
+    await throwIfNotOk(res, 'generate visemes');
+    return res.json().then((b: { data: { entries: Array<{ viseme: string; start_ms: number; duration_ms: number }>; total_duration_ms: number } }) => b.data);
+  },
+
   // Memory Management
   deleteMemory: (memoryId: number, apiKey: string) =>
     mutate(`/memories/${memoryId}`, 'DELETE', 'delete memory', undefined, { 'X-API-Key': apiKey }).then(() => {}),

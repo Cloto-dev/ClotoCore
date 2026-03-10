@@ -8,6 +8,8 @@ import { ProceduralMicroSway } from './ProceduralMicroSway';
 import { ProceduralGazeDrift } from './ProceduralGazeDrift';
 import { AgentStateAnimator } from './AgentStateAnimator';
 import { DefaultPoseApplicator } from './DefaultPoseApplicator';
+import { VisemePlayer, type VisemeEntry } from './VisemePlayer';
+import { AudioPlaybackManager } from './AudioPlaybackManager';
 
 /**
  * Orchestrates all procedural animation layers.
@@ -27,6 +29,8 @@ export class VrmAnimationController {
   private microSway = new ProceduralMicroSway();
   private gazeDrift = new ProceduralGazeDrift();
   private stateAnimator = new AgentStateAnimator();
+  private visemePlayer = new VisemePlayer();
+  private audioManager = new AudioPlaybackManager();
 
   private _running = false;
 
@@ -48,6 +52,42 @@ export class VrmAnimationController {
   setIdleParams(params: IdleBehaviorParams) {
     this.params = { ...params };
     this.defaultPose.setParams(params.pose);
+  }
+
+  playVisemes(timeline: VisemeEntry[]) {
+    this.visemePlayer.play(timeline);
+  }
+
+  /** Play audio with synchronized lip sync visemes. */
+  async playSpeech(audioUrl: string, visemeTimeline: VisemeEntry[]) {
+    try {
+      this.visemePlayer.playSync(visemeTimeline);
+      await this.audioManager.play(audioUrl);
+    } catch (err) {
+      console.warn('[VRM] Speech playback failed:', err);
+      this.visemePlayer.stop();
+    }
+  }
+
+  stopVisemes() {
+    this.visemePlayer.stop();
+    this.audioManager.stop();
+  }
+
+  /** Set VRM expression (from MGP avatar server). */
+  setExpression(name: string, intensity: number) {
+    if (!this.vrm?.expressionManager) return;
+    this.vrm.expressionManager.setValue(name, intensity);
+  }
+
+  /** Update idle behavior parameters (from MGP avatar server). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  setIdleBehavior(params: Record<string, any>) {
+    if (params.mode) this.params.mode = params.mode;
+    if (params.breathing_rate !== undefined) this.params.breathing_rate = params.breathing_rate;
+    if (params.sway_amplitude !== undefined) this.params.sway_amplitude = params.sway_amplitude;
+    if (params.blink_frequency !== undefined) this.params.blink_frequency = params.blink_frequency;
+    if (params.pose) this.defaultPose.setParams(params.pose);
   }
 
   start() {
@@ -93,6 +133,12 @@ export class VrmAnimationController {
     gazeTarget.y += this.stateAnimator.gazeYOffset;
     this.gazeDrift.update(this.vrm, deltaTime, gazeTarget);
 
+    // 5.5. Apply lip sync visemes (sync to audio clock when playing speech)
+    if (this.audioManager.isPlaying()) {
+      this.visemePlayer.setExternalTime(this.audioManager.getCurrentTimeMs());
+    }
+    this.visemePlayer.update(this.vrm, deltaTime);
+
     // 6. Update VRM (SpringBone physics, expression apply)
     this.vrm.update(deltaTime);
 
@@ -110,6 +156,7 @@ export class VrmAnimationController {
 
   dispose() {
     this.stop();
+    this.audioManager.dispose();
     document.removeEventListener('visibilitychange', this.handleVisibility);
     if (this.vrm) {
       this.breathing.reset(this.vrm);
