@@ -31,6 +31,8 @@ export class VrmAnimationController {
   private stateAnimator = new AgentStateAnimator();
   private visemePlayer = new VisemePlayer();
   private audioManager = new AudioPlaybackManager();
+  /** Pre-phoneme silence offset in ms (from VOICEVOX prePhonemeLength). */
+  private audioOffsetMs = 0;
 
   private _running = false;
 
@@ -59,8 +61,9 @@ export class VrmAnimationController {
   }
 
   /** Play audio from URL with synchronized lip sync visemes. */
-  async playSpeech(audioUrl: string, visemeTimeline: VisemeEntry[]) {
+  async playSpeech(audioUrl: string, visemeTimeline: VisemeEntry[], audioOffsetMs = 0) {
     try {
+      this.audioOffsetMs = audioOffsetMs;
       // Decode and start audio FIRST, then start visemes in sync.
       // This prevents visemes from running ahead during decode latency.
       await this.audioManager.play(audioUrl);
@@ -72,8 +75,9 @@ export class VrmAnimationController {
   }
 
   /** Play inline base64 audio with synchronized lip sync visemes. */
-  async playSpeechData(base64Data: string, visemeTimeline: VisemeEntry[]) {
+  async playSpeechData(base64Data: string, visemeTimeline: VisemeEntry[], audioOffsetMs = 0) {
     try {
+      this.audioOffsetMs = audioOffsetMs;
       await this.audioManager.playData(base64Data);
       this.visemePlayer.playSync(visemeTimeline);
     } catch (err) {
@@ -159,8 +163,11 @@ export class VrmAnimationController {
     this.gazeDrift.update(this.vrm, deltaTime, gazeTarget);
 
     // 5.5. Apply lip sync visemes (sync to audio clock when playing speech)
+    //       Subtract audioOffsetMs to skip pre-phoneme silence in the WAV.
     if (this.audioManager.isPlaying()) {
-      this.visemePlayer.setExternalTime(this.audioManager.getCurrentTimeMs());
+      this.visemePlayer.setExternalTime(
+        Math.max(0, this.audioManager.getCurrentTimeMs() - this.audioOffsetMs),
+      );
     } else if (this.visemePlayer.isPlaying() && this.visemePlayer.isSynced()) {
       // Audio ended naturally while visemes were in sync mode → stop visemes
       this.visemePlayer.stop();
