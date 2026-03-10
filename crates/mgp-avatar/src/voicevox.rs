@@ -16,6 +16,7 @@ pub struct VoicevoxConfig {
     pub default_speaker: i64,
     pub speed: f64,
     pub output_dir: PathBuf,
+    pub engine_path: Option<String>,
 }
 
 impl VoicevoxConfig {
@@ -30,12 +31,14 @@ impl VoicevoxConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or(1.0);
         let output_dir = resolve_output_dir();
+        let engine_path = std::env::var("VOICEVOX_ENGINE_PATH").ok();
 
         Self {
             url,
             default_speaker,
             speed,
             output_dir,
+            engine_path,
         }
     }
 }

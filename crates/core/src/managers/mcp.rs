@@ -199,11 +199,20 @@ impl McpClientManager {
         // In development: walk up from the config file to find the workspace root
         //   (directory containing `Cargo.toml`).
         // In production: fall back to the config file's parent directory.
+        // IMPORTANT: base_dir must be absolute so that args resolve to absolute
+        // paths — sandbox isolation changes cwd, breaking relative paths.
         let base_dir = Self::detect_project_root(path).unwrap_or_else(|| {
-            path.parent().map_or_else(
+            let parent = path.parent().map_or_else(
                 || std::path::PathBuf::from("."),
                 std::path::Path::to_path_buf,
-            )
+            );
+            if parent.is_absolute() {
+                parent
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_default()
+                    .join(&parent)
+            }
         });
 
         info!(
