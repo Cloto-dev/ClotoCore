@@ -317,6 +317,43 @@ impl SystemHandler {
                     );
                 }
             }
+        } else if msg.metadata.get("tool_hint").is_some_and(|v| v == "speak") {
+            // ── Direct TTS: bypass agentic loop to avoid prompt/response confusion ──
+            let speak_text = msg.content.clone();
+            let speak_args = serde_json::json!({
+                "text": speak_text,
+                "agent_id": agent.id,
+            });
+
+            info!(
+                agent_id = %agent.id,
+                text_len = speak_text.len(),
+                "🔊 Direct speak (tool_hint bypass)"
+            );
+
+            if let Some(ref mcp) = self.registry.mcp_manager {
+                match tokio::time::timeout(
+                    Duration::from_secs(self.tool_execution_timeout_secs),
+                    mcp.execute_tool_internal("speak", speak_args),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => {
+                        info!(agent_id = %agent.id, "✅ Direct speak completed");
+                    }
+                    Ok(Err(e)) => {
+                        error!(agent_id = %agent.id, error = %e, "❌ Direct speak failed");
+                    }
+                    Err(_) => {
+                        error!(agent_id = %agent.id, "⏱️ Direct speak timed out");
+                    }
+                }
+            } else {
+                error!(agent_id = %agent.id, "❌ Direct speak: no MCP manager available");
+            }
+            // No ThoughtResponse event — TTS is a side-effect-only operation.
+            // The audio notification is already emitted by the MGP avatar server
+            // via notifications/mgp.event → kernel SSE → dashboard.
         } else {
             // 通常モード: エージェントループで処理
             // 3-layer engine selection: override > routing rules > default
