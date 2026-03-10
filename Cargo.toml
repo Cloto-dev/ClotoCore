@@ -2,6 +2,7 @@
 members = [
     "crates/core",
     "crates/shared",
+    "crates/mgp-avatar",
     "dashboard/src-tauri",
 ]
 resolver = "2"
@@ -30,7 +31,7 @@ tower-http = { version = "0.6", features = ["fs", "cors"] }
 futures = "0.3"
 tokio-stream = "0.1"
 async-stream = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "blocking"] }
 dashmap = "6.1"
 criterion = { version = "0.8", features = ["async_tokio", "html_reports"] }
 clap = { version = "4", features = ["derive"] }
