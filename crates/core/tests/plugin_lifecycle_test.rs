@@ -17,12 +17,12 @@ async fn test_panic_plugin_does_not_crash_normal_plugin() {
     let (normal_plugin, received_events) = create_mock_plugin(id_normal);
 
     {
-        let mut plugins = registry.plugins.write().await;
-        plugins.insert(
+        let mut state = registry.state.write().await;
+        state.plugins.insert(
             "panicking".into(),
             create_panicking_plugin(id_panic) as Arc<dyn cloto_shared::Plugin>,
         );
-        plugins.insert(
+        state.plugins.insert(
             "normal".into(),
             normal_plugin as Arc<dyn cloto_shared::Plugin>,
         );
@@ -104,8 +104,8 @@ async fn test_invalid_magic_seal_rejected() {
 #[tokio::test]
 async fn test_plugin_registry_empty_on_creation() {
     let registry = PluginRegistry::new(5, 10, 50);
-    let plugins = registry.plugins.read().await;
-    assert!(plugins.is_empty(), "New registry must start empty");
+    let state = registry.state.read().await;
+    assert!(state.plugins.is_empty(), "New registry must start empty");
 }
 
 #[tokio::test]
@@ -117,8 +117,8 @@ async fn test_cascading_depth_limit_enforced() {
     let (plugin, _) = create_mock_plugin(id);
 
     {
-        let mut plugins = registry.plugins.write().await;
-        plugins.insert("mock".into(), plugin as Arc<dyn cloto_shared::Plugin>);
+        let mut state = registry.state.write().await;
+        state.plugins.insert("mock".into(), plugin as Arc<dyn cloto_shared::Plugin>);
     }
 
     let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<cloto_core::EnvelopedEvent>(10);

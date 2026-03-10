@@ -97,7 +97,7 @@ pub(crate) fn check_auth_with_query(
         }
         if let Some(p) = provided {
             let hash = crate::db::hash_api_key(p);
-            if let Ok(revoked) = state.revoked_keys.read() {
+            if let Ok(revoked) = state.revoked_keys.try_read() {
                 if revoked.contains(&hash) {
                     tracing::warn!("🚫 Rejected revoked API key");
                     return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
@@ -194,8 +194,8 @@ pub async fn shutdown_handler(
 
         // Drain all MCP servers (graceful shutdown with 5s timeout)
         let server_ids: Vec<String> = {
-            let servers = mcp.servers.read().await;
-            servers.keys().cloned().collect()
+            let state = mcp.state.read().await;
+            state.servers.keys().cloned().collect()
         };
         for sid in &server_ids {
             if let Err(e) = mcp.drain_server(sid, "kernel shutdown", 5000).await {
@@ -432,7 +432,8 @@ pub async fn invalidate_api_key(
 
     // Update in-memory cache
     let hash = crate::db::hash_api_key(provided_key);
-    if let Ok(mut revoked) = state.revoked_keys.write() {
+    {
+        let mut revoked = state.revoked_keys.write().await;
         revoked.insert(hash);
     }
 

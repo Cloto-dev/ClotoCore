@@ -202,12 +202,12 @@ impl SystemHandler {
             if let Some(mem) = plugin.as_memory() {
                 // 🔐 Check MemoryRead permission before recall
                 let manifest = plugin.manifest();
-                let perms_lock = self.registry.effective_permissions.read().await;
+                let reg_state = self.registry.state.read().await;
                 let plugin_cloto_id = cloto_shared::ClotoId::from_name(&manifest.id);
-                let has_memory_read = perms_lock
+                let has_memory_read = reg_state.effective_permissions
                     .get(&plugin_cloto_id)
                     .is_some_and(|p| p.contains(&cloto_shared::Permission::MemoryRead));
-                drop(perms_lock);
+                drop(reg_state);
                 if has_memory_read {
                     // 🛑 停滞対策: メモリの呼び出しにタイムアウトを設定
                     match tokio::time::timeout(
@@ -602,9 +602,9 @@ impl SystemHandler {
                 // 🔐 Check MemoryWrite permission before store
                 let manifest = plugin.manifest();
                 let has_memory_write = {
-                    let perms_lock = self.registry.effective_permissions.read().await;
+                    let reg_state = self.registry.state.read().await;
                     let pid = cloto_shared::ClotoId::from_name(&manifest.id);
-                    perms_lock
+                    reg_state.effective_permissions
                         .get(&pid)
                         .is_some_and(|p| p.contains(&cloto_shared::Permission::MemoryWrite))
                 };

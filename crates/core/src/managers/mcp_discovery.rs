@@ -176,10 +176,11 @@ pub(super) async fn execute_discovery_list(
 
     let mut servers_json = Vec::new();
 
-    // Connected/active servers
     {
-        let servers = manager.servers.read().await;
-        for handle in servers.values() {
+        let state = manager.state.read().await;
+
+        // Connected/active servers
+        for handle in state.servers.values() {
             // Status filter
             let is_connected = handle.status.is_operational();
             if filter_status == "connected" && !is_connected {
@@ -227,27 +228,26 @@ pub(super) async fn execute_discovery_list(
                 "trust_level": trust_level,
             }));
         }
-    }
 
-    // Include stopped servers when filter is "all" or "disconnected"
-    if filter_status == "all" || filter_status == "disconnected" {
-        let stopped = manager.stopped_configs.read().await;
-        for (id, (config, _source)) in stopped.iter() {
-            // Check if already included from active servers
-            if servers_json
-                .iter()
-                .any(|s| s.get("id").and_then(|v| v.as_str()) == Some(id))
-            {
-                continue;
+        // Include stopped servers when filter is "all" or "disconnected"
+        if filter_status == "all" || filter_status == "disconnected" {
+            for (id, (config, _source)) in state.stopped_configs.iter() {
+                // Check if already included from active servers
+                if servers_json
+                    .iter()
+                    .any(|s| s.get("id").and_then(|v| v.as_str()) == Some(id))
+                {
+                    continue;
+                }
+                servers_json.push(serde_json::json!({
+                    "id": id,
+                    "status": "Disconnected",
+                    "mgp_version": null,
+                    "extensions": [],
+                    "tools": [],
+                    "trust_level": config.mgp.as_ref().and_then(|m| m.trust_level.as_deref()),
+                }));
             }
-            servers_json.push(serde_json::json!({
-                "id": id,
-                "status": "Disconnected",
-                "mgp_version": null,
-                "extensions": [],
-                "tools": [],
-                "trust_level": config.mgp.as_ref().and_then(|m| m.trust_level.as_deref()),
-            }));
         }
     }
 
@@ -286,8 +286,8 @@ pub(super) async fn execute_discovery_register(
 
     // Check for duplicate
     {
-        let servers = manager.servers.read().await;
-        if servers.contains_key(id) {
+        let state = manager.state.read().await;
+        if state.servers.contains_key(id) {
             return Err(anyhow::Error::new(
                 super::mcp_mgp::MgpError::server_already_registered(format!(
                     "Server '{}' is already registered",
@@ -353,8 +353,8 @@ pub(super) async fn execute_discovery_deregister(
 
     // Check source — only allow deregistering dynamic servers
     {
-        let servers = manager.servers.read().await;
-        if let Some(handle) = servers.get(id) {
+        let state = manager.state.read().await;
+        if let Some(handle) = state.servers.get(id) {
             if handle.source == ServerSource::Config {
                 return Err(anyhow::Error::new(
                     super::mcp_mgp::MgpError::cannot_deregister_config(format!(

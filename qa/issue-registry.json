@@ -1871,8 +1871,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/managers/mcp.rs",
       "pattern": "tool_index: RwLock<HashMap<String, String>>",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-307",
@@ -1883,8 +1883,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/managers/registry.rs",
       "pattern": "effective_permissions: tokio::sync::RwLock",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-308",
@@ -1895,8 +1895,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/consensus.rs",
       "pattern": "config: RwLock<ConsensusConfig>",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-309",
@@ -1907,8 +1907,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/lib.rs",
       "pattern": "std::sync::RwLock<std::collections::HashSet",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-310",
