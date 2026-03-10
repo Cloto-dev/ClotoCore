@@ -437,7 +437,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         id: Date.now().toString(),
         source: { type: 'User', id: 'system', name: 'System' },
         target_agent: agent.id,
-        content: `Use the speak tool to say aloud: ${text}`,
+        content: text,
         timestamp: new Date().toISOString(),
         metadata: { target_agent_id: agent.id, tool_hint: 'speak', skip_user_persist: 'true' }
       };
