@@ -1,6 +1,16 @@
 # Cloto MCP Server Configuration
 # Servers listed here are auto-connected on kernel startup.
 # Environment variables use ${VAR} syntax (resolved from process env).
+#
+# MGP §8-10 Isolation fields (optional per-server):
+#   seal = "sha256:..."                  # HMAC-SHA256 integrity seal (L0 Magic Seal)
+#   [servers.mgp]
+#   trust_level = "standard"             # core | standard | experimental | untrusted
+#   [servers.isolation]                  # Override defaults derived from trust_level
+#   memory_limit_mb = 512               # Phase 2: OS-enforced memory limit
+#   max_child_processes = 5             # Phase 2: OS-enforced process limit
+#   filesystem_scope = "sandbox"        # unrestricted | sandbox | readonly | none
+#   network_scope = "proxyonly"         # unrestricted | proxyonly | none
 
 [[servers]]
 id = "tool.terminal"
@@ -170,3 +180,14 @@ transport = "stdio"
 auto_restart = false
 [servers.env]
 TTS_RATE = "150"
+
+[[servers]]
+id = "output.avatar"
+command = "target/debug/mgp-avatar"
+args = []
+transport = "stdio"
+auto_restart = false
+[servers.env]
+VOICEVOX_URL = "http://localhost:50021"
+VOICEVOX_SPEAKER = "47"
+VOICEVOX_SPEED = "1.0"

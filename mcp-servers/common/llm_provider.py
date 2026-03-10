@@ -559,15 +559,42 @@ def load_llm_provider_config(
 
     Environment variables: {PREFIX}_PROVIDER, {PREFIX}_MODEL,
     {PREFIX}_API_URL, {PREFIX}_TIMEOUT_SECS.
+
+    MGP §8-10 Proxy-Only Architecture:
+    When running under OS-level isolation (NetworkScope::ProxyOnly), the kernel
+    injects CLOTO_LLM_PROXY / HTTP_PROXY / HTTPS_PROXY env vars pointing to
+    the kernel's LLM proxy. All outbound HTTP is expected to route through this
+    proxy. Direct API keys are stripped from the child environment.
     """
+    import logging
     import os
+
+    logger = logging.getLogger(__name__)
+
+    # CLOTO_LLM_PROXY is injected by the kernel when NetworkScope::ProxyOnly.
+    # Use it as the default API base if present.
+    proxy_base = os.environ.get("CLOTO_LLM_PROXY")
+    default_api_url = (
+        f"{proxy_base}/v1/chat/completions"
+        if proxy_base
+        else "http://127.0.0.1:8082/v1/chat/completions"
+    )
+
+    api_url = os.environ.get(f"{prefix}_API_URL", default_api_url)
+
+    # Warn if proxy-only mode is active but api_url points outside localhost.
+    if proxy_base and "127.0.0.1" not in api_url and "localhost" not in api_url:
+        logger.warning(
+            "CLOTO_LLM_PROXY is set (%s) but %s_API_URL (%s) does not point to "
+            "localhost. In proxy-only isolation, direct external API calls may be "
+            "blocked. Consider removing the custom API URL override.",
+            proxy_base, prefix, api_url,
+        )
 
     return ProviderConfig(
         provider_id=os.environ.get(f"{prefix}_PROVIDER", prefix.lower()),
         model_id=os.environ.get(f"{prefix}_MODEL", default_model),
-        api_url=os.environ.get(
-            f"{prefix}_API_URL", "http://127.0.0.1:8082/v1/chat/completions"
-        ),
+        api_url=api_url,
         request_timeout=int(
             os.environ.get(f"{prefix}_TIMEOUT_SECS", str(default_timeout))
         ),

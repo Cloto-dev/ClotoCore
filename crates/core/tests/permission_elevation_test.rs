@@ -141,7 +141,7 @@ async fn test_dynamic_permission_elevation_flow() {
     // 4. Simulate PermissionGranted Event
     let grant_event_data = cloto_shared::ClotoEventData::PermissionGranted {
         plugin_id: plugin_id.to_string(),
-        permission: Permission::NetworkAccess,
+        permission: Permission::NetworkAccess.to_string(),
     };
 
     // Start processor in background

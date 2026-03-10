@@ -74,6 +74,12 @@ pub struct AppConfig {
     /// LLM provider-to-env-var mappings for API key sync.
     /// Overridable via CLOTO_LLM_ENV_MAPPINGS env var (format: "provider:ENV_VAR,...").
     pub llm_provider_env_mappings: Vec<(String, String)>,
+    /// Allow unsigned MCP servers (no Magic Seal check). Default: true (development mode).
+    pub allow_unsigned: bool,
+    /// Master switch for OS-level isolation. Default: true.
+    pub isolation_enabled: bool,
+    /// Base directory for MCP server sandboxes. Default: "data/mcp-sandbox".
+    pub sandbox_base_dir: PathBuf,
 }
 
 impl AppConfig {
@@ -463,6 +469,15 @@ impl AppConfig {
             memory_plugin_id,
             default_allowed_api_hosts,
             llm_provider_env_mappings,
+            allow_unsigned: env::var("CLOTO_ALLOW_UNSIGNED")
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(true), // Default: true (development mode)
+            isolation_enabled: env::var("CLOTO_ISOLATION_ENABLED")
+                .map(|v| v != "false" && v != "0")
+                .unwrap_or(true), // Default: true
+            sandbox_base_dir: env::var("CLOTO_SANDBOX_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("data/mcp-sandbox")),
         })
     }
 }

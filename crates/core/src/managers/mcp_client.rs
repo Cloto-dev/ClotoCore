@@ -60,8 +60,19 @@ impl McpClient {
         env: &HashMap<String, String>,
         notification_tx: mpsc::Sender<McpNotification>,
         request_timeout_secs: u64,
+        isolation: Option<&super::mcp_isolation::IsolationProfile>,
+        llm_proxy_port: u16,
+        sensitive_env_keys: &[String],
     ) -> Result<(Self, Option<MgpServerCapabilities>)> {
-        let transport = StdioTransport::start(command, args, env).await?;
+        let transport = StdioTransport::start(
+            command,
+            args,
+            env,
+            isolation,
+            llm_proxy_port,
+            sensitive_env_keys,
+        )
+        .await?;
         let sender = transport.sender();
         let mut client = Self {
             transport: Arc::new(Mutex::new(transport)),

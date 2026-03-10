@@ -323,6 +323,8 @@ pub(super) async fn execute_discovery_register(
         display_name: None,
         mgp: mgp_config,
         restart_policy: None,
+        seal: None,
+        isolation: None,
     };
 
     info!(id = %id, command = %command, "Registering dynamic server via mgp.discovery.register");

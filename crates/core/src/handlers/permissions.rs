@@ -52,9 +52,21 @@ pub async fn approve_permission(
     Json(_payload): Json<PermissionDecisionPayload>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
+
+    // Look up the request before approving (for post-approval grant delivery).
+    let request_info = crate::db::get_permission_request(&state.pool, &request_id).await?;
+
     // Use fixed "admin" actor since auth is via single API key (not user-supplied value)
     let actor_id = ADMIN_ACTOR_ID.to_string();
     crate::update_permission_request(&state.pool, &request_id, "approved", &actor_id).await?;
+
+    // C1 (bug-302): Deliver mgp/permission/grant RPC to the connected server.
+    if let Some((server_id, permission)) = request_info {
+        state
+            .mcp_manager
+            .deliver_permission_grant(&server_id, &permission, ADMIN_ACTOR_ID)
+            .await;
+    }
 
     spawn_admin_audit(
         state.pool.clone(),

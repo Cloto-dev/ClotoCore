@@ -264,6 +264,12 @@ pub struct McpServerConfig {
     /// Restart policy for this server (MGP §11).
     #[serde(default)]
     pub restart_policy: Option<RestartPolicy>,
+    /// HMAC-SHA256 seal of the server entry point (MGP §8 L0: Magic Seal).
+    #[serde(default)]
+    pub seal: Option<String>,
+    /// Per-server isolation config overrides (MGP §8-10).
+    #[serde(default)]
+    pub isolation: Option<super::mcp_isolation::IsolationConfig>,
 }
 
 fn default_transport() -> String {
