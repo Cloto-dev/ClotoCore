@@ -18,21 +18,13 @@ pub struct SafeHttpClient {
 
 impl SafeHttpClient {
     pub fn new(allowed_hosts: Vec<String>) -> anyhow::Result<Self> {
-        let defaults = [
-            "api.deepseek.com",
-            "api.cerebras.ai",
-            "api.openai.com",
-            "api.anthropic.com",
-        ];
-
-        // Store all hosts pre-lowercased in a HashSet for O(1) lookup
-        let mut hosts: HashSet<String> = allowed_hosts
+        // P1: Hosts are now fully config-driven (no hard-coded defaults)
+        // The caller passes default_allowed_api_hosts from AppConfig,
+        // which includes the same defaults unless overridden via env var.
+        let hosts: HashSet<String> = allowed_hosts
             .into_iter()
             .map(|h| h.to_lowercase())
             .collect();
-        for d in defaults {
-            hosts.insert(d.to_string());
-        }
 
         Ok(Self {
             client: reqwest::Client::builder()
@@ -299,14 +291,17 @@ mod tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     #[test]
-    fn test_safe_http_client_new_with_defaults() {
-        let client = SafeHttpClient::new(vec![]).unwrap();
+    fn test_safe_http_client_new_with_caller_hosts() {
+        // P1: hosts are fully config-driven — caller passes them, no hard-coded defaults
+        let client = SafeHttpClient::new(vec![
+            "api.provider-a.test".to_string(),
+            "api.provider-b.test".to_string(),
+            "api.provider-c.test".to_string(),
+        ]).unwrap();
 
-        // Verify default hosts are included
-        assert!(client.is_whitelisted_host("api.deepseek.com"));
-        assert!(client.is_whitelisted_host("api.cerebras.ai"));
-        assert!(client.is_whitelisted_host("api.openai.com"));
-        assert!(client.is_whitelisted_host("api.anthropic.com"));
+        assert!(client.is_whitelisted_host("api.provider-a.test"));
+        assert!(client.is_whitelisted_host("api.provider-b.test"));
+        assert!(client.is_whitelisted_host("api.provider-c.test"));
     }
 
     #[test]
@@ -317,12 +312,11 @@ mod tests {
         ])
         .unwrap();
 
-        // Verify custom hosts are included
         assert!(client.is_whitelisted_host("custom.example.com"));
         assert!(client.is_whitelisted_host("api.custom.io"));
 
-        // Verify defaults still work
-        assert!(client.is_whitelisted_host("api.deepseek.com"));
+        // Hosts not in the list are rejected (no built-in defaults)
+        assert!(!client.is_whitelisted_host("api.other-provider.test"));
     }
 
     #[test]
