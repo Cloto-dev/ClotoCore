@@ -287,13 +287,16 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     db::init_db(&pool, &config.database_url, &config.memory_plugin_id).await?;
 
     // 1b. Sync API keys from environment variables into llm_providers table
-    db::sync_env_api_keys(&pool).await;
+    db::sync_env_api_keys(&pool, &config.llm_provider_env_mappings).await;
 
     // 2. Plugin Manager Setup
     let shutdown = Arc::new(Notify::new());
+    // P1: Merge network whitelist + API host whitelist for SafeHttpClient
+    let mut all_allowed_hosts = config.allowed_hosts.clone();
+    all_allowed_hosts.extend(config.default_allowed_api_hosts.clone());
     let mut plugin_manager_obj = PluginManager::new(
         pool.clone(),
-        config.allowed_hosts.clone(),
+        all_allowed_hosts,
         config.plugin_event_timeout_secs,
         config.max_event_depth,
         config.event_concurrency_limit,

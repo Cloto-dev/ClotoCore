@@ -1463,8 +1463,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/managers/llm_proxy.rs",
       "pattern": "ANTHROPIC_PROVIDER_ID",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-273",
@@ -1547,8 +1547,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/db/llm.rs",
       "pattern": "DEEPSEEK_API_KEY",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-280",
@@ -1559,8 +1559,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/config.rs",
       "pattern": "mind\\.deepseek,mind\\.cerebras",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-281",
@@ -1571,8 +1571,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/capabilities.rs",
       "pattern": "api\\.deepseek\\.com",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-282",
