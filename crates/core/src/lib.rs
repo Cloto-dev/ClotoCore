@@ -489,6 +489,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         max_cron_generation,
     });
 
+    // Wire up kernel event bus to MCP manager (for PermissionRequested emission)
+    mcp_manager.set_kernel_event_tx(event_tx.clone()).await;
+
     // 6. Consensus Orchestrator (kernel-level, replaces core.moderator plugin)
     let consensus_config = consensus::ConsensusConfig {
         synthesizer_engine: std::env::var("CONSENSUS_SYNTHESIZER").unwrap_or_default(),

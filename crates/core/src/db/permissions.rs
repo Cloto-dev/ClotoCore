@@ -158,7 +158,7 @@ pub async fn is_permission_approved(
 ) -> anyhow::Result<bool> {
     let query_future = sqlx::query_scalar::<_, i32>(
         "SELECT COUNT(*) FROM permission_requests
-         WHERE plugin_id = ? AND permission_type = ? AND status = 'approved'
+         WHERE plugin_id = ? AND permission_type = ? AND status IN ('approved', 'auto-approved')
            AND (expires_at IS NULL OR expires_at > datetime('now'))",
     )
     .bind(plugin_id)
