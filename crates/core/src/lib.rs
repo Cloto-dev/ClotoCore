@@ -15,6 +15,7 @@ pub mod managers;
 pub mod middleware;
 pub mod platform;
 pub mod test_utils;
+pub mod viseme;
 
 // Re-export audit log and permission request types for external use
 pub use db::{
@@ -265,6 +266,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     if let Err(e) = std::fs::create_dir_all(data_dir.join("vrm")) {
         tracing::warn!("Failed to create data/vrm directory: {}", e);
     }
+    if let Err(e) = std::fs::create_dir_all(data_dir.join("speech")) {
+        tracing::warn!("Failed to create data/speech directory: {}", e);
+    }
     tracing::info!("📁 Data directory: {}", data_dir.display());
 
     // 0c. Ensure Python MCP venv exists (auto-setup on first run)
@@ -280,7 +284,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .create_if_missing(true)
         .pragma("foreign_keys", "ON");
     let pool = sqlx::SqlitePool::connect_with(opts).await?;
-    db::init_db(&pool, &config.database_url).await?;
+    db::init_db(&pool, &config.database_url, &config.memory_plugin_id).await?;
 
     // 1b. Sync API keys from environment variables into llm_providers table
     db::sync_env_api_keys(&pool).await;
@@ -774,6 +778,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 .post(handlers::upload_vrm)
                 .delete(handlers::delete_vrm),
         )
+        .route("/agents/:id/visemes", post(handlers::generate_visemes))
+        .route("/speech/:filename", get(handlers::serve_speech_file))
         .route("/events/publish", post(handlers::post_event_handler))
         // Cron job management (Layer 2: Autonomous Trigger)
         .route(

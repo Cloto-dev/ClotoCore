@@ -179,7 +179,7 @@ impl SystemHandler {
 
         let mcp_memory: Option<(Arc<McpClientManager>, String)> = if memory_plugin.is_none() {
             if let Some(ref mcp) = self.registry.mcp_manager {
-                mcp.find_memory_server().await.and_then(|server_id| {
+                mcp.resolve_capability_server(crate::managers::CapabilityType::Memory).await.and_then(|server_id| {
                     if granted_server_ids.contains(&server_id) {
                         Some((mcp.clone(), server_id))
                     } else {
@@ -1185,7 +1185,7 @@ impl SystemHandler {
             });
 
             match mcp
-                .call_server_tool("vision.capture", "analyze_image", args)
+                .call_capability_tool(crate::managers::CapabilityType::Vision, "analyze_image", args, None)
                 .await
             {
                 Ok(result) => {

@@ -12,10 +12,10 @@ async fn test_db_init_is_idempotent() {
     let pool = fresh_pool().await;
 
     // Running init_db twice should not fail (idempotent migrations)
-    cloto_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
         .await
         .unwrap();
-    cloto_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
         .await
         .unwrap();
 }
@@ -23,7 +23,7 @@ async fn test_db_init_is_idempotent() {
 #[tokio::test]
 async fn test_migration_creates_required_tables() {
     let pool = fresh_pool().await;
-    cloto_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
         .await
         .unwrap();
 
@@ -58,7 +58,7 @@ async fn test_plugin_data_store_basic_roundtrip() {
     use std::sync::Arc;
 
     let pool = fresh_pool().await;
-    cloto_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
         .await
         .unwrap();
 
@@ -79,7 +79,7 @@ async fn test_plugin_data_store_missing_key_returns_none() {
     use std::sync::Arc;
 
     let pool = fresh_pool().await;
-    cloto_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
         .await
         .unwrap();
 
