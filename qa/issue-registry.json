@@ -1957,6 +1957,18 @@
       "pattern": "max_restarts: 3",
       "expected": "present",
       "status": "open"
+    },
+    {
+      "id": "bug-314",
+      "summary": "LLM speak tool produces different text than displayed response",
+      "severity": "CRITICAL",
+      "discovered": "2026-03-10T00:00:00Z",
+      "version": "0.6.2",
+      "commit": "ea8600b",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "output\\.avatar.*tool\\.name == .speak",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }

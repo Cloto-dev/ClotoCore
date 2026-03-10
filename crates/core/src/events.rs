@@ -257,6 +257,7 @@ impl EventProcessor {
                     engine_id: _,
                     content,
                     source_message_id: _,
+                    ..
                 } => {
                     info!(trace_id = %trace_id, agent_id = %agent_id, "🧠 Received ThoughtResponse");
                     if let Err(e) = self.agent_manager.touch_last_seen(agent_id).await {
