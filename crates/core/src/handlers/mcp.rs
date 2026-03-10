@@ -934,7 +934,7 @@ pub async fn set_yolo_mode(
     }
 
     if enabled {
-        tracing::warn!("YOLO mode enabled via API");
+        tracing::warn!("⚠️  YOLO mode enabled — all MCP permissions auto-approved. This bypasses security isolation.");
     } else {
         tracing::info!("YOLO mode disabled via API");
     }
