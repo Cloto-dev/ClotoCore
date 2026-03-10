@@ -61,8 +61,10 @@ export class VrmAnimationController {
   /** Play audio from URL with synchronized lip sync visemes. */
   async playSpeech(audioUrl: string, visemeTimeline: VisemeEntry[]) {
     try {
-      this.visemePlayer.playSync(visemeTimeline);
+      // Decode and start audio FIRST, then start visemes in sync.
+      // This prevents visemes from running ahead during decode latency.
       await this.audioManager.play(audioUrl);
+      this.visemePlayer.playSync(visemeTimeline);
     } catch (err) {
       console.warn('[VRM] Speech playback failed:', err);
       this.visemePlayer.stop();
@@ -72,17 +74,29 @@ export class VrmAnimationController {
   /** Play inline base64 audio with synchronized lip sync visemes. */
   async playSpeechData(base64Data: string, visemeTimeline: VisemeEntry[]) {
     try {
-      this.visemePlayer.playSync(visemeTimeline);
       await this.audioManager.playData(base64Data);
+      this.visemePlayer.playSync(visemeTimeline);
     } catch (err) {
       console.warn('[VRM] Speech playback failed:', err);
       this.visemePlayer.stop();
     }
   }
 
+  /** Returns true if speech audio is actively playing. */
+  isSpeechPlaying(): boolean {
+    return this.audioManager.isPlaying();
+  }
+
   stopVisemes() {
     this.visemePlayer.stop();
     this.audioManager.stop();
+  }
+
+  /** Stop only non-speech visemes; leaves active speech audio untouched. */
+  stopVisemesSafe() {
+    if (!this.audioManager.isPlaying()) {
+      this.visemePlayer.stop();
+    }
   }
 
   /** Set VRM expression (from MGP avatar server). */
@@ -147,6 +161,9 @@ export class VrmAnimationController {
     // 5.5. Apply lip sync visemes (sync to audio clock when playing speech)
     if (this.audioManager.isPlaying()) {
       this.visemePlayer.setExternalTime(this.audioManager.getCurrentTimeMs());
+    } else if (this.visemePlayer.isPlaying() && this.visemePlayer.isSynced()) {
+      // Audio ended naturally while visemes were in sync mode → stop visemes
+      this.visemePlayer.stop();
     }
     this.visemePlayer.update(this.vrm, deltaTime);
 
