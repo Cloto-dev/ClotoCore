@@ -463,7 +463,8 @@ pub enum ClotoEventData {
     /// Emitted when a server requests a capability it does not currently have.
     PermissionRequested {
         plugin_id: String,
-        permission: Permission,
+        /// MGP permission string (e.g., "shell.execute", "network.outbound").
+        permission: String,
         reason: String,
     },
     /// 権限が承認された通知
