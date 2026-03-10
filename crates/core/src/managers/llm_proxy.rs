@@ -57,15 +57,15 @@ pub fn spawn_llm_proxy(pool: SqlitePool, port: u16, timeout_secs: u64, shutdown:
 
     tokio::spawn(async move {
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
-        info!("LLM Proxy started on http://{}", addr);
 
-        let listener = match tokio::net::TcpListener::bind(addr).await {
+        let listener = match bind_llm_proxy(addr).await {
             Ok(l) => l,
             Err(e) => {
                 error!("Failed to bind LLM proxy on port {}: {}", port, e);
                 return;
             }
         };
+        info!("LLM Proxy listening on http://{}", addr);
 
         axum::serve(listener, app)
             .with_graceful_shutdown(async move {
@@ -75,6 +75,34 @@ pub fn spawn_llm_proxy(pool: SqlitePool, port: u16, timeout_secs: u64, shutdown:
             .await
             .ok();
     });
+}
+
+/// Bind with retry to handle port conflicts during `tauri dev` restarts.
+async fn bind_llm_proxy(addr: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
+    const MAX_RETRIES: u32 = 5;
+    const DELAY: Duration = Duration::from_secs(2);
+    for attempt in 0..=MAX_RETRIES {
+        let socket = tokio::net::TcpSocket::new_v4()?;
+        socket.set_reuseaddr(true)?;
+        match socket.bind(addr) {
+            Ok(()) => match socket.listen(1024) {
+                Ok(listener) => return Ok(listener),
+                Err(e) if attempt < MAX_RETRIES => {
+                    tracing::warn!("LLM proxy port {} listen failed (attempt {}/{}): {}",
+                        addr.port(), attempt + 1, MAX_RETRIES, e);
+                    tokio::time::sleep(DELAY).await;
+                }
+                Err(e) => return Err(e),
+            },
+            Err(e) if attempt < MAX_RETRIES => {
+                tracing::warn!("LLM proxy port {} bind failed (attempt {}/{}): {}",
+                    addr.port(), attempt + 1, MAX_RETRIES, e);
+                tokio::time::sleep(DELAY).await;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!()
 }
 
 #[allow(clippy::too_many_lines)]

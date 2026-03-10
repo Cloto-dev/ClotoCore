@@ -19,3 +19,5 @@ tracing-subscriber = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }
 uuid = { workspace = true }
 chrono = { workspace = true }
+ogg-opus = "0.1"
+base64 = "0.22"

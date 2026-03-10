@@ -16,8 +16,28 @@ export class AudioPlaybackManager {
     return this.audioContext;
   }
 
-  /** Fetch a WAV URL, decode, and start playback. Returns when playback starts. */
+  /** Fetch audio from URL, decode, and start playback. */
   async play(url: string): Promise<void> {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch audio: ${response.status}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    await this.playBuffer(arrayBuffer);
+  }
+
+  /** Decode base64 audio data and start playback (skips network round-trip). */
+  async playData(base64Data: string): Promise<void> {
+    const binary = atob(base64Data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    await this.playBuffer(bytes.buffer);
+  }
+
+  /** Decode an ArrayBuffer and start playback. */
+  private async playBuffer(arrayBuffer: ArrayBuffer): Promise<void> {
     this.stop();
 
     const ctx = this.getContext();
@@ -25,12 +45,6 @@ export class AudioPlaybackManager {
       await ctx.resume();
     }
 
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch audio: ${response.status}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
     const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
 
     this.sourceNode = ctx.createBufferSource();
