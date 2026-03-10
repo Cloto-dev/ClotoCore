@@ -58,11 +58,22 @@ export class VrmAnimationController {
     this.visemePlayer.play(timeline);
   }
 
-  /** Play audio with synchronized lip sync visemes. */
+  /** Play audio from URL with synchronized lip sync visemes. */
   async playSpeech(audioUrl: string, visemeTimeline: VisemeEntry[]) {
     try {
       this.visemePlayer.playSync(visemeTimeline);
       await this.audioManager.play(audioUrl);
+    } catch (err) {
+      console.warn('[VRM] Speech playback failed:', err);
+      this.visemePlayer.stop();
+    }
+  }
+
+  /** Play inline base64 audio with synchronized lip sync visemes. */
+  async playSpeechData(base64Data: string, visemeTimeline: VisemeEntry[]) {
+    try {
+      this.visemePlayer.playSync(visemeTimeline);
+      await this.audioManager.playData(base64Data);
     } catch (err) {
       console.warn('[VRM] Speech playback failed:', err);
       this.visemePlayer.stop();

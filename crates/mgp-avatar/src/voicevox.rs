@@ -5,6 +5,7 @@
 //!
 //! Credit: VOICEVOX: ナースロボ＿タイプＴ
 
+use base64::prelude::*;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -304,4 +305,60 @@ fn generate_filename() -> String {
     let ts = chrono::Utc::now().format("%Y%m%d_%H%M%S");
     let rand_suffix = &uuid::Uuid::new_v4().to_string()[..6];
     format!("vvox_{ts}_{rand_suffix}.wav")
+}
+
+// ── WAV → OGG/Opus Encoding ──
+
+/// Extract raw PCM i16 samples from VOICEVOX WAV bytes (24kHz 16-bit mono).
+fn extract_pcm_samples(wav_bytes: &[u8]) -> Result<Vec<i16>, String> {
+    if wav_bytes.len() < 44 {
+        return Err("WAV data too short".into());
+    }
+    if &wav_bytes[0..4] != b"RIFF" || &wav_bytes[8..12] != b"WAVE" {
+        return Err("Invalid WAV header".into());
+    }
+
+    // Find 'data' chunk
+    let mut pos = 12;
+    while pos + 8 <= wav_bytes.len() {
+        let chunk_id = &wav_bytes[pos..pos + 4];
+        let chunk_size = u32::from_le_bytes(
+            wav_bytes[pos + 4..pos + 8]
+                .try_into()
+                .map_err(|_| "WAV chunk size parse error")?,
+        ) as usize;
+
+        if chunk_id == b"data" {
+            let data_end = (pos + 8 + chunk_size).min(wav_bytes.len());
+            let data = &wav_bytes[pos + 8..data_end];
+            return Ok(data
+                .chunks_exact(2)
+                .map(|c| i16::from_le_bytes([c[0], c[1]]))
+                .collect());
+        }
+
+        pos += 8 + chunk_size;
+        if chunk_size % 2 != 0 {
+            pos += 1; // word-align
+        }
+    }
+
+    Err("No data chunk found in WAV".into())
+}
+
+/// Encode WAV bytes to OGG/Opus and return as base64 string.
+/// VOICEVOX outputs 24kHz 16-bit mono PCM — matches `ogg_opus::encode::<24000, 1>`.
+pub fn wav_to_opus_base64(wav_bytes: &[u8]) -> Result<String, String> {
+    let samples = extract_pcm_samples(wav_bytes)?;
+    let ogg_bytes =
+        ogg_opus::encode::<24000, 1>(&samples).map_err(|e| format!("Opus encode error: {e}"))?;
+
+    tracing::debug!(
+        "Opus encoded: WAV {}KB → OGG/Opus {}KB ({:.0}x compression)",
+        wav_bytes.len() / 1024,
+        ogg_bytes.len() / 1024,
+        wav_bytes.len() as f64 / ogg_bytes.len().max(1) as f64
+    );
+
+    Ok(BASE64_STANDARD.encode(&ogg_bytes))
 }
