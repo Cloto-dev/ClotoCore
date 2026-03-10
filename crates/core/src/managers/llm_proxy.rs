@@ -25,10 +25,7 @@ use crate::db;
 /// OpenAI-compatible chat completions endpoint path.
 const LLM_PROXY_ENDPOINT: &str = "/v1/chat/completions";
 
-/// Provider ID that triggers Anthropic-specific authentication.
-const ANTHROPIC_PROVIDER_ID: &str = "claude";
-
-/// Required API version header for Anthropic requests.
+/// Required API version header for Anthropic requests (used when auth_type = "x-api-key").
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 
 struct ProxyState {
@@ -141,13 +138,13 @@ async fn proxy_handler(
         .header("Content-Type", "application/json")
         .timeout(Duration::from_secs(provider.timeout_secs as u64));
 
-    // Add API key if configured (provider-specific auth format)
+    // Add API key if configured (auth_type driven — no hard-coded provider IDs)
     if !provider.api_key.is_empty() {
-        if provider_id == ANTHROPIC_PROVIDER_ID {
-            // Anthropic uses x-api-key header + required version header
+        if provider.auth_type == "x-api-key" {
             req = req.header("x-api-key", &provider.api_key);
             req = req.header("anthropic-version", ANTHROPIC_API_VERSION);
         } else {
+            // Default: Bearer token (OpenAI-compatible)
             req = req.header("Authorization", format!("Bearer {}", provider.api_key));
         }
     }

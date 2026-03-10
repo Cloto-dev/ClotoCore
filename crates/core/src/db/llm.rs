@@ -12,18 +12,25 @@ pub struct LlmProviderRow {
     pub timeout_secs: i32,
     pub enabled: bool,
     pub created_at: String,
+    /// Authentication type: "bearer" (default) or "x-api-key" (Anthropic-style).
+    #[serde(default = "default_auth_type")]
+    pub auth_type: String,
+}
+
+fn default_auth_type() -> String {
+    "bearer".to_string()
 }
 
 pub async fn list_llm_providers(pool: &SqlitePool) -> anyhow::Result<Vec<LlmProviderRow>> {
     let rows = sqlx::query_as::<_, LlmProviderRow>(
-        "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at FROM llm_providers ORDER BY id"
+        "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type FROM llm_providers ORDER BY id"
     ).fetch_all(pool).await?;
     Ok(rows)
 }
 
 pub async fn get_llm_provider(pool: &SqlitePool, id: &str) -> anyhow::Result<LlmProviderRow> {
     let row = sqlx::query_as::<_, LlmProviderRow>(
-        "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at FROM llm_providers WHERE id = ?"
+        "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type FROM llm_providers WHERE id = ?"
     ).bind(id).fetch_optional(pool).await?;
     row.ok_or_else(|| anyhow::anyhow!("LLM provider '{}' not found", id))
 }
@@ -54,18 +61,18 @@ pub async fn delete_llm_provider_key(pool: &SqlitePool, id: &str) -> anyhow::Res
 
 /// Sync API keys from environment variables into the llm_providers table.
 ///
-/// For each known provider, checks for `{PREFIX}_API_KEY` in the environment.
+/// For each provider mapping, checks for the env var in the environment.
 /// Only updates rows where the current api_key is empty (never overwrites
 /// keys that were set via the Dashboard UI or API).
-pub async fn sync_env_api_keys(pool: &SqlitePool) {
-    let mappings: &[(&str, &str)] = &[
-        ("deepseek", "DEEPSEEK_API_KEY"),
-        ("cerebras", "CEREBRAS_API_KEY"),
-        ("claude", "CLAUDE_API_KEY"),
-        ("ollama", "OLLAMA_API_KEY"),
-    ];
+///
+/// `mappings` is a slice of (provider_id, env_var_name) pairs, loaded from AppConfig.
+pub async fn sync_env_api_keys(pool: &SqlitePool, mappings: &[(String, String)]) {
+    let mappings: Vec<(&str, &str)> = mappings
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
 
-    for &(provider_id, env_var) in mappings {
+    for (provider_id, env_var) in &mappings {
         if let Ok(key) = std::env::var(env_var) {
             if key.is_empty() {
                 continue;
