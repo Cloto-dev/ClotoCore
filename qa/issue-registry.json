@@ -1756,15 +1756,15 @@
     },
     {
       "id": "bug-297",
-      "summary": "P5: YOLO mode bypasses all permission validation",
+      "summary": "P5: YOLO mode audit status indistinguishable from human-approved",
       "severity": "CRITICAL",
       "discovered": "2026-03-10T00:00:00Z",
       "version": "0.6.2",
       "commit": "8c09a10",
       "file": "crates/core/src/managers/mcp.rs",
-      "pattern": "yolo_mode\\.load\\(Ordering::Relaxed\\)",
+      "pattern": "auto-approved",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-298",
@@ -1804,15 +1804,15 @@
     },
     {
       "id": "bug-301",
-      "summary": "P8: PermissionRequested event variant missing from ClotoEventData",
+      "summary": "P8: PermissionRequested event variant now defined and emitted",
       "severity": "CRITICAL",
       "discovered": "2026-03-10T00:00:00Z",
       "version": "0.6.2",
       "commit": "8c09a10",
-      "file": "crates/shared/src/lib.rs",
-      "pattern": "PermissionGranted",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "PermissionRequested",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-302",
@@ -1828,15 +1828,15 @@
     },
     {
       "id": "bug-303",
-      "summary": "P8: No Dashboard Security Guard UI for runtime approval",
+      "summary": "P8: SecurityGuard UI exists, activated by PermissionRequested events",
       "severity": "HIGH",
       "discovered": "2026-03-10T00:00:00Z",
       "version": "0.6.2",
       "commit": "8c09a10",
-      "file": "dashboard/src/services/api.ts",
-      "pattern": "getAgents",
+      "file": "dashboard/src/components/SecurityGuard.tsx",
+      "pattern": "getPendingPermissions",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-304",
