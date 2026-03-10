@@ -26,7 +26,7 @@ fn json_serialization_benchmark(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("set_json", size), &json_data, |b, data| {
             b.to_async(&runtime).iter(|| async {
                 let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-                cloto_core::db::init_db(&pool, "sqlite::memory:")
+                cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
                     .await
                     .unwrap();
 
@@ -50,7 +50,7 @@ fn get_json_benchmark(c: &mut Criterion) {
     c.bench_function("db_get_json", |b| {
         b.to_async(&runtime).iter(|| async {
             let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-            cloto_core::db::init_db(&pool, "sqlite::memory:")
+            cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
                 .await
                 .unwrap();
             let store = SqliteDataStore::new(pool);
@@ -73,7 +73,7 @@ fn get_all_json_benchmark(c: &mut Criterion) {
     c.bench_function("db_get_all_json", |b| {
         b.to_async(&runtime).iter(|| async {
             let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-            cloto_core::db::init_db(&pool, "sqlite::memory:")
+            cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
                 .await
                 .unwrap();
             let store = SqliteDataStore::new(pool);

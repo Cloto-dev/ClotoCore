@@ -52,6 +52,8 @@ pub struct McpClientManager {
     pub(super) session_cache: super::mcp_tool_discovery::SessionToolCache,
     /// Stream chunk assembler for gap detection (MGP §12)
     pub(super) stream_assembler: super::mcp_streaming::StreamAssembler,
+    /// Capability-based tool routing (P1 Core Minimalism)
+    pub(crate) dispatcher: super::capability_dispatcher::CapabilityDispatcher,
 }
 
 impl McpClientManager {
@@ -72,6 +74,7 @@ impl McpClientManager {
             rich_tool_index: super::mcp_tool_discovery::ToolIndex::new(),
             session_cache: super::mcp_tool_discovery::SessionToolCache::new(),
             stream_assembler: super::mcp_streaming::StreamAssembler::new(),
+            dispatcher: super::capability_dispatcher::CapabilityDispatcher::new(),
         }
     }
 
@@ -128,6 +131,24 @@ impl McpClientManager {
             .servers
             .into_iter()
             .map(|mut server_config| {
+                // Resolve relative command path against the base directory
+                // (e.g. "target/debug/mgp-avatar" → absolute path)
+                // On Windows, also try with .exe suffix for extensionless commands.
+                {
+                    let p = std::path::Path::new(&server_config.command);
+                    if p.is_relative() && p.components().count() > 1 {
+                        let resolved = base_dir.join(p);
+                        if resolved.exists() {
+                            server_config.command = resolved.to_string_lossy().to_string();
+                        } else if cfg!(windows) && resolved.extension().is_none() {
+                            let with_exe = resolved.with_extension("exe");
+                            if with_exe.exists() {
+                                server_config.command = with_exe.to_string_lossy().to_string();
+                            }
+                        }
+                    }
+                }
+
                 // Resolve relative paths in args against the base directory
                 server_config.args = server_config
                     .args
@@ -744,6 +765,9 @@ impl McpClientManager {
                     security_map.get(tool_name).cloned()
                 });
         }
+
+        // Build capability mappings for dynamic dispatch (P1 Core Minimalism)
+        self.dispatcher.build_from_tools(&id, &tools).await;
 
         info!(
             "MCP server '{}' connected with {} tools",
@@ -1558,19 +1582,44 @@ impl McpClientManager {
     }
 
     // ============================================================
-    // Memory Provider Discovery
+    // Capability-Based Dispatch (P1 Core Minimalism)
     // ============================================================
 
-    /// Find an MCP server that provides memory capabilities (has both `store` and `recall` tools).
-    /// Returns the server ID if found.
-    pub async fn find_memory_server(&self) -> Option<String> {
-        let index = self.tool_index.read().await;
-        let store_server = index.get("store").cloned();
-        let recall_server = index.get("recall").cloned();
-        match (store_server, recall_server) {
-            (Some(s1), Some(s2)) if s1 == s2 => Some(s1),
-            _ => None,
-        }
+    /// Resolve the MCP server providing a given capability.
+    pub async fn resolve_capability_server(
+        &self,
+        capability: super::capability_dispatcher::CapabilityType,
+    ) -> Option<String> {
+        self.dispatcher.resolve_server(capability).await
+    }
+
+    /// Call a tool by capability type, resolving the server dynamically.
+    ///
+    /// If `preferred_server` is provided (e.g., for engine-specific routing),
+    /// it takes precedence over automatic resolution.
+    pub async fn call_capability_tool(
+        &self,
+        capability: super::capability_dispatcher::CapabilityType,
+        tool_name: &str,
+        args: Value,
+        preferred_server: Option<&str>,
+    ) -> Result<super::mcp_protocol::CallToolResult> {
+        let server_id = if let Some(pref) = preferred_server {
+            pref.to_string()
+        } else {
+            self.dispatcher
+                .resolve(capability, tool_name)
+                .await
+                .map(|(sid, _)| sid)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "No server provides {:?} capability for tool '{}'",
+                        capability,
+                        tool_name
+                    )
+                })?
+        };
+        self.call_server_tool(&server_id, tool_name, args).await
     }
 
     // ============================================================
@@ -1588,6 +1637,9 @@ impl McpClientManager {
 
         // Clean up rich tool index (§16)
         self.rich_tool_index.remove_server_tools(id);
+
+        // Clean up capability mappings (P1 Core Minimalism)
+        self.dispatcher.remove_server(id).await;
 
         // Preserve config for restart capability (works for both config and dynamic)
         let mut stopped = self.stopped_configs.write().await;
@@ -1832,7 +1884,7 @@ mod tests {
     #[tokio::test]
     async fn yolo_mode_initializes_correctly() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
 
         let manager_off = McpClientManager::new(pool.clone(), false, 120);
         assert!(!manager_off.yolo_mode.load(Ordering::Relaxed));
@@ -1844,7 +1896,7 @@ mod tests {
     #[tokio::test]
     async fn yolo_mode_toggle_at_runtime() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
 
         let manager = McpClientManager::new(pool, false, 120);
         assert!(!manager.yolo_mode.load(Ordering::Relaxed));
@@ -1859,7 +1911,7 @@ mod tests {
     #[tokio::test]
     async fn yolo_mode_affects_kernel_tool_schemas() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
 
         // YOLO off: no kernel tools
         let manager = McpClientManager::new(pool.clone(), false, 120);
@@ -1881,7 +1933,7 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_access_control() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
@@ -1906,7 +1958,7 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_audit_replay() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
@@ -1923,7 +1975,7 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_tier3_lifecycle() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
@@ -1948,7 +2000,7 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_tier3_streaming() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
@@ -1965,7 +2017,7 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_tier3_events() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
@@ -1994,7 +2046,7 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_total_count() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
@@ -2037,7 +2089,7 @@ mod tests {
     #[tokio::test]
     async fn yolo_mode_persisted_to_db() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
 
         // Simulate set_yolo_mode handler persisting to DB
         sqlx::query(
