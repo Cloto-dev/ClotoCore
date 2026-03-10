@@ -50,11 +50,12 @@ export function VrmViewerPage() {
           controllerRef.current?.playVisemes((data.entries as Array<{ viseme: string; start_ms: number; duration_ms: number }>) ?? []);
         } else if (channel === 'avatar_speech_play') {
           const timeline = (data.viseme_timeline as Array<{ viseme: string; start_ms: number; duration_ms: number }>) ?? [];
+          const audioOffsetMs = (data.audio_offset_ms as number) ?? 0;
           if (data.audio_data) {
-            controllerRef.current?.playSpeechData(data.audio_data as string, timeline);
+            controllerRef.current?.playSpeechData(data.audio_data as string, timeline, audioOffsetMs);
           } else if (data.audio_url) {
             const audioUrl = `${API_BASE}${data.audio_url as string}`;
-            controllerRef.current?.playSpeech(audioUrl, timeline);
+            controllerRef.current?.playSpeech(audioUrl, timeline, audioOffsetMs);
           }
         }
       }

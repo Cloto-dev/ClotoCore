@@ -332,7 +332,7 @@ fn execute_speak(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), Stri
     let speed = args.get("speed").and_then(|v| v.as_f64());
 
     let client = voicevox();
-    let (wav_bytes, viseme_timeline, total_duration_ms) = client.synthesize(text, speaker, speed)?;
+    let (wav_bytes, viseme_timeline, total_duration_ms, audio_offset_ms) = client.synthesize(text, speaker, speed)?;
 
     // Encode WAV → OGG/Opus → base64 for inline delivery (no disk I/O, no HTTP round-trip)
     let audio_base64 = crate::voicevox::wav_to_opus_base64(&wav_bytes)?;
@@ -349,6 +349,7 @@ fn execute_speak(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), Stri
                 "audio_mime": "audio/ogg; codecs=opus",
                 "viseme_timeline": viseme_timeline,
                 "total_duration_ms": total_duration_ms.round() as i64,
+                "audio_offset_ms": audio_offset_ms.round() as i64,
                 "speaker": actual_speaker,
                 "text": text
             }
@@ -362,7 +363,7 @@ fn execute_speak(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), Stri
         }]
     });
 
-    tracing::info!("speak: text={}, speaker={}, duration={:.0}ms, opus_base64_len={}", text, actual_speaker, total_duration_ms, audio_base64.len());
+    tracing::info!("speak: text={}, speaker={}, duration={:.0}ms, offset={:.0}ms, opus_base64_len={}", text, actual_speaker, total_duration_ms, audio_offset_ms, audio_base64.len());
 
     Ok((result, vec![notif]))
 }
@@ -373,7 +374,7 @@ fn execute_synthesize(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>),
     let speed = args.get("speed").and_then(|v| v.as_f64());
 
     let client = voicevox();
-    let (wav_bytes, viseme_timeline, total_duration_ms) = client.synthesize(text, speaker, speed)?;
+    let (wav_bytes, viseme_timeline, total_duration_ms, audio_offset_ms) = client.synthesize(text, speaker, speed)?;
     let (abs_path, filename) = client.save_wav(&wav_bytes)?;
 
     let result = json!({
@@ -384,6 +385,7 @@ fn execute_synthesize(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>),
                 "path": abs_path,
                 "filename": filename,
                 "duration_ms": total_duration_ms.round() as i64,
+                "audio_offset_ms": audio_offset_ms.round() as i64,
                 "viseme_count": viseme_timeline.len(),
                 "viseme_timeline": viseme_timeline
             }).to_string()
