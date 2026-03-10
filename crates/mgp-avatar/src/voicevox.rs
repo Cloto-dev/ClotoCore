@@ -130,8 +130,9 @@ impl VoicevoxClient {
         let audio_offset_ms = pre_phoneme_length * 1000.0;
 
         // Extract viseme timeline from accent phrases
+        // VOICEVOX uses snake_case for accent_phrases (not camelCase)
         let accent_phrases = query
-            .get("accentPhrases")
+            .get("accent_phrases")
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
