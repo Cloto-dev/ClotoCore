@@ -270,6 +270,7 @@ impl ConsensusOrchestrator {
                     engine_id: "consensus".to_string(),
                     content,
                     source_message_id: "consensus".to_string(),
+                    auto_spoken: false,
                 })
             }
         }

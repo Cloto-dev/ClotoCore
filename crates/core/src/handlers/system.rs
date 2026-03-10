@@ -555,11 +555,20 @@ impl SystemHandler {
                         error!("Chat persist DROPPED agent response: {}", e);
                     }
 
+                    // Auto-speak: if the agent has output.avatar access,
+                    // the kernel speaks the final response directly (not the LLM).
+                    let will_auto_speak =
+                        granted_server_ids.contains(&"output.avatar".to_string())
+                            && self.registry.mcp_manager.is_some();
+                    let speak_content =
+                        if will_auto_speak { Some(content.clone()) } else { None };
+
                     let thought_response = ClotoEventData::ThoughtResponse {
                         agent_id: agent.id.clone(),
                         engine_id: engine_id.clone(),
                         content,
                         source_message_id: msg.id.clone(),
+                        auto_spoken: will_auto_speak,
                     };
                     let envelope = crate::EnvelopedEvent {
                         event: Arc::new(ClotoEvent::with_trace(trace_id, thought_response)),
@@ -573,6 +582,42 @@ impl SystemHandler {
                             error = %e,
                             "❌ Failed to send ThoughtResponse"
                         );
+                    }
+
+                    // Fire-and-forget auto-speak with the final response text
+                    if let Some(speak_text) = speak_content {
+                        if let Some(ref mcp) = self.registry.mcp_manager {
+                            let speak_args = serde_json::json!({
+                                "text": speak_text,
+                                "agent_id": agent.id,
+                            });
+                            info!(
+                                agent_id = %agent.id,
+                                text_len = speak_text.len(),
+                                "🔊 Auto-speak: speaking final response"
+                            );
+                            let mcp_clone = mcp.clone();
+                            let agent_id_clone = agent.id.clone();
+                            let timeout_secs = self.tool_execution_timeout_secs;
+                            tokio::spawn(async move {
+                                match tokio::time::timeout(
+                                    Duration::from_secs(timeout_secs),
+                                    mcp_clone.execute_tool_internal("speak", speak_args),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(_)) => {
+                                        info!(agent_id = %agent_id_clone, "✅ Auto-speak completed");
+                                    }
+                                    Ok(Err(e)) => {
+                                        error!(agent_id = %agent_id_clone, error = %e, "❌ Auto-speak failed");
+                                    }
+                                    Err(_) => {
+                                        error!(agent_id = %agent_id_clone, "⏱️ Auto-speak timed out");
+                                    }
+                                }
+                            });
+                        }
                     }
                 }
                 Err(e) => {
@@ -621,6 +666,7 @@ impl SystemHandler {
                         engine_id: engine_id.clone(),
                         content: error_content,
                         source_message_id: msg.id.clone(),
+                        auto_spoken: false,
                     };
                     let envelope = crate::EnvelopedEvent {
                         event: Arc::new(ClotoEvent::with_trace(trace_id, error_response)),

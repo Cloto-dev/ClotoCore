@@ -1194,6 +1194,12 @@ impl McpClientManager {
                 continue;
             }
             for tool in &handle.tools {
+                // speak is auto-invoked by the kernel after the agentic loop;
+                // excluding it prevents the LLM from speaking different text
+                // than the final displayed response.
+                if server_id == "output.avatar" && tool.name == "speak" {
+                    continue;
+                }
                 match crate::db::resolve_tool_access(&self.pool, agent_id, server_id, &tool.name)
                     .await
                 {
