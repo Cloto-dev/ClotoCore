@@ -1332,7 +1332,8 @@ impl SystemHandler {
         ))
     }
 
-    /// Parse MCP recall() response into Vec<ClotoMessage>.
+    /// Parse MCP recall() response into Vec<ClotoMessage>, sorted by timestamp ascending
+    /// (oldest first — the chronological order LLM engines expect).
     fn parse_mcp_recall_result(
         result: &crate::managers::mcp_protocol::CallToolResult,
     ) -> Vec<ClotoMessage> {
@@ -1345,7 +1346,7 @@ impl SystemHandler {
                         return vec![];
                     }
                     if let Some(messages) = json.get("messages").and_then(|m| m.as_array()) {
-                        return messages
+                        let mut result: Vec<ClotoMessage> = messages
                             .iter()
                             .filter_map(|m| {
                                 let content = m.get("content")?.as_str()?.to_string();
@@ -1379,6 +1380,9 @@ impl SystemHandler {
                                 })
                             })
                             .collect();
+                        // G1.4: Sort by timestamp ascending (oldest→newest)
+                        result.sort_by_key(|m| m.timestamp);
+                        return result;
                     }
                 }
             }
