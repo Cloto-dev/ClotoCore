@@ -1969,6 +1969,18 @@
       "pattern": "output\\.avatar.*tool\\.name == .speak",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-315",
+      "summary": "VOICEVOX accent_phrases field name mismatch causes empty viseme timeline",
+      "severity": "CRITICAL",
+      "discovered": "2026-03-11T00:00:00Z",
+      "version": "0.6.2",
+      "commit": "9525e97",
+      "file": "crates/mgp-avatar/src/voicevox.rs",
+      "pattern": "get\\(\"accent_phrases\"\\)",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }
