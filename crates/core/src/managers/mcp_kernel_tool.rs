@@ -835,8 +835,8 @@ pub(super) async fn execute_health_ping(manager: &McpClientManager, args: Value)
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
 
-    let servers = manager.servers.read().await;
-    let Some(handle) = servers.get(server_id) else {
+    let state = manager.state.read().await;
+    let Some(handle) = state.servers.get(server_id) else {
         return Ok(serde_json::json!({
             "server_id": server_id,
             "status": "not_found",
@@ -875,8 +875,8 @@ pub(super) async fn execute_health_status(
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
 
-    let servers = manager.servers.read().await;
-    let Some(handle) = servers.get(server_id) else {
+    let state = manager.state.read().await;
+    let Some(handle) = state.servers.get(server_id) else {
         return Ok(serde_json::json!({
             "server_id": server_id,
             "status": "not_found",

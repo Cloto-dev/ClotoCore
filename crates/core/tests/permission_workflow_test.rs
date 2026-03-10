@@ -14,8 +14,8 @@ async fn test_update_effective_permissions_adds_permission() {
         .update_effective_permissions(plugin_id, Permission::NetworkAccess)
         .await;
 
-    let perms = registry.effective_permissions.read().await;
-    let granted = perms.get(&plugin_id).unwrap();
+    let state = registry.state.read().await;
+    let granted = state.effective_permissions.get(&plugin_id).unwrap();
     assert!(granted.contains(&Permission::NetworkAccess));
 }
 
@@ -32,8 +32,8 @@ async fn test_update_effective_permissions_no_duplicates() {
         .update_effective_permissions(plugin_id, Permission::NetworkAccess)
         .await;
 
-    let perms = registry.effective_permissions.read().await;
-    let granted = perms.get(&plugin_id).unwrap();
+    let state = registry.state.read().await;
+    let granted = state.effective_permissions.get(&plugin_id).unwrap();
     assert_eq!(granted.len(), 1, "Duplicate permissions must not be stored");
 }
 
@@ -49,8 +49,8 @@ async fn test_update_effective_permissions_multiple_types() {
         .update_effective_permissions(plugin_id, Permission::InputControl)
         .await;
 
-    let perms = registry.effective_permissions.read().await;
-    let granted = perms.get(&plugin_id).unwrap();
+    let state = registry.state.read().await;
+    let granted = state.effective_permissions.get(&plugin_id).unwrap();
     assert_eq!(granted.len(), 2);
     assert!(granted.contains(&Permission::NetworkAccess));
     assert!(granted.contains(&Permission::InputControl));
@@ -66,10 +66,10 @@ async fn test_permissions_are_isolated_between_plugins() {
         .update_effective_permissions(plugin_a, Permission::NetworkAccess)
         .await;
 
-    let perms = registry.effective_permissions.read().await;
+    let state = registry.state.read().await;
     // plugin_b should have no permissions
     assert!(
-        perms.get(&plugin_b).is_none_or(std::vec::Vec::is_empty),
+        state.effective_permissions.get(&plugin_b).is_none_or(std::vec::Vec::is_empty),
         "plugin.b must not inherit plugin.a's permissions"
     );
 }

@@ -89,8 +89,8 @@ async fn test_dynamic_permission_elevation_flow() {
     let injected_flag = mock_plugin.injected.clone();
 
     {
-        let mut plugins = registry_raw.plugins.write().await;
-        plugins.insert(plugin_id.to_string(), mock_plugin.clone());
+        let mut state = registry_raw.state.write().await;
+        state.plugins.insert(plugin_id.to_string(), mock_plugin.clone());
     }
 
     let registry = Arc::new(registry_raw);
@@ -134,8 +134,8 @@ async fn test_dynamic_permission_elevation_flow() {
     // 3. Verify initial state (no permission)
     let cloto_id = ClotoId::from_name(plugin_id);
     {
-        let perms = registry.effective_permissions.read().await;
-        assert!(!perms.contains_key(&cloto_id));
+        let state = registry.state.read().await;
+        assert!(!state.effective_permissions.contains_key(&cloto_id));
     }
 
     // 4. Simulate PermissionGranted Event
@@ -164,9 +164,9 @@ async fn test_dynamic_permission_elevation_flow() {
     // 5. Assert: Registry is updated
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     {
-        let perms = registry.effective_permissions.read().await;
-        assert!(perms.contains_key(&cloto_id));
-        assert!(perms
+        let state = registry.state.read().await;
+        assert!(state.effective_permissions.contains_key(&cloto_id));
+        assert!(state.effective_permissions
             .get(&cloto_id)
             .unwrap()
             .contains(&Permission::NetworkAccess));

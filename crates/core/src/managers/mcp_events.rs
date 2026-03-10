@@ -367,7 +367,7 @@ pub(super) async fn deliver_event(manager: &McpClientManager, channel: &str, dat
     let (seq, timestamp) = manager.events.buffer_event(channel, data);
     let matching = manager.events.matching_subscriptions(channel);
 
-    let servers = manager.servers.read().await;
+    let state = manager.state.read().await;
     for sub in matching {
         // Apply subscription filter (§8.3)
         if let Some(ref filter) = sub.filter {
@@ -375,7 +375,7 @@ pub(super) async fn deliver_event(manager: &McpClientManager, channel: &str, dat
                 continue;
             }
         }
-        let Some(handle) = servers.get(&sub.server_id) else {
+        let Some(handle) = state.servers.get(&sub.server_id) else {
             continue;
         };
         if !handle.status.is_operational() {
@@ -499,8 +499,8 @@ pub(super) async fn respond_to_callback(manager: &McpClientManager, args: Value)
     }
 
     // Send response to the originating server
-    let servers = manager.servers.read().await;
-    let handle = servers
+    let state = manager.state.read().await;
+    let handle = state.servers
         .get(&server_id)
         .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", server_id))?;
     let client = handle

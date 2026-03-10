@@ -28,16 +28,19 @@ const YOLO_APPROVER_ID: &str = "YOLO";
 // McpClientManager — kernel-level MCP server orchestrator
 // ============================================================
 
+/// G1.3: Unified MCP state — single RwLock avoids fragmented locking.
+pub(crate) struct McpState {
+    pub servers: HashMap<String, McpServerHandle>,
+    pub tool_index: HashMap<String, String>,
+    pub stopped_configs: HashMap<String, (McpServerConfig, ServerSource)>,
+}
+
 pub struct McpClientManager {
-    pub(crate) servers: RwLock<HashMap<String, McpServerHandle>>,
+    pub(crate) state: RwLock<McpState>,
     pool: SqlitePool,
-    /// Tool name → server ID index for fast routing
-    tool_index: RwLock<HashMap<String, String>>,
     /// YOLO mode: auto-approve all MCP server permissions (ARCHITECTURE.md §5.7).
     /// Arc<AtomicBool> allows runtime toggle via API without restart.
     pub yolo_mode: Arc<AtomicBool>,
-    /// Preserved configs from stopped servers, enabling restart for config-loaded servers
-    pub(super) stopped_configs: RwLock<HashMap<String, (McpServerConfig, ServerSource)>>,
     /// Shared notification channel — all MCP servers' notifications are collected here
     notification_tx: mpsc::Sender<McpNotification>,
     notification_rx: Mutex<Option<mpsc::Receiver<McpNotification>>>,
@@ -61,11 +64,13 @@ impl McpClientManager {
     pub fn new(pool: SqlitePool, yolo_mode: bool, mcp_request_timeout_secs: u64) -> Self {
         let (notification_tx, notification_rx) = mpsc::channel(256);
         Self {
-            servers: RwLock::new(HashMap::new()),
+            state: RwLock::new(McpState {
+                servers: HashMap::new(),
+                tool_index: HashMap::new(),
+                stopped_configs: HashMap::new(),
+            }),
             pool,
-            tool_index: RwLock::new(HashMap::new()),
             yolo_mode: Arc::new(AtomicBool::new(yolo_mode)),
-            stopped_configs: RwLock::new(HashMap::new()),
             notification_tx,
             notification_rx: Mutex::new(Some(notification_rx)),
             mcp_request_timeout_secs,
@@ -188,8 +193,8 @@ impl McpClientManager {
                     "Failed to connect MCP server from config"
                 );
                 // Register with Error status so it appears in list_servers()
-                let mut servers = self.servers.write().await;
-                servers
+                let mut state = self.state.write().await;
+                state.servers
                     .entry(server_config.id.clone())
                     .or_insert_with(|| McpServerHandle {
                         id: server_config.id.clone(),
@@ -234,7 +239,7 @@ impl McpClientManager {
             }
 
             // Skip servers already loaded from mcp.toml
-            if self.servers.read().await.contains_key(&record.name) {
+            if self.state.read().await.servers.contains_key(&record.name) {
                 continue;
             }
 
@@ -282,8 +287,8 @@ impl McpClientManager {
                     "Failed to restore MCP server"
                 );
                 // Register with Error status so it appears in list_servers()
-                let mut servers = self.servers.write().await;
-                servers
+                let mut state = self.state.write().await;
+                state.servers
                     .entry(config.id.clone())
                     .or_insert_with(|| McpServerHandle {
                         id: config.id.clone(),
@@ -317,8 +322,8 @@ impl McpClientManager {
 
         // Check for duplicate — allow retry if server is in Error/Disconnected state
         {
-            let servers = self.servers.read().await;
-            if let Some(existing) = servers.get(&id) {
+            let state = self.state.read().await;
+            if let Some(existing) = state.servers.get(&id) {
                 if existing.status == ServerStatus::Connected {
                     return Err(anyhow::anyhow!("MCP server '{}' is already connected", id));
                 }
@@ -420,8 +425,8 @@ impl McpClientManager {
 
         // Set Connecting status
         {
-            let mut servers = self.servers.write().await;
-            if let Some(handle) = servers.get_mut(&id) {
+            let mut state = self.state.write().await;
+            if let Some(handle) = state.servers.get_mut(&id) {
                 handle.status = ServerStatus::Connecting;
             }
         }
@@ -710,46 +715,41 @@ impl McpClientManager {
             connected_at: Some(std::time::Instant::now()),
         };
 
-        // Register in servers map
-        {
-            let mut servers = self.servers.write().await;
-            servers.insert(id.clone(), handle);
-        }
-
-        // Update tool routing index.
+        // Register in servers map + update tool routing index under single lock.
         // Skip mind.* servers — their tools (think, think_with_tools) are engine-internal
         // and called directly via call_server_tool(engine_id, ...), not through tool_index.
-        if !id.starts_with("mind.") {
-            let mut index = self.tool_index.write().await;
-            for tool in &tools {
-                // §1.6.3: Reject tools with reserved mgp.* namespace
-                if tool.name.starts_with("mgp.") {
-                    warn!(
-                        tool = %tool.name,
-                        server = %id,
-                        "Server tool conflicts with reserved mgp.* namespace — skipping"
-                    );
-                    continue;
-                }
-                if let Some(existing) = index.get(&tool.name) {
-                    warn!(
-                        tool = %tool.name,
-                        existing_server = %existing,
-                        new_server = %id,
-                        "Tool name collision — overwriting routing"
-                    );
-                }
-                index.insert(tool.name.clone(), id.clone());
-            }
+        {
+            let mut state = self.state.write().await;
+            state.servers.insert(id.clone(), handle);
 
-            // Populate rich tool index for §16 dynamic discovery.
-            // Pre-compute security metadata to avoid async lock in sync closure.
-            let security_map: std::collections::HashMap<
-                String,
-                super::mcp_mgp::ToolSecurityMetadata,
-            > = {
-                let servers = self.servers.read().await;
-                if let Some(h) = servers.get(&id) {
+            if !id.starts_with("mind.") {
+                for tool in &tools {
+                    // §1.6.3: Reject tools with reserved mgp.* namespace
+                    if tool.name.starts_with("mgp.") {
+                        warn!(
+                            tool = %tool.name,
+                            server = %id,
+                            "Server tool conflicts with reserved mgp.* namespace — skipping"
+                        );
+                        continue;
+                    }
+                    if let Some(existing) = state.tool_index.get(&tool.name) {
+                        warn!(
+                            tool = %tool.name,
+                            existing_server = %existing,
+                            new_server = %id,
+                            "Tool name collision — overwriting routing"
+                        );
+                    }
+                    state.tool_index.insert(tool.name.clone(), id.clone());
+                }
+
+                // Populate rich tool index for §16 dynamic discovery.
+                // Pre-compute security metadata from the just-inserted handle.
+                let security_map: std::collections::HashMap<
+                    String,
+                    super::mcp_mgp::ToolSecurityMetadata,
+                > = if let Some(h) = state.servers.get(&id) {
                     tools
                         .iter()
                         .filter_map(|t| {
@@ -758,12 +758,12 @@ impl McpClientManager {
                         .collect()
                 } else {
                     std::collections::HashMap::new()
-                }
-            };
-            self.rich_tool_index
-                .add_server_tools(&id, &tools, |tool_name| {
-                    security_map.get(tool_name).cloned()
-                });
+                };
+                self.rich_tool_index
+                    .add_server_tools(&id, &tools, |tool_name| {
+                        security_map.get(tool_name).cloned()
+                    });
+            }
         }
 
         // Build capability mappings for dynamic dispatch (P1 Core Minimalism)
@@ -805,29 +805,26 @@ impl McpClientManager {
 
     /// Disconnect and permanently remove an MCP server (also clears stopped_configs).
     pub async fn disconnect_server(&self, id: &str) -> Result<()> {
-        let mut servers = self.servers.write().await;
-        let handle = servers
+        let mut state = self.state.write().await;
+        let handle = state.servers
             .remove(id)
             .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not found", id))?;
-        let mut index = self.tool_index.write().await;
         for tool in &handle.tools {
-            index.remove(&tool.name);
+            state.tool_index.remove(&tool.name);
         }
         // Clean up rich tool index (§16)
         self.rich_tool_index.remove_server_tools(id);
         // Clean up stopped_configs too (permanent removal)
-        let mut stopped = self.stopped_configs.write().await;
-        stopped.remove(id);
+        state.stopped_configs.remove(id);
         info!("MCP server '{}' disconnected", id);
         Ok(())
     }
 
     /// List all registered MCP servers with status.
     pub async fn list_servers(&self) -> Vec<McpServerInfo> {
-        let servers = self.servers.read().await;
-        let stopped = self.stopped_configs.read().await;
+        let state = self.state.read().await;
 
-        let mut result: Vec<McpServerInfo> = servers
+        let mut result: Vec<McpServerInfo> = state.servers
             .values()
             .map(|h| McpServerInfo {
                 id: h.id.clone(),
@@ -851,8 +848,8 @@ impl McpClientManager {
             .collect();
 
         // Include stopped servers as Disconnected
-        for (id, (config, source)) in stopped.iter() {
-            if !servers.contains_key(id) {
+        for (id, (config, source)) in state.stopped_configs.iter() {
+            if !state.servers.contains_key(id) {
                 result.push(McpServerInfo {
                     id: id.clone(),
                     command: config.command.clone(),
@@ -874,8 +871,8 @@ impl McpClientManager {
 
     /// Return IDs of connected mind.* servers (reasoning engines).
     pub async fn list_connected_mind_servers(&self) -> Vec<String> {
-        let servers = self.servers.read().await;
-        servers
+        let state = self.state.read().await;
+        state.servers
             .iter()
             .filter(|(id, h)| id.starts_with("mind.") && h.status == ServerStatus::Connected)
             .map(|(id, _)| id.clone())
@@ -884,14 +881,14 @@ impl McpClientManager {
 
     /// Check if a server with the given ID is registered.
     pub async fn has_server(&self, id: &str) -> bool {
-        let servers = self.servers.read().await;
-        servers.contains_key(id)
+        let state = self.state.read().await;
+        state.servers.contains_key(id)
     }
 
     /// Check if a specific server has a tool with the given name.
     pub async fn has_server_tool(&self, server_id: &str, tool_name: &str) -> bool {
-        let servers = self.servers.read().await;
-        servers
+        let state = self.state.read().await;
+        state.servers
             .get(server_id)
             .is_some_and(|h| h.tools.iter().any(|t| t.name == tool_name))
     }
@@ -930,7 +927,7 @@ impl McpClientManager {
     /// Includes kernel-native tools when YOLO mode is enabled.
     /// Always includes §16 meta-tools (mgp.tools.discover, mgp.tools.request) for LLM context.
     pub async fn collect_tool_schemas(&self) -> Vec<Value> {
-        let servers = self.servers.read().await;
+        let state = self.state.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
             super::mcp_kernel_tool::kernel_tool_schemas()
         } else {
@@ -938,7 +935,7 @@ impl McpClientManager {
         };
         // §16: Always include LLM meta-tools for dynamic discovery
         schemas.extend(super::mcp_kernel_tool::llm_meta_tool_schemas());
-        for handle in servers.values() {
+        for handle in state.servers.values() {
             if handle.status != ServerStatus::Connected {
                 continue;
             }
@@ -957,14 +954,14 @@ impl McpClientManager {
     /// Collect tool schemas filtered by server IDs.
     /// Includes kernel-native tools (create_mcp_server) only when YOLO mode is enabled.
     pub async fn collect_tool_schemas_for(&self, server_ids: &[String]) -> Vec<Value> {
-        let servers = self.servers.read().await;
+        let state = self.state.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
             super::mcp_kernel_tool::kernel_tool_schemas()
         } else {
             vec![]
         };
         for id in server_ids {
-            if let Some(handle) = servers.get(id) {
+            if let Some(handle) = state.servers.get(id) {
                 if handle.status != ServerStatus::Connected {
                     continue;
                 }
@@ -980,7 +977,7 @@ impl McpClientManager {
     /// Collect tool schemas for a specific agent using `resolve_tool_access()`.
     /// Iterates all connected servers and includes only tools the agent is allowed to use.
     pub async fn collect_tool_schemas_for_agent(&self, agent_id: &str) -> Vec<Value> {
-        let servers = self.servers.read().await;
+        let state = self.state.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
             super::mcp_kernel_tool::kernel_tool_schemas()
         } else {
@@ -988,7 +985,7 @@ impl McpClientManager {
         };
         // §16: Always include LLM meta-tools for dynamic discovery
         schemas.extend(super::mcp_kernel_tool::llm_meta_tool_schemas());
-        for (server_id, handle) in servers.iter() {
+        for (server_id, handle) in state.servers.iter() {
             if handle.status != ServerStatus::Connected {
                 continue;
             }
@@ -1013,8 +1010,8 @@ impl McpClientManager {
 
     /// Look up which server provides a given tool.
     pub async fn get_tool_server_id(&self, tool_name: &str) -> Option<String> {
-        let index = self.tool_index.read().await;
-        index.get(tool_name).cloned()
+        let state = self.state.read().await;
+        state.tool_index.get(tool_name).cloned()
     }
 
     /// Check tool access for a specific agent via `resolve_tool_access()`.
@@ -1024,8 +1021,8 @@ impl McpClientManager {
         tool_name: &str,
     ) -> anyhow::Result<String> {
         let server_id = {
-            let index = self.tool_index.read().await;
-            index
+            let state = self.state.read().await;
+            state.tool_index
                 .get(tool_name)
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("MCP tool '{}' not found", tool_name))?
@@ -1126,19 +1123,15 @@ impl McpClientManager {
             _ => {}
         }
 
-        let server_id = {
-            let index = self.tool_index.read().await;
-            index.get(tool_name).cloned().ok_or_else(|| {
+        let (server_id, client, tool_validators) = {
+            let state = self.state.read().await;
+            let server_id = state.tool_index.get(tool_name).cloned().ok_or_else(|| {
                 anyhow::Error::new(mcp_mgp::MgpError::tool_not_found(format!(
                     "MCP tool '{}' not found",
                     tool_name
                 )))
-            })?
-        };
-
-        let (client, tool_validators) = {
-            let servers = self.servers.read().await;
-            let handle = servers.get(&server_id).ok_or_else(|| {
+            })?;
+            let handle = state.servers.get(&server_id).ok_or_else(|| {
                 anyhow::Error::new(mcp_mgp::MgpError::tool_not_found(format!(
                     "MCP server '{}' not found",
                     server_id
@@ -1150,7 +1143,7 @@ impl McpClientManager {
                     server_id
                 )))
             })?;
-            (client, handle.config.tool_validators.clone())
+            (server_id, client, handle.config.tool_validators.clone())
         };
 
         // ──── Kernel-side Validation (A): Validate tool arguments before forwarding ────
@@ -1315,8 +1308,8 @@ impl McpClientManager {
                     delegation.get("delegated_via").and_then(|v| v.as_str())
                 {
                     let valid = {
-                        let servers = self.servers.read().await;
-                        servers
+                        let state = self.state.read().await;
+                        state.servers
                             .get(delegated_via)
                             .is_some_and(|h| h.status.is_operational())
                     };
@@ -1345,8 +1338,8 @@ impl McpClientManager {
         }
 
         let (client, tool_validators) = {
-            let servers = self.servers.read().await;
-            let handle = servers.get(server_id).ok_or_else(|| {
+            let state = self.state.read().await;
+            let handle = state.servers.get(server_id).ok_or_else(|| {
                 anyhow::Error::new(mcp_mgp::MgpError::tool_not_found(format!(
                     "MCP server '{}' not found",
                     server_id
@@ -1411,8 +1404,8 @@ impl McpClientManager {
 
     /// Broadcast a kernel event to all connected MCP servers as a notification.
     pub async fn broadcast_event(&self, event: &cloto_shared::ClotoEvent) {
-        let servers = self.servers.read().await;
-        for handle in servers.values() {
+        let state = self.state.read().await;
+        for handle in state.servers.values() {
             if handle.status != ServerStatus::Connected {
                 continue;
             }
@@ -1442,8 +1435,8 @@ impl McpClientManager {
         crate::db::spawn_audit_log(self.pool.clone(), entry.clone());
 
         // 2. Send to audit-capable servers
-        let servers = self.servers.read().await;
-        for handle in servers.values() {
+        let state = self.state.read().await;
+        for handle in state.servers.values() {
             if handle.status != ServerStatus::Connected {
                 continue;
             }
@@ -1492,8 +1485,8 @@ impl McpClientManager {
 
     /// Send a config update notification to a specific MCP server.
     pub async fn notify_config_updated(&self, server_id: &str, config: Value) {
-        let servers = self.servers.read().await;
-        if let Some(handle) = servers.get(server_id) {
+        let state = self.state.read().await;
+        if let Some(handle) = state.servers.get(server_id) {
             let Some(client) = &handle.client else {
                 return;
             };
@@ -1566,8 +1559,8 @@ impl McpClientManager {
     pub async fn remove_dynamic_server(&self, id: &str) -> Result<()> {
         // Reject deletion of config-loaded servers
         {
-            let servers = self.servers.read().await;
-            if let Some(handle) = servers.get(id) {
+            let state = self.state.read().await;
+            if let Some(handle) = state.servers.get(id) {
                 if handle.source == ServerSource::Config {
                     return Err(anyhow::anyhow!(
                         "Cannot delete config-loaded server '{}'. Remove it from mcp.toml instead.",
@@ -1628,12 +1621,18 @@ impl McpClientManager {
 
     /// Stop a server (disconnect but preserve config for restart).
     pub async fn stop_server(&self, id: &str) -> Result<()> {
-        let mut servers = self.servers.write().await;
-        let handle = servers
-            .remove(id)
-            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found or already stopped", id))?;
-        let mut index = self.tool_index.write().await;
-        index.retain(|_, server_id| server_id != id);
+        {
+            let mut state = self.state.write().await;
+            let handle = state.servers
+                .remove(id)
+                .ok_or_else(|| anyhow::anyhow!("Server '{}' not found or already stopped", id))?;
+            state.tool_index.retain(|_, server_id| server_id != id);
+
+            // Preserve config for restart capability (works for both config and dynamic)
+            state.stopped_configs.insert(id.to_string(), (handle.config.clone(), handle.source));
+
+            info!(server = %id, source = ?handle.source, "MCP server stopped (config preserved for restart)");
+        }
 
         // Clean up rich tool index (§16)
         self.rich_tool_index.remove_server_tools(id);
@@ -1641,11 +1640,6 @@ impl McpClientManager {
         // Clean up capability mappings (P1 Core Minimalism)
         self.dispatcher.remove_server(id).await;
 
-        // Preserve config for restart capability (works for both config and dynamic)
-        let mut stopped = self.stopped_configs.write().await;
-        stopped.insert(id.to_string(), (handle.config.clone(), handle.source));
-
-        info!(server = %id, source = ?handle.source, "MCP server stopped (config preserved for restart)");
         Ok(())
     }
 
@@ -1653,8 +1647,8 @@ impl McpClientManager {
     pub async fn drain_server(&self, id: &str, reason: &str, timeout_ms: u64) -> Result<()> {
         // Set status to Draining
         {
-            let mut servers = self.servers.write().await;
-            let handle = servers
+            let mut state = self.state.write().await;
+            let handle = state.servers
                 .get_mut(id)
                 .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", id))?;
             handle.status = ServerStatus::Draining;
@@ -1679,8 +1673,8 @@ impl McpClientManager {
 
         // Notify the target server via standard lifecycle notification (§11.5)
         {
-            let servers = self.servers.read().await;
-            if let Some(handle) = servers.get(id) {
+            let state = self.state.read().await;
+            if let Some(handle) = state.servers.get(id) {
                 if let Some(client) = &handle.client {
                     let params = serde_json::json!({
                         "server_id": id,
@@ -1705,18 +1699,16 @@ impl McpClientManager {
 
     /// Start a server from stopped_configs or DB.
     pub async fn start_server(&self, id: &str) -> Result<Vec<String>> {
-        // Check if already running
+        // Check if already running + check stopped_configs under single lock
         {
-            let servers = self.servers.read().await;
-            if servers.contains_key(id) {
+            let mut state = self.state.write().await;
+            if state.servers.contains_key(id) {
                 return Err(anyhow::anyhow!("Server '{}' is already running", id));
             }
-        }
 
-        // 1. Check stopped_configs first (works for both config-loaded and dynamic)
-        {
-            let mut stopped = self.stopped_configs.write().await;
-            if let Some((config, source)) = stopped.remove(id) {
+            // 1. Check stopped_configs first (works for both config-loaded and dynamic)
+            if let Some((config, source)) = state.stopped_configs.remove(id) {
+                drop(state);
                 return self.connect_server(config, source).await;
             }
         }
@@ -1750,8 +1742,8 @@ impl McpClientManager {
     pub async fn restart_server(&self, id: &str) -> Result<Vec<String>> {
         // Set Restarting status before stop
         {
-            let mut servers = self.servers.write().await;
-            if let Some(handle) = servers.get_mut(id) {
+            let mut state = self.state.write().await;
+            if let Some(handle) = state.servers.get_mut(id) {
                 handle.status = ServerStatus::Restarting;
             }
         }
@@ -1774,8 +1766,8 @@ impl McpClientManager {
 
     /// Get a server's in-memory environment variables (from config or runtime).
     pub async fn get_server_env(&self, id: &str) -> HashMap<String, String> {
-        let servers = self.servers.read().await;
-        servers
+        let state = self.state.read().await;
+        state.servers
             .get(id)
             .map(|h| h.config.env.clone())
             .unwrap_or_default()
@@ -1788,8 +1780,8 @@ impl McpClientManager {
 
         // Update in-memory config
         {
-            let mut servers = self.servers.write().await;
-            if let Some(handle) = servers.get_mut(id) {
+            let mut state = self.state.write().await;
+            if let Some(handle) = state.servers.get_mut(id) {
                 handle.config.env = env;
             }
         }
@@ -1802,12 +1794,9 @@ impl McpClientManager {
     /// Look up the kernel-side validator name for a given tool.
     /// Returns `Some("sandbox")` if the tool has a sandbox validator configured, etc.
     pub async fn get_tool_validator(&self, tool_name: &str) -> Option<String> {
-        let server_id = {
-            let index = self.tool_index.read().await;
-            index.get(tool_name).cloned()
-        }?;
-        let servers = self.servers.read().await;
-        let handle = servers.get(&server_id)?;
+        let state = self.state.read().await;
+        let server_id = state.tool_index.get(tool_name)?;
+        let handle = state.servers.get(server_id)?;
         handle.config.tool_validators.get(tool_name).cloned()
     }
 

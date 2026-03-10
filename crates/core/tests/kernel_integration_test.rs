@@ -45,12 +45,12 @@ async fn test_panic_isolation() {
     let (normal_plugin, received_events) = create_mock_plugin(id_normal);
 
     {
-        let mut plugins = registry.plugins.write().await;
-        plugins.insert(
+        let mut state = registry.state.write().await;
+        state.plugins.insert(
             "panic".into(),
             create_panicking_plugin(id_panic) as Arc<dyn cloto_shared::Plugin>,
         );
-        plugins.insert(
+        state.plugins.insert(
             "normal".into(),
             normal_plugin as Arc<dyn cloto_shared::Plugin>,
         );

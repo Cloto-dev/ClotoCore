@@ -19,8 +19,8 @@ async fn test_concurrent_event_dispatch_100() {
     for i in 0..5 {
         let id = ClotoId::new();
         let (plugin, _) = create_mock_plugin(id);
-        let mut plugins = registry.plugins.write().await;
-        plugins.insert(
+        let mut state = registry.state.write().await;
+        state.plugins.insert(
             format!("mock_{}", i),
             plugin as Arc<dyn cloto_shared::Plugin>,
         );
@@ -62,8 +62,8 @@ async fn test_event_depth_limit_prevents_infinite_loop() {
     let (plugin, received) = create_mock_plugin(id);
 
     {
-        let mut plugins = registry.plugins.write().await;
-        plugins.insert("mock".into(), plugin as Arc<dyn cloto_shared::Plugin>);
+        let mut state = registry.state.write().await;
+        state.plugins.insert("mock".into(), plugin as Arc<dyn cloto_shared::Plugin>);
     }
 
     let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<EnvelopedEvent>(10);
