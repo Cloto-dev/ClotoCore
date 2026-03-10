@@ -68,6 +68,12 @@ pub struct AppConfig {
     /// Default memory plugin ID for DB config initialization.
     /// Overridable via CLOTO_MEMORY_PLUGIN_ID env var.
     pub memory_plugin_id: String,
+    /// Default API host whitelist for SafeHttpClient.
+    /// Overridable via CLOTO_ALLOWED_API_HOSTS env var (comma-separated).
+    pub default_allowed_api_hosts: Vec<String>,
+    /// LLM provider-to-env-var mappings for API key sync.
+    /// Overridable via CLOTO_LLM_ENV_MAPPINGS env var (format: "provider:ENV_VAR,...").
+    pub llm_provider_env_mappings: Vec<(String, String)>,
 }
 
 impl AppConfig {
@@ -178,8 +184,8 @@ impl AppConfig {
                 .collect()
         };
 
-        let consensus_engines_str = env::var("CONSENSUS_ENGINES")
-            .unwrap_or_else(|_| "mind.deepseek,mind.cerebras".to_string());
+        // P1: Default empty — consensus engines are configured per-deployment, not hard-coded
+        let consensus_engines_str = env::var("CONSENSUS_ENGINES").unwrap_or_default();
         let consensus_engines = consensus_engines_str
             .split(',')
             .map(|s| s.trim().to_string())
@@ -389,6 +395,37 @@ impl AppConfig {
         let memory_plugin_id = env::var("CLOTO_MEMORY_PLUGIN_ID")
             .unwrap_or_else(|_| "memory.cpersona".to_string());
 
+        // P1: Configurable API host whitelist (default providers included for compatibility)
+        let default_allowed_api_hosts = env::var("CLOTO_ALLOWED_API_HOSTS")
+            .map(|s| s.split(',').map(|h| h.trim().to_string()).collect())
+            .unwrap_or_else(|_| vec![
+                "api.deepseek.com".to_string(),
+                "api.cerebras.ai".to_string(),
+                "api.openai.com".to_string(),
+                "api.anthropic.com".to_string(),
+            ]);
+
+        // P1: Configurable LLM provider-to-env-var mappings
+        let llm_provider_env_mappings = env::var("CLOTO_LLM_ENV_MAPPINGS")
+            .map(|s| {
+                s.split(',')
+                    .filter_map(|pair| {
+                        let parts: Vec<&str> = pair.trim().splitn(2, ':').collect();
+                        if parts.len() == 2 {
+                            Some((parts[0].to_string(), parts[1].to_string()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_else(|_| vec![
+                ("deepseek".to_string(), "DEEPSEEK_API_KEY".to_string()),
+                ("cerebras".to_string(), "CEREBRAS_API_KEY".to_string()),
+                ("claude".to_string(), "CLAUDE_API_KEY".to_string()),
+                ("ollama".to_string(), "OLLAMA_API_KEY".to_string()),
+            ]);
+
         Ok(Self {
             database_url,
             port,
@@ -424,6 +461,8 @@ impl AppConfig {
             attachment_inline_threshold,
             cron_default_max_iterations,
             memory_plugin_id,
+            default_allowed_api_hosts,
+            llm_provider_env_mappings,
         })
     }
 }
@@ -463,10 +502,8 @@ mod tests {
         let _guard = EnvGuard("CONSENSUS_ENGINES");
 
         let config = AppConfig::load().unwrap();
-        assert_eq!(
-            config.consensus_engines,
-            vec!["mind.deepseek", "mind.cerebras"]
-        );
+        // P1: Default is empty (no hard-coded engines)
+        assert!(config.consensus_engines.is_empty());
     }
 
     #[test]
