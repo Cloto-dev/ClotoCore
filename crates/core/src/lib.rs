@@ -919,8 +919,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 ]),
         );
 
-    let listener =
-        tokio::net::TcpListener::bind(format!("{}:{}", config.bind_address, config.port)).await?;
+    let bind_addr: std::net::SocketAddr =
+        format!("{}:{}", config.bind_address, config.port).parse()?;
+    let listener = bind_with_retry(bind_addr, 5, std::time::Duration::from_secs(2)).await?;
     info!(
         "🚀 Cloto System Kernel is listening on http://{}:{}",
         config.bind_address, config.port
@@ -937,6 +938,37 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     })
     .await?;
     Ok(())
+}
+
+/// Bind a TCP listener with retry logic for port conflicts (e.g., previous process
+/// still holding the port in CLOSE_WAIT/TIME_WAIT state during `tauri dev` restarts).
+async fn bind_with_retry(
+    addr: std::net::SocketAddr,
+    max_retries: u32,
+    delay: std::time::Duration,
+) -> anyhow::Result<tokio::net::TcpListener> {
+    for attempt in 0..=max_retries {
+        let socket = tokio::net::TcpSocket::new_v4()?;
+        socket.set_reuseaddr(true)?;
+        match socket.bind(addr) {
+            Ok(()) => match socket.listen(1024) {
+                Ok(listener) => return Ok(listener),
+                Err(e) if attempt < max_retries => {
+                    tracing::warn!("Port {} listen failed (attempt {}/{}): {}. Retrying in {:?}...",
+                        addr.port(), attempt + 1, max_retries, e, delay);
+                    tokio::time::sleep(delay).await;
+                }
+                Err(e) => return Err(e.into()),
+            },
+            Err(e) if attempt < max_retries => {
+                tracing::warn!("Port {} bind failed (attempt {}/{}): {}. Retrying in {:?}...",
+                    addr.port(), attempt + 1, max_retries, e, delay);
+                tokio::time::sleep(delay).await;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+    unreachable!()
 }
 
 use axum::extract::State;

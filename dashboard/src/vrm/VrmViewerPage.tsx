@@ -49,9 +49,13 @@ export function VrmViewerPage() {
         } else if (channel === 'viseme_correction') {
           controllerRef.current?.playVisemes((data.entries as Array<{ viseme: string; start_ms: number; duration_ms: number }>) ?? []);
         } else if (channel === 'avatar_speech_play') {
-          const audioUrl = `${API_BASE}${data.audio_url as string}`;
           const timeline = (data.viseme_timeline as Array<{ viseme: string; start_ms: number; duration_ms: number }>) ?? [];
-          controllerRef.current?.playSpeech(audioUrl, timeline);
+          if (data.audio_data) {
+            controllerRef.current?.playSpeechData(data.audio_data as string, timeline);
+          } else if (data.audio_url) {
+            const audioUrl = `${API_BASE}${data.audio_url as string}`;
+            controllerRef.current?.playSpeech(audioUrl, timeline);
+          }
         }
       }
 

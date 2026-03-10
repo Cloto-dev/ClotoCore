@@ -41,12 +41,14 @@ pub struct JsonRpcNotification {
 }
 
 /// Unified Server→Client message parser.
-/// Tries Response first (has `id`), then Notification (has `method`).
+/// Tries Notification first (requires `method` field), then Response (all-Optional fields).
+/// Order matters: `#[serde(untagged)]` tries variants in order, and Response's all-Optional
+/// fields would greedily match notification JSON if tried first (silently swallowing notifications).
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum JsonRpcMessage {
-    Response(JsonRpcResponse),
     Notification(JsonRpcNotification),
+    Response(JsonRpcResponse),
 }
 
 impl JsonRpcRequest {

@@ -333,7 +333,9 @@ fn execute_speak(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), Stri
 
     let client = voicevox();
     let (wav_bytes, viseme_timeline, total_duration_ms) = client.synthesize(text, speaker, speed)?;
-    let (abs_path, filename) = client.save_wav(&wav_bytes)?;
+
+    // Encode WAV → OGG/Opus → base64 for inline delivery (no disk I/O, no HTTP round-trip)
+    let audio_base64 = crate::voicevox::wav_to_opus_base64(&wav_bytes)?;
 
     let actual_speaker = speaker.unwrap_or_else(|| client.current_speaker.load(Ordering::Relaxed));
 
@@ -343,7 +345,8 @@ fn execute_speak(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), Stri
             "channel": "avatar_speech_play",
             "data": {
                 "agent_id": agent_id,
-                "audio_url": format!("/api/speech/{filename}"),
+                "audio_data": audio_base64,
+                "audio_mime": "audio/ogg; codecs=opus",
                 "viseme_timeline": viseme_timeline,
                 "total_duration_ms": total_duration_ms.round() as i64,
                 "speaker": actual_speaker,
@@ -359,7 +362,7 @@ fn execute_speak(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), Stri
         }]
     });
 
-    tracing::info!("speak: text={}, speaker={}, duration={:.0}ms, path={}", text, actual_speaker, total_duration_ms, abs_path);
+    tracing::info!("speak: text={}, speaker={}, duration={:.0}ms, opus_base64_len={}", text, actual_speaker, total_duration_ms, audio_base64.len());
 
     Ok((result, vec![notif]))
 }

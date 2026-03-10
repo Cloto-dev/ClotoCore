@@ -145,6 +145,10 @@ impl StdioTransport {
             cmd.env(key, resolved);
         }
 
+        // Always inject the actual LLM proxy port so MCP servers can
+        // discover it at runtime (supplements config-level env vars).
+        cmd.env("CLOTO_LLM_PROXY_PORT", llm_proxy_port.to_string());
+
         // Apply OS-level isolation (Phase 1: environment-based soft isolation).
         if let Some(profile) = isolation {
             // Create sandbox directory if it doesn't exist.
