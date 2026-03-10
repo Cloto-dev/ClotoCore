@@ -86,7 +86,8 @@ export function VrmViewerPage() {
       case 'AgenticLoopCompleted':
         clearIdleTimeout();
         setAgentState('idle');
-        controllerRef.current?.stopVisemes();
+        // Don't kill active speech audio — only stop text-based visemes
+        controllerRef.current?.stopVisemesSafe();
         break;
     }
   }, apiKey);
