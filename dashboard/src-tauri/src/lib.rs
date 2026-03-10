@@ -210,6 +210,14 @@ pub fn run() {
     std::env::set_var("CORS_ORIGINS", combined);
 
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app_handle, _argv, _cwd| {
+            // Second instance detected: bring existing window to front
+            if let Some(window) = app_handle.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
