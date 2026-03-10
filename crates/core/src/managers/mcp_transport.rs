@@ -28,8 +28,35 @@ fn resolve_python_command(command: &str) -> (String, bool) {
     (command.to_string(), false)
 }
 
+/// Check if command is a workspace-internal Rust binary (e.g. target/debug/mgp-avatar).
+/// Handles both relative paths ("target/debug/mgp-avatar") and absolute paths
+/// resolved by the config loader.
+fn is_workspace_binary(command: &str) -> bool {
+    let normalized = command.replace('\\', "/");
+    if normalized.contains("..") {
+        return false;
+    }
+    // Relative path form
+    if normalized.starts_with("target/debug/mgp-") || normalized.starts_with("target/release/mgp-") {
+        return true;
+    }
+    // Absolute path form (resolved by config loader)
+    if let Some(idx) = normalized.find("/target/debug/mgp-") {
+        return idx > 0;
+    }
+    if let Some(idx) = normalized.find("/target/release/mgp-") {
+        return idx > 0;
+    }
+    false
+}
+
 /// Validate command against whitelist (bare command names only, no paths)
 pub fn validate_command(command: &str) -> Result<String> {
+    // Allow workspace-internal Rust binaries (target/{debug,release}/mgp-*)
+    if is_workspace_binary(command) {
+        return Ok(command.to_string());
+    }
+
     if command.contains('/') || command.contains('\\') {
         bail!(
             "Command must not contain path separators: '{}'. Use bare command names only.",
@@ -52,6 +79,14 @@ pub struct StdioTransport {
     child: Child,
     request_tx: mpsc::Sender<String>,
     response_rx: mpsc::Receiver<String>,
+}
+
+impl Drop for StdioTransport {
+    fn drop(&mut self) {
+        // P9: Ensure child process is killed on transport drop
+        let _ = self.child.start_kill();
+        debug!("StdioTransport dropped — child process kill signal sent");
+    }
 }
 
 impl StdioTransport {
@@ -205,6 +240,20 @@ mod tests {
         assert!(validate_command("/usr/bin/node").is_err());
         assert!(validate_command("../../../bin/node").is_err());
         assert!(validate_command("C:\\Windows\\node").is_err());
+    }
+
+    #[test]
+    fn test_validate_command_allows_workspace_binaries() {
+        // Relative paths
+        assert!(validate_command("target/debug/mgp-avatar").is_ok());
+        assert!(validate_command("target/release/mgp-avatar").is_ok());
+        // Absolute paths (resolved by config loader)
+        assert!(validate_command("C:\\Users\\Dev\\project\\target\\debug\\mgp-avatar").is_ok());
+        assert!(validate_command("/home/user/project/target/debug/mgp-avatar").is_ok());
+        // Reject traversal attempts
+        assert!(validate_command("target/debug/../../../bin/sh").is_err());
+        // Reject non-mgp binaries
+        assert!(validate_command("target/debug/malicious").is_err());
     }
 
     #[test]
