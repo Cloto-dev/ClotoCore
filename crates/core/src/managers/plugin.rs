@@ -193,8 +193,8 @@ impl PluginManager {
 
         // Update in-memory effective permissions
         let plugin_cloto_id = cloto_shared::ClotoId::from_name(plugin_id);
-        let mut perms_lock = registry.effective_permissions.write().await;
-        if let Some(p) = perms_lock.get_mut(&plugin_cloto_id) {
+        let mut reg_state = registry.state.write().await;
+        if let Some(p) = reg_state.effective_permissions.get_mut(&plugin_cloto_id) {
             p.retain(|x| x != permission);
         }
         Ok(())

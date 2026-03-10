@@ -108,8 +108,8 @@ pub(super) async fn emit_lifecycle_notification(
     to: &str,
     reason: &str,
 ) {
-    let servers = manager.servers.read().await;
-    for handle in servers.values() {
+    let state = manager.state.read().await;
+    for handle in state.servers.values() {
         if !handle.status.is_operational() {
             continue;
         }

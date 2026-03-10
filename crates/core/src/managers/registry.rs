@@ -14,9 +14,14 @@ pub struct PluginSetting {
     pub allowed_permissions: sqlx::types::Json<Vec<Permission>>,
 }
 
+/// G1.3: Unified registry state — single RwLock avoids fragmented locking.
+pub struct RegistryState {
+    pub plugins: HashMap<String, Arc<dyn Plugin>>,
+    pub effective_permissions: HashMap<ClotoId, Vec<Permission>>,
+}
+
 pub struct PluginRegistry {
-    pub plugins: tokio::sync::RwLock<HashMap<String, Arc<dyn Plugin>>>,
-    pub effective_permissions: tokio::sync::RwLock<HashMap<ClotoId, Vec<Permission>>>,
+    pub state: tokio::sync::RwLock<RegistryState>,
     pub event_timeout_secs: u64,
     pub max_event_depth: u8,
     pub event_semaphore: Arc<tokio::sync::Semaphore>,
@@ -66,8 +71,10 @@ impl PluginRegistry {
         event_concurrency_limit: usize,
     ) -> Self {
         Self {
-            plugins: tokio::sync::RwLock::new(HashMap::new()),
-            effective_permissions: tokio::sync::RwLock::new(HashMap::new()),
+            state: tokio::sync::RwLock::new(RegistryState {
+                plugins: HashMap::new(),
+                effective_permissions: HashMap::new(),
+            }),
             event_timeout_secs,
             max_event_depth,
             event_semaphore: Arc::new(tokio::sync::Semaphore::new(event_concurrency_limit)),
@@ -88,26 +95,26 @@ impl PluginRegistry {
     }
 
     pub async fn update_effective_permissions(&self, plugin_id: ClotoId, permission: Permission) {
-        let mut perms_lock = self.effective_permissions.write().await;
-        let perms = perms_lock.entry(plugin_id).or_default();
+        let mut state = self.state.write().await;
+        let perms = state.effective_permissions.entry(plugin_id).or_default();
         if !perms.contains(&permission) {
             perms.push(permission);
         }
     }
 
     pub async fn list_plugins(&self) -> Vec<PluginManifest> {
-        let plugins = self.plugins.read().await;
-        plugins.values().map(|p| p.manifest()).collect()
+        let state = self.state.read().await;
+        state.plugins.values().map(|p| p.manifest()).collect()
     }
 
     pub async fn get_engine(&self, id: &str) -> Option<Arc<dyn Plugin>> {
-        let plugins = self.plugins.read().await;
-        plugins.get(id).cloned()
+        let state = self.state.read().await;
+        state.plugins.get(id).cloned()
     }
 
     pub async fn find_memory(&self) -> Option<Arc<dyn Plugin>> {
-        let plugins = self.plugins.read().await;
-        for plugin in plugins.values() {
+        let state = self.state.read().await;
+        for plugin in state.plugins.values() {
             if plugin.as_memory().is_some() {
                 return Some(plugin.clone());
             }
@@ -118,8 +125,8 @@ impl PluginRegistry {
     /// Collect tool schemas from all active Tool plugins + MCP servers (OpenAI function calling format).
     pub async fn collect_tool_schemas(&self) -> Vec<serde_json::Value> {
         let mut schemas: Vec<serde_json::Value> = {
-            let plugins = self.plugins.read().await;
-            plugins
+            let state = self.state.read().await;
+            state.plugins
                 .values()
                 .filter_map(|p| Some(rust_tool_schema(p.as_tool()?)))
                 .collect()
@@ -139,8 +146,8 @@ impl PluginRegistry {
         allowed_plugin_ids: &[String],
     ) -> Vec<serde_json::Value> {
         let mut schemas: Vec<serde_json::Value> = {
-            let plugins = self.plugins.read().await;
-            plugins
+            let state = self.state.read().await;
+            state.plugins
                 .iter()
                 .filter_map(|(id, p)| {
                     if !allowed_plugin_ids.contains(id) {
@@ -170,8 +177,8 @@ impl PluginRegistry {
     ) -> anyhow::Result<serde_json::Value> {
         // 1. Try Rust plugins first
         let tool_plugin = {
-            let plugins = self.plugins.read().await;
-            plugins.values().find_map(|p| {
+            let state = self.state.read().await;
+            state.plugins.values().find_map(|p| {
                 let tool = p.as_tool()?;
                 if tool.name() == tool_name {
                     Some(p.clone())
@@ -204,8 +211,8 @@ impl PluginRegistry {
     ) -> anyhow::Result<serde_json::Value> {
         // 1. Try Rust plugins first
         let tool_plugin = {
-            let plugins = self.plugins.read().await;
-            plugins.iter().find_map(|(id, p)| {
+            let state = self.state.read().await;
+            state.plugins.iter().find_map(|(id, p)| {
                 if !allowed_plugin_ids.contains(id) {
                     return None;
                 }
@@ -253,8 +260,8 @@ impl PluginRegistry {
         agent_id: &str,
     ) -> Vec<serde_json::Value> {
         let mut schemas: Vec<serde_json::Value> = {
-            let plugins = self.plugins.read().await;
-            plugins
+            let state = self.state.read().await;
+            state.plugins
                 .iter()
                 .filter_map(|(id, p)| {
                     if !allowed_plugin_ids.contains(id) {
@@ -285,8 +292,8 @@ impl PluginRegistry {
     ) -> anyhow::Result<serde_json::Value> {
         // 1. Try Rust plugins first (same gate as execute_tool_for)
         let tool_plugin = {
-            let plugins = self.plugins.read().await;
-            plugins.iter().find_map(|(id, p)| {
+            let state = self.state.read().await;
+            state.plugins.iter().find_map(|(id, p)| {
                 if !allowed_plugin_ids.contains(id) {
                     return None;
                 }
@@ -360,13 +367,13 @@ impl PluginRegistry {
             return;
         }
 
-        let plugins = self.plugins.read().await;
+        let state = self.state.read().await;
 
         use futures::stream::{FuturesUnordered, StreamExt};
         use futures::FutureExt;
         let mut futures = FuturesUnordered::new();
 
-        for (id, plugin) in plugins.iter() {
+        for (id, plugin) in state.plugins.iter() {
             let plugin = plugin.clone();
             let event = event.clone();
             let id = id.clone();
@@ -395,7 +402,7 @@ impl PluginRegistry {
         }
 
         // ロックを早めに解放
-        drop(plugins);
+        drop(state);
 
         // 完了した順に結果を処理
         while let Some(join_result) = futures.next().await {

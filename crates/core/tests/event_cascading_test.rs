@@ -82,15 +82,15 @@ async fn test_event_cascading_protection() {
     let id_b = "plugin.b".to_string();
 
     {
-        let mut plugins = registry.plugins.write().await;
-        plugins.insert(
+        let mut state = registry.state.write().await;
+        state.plugins.insert(
             id_a.clone(),
             Arc::new(PingPlugin {
                 id: id_a.clone(),
                 target_id: id_b.clone(),
             }),
         );
-        plugins.insert(
+        state.plugins.insert(
             id_b.clone(),
             Arc::new(PingPlugin {
                 id: id_b.clone(),
