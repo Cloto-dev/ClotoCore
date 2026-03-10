@@ -54,7 +54,7 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
         metrics,
         rate_limiter,
         shutdown,
-        revoked_keys: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
+        revoked_keys: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
         pending_command_approvals: Arc::new(dashmap::DashMap::new()),
         session_trusted_commands: Arc::new(dashmap::DashMap::new()),
         active_cron_contexts: Arc::new(dashmap::DashMap::new()),

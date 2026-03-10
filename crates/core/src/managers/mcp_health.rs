@@ -43,8 +43,8 @@ pub(super) fn spawn_health_monitor(
 /// (process exited / channel closed) if their restart policy allows it.
 async fn check_and_restart_dead_servers(manager: &McpClientManager) {
     let dead_servers: Vec<(String, ServerStatus, RestartPolicy)> = {
-        let servers = manager.servers.read().await;
-        servers
+        let state = manager.state.read().await;
+        state.servers
             .iter()
             .filter_map(|(id, handle)| {
                 let policy = handle.config.effective_restart_policy();
@@ -108,8 +108,8 @@ async fn check_and_restart_dead_servers(manager: &McpClientManager) {
                     error = %e,
                     "MCP server auto-restart failed"
                 );
-                let mut servers = manager.servers.write().await;
-                if let Some(handle) = servers.get_mut(&server_id) {
+                let mut state = manager.state.write().await;
+                if let Some(handle) = state.servers.get_mut(&server_id) {
                     handle.status = ServerStatus::Error(format!("Auto-restart failed: {}", e));
                 }
 

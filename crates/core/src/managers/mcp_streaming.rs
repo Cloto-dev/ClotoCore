@@ -82,8 +82,8 @@ pub(super) async fn cancel_stream(
     request_id: i64,
     reason: &str,
 ) -> Result<serde_json::Value> {
-    let servers = manager.servers.read().await;
-    let handle = servers
+    let state = manager.state.read().await;
+    let handle = state.servers
         .get(server_id)
         .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", server_id))?;
     let client = handle
@@ -108,8 +108,8 @@ pub(super) async fn send_gap_notification(
     request_id: i64,
     missing_indices: Vec<u32>,
 ) -> Result<()> {
-    let servers = manager.servers.read().await;
-    let handle = servers
+    let state = manager.state.read().await;
+    let handle = state.servers
         .get(server_id)
         .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", server_id))?;
     let client = handle
@@ -137,8 +137,8 @@ pub(super) async fn send_pace(
     max_chunks_per_second: u32,
     reason: Option<&str>,
 ) -> Result<()> {
-    let servers = manager.servers.read().await;
-    let handle = servers
+    let state = manager.state.read().await;
+    let handle = state.servers
         .get(server_id)
         .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", server_id))?;
     if !handle.status.is_operational() {

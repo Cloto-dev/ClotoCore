@@ -334,8 +334,8 @@ impl EventProcessor {
                         .update_effective_permissions(cloto_id, permission.clone())
                         .await;
 
-                    let plugins = self.registry.plugins.read().await;
-                    if let Some(plugin) = plugins.get(plugin_id) {
+                    let reg_state = self.registry.state.read().await;
+                    if let Some(plugin) = reg_state.plugins.get(plugin_id) {
                         if let Some(cap) = self
                             .plugin_manager
                             .get_capability_for_permission(permission)
@@ -350,7 +350,7 @@ impl EventProcessor {
                             });
                         }
                     }
-                    drop(plugins);
+                    drop(reg_state);
                 }
                 cloto_shared::ClotoEventData::AgentPowerChanged {
                     ref agent_id,
@@ -419,8 +419,8 @@ impl EventProcessor {
     }
 
     async fn authorize(&self, requester_id: &cloto_shared::ClotoId, required: Permission) -> bool {
-        let perms_lock = self.registry.effective_permissions.read().await;
-        if let Some(perms) = perms_lock.get(requester_id) {
+        let state = self.registry.state.read().await;
+        if let Some(perms) = state.effective_permissions.get(requester_id) {
             return perms.contains(&required);
         }
         false

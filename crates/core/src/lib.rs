@@ -88,7 +88,7 @@ pub struct AppState {
     pub shutdown: Arc<Notify>,
     /// In-memory cache of revoked API key hashes (SHA-256 fingerprints).
     /// Loaded from DB at startup; updated on POST /api/system/invalidate-key.
-    pub revoked_keys: Arc<std::sync::RwLock<std::collections::HashSet<String>>>,
+    pub revoked_keys: Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>,
     /// Pending command approval requests (kernel ↔ API handler bridge).
     pub pending_command_approvals: handlers::command_approval::PendingApprovals,
     /// Session-scoped trusted command names (cleared on restart).
@@ -461,7 +461,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             }
             Err(e) => tracing::warn!(error = %e, "Failed to load revoked key hashes"),
         }
-        Arc::new(std::sync::RwLock::new(set))
+        Arc::new(tokio::sync::RwLock::new(set))
     };
 
     let app_state = Arc::new(AppState {
@@ -589,8 +589,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                                     } => {
                                         let mgr = notif_mcp_manager.clone();
                                         tokio::spawn(async move {
-                                            let servers = mgr.servers.read().await;
-                                            if let Some(handle) = servers.get(&server_id) {
+                                            let state = mgr.state.read().await;
+                                            if let Some(handle) = state.servers.get(&server_id) {
                                                 if let Some(client) = &handle.client {
                                                     let params = serde_json::json!({
                                                         "callback_id": callback_id,
@@ -729,7 +729,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                     _ = interval.tick() => {
                         match db::cleanup_revoked_keys(&pool_clone, 90).await {
                             Ok(remaining) => {
-                                if let Ok(mut cache) = revoked_keys_clone.write() {
+                                {
+                                    let mut cache = revoked_keys_clone.write().await;
                                     cache.clear();
                                     cache.extend(remaining);
                                 }
