@@ -1475,8 +1475,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/handlers.rs",
       "pattern": "\"memory\\.cpersona\"",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-274",
@@ -1487,8 +1487,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/handlers.rs",
       "pattern": "fn parse_cpersona_result",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-275",
@@ -1499,8 +1499,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/handlers/agents.rs",
       "pattern": "\"vision\\.capture\"",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-276",
@@ -1511,8 +1511,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/handlers/system.rs",
       "pattern": "\"vision\\.capture\"",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-277",
@@ -1535,8 +1535,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/db/mod.rs",
       "pattern": "'memory\\.cpersona'",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-279",
@@ -1595,8 +1595,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/managers/mcp.rs",
       "pattern": "fn find_memory_server",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-284",

@@ -4,6 +4,9 @@ use tracing::error;
 
 use cloto_shared::{ClotoId, Permission, Plugin, PluginManifest};
 
+/// Kernel-native tools that bypass MCP access control (handled directly by execute_tool).
+const KERNEL_NATIVE_TOOLS: &[&str] = &["create_mcp_server", "ask_agent"];
+
 #[derive(sqlx::FromRow, Debug)]
 pub struct PluginSetting {
     pub plugin_id: String,
@@ -75,6 +78,13 @@ impl PluginRegistry {
     /// Set the MCP Client Manager for dual dispatch.
     pub fn set_mcp_manager(&mut self, mcp_manager: Arc<super::McpClientManager>) {
         self.mcp_manager = Some(mcp_manager);
+    }
+
+    /// Check if a tool name belongs to the kernel-native tool set.
+    /// These tools are handled directly by execute_tool() without access control lookup.
+    fn is_kernel_native_tool(tool_name: &str) -> bool {
+        tool_name.starts_with("mgp.") || tool_name.starts_with("gui.")
+            || KERNEL_NATIVE_TOOLS.contains(&tool_name)
     }
 
     pub async fn update_effective_permissions(&self, plugin_id: ClotoId, permission: Permission) {
@@ -296,9 +306,9 @@ impl PluginRegistry {
 
         // 2. MCP servers: check access via resolve_tool_access, then execute
         if let Some(ref mcp) = self.mcp_manager {
-            // Kernel-native tools (mgp.*, gui.*, create_mcp_server, ask_agent) are not in tool_index,
+            // Kernel-native tools are not in tool_index,
             // so bypass access check and let execute_tool() handle them directly.
-            if tool_name.starts_with("mgp.") || tool_name.starts_with("gui.") || tool_name == "create_mcp_server" || tool_name == "ask_agent" {
+            if Self::is_kernel_native_tool(tool_name) {
                 return mcp.execute_tool(tool_name, args).await;
             }
 

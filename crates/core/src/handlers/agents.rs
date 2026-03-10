@@ -470,7 +470,7 @@ pub async fn upload_avatar(
     }))
 }
 
-/// Analyze avatar image via vision.capture MCP server.
+/// Analyze avatar image via Vision capability MCP server.
 /// Returns None if vision server is unavailable or analysis fails.
 async fn analyze_avatar(state: &AppState, avatar_path: &str) -> Option<String> {
     let abs_path = std::env::current_dir()
@@ -488,7 +488,7 @@ async fn analyze_avatar(state: &AppState, avatar_path: &str) -> Option<String> {
 
     match state
         .mcp_manager
-        .call_server_tool("vision.capture", "analyze_image", args)
+        .call_capability_tool(crate::managers::CapabilityType::Vision, "analyze_image", args, None)
         .await
     {
         Ok(result) => {
@@ -670,4 +670,85 @@ pub async fn delete_avatar(
     state.agent_manager.clear_avatar(&id).await?;
 
     ok_data(serde_json::json!({}))
+}
+
+// ── Viseme Generation ──
+
+#[derive(Deserialize)]
+pub struct VisemeRequest {
+    pub text: String,
+}
+
+/// Generate a viseme timeline from text for lip-sync animation.
+///
+/// **Route:** `POST /api/agents/:id/visemes`
+///
+/// # Request Body
+/// ```json
+/// { "text": "こんにちは" }
+/// ```
+///
+/// # Response
+/// ```json
+/// { "data": { "entries": [...], "total_duration_ms": 600 } }
+/// ```
+pub async fn generate_visemes(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(_agent_id): Path<String>,
+    Json(body): Json<VisemeRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let timeline = crate::viseme::generate_timeline(&body.text);
+
+    ok_data(serde_json::json!(timeline))
+}
+
+/// GET /api/speech/:filename — Serve synthesized WAV files from data/speech/.
+pub async fn serve_speech_file(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(filename): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    check_auth(&state, &headers)?;
+
+    // Validate filename: alphanumeric + underscores + dots only, must end with .wav
+    if !filename.ends_with(".wav")
+        || filename.contains("..")
+        || filename.contains('/')
+        || filename.contains('\\')
+        || !filename
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-')
+    {
+        return Err(AppError::Validation("Invalid filename".to_string()));
+    }
+
+    let speech_dir = crate::config::exe_dir().join("data").join("speech");
+    let file_path = speech_dir.join(&filename);
+
+    // Ensure the resolved path is within the speech directory
+    let canonical = file_path
+        .canonicalize()
+        .map_err(|_| AppError::Validation("File not found".to_string()))?;
+    let canonical_dir = speech_dir
+        .canonicalize()
+        .map_err(|_| AppError::Validation("Speech directory not found".to_string()))?;
+    if !canonical.starts_with(&canonical_dir) {
+        return Err(AppError::Validation("Access denied".to_string()));
+    }
+
+    let data = tokio::fs::read(&canonical)
+        .await
+        .map_err(|_| AppError::Validation("File not found".to_string()))?;
+
+    Ok((
+        StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, "audio/wav"),
+            (axum::http::header::CACHE_CONTROL, "no-cache"),
+        ],
+        data,
+    ))
 }
