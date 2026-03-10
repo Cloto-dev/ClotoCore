@@ -69,6 +69,11 @@ export class VisemePlayer {
     return this.playing;
   }
 
+  /** Returns true if playback is driven by an external audio clock. */
+  isSynced(): boolean {
+    return this.externalClock;
+  }
+
   /** Call every frame to apply current viseme weights to VRM expressions. */
   update(vrm: VRM, _deltaTime: number) {
     const expr = vrm.expressionManager;
