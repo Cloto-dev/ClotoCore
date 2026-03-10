@@ -216,7 +216,7 @@ pub async fn grant_permission_handler(
     // イベントループに通知して Capability を注入させる
     let envelope = crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::PermissionGranted {
         plugin_id: id.clone(),
-        permission: payload.permission.clone(),
+        permission: payload.permission.to_string(),
     });
     let event = envelope.event.clone();
     // H-04: Log send errors instead of silently ignoring

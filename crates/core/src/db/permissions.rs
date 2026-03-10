@@ -107,6 +107,20 @@ pub async fn get_pending_permission_requests(
     Ok(requests)
 }
 
+/// Get a single permission request by ID (for post-approval processing).
+pub async fn get_permission_request(
+    pool: &SqlitePool,
+    request_id: &str,
+) -> anyhow::Result<Option<(String, String)>> {
+    let query_future = sqlx::query_as::<_, (String, String)>(
+        "SELECT plugin_id, permission_type FROM permission_requests WHERE request_id = ?",
+    )
+    .bind(request_id)
+    .fetch_optional(pool);
+
+    Ok(db_timeout(query_future).await?)
+}
+
 /// Update permission request status (approve/deny)
 /// Only transitions from 'pending' status are allowed to prevent double-approval
 pub async fn update_permission_request(

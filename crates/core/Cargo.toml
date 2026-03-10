@@ -31,6 +31,8 @@ chrono = { version = "0.4", features = ["serde"] }
 governor = "0.6"
 dashmap.workspace = true
 sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
 argon2 = "0.5"
 clap = { version = "4", features = ["derive"] }
 rand = "0.8"
@@ -40,11 +42,13 @@ cron = "0.15"
 uuid.workspace = true
 base64 = "0.22"
 unicode-normalization = "0.1"
+lindera = { version = "2.2", features = ["embed-ipadic"] }
 
 [dev-dependencies]
 http = "1.0"
 criterion = { workspace = true }
 tokio-test = "0.4"
+tempfile = "3"
 
 [[bench]]
 name = "event_processing"

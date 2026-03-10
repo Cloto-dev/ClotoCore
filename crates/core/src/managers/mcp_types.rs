@@ -24,6 +24,8 @@ pub struct McpServerHandle {
     pub audit_seq: Arc<AtomicU64>,
     /// Timestamp when the server was connected (for uptime calculation).
     pub connected_at: Option<std::time::Instant>,
+    /// OS-level isolation profile applied at spawn time (immutable after spawn).
+    pub isolation_profile: Option<super::mcp_isolation::IsolationProfile>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]

@@ -470,7 +470,8 @@ pub enum ClotoEventData {
     /// 権限が承認された通知
     PermissionGranted {
         plugin_id: String,
-        permission: Permission,
+        /// MGP permission string (e.g., "shell.execute", "network.outbound").
+        permission: String,
     },
     /// エージェントの電源状態が変更された通知
     AgentPowerChanged {

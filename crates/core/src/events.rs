@@ -325,32 +325,39 @@ impl EventProcessor {
                     info!(
                         trace_id = %trace_id,
                         plugin_id = %plugin_id,
-                        permission = ?permission,
-                        "🔐 Permission GRANTED to plugin"
+                        permission = %permission,
+                        "Permission GRANTED to plugin"
                     );
 
-                    let cloto_id = cloto_shared::ClotoId::from_name(plugin_id);
-                    self.registry
-                        .update_effective_permissions(cloto_id, permission.clone())
-                        .await;
+                    // Try to parse as legacy Permission enum for plugin capability injection.
+                    // MGP permission strings (e.g., "shell.execute") won't parse and are
+                    // handled exclusively by the MCP permission system.
+                    if let Ok(legacy_perm) = serde_json::from_value::<cloto_shared::Permission>(
+                        serde_json::Value::String(permission.clone()),
+                    ) {
+                        let cloto_id = cloto_shared::ClotoId::from_name(plugin_id);
+                        self.registry
+                            .update_effective_permissions(cloto_id, legacy_perm.clone())
+                            .await;
 
-                    let reg_state = self.registry.state.read().await;
-                    if let Some(plugin) = reg_state.plugins.get(plugin_id) {
-                        if let Some(cap) = self
-                            .plugin_manager
-                            .get_capability_for_permission(permission)
-                        {
-                            let plugin_id = plugin_id.clone();
-                            info!(trace_id = %trace_id, plugin_id = %plugin_id, "💉 Injecting capability");
-                            let plugin = plugin.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = plugin.on_capability_injected(cap).await {
-                                    error!(trace_id = %trace_id, plugin_id = %plugin_id, error = %e, "❌ Failed to inject capability");
-                                }
-                            });
+                        let reg_state = self.registry.state.read().await;
+                        if let Some(plugin) = reg_state.plugins.get(plugin_id) {
+                            if let Some(cap) = self
+                                .plugin_manager
+                                .get_capability_for_permission(&legacy_perm)
+                            {
+                                let plugin_id = plugin_id.clone();
+                                info!(trace_id = %trace_id, plugin_id = %plugin_id, "Injecting capability");
+                                let plugin = plugin.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = plugin.on_capability_injected(cap).await {
+                                        error!(trace_id = %trace_id, plugin_id = %plugin_id, error = %e, "Failed to inject capability");
+                                    }
+                                });
+                            }
                         }
+                        drop(reg_state);
                     }
-                    drop(reg_state);
                 }
                 cloto_shared::ClotoEventData::AgentPowerChanged {
                     ref agent_id,

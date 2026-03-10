@@ -6,6 +6,8 @@ use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
+use super::mcp_isolation::{FilesystemScope, IsolationProfile, NetworkScope};
+
 /// Allowed commands for MCP server execution (security whitelist)
 const ALLOWED_COMMANDS: &[&str] = &["npx", "node", "python", "python3", "deno", "bun"];
 
@@ -96,11 +98,22 @@ impl StdioTransport {
         self.request_tx.clone()
     }
 
-    /// Start a new MCP server process with environment variable injection.
+    /// Start a new MCP server process with environment variable injection
+    /// and optional OS-level isolation.
+    ///
+    /// When `isolation` is provided:
+    /// - Working directory is set to the sandbox dir (created if needed).
+    /// - `CLOTO_SANDBOX_DIR`, `HOME`/`TMPDIR`/`TMP`/`TEMP` point into the sandbox.
+    /// - For `NetworkScope::ProxyOnly`: `CLOTO_LLM_PROXY`, `HTTP_PROXY`, `HTTPS_PROXY`
+    ///   are set to the kernel LLM proxy.
+    /// - Sensitive env vars (LLM API keys) are stripped from the child environment.
     pub async fn start(
         command: &str,
         args: &[String],
         env: &HashMap<String, String>,
+        isolation: Option<&IsolationProfile>,
+        llm_proxy_port: u16,
+        sensitive_env_keys: &[String],
     ) -> Result<Self> {
         info!("Starting MCP Server: {} {:?}", command, args);
 
@@ -130,6 +143,48 @@ impl StdioTransport {
         for (key, value) in env {
             let resolved = resolve_env_value(value);
             cmd.env(key, resolved);
+        }
+
+        // Apply OS-level isolation (Phase 1: environment-based soft isolation).
+        if let Some(profile) = isolation {
+            // Create sandbox directory if it doesn't exist.
+            if profile.filesystem_scope != FilesystemScope::Unrestricted {
+                std::fs::create_dir_all(&profile.sandbox_dir).with_context(|| {
+                    format!(
+                        "Failed to create sandbox directory: {}",
+                        profile.sandbox_dir.display()
+                    )
+                })?;
+                cmd.current_dir(&profile.sandbox_dir);
+
+                // Redirect HOME/TMPDIR/TMP/TEMP into the sandbox.
+                let sandbox_str = profile.sandbox_dir.to_string_lossy().to_string();
+                cmd.env("CLOTO_SANDBOX_DIR", &sandbox_str);
+                cmd.env("HOME", &sandbox_str);
+                cmd.env("TMPDIR", &sandbox_str);
+                cmd.env("TMP", &sandbox_str);
+                cmd.env("TEMP", &sandbox_str);
+            }
+
+            // Network isolation: inject proxy env vars for ProxyOnly.
+            if profile.network_scope == NetworkScope::ProxyOnly {
+                let proxy_url = format!("http://127.0.0.1:{llm_proxy_port}");
+                cmd.env("CLOTO_LLM_PROXY", &proxy_url);
+                cmd.env("HTTP_PROXY", &proxy_url);
+                cmd.env("HTTPS_PROXY", &proxy_url);
+            }
+
+            // Strip sensitive environment variables (LLM API keys).
+            for key in sensitive_env_keys {
+                cmd.env_remove(key);
+            }
+
+            debug!(
+                sandbox = ?profile.sandbox_dir,
+                fs = ?profile.filesystem_scope,
+                net = ?profile.network_scope,
+                "Isolation profile applied"
+            );
         }
 
         let mut child = cmd

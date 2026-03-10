@@ -59,6 +59,16 @@ pub struct McpClientManager {
     pub(super) stream_assembler: super::mcp_streaming::StreamAssembler,
     /// Capability-based tool routing (P1 Core Minimalism)
     pub(crate) dispatcher: super::capability_dispatcher::CapabilityDispatcher,
+    /// LLM proxy port for isolation NetworkScope::ProxyOnly (MGP §8-10).
+    llm_proxy_port: u16,
+    /// Env var keys that contain LLM API secrets — stripped from child process env.
+    sensitive_env_keys: Vec<String>,
+    /// Master switch for OS-level isolation (MGP §8-10).
+    isolation_enabled: bool,
+    /// Whether to allow unsigned MCP servers (no Magic Seal check).
+    allow_unsigned: bool,
+    /// Base directory for per-server sandboxes.
+    sandbox_base_dir: std::path::PathBuf,
 }
 
 impl McpClientManager {
@@ -83,7 +93,26 @@ impl McpClientManager {
             stream_assembler: super::mcp_streaming::StreamAssembler::new(),
             dispatcher: super::capability_dispatcher::CapabilityDispatcher::new(),
             kernel_event_tx: Mutex::new(None),
+            llm_proxy_port: 8082,
+            sensitive_env_keys: Vec::new(),
+            isolation_enabled: true,
+            allow_unsigned: true,
+            sandbox_base_dir: std::path::PathBuf::from("data/mcp-sandbox"),
         }
+    }
+
+    /// Configure isolation settings from AppConfig (called once at startup).
+    pub fn configure_isolation(&mut self, config: &crate::config::AppConfig) {
+        self.llm_proxy_port = config.llm_proxy_port;
+        self.isolation_enabled = config.isolation_enabled;
+        self.allow_unsigned = config.allow_unsigned;
+        self.sandbox_base_dir = config.sandbox_base_dir.clone();
+        // Derive sensitive env keys from LLM provider env mappings.
+        self.sensitive_env_keys = config
+            .llm_provider_env_mappings
+            .iter()
+            .map(|(_, env_key)| env_key.clone())
+            .collect();
     }
 
     /// Set the kernel event bus sender (called once after AppState creation).
@@ -95,6 +124,50 @@ impl McpClientManager {
     /// The Kernel event loop uses this to forward MCP notifications to the event bus.
     pub async fn take_notification_receiver(&self) -> Option<mpsc::Receiver<McpNotification>> {
         self.notification_rx.lock().await.take()
+    }
+
+    /// Deliver a permission grant to a connected server (C1: bug-302).
+    ///
+    /// Sends `mgp/permission/grant` RPC and emits `PermissionGranted` event.
+    pub async fn deliver_permission_grant(
+        &self,
+        server_id: &str,
+        permission: &str,
+        approved_by: &str,
+    ) {
+        let state = self.state.read().await;
+        if let Some(handle) = state.servers.get(server_id) {
+            if let Some(ref client) = handle.client {
+                let grant_params = serde_json::json!({
+                    "request_id": format!("perm-{}-{}", server_id, permission),
+                    "grants": {permission: {"granted": true}},
+                    "approved_by": approved_by,
+                });
+                if let Err(e) = client.call("mgp/permission/grant", Some(grant_params)).await {
+                    debug!(
+                        "Failed to send mgp/permission/grant to [{}]: {}",
+                        server_id, e
+                    );
+                } else {
+                    info!(
+                        server = %server_id,
+                        permission = %permission,
+                        "Permission grant delivered to server"
+                    );
+                }
+            }
+        }
+        drop(state);
+
+        // Emit PermissionGranted event
+        if let Some(tx) = self.kernel_event_tx.lock().await.as_ref() {
+            let data = cloto_shared::ClotoEventData::PermissionGranted {
+                plugin_id: server_id.to_string(),
+                permission: permission.to_string(),
+            };
+            let envelope = crate::EnvelopedEvent::system(data);
+            let _ = tx.send(envelope).await;
+        }
     }
 
     /// Load server configs from mcp.toml file (if exists) and connect.
@@ -215,6 +288,7 @@ impl McpClientManager {
                         source: ServerSource::Config,
                         audit_seq: Arc::new(AtomicU64::new(0)),
                         connected_at: None,
+                        isolation_profile: None,
                     });
             }
         }
@@ -266,6 +340,8 @@ impl McpClientManager {
                 display_name: None,
                 mgp: None,
                 restart_policy: None,
+                seal: None,
+                isolation: None,
             };
 
             // Regenerate script file if needed
@@ -309,6 +385,7 @@ impl McpClientManager {
                         source: ServerSource::Dynamic,
                         audit_seq: Arc::new(AtomicU64::new(0)),
                         connected_at: None,
+                        isolation_profile: None,
                     });
             }
         }
@@ -443,6 +520,83 @@ impl McpClientManager {
             }
         }
 
+        // ──── Seal Verification (MGP §8 L0) ────
+        let trust_level = config
+            .mgp
+            .as_ref()
+            .and_then(|m| m.trust_level.as_deref())
+            .map(|s| serde_json::from_value::<super::mcp_mgp::TrustLevel>(
+                serde_json::Value::String(s.to_string()),
+            ))
+            .transpose()
+            .unwrap_or(None)
+            .unwrap_or(super::mcp_mgp::TrustLevel::Standard);
+
+        if let Some(ref seal_value) = config.seal {
+            // Seal is present in config — verify the entry point binary.
+            let entry_point = std::path::Path::new(&config.command);
+            if entry_point.exists() {
+                let seal_key = super::mcp_seal::load_or_generate_seal_key(
+                    &self.sandbox_base_dir.parent().unwrap_or(std::path::Path::new("data")),
+                )?;
+                let status = super::mcp_seal::check_seal(
+                    &trust_level,
+                    Some(seal_value.as_str()),
+                    entry_point,
+                    &seal_key,
+                    self.allow_unsigned,
+                )?;
+                match status {
+                    super::mcp_seal::SealStatus::Verified => {
+                        info!(id = %id, "Magic Seal verified for MCP server");
+                    }
+                    super::mcp_seal::SealStatus::Failed => {
+                        return Err(anyhow::anyhow!(
+                            "MCP server '{}': Magic Seal verification failed — binary may be tampered",
+                            id
+                        ));
+                    }
+                    _ => {}
+                }
+            } else {
+                debug!(id = %id, "Seal configured but entry point is not a file path — skipping seal check");
+            }
+        } else if trust_level == super::mcp_mgp::TrustLevel::Untrusted && !self.allow_unsigned {
+            return Err(anyhow::anyhow!(
+                "MCP server '{}': Untrusted servers require a Magic Seal in production mode",
+                id
+            ));
+        }
+
+        // ──── Isolation Profile Derivation (MGP §8-10) ────
+        let isolation_profile = if self.isolation_enabled {
+            let approved_perms = config.required_permissions.clone();
+            match super::mcp_isolation::derive_isolation_profile(
+                trust_level.clone(),
+                &approved_perms,
+                config.isolation.as_ref(),
+                &id,
+                &self.sandbox_base_dir,
+            ) {
+                Ok(profile) => {
+                    info!(
+                        id = %id,
+                        trust = ?trust_level,
+                        fs = ?profile.filesystem_scope,
+                        net = ?profile.network_scope,
+                        "Isolation profile derived"
+                    );
+                    Some(profile)
+                }
+                Err(e) => {
+                    warn!(id = %id, error = %e, "Failed to derive isolation profile — proceeding without isolation");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         info!(
             "Connecting to MCP server [{}]: {} {:?}",
             id, config.command, config.args
@@ -469,6 +623,9 @@ impl McpClientManager {
                     &config.env,
                     self.notification_tx.clone(),
                     self.mcp_request_timeout_secs,
+                    isolation_profile.as_ref(),
+                    self.llm_proxy_port,
+                    &self.sensitive_env_keys,
                 )
                 .await
                 {
@@ -738,6 +895,7 @@ impl McpClientManager {
             source,
             audit_seq: Arc::new(AtomicU64::new(0)),
             connected_at: Some(std::time::Instant::now()),
+            isolation_profile,
         };
 
         // Register in servers map + update tool routing index under single lock.
@@ -1573,6 +1731,8 @@ impl McpClientManager {
             display_name: None,
             mgp,
             restart_policy: None,
+            seal: None,
+            isolation: None,
         };
 
         let tool_names = self.connect_server(config, ServerSource::Dynamic).await?;
@@ -1772,6 +1932,8 @@ impl McpClientManager {
             display_name: None,
             mgp: None,
             restart_policy: None,
+            seal: None,
+            isolation: None,
         };
 
         self.connect_server(config, ServerSource::Dynamic).await

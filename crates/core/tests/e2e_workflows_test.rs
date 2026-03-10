@@ -90,7 +90,7 @@ async fn test_permission_grant_flow() {
     // Send PermissionGranted event
     let event = Arc::new(ClotoEvent::new(ClotoEventData::PermissionGranted {
         plugin_id: "test.plugin".to_string(),
-        permission: cloto_shared::Permission::NetworkAccess,
+        permission: cloto_shared::Permission::NetworkAccess.to_string(),
     }));
 
     state.tx.send(event.clone()).unwrap();
@@ -108,7 +108,7 @@ async fn test_permission_grant_flow() {
             permission,
         } => {
             assert_eq!(plugin_id, "test.plugin");
-            assert_eq!(permission, &cloto_shared::Permission::NetworkAccess);
+            assert_eq!(permission, &cloto_shared::Permission::NetworkAccess.to_string());
         }
         _ => panic!("Expected PermissionGranted event"),
     }

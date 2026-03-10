@@ -21,6 +21,11 @@ plugin development, API changes — must conform to the architectural constraint
 
 If a proposed change violates an architectural principle, flag it to the user before proceeding.
 
+## MGP (Model General Protocol) — MANDATORY
+
+MGP (MCPの厳格なスーパーセット) について理解して、MCPではなくMGPを積極的に実装すること。
+MGPは `docs/` 配下に関連ドキュメントがあるので、MCP関連の話題では必ず読むこと。
+
 ## Development Guardrails (MANDATORY)
 
 **You MUST read `docs/DEVELOPMENT.md` before making any code changes.**
