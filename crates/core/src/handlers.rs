@@ -186,10 +186,22 @@ pub async fn shutdown_handler(
         error!("Failed to send shutdown notification event: {}", e);
     }
 
-    // Execute shutdown asynchronously (after returning response)
+    // P9: Drain all MCP servers before shutting down
+    let mcp = state.mcp_manager.clone();
     let shutdown = state.shutdown.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // Drain all MCP servers (graceful shutdown with 5s timeout)
+        let server_ids: Vec<String> = {
+            let servers = mcp.servers.read().await;
+            servers.keys().cloned().collect()
+        };
+        for sid in &server_ids {
+            if let Err(e) = mcp.drain_server(sid, "kernel shutdown", 5000).await {
+                tracing::warn!(server = %sid, error = %e, "MCP drain failed during shutdown");
+            }
+        }
 
         // 🚧 Signal maintenance mode (atomic write to prevent symlink attacks)
         let maint = crate::config::exe_dir().join(".maintenance");
