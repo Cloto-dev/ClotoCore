@@ -562,6 +562,13 @@ pub struct AgentMetadata {
     pub default_engine_id: Option<String>,
     pub required_capabilities: Vec<CapabilityType>,
     pub metadata: HashMap<String, String>,
+    /// "agent" (user-created) or "system" (system.* agents). Defaults to "agent".
+    #[serde(default = "default_agent_type")]
+    pub agent_type: String,
+}
+
+fn default_agent_type() -> String {
+    "agent".to_string()
 }
 
 impl AgentMetadata {

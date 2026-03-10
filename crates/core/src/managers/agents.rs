@@ -15,6 +15,7 @@ struct AgentRow {
     required_capabilities: sqlx::types::Json<Vec<cloto_shared::CapabilityType>>,
     metadata: sqlx::types::Json<HashMap<String, String>>,
     power_password_hash: Option<String>,
+    agent_type: String,
 }
 
 #[derive(Clone)]
@@ -55,6 +56,7 @@ impl AgentManager {
             default_engine_id: Some(row.default_engine_id),
             required_capabilities: row.required_capabilities.0,
             metadata: meta,
+            agent_type: row.agent_type,
         };
         agent.resolve_status(self.heartbeat_threshold_ms);
         agent
@@ -66,7 +68,7 @@ impl AgentManager {
     ) -> anyhow::Result<(AgentMetadata, String)> {
         let row: AgentRow = sqlx::query_as(
             "SELECT id, name, description, enabled, last_seen, default_engine_id, \
-             required_capabilities, metadata, power_password_hash FROM agents WHERE id = ?",
+             required_capabilities, metadata, power_password_hash, agent_type FROM agents WHERE id = ?",
         )
         .bind(agent_id)
         .fetch_one(&self.pool)
@@ -80,7 +82,8 @@ impl AgentManager {
     pub async fn list_agents(&self) -> anyhow::Result<Vec<AgentMetadata>> {
         let rows: Vec<AgentRow> = sqlx::query_as(
             "SELECT id, name, description, enabled, last_seen, default_engine_id, \
-             required_capabilities, metadata, power_password_hash FROM agents",
+             required_capabilities, metadata, power_password_hash, agent_type \
+             FROM agents WHERE agent_type = 'agent'",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -137,8 +140,8 @@ impl AgentManager {
 
         sqlx::query(
             "INSERT INTO agents (id, name, description, default_engine_id, status, \
-             enabled, last_seen, metadata, required_capabilities, power_password_hash) \
-             VALUES (?, ?, ?, ?, 'online', 1, ?, ?, ?, ?)",
+             enabled, last_seen, metadata, required_capabilities, power_password_hash, agent_type) \
+             VALUES (?, ?, ?, ?, 'online', 1, ?, ?, ?, ?, 'agent')",
         )
         .bind(&id_str)
         .bind(name)

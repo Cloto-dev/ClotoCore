@@ -1943,8 +1943,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/managers/agents.rs",
       "pattern": "FROM agents\"",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-313",

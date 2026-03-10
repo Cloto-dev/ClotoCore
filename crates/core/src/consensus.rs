@@ -248,6 +248,7 @@ impl ConsensusOrchestrator {
                     default_engine_id: Some(synthesizer.clone()),
                     required_capabilities: vec![],
                     metadata: HashMap::new(),
+                    agent_type: "system".to_string(),
                 };
 
                 Some(
