@@ -65,6 +65,9 @@ pub struct AppConfig {
     pub attachment_inline_threshold: usize,
     /// Default max iterations for cron jobs.
     pub cron_default_max_iterations: u8,
+    /// Default memory plugin ID for DB config initialization.
+    /// Overridable via CLOTO_MEMORY_PLUGIN_ID env var.
+    pub memory_plugin_id: String,
 }
 
 impl AppConfig {
@@ -383,6 +386,9 @@ impl AppConfig {
             );
         }
 
+        let memory_plugin_id = env::var("CLOTO_MEMORY_PLUGIN_ID")
+            .unwrap_or_else(|_| "memory.cpersona".to_string());
+
         Ok(Self {
             database_url,
             port,
@@ -417,6 +423,7 @@ impl AppConfig {
             max_chat_query_limit,
             attachment_inline_threshold,
             cron_default_max_iterations,
+            memory_plugin_id,
         })
     }
 }

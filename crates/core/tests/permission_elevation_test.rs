@@ -75,7 +75,7 @@ impl Plugin for MockPlugin {
 async fn test_dynamic_permission_elevation_flow() {
     // 1. Setup Kernel Components
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    cloto_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
         .await
         .unwrap();
     let registry_raw = PluginRegistry::new(5, 10, 50);

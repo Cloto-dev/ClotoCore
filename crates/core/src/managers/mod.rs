@@ -4,6 +4,7 @@
 //! scheduler, and supporting modules for MCP transport, protocol, and health monitoring.
 
 mod agents;
+pub mod capability_dispatcher;
 pub mod llm_proxy;
 pub mod mcp;
 pub mod mcp_client;
@@ -25,6 +26,7 @@ mod registry;
 pub mod scheduler;
 
 pub use agents::AgentManager;
+pub use capability_dispatcher::{CapabilityDispatcher, CapabilityType};
 pub use mcp::McpClientManager;
 pub use plugin::PluginManager;
 pub use registry::{PluginRegistry, PluginSetting, SystemMetrics};

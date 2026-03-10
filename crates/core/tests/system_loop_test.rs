@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 #[tokio::test]
 async fn test_system_handler_loop_prevention() {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    cloto_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
         .await
         .unwrap();
 

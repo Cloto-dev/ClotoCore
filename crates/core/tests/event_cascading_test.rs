@@ -70,7 +70,7 @@ impl Plugin for PingPlugin {
 #[tokio::test]
 async fn test_event_cascading_protection() {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    cloto_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
         .await
         .unwrap();
 

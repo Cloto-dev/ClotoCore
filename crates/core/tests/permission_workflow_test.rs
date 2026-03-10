@@ -109,7 +109,7 @@ async fn test_db_permission_grant_roundtrip() {
     use sqlx::SqlitePool;
 
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    cloto_core::db::init_db(&pool, "sqlite::memory:")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
         .await
         .unwrap();
 

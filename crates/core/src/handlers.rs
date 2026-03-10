@@ -23,8 +23,8 @@ pub use response::{json_data, ok_data};
 
 // Re-export all handler functions so that existing `handlers::*` paths in lib.rs continue to work.
 pub use agents::{
-    create_agent, delete_agent, delete_avatar, delete_vrm, get_agents, get_avatar, get_vrm,
-    power_toggle, update_agent, upload_avatar, upload_vrm,
+    create_agent, delete_agent, delete_avatar, delete_vrm, generate_visemes, get_agents,
+    get_avatar, get_vrm, power_toggle, serve_speech_file, update_agent, upload_avatar, upload_vrm,
 };
 pub use chat::chat_handler;
 pub use commands::{approve_command, deny_command, trust_command};
@@ -315,10 +315,8 @@ pub async fn get_metrics(
     }))
 }
 
-/// Get stored agent memories via CPersona MCP server.
-///
-/// Parse the first text content from a CPersona MCP tool result as JSON.
-fn parse_cpersona_result(result: &crate::managers::mcp_protocol::CallToolResult) -> Option<serde_json::Value> {
+/// Parse the first text content from an MCP tool result as JSON.
+fn parse_mcp_tool_result(result: &crate::managers::mcp_protocol::CallToolResult) -> Option<serde_json::Value> {
     if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) = result.content.first() {
         serde_json::from_str::<serde_json::Value>(text).ok()
     } else {
@@ -326,17 +324,19 @@ fn parse_cpersona_result(result: &crate::managers::mcp_protocol::CallToolResult)
     }
 }
 
-/// Call a CPersona MCP tool, returning parsed JSON or a fallback on error.
-async fn call_cpersona_with_fallback(
+/// Call a memory MCP tool via capability dispatch, returning parsed JSON or a fallback on error.
+async fn call_memory_tool_with_fallback(
     state: &AppState,
     tool: &str,
     args: serde_json::Value,
     fallback: serde_json::Value,
 ) -> AppResult<Json<serde_json::Value>> {
-    match state.mcp_manager.call_server_tool("memory.cpersona", tool, args).await {
-        Ok(result) => ok_data(parse_cpersona_result(&result).unwrap_or(fallback)),
+    match state.mcp_manager.call_capability_tool(
+        crate::managers::CapabilityType::Memory, tool, args, None,
+    ).await {
+        Ok(result) => ok_data(parse_mcp_tool_result(&result).unwrap_or(fallback)),
         Err(e) => {
-            tracing::warn!("CPersona {} failed: {}", tool, e);
+            tracing::warn!("Memory tool {} failed: {}", tool, e);
             ok_data(fallback)
         }
     }
@@ -352,7 +352,7 @@ pub async fn get_memories(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "agent_id": "", "limit": 100 });
-    call_cpersona_with_fallback(&state, "list_memories", args, serde_json::json!({ "memories": [], "count": 0 })).await
+    call_memory_tool_with_fallback(&state, "list_memories", args, serde_json::json!({ "memories": [], "count": 0 })).await
 }
 
 /// **Route:** `GET /api/episodes`
@@ -365,7 +365,7 @@ pub async fn get_episodes(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "agent_id": "", "limit": 50 });
-    call_cpersona_with_fallback(&state, "list_episodes", args, serde_json::json!({ "episodes": [], "count": 0 })).await
+    call_memory_tool_with_fallback(&state, "list_episodes", args, serde_json::json!({ "episodes": [], "count": 0 })).await
 }
 
 /// **Route:** `DELETE /api/memories/:id`
@@ -377,10 +377,10 @@ pub async fn delete_memory(
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "memory_id": id });
     let result = state.mcp_manager
-        .call_server_tool("memory.cpersona", "delete_memory", args)
+        .call_capability_tool(crate::managers::CapabilityType::Memory, "delete_memory", args, None)
         .await
         .map_err(AppError::Internal)?;
-    ok_data(parse_cpersona_result(&result).unwrap_or(serde_json::json!({})))
+    ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({})))
 }
 
 /// **Route:** `DELETE /api/episodes/:id`
@@ -392,10 +392,10 @@ pub async fn delete_episode(
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "episode_id": id });
     let result = state.mcp_manager
-        .call_server_tool("memory.cpersona", "delete_episode", args)
+        .call_capability_tool(crate::managers::CapabilityType::Memory, "delete_episode", args, None)
         .await
         .map_err(AppError::Internal)?;
-    ok_data(parse_cpersona_result(&result).unwrap_or(serde_json::json!({})))
+    ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({})))
 }
 
 // ============================================================
