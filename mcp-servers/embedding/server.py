@@ -39,10 +39,16 @@ EMBEDDING_API_URL = os.environ.get(
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "")  # provider-dependent default
 EMBEDDING_TIMEOUT = int(os.environ.get("EMBEDDING_TIMEOUT_SECS", "30"))
 
-# ONNX-specific
-ONNX_MODEL_DIR = os.environ.get(
-    "ONNX_MODEL_DIR", "data/models/all-MiniLM-L6-v2"
-)
+# ONNX-specific — resolve relative paths against CLOTO_PROJECT_DIR when running
+# inside a sandbox (isolation changes the working directory).
+_project_dir = os.environ.get("CLOTO_PROJECT_DIR", "")
+_default_model_dir = "data/models/all-MiniLM-L6-v2"
+ONNX_MODEL_DIR = os.environ.get("ONNX_MODEL_DIR", "")
+if not ONNX_MODEL_DIR:
+    if _project_dir and not os.path.isabs(_default_model_dir):
+        ONNX_MODEL_DIR = os.path.join(_project_dir, _default_model_dir)
+    else:
+        ONNX_MODEL_DIR = _default_model_dir
 
 # ============================================================
 # Provider Abstraction

@@ -250,6 +250,14 @@ impl McpClientManager {
                         arg
                     })
                     .collect();
+
+                // Inject CLOTO_PROJECT_DIR so sandboxed servers can resolve
+                // relative paths (e.g. data/models/) against the project root.
+                server_config
+                    .env
+                    .entry("CLOTO_PROJECT_DIR".to_string())
+                    .or_insert_with(|| base_dir.to_string_lossy().to_string());
+
                 server_config
             })
             .collect();
