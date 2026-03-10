@@ -77,13 +77,14 @@ impl VoicevoxClient {
     }
 
     /// Synthesize text to WAV bytes + viseme timeline.
-    /// Returns (wav_bytes, viseme_entries_json, total_duration_ms).
+    /// Returns (wav_bytes, viseme_entries_json, total_duration_ms, audio_offset_ms).
+    /// `audio_offset_ms` is the pre-phoneme silence in the WAV that visemes must skip.
     pub fn synthesize(
         &self,
         text: &str,
         speaker: Option<i64>,
         speed: Option<f64>,
-    ) -> Result<(Vec<u8>, Vec<Value>, f64), String> {
+    ) -> Result<(Vec<u8>, Vec<Value>, f64, f64), String> {
         let speaker = speaker.unwrap_or_else(|| self.current_speaker.load(Ordering::Relaxed));
         let speed = speed.unwrap_or(self.config.speed);
 
@@ -117,6 +118,16 @@ impl VoicevoxClient {
 
         // Apply speed scale
         query["speedScale"] = json!(speed);
+
+        // Read pre-phoneme silence duration (default 0.1s = 100ms).
+        // VOICEVOX adds this silence before the first phoneme in the WAV,
+        // but it is NOT reflected in accentPhrases mora timing.
+        // prePhonemeLength is a fixed pad — NOT affected by speedScale.
+        let pre_phoneme_length = query
+            .get("prePhonemeLength")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.1);
+        let audio_offset_ms = pre_phoneme_length * 1000.0;
 
         // Extract viseme timeline from accent phrases
         let accent_phrases = query
@@ -168,7 +179,7 @@ impl VoicevoxClient {
 
         let wav_bytes = resp.bytes().map_err(|e| format!("WAV read error: {e}"))?;
 
-        Ok((wav_bytes.to_vec(), viseme_timeline, total_duration_ms))
+        Ok((wav_bytes.to_vec(), viseme_timeline, total_duration_ms, audio_offset_ms))
     }
 
     /// List all available speakers from VOICEVOX Engine.
