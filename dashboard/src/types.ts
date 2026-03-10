@@ -22,6 +22,7 @@ export interface AgentMetadata {
   last_seen: number;
   status: 'online' | 'offline' | 'degraded';
   metadata: Record<string, string>;
+  agent_type?: 'agent' | 'system';
 }
 
 export type Permission =
