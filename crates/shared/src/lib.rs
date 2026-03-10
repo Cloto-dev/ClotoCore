@@ -459,6 +459,13 @@ pub enum ClotoEventData {
         plugin_id: String,
         config: std::collections::HashMap<String, String>,
     },
+    /// P8: Runtime permission escalation request from a plugin/MCP server.
+    /// Emitted when a server requests a capability it does not currently have.
+    PermissionRequested {
+        plugin_id: String,
+        permission: Permission,
+        reason: String,
+    },
     /// 権限が承認された通知
     PermissionGranted {
         plugin_id: String,
