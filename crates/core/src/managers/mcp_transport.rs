@@ -172,6 +172,8 @@ impl StdioTransport {
                 cmd.env("CLOTO_LLM_PROXY", &proxy_url);
                 cmd.env("HTTP_PROXY", &proxy_url);
                 cmd.env("HTTPS_PROXY", &proxy_url);
+                // Allow localhost communication (e.g. VOICEVOX Engine, inter-server HTTP).
+                cmd.env("NO_PROXY", "localhost,127.0.0.1,::1");
             }
 
             // Strip sensitive environment variables (LLM API keys).

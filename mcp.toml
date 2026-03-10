@@ -173,15 +173,6 @@ STT_MODEL = "base"
 STT_LANGUAGE = "ja"
 
 [[servers]]
-id = "voice.tts"
-command = "python"
-args = ["mcp-servers/tts/server.py"]
-transport = "stdio"
-auto_restart = false
-[servers.env]
-TTS_RATE = "150"
-
-[[servers]]
 id = "output.avatar"
 command = "target/debug/mgp-avatar"
 args = []
