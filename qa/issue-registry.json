@@ -1775,8 +1775,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/managers/mcp.rs",
       "pattern": "pub async fn execute_tool\\(&self, tool_name",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-299",

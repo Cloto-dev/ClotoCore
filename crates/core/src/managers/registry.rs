@@ -195,7 +195,7 @@ impl PluginRegistry {
 
         // 2. Fall back to MCP servers
         if let Some(ref mcp) = self.mcp_manager {
-            return mcp.execute_tool(tool_name, args).await;
+            return mcp.execute_tool_internal(tool_name, args).await;
         }
 
         Err(anyhow::anyhow!("Tool '{}' not found", tool_name))
@@ -241,7 +241,7 @@ impl PluginRegistry {
                     == Some(tool_name)
             });
             if has_tool {
-                return mcp.execute_tool(tool_name, args).await;
+                return mcp.execute_tool_internal(tool_name, args).await;
             }
         }
 
@@ -316,13 +316,13 @@ impl PluginRegistry {
             // Kernel-native tools are not in tool_index,
             // so bypass access check and let execute_tool() handle them directly.
             if Self::is_kernel_native_tool(tool_name) {
-                return mcp.execute_tool(tool_name, args).await;
+                return mcp.execute_tool_internal(tool_name, args).await;
             }
 
             let access = mcp.check_tool_access(agent_id, tool_name).await;
             match access {
                 Ok(ref perm) if perm == "allow" => {
-                    return mcp.execute_tool(tool_name, args).await;
+                    return mcp.execute_tool_internal(tool_name, args).await;
                 }
                 Ok(_) => {
                     return Err(anyhow::anyhow!(

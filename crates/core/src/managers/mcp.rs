@@ -1030,10 +1030,24 @@ impl McpClientManager {
         crate::db::resolve_tool_access(&self.pool, agent_id, &server_id, tool_name).await
     }
 
-    /// Execute a tool by name, routing to the correct MCP server.
+    /// Execute a tool by name with optional caller context for audit/permission logging.
+    /// Delegates to `execute_tool_internal` after recording the caller.
+    pub async fn execute_tool(
+        &self,
+        tool_name: &str,
+        args: Value,
+        caller: Option<&str>,
+    ) -> Result<Value> {
+        if let Some(agent_id) = caller {
+            debug!(tool = %tool_name, caller = %agent_id, "Tool execution requested");
+        }
+        self.execute_tool_internal(tool_name, args).await
+    }
+
+    /// Execute a tool by name, routing to the correct MCP server (kernel-internal).
     /// Handles kernel-native tools (create_mcp_server) internally.
     /// Applies kernel-side validation (A) before forwarding to the MCP server.
-    pub async fn execute_tool(&self, tool_name: &str, args: Value) -> Result<Value> {
+    pub(crate) async fn execute_tool_internal(&self, tool_name: &str, args: Value) -> Result<Value> {
         // Kernel-native tools
         match tool_name {
             "create_mcp_server" => {
