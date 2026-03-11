@@ -1981,6 +1981,18 @@
       "pattern": "get\\(\"accent_phrases\"\\)",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-316",
+      "summary": "Dashboard sends image attachments via postChat which skips DB persistence, causing maybe_analyze_images to find zero attachments",
+      "severity": "HIGH",
+      "discovered": "2026-03-11T00:00:00Z",
+      "version": "0.6.2",
+      "commit": "3bc1310",
+      "file": "dashboard/src/components/AgentConsole.tsx",
+      "pattern": "if \\(hasMedia\\)",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }
