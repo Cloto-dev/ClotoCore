@@ -396,7 +396,23 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       .join(' ');
 
     try {
-      // User message is persisted backend-side (system.rs) on receipt.
+      // If content blocks include media (image/audio), persist them via
+      // postChatMessage first so the kernel can find attachments in DB
+      // when running maybe_analyze_images / maybe_transcribe_audio.
+      const hasMedia = contentBlocks.some(b => b.type === 'image' || b.type === 'audio');
+      if (hasMedia) {
+        await api.postChatMessage(agent.id, {
+          id: msgId,
+          source: 'user',
+          content: contentBlocks,
+          metadata: {
+            user_id: identity.id,
+            user_name: identity.name,
+            ...(engineOverride ? { engine_override: engineOverride } : {}),
+          },
+        });
+      }
+
       const clotoMsg: ClotoMessage = {
         id: msgId,
         source: { type: 'User', id: identity.id, name: identity.name },
@@ -406,6 +422,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         metadata: {
           target_agent_id: agent.id,
           ...(engineOverride ? { engine_override: engineOverride } : {}),
+          // Tell system.rs not to re-persist the user message (already saved above)
+          ...(hasMedia ? { skip_user_persist: 'true' } : {}),
         }
       };
 

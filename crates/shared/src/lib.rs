@@ -65,6 +65,8 @@ pub enum CapabilityType {
     Tool,
     /// 視覚・画像処理能力
     Vision,
+    /// 音声文字起こし能力 (Speech-to-Text)
+    Stt,
     /// 物理/ハードウェア操作能力
     HAL,
     /// Webサーバー拡張能力 (APIエンドポイント提供)
