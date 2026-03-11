@@ -1,3 +1,4 @@
+use base64::Engine as _;
 use chrono::Utc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -1233,16 +1234,57 @@ impl SystemHandler {
             return msg;
         };
 
+        // Fallback: extract base64 image data directly from the persisted content blocks
+        // when disk files are missing (e.g., attachment dir not created due to CWD mismatch).
+        let content_block_images: Vec<Vec<u8>> = {
+            let mut images = Vec::new();
+            if let Ok(Some(row)) =
+                crate::db::get_chat_message_by_id(&self.agent_manager.pool, &msg.id).await
+            {
+                if let Ok(blocks) = serde_json::from_str::<Vec<serde_json::Value>>(&row.content) {
+                    for block in &blocks {
+                        if block.get("type").and_then(|t| t.as_str()) == Some("image") {
+                            if let Some(url) = block.get("url").and_then(|u| u.as_str()) {
+                                if let Some(data_part) = url.strip_prefix("data:") {
+                                    if let Some((_, b64)) = data_part.split_once(',') {
+                                        if let Ok(decoded) =
+                                            base64::engine::general_purpose::STANDARD.decode(b64)
+                                        {
+                                            images.push(decoded);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            images
+        };
+
         let mut analyses = Vec::new();
-        for att in &image_atts {
-            // Get image bytes
+        for (idx, att) in image_atts.iter().enumerate() {
+            // Get image bytes: inline DB → disk file → content block base64 fallback
             let image_bytes = if let Some(ref data) = att.inline_data {
                 data.clone()
             } else if let Some(ref path) = att.disk_path {
                 match tokio::fs::read(path).await {
                     Ok(d) => d,
-                    Err(_) => continue,
+                    Err(e) => {
+                        tracing::warn!(
+                            path = %path,
+                            error = %e,
+                            "Attachment file missing on disk, trying content block fallback"
+                        );
+                        if let Some(fallback) = content_block_images.get(idx) {
+                            fallback.clone()
+                        } else {
+                            continue;
+                        }
+                    }
                 }
+            } else if let Some(fallback) = content_block_images.get(idx) {
+                fallback.clone()
             } else {
                 continue;
             };

@@ -264,6 +264,70 @@ async def handle_analyze_image(arguments: dict) -> dict:
 
 
 # ============================================================
+# Ollama Auto-Start
+# ============================================================
+
+OLLAMA_BIN = os.environ.get("OLLAMA_BIN", "ollama")
+
+
+async def _ensure_ollama_running():
+    """Check if Ollama is reachable; if not, start it as a background process."""
+    if VISION_OCR_MODE == "ocr":
+        return  # No need for Ollama in OCR-only mode
+
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{VISION_OLLAMA_URL}/api/tags")
+            if resp.status_code == 200:
+                logger.info("Ollama already running at %s", VISION_OLLAMA_URL)
+                return
+    except (httpx.ConnectError, httpx.TimeoutException):
+        pass
+
+    # Try to find ollama binary
+    import shutil
+    import subprocess
+
+    ollama_path = shutil.which(OLLAMA_BIN)
+    if not ollama_path:
+        # Check common Windows install paths
+        candidates = [
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Ollama\ollama.exe"),
+            r"C:\Program Files\Ollama\ollama.exe",
+        ]
+        for c in candidates:
+            if os.path.isfile(c):
+                ollama_path = c
+                break
+
+    if not ollama_path:
+        logger.warning("Ollama not found — vision analysis will be unavailable")
+        return
+
+    logger.info("Starting Ollama: %s serve", ollama_path)
+    subprocess.Popen(
+        [ollama_path, "serve"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+    # Wait for Ollama to become ready (up to 15 seconds)
+    for i in range(30):
+        await asyncio.sleep(0.5)
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(f"{VISION_OLLAMA_URL}/api/tags")
+                if resp.status_code == 200:
+                    logger.info("Ollama started successfully (waited %.1fs)", (i + 1) * 0.5)
+                    return
+        except (httpx.ConnectError, httpx.TimeoutException):
+            continue
+
+    logger.warning("Ollama started but not responding after 15s — vision may fail")
+
+
+# ============================================================
 # Entry Point
 # ============================================================
 
@@ -274,6 +338,7 @@ async def main():
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
     logger.info("Vision OCR mode: %s", VISION_OCR_MODE)
+    await _ensure_ollama_running()
     await run_mcp_server(registry)
 
 
