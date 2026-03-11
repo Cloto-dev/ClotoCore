@@ -20,8 +20,8 @@ export class VrmSceneManager {
   private cameraOffset = new THREE.Vector3(0, 1.35, 1.5);
   private lookAtTarget = new THREE.Vector3(0, 1.3, 0);
   private headY = 1.3; // updated by frameHead()
-  private isPanning = false;
-  private panStart = { x: 0, y: 0 };
+  private isOrbiting = false;
+  private orbitStart = { x: 0, y: 0 };
 
   // Cross-window gaze: true when local mouse is inside this canvas
   private mouseIsLocal = false;
@@ -75,7 +75,7 @@ export class VrmSceneManager {
     try {
       this.gazeChannel = new BroadcastChannel('cloto-vrm-gaze');
       this.gazeChannel.onmessage = (e: MessageEvent) => {
-        if (this._disposed || this.mouseIsLocal || this.isPanning) return;
+        if (this._disposed || this.mouseIsLocal || this.isOrbiting) return;
         const { nx, ny } = e.data;
         if (typeof nx === 'number' && typeof ny === 'number') {
           this.mouseTarget.set(nx * 0.5, this.headY + ny * 0.3, 1.0);
@@ -95,18 +95,22 @@ export class VrmSceneManager {
   }
 
   private handleMouseMove = (e: MouseEvent) => {
-    // Pan when middle button is held
-    if (this.isPanning) {
-      const dx = (e.clientX - this.panStart.x) * 0.003;
-      const dy = (e.clientY - this.panStart.y) * 0.003;
-      // Pan in camera-local X/Y
-      const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
-      const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
-      const panDelta = right.multiplyScalar(-dx).add(up.multiplyScalar(dy));
-      this.cameraOffset.add(panDelta);
-      this.lookAtTarget.add(panDelta);
+    // Orbit when middle button is held
+    if (this.isOrbiting) {
+      const dx = (e.clientX - this.orbitStart.x) * 0.005;
+      const dy = (e.clientY - this.orbitStart.y) * 0.005;
+      this.orbitStart = { x: e.clientX, y: e.clientY };
+
+      // Rotate camera around lookAtTarget
+      const offset = this.cameraOffset.clone().sub(this.lookAtTarget);
+      const spherical = new THREE.Spherical().setFromVector3(offset);
+      spherical.theta -= dx; // horizontal orbit
+      spherical.phi -= dy;   // vertical orbit
+      // Clamp phi to avoid flipping (5°–175°)
+      spherical.phi = Math.max(0.09, Math.min(Math.PI - 0.09, spherical.phi));
+      offset.setFromSpherical(spherical);
+      this.cameraOffset.copy(this.lookAtTarget).add(offset);
       this.applyCameraTransform();
-      this.panStart = { x: e.clientX, y: e.clientY };
       return;
     }
 
@@ -124,7 +128,7 @@ export class VrmSceneManager {
   private handleMouseLeave = () => {
     this.mouseIsLocal = false;
     this.mouseTarget.set(0, this.headY, 1.0);
-    this.isPanning = false;
+    this.isOrbiting = false;
   };
 
   private handleWheel = (e: WheelEvent) => {
@@ -146,14 +150,14 @@ export class VrmSceneManager {
   private handleMouseDown = (e: MouseEvent) => {
     if (e.button === 1) {
       e.preventDefault();
-      this.isPanning = true;
-      this.panStart = { x: e.clientX, y: e.clientY };
+      this.isOrbiting = true;
+      this.orbitStart = { x: e.clientX, y: e.clientY };
     }
   };
 
   private handleMouseUp = (e: MouseEvent) => {
     if (e.button === 1) {
-      this.isPanning = false;
+      this.isOrbiting = false;
     }
   };
 

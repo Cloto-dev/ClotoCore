@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { VRM } from '@pixiv/three-vrm';
-import { AvatarAgentState, IdleBehaviorParams, DEFAULT_IDLE_PARAMS } from './types';
+import { AvatarAgentState, IdleBehaviorParams, DefaultPoseParams, DEFAULT_IDLE_PARAMS, POSE_PRESETS } from './types';
 import { VrmSceneManager } from './VrmSceneManager';
 import { ProceduralBreathing } from './ProceduralBreathing';
 import { ProceduralBlinking } from './ProceduralBlinking';
@@ -11,11 +11,18 @@ import { DefaultPoseApplicator } from './DefaultPoseApplicator';
 import { VisemePlayer, type VisemeEntry } from './VisemePlayer';
 import { AudioPlaybackManager } from './AudioPlaybackManager';
 import { VrmExpressionMapper } from './VrmExpressionMapper';
+import { VrmaLoader } from './VrmaLoader';
+import type { VRMAnimation } from '@pixiv/three-vrm-animation';
 
 /**
  * Orchestrates all procedural animation layers.
  * Manages the requestAnimationFrame loop and coordinates VRM bone updates.
  */
+/** VRMA-backed pose presets — loaded from public/ and cached after first use. */
+const VRMA_POSE_URLS: Record<string, string> = {
+  thinking: '/vrma/thinking.vrma',
+};
+
 export class VrmAnimationController {
   private sceneManager: VrmSceneManager;
   private vrm: VRM | null = null;
@@ -33,8 +40,13 @@ export class VrmAnimationController {
   private visemePlayer = new VisemePlayer();
   private audioManager = new AudioPlaybackManager();
   private expressionMapper = new VrmExpressionMapper();
+  private vrmaLoader = new VrmaLoader();
   /** Pre-phoneme silence offset in ms (from VOICEVOX prePhonemeLength). */
   private audioOffsetMs = 0;
+  /** Cache for VRMA-backed preset poses (loaded once, reused). */
+  private vrmaPresetCache = new Map<string, VRMAnimation>();
+  /** True when current VRMA is from a preset (not user-loaded). */
+  private isPresetVrma = false;
 
   private _running = false;
 
@@ -50,6 +62,7 @@ export class VrmAnimationController {
     this.expressionMapper.initialize(vrm);
     this.visemePlayer.setMapper(this.expressionMapper);
     this.blinking.setMapper(this.expressionMapper);
+    this.vrmaLoader.setVrm(vrm);
   }
 
   setAgentState(state: AvatarAgentState) {
@@ -115,6 +128,90 @@ export class VrmAnimationController {
     this.vrm.expressionManager.setValue(resolved, intensity);
   }
 
+  /** Set pose params directly without transition (for real-time sliders). */
+  setDirectPose(params: DefaultPoseParams) {
+    this.defaultPose.setParams(params);
+  }
+
+  /** Map pose names to agent states for synchronized behavior (eye close, etc.). */
+  private static readonly POSE_STATE_MAP: Partial<Record<string, AvatarAgentState>> = {
+    thinking: 'thinking',
+  };
+
+  /** Transition to a named preset pose (from MGP avatar server). */
+  async setPose(name: string, transitionSec = 0.5) {
+    // Sync agent state with pose (e.g. thinking → eyes closed)
+    this.stateAnimator.setState(VrmAnimationController.POSE_STATE_MAP[name] ?? 'idle');
+
+    // Check for VRMA-backed preset (higher priority than DefaultPoseParams)
+    const vrmaUrl = VRMA_POSE_URLS[name];
+    if (vrmaUrl) {
+      let animation = this.vrmaPresetCache.get(name);
+      if (!animation) {
+        try {
+          animation = await this.vrmaLoader.load(vrmaUrl);
+          this.vrmaPresetCache.set(name, animation);
+        } catch (err) {
+          console.warn(`[VRM] Failed to load VRMA preset "${name}", falling back:`, err);
+          // Fall through to DefaultPoseApplicator below
+        }
+      }
+      if (animation) {
+        this.vrmaLoader.applyPose(animation, transitionSec);
+        this.isPresetVrma = true;
+        return;
+      }
+    }
+
+    // DefaultPoseApplicator-based pose — fade out VRMA smoothly
+    if (this.vrmaLoader.active) {
+      this.vrmaLoader.stop(transitionSec);
+      this.isPresetVrma = false;
+    }
+
+    const preset = POSE_PRESETS[name];
+    if (!preset) {
+      console.warn(`[VRM] Unknown pose preset: ${name}`);
+      return;
+    }
+    this.defaultPose.transitionTo(preset, transitionSec);
+  }
+
+  /** Load a VRMA file from a File object and apply as static pose. */
+  async loadVrmaPoseFile(file: File, transitionSec = 0.5): Promise<VRMAnimation> {
+    const animation = await this.vrmaLoader.loadFile(file);
+    this.vrmaLoader.applyPose(animation, transitionSec);
+    this.isPresetVrma = false;
+    return animation;
+  }
+
+  /** Load a VRMA file from URL and apply as static pose. */
+  async loadVrmaPose(url: string, transitionSec = 0.5): Promise<VRMAnimation> {
+    const animation = await this.vrmaLoader.load(url);
+    this.vrmaLoader.applyPose(animation, transitionSec);
+    this.isPresetVrma = false;
+    return animation;
+  }
+
+  /** Load a VRMA file from a File object and play as animation. */
+  async loadVrmaAnimationFile(file: File, transitionSec = 0.5): Promise<VRMAnimation> {
+    const animation = await this.vrmaLoader.loadFile(file);
+    this.vrmaLoader.playAnimation(animation, transitionSec);
+    this.isPresetVrma = false;
+    return animation;
+  }
+
+  /** Stop VRMA playback and return to DefaultPoseApplicator. */
+  stopVrma(transitionSec = 0.5) {
+    this.vrmaLoader.stop(transitionSec);
+    this.isPresetVrma = false;
+  }
+
+  /** True when a user-loaded VRMA pose/animation is controlling the base pose. */
+  get isVrmaActive(): boolean {
+    return this.vrmaLoader.active && !this.isPresetVrma;
+  }
+
   /** Update idle behavior parameters (from MGP avatar server). */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   setIdleBehavior(params: Record<string, any>) {
@@ -151,8 +248,16 @@ export class VrmAnimationController {
     // 1. Reset bones to rest pose (so layers are additive from neutral)
     this.vrm.humanoid?.resetNormalizedPose();
 
-    // 2. Apply default resting pose (base for all procedural layers)
+    // 2. Apply base pose
+    //    DefaultPose always runs as the base layer.
+    //    VRMA pose mode slerps on top (influence 0→1 for smooth transition).
+    //    VRMA animation mode (mixer) overwrites directly.
+    this.defaultPose.update(deltaTime);
     this.defaultPose.apply(this.vrm);
+
+    if (this.vrmaLoader.active) {
+      this.vrmaLoader.update(deltaTime);
+    }
 
     // 3. Apply procedural layers
     const swayDamping = this.stateAnimator.swayDamping;
@@ -180,7 +285,7 @@ export class VrmAnimationController {
     }
     this.visemePlayer.update(this.vrm, deltaTime);
 
-    // 6. Update VRM (SpringBone physics, expression apply)
+    // 6. Update VRM (SpringBone physics, expression apply, normalized → raw copy)
     this.vrm.update(deltaTime);
 
     // 7. Render
@@ -198,6 +303,7 @@ export class VrmAnimationController {
   dispose() {
     this.stop();
     this.audioManager.dispose();
+    this.vrmaLoader.dispose();
     document.removeEventListener('visibilitychange', this.handleVisibility);
     if (this.vrm) {
       this.breathing.reset(this.vrm);

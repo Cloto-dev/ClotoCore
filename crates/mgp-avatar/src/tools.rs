@@ -36,6 +36,7 @@ fn voicevox() -> &'static VoicevoxClient {
 pub fn tool_list() -> Vec<McpTool> {
     vec![
         set_expression_schema(),
+        set_pose_schema(),
         set_idle_behavior_schema(),
         speak_schema(),
         synthesize_schema(),
@@ -51,6 +52,7 @@ pub fn execute(
 ) -> Result<(Value, Vec<JsonRpcNotification>), String> {
     match tool_name {
         "set_expression" => execute_set_expression(args),
+        "set_pose" => execute_set_pose(args),
         "set_idle_behavior" => execute_set_idle_behavior(args),
         "speak" => execute_speak(args),
         "synthesize" => execute_synthesize(args),
@@ -88,6 +90,70 @@ fn set_expression_schema() -> McpTool {
             "required": ["agent_id", "expression"]
         }),
     }
+}
+
+fn set_pose_schema() -> McpTool {
+    McpTool {
+        name: "set_pose".into(),
+        description: "Change the avatar's body pose. Transitions smoothly. Poses: relaxed (default, arms at sides), attentive (forward lean, focused), thinking (hand on chin, head tilt), arms_crossed (arms folded, serious).".into(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string",
+                    "description": "Target agent ID"
+                },
+                "pose": {
+                    "type": "string",
+                    "description": "Pose name",
+                    "enum": ["relaxed", "attentive", "thinking", "arms_crossed"]
+                },
+                "transition": {
+                    "type": "number",
+                    "description": "Transition duration in seconds (default: 0.5)",
+                    "minimum": 0.1,
+                    "maximum": 3.0
+                }
+            },
+            "required": ["agent_id", "pose"]
+        }),
+    }
+}
+
+fn execute_set_pose(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), String> {
+    let agent_id = args
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .ok_or("agent_id is required")?;
+    let pose = args
+        .get("pose")
+        .and_then(|v| v.as_str())
+        .ok_or("pose is required")?;
+    let transition = args
+        .get("transition")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.5);
+
+    let notif = JsonRpcNotification::new(
+        "notifications/mgp.event",
+        Some(json!({
+            "channel": "avatar_set_pose",
+            "data": {
+                "agent_id": agent_id,
+                "pose": pose,
+                "transition": transition
+            }
+        })),
+    );
+
+    let result = json!({
+        "content": [{
+            "type": "text",
+            "text": format!("Pose set: {} (transition: {:.1}s)", pose, transition)
+        }]
+    });
+
+    Ok((result, vec![notif]))
 }
 
 fn set_idle_behavior_schema() -> McpTool {
