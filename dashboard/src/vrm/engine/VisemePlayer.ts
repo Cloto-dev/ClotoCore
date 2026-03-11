@@ -1,4 +1,5 @@
 import type { VRM } from '@pixiv/three-vrm';
+import type { VrmExpressionMapper } from './VrmExpressionMapper';
 
 export interface VisemeEntry {
   viseme: string;   // "aa" | "ih" | "ou" | "ee" | "oh" | "neutral"
@@ -33,6 +34,12 @@ export class VisemePlayer {
   private externalTimeMs = 0;
   /** Transition duration in seconds for blending between visemes. */
   private transitionSec = 0.03; // 30ms
+  private mapper: VrmExpressionMapper | null = null;
+
+  /** Set the expression mapper for cross-model compatibility. */
+  setMapper(mapper: VrmExpressionMapper) {
+    this.mapper = mapper;
+  }
 
   play(timeline: VisemeEntry[]) {
     this.timeline = timeline;
@@ -74,13 +81,25 @@ export class VisemePlayer {
     return this.externalClock;
   }
 
+  /** Get the active viseme names (mapped or raw fallback). */
+  private get activeVisemes(): readonly string[] {
+    if (this.mapper) return this.mapper.getResolvedVisemes();
+    return VISEME_EXPRESSIONS;
+  }
+
+  /** Resolve a viseme name through the mapper. */
+  private resolveViseme(name: string): string | null {
+    if (this.mapper) return this.mapper.resolveViseme(name);
+    return name;
+  }
+
   /** Call every frame to apply current viseme weights to VRM expressions. */
   update(vrm: VRM, _deltaTime: number) {
     const expr = vrm.expressionManager;
     if (!expr || !this.playing || this.timeline.length === 0) {
       // Reset all viseme expressions when not playing
       if (expr && !this.playing) {
-        for (const name of VISEME_EXPRESSIONS) {
+        for (const name of this.activeVisemes) {
           expr.setValue(name, 0);
         }
       }
@@ -111,13 +130,13 @@ export class VisemePlayer {
       const lastEntry = this.timeline[this.timeline.length - 1];
       if (elapsedMs >= lastEntry.start_ms + lastEntry.duration_ms) {
         this.playing = false;
-        for (const name of VISEME_EXPRESSIONS) {
+        for (const name of this.activeVisemes) {
           expr.setValue(name, 0);
         }
         return;
       }
       // Before the first entry or in a gap: all zero
-      for (const name of VISEME_EXPRESSIONS) {
+      for (const name of this.activeVisemes) {
         expr.setValue(name, 0);
       }
       return;
@@ -136,9 +155,10 @@ export class VisemePlayer {
       weight = smoothstep(entryEnd, entryEnd - transitionMs, elapsedMs);
     }
 
-    // Apply: set current viseme, zero others
-    for (const name of VISEME_EXPRESSIONS) {
-      if (name === currentEntry.viseme) {
+    // Apply: set current viseme (mapped), zero others
+    const resolvedCurrent = this.resolveViseme(currentEntry.viseme);
+    for (const name of this.activeVisemes) {
+      if (name === resolvedCurrent) {
         expr.setValue(name, weight);
       } else {
         expr.setValue(name, 0);
@@ -150,7 +170,7 @@ export class VisemePlayer {
   reset(vrm: VRM) {
     const expr = vrm.expressionManager;
     if (!expr) return;
-    for (const name of VISEME_EXPRESSIONS) {
+    for (const name of this.activeVisemes) {
       expr.setValue(name, 0);
     }
   }
