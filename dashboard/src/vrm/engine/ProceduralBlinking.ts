@@ -1,4 +1,5 @@
 import { VRM } from '@pixiv/three-vrm';
+import type { VrmExpressionMapper } from './VrmExpressionMapper';
 
 /**
  * Procedural blinking animation using VRM Expression blendshapes.
@@ -14,6 +15,7 @@ export class ProceduralBlinking {
   private blinkValue = 0;
   private doubleBlink = false;
   private doubleBlinkDone = false;
+  private mapper: VrmExpressionMapper | null = null;
 
   // Timing constants (seconds)
   private closeTime = 0.1;
@@ -23,6 +25,11 @@ export class ProceduralBlinking {
 
   constructor() {
     this.nextBlinkIn = this.randomInterval(1.0);
+  }
+
+  /** Set the expression mapper for cross-model compatibility. */
+  setMapper(mapper: VrmExpressionMapper) {
+    this.mapper = mapper;
   }
 
   private randomInterval(frequencyMult: number): number {
@@ -84,8 +91,13 @@ export class ProceduralBlinking {
       }
     }
 
-    // Apply to VRM expression blendshapes (support both VRM 0.x and 1.0 naming)
-    if (expressionManager.getExpression('blink')) {
+    // Apply blink via mapper (handles VRM 0.x/1.0 and custom models)
+    const blinkNames = this.mapper?.getBlinkNames();
+    if (blinkNames && blinkNames.length > 0) {
+      for (const name of blinkNames) {
+        expressionManager.setValue(name, this.blinkValue);
+      }
+    } else if (expressionManager.getExpression('blink')) {
       expressionManager.setValue('blink', this.blinkValue);
     } else {
       expressionManager.setValue('blinkLeft', this.blinkValue);
