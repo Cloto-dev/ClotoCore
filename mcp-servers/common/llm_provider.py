@@ -141,6 +141,14 @@ def build_system_prompt(
         "verifying it by calling get_current_time. Recalled memories may contain "
         "outdated time references — do not echo or extrapolate from them."
     )
+    lines.append(
+        "Prefer fast tools. Only use high-latency tools (generate_image, "
+        "deep_research, transcribe, analyze_image) when the user explicitly requests them."
+    )
+    lines.append(
+        "Do not call update_profile or archive_episode — "
+        "the system handles these automatically in the background."
+    )
 
     if description:
         lines.append("")

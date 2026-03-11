@@ -14,6 +14,70 @@ use std::sync::Mutex;
 use std::time::Instant;
 use tracing::debug;
 
+// ============================================================
+// Latency Tier (§16 — Tool Cost Awareness)
+// ============================================================
+
+/// Latency tier for tool cost awareness.
+///
+/// Higher tiers indicate slower / more expensive tools. The relevance score
+/// is multiplied by `score_multiplier()` so that cheap tools rank higher
+/// when keyword relevance is otherwise equal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LatencyTier {
+    /// Fast, in-process or cached (multiplier 1.0)
+    C,
+    /// Moderate local I/O (multiplier 0.9)
+    B,
+    /// Network round-trip or moderate LLM call (multiplier 0.7)
+    A,
+    /// Heavy: image gen, deep research, transcription, vision (multiplier 0.5)
+    S,
+}
+
+impl LatencyTier {
+    fn score_multiplier(self) -> f64 {
+        match self {
+            Self::C => 1.0,
+            Self::B => 0.9,
+            Self::A => 0.7,
+            Self::S => 0.5,
+        }
+    }
+}
+
+/// Classify a tool into a latency tier based on server suffix and tool name.
+fn classify_latency_tier(server_id: &str, tool_name: &str) -> LatencyTier {
+    let suffix = server_id.split('.').last().unwrap_or("");
+
+    match (suffix, tool_name) {
+        // Tier S — very expensive
+        ("imagegen", "generate_image")
+        | ("research", "deep_research")
+        | ("stt", "transcribe")
+        | ("capture", "analyze_image") => LatencyTier::S,
+
+        // Tier A — network or moderate LLM
+        ("websearch", "fetch_page")
+        | ("cpersona", "update_profile")
+        | ("cpersona", "archive_episode")
+        | ("cpersona", "recall")
+        | ("ollama", "think")
+        | ("ollama", "think_with_tools") => LatencyTier::A,
+
+        // Tier B — light network / local I/O
+        (_, "list_models")
+        | (_, "switch_model")
+        | ("websearch", "search_status")
+        | ("gaze", "start_tracking")
+        | ("gaze", "stop_tracking")
+        | ("gaze", "get_tracker_status") => LatencyTier::B,
+
+        // Tier C — everything else (fast / safe default)
+        _ => LatencyTier::C,
+    }
+}
+
 /// Fixed overhead tokens per tool schema (name, description, type wrappers).
 const SCHEMA_OVERHEAD_TOKENS: usize = 100;
 
@@ -36,6 +100,7 @@ pub(super) struct ToolIndexEntry {
     pub input_schema: Value,
     pub security: Option<ToolSecurityMetadata>,
     pub estimated_tokens: usize,
+    pub latency_tier: LatencyTier,
 }
 
 /// Search filter for tool discovery.
@@ -76,6 +141,7 @@ impl ToolIndex {
             let categories = extract_categories(server_id, &tool.name);
             let estimated_tokens = estimate_tokens(&tool.input_schema) + SCHEMA_OVERHEAD_TOKENS;
             let security = security_fn(&tool.name);
+            let latency_tier = classify_latency_tier(server_id, &tool.name);
 
             entries.push(ToolIndexEntry {
                 tool_id: format!("{}.{}", server_id, tool.name),
@@ -87,6 +153,7 @@ impl ToolIndex {
                 input_schema: tool.input_schema.clone(),
                 security,
                 estimated_tokens,
+                latency_tier,
             });
         }
         debug!(server = %server_id, count = tools.len(), "Tool index updated");
@@ -212,8 +279,9 @@ fn compute_relevance_score(entry: &ToolIndexEntry, query_tokens: &[&str]) -> f64
         }
     }
 
-    // Normalize by query token count
-    total_score / query_tokens.len() as f64
+    // Normalize by query token count, then apply latency tier penalty
+    let normalized = total_score / query_tokens.len() as f64;
+    normalized * entry.latency_tier.score_multiplier()
 }
 
 /// Check if a risk level is within the allowed maximum.
@@ -1696,5 +1764,67 @@ mod tests {
             );
         }
         eprintln!("=================================\n");
+    }
+
+    // ============================================================
+    // Latency Tier Tests
+    // ============================================================
+
+    #[test]
+    fn latency_tier_affects_scoring() {
+        let index = ToolIndex::new();
+
+        // Two tools with the keyword "search" — one Tier C (websearch), one Tier S (research)
+        let fast_tool = make_tool("web_search", "Search the web for information");
+        let slow_tool = make_tool("deep_research", "Deep research search across multiple sources");
+
+        index.add_server_tools("tool.websearch", &[fast_tool], |_| None);
+        index.add_server_tools("tool.research", &[slow_tool], |_| None);
+
+        let results = index.search_keyword("search", 10, &ToolSearchFilter::default());
+        assert!(results.len() >= 2, "Both tools should match 'search'");
+
+        // web_search (Tier C, multiplier 1.0) should rank above deep_research (Tier S, multiplier 0.5)
+        assert_eq!(
+            results[0].0.name, "web_search",
+            "Tier C tool should rank above Tier S tool for equal keyword relevance"
+        );
+        assert!(
+            results[0].1 > results[1].1,
+            "Tier C score ({}) should be higher than Tier S score ({})",
+            results[0].1,
+            results[1].1,
+        );
+    }
+
+    #[test]
+    fn classify_latency_tier_mapping() {
+        // Tier S
+        assert_eq!(classify_latency_tier("tool.imagegen", "generate_image"), LatencyTier::S);
+        assert_eq!(classify_latency_tier("tool.research", "deep_research"), LatencyTier::S);
+        assert_eq!(classify_latency_tier("tool.stt", "transcribe"), LatencyTier::S);
+        assert_eq!(classify_latency_tier("tool.capture", "analyze_image"), LatencyTier::S);
+
+        // Tier A
+        assert_eq!(classify_latency_tier("tool.websearch", "fetch_page"), LatencyTier::A);
+        assert_eq!(classify_latency_tier("tool.cpersona", "update_profile"), LatencyTier::A);
+        assert_eq!(classify_latency_tier("tool.cpersona", "archive_episode"), LatencyTier::A);
+        assert_eq!(classify_latency_tier("tool.cpersona", "recall"), LatencyTier::A);
+        assert_eq!(classify_latency_tier("tool.ollama", "think"), LatencyTier::A);
+        assert_eq!(classify_latency_tier("tool.ollama", "think_with_tools"), LatencyTier::A);
+
+        // Tier B
+        assert_eq!(classify_latency_tier("tool.cerebras", "list_models"), LatencyTier::B);
+        assert_eq!(classify_latency_tier("tool.deepseek", "switch_model"), LatencyTier::B);
+        assert_eq!(classify_latency_tier("tool.websearch", "search_status"), LatencyTier::B);
+        assert_eq!(classify_latency_tier("tool.gaze", "start_tracking"), LatencyTier::B);
+        assert_eq!(classify_latency_tier("tool.gaze", "stop_tracking"), LatencyTier::B);
+        assert_eq!(classify_latency_tier("tool.gaze", "get_tracker_status"), LatencyTier::B);
+
+        // Tier C (default)
+        assert_eq!(classify_latency_tier("tool.terminal", "execute_command"), LatencyTier::C);
+        assert_eq!(classify_latency_tier("tool.terminal", "read_file"), LatencyTier::C);
+        assert_eq!(classify_latency_tier("tool.websearch", "web_search"), LatencyTier::C);
+        assert_eq!(classify_latency_tier("tool.unknown", "anything"), LatencyTier::C);
     }
 }
