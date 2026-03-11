@@ -65,9 +65,10 @@ fn classify_latency_tier(server_id: &str, tool_name: &str) -> LatencyTier {
         | ("ollama", "think")
         | ("ollama", "think_with_tools") => LatencyTier::A,
 
-        // Tier B — light network / local I/O
+        // Tier B — light network / local I/O / hallucination-prone
         (_, "list_models")
         | (_, "switch_model")
+        | ("agent_utils", "get_current_time")
         | ("websearch", "search_status")
         | ("gaze", "start_tracking")
         | ("gaze", "stop_tracking")
@@ -1816,6 +1817,7 @@ mod tests {
         // Tier B
         assert_eq!(classify_latency_tier("tool.cerebras", "list_models"), LatencyTier::B);
         assert_eq!(classify_latency_tier("tool.deepseek", "switch_model"), LatencyTier::B);
+        assert_eq!(classify_latency_tier("tool.agent_utils", "get_current_time"), LatencyTier::B);
         assert_eq!(classify_latency_tier("tool.websearch", "search_status"), LatencyTier::B);
         assert_eq!(classify_latency_tier("tool.gaze", "start_tracking"), LatencyTier::B);
         assert_eq!(classify_latency_tier("tool.gaze", "stop_tracking"), LatencyTier::B);
