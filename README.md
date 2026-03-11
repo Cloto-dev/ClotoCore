@@ -327,6 +327,12 @@ You can freely use ClotoCore for plugin development, internal tools, consulting,
 - [GitHub Discussions](https://github.com/Cloto-dev/ClotoCore/discussions)
 - [X (Twitter)](https://x.com/cloto_dev)
 
+## Credits
+
+- **VOICEVOX** — Text-to-speech engine used for avatar voice synthesis. Default speaker: **VOICEVOX:ナースロボ＿タイプＴ**
+  - [VOICEVOX](https://voicevox.hiroshiba.jp/) — [Terms of Use](https://voicevox.hiroshiba.jp/term/)
+  - Individual character terms may apply depending on the selected speaker.
+
 ## Note
 
 Built by a solo developer from Japan. Most of the code and documentation in this project was written with the assistance of AI. If you find any issues, please open an [issue](https://github.com/Cloto-dev/ClotoCore/issues).
