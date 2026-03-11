@@ -10,6 +10,7 @@ import { AgentStateAnimator } from './AgentStateAnimator';
 import { DefaultPoseApplicator } from './DefaultPoseApplicator';
 import { VisemePlayer, type VisemeEntry } from './VisemePlayer';
 import { AudioPlaybackManager } from './AudioPlaybackManager';
+import { VrmExpressionMapper } from './VrmExpressionMapper';
 
 /**
  * Orchestrates all procedural animation layers.
@@ -31,6 +32,7 @@ export class VrmAnimationController {
   private stateAnimator = new AgentStateAnimator();
   private visemePlayer = new VisemePlayer();
   private audioManager = new AudioPlaybackManager();
+  private expressionMapper = new VrmExpressionMapper();
   /** Pre-phoneme silence offset in ms (from VOICEVOX prePhonemeLength). */
   private audioOffsetMs = 0;
 
@@ -45,6 +47,9 @@ export class VrmAnimationController {
 
   setVrm(vrm: VRM) {
     this.vrm = vrm;
+    this.expressionMapper.initialize(vrm);
+    this.visemePlayer.setMapper(this.expressionMapper);
+    this.blinking.setMapper(this.expressionMapper);
   }
 
   setAgentState(state: AvatarAgentState) {
@@ -106,7 +111,8 @@ export class VrmAnimationController {
   /** Set VRM expression (from MGP avatar server). */
   setExpression(name: string, intensity: number) {
     if (!this.vrm?.expressionManager) return;
-    this.vrm.expressionManager.setValue(name, intensity);
+    const resolved = this.expressionMapper.resolveExpression(name) ?? name;
+    this.vrm.expressionManager.setValue(resolved, intensity);
   }
 
   /** Update idle behavior parameters (from MGP avatar server). */
