@@ -159,8 +159,9 @@ impl SystemHandler {
             }
         }
 
-        // 1-B. Image Analysis: analyze attached images before routing to engine
+        // 1-B. Media pre-processing: analyze images / transcribe audio before routing to engine
         let msg = self.maybe_analyze_images(msg).await;
+        let msg = self.maybe_transcribe_audio(msg).await;
 
         // 2. メモリからのコンテキスト取得 (Dual Dispatch: Rust Plugin → MCP Server)
         let memory_plugin = if let Some(preferred_id) = agent.metadata.get("preferred_memory") {
@@ -1305,6 +1306,117 @@ impl SystemHandler {
                 msg_id = %msg.id,
                 image_count = image_atts.len(),
                 "Prepended vision analysis to message content"
+            );
+        }
+
+        msg
+    }
+
+    /// Auto-transcribe attached audio files before routing to the LLM engine.
+    ///
+    /// Mirrors `maybe_analyze_images`: detects `audio/*` attachments, calls the
+    /// STT capability (`transcribe`), and prepends the transcript to the message
+    /// content so the LLM can reason about the audio without calling tools itself.
+    async fn maybe_transcribe_audio(
+        &self,
+        mut msg: cloto_shared::ClotoMessage,
+    ) -> cloto_shared::ClotoMessage {
+        let Ok(attachments) =
+            crate::db::get_attachments_for_message(&self.agent_manager.pool, &msg.id).await
+        else {
+            return msg;
+        };
+
+        let audio_atts: Vec<_> = attachments
+            .iter()
+            .filter(|a| a.mime_type.starts_with("audio/"))
+            .collect();
+
+        if audio_atts.is_empty() {
+            return msg;
+        }
+
+        let Some(ref mcp) = self.registry.mcp_manager else {
+            return msg;
+        };
+
+        let mut transcripts = Vec::new();
+        for att in &audio_atts {
+            // Get audio bytes
+            let audio_bytes = if let Some(ref data) = att.inline_data {
+                data.clone()
+            } else if let Some(ref path) = att.disk_path {
+                match tokio::fs::read(path).await {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                }
+            } else {
+                continue;
+            };
+
+            // Determine file extension from MIME type
+            let ext = match att.mime_type.as_str() {
+                "audio/mpeg" | "audio/mp3" => "mp3",
+                "audio/wav" | "audio/x-wav" => "wav",
+                "audio/flac" => "flac",
+                "audio/ogg" => "ogg",
+                "audio/mp4" | "audio/x-m4a" | "audio/m4a" => "m4a",
+                other => other.strip_prefix("audio/").unwrap_or("wav"),
+            };
+            let temp_path = format!("data/tmp_stt_{}.{ext}", uuid::Uuid::new_v4());
+            if tokio::fs::write(&temp_path, &audio_bytes).await.is_err() {
+                continue;
+            }
+
+            let abs_path = match std::path::Path::new(&temp_path).canonicalize() {
+                Ok(p) => p.to_string_lossy().to_string(),
+                Err(_) => temp_path.clone(),
+            };
+
+            let args = serde_json::json!({
+                "file_path": abs_path,
+            });
+
+            match mcp
+                .call_capability_tool(crate::managers::CapabilityType::Stt, "transcribe", args, None)
+                .await
+            {
+                Ok(result) => {
+                    if let Ok(text) = Self::extract_mcp_think_content(&result) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if let Some(transcript) = json.get("text").and_then(|t| t.as_str()) {
+                                transcripts.push(transcript.to_string());
+                            } else {
+                                transcripts.push(text);
+                            }
+                        } else {
+                            transcripts.push(text);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        msg_id = %msg.id,
+                        "Audio transcription failed, continuing without transcript"
+                    );
+                }
+            }
+
+            // Clean up temp file
+            let _ = tokio::fs::remove_file(&temp_path).await;
+        }
+
+        if !transcripts.is_empty() {
+            msg.content = format!(
+                "[Audio Transcription]\n{}\n\n[User Message]\n{}",
+                transcripts.join("\n---\n"),
+                msg.content
+            );
+            tracing::info!(
+                msg_id = %msg.id,
+                audio_count = audio_atts.len(),
+                "Prepended audio transcription to message content"
             );
         }
 
