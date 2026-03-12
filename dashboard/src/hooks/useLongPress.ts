@@ -4,6 +4,9 @@ export function useLongPress(durationMs: number, onComplete: () => void) {
   const [progress, setProgress] = useState(0);
   const rafRef = useRef<number>(0);
   const startRef = useRef(0);
+  // Store callback in ref so the rAF loop always calls the latest version
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; });
 
   const start = () => {
     startRef.current = Date.now();
@@ -12,7 +15,7 @@ export function useLongPress(durationMs: number, onComplete: () => void) {
       const p = Math.min(elapsed / durationMs, 1);
       setProgress(p);
       if (p >= 1) {
-        onComplete();
+        onCompleteRef.current();
         setProgress(0);
         return;
       }
