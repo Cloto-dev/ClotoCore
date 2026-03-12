@@ -1993,6 +1993,30 @@
       "pattern": "if \\(hasMedia\\)",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-317",
+      "summary": "CRON messages invisible in chat: user_id='system' excluded by get_chat_messages filter",
+      "severity": "CRITICAL",
+      "discovered": "2026-03-12T00:00:00Z",
+      "version": "0.6.2",
+      "commit": "6ea5c61",
+      "file": "crates/core/src/db/chat.rs",
+      "pattern": "OR user_id = 'system'",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-318",
+      "summary": "Session reset button in AgentConsole uses stale onComplete closure in useLongPress hook",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-12T09:00:00Z",
+      "version": "0.6.2",
+      "commit": "1494b62",
+      "file": "dashboard/src/hooks/useLongPress.ts",
+      "pattern": "onComplete\\(\\)",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }
