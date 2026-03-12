@@ -122,11 +122,13 @@ pub async fn get_chat_messages(
 ) -> anyhow::Result<Vec<ChatMessageRow>> {
     let limit = limit.min(max_limit);
 
+    // Include both the requesting user's messages AND system messages (CRON jobs).
+    // Without this, messages persisted with user_id='system' are silently excluded (bug-317).
     let rows: Vec<ChatMessageTuple> = if let Some(before) = before_ts {
         let query_future = sqlx::query_as::<_, ChatMessageTuple>(
             "SELECT id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index
              FROM chat_messages
-             WHERE agent_id = ? AND user_id = ? AND created_at < ?
+             WHERE agent_id = ? AND (user_id = ? OR user_id = 'system') AND created_at < ?
              ORDER BY created_at DESC
              LIMIT ?",
         )
@@ -141,7 +143,7 @@ pub async fn get_chat_messages(
         let query_future = sqlx::query_as::<_, ChatMessageTuple>(
             "SELECT id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index
              FROM chat_messages
-             WHERE agent_id = ? AND user_id = ?
+             WHERE agent_id = ? AND (user_id = ? OR user_id = 'system')
              ORDER BY created_at DESC
              LIMIT ?",
         )
@@ -246,8 +248,9 @@ pub async fn delete_chat_messages(
     user_id: &str,
 ) -> anyhow::Result<u64> {
     // First get message IDs for disk attachment cleanup
+    // Include system messages (CRON jobs) — mirrors the GET query (bug-317 follow-up)
     let ids_future = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM chat_messages WHERE agent_id = ? AND user_id = ?",
+        "SELECT id FROM chat_messages WHERE agent_id = ? AND (user_id = ? OR user_id = 'system')",
     )
     .bind(agent_id)
     .bind(user_id)
@@ -263,10 +266,11 @@ pub async fn delete_chat_messages(
     let disk_paths = get_disk_attachment_paths(pool, &msg_ids).await?;
 
     // Delete messages (attachments cascade via ON DELETE CASCADE)
-    let delete_future = sqlx::query("DELETE FROM chat_messages WHERE agent_id = ? AND user_id = ?")
-        .bind(agent_id)
-        .bind(user_id)
-        .execute(pool);
+    let delete_future =
+        sqlx::query("DELETE FROM chat_messages WHERE agent_id = ? AND (user_id = ? OR user_id = 'system')")
+            .bind(agent_id)
+            .bind(user_id)
+            .execute(pool);
 
     let result = db_timeout(delete_future).await?;
 

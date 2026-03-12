@@ -2017,6 +2017,18 @@
       "pattern": "onComplete\\(\\)",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-319",
+      "summary": "DELETE chat messages ignores user_id='system' rows — reset button deletes nothing when all messages are from CRON",
+      "severity": "HIGH",
+      "discovered": "2026-03-12T09:30:00Z",
+      "version": "0.6.2",
+      "commit": "1494b62",
+      "file": "crates/core/src/db/chat.rs",
+      "pattern": "DELETE FROM chat_messages WHERE agent_id = \\? AND user_id = \\?",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }
