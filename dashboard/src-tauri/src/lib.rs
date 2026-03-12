@@ -324,6 +324,38 @@ pub fn run() {
                 }
             });
 
+            // Window starts hidden (visible: false in tauri.conf.json).
+            // In release builds, defend against WebView2 ERR_CONNECTION_REFUSED race
+            // condition by force-navigating to the embedded assets URL after a delay.
+            // In dev builds, Vite is already running so just show the window.
+            let show_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                if cfg!(debug_assertions) {
+                    // Dev mode: Vite server is already up, just show
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    if let Some(window) = show_handle.get_webview_window("main") {
+                        let _ = window.show();
+                    }
+                } else {
+                    // Release mode: WebView2 may fail initial navigation to
+                    // http://tauri.localhost before custom protocol handler is ready.
+                    // navigate() works at native WebView2 level — recovers from error pages.
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    if let Some(window) = show_handle.get_webview_window("main") {
+                        let url_str = if cfg!(target_os = "windows") {
+                            "http://tauri.localhost"
+                        } else {
+                            "tauri://localhost"
+                        };
+                        if let Ok(url) = url_str.parse() {
+                            let _ = window.navigate(url);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(300));
+                        let _ = window.show();
+                    }
+                }
+            });
+
             Ok(())
         })
         // Intercept window close: minimize to tray instead of quitting
