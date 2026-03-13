@@ -73,9 +73,23 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
             metadata.insert("skip_user_persist".into(), "true".into());
         }
 
+        let source = match job.source_type.as_str() {
+            "user" => MessageSource::User {
+                id: job
+                    .creator_user_id
+                    .clone()
+                    .unwrap_or_else(|| "default".into()),
+                name: job
+                    .creator_user_name
+                    .clone()
+                    .unwrap_or_else(|| "User".into()),
+            },
+            _ => MessageSource::System,
+        };
+
         let msg = ClotoMessage {
             id: ClotoId::new().to_string(),
-            source: MessageSource::System,
+            source,
             target_agent: Some(job.agent_id.clone()),
             content: job.message.clone(),
             timestamp: Utc::now(),
