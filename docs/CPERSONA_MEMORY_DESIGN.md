@@ -924,6 +924,25 @@ that don't map to ClotoCore's agent_id model. Manual migration may be performed 
 - [x] New tool: `get_queue_status` for monitoring
 - [x] Disable via `CPERSONA_TASK_QUEUE_ENABLED=false` (falls back to synchronous execution)
 
+### CPersona 2.4+ Roadmap
+
+#### Enhanced `get_queue_status` (Planned)
+
+Current `get_queue_status` returns basic `enabled` / `pending` counts. The following
+enhancements are planned for CPersona 2.4+:
+
+- [ ] **Task breakdown by type** — Return per-type pending counts (`update_profile: N, archive_episode: M`) instead of a single aggregate number
+- [ ] **Retry-in-progress count** — Report how many tasks have `retries > 0` (currently failing and being retried), separate from fresh tasks
+- [ ] **Oldest pending task age** — Expose `created_at` of the oldest pending task to detect queue staleness or stuck tasks
+- [ ] **Cumulative session statistics** — Track `processed_count`, `failed_count`, and `uptime` across the queue's lifetime for throughput monitoring
+- [ ] **Liveness indicator** — Report whether the background loop is actively running (`is_alive: true/false`), distinguishing "queue enabled but loop crashed" from normal idle
+
+#### Semantic Cache (Deferred from Phase 3)
+
+- [ ] High-confidence recall caching — cache recall results with cosine similarity ≥ 0.95 threshold (KS2.1 pattern)
+- [ ] Cache invalidation on `store` / `delete_memory` / `delete_agent_data`
+- [ ] Configurable TTL and max cache size
+
 ### Phase 4: Anti-Contamination — **Partially Completed** (v0.5.9)
 
 - [x] **Timestamp annotations** — `_format_memory_timestamp()` converts ISO-8601 timestamps to human-readable local time; recall prepends `[Memory from YYYY-MM-DD HH:MM TZ]` to each memory
