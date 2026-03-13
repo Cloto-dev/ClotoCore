@@ -5,6 +5,7 @@ use axum::{
 use cloto_core::handlers;
 use cloto_core::test_utils::create_test_app_state as create_test_app_state_with_key;
 use cloto_core::AppState;
+use cloto_core::events::SequencedEvent;
 use cloto_shared::{ClotoEvent, ClotoEventData};
 use futures::StreamExt;
 use std::sync::Arc;
@@ -68,7 +69,7 @@ async fn test_sse_handler_streams_events() {
         let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(
             "Test message".to_string(),
         )));
-        let _ = tx.send(event);
+        let _ = tx.send(SequencedEvent::new(event));
     });
 
     let app = create_test_router(state);
@@ -126,7 +127,7 @@ async fn test_sse_handler_handles_lagged_receiver() {
             let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(
                 format!("Message {}", i),
             )));
-            let _ = tx.send(event);
+            let _ = tx.send(SequencedEvent::new(event));
         }
     });
 

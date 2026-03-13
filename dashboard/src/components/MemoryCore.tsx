@@ -110,7 +110,9 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
   };
 
   useEventStream(EVENTS_URL, (data) => {
-    if (data.type === 'MessageReceived' || data.type === 'VisionUpdated' || data.type === 'SystemNotification') {
+    if (data.type === '__reconnected' || data.type === '__lagged'
+      || data.type === 'MessageReceived' || data.type === 'VisionUpdated'
+      || data.type === 'SystemNotification') {
        // H-18: Use debounced fetch to prevent cascading API calls
        debouncedFetchData();
     }

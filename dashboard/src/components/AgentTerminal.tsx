@@ -184,7 +184,7 @@ export function AgentTerminal({
 
   // Listen for AgentPowerChanged events to auto-refresh
   useEventStream(EVENTS_URL, (event) => {
-    if (event.type === 'AgentPowerChanged') {
+    if (event.type === 'AgentPowerChanged' || event.type === '__reconnected') {
       onRefresh();
     }
   }, api.apiKey);
