@@ -67,16 +67,24 @@ The following capabilities were dropped and subsequently restored in 2.3:
 │  (~40MB)             │  │  (~40-490MB depending on provider) │
 │                      │  │                                    │
 │  Tools:              │  │  Tools:                            │
-│  - store             │  │  - embed                           │
-│  - recall            │  │  - embed_batch                     │
-│  - update_profile    │  │                                    │
-│  - archive_episode   │  │  Providers:                        │
-│                      │  │  - onnx_miniml (local, ~490MB)     │
-│  DB: cpersona.db  │  │  - api_openai  (remote, ~40MB)    │
-│  (SQLite, FTS5)      │  │  - api_deepseek (remote, ~40MB)   │
+│  - store             │  │  - embed (batch, max 100)          │
+│  - recall            │  │                                    │
+│  - update_profile    │  │  Providers:                        │
+│  - archive_episode   │  │  - onnx_miniml (local, ~490MB)     │
+│  - list_memories     │  │  - api_openai  (remote, ~40MB)    │
+│  - list_episodes     │  │  - api_deepseek (remote, ~40MB)   │
+│  - delete_memory     │  │                                    │
+│  - delete_episode    │  │  HTTP: localhost:PORT/embed        │
+│  - delete_agent_data │  │  (lightweight internal endpoint)   │
 │                      │  │                                    │
-│  Embedding Client ───┼──┤  HTTP: localhost:PORT/embed        │
-│  (http/api/none)     │  │  (lightweight internal endpoint)   │
+│  DB: cpersona.db  │  │  Embedding Cache:                  │
+│  (SQLite, FTS5)      │  │  LRU (256 entries) + TTL (300s)   │
+│                      │  │                                    │
+│  Embedding Client ───┼──┤                                    │
+│  (http/api/none)     │  │                                    │
+│                      │  │                                    │
+│  LLM Proxy ──────────┼──→  Kernel LLM Proxy (port 8082)     │
+│  (profile/episode)   │  │                                    │
 └──────────────────────┘  └────────────────────────────────────┘
 ```
 
@@ -91,6 +99,37 @@ server exposes a **lightweight HTTP endpoint** alongside MCP stdio for internal 
 | `api` | CPersona calls external API directly (OpenAI/DeepSeek) | ~40MB | Not required |
 | `local` | CPersona loads ONNX model in-process | ~490MB | Not required |
 | `none` | Vector search disabled (FTS5 + keyword only) | ~40MB | Not required |
+
+### 2.3 Embedding Cache
+
+CPersona maintains an in-process **LRU cache with TTL** for embedding queries to
+avoid redundant HTTP/API calls.
+
+| Parameter | Default | Env Variable |
+|-----------|---------|--------------|
+| Capacity | 256 entries | `CPERSONA_EMBEDDING_CACHE_SIZE` |
+| TTL | 300 seconds | `CPERSONA_EMBEDDING_CACHE_TTL` |
+
+**Behavior:**
+- **Single-text queries** (`len(texts) == 1`): cache lookup → on hit, return immediately; on miss, fetch + cache result
+- **Batch queries** (`len(texts) > 1`): bypass cache entirely (avoids partial-cache complexity)
+- Cache key: SHA-256 hash of input text (first 16 hex chars)
+- Eviction: LRU order when capacity exceeded; expired entries removed on access
+
+### 2.4 LLM Proxy Integration
+
+CPersona uses the kernel's LLM proxy for memory extraction tasks (`update_profile`,
+`archive_episode`). This avoids embedding LLM client logic in the MCP server.
+
+| Parameter | Default | Env Variable |
+|-----------|---------|--------------|
+| Proxy URL | `http://127.0.0.1:8082/v1/chat/completions` | `CPERSONA_LLM_PROXY_URL` |
+| Provider | `cerebras` | `CPERSONA_LLM_PROVIDER` |
+| Model | `gpt-oss-120b` | `CPERSONA_LLM_MODEL` |
+
+**Protocol:** OpenAI-compatible chat completion with custom `X-LLM-Provider` header.
+Timeout: 60 seconds. On failure, returns `None` — callers implement fallback logic
+(simple concatenation for profiles, word-frequency keywords for episodes).
 
 ---
 
@@ -129,12 +168,14 @@ Store a message in agent memory.
 }
 ```
 
-**Response:** `{"ok": true}` or `{"error": "..."}`
+**Response:** `{"ok": true}` or `{"ok": true, "skipped": true, "reason": "..."}` or `{"error": "..."}`
 
 **Behavior:**
-1. Insert message into `memories` table
-2. If embedding provider is available, compute embedding and store it
-3. Return immediately (no LLM call)
+1. If `content` is empty, skip and return `{"ok": true, "skipped": true, "reason": "empty content"}`
+2. If `message.id` (msg_id) is provided, check for duplicate `(agent_id, msg_id)` pair — if found, return `{"ok": true, "skipped": true, "reason": "duplicate msg_id"}`
+3. If embedding provider is available, compute embedding and store it
+4. Insert message into `memories` table
+5. Return immediately (no LLM call)
 
 ### 3.2 recall
 
@@ -166,33 +207,47 @@ Recall relevant memories for a query.
 }
 ```
 
-**Response:** `{"messages": [{"id": "...", "content": "...", "source": {...}, "timestamp": "..."}]}`
+**Response:** `{"messages": [{"id": "...", "content": "[Memory from 2026-03-13 14:30 JST] ...", "source": {...}, "timestamp": "..."}]}`
 
 **Search Strategy (cascading):**
 
 ```
 recall(agent_id, query, limit)
   │
-  ├─ 1. Vector Search (if embedding available)
-  │     → Compute query embedding
+  ├─ 1. Vector Search
+  │     Condition: _embedding_client AND query.strip() non-empty
+  │     → Compute query embedding (via EmbeddingClient)
   │     → Cosine similarity on memories.embedding + episodes.embedding
+  │     → Filter by CPERSONA_VECTOR_MIN_SIMILARITY (default 0.3)
   │     → Return top-K candidates with scores
+  │     → Max rows scanned: CPERSONA_MAX_MEMORIES (default 500, OOM guard)
   │
   ├─ 2. FTS5 Full-Text Search
-  │     → Query episodes_fts with AND-matched keywords
-  │     → Return ranked results
+  │     Condition: CPERSONA_FTS_ENABLED AND query.strip() non-empty
+  │     → Sanitize query: strip non-alphanumeric/CJK chars (regex [^\w\s])
+  │     → Quote each word for phrase matching (FTS5 injection prevention)
+  │     → Query episodes_fts → ranked results with [Episode] prefix
   │
   ├─ 3. Profile Lookup
+  │     Condition: always executed
   │     → Fetch profiles for this agent_id
-  │     → Include as contextual information
+  │     → Include as [Profile] prefixed contextual information
   │
-  └─ 4. Recent Memory Fallback (2.2-compatible)
+  └─ 4. Keyword Fallback (2.2-compatible)
+        Condition: remaining slots available after strategies 1-3
         → Keyword match on memories.content (LIKE)
         → Chronological ordering (newest first)
+        → Max rows scanned: CPERSONA_MAX_MEMORIES (OOM guard)
 
-  → Merge all results, deduplicate, sort by relevance
+  → Merge all results, deduplicate by seen_ids set, sort by relevance
   → Truncate to limit, reverse to chronological order for LLM context
+  → Apply Phase 4 timestamp annotations: [Memory from YYYY-MM-DD HH:MM TZ]
 ```
+
+**FTS5 Injection Prevention:**
+- Input sanitized with `re.sub(r'[^\w\s]', "", query, flags=re.UNICODE)` — strips all FTS5 operators (`AND`, `OR`, `NOT`, `NEAR`, `*`, `^`, `-`)
+- Each remaining word is individually quoted for exact matching
+- Prevents operator reconstruction from word boundaries
 
 ### 3.3 update_profile
 
@@ -222,13 +277,12 @@ Extract and update user profile from conversation history.
 
 **Response:** `{"ok": true, "profiles_updated": 1}` or `{"error": "..."}`
 
-**Behavior (ported from 2.1):**
-1. Extract user facts from conversation using LLM (requires external reasoning engine)
-2. Merge with existing profile in `profiles` table (UPSERT)
-3. Runs as foreground operation (caller may fire-and-forget)
-
-> **Phase 1:** Stub — stores raw history summary without LLM extraction.
-> **Phase 2:** Full 2.1 port — LLM-powered extraction via external API.
+**Behavior:**
+1. Format conversation history into `[User] ... / [Agent] ...` text
+2. Fetch existing profile from `profiles` table (`WHERE agent_id = ? AND user_id = ''`)
+3. Call LLM proxy with prompt: "Extract facts about the user... MERGE with existing facts — keep all existing information unless explicitly contradicted"
+4. UPSERT result into `profiles` table (`ON CONFLICT(agent_id, user_id) DO UPDATE`)
+5. **Fallback:** If LLM proxy is unavailable, concatenate user lines from history as a simple profile summary
 
 ### 3.4 archive_episode
 
@@ -258,14 +312,214 @@ Summarize and archive a conversation episode.
 
 **Response:** `{"ok": true, "episode_id": 42}` or `{"error": "..."}`
 
-**Behavior (ported from 2.1):**
-1. Concatenate history into text
-2. Generate summary + keywords (requires external reasoning engine or simple heuristic)
-3. Compute embedding if provider available
-4. Insert into `episodes` table + FTS5 index
+**Behavior:**
+1. Format conversation history into text
+2. Call LLM proxy for summarization: "Summarize the following conversation concisely (800-1200 characters). Preserve proper nouns, dates, decisions, and key technical details."
+3. Call LLM proxy for keyword extraction: "Extract 5-10 search keywords... suitable for full-text search (FTS5). Output space-separated keywords only."
+4. Extract `start_time` / `end_time` from message timestamps
+5. Compute embedding on summary if provider available
+6. Insert into `episodes` table (FTS5 triggers auto-index)
+7. **Fallback (LLM unavailable):** Summary = concatenation of first/last messages with ellipsis; Keywords = word-frequency analysis with stopword removal
 
-> **Phase 1:** Simple concatenation summary + keyword extraction (no LLM).
-> **Phase 2:** LLM-powered summarization.
+### 3.5 list_memories
+
+List recent memories for an agent (dashboard/management use).
+
+```json
+{
+  "name": "list_memories",
+  "description": "List recent memories for an agent.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier (empty for all agents)",
+        "default": ""
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of memories to return",
+        "default": 100
+      }
+    }
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "memories": [
+    {
+      "id": 1,
+      "agent_id": "agent-xyz",
+      "content": "...",
+      "source": {},
+      "timestamp": "2026-03-13T14:30:00+09:00",
+      "created_at": "2026-03-13T14:30:00"
+    }
+  ],
+  "count": 1
+}
+```
+
+**Behavior:**
+- `limit` is clamped to max 500
+- If `agent_id` is empty, returns memories across all agents
+- Ordered by `created_at DESC` (newest first)
+
+### 3.6 list_episodes
+
+List archived episodes for an agent (dashboard/management use).
+
+```json
+{
+  "name": "list_episodes",
+  "description": "List archived episodes for an agent.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier (empty for all agents)",
+        "default": ""
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of episodes to return",
+        "default": 50
+      }
+    }
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "episodes": [
+    {
+      "id": 1,
+      "agent_id": "agent-xyz",
+      "summary": "...",
+      "keywords": "word1 word2 ...",
+      "start_time": "2026-03-13T14:00:00+09:00",
+      "end_time": "2026-03-13T14:30:00+09:00",
+      "created_at": "2026-03-13T14:30:00"
+    }
+  ],
+  "count": 1
+}
+```
+
+**Behavior:**
+- `limit` is clamped to max 200
+- If `agent_id` is empty, returns episodes across all agents
+- Ordered by `created_at DESC` (newest first)
+
+### 3.7 delete_memory
+
+Delete a single memory entry.
+
+```json
+{
+  "name": "delete_memory",
+  "description": "Delete a single memory by ID.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "memory_id": {
+        "type": "integer",
+        "description": "Memory ID to delete"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier (if provided, enforces ownership check)",
+        "default": ""
+      }
+    },
+    "required": ["memory_id"]
+  }
+}
+```
+
+**Response:** `{"ok": true, "deleted_id": 123}` or `{"error": "..."}`
+
+**Behavior:**
+- If `agent_id` is provided: `DELETE FROM memories WHERE id = ? AND agent_id = ?` (ownership enforcement)
+- If `agent_id` is empty: `DELETE FROM memories WHERE id = ?` (admin mode)
+- Returns error if no matching row found
+
+### 3.8 delete_episode
+
+Delete a single episode entry.
+
+```json
+{
+  "name": "delete_episode",
+  "description": "Delete a single episode by ID.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "episode_id": {
+        "type": "integer",
+        "description": "Episode ID to delete"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier (if provided, enforces ownership check)",
+        "default": ""
+      }
+    },
+    "required": ["episode_id"]
+  }
+}
+```
+
+**Response:** `{"ok": true, "deleted_id": 42}` or `{"error": "..."}`
+
+**Behavior:**
+- Same ownership check pattern as `delete_memory`
+- FTS5 triggers automatically clean up the full-text search index on deletion
+
+### 3.9 delete_agent_data
+
+Delete ALL data for an agent (bulk cleanup).
+
+```json
+{
+  "name": "delete_agent_data",
+  "description": "Delete all memories, profiles, and episodes for an agent.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier (required, non-empty)"
+      }
+    },
+    "required": ["agent_id"]
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "agent_id": "agent-xyz",
+  "deleted_memories": 42,
+  "deleted_profiles": 1,
+  "deleted_episodes": 3
+}
+```
+
+**Behavior:**
+1. `agent_id` must be non-empty (returns error otherwise)
+2. Deletes from `memories`, `profiles`, and `episodes` tables atomically
+3. FTS5 triggers handle episode index cleanup
+4. Called automatically by kernel when an agent is deleted (best-effort cleanup)
 
 ---
 
@@ -385,6 +639,8 @@ Dedicated MCP server for vector embedding generation. Decoupled from CPersona so
 
 #### embed
 
+Single tool that handles both individual and batch embedding requests (max 100 texts per call).
+
 ```json
 {
   "name": "embed",
@@ -395,7 +651,7 @@ Dedicated MCP server for vector embedding generation. Decoupled from CPersona so
       "texts": {
         "type": "array",
         "items": { "type": "string" },
-        "description": "Texts to embed (batch)"
+        "description": "Texts to embed (batch, max 100)"
       }
     },
     "required": ["texts"]
@@ -404,6 +660,8 @@ Dedicated MCP server for vector embedding generation. Decoupled from CPersona so
 ```
 
 **Response:** `{"embeddings": [[0.012, -0.034, ...], ...], "dimensions": 384}`
+
+**Limits:** Batch size exceeds 100 → `{"error": "Batch size exceeds limit (max 100)"}`
 
 ### 5.3 HTTP Endpoint
 
@@ -418,6 +676,8 @@ Content-Type: application/json
 → {"embeddings": [[...], [...]], "dimensions": 384}
 ```
 
+Batch size limit: 100 texts (same as MCP tool).
+
 ### 5.4 Providers
 
 | Provider | Model | Dimensions | Memory | Latency | Cost |
@@ -430,7 +690,7 @@ Configured via environment variable:
 
 ```
 EMBEDDING_PROVIDER=onnx_miniml    # or api_openai, api_deepseek
-EMBEDDING_MODEL=all-MiniLM-L6-v2  # provider-specific model name
+EMBEDDING_MODEL=                  # provider-specific (empty = provider default)
 EMBEDDING_HTTP_PORT=8401           # HTTP endpoint port
 EMBEDDING_API_KEY=sk-...           # for API providers only
 EMBEDDING_API_URL=https://...      # for API providers only
@@ -472,70 +732,104 @@ env = {
 | `CPERSONA_EMBEDDING_MODE` | `none` | Embedding strategy: `http`, `api`, `local`, `none` |
 | `CPERSONA_EMBEDDING_URL` | — | URL for `http` mode (embedding server endpoint) |
 | `CPERSONA_EMBEDDING_API_KEY` | — | API key for `api` mode |
-| `CPERSONA_EMBEDDING_API_URL` | — | API endpoint for `api` mode |
-| `CPERSONA_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Model name for `local` mode |
+| `CPERSONA_EMBEDDING_API_URL` | `https://api.openai.com/v1/embeddings` | API endpoint for `api` mode |
+| `CPERSONA_EMBEDDING_MODEL` | `text-embedding-3-small` | Model name (provider-specific) |
 | `CPERSONA_MAX_MEMORIES` | `500` | Max memories loaded per recall (OOM guard) |
 | `CPERSONA_FTS_ENABLED` | `true` | Enable FTS5 episode search |
+| `CPERSONA_VECTOR_MIN_SIMILARITY` | `0.3` | Cosine similarity threshold for vector search (0.0–1.0) |
+| `CPERSONA_EMBEDDING_CACHE_SIZE` | `256` | LRU embedding cache capacity (entries) |
+| `CPERSONA_EMBEDDING_CACHE_TTL` | `300` | Embedding cache entry lifetime (seconds) |
+| `CPERSONA_LLM_PROXY_URL` | `http://127.0.0.1:8082/v1/chat/completions` | Kernel LLM proxy endpoint for memory extraction |
+| `CPERSONA_LLM_PROVIDER` | `cerebras` | LLM provider name (sent via `X-LLM-Provider` header) |
+| `CPERSONA_LLM_MODEL` | `gpt-oss-120b` | LLM model name for extraction tasks |
 
 ---
 
 ## 7. Kernel Integration (Memory Resolver)
 
-### 7.1 Current Flow (Rust Plugin)
+### 7.1 Memory Resolution (Dual Dispatch)
+
+The kernel resolves the memory server through a three-step fallback chain:
 
 ```rust
-// system.rs — current implementation
-let memory_plugin = registry.find_memory().await;  // Arc<dyn Plugin>
-if let Some(mem) = plugin.as_memory() {
-    let context = mem.recall(agent_id, query, limit).await?;
-    // ... agentic loop ...
-    mem.store(agent_id, message).await?;
-}
-```
+// system.rs — Memory Resolution Chain
 
-### 7.2 New Flow (MCP Dual Dispatch)
-
-```rust
-// system.rs — after CPersona MCP migration
-// 1. Try Rust plugin first (backward compatible)
-let memory_plugin = registry.find_memory().await;
-
-// 2. Fallback: find MCP server with store+recall tools
-let mcp_memory = if memory_plugin.is_none() {
-    mcp_manager.find_memory_server().await  // checks for store+recall tools
+// Step 1: Check agent's preferred_memory metadata
+let memory_plugin = if let Some(preferred_id) = agent.metadata.get("preferred_memory") {
+    self.registry.get_engine(preferred_id).await
 } else {
-    None
+    self.registry.find_memory().await  // legacy Rust plugin search
 };
 
-// 3. recall
-let context = if let Some(ref plugin) = memory_plugin {
-    plugin.as_memory().unwrap().recall(...).await?
-} else if let Some(ref mcp) = mcp_memory {
-    let result = mcp.call_tool("memory.cpersona", "recall", args).await?;
-    parse_recall_result(&result)?  // JSON → Vec<ClotoMessage>
-} else {
-    vec![]
-};
-
-// 4. store (same pattern)
+// Step 2: MCP fallback via CapabilityType::Memory
+let mcp_memory: Option<(Arc<McpClientManager>, String)> = if memory_plugin.is_none() {
+    if let Some(ref mcp) = self.registry.mcp_manager {
+        mcp.resolve_capability_server(CapabilityType::Memory)
+            .await
+            .and_then(|server_id| {
+                // 🔐 Access control: agent must have grant to the memory server
+                if granted_server_ids.contains(&server_id) {
+                    Some((mcp.clone(), server_id))
+                } else {
+                    None  // agent lacks access — memory skipped
+                }
+            })
+    } else { None }
+} else { None };
 ```
 
-### 7.3 McpClientManager Extension
+**Capability Classification** (`capability_dispatcher.rs`):
 
-New method on `McpClientManager`:
+Servers are classified as `CapabilityType::Memory` by:
+1. **Server prefix** (primary): `server_id.starts_with("memory.")`
+2. **Tool name fallback**: `store`, `recall`, `list_memories`, `delete_memory`, `list_episodes`, `delete_episode`, `archive_episode`, `delete_agent_data`, `update_profile`
+
+### 7.2 REST Endpoint Integration
+
+Memory operations are called via `call_server_tool()` with timeout:
 
 ```rust
-/// Find an MCP server that provides memory capabilities (has both store and recall tools).
-pub async fn find_memory_server(&self) -> Option<String> {
-    let index = self.tool_index.read().await;
-    let has_store = index.get("store").cloned();
-    let has_recall = index.get("recall").cloned();
-    match (has_store, has_recall) {
-        (Some(s1), Some(s2)) if s1 == s2 => Some(s1),
-        _ => None,
-    }
-}
+// Recall (with timeout)
+let recall_args = serde_json::json!({
+    "agent_id": agent.id,
+    "query": msg.content,
+    "limit": self.memory_context_limit,
+});
+match tokio::time::timeout(
+    Duration::from_secs(self.memory_timeout_secs),
+    mcp.call_server_tool(server_id, "recall", recall_args),
+).await {
+    Ok(Ok(result)) => Self::parse_mcp_recall_result(&result),
+    Ok(Err(e)) => vec![],   // MCP error → empty context
+    Err(_) => vec![],        // timeout → empty context
+};
+
+// Store (same timeout pattern)
+mcp.call_server_tool(&server_id, "store", store_args).await;
 ```
+
+**Agent deletion** triggers automatic cleanup:
+```rust
+// agents.rs — on DELETE /api/agents/:id
+mcp.call_server_tool(mem_server, "delete_agent_data", json!({"agent_id": id})).await;
+```
+
+### 7.3 Auto-Archive (`maybe_archive_episode`)
+
+The kernel automatically triggers episode archival when enough unarchived memories accumulate.
+
+| Parameter | Value |
+|-----------|-------|
+| `TOOL_USAGE_THRESHOLD` | 10 (constant in `system.rs`) |
+
+**Flow:**
+1. After each `store()`, call `maybe_archive_episode()`
+2. Fetch recent memories via `list_memories(agent_id, limit=15)`
+3. Fetch last episode via `list_episodes(agent_id, limit=1)` to get `created_at` timestamp
+4. Count memories newer than last episode's `created_at`
+5. If count ≥ `TOOL_USAGE_THRESHOLD`:
+   - Call `archive_episode(agent_id, history)` with unarchived messages
+   - On success, call `update_profile(agent_id, history)` to refresh user profile
 
 ---
 
@@ -551,13 +845,14 @@ key = 'mem:{agent_id}:{timestamp}:{hash}'
 value = JSON(ClotoMessage)
 ```
 
-Migration script (`mcp-servers/cpersona/migrate.py`):
+**Manual SQL migration procedure:**
 
-1. Connect to source: `data/cloto_memories.db` → `plugin_data WHERE plugin_id='memory.cpersona'`
-2. For each row, parse `key` to extract `agent_id` and `timestamp`
-3. Deserialize `value` as ClotoMessage JSON
-4. Insert into destination: `data/cpersona.db` → `memories` table
-5. Optionally compute embeddings for migrated memories
+1. Open source database: `sqlite3 data/cloto_memories.db`
+2. Query plugin_data: `SELECT key, value FROM plugin_data WHERE plugin_id = 'memory.cpersona';`
+3. For each row, parse `key` to extract `agent_id` and `timestamp`
+4. Deserialize `value` as ClotoMessage JSON
+5. Insert into destination: `sqlite3 data/cpersona.db` → `memories` table
+6. Optionally compute embeddings for migrated memories via the embedding server HTTP endpoint
 
 ### 8.2 From CPersona 2.1 (ai_karin)
 
@@ -593,6 +888,12 @@ that don't map to ClotoCore's agent_id model. Manual migration may be performed 
 - [x] Auto `update_profile` trigger after episode archival
 - [ ] Background task queue (DB-persisted, crash-recoverable) — deferred
 - [ ] Semantic cache (high-confidence recall caching) — deferred
+
+### Phase 4: Anti-Contamination — **Partially Completed** (v0.5.9)
+
+- [x] **Timestamp annotations** — `_format_memory_timestamp()` converts ISO-8601 timestamps to human-readable local time; recall prepends `[Memory from YYYY-MM-DD HH:MM TZ]` to each memory
+- [x] **Boundary markers** — `[Episode]` prefix on episode summaries, `[Profile]` prefix on profile entries in recall results; `source: {"System": "episode"}` / `{"System": "profile"}` for semantic distinction
+- [ ] **Explicit anti-hallucination guardrails** — not yet implemented (no system-prompt-level instructions to LLM about memory provenance)
 
 ---
 
