@@ -76,9 +76,13 @@ The following capabilities were dropped and subsequently restored in 2.3:
 │  - delete_memory     │  │                                    │
 │  - delete_episode    │  │  HTTP: localhost:PORT/embed        │
 │  - delete_agent_data │  │  (lightweight internal endpoint)   │
+│  - get_queue_status  │  │                                    │
+│                      │  │  Embedding Cache:                  │
+│  DB: cpersona.db     │  │  LRU (256 entries) + TTL (300s)   │
+│  (SQLite, FTS5)      │  │                                    │
 │                      │  │                                    │
-│  DB: cpersona.db  │  │  Embedding Cache:                  │
-│  (SQLite, FTS5)      │  │  LRU (256 entries) + TTL (300s)   │
+│  Task Queue ─────────┤  │                                    │
+│  (DB-persisted FIFO) │  │                                    │
 │                      │  │                                    │
 │  Embedding Client ───┼──┤                                    │
 │  (http/api/none)     │  │                                    │
@@ -612,7 +616,26 @@ CREATE TRIGGER episodes_au AFTER UPDATE ON episodes BEGIN
 END;
 ```
 
-### 4.4 Schema Versioning
+### 4.4 pending_memory_tasks
+
+Background task queue persistence (Phase 5, restored from KS2.1).
+
+```sql
+CREATE TABLE pending_memory_tasks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_type  TEXT NOT NULL,
+    agent_id   TEXT NOT NULL,
+    payload    TEXT NOT NULL,
+    retries    INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+Tasks are inserted on `update_profile` / `archive_episode` tool calls and processed
+asynchronously by the `MemoryTaskQueue` background loop. On process restart, any
+surviving rows are automatically recovered and reprocessed (crash recovery).
+
+### 4.5 Schema Versioning
 
 The CPersona MCP server manages its own schema migrations at startup using a simple
 version table:
@@ -742,6 +765,9 @@ env = {
 | `CPERSONA_LLM_PROXY_URL` | `http://127.0.0.1:8082/v1/chat/completions` | Kernel LLM proxy endpoint for memory extraction |
 | `CPERSONA_LLM_PROVIDER` | `cerebras` | LLM provider name (sent via `X-LLM-Provider` header) |
 | `CPERSONA_LLM_MODEL` | `gpt-oss-120b` | LLM model name for extraction tasks |
+| `CPERSONA_TASK_QUEUE_ENABLED` | `true` | Enable background task queue for `update_profile`/`archive_episode` |
+| `CPERSONA_TASK_MAX_RETRIES` | `3` | Max retry attempts before discarding a failed task |
+| `CPERSONA_TASK_RETRY_DELAY` | `30` | Seconds to wait between retries |
 
 ---
 
@@ -886,8 +912,17 @@ that don't map to ClotoCore's agent_id model. Manual migration may be performed 
 - [x] `update_profile`: LLM-powered fact extraction via Cerebras
 - [x] `archive_episode`: LLM-powered summarization with keywords via Cerebras
 - [x] Auto `update_profile` trigger after episode archival
-- [ ] Background task queue (DB-persisted, crash-recoverable) — deferred
 - [ ] Semantic cache (high-confidence recall caching) — deferred
+
+### Phase 5: Background Task Queue (KS2.1 Restoration) — **Completed**
+
+- [x] `pending_memory_tasks` table in cpersona.db (DB-persisted FIFO queue)
+- [x] `MemoryTaskQueue` class: asyncio background loop with crash recovery
+- [x] `update_profile` / `archive_episode` tools enqueue and return immediately
+- [x] FIFO processing with configurable retry (`CPERSONA_TASK_MAX_RETRIES`, `CPERSONA_TASK_RETRY_DELAY`)
+- [x] Startup recovery: pending tasks from previous crash automatically reprocessed
+- [x] New tool: `get_queue_status` for monitoring
+- [x] Disable via `CPERSONA_TASK_QUEUE_ENABLED=false` (falls back to synchronous execution)
 
 ### Phase 4: Anti-Contamination — **Partially Completed** (v0.5.9)
 
