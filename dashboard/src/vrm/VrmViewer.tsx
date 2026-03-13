@@ -5,19 +5,24 @@ import { VrmSceneManager } from './engine/VrmSceneManager';
 import { VrmModelLoader } from './engine/VrmModelLoader';
 import { VrmAnimationController } from './engine/VrmAnimationController';
 import { useVrmContext } from './VrmContext';
+import { useVrmAvatar } from './useVrmAvatar';
 import { api } from '../services/api';
 
 interface Props {
   agentId: string;
+  apiKey?: string;
 }
 
-export function VrmViewer({ agentId }: Props) {
+export function VrmViewer({ agentId, apiKey }: Props) {
   const { t } = useTranslation('agents');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const controllerRef = useRef<VrmAnimationController | null>(null);
   const sceneRef = useRef<VrmSceneManager | null>(null);
   const loaderRef = useRef<VrmModelLoader | null>(null);
   const { agentState, idleParams, vrmVisible } = useVrmContext();
+
+  // SSE → agent state → POSE_THINKING / responding / idle auto-transition
+  useVrmAvatar(agentId, apiKey);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
