@@ -49,6 +49,8 @@ export class VrmAnimationController {
   private isPresetVrma = false;
 
   private _running = false;
+  /** Tracks current agent state for transition detection. */
+  private currentAgentState: AvatarAgentState = 'idle';
 
   constructor(sceneManager: VrmSceneManager) {
     this.sceneManager = sceneManager;
@@ -66,7 +68,21 @@ export class VrmAnimationController {
   }
 
   setAgentState(state: AvatarAgentState) {
+    const prev = this.currentAgentState;
+    this.currentAgentState = state;
     this.stateAnimator.setState(state);
+
+    // Don't override user-loaded VRMA (manual pose/animation)
+    if (this.vrmaLoader.active && !this.isPresetVrma) return;
+
+    if (state === prev) return;
+
+    // Apply VRMA preset for the new state, or stop it when leaving
+    if (state in VRMA_POSE_URLS) {
+      this.setPose(state, 0.5);
+    } else if (prev in VRMA_POSE_URLS && this.isPresetVrma) {
+      this.stopVrma(0.5);
+    }
   }
 
   setIdleParams(params: IdleBehaviorParams) {
