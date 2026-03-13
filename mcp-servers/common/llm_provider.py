@@ -11,6 +11,9 @@ Provides:
 """
 
 import json
+import os
+import platform
+import shutil
 from dataclasses import dataclass
 
 import httpx
@@ -22,6 +25,66 @@ from mcp.types import TextContent
 # ============================================================
 # Provider Configuration
 # ============================================================
+
+
+def _detect_host_os() -> str:
+    """Build a concise OS summary string for the system prompt.
+
+    Examples:
+      "Windows 11 (10.0.26200), shell: PowerShell"
+      "Linux 6.5.0-44 (Ubuntu 24.04), shell: bash"
+      "Darwin 23.5.0 (macOS 14.5), shell: zsh"
+    """
+    system = platform.system()       # Windows / Linux / Darwin
+    release = platform.release()     # 10.0.26200 / 6.5.0-44 / 23.5.0
+    version = platform.version()     # full version string
+
+    if system == "Windows":
+        # platform.release() returns "11" on modern Python/Win11, or "10" on older.
+        # platform.version() returns the full build string e.g. "10.0.26200".
+        win_ver = release  # "10" or "11"
+        if release == "10":
+            # Disambiguate Win10 vs Win11 via build number
+            try:
+                build = int(version.split(".")[-1]) if version else 0
+                if build >= 22000:
+                    win_ver = "11"
+            except (ValueError, IndexError):
+                pass
+        os_part = f"Windows {win_ver} ({version})"
+    elif system == "Darwin":
+        mac_ver = platform.mac_ver()[0]  # e.g. "14.5"
+        os_part = f"macOS {mac_ver} (Darwin {release})" if mac_ver else f"Darwin {release}"
+    elif system == "Linux":
+        # Try freedesktop os-release for distro name
+        distro = ""
+        for p in ("/etc/os-release", "/usr/lib/os-release"):
+            if os.path.isfile(p):
+                try:
+                    with open(p) as f:
+                        for line in f:
+                            if line.startswith("PRETTY_NAME="):
+                                distro = line.split("=", 1)[1].strip().strip('"')
+                                break
+                except OSError:
+                    pass
+                break
+        os_part = f"Linux {release} ({distro})" if distro else f"Linux {release}"
+    else:
+        os_part = f"{system} {release}"
+
+    # Detect default shell
+    shell_path = os.environ.get("SHELL") or os.environ.get("COMSPEC") or ""
+    shell_name = os.path.basename(shell_path).removesuffix(".exe") if shell_path else "unknown"
+    # On Windows, also check for PowerShell availability
+    if system == "Windows" and shell_name in ("cmd", "unknown"):
+        if shutil.which("pwsh") or shutil.which("powershell"):
+            shell_name = "PowerShell"
+
+    return f"{os_part}, shell: {shell_name}"
+
+
+_HOST_OS_SUMMARY: str = _detect_host_os()
 
 
 @dataclass
@@ -81,6 +144,11 @@ def build_system_prompt(
     lines.append(
         "Cloto is a local, self-hosted AI container system — "
         "all data stays on your operator's hardware and is never sent to external services."
+    )
+    lines.append(
+        f"Host OS: {_HOST_OS_SUMMARY}. "
+        f"When using execute_command, always use commands native to this OS "
+        f"({'e.g. dir, type, findstr, Get-ChildItem' if platform.system() == 'Windows' else 'e.g. ls, cat, grep, find'})."
     )
 
     # --- [3] Persona (from metadata.persona JSON) ---

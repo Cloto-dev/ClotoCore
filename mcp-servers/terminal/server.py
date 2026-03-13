@@ -19,7 +19,12 @@ from common.mcp_utils import ToolRegistry, run_mcp_server
 # Configuration (from environment variables)
 # ============================================================
 
-WORKING_DIR = os.environ.get("CLOTO_SANDBOX_DIR", "/tmp/cloto-sandbox")
+_DEFAULT_SANDBOX = (
+    os.path.join(os.environ.get("TEMP", "C:\\Temp"), "cloto-sandbox")
+    if os.name == "nt"
+    else "/tmp/cloto-sandbox"
+)
+WORKING_DIR = os.environ.get("CLOTO_SANDBOX_DIR", _DEFAULT_SANDBOX)
 MAX_OUTPUT_BYTES = int(os.environ.get("CLOTO_MAX_OUTPUT_BYTES", "65536"))
 ALLOWED_COMMANDS_STR = os.environ.get("CLOTO_ALLOWED_COMMANDS", "")
 
