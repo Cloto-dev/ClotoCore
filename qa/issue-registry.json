@@ -2029,6 +2029,18 @@
       "pattern": "DELETE FROM chat_messages WHERE agent_id = \\? AND user_id = \\?",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-320",
+      "summary": "AgentConsole SSE event.data properties accessed without type assertions cause 6 TypeScript compile errors",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-13T00:00:00Z",
+      "version": "0.6.2",
+      "commit": "4588074",
+      "file": "dashboard/src/components/AgentConsole.tsx",
+      "pattern": "event\\.data\\.content\\.slice",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }
