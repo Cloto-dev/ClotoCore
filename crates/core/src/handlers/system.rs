@@ -838,6 +838,16 @@ impl SystemHandler {
 
         // Fallback: engine does not support tools → plain think()
         if !supports_tools {
+            self.emit_event(
+                trace_id,
+                ClotoEventData::AgentThinking {
+                    agent_id: agent.id.clone(),
+                    engine_id: engine_id.to_string(),
+                    content: String::new(),
+                    iteration: 0,
+                },
+            )
+            .await;
             return self
                 .engine_think(
                     engine_plugin.as_ref(),
@@ -859,6 +869,16 @@ impl SystemHandler {
                 .await
         };
         if tools.is_empty() {
+            self.emit_event(
+                trace_id,
+                ClotoEventData::AgentThinking {
+                    agent_id: agent.id.clone(),
+                    engine_id: engine_id.to_string(),
+                    content: String::new(),
+                    iteration: 0,
+                },
+            )
+            .await;
             return self
                 .engine_think(
                     engine_plugin.as_ref(),
@@ -881,6 +901,19 @@ impl SystemHandler {
                     .map(std::string::ToString::to_string)
             })
             .collect();
+
+        // Emit AgentThinking at loop start so the frontend can show
+        // the thinking pose immediately (before the first LLM round-trip).
+        self.emit_event(
+            trace_id,
+            ClotoEventData::AgentThinking {
+                agent_id: agent.id.clone(),
+                engine_id: engine_id.to_string(),
+                content: String::new(),
+                iteration: 0,
+            },
+        )
+        .await;
 
         info!(
             agent_id = %agent.id,
