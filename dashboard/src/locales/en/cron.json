@@ -26,5 +26,9 @@
   "next_label": "Next:",
   "last_label": "Last:",
   "prompt_label": "Prompt:",
+  "source_type": "Message Source",
+  "source_label": "Source:",
+  "source_system": "system",
+  "source_user": "user",
   "no_jobs": "No cron jobs configured. Create one to enable autonomous agent execution."
 }
