@@ -244,18 +244,46 @@ pub async fn sse_handler(
     headers: HeaderMap,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
     check_auth_with_query(&state, &headers, &query)?;
+
+    let last_event_id: Option<u64> = headers
+        .get("Last-Event-ID")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok());
+
+    // Subscribe BEFORE reading history (prevents gap between replay and live)
     let mut rx = state.tx.subscribe();
+    let history = state.event_history.clone();
+
     let stream = async_stream::stream! {
         yield Ok(Event::default().event("handshake").data("connected"));
+
+        // Replay missed events from history
+        if let Some(last_id) = last_event_id {
+            let guard = history.read().await;
+            let replay: Vec<_> = guard.iter()
+                .filter(|se| se.seq_id > last_id)
+                .cloned()
+                .collect();
+            drop(guard);
+            for se in replay {
+                if let Ok(json) = serde_json::to_string(&*se.event) {
+                    yield Ok(Event::default().id(se.seq_id.to_string()).data(json));
+                }
+            }
+        }
+
         loop {
             match rx.recv().await {
-                Ok(event) => {
-                    if let Ok(json) = serde_json::to_string(&event) {
-                        yield Ok(Event::default().data(json));
+                Ok(seq_event) => {
+                    if let Ok(json) = serde_json::to_string(&*seq_event.event) {
+                        yield Ok(Event::default()
+                            .id(seq_event.seq_id.to_string())
+                            .data(json));
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     tracing::warn!("SSE stream lagged by {} messages", n);
+                    yield Ok(Event::default().event("lagged").data(n.to_string()));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                     break;
@@ -286,7 +314,13 @@ pub async fn get_history(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let history = state.event_history.read().await;
-    let history_vec: Vec<_> = history.iter().collect();
+    let history_vec: Vec<serde_json::Value> = history.iter().map(|se| {
+        let mut obj = serde_json::to_value(&*se.event).unwrap_or_default();
+        if let serde_json::Value::Object(ref mut map) = obj {
+            map.insert("seq_id".into(), serde_json::json!(se.seq_id));
+        }
+        obj
+    }).collect();
     ok_data(serde_json::json!(history_vec))
 }
 
@@ -322,7 +356,7 @@ pub async fn get_metrics(
         "event_history": {
             "current_size": history_len,
             "max_size": max_size,
-            "memory_estimate_bytes": history_len * std::mem::size_of::<std::sync::Arc<cloto_shared::ClotoEvent>>(),
+            "memory_estimate_bytes": history_len * std::mem::size_of::<crate::events::SequencedEvent>(),
         }
     }))
 }

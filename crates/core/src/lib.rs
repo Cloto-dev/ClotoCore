@@ -72,7 +72,7 @@ pub struct DynamicRouter {
 }
 
 pub struct AppState {
-    pub tx: broadcast::Sender<Arc<ClotoEvent>>,
+    pub tx: broadcast::Sender<events::SequencedEvent>,
     pub registry: Arc<managers::PluginRegistry>,
     pub event_tx: mpsc::Sender<EnvelopedEvent>,
     pub pool: SqlitePool,
@@ -82,7 +82,7 @@ pub struct AppState {
     pub dynamic_router: Arc<DynamicRouter>,
     pub config: config::AppConfig,
     pub data_dir: std::path::PathBuf,
-    pub event_history: Arc<RwLock<VecDeque<Arc<ClotoEvent>>>>,
+    pub event_history: Arc<RwLock<VecDeque<events::SequencedEvent>>>,
     pub metrics: Arc<managers::SystemMetrics>,
     pub rate_limiter: Arc<middleware::RateLimiter>,
     pub shutdown: Arc<Notify>,
@@ -337,7 +337,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
 
     // 5. Managers & Internal Handlers
     let agent_manager = AgentManager::new(pool.clone(), config.heartbeat_threshold_ms);
-    let (tx, _rx) = tokio::sync::broadcast::channel(100);
+    let (tx, _rx) = tokio::sync::broadcast::channel::<events::SequencedEvent>(100);
 
     let dynamic_router = Arc::new(DynamicRouter {
         router: tokio::sync::RwLock::new(Router::new()),
