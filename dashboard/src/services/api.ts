@@ -226,7 +226,7 @@ export const api = {
       .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json().then(b => b.data); });
   },
 
-  createCronJob: (payload: { agent_id: string; name: string; schedule_type: string; schedule_value: string; message: string; engine_id?: string; max_iterations?: number; hide_prompt?: boolean }, apiKey: string) =>
+  createCronJob: (payload: { agent_id: string; name: string; schedule_type: string; schedule_value: string; message: string; engine_id?: string; max_iterations?: number; hide_prompt?: boolean; source_type?: 'user' | 'system'; creator_user_id?: string; creator_user_name?: string }, apiKey: string) =>
     mutate('/cron/jobs', 'POST', 'create cron job', payload, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
 
   deleteCronJob: (jobId: string, apiKey: string) =>
