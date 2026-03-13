@@ -8,6 +8,7 @@ Phase 2: Vector embedding integration (cosine similarity search) — COMPLETE
 Phase 3: LLM-powered memory extraction (profile + episode summarization) — COMPLETE
 Phase 4: Anti-contamination — memory boundary markers, timestamp annotations,
          anti-hallucination guardrails — COMPLETE
+Phase 5: Background task queue (DB-persisted, crash-recoverable) — COMPLETE
 """
 
 import asyncio
@@ -69,6 +70,11 @@ LLM_PROXY_URL = os.environ.get(
 )
 LLM_PROVIDER = os.environ.get("CPERSONA_LLM_PROVIDER", "cerebras")
 LLM_MODEL = os.environ.get("CPERSONA_LLM_MODEL", "gpt-oss-120b")
+
+# Background task queue (Phase 5: crash-recoverable async processing)
+TASK_QUEUE_ENABLED = os.environ.get("CPERSONA_TASK_QUEUE_ENABLED", "true").lower() == "true"
+TASK_MAX_RETRIES = int(os.environ.get("CPERSONA_TASK_MAX_RETRIES", "3"))
+TASK_RETRY_DELAY = int(os.environ.get("CPERSONA_TASK_RETRY_DELAY", "30"))  # seconds
 
 # ============================================================
 # Embedding Client
@@ -287,10 +293,140 @@ def _format_history(history: list[dict]) -> str:
 
 
 # ============================================================
+# Background Task Queue (Phase 5)
+# ============================================================
+
+
+class MemoryTaskQueue:
+    """DB-persisted background task queue with crash recovery.
+
+    Tasks (update_profile, archive_episode) are serialized to SQLite on enqueue,
+    processed asynchronously in FIFO order, and deleted on success.
+    On startup, any pending tasks from a previous crash are automatically recovered.
+
+    Ported from KS2.1 (ai_karin) MemoryWorker — adapted from Rust/tokio to Python/asyncio.
+    """
+
+    def __init__(self):
+        self._event = asyncio.Event()
+        self._running = False
+        self._task: asyncio.Task | None = None
+
+    async def start(self):
+        """Start the background processing loop."""
+        self._running = True
+        self._task = asyncio.create_task(self._loop())
+        # Signal to process any pending tasks from before crash
+        self._event.set()
+        logger.info("MemoryTaskQueue: started (max_retries=%d, retry_delay=%ds)", TASK_MAX_RETRIES, TASK_RETRY_DELAY)
+
+    async def stop(self):
+        """Stop the background loop gracefully."""
+        self._running = False
+        self._event.set()  # Wake up the loop so it can exit
+        if self._task:
+            try:
+                await asyncio.wait_for(self._task, timeout=5.0)
+            except asyncio.TimeoutError:
+                self._task.cancel()
+                logger.warning("MemoryTaskQueue: forced shutdown after timeout")
+
+    async def enqueue(self, task_type: str, agent_id: str, payload: list[dict]) -> int:
+        """Enqueue a task. Returns task ID."""
+        db = await get_db()
+        cursor = await db.execute(
+            "INSERT INTO pending_memory_tasks (task_type, agent_id, payload) VALUES (?, ?, ?)",
+            (task_type, agent_id, json.dumps(payload)),
+        )
+        await db.commit()
+        task_id = cursor.lastrowid
+        logger.info("MemoryTaskQueue: enqueued %s for agent %s (task_id=%d)", task_type, agent_id, task_id)
+        self._event.set()
+        return task_id
+
+    async def get_status(self) -> dict:
+        """Get queue status for monitoring."""
+        db = await get_db()
+        rows = await db.execute_fetchall("SELECT COUNT(*) FROM pending_memory_tasks")
+        pending = rows[0][0] if rows else 0
+        return {
+            "enabled": True,
+            "pending": pending,
+            "max_retries": TASK_MAX_RETRIES,
+            "retry_delay": TASK_RETRY_DELAY,
+        }
+
+    async def _loop(self):
+        """Main processing loop — waits for signal, drains all pending tasks."""
+        while self._running:
+            await self._event.wait()
+            self._event.clear()
+
+            while self._running:
+                task = await self._fetch_next()
+                if task is None:
+                    break
+
+                task_id, task_type, agent_id, payload, retries = task
+                logger.info(
+                    "MemoryTaskQueue: processing %s (task_id=%d, agent=%s, retry=%d/%d)",
+                    task_type, task_id, agent_id, retries, TASK_MAX_RETRIES,
+                )
+                try:
+                    if task_type == "update_profile":
+                        await do_update_profile(agent_id, payload)
+                    elif task_type == "archive_episode":
+                        await do_archive_episode(agent_id, payload)
+                    else:
+                        logger.error("MemoryTaskQueue: unknown task type %s, discarding", task_type)
+
+                    # Task succeeded — delete it
+                    await self._delete_task(task_id)
+                    logger.info("MemoryTaskQueue: completed %s (task_id=%d)", task_type, task_id)
+                except Exception as e:
+                    logger.error("MemoryTaskQueue: task %d (%s) failed: %s", task_id, task_type, e)
+                    if retries + 1 >= TASK_MAX_RETRIES:
+                        logger.error("MemoryTaskQueue: task %d exceeded max retries, discarding", task_id)
+                        await self._delete_task(task_id)
+                    else:
+                        await self._increment_retry(task_id)
+                        # Back off before processing the next task
+                        await asyncio.sleep(TASK_RETRY_DELAY)
+
+    async def _fetch_next(self) -> tuple | None:
+        db = await get_db()
+        rows = await db.execute_fetchall(
+            "SELECT id, task_type, agent_id, payload, retries "
+            "FROM pending_memory_tasks ORDER BY id ASC LIMIT 1"
+        )
+        if not rows:
+            return None
+        task_id, task_type, agent_id, payload_json, retries = rows[0]
+        payload = json.loads(payload_json)
+        return (task_id, task_type, agent_id, payload, retries)
+
+    async def _delete_task(self, task_id: int):
+        db = await get_db()
+        await db.execute("DELETE FROM pending_memory_tasks WHERE id = ?", (task_id,))
+        await db.commit()
+
+    async def _increment_retry(self, task_id: int):
+        db = await get_db()
+        await db.execute(
+            "UPDATE pending_memory_tasks SET retries = retries + 1 WHERE id = ?",
+            (task_id,),
+        )
+        await db.commit()
+
+
+_task_queue: MemoryTaskQueue | None = None
+
+
+# ============================================================
 # Database
 # ============================================================
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -338,6 +474,15 @@ CREATE TABLE IF NOT EXISTS episodes (
 
 CREATE INDEX IF NOT EXISTS idx_episodes_agent
     ON episodes(agent_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS pending_memory_tasks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_type  TEXT NOT NULL,
+    agent_id   TEXT NOT NULL,
+    payload    TEXT NOT NULL,
+    retries    INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 FTS_SQL = """
@@ -719,11 +864,11 @@ async def do_update_profile(agent_id: str, history: list[dict]) -> dict:
         return {"ok": True, "profiles_updated": 0}
 
     # Fetch existing profile
-    row = await db.execute_fetchone(
-        "SELECT content FROM profiles WHERE agent_id = ? AND user_id = ''",
+    rows = await db.execute_fetchall(
+        "SELECT content FROM profiles WHERE agent_id = ? AND user_id = '' LIMIT 1",
         (agent_id,),
     )
-    existing = row[0] if row else ""
+    existing = rows[0][0] if rows else ""
 
     # LLM-driven fact extraction and merge
     prompt = (
@@ -1042,6 +1187,29 @@ registry.auto_tool("recall", "Recall relevant memories using multi-strategy sear
     "required": ["agent_id", "query"],
 }, do_recall, [("agent_id", str), ("query", str), ("limit", int, 10)])
 
+async def do_update_profile_or_queue(agent_id: str, history: list) -> dict:
+    """Enqueue profile update if task queue is enabled, otherwise run synchronously."""
+    if _task_queue and TASK_QUEUE_ENABLED:
+        task_id = await _task_queue.enqueue("update_profile", agent_id, history)
+        return {"ok": True, "queued": True, "task_id": task_id}
+    return await do_update_profile(agent_id, history)
+
+
+async def do_archive_episode_or_queue(agent_id: str, history: list) -> dict:
+    """Enqueue episode archival if task queue is enabled, otherwise run synchronously."""
+    if _task_queue and TASK_QUEUE_ENABLED:
+        task_id = await _task_queue.enqueue("archive_episode", agent_id, history)
+        return {"ok": True, "queued": True, "task_id": task_id}
+    return await do_archive_episode(agent_id, history)
+
+
+async def do_get_queue_status() -> dict:
+    """Get the status of the background task queue."""
+    if _task_queue and TASK_QUEUE_ENABLED:
+        return await _task_queue.get_status()
+    return {"enabled": False, "pending": 0}
+
+
 registry.auto_tool("update_profile", "Extract user facts from conversation and merge with existing profile.", {
     "type": "object",
     "properties": {
@@ -1049,7 +1217,7 @@ registry.auto_tool("update_profile", "Extract user facts from conversation and m
         "history": {"type": "array", "description": "Recent conversation messages", "items": {"type": "object"}},
     },
     "required": ["agent_id", "history"],
-}, do_update_profile, [("agent_id", str), ("history", list)])
+}, do_update_profile_or_queue, [("agent_id", str), ("history", list)])
 
 registry.auto_tool("archive_episode", "Summarize and archive a conversation episode for searchable recall.", {
     "type": "object",
@@ -1058,7 +1226,7 @@ registry.auto_tool("archive_episode", "Summarize and archive a conversation epis
         "history": {"type": "array", "description": "Conversation messages to archive", "items": {"type": "object"}},
     },
     "required": ["agent_id", "history"],
-}, do_archive_episode, [("agent_id", str), ("history", list)])
+}, do_archive_episode_or_queue, [("agent_id", str), ("history", list)])
 
 registry.auto_tool("list_memories", "List recent memories for an agent (for dashboard display).", {
     "type": "object",
@@ -1104,9 +1272,14 @@ registry.auto_tool("delete_episode", "Delete a single episode by ID. Ownership i
     "required": ["episode_id"],
 }, do_delete_episode, [("episode_id", int), ("agent_id", str)])
 
+registry.auto_tool("get_queue_status", "Get the status of the background task queue (pending tasks, retry config).", {
+    "type": "object",
+    "properties": {},
+}, do_get_queue_status, [])
+
 
 async def main():
-    global _embedding_client
+    global _embedding_client, _task_queue
 
     logging.basicConfig(
         level=logging.INFO,
@@ -1129,12 +1302,22 @@ async def main():
 
     # Initialize DB on startup
     await get_db()
+
+    # Start background task queue (Phase 5)
+    if TASK_QUEUE_ENABLED:
+        _task_queue = MemoryTaskQueue()
+        await _task_queue.start()
+    else:
+        logger.info("Task queue disabled")
+
     try:
         async with stdio_server() as (read_stream, write_stream):
             await registry.server.run(
                 read_stream, write_stream, registry.server.create_initialization_options()
             )
     finally:
+        if _task_queue:
+            await _task_queue.stop()
         await close_db()
         if _embedding_client:
             await _embedding_client.close()
