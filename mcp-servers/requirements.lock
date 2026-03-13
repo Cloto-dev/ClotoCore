@@ -1,5 +1,3 @@
-# Auto-generated from mcp-servers/.venv — do not edit manually.
-# Regenerate: pip freeze | grep -v "^-e " > requirements.lock
 aiohappyeyeballs==2.6.1
 aiohttp==3.13.3
 aiosignal==1.4.0
@@ -12,10 +10,12 @@ av==16.1.0
 certifi==2026.2.25
 cffi==2.0.0
 click==8.3.1
+# Editable install with no version control (cloto-mcp-ks22==0.1.0)
 colorama==0.4.6
 comtypes==1.4.15
 cryptography==46.0.5
 ctranslate2==4.7.1
+ddgs==9.11.3
 faster-whisper==1.2.1
 filelock==3.25.0
 flatbuffers==25.12.19
@@ -28,8 +28,10 @@ httpx==0.28.1
 httpx-sse==0.4.3
 huggingface_hub==1.5.0
 idna==3.11
+iniconfig==2.3.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
+lxml==6.0.2
 markdown-it-py==4.0.0
 mcp==1.26.0
 mdurl==0.1.2
@@ -41,6 +43,8 @@ onnxruntime==1.24.2
 opencv-python==4.13.0.92
 packaging==26.0
 pillow==12.1.1
+pluggy==1.6.0
+primp==1.1.3
 propcache==0.4.1
 protobuf==7.34.0
 pycparser==3.0
@@ -50,6 +54,8 @@ pydantic_core==2.41.5
 Pygments==2.19.2
 PyJWT==2.11.0
 pypiwin32==223
+pytest==9.0.2
+pytest-asyncio==1.3.0
 python-dotenv==1.2.1
 python-multipart==0.0.22
 pyttsx3==2.99

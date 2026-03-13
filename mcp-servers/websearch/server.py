@@ -106,11 +106,17 @@ async def check_provider_status(name: str) -> dict:
             "setup_hint": "Register at https://tavily.com (free, no credit card) and add TAVILY_API_KEY to .env." if not configured else None,
         }
     elif name == "duckduckgo":
+        try:
+            from ddgs import DDGS  # noqa: F401
+            importable = True
+        except ImportError:
+            importable = False
         return {
             "name": name,
-            "configured": True,
-            "reachable": True,  # Best-effort, always "available"
-            "note": "Zero-config fallback. Rate-limited and unstable — upgrade to SearXNG or Tavily recommended.",
+            "configured": importable,
+            "reachable": importable,
+            "note": "Zero-config fallback. Rate-limited and unstable — upgrade to SearXNG or Tavily recommended."
+                if importable else "ddgs package not installed. Run: pip install ddgs",
         }
     return {"name": name, "configured": False, "reachable": False}
 
