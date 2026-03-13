@@ -1,7 +1,7 @@
 """
 Cloto MCP Server: CPersona Memory
 Persistent memory with FTS5 full-text search and pluggable vector embedding.
-Ported from legacy KS22 plugin with KS2.1 architecture enhancements.
+Evolved from legacy plugin (KS2.2) with predecessor (KS2.1) architecture enhancements.
 
 Phase 1: store, recall (FTS5 + keyword) — COMPLETE
 Phase 2: Vector embedding integration (cosine similarity search) — COMPLETE
@@ -421,7 +421,7 @@ async def close_db():
 
 
 def generate_mem_key(agent_id: str, message: dict) -> str:
-    """Generate a unique key for a memory entry (KS2.1 compatible)."""
+    """Generate a unique key for a memory entry (predecessor-compatible)."""
     ts = message.get("timestamp", datetime.now(timezone.utc).isoformat())
     content = message.get("content", "")
     hash_input = f"{agent_id}:{ts}:{content}"
@@ -510,7 +510,7 @@ async def do_recall(agent_id: str, query: str, limit: int) -> dict:
             "timestamp": "",
         })
 
-    # Strategy 3: Keyword match on memories (KS2.1 fallback)
+    # Strategy 3: Keyword match on memories (legacy fallback)
     remaining = max(0, limit - len(results))
     if remaining > 0:
         memory_rows = await _search_memories_keyword(
@@ -669,7 +669,7 @@ async def _search_episodes_fts(
 async def _search_memories_keyword(
     db: aiosqlite.Connection, agent_id: str, query: str, limit: int
 ) -> list[dict]:
-    """Search memories using keyword matching (KS2.1 compatible fallback)."""
+    """Search memories using keyword matching (legacy-compatible fallback)."""
     if query.strip():
         # Keyword match
         rows = await db.execute_fetchall(

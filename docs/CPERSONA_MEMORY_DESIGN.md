@@ -1,4 +1,4 @@
-# KS2.3 Memory System — MCP Server Design
+# CPersona Memory System — MCP Server Design
 
 > **Status:** Implemented (Phase 1-4 complete as of v0.5.9)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
@@ -11,35 +11,35 @@
 
 ### 1.1 Evolution History
 
-| Version | Project | Storage | Search | Memory Extraction | Status |
-|---------|---------|---------|--------|-------------------|--------|
-| KS2.0/2.1 | (predecessor) | SQLite (WAL, FTS5, vector) | FTS5 + cosine similarity + semantic cache | LLM-powered (DeepSeek Reasoner): profile extraction, episode archival | Reference implementation |
-| KS2.2 | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Deprecated (Rust plugin) |
-| KS2.3 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) | **Current** |
+| Version | Name | Project | Storage | Search | Memory Extraction | Status |
+|---------|------|---------|---------|--------|-------------------|--------|
+| KS2.0/2.1 | (predecessor) | ai_karin | SQLite (WAL, FTS5, vector) | FTS5 + cosine similarity + semantic cache | LLM-powered (DeepSeek Reasoner): profile extraction, episode archival | Reference implementation |
+| KS2.2 | Legacy Plugin | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Deprecated (Rust plugin) |
+| KS2.3 | **CPersona** | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) | **Current** |
 
-### 1.2 KS2.1 Capabilities Lost in KS2.2 (restored in KS2.3)
+### 1.2 Predecessor Capabilities Lost in Legacy Plugin (restored in CPersona)
 
-KS2.2 was a deliberate simplification of KS2.1 for the initial ClotoCore port. The following
-capabilities were dropped and subsequently restored in KS2.3:
+The legacy plugin (KS2.2) was a deliberate simplification for the initial ClotoCore port.
+The following capabilities were dropped and subsequently restored in CPersona:
 
-| Capability | KS2.1 | KS2.2 | KS2.3 | Impact |
-|------------|-------|-------|-------|--------|
+| Capability | Predecessor (KS2.1) | Legacy Plugin (KS2.2) | CPersona | Impact |
+|------------|----------------------|-----------------------|----------|--------|
 | **LLM Profile Extraction** | DeepSeek Reasoner | None | Cerebras (Phase 3) | Restored |
 | **Episode Archival** | Summarization + keywords | None | LLM-powered (Phase 3) | Restored |
 | **FTS5 Full-Text Search** | FTS5 AND matching | `LIKE '%keyword%'` | FTS5 (Phase 1) | Restored |
 | **Vector Search** | MiniLM, cosine similarity | None | Pluggable embedding (Phase 2) | Restored |
-| **Anti-Contamination** | None | None | Memory boundary markers, timestamp annotations, anti-hallucination guardrails (Phase 4) | **New in KS2.3** |
+| **Anti-Contamination** | None | None | Memory boundary markers, timestamp annotations, anti-hallucination guardrails (Phase 4) | **New** |
 | **Semantic Cache** | ≥0.95 similarity cache | None | None | Not yet restored |
 | **Background Task Queue** | DB-persisted with crash recovery | None | None | Not yet restored |
 | **Cross-Scope Sharing** | Per-user, per-guild | Per-agent flat store | Per-agent flat store | Not yet restored |
 
 ### 1.3 Design Goals
 
-1. **Restore KS2.1 search quality** — FTS5 + vector search (pluggable embedding provider)
-2. **Prepare for KS2.1 memory extraction** — Schema supports profiles and episodes from day one
+1. **Restore predecessor search quality** — FTS5 + vector search (pluggable embedding provider)
+2. **Prepare for predecessor memory extraction** — Schema supports profiles and episodes from day one
 3. **Dedicated storage** — Independent SQLite file, no dependency on kernel's plugin_data table
 4. **Pluggable embedding** — Decoupled from any specific model; provider selected via configuration
-5. **Lightweight footprint** — KS2.3 MCP server itself stays ~40MB; heavy models live elsewhere
+5. **Lightweight footprint** — CPersona MCP server itself stays ~40MB; heavy models live elsewhere
 6. **Anti-contamination** — Prevent memory-induced hallucination via temporal annotations and boundary markers
 
 ---
@@ -186,7 +186,7 @@ recall(agent_id, query, limit)
   │     → Fetch profiles for this agent_id
   │     → Include as contextual information
   │
-  └─ 4. Recent Memory Fallback (KS2.2 compatible)
+  └─ 4. Recent Memory Fallback (legacy-compatible)
         → Keyword match on memories.content (LIKE)
         → Chronological ordering (newest first)
 
@@ -222,13 +222,13 @@ Extract and update user profile from conversation history.
 
 **Response:** `{"ok": true, "profiles_updated": 1}` or `{"error": "..."}`
 
-**Behavior (KS2.1 port):**
+**Behavior (ported from predecessor):**
 1. Extract user facts from conversation using LLM (requires external reasoning engine)
 2. Merge with existing profile in `profiles` table (UPSERT)
 3. Runs as foreground operation (caller may fire-and-forget)
 
 > **Phase 1:** Stub — stores raw history summary without LLM extraction.
-> **Phase 2:** Full KS2.1 port — LLM-powered extraction via external API.
+> **Phase 2:** Full predecessor port — LLM-powered extraction via external API.
 
 ### 3.4 archive_episode
 
@@ -258,7 +258,7 @@ Summarize and archive a conversation episode.
 
 **Response:** `{"ok": true, "episode_id": 42}` or `{"error": "..."}`
 
-**Behavior (KS2.1 port):**
+**Behavior (ported from predecessor):**
 1. Concatenate history into text
 2. Generate summary + keywords (requires external reasoning engine or simple heuristic)
 3. Compute embedding if provider available
@@ -275,7 +275,7 @@ Summarize and archive a conversation episode.
 
 ### 4.1 memories
 
-Raw message storage (KS2.2 compatible).
+Raw message storage (legacy-compatible).
 
 ```sql
 CREATE TABLE memories (
@@ -299,7 +299,7 @@ CREATE INDEX idx_memories_msg_id
 
 ### 4.2 profiles
 
-Per-agent user profiles (KS2.1 restoration).
+Per-agent user profiles (restored from predecessor).
 
 ```sql
 CREATE TABLE profiles (
@@ -314,7 +314,7 @@ CREATE TABLE profiles (
 
 ### 4.3 episodes
 
-Conversation episode archives with FTS5 (KS2.1 restoration).
+Conversation episode archives with FTS5 (restored from predecessor).
 
 ```sql
 CREATE TABLE episodes (
@@ -541,9 +541,9 @@ pub async fn find_memory_server(&self) -> Option<String> {
 
 ## 8. Data Migration
 
-### 8.1 From KS2.2 (plugin_data)
+### 8.1 From Legacy Plugin (KS2.2 → plugin_data)
 
-Existing KS2.2 data lives in `cloto_memories.db` → `plugin_data` table:
+Existing legacy plugin data lives in `cloto_memories.db` → `plugin_data` table:
 
 ```
 plugin_id = 'memory.cpersona'
@@ -559,10 +559,10 @@ Migration script (`mcp-servers/cpersona/migrate.py`):
 4. Insert into destination: `data/cpersona.db` → `memories` table
 5. Optionally compute embeddings for migrated memories
 
-### 8.2 From KS2.1 (predecessor project)
+### 8.2 From Predecessor (KS2.1)
 
-Not automated. KS2.1 used Discord-specific schemas (user_id, guild_id) that don't
-map to ClotoCore's agent_id model. Manual migration may be performed if needed.
+Not automated. The predecessor used Discord-specific schemas (user_id, guild_id)
+that don't map to ClotoCore's agent_id model. Manual migration may be performed if needed.
 
 ---
 
@@ -586,7 +586,7 @@ map to ClotoCore's agent_id model. Manual migration may be performed if needed.
 - [x] `recall` vector search path activated (ONNX MiniLM, cosine similarity)
 - [x] Auto-download ONNX model on first startup
 
-### Phase 3: LLM Memory Extraction (KS2.1 Restoration) — **Completed** (v0.4.15)
+### Phase 3: LLM Memory Extraction (Predecessor Restoration) — **Completed** (v0.4.15)
 
 - [x] `update_profile`: LLM-powered fact extraction via Cerebras
 - [x] `archive_episode`: LLM-powered summarization with keywords via Cerebras
