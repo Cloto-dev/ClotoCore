@@ -142,6 +142,30 @@ registry = ToolRegistry("cloto-mcp-cron")
                 ),
                 "default": False,
             },
+            "source_type": {
+                "type": "string",
+                "enum": ["user", "system"],
+                "description": (
+                    "Message source type for this CRON job. "
+                    "'user' = messages appear in the creator's chat history as user messages. "
+                    "'system' = messages use system identity (default). "
+                    "Infer from conversation context which is appropriate."
+                ),
+                "default": "system",
+            },
+            "creator_user_id": {
+                "type": "string",
+                "description": (
+                    "User ID for 'user' source type. Required when source_type='user'. "
+                    "Infer from the current conversation context."
+                ),
+            },
+            "creator_user_name": {
+                "type": "string",
+                "description": (
+                    "User display name for 'user' source type. Required when source_type='user'."
+                ),
+            },
         },
         "required": ["agent_id", "name", "schedule_type", "schedule_value", "message"],
     },
@@ -166,6 +190,12 @@ async def do_create_cron_job(args: dict) -> dict:
         payload["max_iterations"] = args["max_iterations"]
     if args.get("hide_prompt"):
         payload["hide_prompt"] = True
+    if args.get("source_type"):
+        payload["source_type"] = args["source_type"]
+    if args.get("creator_user_id"):
+        payload["creator_user_id"] = args["creator_user_id"]
+    if args.get("creator_user_name"):
+        payload["creator_user_name"] = args["creator_user_name"]
 
     return await _api_post("/api/cron/jobs", payload)
 

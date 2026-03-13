@@ -4,6 +4,7 @@ import { Clock, Plus, Trash2, Play, Power, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CronJob, AgentMetadata } from '../types';
 import { useApi } from '../hooks/useApi';
+import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { Modal } from './Modal';
 
 function formatSchedule(type: string, value: string): string {
@@ -24,6 +25,7 @@ function formatTimestamp(ms?: number | null): string {
 
 export const CronJobs = memo(function CronJobs() {
   const api = useApi();
+  const { identity } = useUserIdentity();
   const { t } = useTranslation('cron');
   const { t: tc } = useTranslation('common');
   const [jobs, setJobs] = useState<CronJob[]>([]);
@@ -39,6 +41,7 @@ export const CronJobs = memo(function CronJobs() {
     message: '',
     engine_id: '',
     hide_prompt: false,
+    source_type: 'system' as 'user' | 'system',
   });
 
   const fetchJobs = useCallback(async () => {
@@ -68,9 +71,12 @@ export const CronJobs = memo(function CronJobs() {
         message: form.message,
         engine_id: form.engine_id || undefined,
         hide_prompt: form.hide_prompt || undefined,
+        source_type: form.source_type,
+        creator_user_id: form.source_type === 'user' ? identity.id : undefined,
+        creator_user_name: form.source_type === 'user' ? identity.name : undefined,
       });
       setShowForm(false);
-      setForm({ agent_id: '', name: '', schedule_type: 'interval', schedule_value: '3600', message: '', engine_id: '', hide_prompt: false });
+      setForm({ agent_id: '', name: '', schedule_type: 'interval', schedule_value: '3600', message: '', engine_id: '', hide_prompt: false, source_type: 'system' });
       fetchJobs();
     } catch (e: unknown) { setNotification({ type: 'error', message: e instanceof Error ? e.message : String(e) }); }
   };
@@ -174,6 +180,17 @@ export const CronJobs = memo(function CronJobs() {
                   className="w-full bg-surface-secondary border border-edge rounded px-3 py-2 text-xs font-mono text-content-primary resize-none"
                 />
               </div>
+              <div>
+                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">{t('source_type')}</label>
+                <select
+                  value={form.source_type}
+                  onChange={e => setForm({ ...form, source_type: e.target.value as 'user' | 'system' })}
+                  className="w-full bg-surface-secondary border border-edge rounded px-3 py-2 text-xs font-mono text-content-primary"
+                >
+                  <option value="system">{t('source_system')}</option>
+                  <option value="user">{t('source_user')}</option>
+                </select>
+              </div>
               <div className="md:col-span-2">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
@@ -244,6 +261,17 @@ export const CronJobs = memo(function CronJobs() {
                   </div>
                   <div className="mt-1 text-[10px] font-mono text-content-tertiary truncate" title={job.message}>
                     {t('prompt_label')} {job.message}
+                  </div>
+                  <div className="mt-0.5 text-[10px] font-mono text-content-tertiary">
+                    {t('source_label')} <span className={`px-1 py-0.5 rounded ${
+                      job.source_type === 'user'
+                        ? 'bg-green-500/10 text-green-400'
+                        : 'bg-blue-500/10 text-blue-400'
+                    }`}>
+                      {job.source_type === 'user'
+                        ? `${t('source_user')}: ${job.creator_user_name || job.creator_user_id || '?'}`
+                        : t('source_system')}
+                    </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">

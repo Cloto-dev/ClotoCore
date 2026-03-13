@@ -77,6 +77,38 @@ pub async fn create_cron_job(
     let max_iterations = payload["max_iterations"].as_i64().map(|v| v as i32);
     let hide_prompt = payload["hide_prompt"].as_bool().unwrap_or(false);
 
+    // MessageSource selection: 'system' (default) or 'user'
+    let source_type = payload["source_type"]
+        .as_str()
+        .unwrap_or("system")
+        .to_string();
+    if source_type != "system" && source_type != "user" {
+        return Err(AppError::Validation(
+            "source_type must be 'system' or 'user'".into(),
+        ));
+    }
+    let (creator_user_id, creator_user_name) = if source_type == "user" {
+        let uid = payload["creator_user_id"]
+            .as_str()
+            .ok_or_else(|| {
+                AppError::Validation(
+                    "creator_user_id is required when source_type='user'".into(),
+                )
+            })?
+            .to_string();
+        let uname = payload["creator_user_name"]
+            .as_str()
+            .ok_or_else(|| {
+                AppError::Validation(
+                    "creator_user_name is required when source_type='user'".into(),
+                )
+            })?
+            .to_string();
+        (Some(uid), Some(uname))
+    } else {
+        (None, None)
+    };
+
     let job = crate::db::CronJobRow {
         id: job_id.clone(),
         agent_id: agent_id.to_string(),
@@ -95,6 +127,9 @@ pub async fn create_cron_job(
         created_at: String::new(), // set by DB default
         hide_prompt,
         cron_generation,
+        source_type,
+        creator_user_id,
+        creator_user_name,
     };
 
     crate::db::create_cron_job(&state.pool, &job)
@@ -166,9 +201,23 @@ pub async fn run_cron_job_now(
         metadata.insert("skip_user_persist".into(), "true".into());
     }
 
+    let source = match job.source_type.as_str() {
+        "user" => cloto_shared::MessageSource::User {
+            id: job
+                .creator_user_id
+                .clone()
+                .unwrap_or_else(|| "default".into()),
+            name: job
+                .creator_user_name
+                .clone()
+                .unwrap_or_else(|| "User".into()),
+        },
+        _ => cloto_shared::MessageSource::System,
+    };
+
     let msg = cloto_shared::ClotoMessage {
         id: cloto_shared::ClotoId::new().to_string(),
-        source: cloto_shared::MessageSource::System,
+        source,
         target_agent: Some(job.agent_id.clone()),
         content: job.message.clone(),
         timestamp: chrono::Utc::now(),

@@ -197,4 +197,7 @@ export interface CronJob {
   created_at: string;
   hide_prompt?: boolean;
   cron_generation?: number;
+  source_type?: 'user' | 'system';
+  creator_user_id?: string;
+  creator_user_name?: string;
 }
