@@ -141,7 +141,7 @@ async fn test_vulnerability_event_forging() {
     // Maliceには権限を与えない
 
     // 5. Setup Event Loop
-    let (tx_broadcast, mut rx_broadcast) = broadcast::channel::<Arc<ClotoEvent>>(100);
+    let (tx_broadcast, mut rx_broadcast) = broadcast::channel::<cloto_core::events::SequencedEvent>(100);
     let (tx_internal, rx_internal) = mpsc::channel::<cloto_core::EnvelopedEvent>(100);
 
     let metrics = Arc::new(cloto_core::managers::SystemMetrics::new());
@@ -210,7 +210,7 @@ async fn test_vulnerability_event_forging() {
 
     match result {
         Ok(Ok(event)) => {
-            match &event.data {
+            match &event.event.data {
                 cloto_shared::ClotoEventData::ActionRequested { requester, .. } => {
                     // 偽装イベントが来たらテスト失敗！
                     panic!(

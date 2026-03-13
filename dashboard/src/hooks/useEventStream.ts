@@ -18,6 +18,8 @@ let reconnectTimeout: number | null = null;
 let attempt = 0;
 
 let sharedApiKey: string | null = null;
+let hasConnectedBefore = false;
+let lastSeenSeqId = 0;
 
 function connect(url: string, apiKey?: string) {
   if (sharedEventSource && sharedEventSource.readyState !== EventSource.CLOSED) {
@@ -35,12 +37,35 @@ function connect(url: string, apiKey?: string) {
   es.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
+      // Dedup by seq_id (prevents replayed events from being processed twice)
+      if (event.lastEventId) {
+        const seqId = parseInt(event.lastEventId, 10);
+        if (!isNaN(seqId)) {
+          if (seqId <= lastSeenSeqId) return;
+          lastSeenSeqId = seqId;
+        }
+      }
       attempt = 0; // Reset backoff on successful message
       subscribers.forEach((handler) => handler(data));
     } catch (err) {
       console.error('Failed to parse SSE event:', err);
     }
   };
+
+  es.addEventListener('handshake', () => {
+    attempt = 0;
+    if (hasConnectedBefore) {
+      // Notify consumers of reconnection so they can refetch missed data
+      subscribers.forEach((h) => h({ type: '__reconnected', data: {} } as ServerEvent));
+    }
+    hasConnectedBefore = true;
+  });
+
+  es.addEventListener('lagged', (e: MessageEvent) => {
+    const count = parseInt(e.data, 10) || 0;
+    console.warn(`SSE: Server lagged by ${count} messages`);
+    subscribers.forEach((h) => h({ type: '__lagged', data: { count } } as ServerEvent));
+  });
 
   es.onerror = () => {
     const delay = Math.min(INITIAL_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
@@ -69,6 +94,8 @@ function disconnect() {
   }
   sharedUrl = null;
   attempt = 0;
+  hasConnectedBefore = false;
+  lastSeenSeqId = 0;
 }
 
 export function useEventStream(
