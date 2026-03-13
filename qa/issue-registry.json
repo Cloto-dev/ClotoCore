@@ -2041,6 +2041,30 @@
       "pattern": "event\\.data\\.content\\.slice",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-321",
+      "summary": "ensure_mcp_venv skips dependency install when venv already exists — ddgs and other late-added packages never installed",
+      "severity": "HIGH",
+      "discovered": "2026-03-13T12:00:00Z",
+      "version": "0.6.2",
+      "commit": "8bb85bb",
+      "file": "crates/core/src/managers/mcp_venv.rs",
+      "pattern": "if venv_dir\\.join\\(\"pyvenv\\.cfg\"\\)",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-322",
+      "summary": "search_status health check reports DuckDuckGo as always reachable without verifying ddgs module is importable",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-13T12:00:00Z",
+      "version": "0.6.2",
+      "commit": "8bb85bb",
+      "file": "mcp-servers/websearch/server.py",
+      "pattern": "\"reachable\": True,  # Best-effort",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }
