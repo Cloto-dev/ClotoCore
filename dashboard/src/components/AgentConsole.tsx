@@ -258,15 +258,40 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
   // Subscribe to system-wide events
   useEventStream(EVENTS_URL, (event) => {
+    // SSE reconnection / lagged recovery: refetch recent messages from API
+    if (event.type === '__reconnected' || event.type === '__lagged') {
+      api.getChatMessages(agent.id, undefined, 10, identity.id)
+        .then(({ messages: latest }) => {
+          if (latest.length > 0) {
+            const reversed = latest.reverse();
+            setMessages(prev => {
+              const existingIds = new Set(prev.map(m => m.id));
+              const newMsgs = reversed.filter(m => !existingIds.has(m.id));
+              if (newMsgs.length > 0) {
+                if (newMsgs.some(m => m.source === 'agent')) {
+                  setIsTyping(false);
+                  setThinkingSteps([]);
+                }
+                return [...prev, ...newMsgs];
+              }
+              return prev;
+            });
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+
     // Thinking process visualization
-    if (event.data?.agent_id === agent.id || event.data?.engine_id?.startsWith('mind.')) {
+    if (event.data?.agent_id === agent.id || (event.data?.engine_id as string | undefined)?.startsWith('mind.')) {
       if (event.type === 'ToolInvoked' && event.data.agent_id === agent.id) {
-        const tool = event.data.tool_name || 'unknown';
+        const tool = (event.data.tool_name as string) || 'unknown';
+        const success = event.data.success as boolean;
         setThinkingSteps(prev => [...prev, {
           id: thinkingIdRef.current++,
-          status: event.data.success ? 'ok' : 'fail',
+          status: success ? 'ok' : 'fail',
           text: tool,
-          detail: event.data.success ? `${event.data.duration_ms}ms` : 'failed',
+          detail: success ? `${event.data.duration_ms}ms` : 'failed',
           ts: Date.now(),
         }]);
       }
@@ -283,7 +308,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         setThinkingSteps(prev => [...prev, {
           id: thinkingIdRef.current++,
           status: 'thought',
-          text: event.data.content.slice(0, 120),
+          text: (event.data.content as string).slice(0, 120),
           ts: Date.now(),
         }]);
       }
@@ -291,16 +316,17 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
     // Command approval request from kernel (batch)
     if (event.type === 'CommandApprovalRequested' && event.data?.agent_id === agent.id) {
+      const approvalData = event.data as { approval_id: string; agent_id: string; commands?: Array<{ command: string; command_name: string }> };
       setPendingApprovals(prev => {
-        if (prev.some(a => a.approval_id === event.data.approval_id)) return prev;
+        if (prev.some(a => a.approval_id === approvalData.approval_id)) return prev;
         return [...prev, {
-          approval_id: event.data.approval_id,
-          agent_id: event.data.agent_id,
-          commands: event.data.commands || [],
+          approval_id: approvalData.approval_id,
+          agent_id: approvalData.agent_id,
+          commands: approvalData.commands || [],
         }];
       });
       if (document.hidden) {
-        const count = event.data.commands?.length || 1;
+        const count = approvalData.commands?.length || 1;
         sendNativeNotification('Command Approval', `${agent.name}: ${count} command(s) pending`);
       }
     }
@@ -338,7 +364,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
           };
           setMessages(msgs => [...msgs, prevMsg]);
         }
-        return { id: msgId, text: event.data.content, elapsedSecs, parentId };
+        return { id: msgId, text: event.data.content as string, elapsedSecs, parentId: parentId as string | undefined };
       });
 
       // Agent response is persisted backend-side (system.rs) before SSE emission.
