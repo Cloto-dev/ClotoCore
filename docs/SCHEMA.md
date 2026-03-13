@@ -190,7 +190,7 @@ Dynamic MCP server persistence for restart restoration.
 
 ### mcp_access_control
 
-Unified access control for MCP tool-level permissions (MCP_SERVER_UI_DESIGN.md §3).
+Unified access control for MCP tool-level permissions.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
