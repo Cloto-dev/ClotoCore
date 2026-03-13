@@ -473,7 +473,7 @@ Components removed or archived as part of the MCP migration:
 
 1. Magic Seal (HMAC) implementation
 2. Implementation of autonomous MCP Server generation by Agent L5
-3. Dashboard MCP Server management UI — **Completed** (v0.5.3, see `MCP_SERVER_UI_DESIGN.md`)
+3. Dashboard MCP Server management UI — **Completed** (v0.5.3)
 
 ---
 
