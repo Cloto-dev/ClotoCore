@@ -81,7 +81,7 @@ async fn test_dynamic_permission_elevation_flow() {
     let registry_raw = PluginRegistry::new(5, 10, 50);
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 5, 10, 50).unwrap());
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
-    let (tx_internal, _rx_internal) = tokio::sync::broadcast::channel(10);
+    let (tx_internal, _rx_internal) = tokio::sync::broadcast::channel::<cloto_core::events::SequencedEvent>(10);
 
     // 2. Register Mock Plugin
     let plugin_id = "test.mock";

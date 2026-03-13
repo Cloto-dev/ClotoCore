@@ -8,6 +8,7 @@ use crate::handlers::system::SystemHandler;
 use crate::managers::{AgentManager, PluginManager, PluginRegistry};
 use cloto_shared::{ClotoEvent, Permission};
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Semaphore};
 use tracing::{debug, error, info, warn};
@@ -15,12 +16,32 @@ use tracing::{debug, error, info, warn};
 /// Interval between event history cleanup sweeps in seconds.
 const EVENT_CLEANUP_INTERVAL_SECS: u64 = 300;
 
+/// Global monotonic sequence counter for SSE event ordering.
+static GLOBAL_SEQ: AtomicU64 = AtomicU64::new(1);
+
+/// Transport-layer wrapper that pairs a `ClotoEvent` with a monotonic sequence ID.
+/// Used for SSE `id:` field and `Last-Event-ID` replay, without modifying `ClotoEvent` (shared crate).
+#[derive(Debug, Clone)]
+pub struct SequencedEvent {
+    pub seq_id: u64,
+    pub event: Arc<ClotoEvent>,
+}
+
+impl SequencedEvent {
+    pub fn new(event: Arc<ClotoEvent>) -> Self {
+        Self {
+            seq_id: GLOBAL_SEQ.fetch_add(1, Ordering::Relaxed),
+            event,
+        }
+    }
+}
+
 pub struct EventProcessor {
     registry: Arc<PluginRegistry>,
     plugin_manager: Arc<PluginManager>,
     agent_manager: AgentManager,
-    tx_internal: broadcast::Sender<Arc<ClotoEvent>>,
-    history: Arc<tokio::sync::RwLock<VecDeque<Arc<ClotoEvent>>>>,
+    tx_internal: broadcast::Sender<SequencedEvent>,
+    history: Arc<tokio::sync::RwLock<VecDeque<SequencedEvent>>>,
     metrics: Arc<crate::managers::SystemMetrics>,
     max_history_size: usize,
     event_retention_hours: u64, // M-10: Configurable retention period
@@ -41,8 +62,8 @@ impl EventProcessor {
         registry: Arc<PluginRegistry>,
         plugin_manager: Arc<PluginManager>,
         agent_manager: AgentManager,
-        tx_internal: broadcast::Sender<Arc<ClotoEvent>>,
-        history: Arc<tokio::sync::RwLock<VecDeque<Arc<ClotoEvent>>>>,
+        tx_internal: broadcast::Sender<SequencedEvent>,
+        history: Arc<tokio::sync::RwLock<VecDeque<SequencedEvent>>>,
         metrics: Arc<crate::managers::SystemMetrics>,
         max_history_size: usize,
         event_retention_hours: u64, // M-10: Configurable retention period
@@ -67,9 +88,9 @@ impl EventProcessor {
         }
     }
 
-    async fn record_event(&self, event: Arc<ClotoEvent>) {
+    async fn record_event(&self, seq_event: SequencedEvent) {
         let mut history = self.history.write().await;
-        history.push_back(event);
+        history.push_back(seq_event);
         // H-06: Use while loop to handle bursts that exceed capacity
         while history.len() > self.max_history_size {
             history.pop_front();
@@ -142,7 +163,7 @@ impl EventProcessor {
 
         // Remove old events by timestamp
         while let Some(oldest) = history.front() {
-            if oldest.timestamp < cutoff {
+            if oldest.event.timestamp < cutoff {
                 history.pop_front();
             } else {
                 break;
@@ -178,8 +199,9 @@ impl EventProcessor {
             let event = envelope.event.clone();
             let trace_id = event.trace_id;
 
-            // Record event history
-            self.record_event(event.clone()).await;
+            // Wrap in SequencedEvent and record in history BEFORE broadcasting
+            let seq_event = SequencedEvent::new(event.clone());
+            self.record_event(seq_event.clone()).await;
 
             // Increment metrics based on event type
             if let cloto_shared::ClotoEventData::MessageReceived(_) = &event.data {
@@ -225,7 +247,7 @@ impl EventProcessor {
                 cloto_shared::ClotoEventData::ActionRequested { .. }
                 | cloto_shared::ClotoEventData::PermissionGranted { .. } => {}
                 _ => {
-                    let _ = self.tx_internal.send(event.clone());
+                    let _ = self.tx_internal.send(seq_event.clone());
                 }
             }
 
@@ -275,7 +297,9 @@ impl EventProcessor {
                         trace_id,
                         cloto_shared::ClotoEventData::MessageReceived(msg.clone()),
                     ));
-                    let _ = self.tx_internal.send(msg_received.clone());
+                    let seq_msg = SequencedEvent::new(msg_received.clone());
+                    self.record_event(seq_msg.clone()).await;
+                    let _ = self.tx_internal.send(seq_msg);
 
                     let system_envelope = crate::EnvelopedEvent {
                         event: msg_received,
@@ -310,7 +334,7 @@ impl EventProcessor {
                             continue;
                         }
                         info!(trace_id = %trace_id, requester_id = %requester, "✅ Action authorized");
-                        let _ = self.tx_internal.send(event.clone());
+                        let _ = self.tx_internal.send(seq_event.clone());
                     } else {
                         error!(
                             trace_id = %trace_id,

@@ -11,7 +11,7 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
     crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
 
     let (event_tx, _event_rx) = mpsc::channel(100);
-    let (tx, _rx) = broadcast::channel(100);
+    let (tx, _rx) = broadcast::channel::<crate::events::SequencedEvent>(100);
 
     let registry = Arc::new(PluginRegistry::new(5, 10, 50));
     let agent_manager = AgentManager::new(pool.clone(), 90_000);

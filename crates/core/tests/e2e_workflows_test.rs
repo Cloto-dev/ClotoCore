@@ -1,4 +1,5 @@
 use cloto_core::AppState;
+use cloto_core::events::SequencedEvent;
 use cloto_shared::{ClotoEvent, ClotoEventData, ClotoMessage, MessageSource};
 use std::sync::Arc;
 
@@ -45,7 +46,7 @@ async fn test_user_message_to_response_flow() {
     )));
 
     // Send event to broadcast channel
-    state.tx.send(event.clone()).unwrap();
+    state.tx.send(SequencedEvent::new(event.clone())).unwrap();
 
     // Receive the event (should be the same we sent)
     let received = tokio::time::timeout(tokio::time::Duration::from_secs(1), rx.recv())
@@ -54,7 +55,7 @@ async fn test_user_message_to_response_flow() {
         .expect("Failed to receive event");
 
     // Verify we received the MessageReceived event
-    match &received.data {
+    match &received.event.data {
         ClotoEventData::MessageReceived(msg) => {
             assert_eq!(msg.id, user_message.id);
             assert_eq!(msg.content, "Hello, agent!");
@@ -93,7 +94,7 @@ async fn test_permission_grant_flow() {
         permission: cloto_shared::Permission::NetworkAccess.to_string(),
     }));
 
-    state.tx.send(event.clone()).unwrap();
+    state.tx.send(SequencedEvent::new(event.clone())).unwrap();
 
     // Receive the event
     let received = tokio::time::timeout(tokio::time::Duration::from_secs(1), rx.recv())
@@ -102,7 +103,7 @@ async fn test_permission_grant_flow() {
         .expect("Failed to receive event");
 
     // Verify we received the PermissionGranted event
-    match &received.data {
+    match &received.event.data {
         ClotoEventData::PermissionGranted {
             plugin_id,
             permission,
@@ -158,7 +159,7 @@ async fn test_config_update_flow() {
         config,
     }));
 
-    state.tx.send(event.clone()).unwrap();
+    state.tx.send(SequencedEvent::new(event.clone())).unwrap();
 
     // Receive the event
     let received = tokio::time::timeout(tokio::time::Duration::from_secs(1), rx.recv())
@@ -167,7 +168,7 @@ async fn test_config_update_flow() {
         .expect("Failed to receive event");
 
     // Verify we received the ConfigUpdated event
-    match &received.data {
+    match &received.event.data {
         ClotoEventData::ConfigUpdated { plugin_id, config } => {
             assert_eq!(plugin_id, "test.plugin");
             assert_eq!(config.get("api_key").unwrap(), "new_value");

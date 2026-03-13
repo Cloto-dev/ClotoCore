@@ -1,4 +1,4 @@
-use cloto_core::events::EventProcessor;
+use cloto_core::events::{EventProcessor, SequencedEvent};
 use cloto_core::handlers::system::SystemHandler;
 use cloto_core::managers::{AgentManager, PluginManager, PluginRegistry, SystemMetrics};
 use cloto_shared::{ClotoEvent, ClotoEventData};
@@ -10,7 +10,7 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 /// Helper to create EventProcessor for testing
 async fn create_test_processor(
     max_history_size: usize,
-) -> (Arc<EventProcessor>, Arc<RwLock<VecDeque<Arc<ClotoEvent>>>>) {
+) -> (Arc<EventProcessor>, Arc<RwLock<VecDeque<SequencedEvent>>>) {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
     cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
         .await
@@ -19,7 +19,7 @@ async fn create_test_processor(
     let registry = Arc::new(PluginRegistry::new(5, 10, 50));
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10, 50).unwrap());
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
-    let (tx, _rx) = broadcast::channel(100);
+    let (tx, _rx) = broadcast::channel::<SequencedEvent>(100);
     let metrics = Arc::new(SystemMetrics::new());
     let event_history = Arc::new(RwLock::new(VecDeque::new()));
 
@@ -69,7 +69,7 @@ async fn test_event_history_size_limit() {
             let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(
                 format!("Event {}", i),
             )));
-            hist.push_back(event);
+            hist.push_back(SequencedEvent::new(event));
 
             // Apply size limit
             if hist.len() > 1000 {
@@ -84,7 +84,7 @@ async fn test_event_history_size_limit() {
 
     // Verify the oldest event is #500 (since we added 1500 and kept last 1000)
     if let Some(oldest) = hist.front() {
-        if let ClotoEventData::SystemNotification(msg) = &oldest.data {
+        if let ClotoEventData::SystemNotification(msg) = &oldest.event.data {
             assert!(
                 msg.contains("Event 500") || msg.contains("Event 50"),
                 "Oldest event should be around #500, got: {}",
@@ -110,7 +110,7 @@ async fn test_time_based_cleanup() {
                 i
             )));
             event.timestamp = old_time; // Set to old timestamp
-            hist.push_back(Arc::new(event));
+            hist.push_back(SequencedEvent::new(Arc::new(event)));
         }
 
         // Add 10 recent events (1 hour ago)
@@ -121,7 +121,7 @@ async fn test_time_based_cleanup() {
                 i
             )));
             event.timestamp = recent_time;
-            hist.push_back(Arc::new(event));
+            hist.push_back(SequencedEvent::new(Arc::new(event)));
         }
     }
 
@@ -144,7 +144,7 @@ async fn test_time_based_cleanup() {
 
     // Verify all remaining events are recent
     for event in hist.iter() {
-        if let ClotoEventData::SystemNotification(msg) = &event.data {
+        if let ClotoEventData::SystemNotification(msg) = &event.event.data {
             assert!(
                 msg.contains("Recent"),
                 "Only recent events should remain, found: {}",
@@ -166,7 +166,7 @@ async fn test_configurable_history_size() {
             let event = Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(
                 format!("Event {}", i),
             )));
-            hist.push_back(event);
+            hist.push_back(SequencedEvent::new(event));
 
             // Apply size limit (500)
             if hist.len() > 500 {
@@ -201,7 +201,7 @@ async fn test_cleanup_task_integration() {
             let mut event =
                 ClotoEvent::new(ClotoEventData::SystemNotification(format!("Old {}", i)));
             event.timestamp = old_time;
-            hist.push_back(Arc::new(event));
+            hist.push_back(SequencedEvent::new(Arc::new(event)));
         }
     }
 
