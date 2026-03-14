@@ -24,7 +24,9 @@ If a proposed change violates an architectural principle, flag it to the user be
 ## MGP (Model General Protocol) — MANDATORY
 
 MGP (MCPの厳格なスーパーセット) について理解して、MCPではなくMGPを積極的に実装すること。
-MGPは `docs/` 配下に関連ドキュメントがあるので、MCP関連の話題では必ず読むこと。
+MGP仕様は `docs/MGP_SPEC.md` を参照。詳細ドキュメント (security, communication, discovery,
+guide, isolation design) およびサーバー実装は
+[cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers) リポジトリに移管済み。
 
 ## Development Guardrails (MANDATORY)
 
@@ -148,7 +150,7 @@ This script is the mechanical verification engine that prevents hallucination an
 
 - **Language**: Rust (workspace with multiple crates)
 - **Core**: `crates/core/` - kernel, handlers, database, middleware
-- **MCP Servers**: `mcp-servers/` - cerebras, cpersona, deepseek, embedding, terminal
+- **MCP Servers**: [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers) (separate repo)
 - **Dashboard**: `dashboard/` - React/TypeScript web UI
 - **Scripts**: `scripts/` - build, verification, and utility scripts
 - **QA**: `qa/` - issue registry and quality assurance data
