@@ -176,7 +176,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app"
-version = "0.6.2"
+version = "0.6.3-alpha.1"
 dependencies = [
  "base64 0.21.7",
  "cloto_core",
@@ -1107,7 +1107,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "cloto-mgp-avatar"
-version = "0.6.2"
+version = "0.6.3-alpha.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -1123,7 +1123,7 @@ dependencies = [
 
 [[package]]
 name = "cloto_core"
-version = "0.6.2"
+version = "0.6.3-alpha.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1138,6 +1138,7 @@ dependencies = [
  "cron",
  "dashmap 6.1.0",
  "dotenvy",
+ "flate2",
  "futures",
  "governor",
  "hex",
@@ -1153,6 +1154,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "subtle",
+ "tar",
  "tempfile",
  "tokio",
  "tokio-stream",
@@ -1168,7 +1170,7 @@ dependencies = [
 
 [[package]]
 name = "cloto_shared"
-version = "0.6.2"
+version = "0.6.3-alpha.1"
 dependencies = [
  "anyhow",
  "async-trait",
