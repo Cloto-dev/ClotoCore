@@ -4,6 +4,7 @@ import { McpServerInfo } from '../../types';
 import { McpServerSettingsTab } from './McpServerSettingsTab';
 import { McpAccessControlTab } from './McpAccessControlTab';
 import { McpServerLogsTab } from './McpServerLogsTab';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Play, Square, RotateCcw, Trash2 } from 'lucide-react';
 
 type Tab = 'settings' | 'access' | 'logs';
@@ -21,6 +22,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
   const { t } = useTranslation('mcp');
   const [activeTab, setActiveTab] = useState<Tab>('settings');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isRunning = server.status === 'Connected';
   const isError = server.status === 'Error';
@@ -90,15 +92,21 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
             <>
               <div className="w-px h-4 bg-edge self-center mx-0.5" />
               <button
-                onClick={() => {
-                  if (confirm(t('detail.delete_confirm', { id: server.id })))
-                    handleAction('delete', () => onDelete(server.id));
-                }}
+                onClick={() => setConfirmDelete(true)}
                 disabled={actionLoading !== null}
                 className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-red-500/10 text-content-secondary hover:text-red-500 transition-colors border border-edge"
               >
                 <Trash2 size={10} /> {t('detail.delete')}
               </button>
+              <ConfirmDialog
+                open={confirmDelete}
+                title={t('detail.delete')}
+                message={t('detail.delete_confirm', { id: server.id })}
+                confirmLabel={t('detail.delete')}
+                variant="danger"
+                onConfirm={() => { setConfirmDelete(false); handleAction('delete', () => onDelete(server.id)); }}
+                onCancel={() => setConfirmDelete(false)}
+              />
             </>
           )}
         </div>

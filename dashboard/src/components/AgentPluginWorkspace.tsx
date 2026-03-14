@@ -3,6 +3,7 @@ import { ArrowLeft, Save, Activity } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AgentMetadata, AccessControlEntry } from '../types';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
+import { AlertCard } from './ui/AlertCard';
 import { useApi } from '../hooks/useApi';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { AvatarSection } from './AvatarSection';
@@ -292,7 +293,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
 
       {/* Footer */}
       <div className="p-4 border-t border-edge flex items-center justify-between">
-        {saveError && <span className="text-[10px] text-red-400">{saveError}</span>}
+        {saveError && <AlertCard>{saveError}</AlertCard>}
         <div className="flex-1" />
         <div className="flex gap-2">
           <button
