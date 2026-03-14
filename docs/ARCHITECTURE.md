@@ -417,6 +417,5 @@ These principles define the "correct approach" within ClotoCore. The following c
 
 ### Related Design Documents
 
-- [TRIGGER_LAYER_DESIGN.md](TRIGGER_LAYER_DESIGN.md) — Heartbeat & Cron autonomous execution (Layer 2)
 - [MGP_SPEC.md](MGP_SPEC.md) — Model General Protocol specification (index)
 - [MGP Isolation Design](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_ISOLATION_DESIGN.md) — OS-Level isolation design (in cloto-mcp-servers repo)
