@@ -16,6 +16,7 @@ pub mod llm;
 pub mod mcp;
 pub mod permissions;
 pub mod response;
+pub mod setup;
 pub mod system;
 pub mod utils;
 

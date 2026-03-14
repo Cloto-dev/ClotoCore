@@ -17,15 +17,16 @@ import en_nav from './locales/en/nav.json';
 import en_cron from './locales/en/cron.json';
 import en_memory from './locales/en/memory.json';
 import en_wizard from './locales/en/wizard.json';
+import en_setup from './locales/en/setup.json';
 
-const NAMESPACES = ['common', 'agents', 'settings', 'mcp', 'nav', 'cron', 'memory', 'wizard'] as const;
+const NAMESPACES = ['common', 'agents', 'settings', 'mcp', 'nav', 'cron', 'memory', 'wizard', 'setup'] as const;
 
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
     resources: {
-      en: { common: en_common, agents: en_agents, settings: en_settings, mcp: en_mcp, nav: en_nav, cron: en_cron, memory: en_memory, wizard: en_wizard },
+      en: { common: en_common, agents: en_agents, settings: en_settings, mcp: en_mcp, nav: en_nav, cron: en_cron, memory: en_memory, wizard: en_wizard, setup: en_setup },
     },
     fallbackLng: 'en',
     defaultNS: 'common',
@@ -103,6 +104,7 @@ export function exportLanguageTemplate(): string {
     cron: en_cron,
     memory: en_memory,
     wizard: en_wizard,
+    setup: en_setup,
   };
   return JSON.stringify(template, null, 2);
 }
