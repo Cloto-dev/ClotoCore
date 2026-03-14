@@ -291,7 +291,7 @@ async fn fetch_registry(state: &AppState, force_refresh: bool) -> anyhow::Result
 
     info!("Fetching marketplace registry from GitHub...");
     let url =
-        "https://raw.githubusercontent.com/Cloto-dev/cloto-mcp-servers/main/registry.json";
+        "https://raw.githubusercontent.com/Cloto-dev/cloto-mcp-servers/master/registry.json";
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -363,7 +363,7 @@ async fn run_install(
     let archive_path = tmp_dir.join("cloto-mcp-servers-latest.tar.gz");
 
     let tarball_url =
-        "https://api.github.com/repos/Cloto-dev/cloto-mcp-servers/tarball/main";
+        "https://api.github.com/repos/Cloto-dev/cloto-mcp-servers/tarball/master";
 
     // Download with custom headers for GitHub API
     let client = reqwest::Client::builder()
@@ -531,13 +531,13 @@ async fn run_install(
 
     emit(tx, SetupProgressEvent::StepComplete { step: "install_deps".into() });
 
-    // Step 5: Register in database
+    // Step 5: Register and start via add_dynamic_server()
     emit(tx, SetupProgressEvent::StepStart {
         step: "finalize".into(),
         description: "Registering server".into(),
     });
 
-    // Build env JSON: merge defaults with overrides
+    // Build env: merge defaults with overrides
     let mut env_map: HashMap<String, String> = HashMap::new();
     for var in &entry.env_vars {
         if let Some(default) = &var.default {
@@ -547,7 +547,6 @@ async fn run_install(
     for (k, v) in &env_overrides {
         env_map.insert(k.clone(), v.clone());
     }
-    let env_json = serde_json::to_string(&env_map).unwrap_or_else(|_| "{}".to_string());
 
     // Build command and args
     let venv_python = if cfg!(windows) {
@@ -557,27 +556,40 @@ async fn run_install(
     };
     let command = venv_python.to_string_lossy().to_string();
     let server_script = server_path.join("server.py").to_string_lossy().to_string();
-    let args_json = serde_json::to_string(&[&server_script]).unwrap_or_else(|_| "[]".to_string());
 
-    crate::db::mcp::save_marketplace_server(
+    // Use add_dynamic_server() for proper lifecycle integration:
+    // creates ServerConfig → connect_server() (spawn + register) → save to DB
+    match state.mcp_manager.add_dynamic_server(
+        entry.id.clone(),
+        command,
+        vec![server_script],
+        None,
+        Some(entry.description.clone()),
+        None,
+        env_map,
+    ).await {
+        Ok(tools) => {
+            info!("Marketplace server connected: {} ({} tools)", entry.id, tools.len());
+        }
+        Err(e) => {
+            warn!("Server registered but failed to connect: {e}");
+            // Continue — server is in DB and can be started manually later
+        }
+    }
+
+    // Set marketplace-specific fields (source, version, marketplace_id)
+    if let Err(e) = crate::db::mcp::set_marketplace_fields(
         &state.pool,
         &entry.id,
-        &command,
-        &args_json,
-        Some(&entry.description),
-        &env_json,
         &entry.version,
         &entry.id,
-    )
-    .await?;
+    ).await {
+        warn!("Failed to set marketplace fields: {e}");
+    }
 
-    info!("Marketplace server registered: {} v{}", entry.id, entry.version);
-
-    // Optionally start the server
-    if auto_start {
-        if let Err(e) = state.mcp_manager.start_server(&entry.id).await {
-            warn!("Failed to auto-start {}: {e}", entry.id);
-        }
+    // If user requested no auto-start, stop the server after registration
+    if !auto_start {
+        let _ = state.mcp_manager.stop_server(&entry.id).await;
     }
 
     emit(tx, SetupProgressEvent::StepComplete { step: "finalize".into() });

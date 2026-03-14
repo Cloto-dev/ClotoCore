@@ -1968,7 +1968,7 @@ impl McpClientManager {
             id: id.to_string(),
             command: record.command,
             args,
-            env: HashMap::new(),
+            env: serde_json::from_str(&record.env).unwrap_or_default(),
             transport: "stdio".to_string(),
             auto_restart: Some(true),
             required_permissions: Vec::new(),
