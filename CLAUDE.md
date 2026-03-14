@@ -146,6 +146,12 @@ This script is the mechanical verification engine that prevents hallucination an
   - `text-content-muted` is permitted only for decorative elements (borders, disabled icons, dividers).
   - All user-readable text must use `text-content-tertiary` or higher (`text-content-secondary`, `text-content-primary`).
 
+### Hover Border Patterns
+
+- **Interactive card/row hover**: `hover:border-brand` — brand color outline on hover.
+- **Destructive/deactivate hover**: `hover:border-red-500` — red outline for remove/revoke actions.
+- Always use full opacity (not `/30` or `/50`) for hover borders to ensure visibility.
+
 ## Project Structure
 
 - **Language**: Rust (workspace with multiple crates)

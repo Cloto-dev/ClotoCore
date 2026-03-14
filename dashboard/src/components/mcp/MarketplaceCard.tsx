@@ -37,18 +37,18 @@ export function MarketplaceCard({ entry, onInstall }: MarketplaceCardProps) {
   const isUpdate = entry.installed && entry.update_available;
 
   return (
-    <div className="bg-glass border border-edge rounded-lg p-3 flex flex-col gap-2">
+    <div className="bg-glass-strong backdrop-blur-sm border border-edge rounded-lg p-3 flex flex-col gap-2 transition-colors duration-200 hover:border-brand">
       {/* Header */}
       <div className="flex items-center gap-2">
         <Icon size={14} className="text-brand shrink-0" />
-        <span className="text-[11px] font-mono font-bold text-content-primary truncate">{entry.name}</span>
-        <span className="ml-auto text-[9px] font-mono px-1.5 rounded bg-surface-secondary text-content-tertiary uppercase shrink-0">
+        <span className="text-[13px] font-sans font-bold text-content-primary truncate">{entry.name}</span>
+        <span className="ml-auto text-[11px] font-sans px-1.5 rounded bg-surface-secondary text-content-tertiary uppercase shrink-0">
           {entry.category}
         </span>
       </div>
 
       {/* Description */}
-      <p className="text-[10px] font-mono text-content-tertiary line-clamp-2 leading-relaxed">
+      <p className="text-[11px] font-sans text-content-tertiary line-clamp-2 leading-relaxed">
         {entry.description}
       </p>
 
@@ -56,7 +56,7 @@ export function MarketplaceCard({ entry, onInstall }: MarketplaceCardProps) {
       {entry.tags.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {entry.tags.map(tag => (
-            <span key={tag} className="bg-surface-secondary text-content-tertiary text-[9px] px-1.5 rounded">
+            <span key={tag} className="bg-surface-secondary text-content-tertiary text-[11px] px-1.5 rounded">
               {tag}
             </span>
           ))}
@@ -68,31 +68,31 @@ export function MarketplaceCard({ entry, onInstall }: MarketplaceCardProps) {
         <div className="flex items-center gap-2">
           {/* Status indicator */}
           {isInstalled && (
-            <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-500">
+            <span className="flex items-center gap-1 text-[10px] font-sans text-emerald-500">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               {t('marketplace.installed')}
             </span>
           )}
           {isUpdate && (
-            <span className="flex items-center gap-1 text-[10px] font-mono text-amber-500">
+            <span className="flex items-center gap-1 text-[10px] font-sans text-amber-500">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
               {t('marketplace.update_available')}
             </span>
           )}
           {!entry.installed && (
-            <span className="flex items-center gap-1 text-[10px] font-mono text-content-tertiary">
+            <span className="flex items-center gap-1 text-[10px] font-sans text-content-tertiary">
               <span className="w-1.5 h-1.5 rounded-full bg-content-tertiary/40" />
               {t('marketplace.not_installed')}
             </span>
           )}
-          <span className="text-[9px] font-mono text-content-tertiary">v{entry.version}</span>
+          <span className="text-[11px] font-sans text-content-tertiary">v{entry.version}</span>
         </div>
 
         {/* Action button */}
         {isInstalled && (
           <button
             disabled
-            className="px-2 py-1 text-[10px] font-mono rounded bg-glass text-content-tertiary border border-edge cursor-default"
+            className="px-2 py-1 text-[11px] font-sans rounded bg-glass text-content-tertiary border border-edge cursor-default"
           >
             Installed
           </button>
@@ -100,7 +100,7 @@ export function MarketplaceCard({ entry, onInstall }: MarketplaceCardProps) {
         {isUpdate && (
           <button
             onClick={() => onInstall(entry)}
-            className="px-2 py-1 text-[10px] font-mono rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 transition-colors"
+            className="px-2 py-1 text-[11px] font-sans rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 transition-colors"
           >
             {t('marketplace.update_available')}
           </button>
@@ -108,7 +108,7 @@ export function MarketplaceCard({ entry, onInstall }: MarketplaceCardProps) {
         {!entry.installed && (
           <button
             onClick={() => onInstall(entry)}
-            className="px-2 py-1 text-[10px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand border border-brand/30 transition-colors"
+            className="px-2 py-1 text-[11px] font-sans rounded bg-brand/10 hover:bg-brand/20 text-brand border border-brand/30 transition-colors"
           >
             {t('marketplace.install')}
           </button>
