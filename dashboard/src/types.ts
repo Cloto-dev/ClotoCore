@@ -177,6 +177,16 @@ export interface McpServerSettings {
   description?: string;
 }
 
+// Bootstrap Setup types
+export interface SetupStatus {
+  setup_complete: boolean;
+  mcp_servers_present: boolean;
+  python_available: boolean;
+  python_version: string | null;
+  venv_exists: boolean;
+  setup_in_progress: boolean;
+}
+
 // Cron Job Scheduler (Layer 2: Autonomous Trigger)
 export type ScheduleType = 'interval' | 'cron' | 'once';
 

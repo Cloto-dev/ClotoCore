@@ -1,4 +1,4 @@
-import { AgentMetadata, ContentBlock, ChatMessage, ClotoMessage, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry } from '../types';
+import { AgentMetadata, ContentBlock, ChatMessage, ClotoMessage, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry, SetupStatus } from '../types';
 import { isTauri } from '../lib/tauri';
 import { safeJsonParse } from '../lib/json';
 
@@ -298,6 +298,18 @@ export const api = {
     return res.json().then((b: { data: { entries: Array<{ viseme: string; start_ms: number; duration_ms: number }>; total_duration_ms: number } }) => b.data);
   },
 
+  // Bootstrap Setup
+  getSetupStatus: (): Promise<SetupStatus> =>
+    fetchJson<SetupStatus>('/setup/status', 'fetch setup status'),
+
+  startSetup: (apiKey: string): Promise<void> =>
+    mutate('/setup/start', 'POST', 'start setup', undefined, { 'X-API-Key': apiKey }).then(() => {}),
+
+  checkPython: (): Promise<{ available: boolean; version: string | null }> =>
+    mutate('/setup/check-python', 'POST', 'check python', undefined).then(r => r.json()).then(b => b.data),
+
+  getSetupProgressUrl: (): string => `${API_BASE}/setup/progress`,
+
   // Memory Management
   deleteMemory: (memoryId: number, apiKey: string) =>
     mutate(`/memories/${memoryId}`, 'DELETE', 'delete memory', undefined, { 'X-API-Key': apiKey }).then(() => {}),
@@ -384,6 +396,11 @@ export function createAuthenticatedApi(apiKey: string) {
     // Memory
     deleteMemory: (memoryId: number) => api.deleteMemory(memoryId, k),
     deleteEpisode: (episodeId: number) => api.deleteEpisode(episodeId, k),
+    // Setup
+    getSetupStatus: () => api.getSetupStatus(),
+    startSetup: () => api.startSetup(k),
+    checkPython: () => api.checkPython(),
+    getSetupProgressUrl: () => api.getSetupProgressUrl(),
   };
 }
 
