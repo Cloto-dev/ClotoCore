@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sun, Moon, Monitor, Users, Server, Clock, Brain, Settings, Layers, Zap, Shield, Box, ChevronDown } from 'lucide-react';
+import { Sun, Moon, Monitor, Users, Server, Clock, Brain, Settings, ChevronDown } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApiKey } from '../contexts/ApiKeyContext';
@@ -19,16 +19,9 @@ const TOTAL_STEPS = 6;
 // Preset Definitions
 // ============================================================
 
-import { MINIMAL_SERVERS, STANDARD_SERVERS, ADVANCED_SERVERS, EXPERT_SERVERS } from '../lib/presets';
+import { SERVER_PRESETS, STANDARD_SERVERS } from '../lib/presets';
 
 const ENGINE_IDS = ['mind.cerebras', 'mind.deepseek', 'mind.claude', 'mind.ollama'] as const;
-
-interface PresetDef {
-  id: string;
-  icon: typeof Layers;
-  defaultEngine: string;
-  servers: string[];
-}
 
 const ALL_SELECTABLE_SERVER_IDS = [
   'memory.cpersona', 'tool.terminal', 'tool.cron', 'tool.websearch',
@@ -49,13 +42,6 @@ function engineTKey(id: string): string {
 const MANUAL_START_SERVERS = new Set([
   'vision.gaze_webcam', 'vision.capture', 'tool.imagegen', 'voice.stt', 'voice.tts',
 ]);
-
-const PRESETS: PresetDef[] = [
-  { id: 'standard', icon: Layers, defaultEngine: 'mind.cerebras', servers: STANDARD_SERVERS },
-  { id: 'advanced', icon: Zap, defaultEngine: 'mind.deepseek', servers: ADVANCED_SERVERS },
-  { id: 'expert', icon: Shield, defaultEngine: 'mind.deepseek', servers: EXPERT_SERVERS },
-  { id: 'minimal', icon: Box, defaultEngine: 'mind.cerebras', servers: MINIMAL_SERVERS },
-];
 
 const DEFAULT_AGENT_ID = 'agent.cloto_default';
 
@@ -99,7 +85,7 @@ export function SetupWizard({ onComplete }: Props) {
   const handlePresetSelect = (presetId: string) => {
     setSelectedPreset(presetId);
     if (presetId !== 'custom') {
-      const preset = PRESETS.find(p => p.id === presetId);
+      const preset = SERVER_PRESETS.find(p => p.id === presetId);
       if (preset) {
         setSelectedEngine(preset.defaultEngine);
         setCustomServers(new Set(preset.servers));
@@ -119,7 +105,7 @@ export function SetupWizard({ onComplete }: Props) {
   const getActiveServers = (): string[] => {
     const base = selectedPreset === 'custom'
       ? Array.from(customServers)
-      : (PRESETS.find(p => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
+      : (SERVER_PRESETS.find(p => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
     // Always include the selected engine in server grants
     if (selectedEngine && !base.includes(selectedEngine)) {
       return [...base, selectedEngine];
@@ -431,13 +417,13 @@ function PresetStep({
   onSelectPreset, onSelectEngine, onToggleServer,
 }: PresetStepProps) {
   const presetCards = [
-    ...PRESETS.map(p => ({ id: p.id, icon: p.icon })),
+    ...SERVER_PRESETS.map(p => ({ id: p.id, icon: p.icon })),
     { id: 'custom', icon: Settings },
   ];
 
   const activeServers = selectedPreset === 'custom'
     ? customServers
-    : new Set(PRESETS.find(p => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
+    : new Set(SERVER_PRESETS.find(p => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
 
   const hasManualStart = Array.from(activeServers).some(s => MANUAL_START_SERVERS.has(s));
 

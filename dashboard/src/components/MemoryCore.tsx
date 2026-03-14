@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { memo } from 'react';
 import { Brain, History, User, Trash2 } from 'lucide-react';
+import { SectionHeader } from './ui/SectionHeader';
 import { useTranslation } from 'react-i18next';
 import { Memory, Episode, AgentMetadata } from '../types';
 import { useEventStream } from '../hooks/useEventStream';
@@ -165,10 +166,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
 
         <main className={`grid grid-cols-1 ${isWindowMode ? 'gap-4' : 'lg:grid-cols-3 gap-8'}`}>
           <section className={`${isWindowMode ? '' : 'lg:col-span-2'} space-y-4`}>
-            <div className="flex items-center gap-3 mb-2 border-b border-edge pb-2">
-              <User className="text-brand" size={16} />
-              <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('long_term')}</h2>
-            </div>
+            <SectionHeader icon={User} title={t('long_term')} className="mb-2" />
             
             <div className={`grid ${isWindowMode ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'} gap-4`}>
               {filteredMemories.length > 0 ? filteredMemories.map((mem) => (
@@ -202,10 +200,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
           </section>
 
           <section className="space-y-4">
-            <div className="flex items-center gap-3 mb-2 border-b border-edge pb-2">
-              <History className="text-brand" size={16} />
-              <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('episodic')}</h2>
-            </div>
+            <SectionHeader icon={History} title={t('episodic')} className="mb-2" />
             
             <div className="space-y-3">
               {filteredEpisodes.length > 0 ? filteredEpisodes.map((epi) => (

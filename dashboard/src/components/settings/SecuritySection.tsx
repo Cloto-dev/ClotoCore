@@ -1,11 +1,14 @@
 import { useState } from 'react';
-import { Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { SectionCard, Toggle } from './common';
+import { SectionCard } from './common';
 import { LlmProvidersSection } from './LlmProvidersSection';
+import { SecretInput } from '../../components/ui/SecretInput';
+import { AlertCard } from '../../components/ui/AlertCard';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { useApiKey } from '../../contexts/ApiKeyContext';
 import { api } from '../../services/api';
 import { useApi } from '../../hooks/useApi';
+import { useAsyncAction } from '../../hooks/useAsyncAction';
 
 export function SecuritySection() {
   const { setApiKey, forgetApiKey } = useApiKey();
@@ -13,35 +16,34 @@ export function SecuritySection() {
   const { t } = useTranslation('settings');
   const { t: tc } = useTranslation();
   const [newKey, setNewKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
   const [confirmInvalidate, setConfirmInvalidate] = useState(false);
 
-  const handleSave = async () => {
+  const saveAction = useAsyncAction(t('security.error_invalid_key'));
+  const invalidateAction = useAsyncAction(t('security.error_invalidate_failed'));
+
+  const error = saveAction.error || invalidateAction.error;
+
+  const handleSave = () => {
     if (!newKey.trim()) return;
-    setSaving(true);
-    setError('');
-    try {
+    saveAction.run(async () => {
       await api.listCronJobs(newKey.trim());
       setApiKey(newKey.trim());
       setNewKey('');
-    } catch {
-      setError(t('security.error_invalid_key'));
-    } finally {
-      setSaving(false);
-    }
+    });
   };
 
-  const handleInvalidate = async () => {
+  const handleInvalidate = () => {
     if (!authApi.apiKey) return;
-    try {
+    invalidateAction.run(async () => {
       await authApi.invalidateApiKey();
       forgetApiKey();
       setConfirmInvalidate(false);
-    } catch {
-      setError(t('security.error_invalidate_failed'));
-    }
+    });
+  };
+
+  const clearErrors = () => {
+    saveAction.clearError();
+    invalidateAction.clearError();
   };
 
   return (
@@ -54,57 +56,48 @@ export function SecuritySection() {
           </div>
 
           <div className="flex gap-2">
-            <div className="relative flex-1">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={newKey}
-                onChange={e => { setNewKey(e.target.value); setError(''); }}
-                placeholder={authApi.apiKey ? t('security.placeholder_replace') : t('security.placeholder_new')}
-                className="w-full bg-surface-secondary border border-edge rounded-lg px-3 py-2 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
-              />
-              <button
-                onClick={() => setShowKey(v => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-secondary"
-              >
-                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
+            <SecretInput
+              value={newKey}
+              onChange={v => { setNewKey(v); clearErrors(); }}
+              placeholder={authApi.apiKey ? t('security.placeholder_replace') : t('security.placeholder_new')}
+              className="w-full bg-surface-secondary border border-edge rounded-lg px-3 py-2 pr-8 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
+            />
             <button
               onClick={handleSave}
-              disabled={!newKey.trim() || saving}
+              disabled={!newKey.trim() || saveAction.isLoading}
               className="px-4 py-2 bg-brand text-white text-xs font-bold rounded-lg disabled:opacity-40 hover:bg-brand/90 transition-colors"
             >
-              {saving ? '...' : tc('save')}
+              {saveAction.isLoading ? '...' : tc('save')}
             </button>
           </div>
 
           {error && (
-            <div className="flex items-center gap-2 text-red-400 text-xs">
-              <AlertTriangle size={12} />
-              {error}
-            </div>
+            <AlertCard>{error}</AlertCard>
           )}
 
           {authApi.apiKey && (
             <div className="pt-3 border-t border-edge">
-              {!confirmInvalidate ? (
-                <button
-                  onClick={() => setConfirmInvalidate(true)}
-                  className="text-xs text-red-400 hover:text-red-300 font-bold uppercase tracking-widest transition-colors"
-                >
-                  {t('security.invalidate_label')}
-                </button>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-red-400">{t('security.invalidate_confirm_desc')}</span>
-                  <button onClick={handleInvalidate} className="px-3 py-1 bg-red-500 text-white text-xs font-bold rounded-lg">{tc('confirm')}</button>
-                  <button onClick={() => setConfirmInvalidate(false)} className="px-3 py-1 bg-surface-secondary text-content-secondary text-xs font-bold rounded-lg border border-edge">{tc('cancel')}</button>
-                </div>
-              )}
+              <button
+                onClick={() => setConfirmInvalidate(true)}
+                className="text-xs text-red-400 hover:text-red-300 font-bold uppercase tracking-widest transition-colors"
+              >
+                {t('security.invalidate_label')}
+              </button>
             </div>
           )}
         </div>
       </SectionCard>
+
+      <ConfirmDialog
+        open={confirmInvalidate}
+        title={t('security.invalidate_label')}
+        message={t('security.invalidate_confirm_desc')}
+        confirmLabel={tc('confirm')}
+        cancelLabel={tc('cancel')}
+        variant="danger"
+        onConfirm={handleInvalidate}
+        onCancel={() => setConfirmInvalidate(false)}
+      />
 
       <LlmProvidersSection />
     </>

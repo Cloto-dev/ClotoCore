@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { CronJob, AgentMetadata } from '../types';
 import { useApi } from '../hooks/useApi';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
-import { Modal } from './Modal';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 
 function formatSchedule(type: string, value: string): string {
   if (type === 'interval') {
@@ -308,25 +308,16 @@ export const CronJobs = memo(function CronJobs() {
       )}
 
       {/* Confirm dialog */}
-      {confirmDialog && (
-        <Modal title={tc('confirm')} onClose={() => setConfirmDialog(null)}>
-          <p className="text-sm text-content-secondary mb-4">{confirmDialog.message}</p>
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => setConfirmDialog(null)}
-              className="px-3 py-1.5 text-xs font-bold rounded bg-surface-secondary border border-edge text-content-secondary hover:bg-surface-secondary/80"
-            >
-              {tc('cancel')}
-            </button>
-            <button
-              onClick={confirmDialog.onConfirm}
-              className="px-3 py-1.5 text-xs font-bold rounded bg-red-500 text-white hover:bg-red-600"
-            >
-              {tc('confirm')}
-            </button>
-          </div>
-        </Modal>
-      )}
+      <ConfirmDialog
+        open={!!confirmDialog}
+        title={tc('confirm')}
+        message={confirmDialog?.message ?? ''}
+        confirmLabel={tc('confirm')}
+        cancelLabel={tc('cancel')}
+        variant="danger"
+        onConfirm={() => confirmDialog?.onConfirm()}
+        onCancel={() => setConfirmDialog(null)}
+      />
     </div>
   );
 });

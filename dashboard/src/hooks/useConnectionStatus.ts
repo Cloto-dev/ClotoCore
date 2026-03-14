@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { api } from '../services/api';
+import { usePolling } from './usePolling';
 
 export interface ConnectionStatus {
   connected: boolean;
@@ -23,11 +24,7 @@ export function useConnectionStatusProvider(): ConnectionStatus {
     }
   }, []);
 
-  useEffect(() => {
-    check();
-    const id = setInterval(check, POLL_INTERVAL);
-    return () => clearInterval(id);
-  }, [check]);
+  usePolling(check, POLL_INTERVAL);
 
   return { connected, checking };
 }
