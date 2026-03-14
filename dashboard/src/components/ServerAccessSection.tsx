@@ -59,7 +59,7 @@ export function ServerAccessSection({ grantedServers, availableServers, agentCol
                 className={`px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider border transition-all ${
                   isActive
                     ? 'border-brand bg-brand/10 text-brand'
-                    : 'border-edge bg-glass text-content-secondary hover:border-brand/40 hover:text-brand'
+                    : 'border-edge bg-glass text-content-secondary hover:border-brand hover:text-brand'
                 }`}
               >
                 {t(`plugin_workspace.preset_${preset.id}`)}
@@ -87,7 +87,7 @@ export function ServerAccessSection({ grantedServers, availableServers, agentCol
             {grantedServers.map(server => (
               <div
                 key={server.id}
-                className="bg-glass-strong backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-red-500/30 transition-all flex items-center gap-3 group cursor-pointer"
+                className="bg-glass-strong backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-red-500 transition-all flex items-center gap-3 group cursor-pointer"
                 onClick={() => onRevoke(server.id)}
               >
                 <div className="p-1.5 rounded-md" style={{ backgroundColor: `${agentColorHex}15`, color: agentColorHex }}>
@@ -119,7 +119,7 @@ export function ServerAccessSection({ grantedServers, availableServers, agentCol
             {availableServers.map(server => (
               <div
                 key={server.id}
-                className="bg-glass backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-brand/50 transition-all flex items-center gap-3 group cursor-pointer"
+                className="bg-glass backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-brand transition-all flex items-center gap-3 group cursor-pointer"
                 onClick={() => onGrant(server.id)}
               >
                 <div className="p-1.5 rounded-md text-content-muted group-hover:text-brand transition-colors">
