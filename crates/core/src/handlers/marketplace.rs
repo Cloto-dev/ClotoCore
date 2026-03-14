@@ -614,9 +614,10 @@ async fn run_install(
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+/// Marketplace servers are always installed to {data_dir}/mcp-servers/,
+/// separate from config-loaded servers in [paths].servers.
 fn resolve_servers_dir(state: &AppState) -> PathBuf {
-    crate::managers::mcp_venv::resolve_servers_dir_from_config()
-        .unwrap_or_else(|| state.data_dir.join("mcp-servers"))
+    state.data_dir.join("mcp-servers")
 }
 
 /// Extract specific directories from a GitHub tarball.
