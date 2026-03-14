@@ -5,6 +5,11 @@
 **Authors:** ClotoCore Project
 **Date:** 2026-03-06
 
+> **Note:** MGP server implementations and additional MGP documentation
+> (security, communication, discovery, guide, isolation design) are maintained in
+> [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers).
+> This spec is the canonical reference and is kept in both repositories.
+
 ---
 
 ## 1. Overview
