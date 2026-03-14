@@ -436,6 +436,91 @@ pub async fn update_mcp_server_env(
     .rows_affected())
 }
 
+// ============================================================
+// Marketplace Server Persistence
+// ============================================================
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct MarketplaceServerRecord {
+    pub name: String,
+    pub source: String,
+    pub installed_version: Option<String>,
+    pub marketplace_id: Option<String>,
+    pub is_active: bool,
+}
+
+/// Save a marketplace-installed server to the DB.
+pub async fn save_marketplace_server(
+    pool: &SqlitePool,
+    name: &str,
+    command: &str,
+    args: &str,
+    description: Option<&str>,
+    env_json: &str,
+    version: &str,
+    marketplace_id: &str,
+) -> anyhow::Result<()> {
+    db_timeout(
+        sqlx::query(
+            "INSERT INTO mcp_servers \
+             (name, command, args, description, created_at, is_active, env, default_policy, \
+              source, installed_version, marketplace_id) \
+             VALUES (?, ?, ?, ?, unixepoch(), 1, ?, 'opt-out', 'marketplace', ?, ?) \
+             ON CONFLICT(name) DO UPDATE SET \
+               command = excluded.command, \
+               args = excluded.args, \
+               description = excluded.description, \
+               env = excluded.env, \
+               is_active = 1, \
+               source = 'marketplace', \
+               installed_version = excluded.installed_version, \
+               marketplace_id = excluded.marketplace_id",
+        )
+        .bind(name)
+        .bind(command)
+        .bind(args)
+        .bind(description)
+        .bind(env_json)
+        .bind(version)
+        .bind(marketplace_id)
+        .execute(pool),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Load all marketplace-installed servers.
+pub async fn get_marketplace_servers(
+    pool: &SqlitePool,
+) -> anyhow::Result<Vec<MarketplaceServerRecord>> {
+    db_timeout(
+        sqlx::query_as::<_, MarketplaceServerRecord>(
+            "SELECT name, source, installed_version, marketplace_id, is_active \
+             FROM mcp_servers WHERE source = 'marketplace' ORDER BY name ASC",
+        )
+        .fetch_all(pool),
+    )
+    .await
+}
+
+/// Update the installed version of a marketplace server.
+pub async fn update_marketplace_server_version(
+    pool: &SqlitePool,
+    name: &str,
+    version: &str,
+) -> anyhow::Result<u64> {
+    Ok(db_timeout(
+        sqlx::query(
+            "UPDATE mcp_servers SET installed_version = ? WHERE name = ? AND source = 'marketplace'",
+        )
+        .bind(version)
+        .bind(name)
+        .execute(pool),
+    )
+    .await?
+    .rows_affected())
+}
+
 /// Insert a config-loaded MCP server into the DB so its settings can be persisted.
 pub async fn ensure_mcp_server_in_db(
     pool: &SqlitePool,

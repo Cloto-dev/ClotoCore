@@ -4,6 +4,7 @@ import { useMcpServers } from '../hooks/useMcpServers';
 import { useAsyncAction } from '../hooks/useAsyncAction';
 import { extractError } from '../lib/errors';
 import { McpServerDetail } from '../components/mcp/McpServerDetail';
+import { MarketplaceTab } from '../components/mcp/MarketplaceTab';
 import { Modal } from '../components/Modal';
 import { StatusDot, type StatusDotStatus } from '../components/ui/StatusDot';
 import { displayServerId } from '../lib/format';
@@ -25,6 +26,7 @@ export function McpServersPage() {
   const { servers, isLoading, error: fetchError, refetch } = useMcpServers();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'servers' | 'marketplace'>('servers');
 
   // Add server form state
   const [newName, setNewName] = useState('');
@@ -117,14 +119,38 @@ export function McpServersPage() {
           >
             <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
           </button>
-          <button
-            onClick={() => setAddModalOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/30 text-brand text-[10px] font-mono font-bold tracking-wide transition-colors"
-          >
-            <Plus size={12} />
-            {t('add_server')}
-          </button>
+          {activeTab === 'servers' && (
+            <button
+              onClick={() => setAddModalOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/30 text-brand text-[10px] font-mono font-bold tracking-wide transition-colors"
+            >
+              <Plus size={12} />
+              {t('add_server')}
+            </button>
+          )}
         </div>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex border-b border-edge mb-4 px-5 shrink-0">
+        <button
+          onClick={() => setActiveTab('servers')}
+          className={`px-4 py-2 text-[10px] font-mono uppercase tracking-wider transition-colors
+            ${activeTab === 'servers'
+              ? 'text-content-primary border-b-2 border-brand'
+              : 'text-content-tertiary hover:text-content-secondary'}`}
+        >
+          Servers
+        </button>
+        <button
+          onClick={() => setActiveTab('marketplace')}
+          className={`px-4 py-2 text-[10px] font-mono uppercase tracking-wider transition-colors
+            ${activeTab === 'marketplace'
+              ? 'text-content-primary border-b-2 border-brand'
+              : 'text-content-tertiary hover:text-content-secondary'}`}
+        >
+          Marketplace
+        </button>
       </div>
 
       {/* Action error banner */}
@@ -140,47 +166,53 @@ export function McpServersPage() {
         </AlertCard>
       )}
 
-      {/* Server cards */}
+      {/* Tab content */}
       <div className="flex-1 overflow-y-auto p-5">
-        {sortedServers.length === 0 && !isLoading && !fetchError && (
-          <div className="flex flex-col items-center justify-center h-full text-content-tertiary">
-            <Server size={32} className="mb-3 opacity-30" />
-            <p className="text-xs font-mono">{t('no_servers_configured')}</p>
-            <button
-              onClick={() => setAddModalOpen(true)}
-              className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/30 text-brand text-[10px] font-mono font-bold transition-colors"
-            >
-              <Plus size={12} />
-              {t('add_server')}
-            </button>
-          </div>
+        {activeTab === 'servers' && (
+          <>
+            {sortedServers.length === 0 && !isLoading && !fetchError && (
+              <div className="flex flex-col items-center justify-center h-full text-content-tertiary">
+                <Server size={32} className="mb-3 opacity-30" />
+                <p className="text-xs font-mono">{t('no_servers_configured')}</p>
+                <button
+                  onClick={() => setAddModalOpen(true)}
+                  className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/30 text-brand text-[10px] font-mono font-bold transition-colors"
+                >
+                  <Plus size={12} />
+                  {t('add_server')}
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
+              {sortedServers.map(server => (
+                <button
+                  key={server.id}
+                  onClick={() => setSelectedId(server.id)}
+                  className="text-left p-4 rounded-xl border border-edge bg-surface-primary hover:bg-surface-secondary/80 hover:border-brand/30 transition-all duration-200 group"
+                >
+                  <div className="flex items-center gap-2.5 mb-2">
+                    <Server size={14} className="text-content-tertiary group-hover:text-brand transition-colors shrink-0" />
+                    <span className="text-xs font-mono font-bold text-content-primary truncate">{displayServerId(server.id)}</span>
+                    {server.source === 'config' && (
+                      <span className="text-[9px] font-mono text-amber-500/70 shrink-0" title="Config-loaded">CONFIG</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px] font-mono text-content-tertiary">
+                    <span className="flex items-center gap-1.5">
+                      <StatusDot status={mcpStatusToDot(server.status)} />
+                      {statusLabel(server.status)}
+                    </span>
+                    <span>{t('tools_count', { count: server.tools.length })}</span>
+                    {server.is_cloto_sdk && <span className="text-brand">SDK</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
         )}
 
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-          {sortedServers.map(server => (
-            <button
-              key={server.id}
-              onClick={() => setSelectedId(server.id)}
-              className="text-left p-4 rounded-xl border border-edge bg-surface-primary hover:bg-surface-secondary/80 hover:border-brand/30 transition-all duration-200 group"
-            >
-              <div className="flex items-center gap-2.5 mb-2">
-                <Server size={14} className="text-content-tertiary group-hover:text-brand transition-colors shrink-0" />
-                <span className="text-xs font-mono font-bold text-content-primary truncate">{displayServerId(server.id)}</span>
-                {server.source === 'config' && (
-                  <span className="text-[9px] font-mono text-amber-500/70 shrink-0" title="Config-loaded">CONFIG</span>
-                )}
-              </div>
-              <div className="flex items-center gap-3 text-[10px] font-mono text-content-tertiary">
-                <span className="flex items-center gap-1.5">
-                  <StatusDot status={mcpStatusToDot(server.status)} />
-                  {statusLabel(server.status)}
-                </span>
-                <span>{t('tools_count', { count: server.tools.length })}</span>
-                {server.is_cloto_sdk && <span className="text-brand">SDK</span>}
-              </div>
-            </button>
-          ))}
-        </div>
+        {activeTab === 'marketplace' && <MarketplaceTab />}
       </div>
 
       {/* Server Detail Modal */}

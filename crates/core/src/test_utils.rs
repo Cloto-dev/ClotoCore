@@ -64,5 +64,8 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
             let (tx, _) = tokio::sync::broadcast::channel(64);
             tx
         },
+        marketplace_cache: Arc::new(tokio::sync::RwLock::new(
+            crate::handlers::marketplace::CatalogCache::default(),
+        )),
     })
 }
