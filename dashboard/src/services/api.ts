@@ -1,4 +1,4 @@
-import { AgentMetadata, ContentBlock, ChatMessage, ClotoMessage, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry, SetupStatus } from '../types';
+import { AgentMetadata, ContentBlock, ChatMessage, ClotoMessage, PermissionRequest, Metrics, Memory, Episode, StrictSystemEvent, McpServerInfo, McpServerSettings, AccessTreeResponse, AccessControlEntry, SetupStatus, MarketplaceCatalogEntry } from '../types';
 import { isTauri } from '../lib/tauri';
 import { safeJsonParse } from '../lib/json';
 
@@ -310,6 +310,19 @@ export const api = {
 
   getSetupProgressUrl: (): string => `${API_BASE}/setup/progress`,
 
+  // Marketplace
+  getMarketplaceCatalog: async (apiKey: string, forceRefresh = false): Promise<{ servers: MarketplaceCatalogEntry[]; cached_at: string }> => {
+    const url = forceRefresh ? `${API_BASE}/marketplace/catalog?force_refresh=true` : `${API_BASE}/marketplace/catalog`;
+    const res = await fetch(url, { headers: { 'X-API-Key': apiKey } });
+    if (!res.ok) throw new Error(`Marketplace catalog: ${res.status}`);
+    return res.json().then((b: { data: { servers: MarketplaceCatalogEntry[]; cached_at: string } }) => b.data);
+  },
+
+  installMarketplaceServer: (payload: { server_id: string; env?: Record<string, string>; auto_start?: boolean }, apiKey: string) =>
+    mutate('/marketplace/install', 'POST', 'install marketplace server', payload, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
+
+  getMarketplaceProgressUrl: (): string => `${API_BASE}/marketplace/progress`,
+
   // Memory Management
   deleteMemory: (memoryId: number, apiKey: string) =>
     mutate(`/memories/${memoryId}`, 'DELETE', 'delete memory', undefined, { 'X-API-Key': apiKey }).then(() => {}),
@@ -401,6 +414,10 @@ export function createAuthenticatedApi(apiKey: string) {
     startSetup: () => api.startSetup(k),
     checkPython: () => api.checkPython(),
     getSetupProgressUrl: () => api.getSetupProgressUrl(),
+    // Marketplace
+    getMarketplaceCatalog: (forceRefresh?: boolean) => api.getMarketplaceCatalog(k, forceRefresh),
+    installMarketplaceServer: (payload: { server_id: string; env?: Record<string, string>; auto_start?: boolean }) => api.installMarketplaceServer(payload, k),
+    getMarketplaceProgressUrl: () => api.getMarketplaceProgressUrl(),
   };
 }
 

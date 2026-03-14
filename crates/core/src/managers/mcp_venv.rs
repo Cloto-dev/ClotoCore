@@ -16,7 +16,7 @@ fn resolve_project_root() -> Option<PathBuf> {
 }
 
 /// Read `[paths].servers` from `mcp.toml` in the project root.
-fn resolve_servers_dir_from_config() -> Option<PathBuf> {
+pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
     let root = resolve_project_root()?;
     let config_path = root.join("mcp.toml");
     let content = std::fs::read_to_string(&config_path).ok()?;

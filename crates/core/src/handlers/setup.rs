@@ -89,7 +89,7 @@ fn resolve_root() -> Option<std::path::PathBuf> {
 // ── Helper: Python detection ─────────────────────────────────────────
 
 /// Find Python and return (command, version_string).
-fn detect_python() -> (bool, Option<String>) {
+pub(crate) fn detect_python() -> (bool, Option<String>) {
     if let Some(cmd) = crate::managers::mcp_venv::find_python() {
         let version = std::process::Command::new(&cmd)
             .arg("--version")
@@ -484,12 +484,12 @@ async fn run_bootstrap_inner(
 
 // ── Internal helpers ─────────────────────────────────────────────────
 
-fn emit(tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>, event: SetupProgressEvent) {
+pub(crate) fn emit(tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>, event: SetupProgressEvent) {
     // Ignore send errors (no subscribers)
     let _ = tx.send(event);
 }
 
-fn venv_pip(venv_dir: &std::path::Path) -> std::path::PathBuf {
+pub(crate) fn venv_pip(venv_dir: &std::path::Path) -> std::path::PathBuf {
     if cfg!(windows) {
         venv_dir.join("Scripts").join("pip.exe")
     } else {
@@ -505,7 +505,7 @@ fn major_minor(version: &str) -> (u32, u32) {
 }
 
 /// Download a file with progress reporting via SSE.
-async fn download_with_progress(
+pub(crate) async fn download_with_progress(
     tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>,
     url: &str,
     dest: &std::path::Path,

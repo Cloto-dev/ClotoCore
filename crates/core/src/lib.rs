@@ -101,6 +101,8 @@ pub struct AppState {
     pub setup_in_progress: Arc<AtomicBool>,
     /// Broadcast channel for setup progress events (SSE).
     pub setup_progress_tx: broadcast::Sender<handlers::setup::SetupProgressEvent>,
+    /// In-memory cache for marketplace catalog (registry.json).
+    pub marketplace_cache: Arc<tokio::sync::RwLock<handlers::marketplace::CatalogCache>>,
 }
 
 pub enum AppError {
@@ -510,6 +512,9 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             let (tx, _) = broadcast::channel(64);
             tx
         },
+        marketplace_cache: Arc::new(tokio::sync::RwLock::new(
+            handlers::marketplace::CatalogCache::default(),
+        )),
     });
 
     // Wire up kernel event bus to MCP manager (for PermissionRequested emission)
@@ -890,7 +895,10 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         // API key invalidation
         .route("/system/invalidate-key", post(handlers::invalidate_api_key))
         // Bootstrap setup (auth required to start)
-        .route("/setup/start", post(handlers::setup::start_handler));
+        .route("/setup/start", post(handlers::setup::start_handler))
+        // Marketplace (auth required)
+        .route("/marketplace/catalog", get(handlers::catalog_handler))
+        .route("/marketplace/install", post(handlers::install_handler));
 
     // Read endpoints (authenticated, rate-limited — bug-157)
     let api_routes = Router::new()
@@ -900,6 +908,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         .route("/setup/status", get(handlers::setup::status_handler))
         .route("/setup/progress", get(handlers::setup::progress_handler))
         .route("/setup/check-python", post(handlers::setup::check_python_handler))
+        // Marketplace progress (no auth — SSE stream)
+        .route("/marketplace/progress", get(handlers::marketplace_progress_handler))
         .route("/events", get(handlers::sse_handler))
         .route("/history", get(handlers::get_history))
         .route("/metrics", get(handlers::get_metrics))
