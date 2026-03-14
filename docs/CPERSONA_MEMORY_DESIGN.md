@@ -3,7 +3,7 @@
 > **Status:** Implemented (Phase 1-4 complete as of v0.5.9)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
 > **MCP Server ID:** `memory.cpersona`
-> **Companion Server:** `memory.embedding` (pluggable vector embedding)
+> **Companion Server:** `tool.embedding` (pluggable vector embedding)
 
 ---
 
@@ -63,7 +63,7 @@ The following capabilities were dropped and subsequently restored in 2.3:
                │ stdio                  │ stdio
                ▼                        ▼
 ┌──────────────────────┐  ┌────────────────────────────────────┐
-│  memory.cpersona           │  │  memory.embedding                    │
+│  memory.cpersona           │  │  tool.embedding                      │
 │  (~40MB)             │  │  (~40-490MB depending on provider) │
 │                      │  │                                    │
 │  Tools:              │  │  Tools:                            │
@@ -649,7 +649,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 ---
 
-## 5. Embedding Server (`memory.embedding`)
+## 5. Embedding Server (`tool.embedding`)
 
 ### 5.1 Overview
 
@@ -726,25 +726,28 @@ EMBEDDING_API_URL=https://...      # for API providers only
 ### 6.1 MCP Server Registration (data/mcp.toml)
 
 ```toml
+[paths]
+servers = "C:/path/to/cloto-mcp-servers/servers"
+
 [[servers]]
-id = "memory.embedding"
+id = "tool.embedding"
 command = "python"
-args = ["-m", "cloto_mcp_embedding"]
+args = ["${servers}/embedding/server.py"]
 transport = "stdio"
 auto_restart = true
-env = { EMBEDDING_PROVIDER = "onnx_miniml", EMBEDDING_HTTP_PORT = "8401" }
+[servers.env]
+EMBEDDING_PROVIDER = "onnx_miniml"
+EMBEDDING_HTTP_PORT = "8401"
 
 [[servers]]
 id = "memory.cpersona"
 command = "python"
-args = ["-m", "cloto_mcp_cpersona"]
+args = ["${servers}/cpersona/server.py"]
 transport = "stdio"
 auto_restart = true
-env = {
-    CPERSONA_DB_PATH = "data/cpersona.db",
-    CPERSONA_EMBEDDING_MODE = "http",
-    CPERSONA_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
-}
+[servers.env]
+CPERSONA_EMBEDDING_MODE = "http"
+CPERSONA_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
 ```
 
 ### 6.2 CPersona Environment Variables
@@ -891,7 +894,7 @@ that don't map to ClotoCore's agent_id model. Manual migration may be performed 
 
 ### Phase 1: MCP Pipeline — **Completed**
 
-- [x] `mcp-servers/cpersona/server.py` with `store` and `recall` tools
+- [x] `servers/cpersona/server.py` with `store` and `recall` tools
 - [x] `recall`: FTS5 + keyword fallback (no vector search)
 - [x] `update_profile`: Stub (no LLM)
 - [x] `archive_episode`: Simple concatenation (no LLM)

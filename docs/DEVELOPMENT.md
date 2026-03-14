@@ -157,7 +157,7 @@ ClotoCore uses a phase-based versioning scheme with three stages.
 | Phase | Display | Cargo (Semver) | Git Tag | Status |
 |-------|---------|---------------|---------|--------|
 | Alpha | A1, A2, ... | `0.0.1`, `0.0.2`, ... | `vA1` | Completed (A1–A7) |
-| Beta | βX.Y | `0.X.Y` | `v0.X.Y` | **Current (β2 = 0.2.0)** |
+| Beta | βX.Y | `0.X.Y` | `v0.X.Y` | **Current (0.6.3-alpha.1)** |
 | Stable | 1.X.Y | `1.X.Y` | `v1.X.Y` | Future |
 
 - **Alpha (A)**: Rapid prototyping. Breaking changes expected on every release.
@@ -168,7 +168,7 @@ ClotoCore uses a phase-based versioning scheme with three stages.
 
 | Component | Versioning | Source of Truth |
 |-----------|-----------|----------------|
-| System (kernel, SDK, macros) | Unified workspace version | `Cargo.toml` → `workspace.package.version` |
+| System (kernel) | Unified workspace version | `Cargo.toml` → `workspace.package.version` |
 | Plugins | Independent per plugin | MCP server manifest (`version` field in `cloto/handshake` response) |
 | Dashboard | Matches system version | `dashboard/package.json` |
 
@@ -176,11 +176,10 @@ Plugins maintain their own version numbers because they can evolve independently
 
 ### Release Process
 
-1. Bump the version in `Cargo.toml` (workspace) and `dashboard/package.json`
-2. Commit: `chore: bump version to β1.1 (0.1.1)` or `chore: bump version to β2 (0.2.0)`
-3. Tag: `git tag v0.1.1` or `git tag v0.2.0`
-4. Push: `git push origin master --tags`
-5. The GitHub Actions release workflow builds and publishes automatically
+1. Bump the version in `Cargo.toml` (workspace), `dashboard/package.json`, and `dashboard/src-tauri/tauri.conf.json`
+2. Commit: `chore: bump version to 0.6.4` (or appropriate version)
+3. Create the release via `gh release create` (this auto-creates the git tag — do NOT create tags manually with `git tag`)
+4. The GitHub Actions release workflow builds and publishes automatically
 
 ---
 

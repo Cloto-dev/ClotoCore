@@ -415,7 +415,7 @@ End User
 
 ## 9. Implementation Roadmap
 
-### v0.5.x: UI/UX Optimization Phase (Current)
+### v0.5.x: UI/UX Optimization Phase (Completed)
 
 Improve dashboard usability and visibility, stabilizing the UI
 before installer distribution.
@@ -428,7 +428,7 @@ before installer distribution.
 - Dark theme adjustments
 - Other UI improvements and bug fixes
 
-### v0.6.0: Phase 1 — CI/CD + Tauri Installer Distribution
+### v0.6.0: Phase 1 — CI/CD + Tauri Installer Distribution (Current)
 
 1. Generate Ed25519 key pair, register in GitHub Secrets
 2. Add public key to `tauri.conf.json`, NSIS configuration (Windows-only targets)
@@ -438,6 +438,8 @@ before installer distribution.
 6. Verify with test release (`v0.6.0-alpha.1`)
 
 ### v0.7.0: Phase 2 — In-App Setup Wizard
+
+> **Note:** Setup wizard basics were implemented in v0.6.0-beta.3. Items below are remaining enhancements.
 
 1. Design wizard UI components
 2. Embedded Python download and extraction logic
