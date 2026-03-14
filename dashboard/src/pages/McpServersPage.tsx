@@ -135,21 +135,21 @@ export function McpServersPage() {
       <div className="flex border-b border-edge mb-4 px-5 shrink-0">
         <button
           onClick={() => setActiveTab('servers')}
-          className={`px-4 py-2 text-[10px] font-mono uppercase tracking-wider transition-colors
+          className={`px-4 py-2 text-[12px] font-mono uppercase tracking-wider transition-colors
             ${activeTab === 'servers'
               ? 'text-content-primary border-b-2 border-brand'
               : 'text-content-tertiary hover:text-content-secondary'}`}
         >
-          Servers
+          {t('marketplace.tab_servers')}
         </button>
         <button
           onClick={() => setActiveTab('marketplace')}
-          className={`px-4 py-2 text-[10px] font-mono uppercase tracking-wider transition-colors
+          className={`px-4 py-2 text-[12px] font-mono uppercase tracking-wider transition-colors
             ${activeTab === 'marketplace'
               ? 'text-content-primary border-b-2 border-brand'
               : 'text-content-tertiary hover:text-content-secondary'}`}
         >
-          Marketplace
+          {t('marketplace.tab_marketplace')}
         </button>
       </div>
 
