@@ -2065,6 +2065,18 @@
       "pattern": "\"reachable\": True,  # Best-effort",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-323",
+      "summary": "resolve_servers_dir_from_config returns None despite valid mcp.toml [paths].servers — toml::Value generic parsing fails silently",
+      "severity": "CRITICAL",
+      "discovered": "2026-03-15T12:00:00Z",
+      "version": "0.6.3-alpha.1",
+      "commit": "ce40306",
+      "file": "crates/core/src/managers/mcp_venv.rs",
+      "pattern": "let config: toml::Value",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

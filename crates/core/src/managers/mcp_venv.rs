@@ -16,17 +16,19 @@ fn resolve_project_root() -> Option<PathBuf> {
 }
 
 /// Read `[paths].servers` from `mcp.toml` in the project root.
+/// Uses the same `McpConfigFile` typed deserialization as `load_config_file()`
+/// to avoid silent failures from generic `toml::Value` parsing.
 pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
     let root = resolve_project_root()?;
     let config_path = root.join("mcp.toml");
     let content = std::fs::read_to_string(&config_path).ok()?;
-    let config: toml::Value = content.parse().ok()?;
-    let raw = config.get("paths")?.get("servers")?.as_str()?;
+    let config: super::mcp_protocol::McpConfigFile = toml::from_str(&content).ok()?;
+    let raw = config.paths.get("servers")?;
     // Support env var expansion in path values: ${VAR_NAME}
     let resolved = if let Some(var_name) = raw.strip_prefix("${").and_then(|s| s.strip_suffix('}')) {
         std::env::var(var_name).ok()?
     } else {
-        raw.to_string()
+        raw.clone()
     };
     Some(PathBuf::from(resolved))
 }
