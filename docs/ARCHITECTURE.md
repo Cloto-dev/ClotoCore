@@ -346,11 +346,34 @@ MCP servers are independent processes that communicate with the Kernel via JSON-
 For full architecture details, see [MCP Plugin Architecture](MCP_PLUGIN_ARCHITECTURE.md).
 
 **Key characteristics:**
-- Servers defined in `mcp-servers/` and configured via `mcp.toml`
+- Servers maintained in [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers) repository
+- Configured via `mcp.toml` with `[paths]` section for external server resolution
 - Language-agnostic: any language implementing MCP protocol
 - Process isolation: each server runs as a separate OS process
 - Dispatch: PluginRegistry routes events to MCP servers via MCP client manager
 - Access control: 3-level RBAC (capability → server_grant → tool_grant)
+
+### 3.1.1 Server Path Resolution
+
+`mcp.toml` supports a `[paths]` section for named path variables, expanded as
+`${var}` in `command` and `args` fields before relative path resolution:
+
+```toml
+[paths]
+servers = "C:/path/to/cloto-mcp-servers/servers"
+
+[[servers]]
+command = "python"
+args = ["${servers}/terminal/server.py"]
+```
+
+Path variable values may themselves reference environment variables (`${ENV_VAR}`).
+If `[paths]` is absent, relative paths are resolved against the project root (backward compatible).
+
+**Migration plan (D → C):** The current approach (D) uses file-path-based server
+resolution. The future approach (C) will use Python package-based invocation
+(`python -m cloto_mcp_servers.terminal`), eliminating path configuration entirely.
+The root `pyproject.toml` in cloto-mcp-servers is prepared for this migration.
 
 ### 3.2 Architecture History
 

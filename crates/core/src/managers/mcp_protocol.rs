@@ -297,6 +297,10 @@ impl McpServerConfig {
 /// Top-level config structure for mcp.toml
 #[derive(Debug, Deserialize)]
 pub struct McpConfigFile {
+    /// Path variables for resolving `${var}` in server args/command.
+    /// Example: `[paths] servers = "C:/path/to/cloto-mcp-servers/servers"`
+    #[serde(default)]
+    pub paths: std::collections::HashMap<String, String>,
     #[serde(default)]
     pub servers: Vec<McpServerConfig>,
 }

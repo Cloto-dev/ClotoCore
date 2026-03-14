@@ -215,17 +215,36 @@ impl McpClientManager {
             }
         });
 
+        // Build path variables from [paths] section.
+        // Values may themselves reference env vars: ${ENV_VAR_NAME}
+        let path_vars: HashMap<String, String> = config
+            .paths
+            .iter()
+            .map(|(k, v)| {
+                let resolved = if let Some(var_name) = v.strip_prefix("${").and_then(|s| s.strip_suffix('}')) {
+                    std::env::var(var_name).unwrap_or_else(|_| v.clone())
+                } else {
+                    v.clone()
+                };
+                (k.clone(), resolved)
+            })
+            .collect();
+
         info!(
-            "Parsed {} MCP server(s) from {} (base_dir={})",
+            "Parsed {} MCP server(s) from {} (base_dir={}, path_vars={})",
             config.servers.len(),
             config_path,
-            base_dir.display()
+            base_dir.display(),
+            path_vars.len()
         );
 
         let resolved: Vec<McpServerConfig> = config
             .servers
             .into_iter()
             .map(|mut server_config| {
+                // Expand ${var} references from [paths] in command
+                server_config.command = expand_path_vars(&server_config.command, &path_vars);
+
                 // Resolve relative command path against the base directory
                 // (e.g. "target/debug/mgp-avatar" → absolute path)
                 // On Windows, also try with .exe suffix for extensionless commands.
@@ -244,19 +263,21 @@ impl McpClientManager {
                     }
                 }
 
-                // Resolve relative paths in args against the base directory
+                // Expand ${var} references from [paths] in args, then resolve
+                // relative paths against the base directory
                 server_config.args = server_config
                     .args
                     .into_iter()
                     .map(|arg| {
-                        let p = std::path::Path::new(&arg);
+                        let expanded = expand_path_vars(&arg, &path_vars);
+                        let p = std::path::Path::new(&expanded);
                         if p.is_relative() {
                             let resolved = base_dir.join(p);
                             if resolved.exists() {
                                 return resolved.to_string_lossy().to_string();
                             }
                         }
-                        arg
+                        expanded
                     })
                     .collect();
 
@@ -2067,6 +2088,23 @@ impl McpClientManager {
                 break;
             }
         }
+
+        // Production fallback: no Cargo.toml found (release binary).
+        // Check if mcp-servers/ exists next to the executable.
+        let exe = std::env::current_exe().ok()?;
+        let exe_parent = exe.parent()?;
+        // Apply the same UNC prefix stripping for Windows compatibility
+        let exe_dir = {
+            let s = exe_parent.to_string_lossy();
+            if let Some(stripped) = s.strip_prefix(r"\\?\") {
+                std::path::PathBuf::from(stripped)
+            } else {
+                exe_parent.to_path_buf()
+            }
+        };
+        if exe_dir.join("mcp-servers").exists() {
+            return Some(exe_dir);
+        }
         None
     }
 
@@ -2079,6 +2117,20 @@ impl McpClientManager {
     pub fn spawn_health_monitor(self: Arc<Self>, shutdown: Arc<tokio::sync::Notify>) {
         super::mcp_health::spawn_health_monitor(self, shutdown);
     }
+}
+
+/// Expand `${var}` references in a string using the `[paths]` table.
+/// Only expands variables present in the paths map; leaves others untouched
+/// (they may be env vars resolved later by `mcp_transport`).
+fn expand_path_vars(input: &str, paths: &HashMap<String, String>) -> String {
+    let mut result = input.to_string();
+    for (key, value) in paths {
+        let pattern = format!("${{{}}}", key);
+        if result.contains(&pattern) {
+            result = result.replace(&pattern, value);
+        }
+    }
+    result
 }
 
 /// Public bridge for callback handling from lib.rs notification listener.

@@ -2,6 +2,9 @@
 # Servers listed here are auto-connected on kernel startup.
 # Environment variables use ${VAR} syntax (resolved from process env).
 #
+# [paths] variables are expanded in command/args before relative path resolution.
+# Values may reference env vars: servers = "${CLOTO_MCP_SERVERS}"
+#
 # MGP §8-10 Isolation fields (optional per-server):
 #   seal = "sha256:..."                  # HMAC-SHA256 integrity seal (L0 Magic Seal)
 #   [servers.mgp]
@@ -12,10 +15,13 @@
 #   filesystem_scope = "sandbox"        # unrestricted | sandbox | readonly | none
 #   network_scope = "proxyonly"         # unrestricted | proxyonly | none
 
+[paths]
+servers = "C:/Users/Cycia/source/repos/cloto-mcp-servers/servers"
+
 [[servers]]
 id = "tool.terminal"
 command = "python"
-args = ["mcp-servers/terminal/server.py"]
+args = ["${servers}/terminal/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.tool_validators]
@@ -24,14 +30,14 @@ execute_command = "sandbox"
 [[servers]]
 id = "tool.agent_utils"
 command = "python"
-args = ["mcp-servers/agent_utils/server.py"]
+args = ["${servers}/agent_utils/server.py"]
 transport = "stdio"
 auto_restart = true
 
 [[servers]]
 id = "tool.cron"
 command = "python"
-args = ["mcp-servers/cron/server.py"]
+args = ["${servers}/cron/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
@@ -42,7 +48,7 @@ CLOTO_API_KEY = "${CLOTO_API_KEY}"
 id = "mind.deepseek"
 display_name = "DeepSeek"
 command = "python"
-args = ["mcp-servers/deepseek/server.py"]
+args = ["${servers}/deepseek/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
@@ -54,7 +60,7 @@ DEEPSEEK_PROVIDER = "deepseek"
 id = "mind.cerebras"
 display_name = "Cerebras"
 command = "python"
-args = ["mcp-servers/cerebras/server.py"]
+args = ["${servers}/cerebras/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
@@ -66,7 +72,7 @@ CEREBRAS_PROVIDER = "cerebras"
 id = "mind.claude"
 display_name = "Claude"
 command = "python"
-args = ["mcp-servers/claude/server.py"]
+args = ["${servers}/claude/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
@@ -78,7 +84,7 @@ CLAUDE_PROVIDER = "claude"
 id = "mind.ollama"
 display_name = "Ollama"
 command = "python"
-args = ["mcp-servers/ollama/server.py"]
+args = ["${servers}/ollama/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
@@ -89,7 +95,7 @@ OLLAMA_ENABLE_THINKING = "${OLLAMA_ENABLE_THINKING}"
 [[servers]]
 id = "memory.cpersona"
 command = "python"
-args = ["mcp-servers/cpersona/server.py"]
+args = ["${servers}/cpersona/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
@@ -101,7 +107,7 @@ CPERSONA_LLM_MODEL = "gpt-oss-120b"
 [[servers]]
 id = "tool.embedding"
 command = "python"
-args = ["mcp-servers/embedding/server.py"]
+args = ["${servers}/embedding/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
@@ -111,7 +117,7 @@ EMBEDDING_HTTP_PORT = "8401"
 [[servers]]
 id = "tool.websearch"
 command = "python"
-args = ["mcp-servers/websearch/server.py"]
+args = ["${servers}/websearch/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
@@ -122,7 +128,7 @@ TAVILY_API_KEY = "${TAVILY_API_KEY}"
 [[servers]]
 id = "tool.research"
 command = "python"
-args = ["mcp-servers/research/server.py"]
+args = ["${servers}/research/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
@@ -136,7 +142,7 @@ RESEARCH_SYNTHESIZE_PROVIDER = "deepseek"
 [[servers]]
 id = "vision.gaze_webcam"
 command = "python"
-args = ["mcp-servers/gaze/server.py"]
+args = ["${servers}/gaze/server.py"]
 transport = "stdio"
 auto_restart = false
 
@@ -145,7 +151,7 @@ auto_restart = false
 [[servers]]
 id = "vision.capture"
 command = "python"
-args = ["mcp-servers/capture/server.py"]
+args = ["${servers}/capture/server.py"]
 transport = "stdio"
 auto_restart = false
 [servers.env]
@@ -156,7 +162,7 @@ VISION_OCR_MODE = "hybrid"
 [[servers]]
 id = "tool.imagegen"
 command = "python"
-args = ["mcp-servers/imagegen/server.py"]
+args = ["${servers}/imagegen/server.py"]
 transport = "stdio"
 auto_restart = false
 [servers.env]
@@ -165,7 +171,7 @@ SD_API_URL = "http://127.0.0.1:7860"
 [[servers]]
 id = "voice.stt"
 command = "python"
-args = ["mcp-servers/stt/server.py"]
+args = ["${servers}/stt/server.py"]
 transport = "stdio"
 auto_restart = false
 [servers.env]
