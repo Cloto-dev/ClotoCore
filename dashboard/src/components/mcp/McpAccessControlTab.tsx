@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { McpServerInfo, AccessControlEntry, AccessTreeResponse, AgentMetadata } from '../../types';
-import { extractError } from '../../lib/errors';
 import { McpAccessTree } from './McpAccessTree';
 import { McpAccessSummaryBar } from './McpAccessSummaryBar';
 import { AlertCard } from '../ui/AlertCard';
 import { Save } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
+import { useAsyncAction } from '../../hooks/useAsyncAction';
 
 interface Props {
   server: McpServerInfo;
@@ -19,17 +19,16 @@ export function McpAccessControlTab({ server }: Props) {
   const [agents, setAgents] = useState<AgentMetadata[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string>('');
   const [localEntries, setLocalEntries] = useState<AccessControlEntry[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const loadAction = useAsyncAction('Failed to load access data');
+  const saveAction = useAsyncAction('Failed to save access control');
 
   useEffect(() => {
     loadData();
   }, [server.id]);
 
   async function loadData() {
-    try {
-      setError(null);
+    await loadAction.run(async () => {
       const [access, agentList] = await Promise.all([
         api.getMcpServerAccess(server.id),
         api.getAgents(),
@@ -41,9 +40,7 @@ export function McpAccessControlTab({ server }: Props) {
         setSelectedAgent(agentList[0].id);
       }
       setDirty(false);
-    } catch (err) {
-      setError(extractError(err, 'Failed to load access data'));
-    }
+    });
   }
 
   function handleEntriesChange(updated: AccessControlEntry[]) {
@@ -52,19 +49,15 @@ export function McpAccessControlTab({ server }: Props) {
   }
 
   async function handleSave() {
-    setSaving(true);
-    setError(null);
-    try {
-      // Only send server_grant and tool_grant entries (capabilities are managed separately)
+    await saveAction.run(async () => {
       const toSave = localEntries.filter(e => e.entry_type !== 'capability');
       await api.putMcpServerAccess(server.id, toSave);
       await loadData();
-    } catch (err) {
-      setError(extractError(err, 'Failed to save access control'));
-    } finally {
-      setSaving(false);
-    }
+    });
   }
+
+  const error = loadAction.error || saveAction.error;
+  const saving = saveAction.isLoading;
 
   const serverGrantCount = localEntries.filter(
     e => e.entry_type === 'server_grant' && e.server_id === server.id

@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useApi } from './useApi';
+import { usePolling } from './usePolling';
 
 export interface Metrics {
   total_requests: number;
@@ -20,11 +21,7 @@ export function useMetrics(pollIntervalMs: number = 10000) {
     }
   }, [api]);
 
-  useEffect(() => {
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, pollIntervalMs);
-    return () => clearInterval(interval);
-  }, [fetchMetrics, pollIntervalMs]);
+  usePolling(fetchMetrics, pollIntervalMs);
 
   return { metrics, fetchMetrics };
 }

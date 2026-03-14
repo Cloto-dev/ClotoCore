@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { RefreshCw, Download, CheckCircle, AlertCircle, RotateCcw } from 'lucide-react';
+import { RefreshCw, Download, CheckCircle, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SectionCard } from './common';
+import { AlertCard } from '../ui/AlertCard';
 import { isTauri, checkForUpdates, applyUpdate, UpdateInfo } from '../../lib/tauri';
 import { SetupWizard } from '../SetupWizard';
 
@@ -164,10 +165,7 @@ export function AboutSection() {
 
           {/* Error */}
           {updateState === 'error' && error && (
-            <div className="flex items-center gap-2 text-xs text-red-400">
-              <AlertCircle size={14} />
-              {error}
-            </div>
+            <AlertCard>{error}</AlertCard>
           )}
         </div>
       </SectionCard>
