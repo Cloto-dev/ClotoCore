@@ -120,17 +120,17 @@ No major Kernel modifications are required.
 ┌─────────────────────────────────────────────────────┐
 │  Layer 5: Frontend Experience                        │
 │  Live2D/VRM avatar, TTS/STT, streaming integration   │
-│  → MCP: mcp-servers/avatar/, mcp-servers/voice/      │
+│  → MCP: output.avatar, voice.stt (cloto-mcp-servers repo) │
 ├─────────────────────────────────────────────────────┤
 │  Layer 4: Emotion & Personality Engine               │
 │  Internal emotional state, personality consistency,   │
 │  mood fluctuation, spontaneous speech                │
-│  → MCP: mcp-servers/emotion/ (integrated with CPersona) │
+│  → MCP: persona.emotion (integrated with CPersona)      │
 ├─────────────────────────────────────────────────────┤
 │  Layer 3: Real-Time Event-Driven                     │
 │  Instant response to chat, visual input, voice input │
 │  → Existing: SSE + MessageReceived event             │
-│  → MCP: mcp-servers/vision/, @playwright/mcp         │
+│  → MCP: vision.capture, @playwright/mcp              │
 ├─────────────────────────────────────────────────────┤
 │  Layer 2: Autonomous Trigger Layer                   │
 │  Heartbeat (periodic checks), Cron (scheduled exec)  │

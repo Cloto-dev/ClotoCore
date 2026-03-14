@@ -102,6 +102,10 @@ Use `gui.read` to read any file listed below (path relative to `dashboard/src/`)
 ### `components/ui/` — Primitive UI components
 - `StatusDot.tsx` — Status indicator dot (connected/offline/error colors).
 - `AlertCard.tsx` — Alert card primitive.
+- `ConfirmDialog.tsx` — Modal-based confirmation dialog with danger variant support.
+- `EnvVariableEditor.tsx` — Key-value environment variable editor with visibility toggle.
+- `SecretInput.tsx` — Password input with eye/eye-off visibility toggle.
+- `SectionHeader.tsx` — Standardized section header with icon, title, and optional trailing content.
 - `GridBackground.tsx` — Animated background grid.
 
 ### `hooks/` — Custom React hooks
@@ -112,6 +116,7 @@ Use `gui.read` to read any file listed below (path relative to `dashboard/src/`)
 - `useApiKey.ts` — API key validation hook.
 - `useConnectionStatus.ts` — Monitor backend WebSocket/SSE connection.
 - `useEventStream.ts` — SSE event streaming subscription.
+- `usePolling.ts` — Interval-based polling with automatic cleanup.
 - `useRemoteData.ts` — Generic remote data fetching with loading/error states.
 - `useAsyncAction.ts` — Async action wrapper with loading/error handling.
 - `useTheme.ts` — Theme switching (dark/light/system).

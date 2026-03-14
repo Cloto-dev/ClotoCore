@@ -240,17 +240,17 @@ existence for any system managing more than ~20 tools.
 
 | File | Sections | Content |
 |------|----------|---------|
-| [MGP_SECURITY.md](MGP_SECURITY.md) | §2-§7 | Security & Foundation |
-| [MGP_COMMUNICATION.md](MGP_COMMUNICATION.md) | §11-§14 | Communication & Lifecycle |
-| [MGP_DISCOVERY.md](MGP_DISCOVERY.md) | §15-§16 | Discovery & Intelligence |
-| [MGP_GUIDE.md](MGP_GUIDE.md) | §17-§20 | Implementation, History, Patterns |
-| [MGP_ISOLATION_DESIGN.md](MGP_ISOLATION_DESIGN.md) | (§8-§10 reserved) | OS-Level Isolation |
+| [MGP_SECURITY.md](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_SECURITY.md) | §2-§7 | Security & Foundation |
+| [MGP_COMMUNICATION.md](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_COMMUNICATION.md) | §11-§14 | Communication & Lifecycle |
+| [MGP_DISCOVERY.md](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_DISCOVERY.md) | §15-§16 | Discovery & Intelligence |
+| [MGP_GUIDE.md](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_GUIDE.md) | §17-§20 | Implementation, History, Patterns |
+| [MGP_ISOLATION_DESIGN.md](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_ISOLATION_DESIGN.md) | (§8-§10 reserved) | OS-Level Isolation |
 
 ### Cross-References
 
 | Section | Detailed Coverage |
 |---------|------------------|
-| §2-7 Security & Capabilities | [MGP_SECURITY.md](MGP_SECURITY.md) |
-| §11-14 Communication & Errors | [MGP_COMMUNICATION.md](MGP_COMMUNICATION.md) |
-| §15-16 Discovery & Registration | [MGP_DISCOVERY.md](MGP_DISCOVERY.md) |
-| §17-19 Implementation Guide | [MGP_GUIDE.md](MGP_GUIDE.md) |
+| §2-7 Security & Capabilities | [MGP_SECURITY.md](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_SECURITY.md) |
+| §11-14 Communication & Errors | [MGP_COMMUNICATION.md](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_COMMUNICATION.md) |
+| §15-16 Discovery & Registration | [MGP_DISCOVERY.md](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_DISCOVERY.md) |
+| §17-19 Implementation Guide | [MGP_GUIDE.md](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_GUIDE.md) |
