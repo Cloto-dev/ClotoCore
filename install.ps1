@@ -310,7 +310,12 @@ try {
     }
 
     # --- Deploy uninstall.ps1 ---
-    $UninstallSource = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Definition) "uninstall.ps1"
+    $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+    $UninstallSource = Join-Path $ScriptDir "installer" "uninstall.ps1"
+    if (-not (Test-Path $UninstallSource)) {
+        # Fallback: same directory as install.ps1 (e.g. when bundled in release archive)
+        $UninstallSource = Join-Path $ScriptDir "uninstall.ps1"
+    }
     $UninstallDest = Join-Path $InstallDir "uninstall.ps1"
     if (Test-Path $UninstallSource) {
         Copy-Item -Path $UninstallSource -Destination $UninstallDest -Force

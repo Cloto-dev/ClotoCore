@@ -102,7 +102,7 @@ Source: "..\env.example"; DestDir: "{app}"; DestName: ".env.example"; Components
 Source: "..\LICENSE"; DestDir: "{app}"; Components: core; Flags: ignoreversion
 ; MCP scripts directory (populated at runtime via MCP server management API)
 ; Uninstaller helper
-Source: "..\uninstall.ps1"; DestDir: "{app}"; Components: core; Flags: ignoreversion
+Source: "uninstall.ps1"; DestDir: "{app}"; Components: core; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\ClotoCore Dashboard"; Filename: "http://localhost:{code:GetPort}"; IconFilename: "{app}\cloto_system.exe"; Comment: "Open ClotoCore Dashboard"

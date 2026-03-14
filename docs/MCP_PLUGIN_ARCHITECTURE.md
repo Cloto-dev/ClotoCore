@@ -478,7 +478,7 @@ Components removed or archived as part of the MCP migration:
 | Plugin Macros (`crates/macros/`) | **Completed** — Removed | Replaced by MCP manifests |
 | Plugin Implementations (`plugins/`) | **Completed** — Removed | Reimplemented as MCP Servers |
 | inventory crate | **Completed** — Removed | No longer needed |
-| WASM Plugin Design | **Archived** — `archive/docs/` | Historical reference material |
+| WASM Plugin Design | **Archived** — `docs/archive/` | Historical reference material |
 | PluginManager / PluginRegistry | Migrating to MCP Client Manager | Remains in `managers/` |
 | Capability Injection | Migrating to MCP Server self-management | Remains in `capabilities.rs` |
 | Magic Seal 0x56455253 | Migrating to HMAC signatures | Legacy constant scheduled for removal |

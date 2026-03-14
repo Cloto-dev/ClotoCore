@@ -44,65 +44,6 @@ jobs:
           path: dashboard/dist/
           retention-days: 7
 
-  build-mcp-archive:
-    name: Build MCP Server Archive
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
-
-      - name: Determine version
-        id: version
-        run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="${{ github.event.inputs.version }}"
-          fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Create MCP server archive
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          ARCHIVE="cloto-mcp-servers-${VERSION}.tar.gz"
-
-          # Create clean staging directory
-          mkdir -p staging/mcp-servers
-
-          # Copy MCP servers excluding dev artifacts
-          rsync -a \
-            --exclude='.venv' \
-            --exclude='__pycache__' \
-            --exclude='*.egg-info' \
-            --exclude='.pytest_cache' \
-            --exclude='.mypy_cache' \
-            --exclude='node_modules' \
-            mcp-servers/ staging/mcp-servers/
-
-          # Include mcp.toml if it exists
-          if [[ -f mcp.toml ]]; then
-            cp mcp.toml staging/
-          fi
-
-          # Create archive
-          cd staging
-          tar czf "../${ARCHIVE}" .
-          cd ..
-
-          # Generate checksum
-          sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
-
-          echo "Archive: ${ARCHIVE}"
-          ls -lh "${ARCHIVE}" "${ARCHIVE}.sha256"
-
-      - name: Upload MCP archive artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: release-mcp-archive
-          path: |
-            cloto-mcp-servers-*.tar.gz
-            cloto-mcp-servers-*.tar.gz.sha256
-          retention-days: 7
-
   build:
     name: Build (${{ matrix.platform }})
     needs: build-dashboard
@@ -540,7 +481,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [build, build-mcp-archive, build-tauri, build-tauri-linux, build-tauri-macos]
+    needs: [build, build-tauri, build-tauri-linux, build-tauri-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
