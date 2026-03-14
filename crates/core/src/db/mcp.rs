@@ -503,6 +503,28 @@ pub async fn get_marketplace_servers(
     .await
 }
 
+/// Set marketplace-specific fields on an existing mcp_servers record.
+pub async fn set_marketplace_fields(
+    pool: &SqlitePool,
+    name: &str,
+    version: &str,
+    marketplace_id: &str,
+) -> anyhow::Result<()> {
+    db_timeout(
+        sqlx::query(
+            "UPDATE mcp_servers SET source = 'marketplace', \
+             installed_version = ?, marketplace_id = ? \
+             WHERE name = ?",
+        )
+        .bind(version)
+        .bind(marketplace_id)
+        .bind(name)
+        .execute(pool),
+    )
+    .await?;
+    Ok(())
+}
+
 /// Update the installed version of a marketplace server.
 pub async fn update_marketplace_server_version(
     pool: &SqlitePool,
