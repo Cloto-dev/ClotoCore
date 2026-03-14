@@ -1,8 +1,14 @@
-# MCP Plugin Architecture (v2)
+# MCP/MGP Plugin Architecture (v2)
 
 > **Status:** Implemented (v0.5.3)
-> **Supersedes:** Three-Tier Plugin Model (Rust/Python Bridge/WASM) → Two-Layer Model (Rust Core + MCP)
-> **Related:** `ARCHITECTURE.md` Section 3
+> **Supersedes:** Three-Tier Plugin Model (Rust/Python Bridge/WASM) → Two-Layer Model (Rust Core + MCP/MGP)
+> **Related:** `ARCHITECTURE.md` Section 3, [MGP_SPEC.md](MGP_SPEC.md)
+>
+> **Note:** ClotoCore implements **MGP (Model General Protocol)**, a strict superset of MCP.
+> All MCP servers are MGP-compliant. MGP adds trust levels, isolation policies, handshake
+> extensions, and event forwarding on top of the standard MCP protocol.
+> See [MGP_SPEC.md](MGP_SPEC.md) for the full specification and
+> [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers) for detailed MGP documentation.
 
 ---
 
@@ -86,11 +92,20 @@ Results of evaluating alternatives:
 ┌───────────────────────▼──────────────────────────────┐
 │  Layer 2: MCP Servers (any language)                   │
 │                                                        │
+│  Repository: cloto-mcp-servers (github.com/Cloto-dev/cloto-mcp-servers) │
+│                                                        │
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐ │
 │  │ mind.*      │ │ memory.*    │ │ tool.*          │ │
 │  │ (Reasoning) │ │ (Memory)    │ │ (Execution)     │ │
-│  │ deepseek    │ │ cpersona        │ │ terminal        │ │
-│  │ cerebras    │ │             │ │ (user plugins)  │ │
+│  │ deepseek    │ │ cpersona    │ │ terminal        │ │
+│  │ cerebras    │ │             │ │ websearch       │ │
+│  │ claude      │ │             │ │ research        │ │
+│  │ ollama      │ │             │ │ cron, embedding │ │
+│  └─────────────┘ └─────────────┘ └─────────────────┘ │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐ │
+│  │ vision.*    │ │ voice.*     │ │ output.*        │ │
+│  │ capture     │ │ stt         │ │ avatar          │ │
+│  │ gaze_webcam │ │             │ │                 │ │
 │  └─────────────┘ └─────────────┘ └─────────────────┘ │
 └──────────────────────────────────────────────────────┘
 ```
@@ -275,7 +290,9 @@ Each MCP Server returns the following manifest via `cloto/handshake`:
 | `memory.*` | Memory and knowledge management | `memory.cpersona` |
 | `tool.*` | Tool execution | `tool.terminal`, `tool.embedding`, `tool.web-search` |
 | `adapter.*` | External protocol bridges | `adapter.discord`, `adapter.slack` |
-| `vision.*` | Vision / perception | `vision.screen`, `vision.gaze` |
+| `vision.*` | Vision / perception | `vision.capture`, `vision.gaze_webcam` |
+| `voice.*` | Voice I/O | `voice.stt` |
+| `output.*` | Output rendering | `output.avatar` |
 | `hal.*` | Hardware abstraction | `hal.audio`, `hal.gpio` |
 
 ---
@@ -377,21 +394,48 @@ Promote the current `adapter.mcp` plugin to a Kernel core feature.
 
 ### 7.2 Configuration
 
-```toml
-# MCP Server configuration (DB or config file)
-[[mcp.servers]]
-id = "mind.deepseek"
-command = "python"
-args = ["-m", "cloto_mcp_deepseek"]
-env = { DEEPSEEK_API_KEY = "${DEEPSEEK_API_KEY}" }
-transport = "stdio"
-auto_restart = true
+MCP/MGP servers are configured in `mcp.toml` at the project root. The `[paths]` section
+defines named path variables that are expanded as `${var}` in `command` and `args` fields.
 
-[[mcp.servers]]
-id = "tool.terminal"
-command = "cloto-mcp-terminal"
+```toml
+# Path variables — expanded in command/args before relative path resolution.
+# Values may reference environment variables: servers = "${CLOTO_MCP_SERVERS}"
+[paths]
+servers = "C:/Users/Cycia/source/repos/cloto-mcp-servers/servers"
+
+[[servers]]
+id = "mind.deepseek"
+display_name = "DeepSeek"
+command = "python"
+args = ["${servers}/deepseek/server.py"]
 transport = "stdio"
 auto_restart = true
+[servers.env]
+DEEPSEEK_API_URL = "http://127.0.0.1:8082/v1/chat/completions"
+DEEPSEEK_PROVIDER = "deepseek"
+
+[[servers]]
+id = "tool.terminal"
+command = "python"
+args = ["${servers}/terminal/server.py"]
+transport = "stdio"
+auto_restart = true
+[servers.tool_validators]
+execute_command = "sandbox"
+```
+
+**MGP isolation fields** (optional per-server, see MGP §8-10):
+
+```toml
+[[servers]]
+id = "example.server"
+seal = "sha256:..."                   # HMAC-SHA256 integrity seal (L0 Magic Seal)
+[servers.mgp]
+trust_level = "standard"             # core | standard | experimental | untrusted
+[servers.isolation]                  # Override defaults derived from trust_level
+memory_limit_mb = 512
+filesystem_scope = "sandbox"         # unrestricted | sandbox | readonly | none
+network_scope = "proxyonly"          # unrestricted | proxyonly | none
 ```
 
 ---
@@ -464,7 +508,7 @@ Components removed or archived as part of the MCP migration:
 ### Phase 4: Rust Plugin SDK Removal — **Partial**
 
 - [x] Removed `crates/macros/`
-- [x] Removed `plugins/` directory → migrated to `mcp-servers/`
+- [x] Removed `plugins/` directory → migrated to MCP servers
 - [x] Removed `inventory` crate dependency
 - [ ] Remove plugin traits from `crates/shared/` (trait definitions still remain)
 - [ ] Complete removal of PluginManager and PluginRegistry
@@ -488,9 +532,28 @@ Components removed or archived as part of the MCP migration:
 
 ---
 
-## 12. Future Considerations
+## 12. Server Repository
 
+As of v0.5.4, all MCP/MGP server implementations are maintained in a separate repository:
+
+- **Repository:** [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers)
+- **Contents:** 16 Python MCP servers + common library + tests + MGP documentation
+- **Integration:** `mcp.toml` `[paths].servers` points to the local clone
+- **License:** BSL 1.1 (CPersona and MGP Protocol individually MIT-licensed)
+
+The Kernel references servers via path variables in `mcp.toml`. There is zero compile-time
+coupling — communication is exclusively via JSON-RPC over stdio.
+
+**Migration plan (D → C):** The current approach (D) uses file-path-based server
+resolution. The future approach (C) will use Python package-based invocation
+(`python -m cloto_mcp_servers.terminal`), eliminating path configuration entirely.
+
+---
+
+## 13. Future Considerations
+
+- **MGP Evolution**: MGP spec continues to evolve; see [MGP_SPEC.md](MGP_SPEC.md) for current state
 - **ClotoCore MCP SDK**: Official SDK packages for Python / Node / Rust
 - **MCP Server Marketplace**: Distribution platform for community-built MCP Servers
 - **MCP Sampling**: Standardize Kernel-side reasoning invocation after the MCP Sampling feature matures
-- **Third-party Support**: Introduce OS-level sandboxing (seccomp / AppArmor)
+- **Third-party Support**: Introduce OS-level sandboxing (seccomp / AppArmor) per MGP isolation design
