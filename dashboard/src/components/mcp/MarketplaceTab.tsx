@@ -82,7 +82,7 @@ export function MarketplaceTab() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder={t('marketplace.search_placeholder')}
-            className="w-full text-[10px] font-mono bg-glass border border-edge rounded pl-7 pr-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
+            className="w-full text-[12px] font-sans bg-glass border border-edge rounded pl-7 pr-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
           />
         </div>
 
@@ -92,7 +92,7 @@ export function MarketplaceTab() {
             <button
               key={cat.key}
               onClick={() => setCategoryFilter(cat.key)}
-              className={`px-2 py-1 text-[9px] font-mono uppercase rounded transition-colors ${
+              className={`px-2 py-1 text-[11px] font-sans uppercase rounded transition-colors ${
                 categoryFilter === cat.key
                   ? 'bg-brand/10 text-brand border border-brand/30'
                   : 'text-content-tertiary hover:text-content-secondary hover:bg-glass border border-transparent'
