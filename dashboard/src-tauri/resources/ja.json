@@ -295,6 +295,26 @@
       "event_log": "イベントログ",
       "clear": "クリア",
       "waiting": "イベントを待機中..."
+    },
+    "marketplace": {
+      "tab_servers": "サーバー",
+      "tab_marketplace": "マーケットプレイス",
+      "search_placeholder": "サーバーを検索...",
+      "filter_all": "すべて",
+      "installed": "インストール済み",
+      "not_installed": "未インストール",
+      "update_available": "更新",
+      "install": "インストール",
+      "loading": "カタログを読み込み中...",
+      "error": "カタログの読み込みに失敗しました",
+      "no_results": "検索に一致するサーバーがありません",
+      "refresh": "更新",
+      "install_title": "\"{{name}}\" をインストール",
+      "install_start": "インストールして起動",
+      "cancel": "キャンセル",
+      "installing": "インストール中...",
+      "complete": "インストール完了",
+      "install_error": "インストールに失敗しました"
     }
   },
   "nav": {
