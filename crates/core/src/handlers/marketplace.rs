@@ -212,6 +212,15 @@ pub async fn install_handler(
             AppError::Validation(format!("Server '{}' not found in registry", request.server_id))
         })?;
 
+    // Reject if server already exists (config-loaded or dynamic)
+    let running_servers = state.mcp_manager.list_servers().await;
+    if running_servers.iter().any(|s| s.id == request.server_id) {
+        return Err(AppError::Validation(format!(
+            "Server '{}' is already installed and running",
+            request.server_id
+        )));
+    }
+
     // Prevent concurrent installs (shared with bootstrap)
     let was_running = state
         .setup_in_progress

@@ -33,7 +33,8 @@ export function MarketplaceCard({ entry, onInstall }: MarketplaceCardProps) {
   const { t } = useTranslation('mcp');
   const Icon = (entry.icon && ICON_MAP[entry.icon]) || Package;
 
-  const isInstalled = entry.installed && !entry.update_available;
+  const alreadyPresent = entry.installed || entry.running;
+  const isInstalled = alreadyPresent && !entry.update_available;
   const isUpdate = entry.installed && entry.update_available;
 
   return (
@@ -79,7 +80,7 @@ export function MarketplaceCard({ entry, onInstall }: MarketplaceCardProps) {
               {t('marketplace.update_available')}
             </span>
           )}
-          {!entry.installed && (
+          {!alreadyPresent && (
             <span className="flex items-center gap-1 text-[10px] font-sans text-content-tertiary">
               <span className="w-1.5 h-1.5 rounded-full bg-content-tertiary/40" />
               {t('marketplace.not_installed')}
@@ -94,7 +95,7 @@ export function MarketplaceCard({ entry, onInstall }: MarketplaceCardProps) {
             disabled
             className="px-2 py-1 text-[11px] font-sans rounded bg-glass text-content-tertiary border border-edge cursor-default"
           >
-            Installed
+            {t('marketplace.installed')}
           </button>
         )}
         {isUpdate && (
@@ -105,7 +106,7 @@ export function MarketplaceCard({ entry, onInstall }: MarketplaceCardProps) {
             {t('marketplace.update_available')}
           </button>
         )}
-        {!entry.installed && (
+        {!alreadyPresent && (
           <button
             onClick={() => onInstall(entry)}
             className="px-2 py-1 text-[11px] font-sans rounded bg-brand/10 hover:bg-brand/20 text-brand border border-brand/30 transition-colors"
