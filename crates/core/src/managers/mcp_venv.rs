@@ -1,7 +1,8 @@
 //! Auto-setup for Python MCP server virtual environment.
 //!
-//! On first kernel startup, detects if `mcp-servers/.venv` exists.
-//! If missing, creates it and installs dependencies from each server's `pyproject.toml`.
+//! Checks `[paths].servers` in `mcp.toml` for the servers directory,
+//! falling back to `mcp-servers/` in the project root.
+//! If missing, creates a venv and installs dependencies from each server's `pyproject.toml`.
 //! This is non-fatal — the kernel starts normally even if setup fails.
 
 use std::path::{Path, PathBuf};
@@ -14,9 +15,35 @@ fn resolve_project_root() -> Option<PathBuf> {
     Some(root)
 }
 
+/// Read `[paths].servers` from `mcp.toml` in the project root.
+fn resolve_servers_dir_from_config() -> Option<PathBuf> {
+    let root = resolve_project_root()?;
+    let config_path = root.join("mcp.toml");
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    let config: toml::Value = content.parse().ok()?;
+    let raw = config.get("paths")?.get("servers")?.as_str()?;
+    // Support env var expansion in path values: ${VAR_NAME}
+    let resolved = if let Some(var_name) = raw.strip_prefix("${").and_then(|s| s.strip_suffix('}')) {
+        std::env::var(var_name).ok()?
+    } else {
+        raw.to_string()
+    };
+    Some(PathBuf::from(resolved))
+}
+
 /// Get the path to the shared venv directory.
+/// Checks `[paths].servers` in `mcp.toml` first, then falls back to
+/// `mcp-servers/.venv` in the project root.
 #[must_use]
 pub fn resolve_venv_dir() -> Option<PathBuf> {
+    // Primary: [paths].servers from mcp.toml
+    if let Some(servers_dir) = resolve_servers_dir_from_config() {
+        let venv = servers_dir.join(".venv");
+        if venv.join("pyvenv.cfg").exists() {
+            return Some(venv);
+        }
+    }
+    // Fallback: legacy location
     resolve_project_root().map(|root| root.join("mcp-servers").join(".venv"))
 }
 
@@ -40,7 +67,7 @@ pub fn resolve_venv_python() -> Option<PathBuf> {
 }
 
 /// Find a system Python command (python3 or python).
-fn find_python() -> Option<String> {
+pub(crate) fn find_python() -> Option<String> {
     for cmd in &["python3", "python"] {
         let result = std::process::Command::new(cmd)
             .arg("--version")
@@ -71,7 +98,7 @@ fn venv_pip(venv_dir: &Path) -> PathBuf {
 /// Install (or re-sync) each MCP server's pyproject.toml dependencies into
 /// the shared venv. Uses `pip install --quiet` which is a no-op for already
 /// satisfied packages, so this is safe to run on every startup.
-async fn install_server_deps(pip_str: &str, mcp_servers_dir: &Path) -> u32 {
+pub(crate) async fn install_server_deps(pip_str: &str, mcp_servers_dir: &Path) -> u32 {
     let mut installed = 0u32;
     let Ok(entries) = std::fs::read_dir(mcp_servers_dir) else {
         return 0;
@@ -131,8 +158,12 @@ pub async fn ensure_mcp_venv() {
         return;
     };
 
-    let venv_dir = project_root.join("mcp-servers").join(".venv");
-    let mcp_servers_dir = project_root.join("mcp-servers");
+    // Use [paths].servers from mcp.toml if available, otherwise legacy path
+    let (venv_dir, mcp_servers_dir) = if let Some(servers_dir) = resolve_servers_dir_from_config() {
+        (servers_dir.join(".venv"), servers_dir)
+    } else {
+        (project_root.join("mcp-servers").join(".venv"), project_root.join("mcp-servers"))
+    };
     let venv_exists = venv_dir.join("pyvenv.cfg").exists();
 
     if venv_exists {
