@@ -177,6 +177,35 @@ export interface McpServerSettings {
   description?: string;
 }
 
+// Marketplace types
+export type ServerCategory = 'mind' | 'memory' | 'tool' | 'vision' | 'voice' | 'output';
+
+export interface EnvVarDef {
+  key: string;
+  default?: string;
+  description?: string;
+}
+
+export interface MarketplaceCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  category: ServerCategory;
+  version: string;
+  directory: string;
+  dependencies: string[];
+  env_vars: EnvVarDef[];
+  optional_env_vars: EnvVarDef[];
+  tags: string[];
+  trust_level: string;
+  auto_restart: boolean;
+  icon?: string;
+  installed: boolean;
+  installed_version?: string;
+  update_available: boolean;
+  running: boolean;
+}
+
 // Bootstrap Setup types
 export interface SetupStatus {
   setup_complete: boolean;
