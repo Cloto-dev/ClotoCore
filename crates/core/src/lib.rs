@@ -32,7 +32,7 @@ const REVOKED_KEYS_CLEANUP_SECS: u64 = 21_600;
 use cloto_shared::ClotoEvent;
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
-use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicBool, AtomicU8};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Notify, RwLock};
 
@@ -97,6 +97,10 @@ pub struct AppState {
     pub active_cron_contexts: ActiveCronContexts,
     /// Maximum allowed CRON recursion depth (0-6, default 2).
     pub max_cron_generation: Arc<AtomicU8>,
+    /// Whether a bootstrap setup is currently running.
+    pub setup_in_progress: Arc<AtomicBool>,
+    /// Broadcast channel for setup progress events (SSE).
+    pub setup_progress_tx: broadcast::Sender<handlers::setup::SetupProgressEvent>,
 }
 
 pub enum AppError {
@@ -272,7 +276,19 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     tracing::info!("📁 Data directory: {}", data_dir.display());
 
     // 0c. Ensure Python MCP venv exists (auto-setup on first run)
-    managers::mcp_venv::ensure_mcp_venv().await;
+    // Skip in production if bootstrap setup has not been completed yet.
+    let setup_json = data_dir.join("setup-complete.json");
+    let is_dev = {
+        let exe = std::env::current_exe().unwrap_or_default();
+        managers::McpClientManager::detect_project_root(&exe)
+            .map(|r| r.join("Cargo.toml").exists())
+            .unwrap_or(false)
+    };
+    if setup_json.exists() || is_dev {
+        managers::mcp_venv::ensure_mcp_venv().await;
+    } else {
+        tracing::info!("Setup not complete — skipping MCP venv sync");
+    }
 
     // 0d. Set database timeout from config
     db::set_db_timeout(config.db_timeout_secs);
@@ -489,6 +505,11 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         session_trusted_commands,
         active_cron_contexts,
         max_cron_generation,
+        setup_in_progress: Arc::new(AtomicBool::new(false)),
+        setup_progress_tx: {
+            let (tx, _) = broadcast::channel(64);
+            tx
+        },
     });
 
     // Wire up kernel event bus to MCP manager (for PermissionRequested emission)
@@ -867,12 +888,18 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             get(handlers::get_max_cron_generation).put(handlers::set_max_cron_generation),
         )
         // API key invalidation
-        .route("/system/invalidate-key", post(handlers::invalidate_api_key));
+        .route("/system/invalidate-key", post(handlers::invalidate_api_key))
+        // Bootstrap setup (auth required to start)
+        .route("/setup/start", post(handlers::setup::start_handler));
 
     // Read endpoints (authenticated, rate-limited — bug-157)
     let api_routes = Router::new()
         .route("/system/version", get(handlers::version_handler))
         .route("/system/health", get(handlers::health_handler))
+        // Bootstrap setup (no auth — like health_handler)
+        .route("/setup/status", get(handlers::setup::status_handler))
+        .route("/setup/progress", get(handlers::setup::progress_handler))
+        .route("/setup/check-python", post(handlers::setup::check_python_handler))
         .route("/events", get(handlers::sse_handler))
         .route("/history", get(handlers::get_history))
         .route("/metrics", get(handlers::get_metrics))

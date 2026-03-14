@@ -59,5 +59,10 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
         session_trusted_commands: Arc::new(dashmap::DashMap::new()),
         active_cron_contexts: Arc::new(dashmap::DashMap::new()),
         max_cron_generation: Arc::new(std::sync::atomic::AtomicU8::new(2)),
+        setup_in_progress: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        setup_progress_tx: {
+            let (tx, _) = tokio::sync::broadcast::channel(64);
+            tx
+        },
     })
 }
