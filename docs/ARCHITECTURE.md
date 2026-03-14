@@ -132,10 +132,10 @@ ClotoCore/
 │       └── src/lib.rs           # Plugin, ReasoningEngine, Tool traits
 │
 ├── dashboard/          # React/TypeScript web UI (Tauri desktop app)
-├── archive/            # Archived features (evolution, update, docs)
+├── infra/              # Docker Compose, SearXNG config
 ├── scripts/            # Build tools, verification scripts
 ├── qa/                 # Issue registry (version-controlled bug tracking)
-└── docs/               # Architecture, changelog, development guides
+└── docs/               # Architecture, changelog, development guides, archive
 ```
 
 ### 0.5 API Endpoint Summary
@@ -378,7 +378,7 @@ The root `pyproject.toml` in cloto-mcp-servers is prepared for this migration.
 
 > **Note:** The original Three-Tier Plugin Model (Rust compiled, Python Bridge, WASM)
 > has been fully superseded by the MCP-only architecture as of v0.4.x.
-> Archived design documents are in `archive/docs/`.
+> Archived design documents are in `docs/archive/`.
 > See [MCP Plugin Architecture](MCP_PLUGIN_ARCHITECTURE.md) for current details.
 
 ---
@@ -399,7 +399,7 @@ A sub-project that shares human gaze data with the AI in real time, enabling low
 
 ## 5. Self-Evolution Engine (Archived)
 
-> **Status:** Archived for Phase A. Code preserved in `archive/evolution/`.
+> **Status:** Archived for Phase A. Code has been removed.
 >
 > The evolution engine implements 5-axis fitness scoring (cognitive, behavioral,
 > safety, autonomy, meta_learning), generation management with debounce,
