@@ -100,5 +100,25 @@
     "event_log": "Event Log",
     "clear": "Clear",
     "waiting": "Waiting for events..."
+  },
+  "marketplace": {
+    "tab_servers": "Servers",
+    "tab_marketplace": "Marketplace",
+    "search_placeholder": "Search servers...",
+    "filter_all": "All",
+    "installed": "Installed",
+    "not_installed": "Not Installed",
+    "update_available": "Update",
+    "install": "Install",
+    "loading": "Loading catalog...",
+    "error": "Failed to load catalog",
+    "no_results": "No servers match your search",
+    "refresh": "Refresh",
+    "install_title": "Install \"{{name}}\"",
+    "install_start": "Install & Start",
+    "cancel": "Cancel",
+    "installing": "Installing...",
+    "complete": "Installation complete",
+    "install_error": "Installation failed"
   }
 }
