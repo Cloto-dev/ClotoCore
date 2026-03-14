@@ -131,7 +131,6 @@ ClotoCore/
 │   └── shared/        # Shared trait definitions
 │       └── src/lib.rs           # Plugin, ReasoningEngine, Tool traits
 │
-├── mcp-servers/        # MCP servers (Python, any language)
 ├── dashboard/          # React/TypeScript web UI (Tauri desktop app)
 ├── archive/            # Archived features (evolution, update, docs)
 ├── scripts/            # Build tools, verification scripts
@@ -420,4 +419,4 @@ These principles define the "correct approach" within ClotoCore. The following c
 
 - [TRIGGER_LAYER_DESIGN.md](TRIGGER_LAYER_DESIGN.md) — Heartbeat & Cron autonomous execution (Layer 2)
 - [MGP_SPEC.md](MGP_SPEC.md) — Model General Protocol specification (index)
-- [MGP_ISOLATION_DESIGN.md](MGP_ISOLATION_DESIGN.md) — OS-Level isolation design
+- [MGP Isolation Design](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_ISOLATION_DESIGN.md) — OS-Level isolation design (in cloto-mcp-servers repo)
