@@ -1,5 +1,7 @@
 /** Server preset definitions shared between SetupWizard and AgentConfig. */
 
+import { Layers, Zap, Shield, Box, type LucideIcon } from 'lucide-react';
+
 export const MINIMAL_SERVERS = ['memory.cpersona', 'tool.agent_utils'];
 
 export const STANDARD_SERVERS = [
@@ -20,13 +22,15 @@ export const EXPERT_SERVERS = [
 export interface PresetInfo {
   id: string;
   servers: string[];
+  icon: LucideIcon;
+  defaultEngine: string;
 }
 
 export const SERVER_PRESETS: PresetInfo[] = [
-  { id: 'minimal',  servers: MINIMAL_SERVERS },
-  { id: 'standard', servers: STANDARD_SERVERS },
-  { id: 'advanced', servers: ADVANCED_SERVERS },
-  { id: 'expert',   servers: EXPERT_SERVERS },
+  { id: 'standard', icon: Layers, defaultEngine: 'mind.cerebras', servers: STANDARD_SERVERS },
+  { id: 'advanced', icon: Zap,    defaultEngine: 'mind.deepseek', servers: ADVANCED_SERVERS },
+  { id: 'expert',   icon: Shield, defaultEngine: 'mind.deepseek', servers: EXPERT_SERVERS },
+  { id: 'minimal',  icon: Box,    defaultEngine: 'mind.cerebras', servers: MINIMAL_SERVERS },
 ];
 
 /**

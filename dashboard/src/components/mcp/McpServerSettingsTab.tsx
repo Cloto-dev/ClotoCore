@@ -2,8 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { McpServerInfo, McpServerSettings, DefaultPolicy } from '../../types';
 import { useApi } from '../../hooks/useApi';
-import { Save, RotateCcw, Plus, X, Eye, EyeOff } from 'lucide-react';
+import { useAsyncAction } from '../../hooks/useAsyncAction';
+import { Save, RotateCcw } from 'lucide-react';
 import { displayServerId } from '../../lib/format';
+import { AlertCard } from '../../components/ui/AlertCard';
+import { EnvVariableEditor } from '../../components/ui/EnvVariableEditor';
 
 interface Props {
   server: McpServerInfo;
@@ -15,19 +18,16 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
   const { t } = useTranslation('mcp');
   const [settings, setSettings] = useState<McpServerSettings | null>(null);
   const [defaultPolicy, setDefaultPolicy] = useState<DefaultPolicy>('opt-in');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Env editor state
   const [envEntries, setEnvEntries] = useState<{ key: string; value: string }[]>([]);
   const [initialEnvKeys, setInitialEnvKeys] = useState<Set<string>>(new Set());
-  const [newKey, setNewKey] = useState('');
-  const [newValue, setNewValue] = useState('');
-  const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
+
+  const saveAction = useAsyncAction('Failed to save settings');
+  const loadAction = useAsyncAction('Failed to load settings');
 
   const loadSettings = useCallback(async () => {
-    try {
-      setError(null);
+    await loadAction.run(async () => {
       const data = await api.getMcpServerSettings(server.id);
       setSettings(data);
       setDefaultPolicy(data.default_policy);
@@ -38,20 +38,16 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
       setEnvEntries(entries);
       setInitialEnvKeys(new Set(Object.keys(env)));
       setInitialEnvValues({ ...env });
-      setVisibleKeys(new Set());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load settings');
-    }
-  }, [server.id, api]);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [server.id, api, loadAction.run]);
 
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
 
   async function handleSave() {
-    setSaving(true);
-    setError(null);
-    try {
+    await saveAction.run(async () => {
       // Build env object from entries
       const envObj: Record<string, string> = {};
       for (const entry of envEntries) {
@@ -66,38 +62,8 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
       );
       await loadSettings();
       onRefresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const addEnvEntry = () => {
-    const trimmedKey = newKey.trim();
-    if (!trimmedKey) return;
-    if (envEntries.some(e => e.key === trimmedKey)) return;
-    setEnvEntries(prev => [...prev, { key: trimmedKey, value: newValue }]);
-    setNewKey('');
-    setNewValue('');
-  };
-
-  const removeEnvEntry = (key: string) => {
-    setEnvEntries(prev => prev.filter(e => e.key !== key));
-  };
-
-  const updateEnvValue = (key: string, value: string) => {
-    setEnvEntries(prev => prev.map(e => e.key === key ? { ...e, value } : e));
-  };
-
-  const toggleVisibility = (key: string) => {
-    setVisibleKeys(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
     });
-  };
+  }
 
   // Track initial values to detect actual changes
   const [initialEnvValues, setInitialEnvValues] = useState<Record<string, string>>({});
@@ -115,13 +81,11 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
 
   const hasChanges = (settings && defaultPolicy !== settings.default_policy) || envChanged;
 
+  const displayError = saveAction.error || loadAction.error;
+
   return (
     <div className="p-4 space-y-4">
-      {error && (
-        <div className="p-2 text-[10px] font-mono text-red-500 bg-red-500/10 rounded border border-red-500/20">
-          {error}
-        </div>
-      )}
+      {displayError && <AlertCard>{displayError}</AlertCard>}
 
       {/* Server Configuration */}
       <section>
@@ -149,71 +113,15 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
       {/* Environment Variables */}
       <section>
         <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">{t('settings_tab.env_vars')}</h3>
-        <div className="space-y-2">
-          {envEntries.map(entry => (
-            <div key={entry.key} className="flex items-center gap-2">
-              <span className="text-[10px] font-mono text-content-secondary w-40 truncate shrink-0" title={entry.key}>
-                {entry.key}
-              </span>
-              <div className="relative flex-1">
-                <input
-                  type={visibleKeys.has(entry.key) ? 'text' : 'password'}
-                  value={entry.value === '***' ? '' : entry.value}
-                  onChange={e => updateEnvValue(entry.key, e.target.value || '***')}
-                  placeholder={entry.value === '***' ? '••••••• (saved)' : ''}
-                  className="w-full text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 pr-7 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
-                />
-                <button
-                  onClick={() => toggleVisibility(entry.key)}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-secondary"
-                >
-                  {visibleKeys.has(entry.key) ? <EyeOff size={12} /> : <Eye size={12} />}
-                </button>
-              </div>
-              <button
-                onClick={() => removeEnvEntry(entry.key)}
-                className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
-                title={t('settings_tab.remove')}
-              >
-                <X size={12} />
-              </button>
-            </div>
-          ))}
-
-          {/* Add new variable */}
-          <div className="flex items-center gap-2 pt-1 border-t border-edge/50">
-            <input
-              type="text"
-              value={newKey}
-              onChange={e => setNewKey(e.target.value.toUpperCase())}
-              placeholder={t('settings_tab.placeholder_key')}
-              className="w-40 text-[10px] font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors shrink-0"
-              onKeyDown={e => e.key === 'Enter' && addEnvEntry()}
-            />
-            <input
-              type="password"
-              value={newValue}
-              onChange={e => setNewValue(e.target.value)}
-              placeholder={t('settings_tab.placeholder_value')}
-              className="flex-1 text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
-              onKeyDown={e => e.key === 'Enter' && addEnvEntry()}
-            />
-            <button
-              onClick={addEnvEntry}
-              disabled={!newKey.trim()}
-              className="p-1 rounded text-brand hover:bg-brand/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
-              title={t('settings_tab.add')}
-            >
-              <Plus size={14} />
-            </button>
-          </div>
-
-          {envEntries.length === 0 && (
-            <p className="text-[9px] font-mono text-content-tertiary py-2">
-              {t('settings_tab.no_env_hint')}
-            </p>
-          )}
-        </div>
+        <EnvVariableEditor
+          entries={envEntries}
+          onChange={setEnvEntries}
+          placeholderKey={t('settings_tab.placeholder_key')}
+          placeholderValue={t('settings_tab.placeholder_value')}
+          removeLabel={t('settings_tab.remove')}
+          addLabel={t('settings_tab.add')}
+          emptyHint={t('settings_tab.no_env_hint')}
+        />
       </section>
 
       {/* Default Policy */}
@@ -259,10 +167,10 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
       <div className="flex gap-2 pt-2 border-t border-edge">
         <button
           onClick={handleSave}
-          disabled={saving || !hasChanges}
+          disabled={saveAction.isLoading || !hasChanges}
           className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-brand/20"
         >
-          <Save size={10} /> {saving ? t('settings_tab.saving') : t('settings_tab.save_changes')}
+          <Save size={10} /> {saveAction.isLoading ? t('settings_tab.saving') : t('settings_tab.save_changes')}
         </button>
         <button
           onClick={loadSettings}

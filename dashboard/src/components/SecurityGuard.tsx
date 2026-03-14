@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Shield, Lock, Unlock, AlertTriangle, X, Check, ShieldAlert } from 'lucide-react';
 import { PermissionRequest } from '../types';
 import { Spinner } from '../lib/Spinner';
 import { useApi } from '../hooks/useApi';
+import { usePolling } from '../hooks/usePolling';
 
 export function SecurityGuard() {
   const api = useApi();
@@ -11,31 +12,17 @@ export function SecurityGuard() {
   const [grantedIds, setGrantedIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // M-23: Poll for pending permission requests with AbortController
-  useEffect(() => {
-    let abortController: AbortController | null = null;
+  // M-23: Poll for pending permission requests
+  const fetchPending = useCallback(async () => {
+    try {
+      setRequests(await api.getPendingPermissions());
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      console.error("Failed to fetch pending permissions:", err);
+    }
+  }, [api]);
 
-    const fetchPending = async () => {
-      abortController?.abort();
-      abortController = new AbortController();
-      try {
-        const pending = await api.getPendingPermissions();
-        if (!abortController.signal.aborted) {
-          setRequests(pending);
-        }
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        console.error("Failed to fetch pending permissions:", err);
-      }
-    };
-
-    fetchPending();
-    const interval = setInterval(fetchPending, 3000);
-    return () => {
-      clearInterval(interval);
-      abortController?.abort();
-    };
-  }, []);
+  usePolling(fetchPending, 3000);
 
   const handleGrant = async (req: PermissionRequest) => {
     const reqId = req.request_id;
