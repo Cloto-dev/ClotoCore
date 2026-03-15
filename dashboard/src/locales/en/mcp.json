@@ -119,6 +119,9 @@
     "cancel": "Cancel",
     "installing": "Installing...",
     "complete": "Installation complete",
-    "install_error": "Installation failed"
+    "install_error": "Installation failed",
+    "uninstall": "Uninstall",
+    "uninstall_confirm": "Uninstall {{name}}? This will remove the server and its files.",
+    "uninstall_error": "Failed to uninstall server"
   }
 }

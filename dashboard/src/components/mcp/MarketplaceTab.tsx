@@ -2,9 +2,12 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Search, AlertTriangle } from 'lucide-react';
 import { useMarketplace } from '../../hooks/useMarketplace';
+import { useApi } from '../../hooks/useApi';
 import { MarketplaceCard } from './MarketplaceCard';
 import { InstallDialog } from './InstallDialog';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { MarketplaceCatalogEntry } from '../../types';
+import { extractError } from '../../lib/errors';
 
 const CATEGORIES: Array<{ key: string; label: string }> = [
   { key: 'all', label: 'filter_all' },
@@ -23,6 +26,10 @@ export function MarketplaceTab() {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [installingServer, setInstallingServer] = useState<MarketplaceCatalogEntry | null>(null);
+  const [uninstallTarget, setUninstallTarget] = useState<MarketplaceCatalogEntry | null>(null);
+  const [uninstalling, setUninstalling] = useState(false);
+  const [uninstallError, setUninstallError] = useState<string | null>(null);
+  const api = useApi();
 
   // Filter servers
   const filtered = servers.filter(s => {
@@ -43,6 +50,23 @@ export function MarketplaceTab() {
   function handleInstalled() {
     setInstallingServer(null);
     refetch();
+  }
+
+  async function handleUninstall() {
+    if (!uninstallTarget) return;
+    setUninstalling(true);
+    setUninstallError(null);
+    try {
+      await api.uninstallMarketplaceServer(uninstallTarget.id);
+      setUninstallTarget(null);
+      refetch();
+    } catch (err) {
+      setUninstallTarget(null);
+      setUninstallError(extractError(err, t('marketplace.uninstall_error')));
+      setTimeout(() => setUninstallError(null), 5000);
+    } finally {
+      setUninstalling(false);
+    }
   }
 
   // Loading state
@@ -125,6 +149,7 @@ export function MarketplaceTab() {
               key={entry.id}
               entry={entry}
               onInstall={setInstallingServer}
+              onUninstall={setUninstallTarget}
             />
           ))}
         </div>
@@ -137,6 +162,24 @@ export function MarketplaceTab() {
           onClose={() => setInstallingServer(null)}
           onInstalled={handleInstalled}
         />
+      )}
+
+      {/* Uninstall confirmation */}
+      <ConfirmDialog
+        open={!!uninstallTarget}
+        title={t('marketplace.uninstall')}
+        message={uninstallTarget ? t('marketplace.uninstall_confirm', { name: uninstallTarget.name }) : ''}
+        confirmLabel={uninstalling ? '...' : t('marketplace.uninstall')}
+        variant="danger"
+        onConfirm={handleUninstall}
+        onCancel={() => { setUninstallTarget(null); setUninstallError(null); }}
+      />
+
+      {/* Uninstall error */}
+      {uninstallError && (
+        <div className="fixed bottom-4 right-4 z-[60] bg-red-500/10 border border-red-500/30 text-red-500 text-[11px] font-sans px-3 py-2 rounded-lg backdrop-blur-sm">
+          {uninstallError}
+        </div>
       )}
     </div>
   );
