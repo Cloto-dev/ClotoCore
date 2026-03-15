@@ -456,8 +456,19 @@ pub async fn upload_avatar(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to write avatar file: {}", e)))?;
 
-    // Attempt vision analysis (graceful degradation)
-    let avatar_description = analyze_avatar(&state, &avatar_path_str).await;
+    // Attempt vision analysis (graceful degradation, 15s timeout)
+    let avatar_description = match tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        analyze_avatar(&state, &avatar_path_str),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            tracing::warn!("Avatar vision analysis timed out after 15s, storing without description");
+            None
+        }
+    };
 
     state
         .agent_manager
