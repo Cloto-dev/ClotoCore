@@ -21,6 +21,7 @@ export function GeneralSection() {
   const { identity, setIdentity } = useUserIdentity();
   const { t, i18n } = useTranslation('settings');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [displayName, setDisplayName] = useState(identity.name);
   const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [customLangs, setCustomLangs] = useState<{ code: string; label: string }[]>([]);
 
@@ -182,8 +183,9 @@ export function GeneralSection() {
             <label className="text-xs text-content-tertiary font-bold uppercase tracking-widest block mb-1">{t('general.display_name')}</label>
             <input
               type="text"
-              value={identity.name}
-              onChange={e => setIdentity(identity.id, e.target.value)}
+              value={displayName}
+              onChange={e => setDisplayName(e.target.value)}
+              onBlur={() => setIdentity(identity.id, displayName)}
               className="w-full px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-sm text-content-primary focus:border-brand focus:outline-none transition-colors"
               placeholder={t('general.name_placeholder')}
             />
