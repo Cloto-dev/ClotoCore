@@ -90,7 +90,8 @@ impl PluginRegistry {
     /// Check if a tool name belongs to the kernel-native tool set.
     /// These tools are handled directly by execute_tool() without access control lookup.
     fn is_kernel_native_tool(tool_name: &str) -> bool {
-        tool_name.starts_with("mgp.") || tool_name.starts_with("gui.")
+        tool_name.starts_with("mgp.")
+            || tool_name.starts_with("gui.")
             || KERNEL_NATIVE_TOOLS.contains(&tool_name)
     }
 
@@ -126,7 +127,8 @@ impl PluginRegistry {
     pub async fn collect_tool_schemas(&self) -> Vec<serde_json::Value> {
         let mut schemas: Vec<serde_json::Value> = {
             let state = self.state.read().await;
-            state.plugins
+            state
+                .plugins
                 .values()
                 .filter_map(|p| Some(rust_tool_schema(p.as_tool()?)))
                 .collect()
@@ -147,7 +149,8 @@ impl PluginRegistry {
     ) -> Vec<serde_json::Value> {
         let mut schemas: Vec<serde_json::Value> = {
             let state = self.state.read().await;
-            state.plugins
+            state
+                .plugins
                 .iter()
                 .filter_map(|(id, p)| {
                     if !allowed_plugin_ids.contains(id) {
@@ -261,7 +264,8 @@ impl PluginRegistry {
     ) -> Vec<serde_json::Value> {
         let mut schemas: Vec<serde_json::Value> = {
             let state = self.state.read().await;
-            state.plugins
+            state
+                .plugins
                 .iter()
                 .filter_map(|(id, p)| {
                     if !allowed_plugin_ids.contains(id) {

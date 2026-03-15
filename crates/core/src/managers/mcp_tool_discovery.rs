@@ -510,7 +510,6 @@ impl SessionToolCache {
 // Kernel Tool Schemas (§16)
 // ============================================================
 
-
 /// Schema for mgp.tools.discover (public for llm_meta_tool_schemas).
 pub(super) fn tools_discover_schema() -> Value {
     serde_json::json!({
@@ -1777,7 +1776,10 @@ mod tests {
 
         // Two tools with the keyword "search" — one Tier C (websearch), one Tier S (research)
         let fast_tool = make_tool("web_search", "Search the web for information");
-        let slow_tool = make_tool("deep_research", "Deep research search across multiple sources");
+        let slow_tool = make_tool(
+            "deep_research",
+            "Deep research search across multiple sources",
+        );
 
         index.add_server_tools("tool.websearch", &[fast_tool], |_| None);
         index.add_server_tools("tool.research", &[slow_tool], |_| None);
@@ -1801,32 +1803,95 @@ mod tests {
     #[test]
     fn classify_latency_tier_mapping() {
         // Tier S
-        assert_eq!(classify_latency_tier("tool.imagegen", "generate_image"), LatencyTier::S);
-        assert_eq!(classify_latency_tier("tool.research", "deep_research"), LatencyTier::S);
-        assert_eq!(classify_latency_tier("tool.stt", "transcribe"), LatencyTier::S);
-        assert_eq!(classify_latency_tier("tool.capture", "analyze_image"), LatencyTier::S);
+        assert_eq!(
+            classify_latency_tier("tool.imagegen", "generate_image"),
+            LatencyTier::S
+        );
+        assert_eq!(
+            classify_latency_tier("tool.research", "deep_research"),
+            LatencyTier::S
+        );
+        assert_eq!(
+            classify_latency_tier("tool.stt", "transcribe"),
+            LatencyTier::S
+        );
+        assert_eq!(
+            classify_latency_tier("tool.capture", "analyze_image"),
+            LatencyTier::S
+        );
 
         // Tier A
-        assert_eq!(classify_latency_tier("tool.websearch", "fetch_page"), LatencyTier::A);
-        assert_eq!(classify_latency_tier("tool.cpersona", "update_profile"), LatencyTier::A);
-        assert_eq!(classify_latency_tier("tool.cpersona", "archive_episode"), LatencyTier::A);
-        assert_eq!(classify_latency_tier("tool.cpersona", "recall"), LatencyTier::A);
-        assert_eq!(classify_latency_tier("tool.ollama", "think"), LatencyTier::A);
-        assert_eq!(classify_latency_tier("tool.ollama", "think_with_tools"), LatencyTier::A);
+        assert_eq!(
+            classify_latency_tier("tool.websearch", "fetch_page"),
+            LatencyTier::A
+        );
+        assert_eq!(
+            classify_latency_tier("tool.cpersona", "update_profile"),
+            LatencyTier::A
+        );
+        assert_eq!(
+            classify_latency_tier("tool.cpersona", "archive_episode"),
+            LatencyTier::A
+        );
+        assert_eq!(
+            classify_latency_tier("tool.cpersona", "recall"),
+            LatencyTier::A
+        );
+        assert_eq!(
+            classify_latency_tier("tool.ollama", "think"),
+            LatencyTier::A
+        );
+        assert_eq!(
+            classify_latency_tier("tool.ollama", "think_with_tools"),
+            LatencyTier::A
+        );
 
         // Tier B
-        assert_eq!(classify_latency_tier("tool.cerebras", "list_models"), LatencyTier::B);
-        assert_eq!(classify_latency_tier("tool.deepseek", "switch_model"), LatencyTier::B);
-        assert_eq!(classify_latency_tier("tool.agent_utils", "get_current_time"), LatencyTier::B);
-        assert_eq!(classify_latency_tier("tool.websearch", "search_status"), LatencyTier::B);
-        assert_eq!(classify_latency_tier("tool.gaze", "start_tracking"), LatencyTier::B);
-        assert_eq!(classify_latency_tier("tool.gaze", "stop_tracking"), LatencyTier::B);
-        assert_eq!(classify_latency_tier("tool.gaze", "get_tracker_status"), LatencyTier::B);
+        assert_eq!(
+            classify_latency_tier("tool.cerebras", "list_models"),
+            LatencyTier::B
+        );
+        assert_eq!(
+            classify_latency_tier("tool.deepseek", "switch_model"),
+            LatencyTier::B
+        );
+        assert_eq!(
+            classify_latency_tier("tool.agent_utils", "get_current_time"),
+            LatencyTier::B
+        );
+        assert_eq!(
+            classify_latency_tier("tool.websearch", "search_status"),
+            LatencyTier::B
+        );
+        assert_eq!(
+            classify_latency_tier("tool.gaze", "start_tracking"),
+            LatencyTier::B
+        );
+        assert_eq!(
+            classify_latency_tier("tool.gaze", "stop_tracking"),
+            LatencyTier::B
+        );
+        assert_eq!(
+            classify_latency_tier("tool.gaze", "get_tracker_status"),
+            LatencyTier::B
+        );
 
         // Tier C (default)
-        assert_eq!(classify_latency_tier("tool.terminal", "execute_command"), LatencyTier::C);
-        assert_eq!(classify_latency_tier("tool.terminal", "read_file"), LatencyTier::C);
-        assert_eq!(classify_latency_tier("tool.websearch", "web_search"), LatencyTier::C);
-        assert_eq!(classify_latency_tier("tool.unknown", "anything"), LatencyTier::C);
+        assert_eq!(
+            classify_latency_tier("tool.terminal", "execute_command"),
+            LatencyTier::C
+        );
+        assert_eq!(
+            classify_latency_tier("tool.terminal", "read_file"),
+            LatencyTier::C
+        );
+        assert_eq!(
+            classify_latency_tier("tool.websearch", "web_search"),
+            LatencyTier::C
+        );
+        assert_eq!(
+            classify_latency_tier("tool.unknown", "anything"),
+            LatencyTier::C
+        );
     }
 }

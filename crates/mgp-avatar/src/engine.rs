@@ -44,10 +44,7 @@ impl VoicevoxEngine {
             ));
         }
 
-        tracing::info!(
-            "Starting VOICEVOX Engine from {}",
-            engine_path.display()
-        );
+        tracing::info!("Starting VOICEVOX Engine from {}", engine_path.display());
 
         // Extract host and port from URL
         let port = url
@@ -85,13 +82,17 @@ impl VoicevoxEngine {
     fn discover_engine() -> Option<PathBuf> {
         let candidates = [
             // Relative to project dir (CLOTO_PROJECT_DIR)
-            std::env::var("CLOTO_PROJECT_DIR")
-                .ok()
-                .map(|d| PathBuf::from(d).join("data").join("voicevox").join("run.exe")),
+            std::env::var("CLOTO_PROJECT_DIR").ok().map(|d| {
+                PathBuf::from(d)
+                    .join("data")
+                    .join("voicevox")
+                    .join("run.exe")
+            }),
             // Relative to exe dir
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.join("data").join("voicevox").join("run.exe"))),
+            std::env::current_exe().ok().and_then(|p| {
+                p.parent()
+                    .map(|p| p.join("data").join("voicevox").join("run.exe"))
+            }),
         ];
 
         for candidate in candidates.into_iter().flatten() {

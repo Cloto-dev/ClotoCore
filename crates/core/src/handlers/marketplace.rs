@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::Infallible, path::PathBuf, sync::Arc, time::Duration};
 use tracing::{error, info, warn};
 
-use super::setup::{SetupProgressEvent, detect_python, emit, venv_pip};
+use super::setup::{detect_python, emit, venv_pip, SetupProgressEvent};
 use crate::{AppError, AppResult, AppState};
 
 // ── Registry types ──────────────────────────────────────────────────
@@ -129,9 +129,11 @@ pub async fn catalog_handler(
 ) -> AppResult<Json<serde_json::Value>> {
     super::check_auth(&state, &headers)?;
 
-    let registry = fetch_registry(&state, query.force_refresh).await.map_err(|e| {
-        AppError::Internal(anyhow::anyhow!("Failed to fetch marketplace catalog: {e}"))
-    })?;
+    let registry = fetch_registry(&state, query.force_refresh)
+        .await
+        .map_err(|e| {
+            AppError::Internal(anyhow::anyhow!("Failed to fetch marketplace catalog: {e}"))
+        })?;
 
     let marketplace_servers = crate::db::mcp::get_marketplace_servers(&state.pool)
         .await
@@ -143,16 +145,22 @@ pub async fn catalog_handler(
         .servers
         .iter()
         .map(|entry| {
-            let mp_record = marketplace_servers.iter().find(|r| r.marketplace_id.as_deref() == Some(&entry.id));
+            let mp_record = marketplace_servers
+                .iter()
+                .find(|r| r.marketplace_id.as_deref() == Some(&entry.id));
             let installed = mp_record.map(|r| r.is_active).unwrap_or(false);
             let installed_version = mp_record.and_then(|r| r.installed_version.clone());
             let update_available = installed_version
                 .as_deref()
                 .map(|iv| iv != entry.version)
                 .unwrap_or(false);
-            let running = running_servers
-                .iter()
-                .any(|s| s.id == entry.id && matches!(s.status, crate::managers::mcp_types::ServerStatus::Connected));
+            let running = running_servers.iter().any(|s| {
+                s.id == entry.id
+                    && matches!(
+                        s.status,
+                        crate::managers::mcp_types::ServerStatus::Connected
+                    )
+            });
 
             CatalogEntry {
                 id: entry.id.clone(),
@@ -214,9 +222,9 @@ pub async fn install_handler(
     };
     let registry = match registry {
         Some(r) => r,
-        None => fetch_registry(&state, false).await.map_err(|e| {
-            AppError::Internal(anyhow::anyhow!("Registry not available: {e}"))
-        })?,
+        None => fetch_registry(&state, false)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Registry not available: {e}")))?,
     };
 
     let entry = registry
@@ -225,7 +233,10 @@ pub async fn install_handler(
         .find(|s| s.id == request.server_id)
         .cloned()
         .ok_or_else(|| {
-            AppError::Validation(format!("Server '{}' not found in registry", request.server_id))
+            AppError::Validation(format!(
+                "Server '{}' not found in registry",
+                request.server_id
+            ))
         })?;
 
     // Reject if server already exists (config-loaded or dynamic)
@@ -252,8 +263,7 @@ pub async fn install_handler(
     let auto_start = request.auto_start.unwrap_or(true);
 
     tokio::spawn(async move {
-        let result =
-            run_install(&state_clone, &entry, env_overrides, auto_start).await;
+        let result = run_install(&state_clone, &entry, env_overrides, auto_start).await;
         state_clone
             .setup_in_progress
             .store(false, std::sync::atomic::Ordering::SeqCst);
@@ -355,9 +365,16 @@ pub async fn uninstall_handler(
     let server_dir = state.data_dir.join("mcp-servers").join(&directory);
     if server_dir.is_dir() {
         if let Err(e) = tokio::fs::remove_dir_all(&server_dir).await {
-            warn!("Failed to remove server directory {}: {}", server_dir.display(), e);
+            warn!(
+                "Failed to remove server directory {}: {}",
+                server_dir.display(),
+                e
+            );
         } else {
-            info!("Removed marketplace server directory: {}", server_dir.display());
+            info!(
+                "Removed marketplace server directory: {}",
+                server_dir.display()
+            );
         }
     }
 
@@ -387,13 +404,15 @@ pub async fn batch_install_handler(
     }
 
     if request.server_ids.is_empty() {
-        return Err(AppError::Validation("server_ids must not be empty".to_string()));
+        return Err(AppError::Validation(
+            "server_ids must not be empty".to_string(),
+        ));
     }
 
     // Resolve entries from registry
-    let registry = fetch_registry(&state, false).await.map_err(|e| {
-        AppError::Internal(anyhow::anyhow!("Registry not available: {e}"))
-    })?;
+    let registry = fetch_registry(&state, false)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Registry not available: {e}")))?;
 
     let mut entries = Vec::new();
     for id in &request.server_ids {
@@ -451,8 +470,7 @@ async fn fetch_registry(state: &AppState, force_refresh: bool) -> anyhow::Result
     }
 
     info!("Fetching marketplace registry from GitHub...");
-    let url =
-        "https://raw.githubusercontent.com/Cloto-dev/cloto-mcp-servers/master/registry.json";
+    let url = "https://raw.githubusercontent.com/Cloto-dev/cloto-mcp-servers/master/registry.json";
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -497,34 +515,47 @@ async fn run_install(
     let tx = &state.setup_progress_tx;
 
     // Step 1: Check Python
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "check_python".into(),
-        description: "Checking Python installation".into(),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "check_python".into(),
+            description: "Checking Python installation".into(),
+        },
+    );
 
     let (python_available, _) = detect_python();
     if !python_available {
-        emit(tx, SetupProgressEvent::StepError {
-            step: "check_python".into(),
-            error: "Python 3 is required but not found".into(),
-            recoverable: false,
-        });
+        emit(
+            tx,
+            SetupProgressEvent::StepError {
+                step: "check_python".into(),
+                error: "Python 3 is required but not found".into(),
+                recoverable: false,
+            },
+        );
         return Ok(());
     }
-    emit(tx, SetupProgressEvent::StepComplete { step: "check_python".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "check_python".into(),
+        },
+    );
 
     // Step 2: Download repo tarball
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "download".into(),
-        description: format!("Downloading {} from repository", entry.name),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "download".into(),
+            description: format!("Downloading {} from repository", entry.name),
+        },
+    );
 
     let tmp_dir = state.data_dir.join("tmp");
     tokio::fs::create_dir_all(&tmp_dir).await?;
     let archive_path = tmp_dir.join("cloto-mcp-servers-latest.tar.gz");
 
-    let tarball_url =
-        "https://api.github.com/repos/Cloto-dev/cloto-mcp-servers/tarball/master";
+    let tarball_url = "https://api.github.com/repos/Cloto-dev/cloto-mcp-servers/tarball/master";
 
     // Download with custom headers for GitHub API
     let client = reqwest::Client::builder()
@@ -538,11 +569,14 @@ async fn run_install(
         .await?;
 
     if !resp.status().is_success() {
-        emit(tx, SetupProgressEvent::StepError {
-            step: "download".into(),
-            error: format!("GitHub API returned HTTP {}", resp.status()),
-            recoverable: true,
-        });
+        emit(
+            tx,
+            SetupProgressEvent::StepError {
+                step: "download".into(),
+                error: format!("GitHub API returned HTTP {}", resp.status()),
+                recoverable: true,
+            },
+        );
         return Ok(());
     }
 
@@ -564,22 +598,33 @@ async fn run_install(
             let progress = (downloaded as f32 / total as f32).min(1.0);
             let mb_done = downloaded as f64 / 1_048_576.0;
             let mb_total = total as f64 / 1_048_576.0;
-            emit(tx, SetupProgressEvent::StepProgress {
-                step: "download".into(),
-                progress,
-                detail: format!("{mb_done:.1} / {mb_total:.1} MB"),
-            });
+            emit(
+                tx,
+                SetupProgressEvent::StepProgress {
+                    step: "download".into(),
+                    progress,
+                    detail: format!("{mb_done:.1} / {mb_total:.1} MB"),
+                },
+            );
         }
     }
     file.flush().await?;
 
-    emit(tx, SetupProgressEvent::StepComplete { step: "download".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "download".into(),
+        },
+    );
 
     // Step 3: Selective extraction
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "extract".into(),
-        description: format!("Extracting {}", entry.name),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "extract".into(),
+            description: format!("Extracting {}", entry.name),
+        },
+    );
 
     let servers_dir = resolve_servers_dir(state);
     let directory = entry.directory.clone();
@@ -590,20 +635,33 @@ async fn run_install(
     let servers_dir_clone = servers_dir.clone();
 
     tokio::task::spawn_blocking(move || {
-        extract_selective(&archive_path_clone, &servers_dir_clone, &directory, needs_common)
+        extract_selective(
+            &archive_path_clone,
+            &servers_dir_clone,
+            &directory,
+            needs_common,
+        )
     })
     .await??;
 
-    emit(tx, SetupProgressEvent::StepComplete { step: "extract".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "extract".into(),
+        },
+    );
 
     // Step 4: Install dependencies
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "install_deps".into(),
-        description: format!("Installing {} dependencies", entry.name),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "install_deps".into(),
+            description: format!("Installing {} dependencies", entry.name),
+        },
+    );
 
-    let venv_dir = crate::managers::mcp_venv::resolve_venv_dir()
-        .unwrap_or_else(|| servers_dir.join(".venv"));
+    let venv_dir =
+        crate::managers::mcp_venv::resolve_venv_dir().unwrap_or_else(|| servers_dir.join(".venv"));
 
     // Ensure venv exists
     if !venv_dir.join("pyvenv.cfg").exists() {
@@ -625,10 +683,13 @@ async fn run_install(
     if needs_common {
         let common_path = servers_dir.join("common");
         if common_path.join("pyproject.toml").exists() {
-            emit(tx, SetupProgressEvent::ServerInstall {
-                server_name: "common".into(),
-                status: "installing".into(),
-            });
+            emit(
+                tx,
+                SetupProgressEvent::ServerInstall {
+                    server_name: "common".into(),
+                    status: "installing".into(),
+                },
+            );
             let result = tokio::process::Command::new(&pip_str)
                 .args(["install", &common_path.to_string_lossy(), "--quiet"])
                 .stdout(std::process::Stdio::piped())
@@ -637,10 +698,13 @@ async fn run_install(
                 .await;
             match result {
                 Ok(output) if output.status.success() => {
-                    emit(tx, SetupProgressEvent::ServerInstall {
-                        server_name: "common".into(),
-                        status: "installed".into(),
-                    });
+                    emit(
+                        tx,
+                        SetupProgressEvent::ServerInstall {
+                            server_name: "common".into(),
+                            status: "installed".into(),
+                        },
+                    );
                 }
                 _ => {
                     warn!("Failed to install common dependency");
@@ -651,10 +715,13 @@ async fn run_install(
 
     // Install the target server
     let server_path = servers_dir.join(&entry.directory);
-    emit(tx, SetupProgressEvent::ServerInstall {
-        server_name: entry.name.clone(),
-        status: "installing".into(),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::ServerInstall {
+            server_name: entry.name.clone(),
+            status: "installing".into(),
+        },
+    );
 
     let result = tokio::process::Command::new(&pip_str)
         .args(["install", &server_path.to_string_lossy(), "--quiet"])
@@ -665,38 +732,55 @@ async fn run_install(
 
     match result {
         Ok(output) if output.status.success() => {
-            emit(tx, SetupProgressEvent::ServerInstall {
-                server_name: entry.name.clone(),
-                status: "installed".into(),
-            });
+            emit(
+                tx,
+                SetupProgressEvent::ServerInstall {
+                    server_name: entry.name.clone(),
+                    status: "installed".into(),
+                },
+            );
         }
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let last_line = stderr.lines().last().unwrap_or("unknown error");
-            emit(tx, SetupProgressEvent::StepError {
-                step: "install_deps".into(),
-                error: format!("pip install failed: {last_line}"),
-                recoverable: true,
-            });
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "install_deps".into(),
+                    error: format!("pip install failed: {last_line}"),
+                    recoverable: true,
+                },
+            );
             return Ok(());
         }
         Err(e) => {
-            emit(tx, SetupProgressEvent::StepError {
-                step: "install_deps".into(),
-                error: format!("Failed to run pip: {e}"),
-                recoverable: true,
-            });
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "install_deps".into(),
+                    error: format!("Failed to run pip: {e}"),
+                    recoverable: true,
+                },
+            );
             return Ok(());
         }
     }
 
-    emit(tx, SetupProgressEvent::StepComplete { step: "install_deps".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "install_deps".into(),
+        },
+    );
 
     // Step 5: Register and start via add_dynamic_server()
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "finalize".into(),
-        description: "Registering server".into(),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "finalize".into(),
+            description: "Registering server".into(),
+        },
+    );
 
     // Build env: merge defaults with overrides
     let mut env_map: HashMap<String, String> = HashMap::new();
@@ -720,17 +804,25 @@ async fn run_install(
 
     // Use add_dynamic_server() for proper lifecycle integration:
     // creates ServerConfig → connect_server() (spawn + register) → save to DB
-    match state.mcp_manager.add_dynamic_server(
-        entry.id.clone(),
-        command,
-        vec![server_script],
-        None,
-        Some(entry.description.clone()),
-        None,
-        env_map,
-    ).await {
+    match state
+        .mcp_manager
+        .add_dynamic_server(
+            entry.id.clone(),
+            command,
+            vec![server_script],
+            None,
+            Some(entry.description.clone()),
+            None,
+            env_map,
+        )
+        .await
+    {
         Ok(tools) => {
-            info!("Marketplace server connected: {} ({} tools)", entry.id, tools.len());
+            info!(
+                "Marketplace server connected: {} ({} tools)",
+                entry.id,
+                tools.len()
+            );
         }
         Err(e) => {
             warn!("Server registered but failed to connect: {e}");
@@ -739,12 +831,10 @@ async fn run_install(
     }
 
     // Set marketplace-specific fields (source, version, marketplace_id)
-    if let Err(e) = crate::db::mcp::set_marketplace_fields(
-        &state.pool,
-        &entry.id,
-        &entry.version,
-        &entry.id,
-    ).await {
+    if let Err(e) =
+        crate::db::mcp::set_marketplace_fields(&state.pool, &entry.id, &entry.version, &entry.id)
+            .await
+    {
         warn!("Failed to set marketplace fields: {e}");
     }
 
@@ -753,7 +843,12 @@ async fn run_install(
         let _ = state.mcp_manager.stop_server(&entry.id).await;
     }
 
-    emit(tx, SetupProgressEvent::StepComplete { step: "finalize".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "finalize".into(),
+        },
+    );
 
     // Cleanup tarball
     let _ = tokio::fs::remove_file(&archive_path).await;
@@ -795,9 +890,7 @@ fn extract_selective(
         // Check if this entry matches our target directories
         let relative = if path_str.contains(&server_suffix) {
             // Extract path after "servers/"
-            path_str
-                .find("/servers/")
-                .map(|i| &path_str[i + 1..]) // "servers/{directory}/..."
+            path_str.find("/servers/").map(|i| &path_str[i + 1..]) // "servers/{directory}/..."
         } else if include_common && path_str.contains(common_suffix) {
             path_str.find("/servers/").map(|i| &path_str[i + 1..])
         } else {
@@ -885,33 +978,46 @@ async fn run_batch_install(
     let tx = &state.setup_progress_tx;
 
     // Step 1: Check Python
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "check_python".into(),
-        description: "Checking Python installation".into(),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "check_python".into(),
+            description: "Checking Python installation".into(),
+        },
+    );
     let (python_available, _) = detect_python();
     if !python_available {
-        emit(tx, SetupProgressEvent::StepError {
-            step: "check_python".into(),
-            error: "Python 3 is required but not found".into(),
-            recoverable: false,
-        });
+        emit(
+            tx,
+            SetupProgressEvent::StepError {
+                step: "check_python".into(),
+                error: "Python 3 is required but not found".into(),
+                recoverable: false,
+            },
+        );
         return Ok(());
     }
-    emit(tx, SetupProgressEvent::StepComplete { step: "check_python".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "check_python".into(),
+        },
+    );
 
     // Step 2: Download tarball (once for all servers)
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "download".into(),
-        description: format!("Downloading {} servers", entries.len()),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "download".into(),
+            description: format!("Downloading {} servers", entries.len()),
+        },
+    );
 
     let tmp_dir = state.data_dir.join("tmp");
     tokio::fs::create_dir_all(&tmp_dir).await?;
     let archive_path = tmp_dir.join("cloto-mcp-servers-latest.tar.gz");
 
-    let tarball_url =
-        "https://api.github.com/repos/Cloto-dev/cloto-mcp-servers/tarball/master";
+    let tarball_url = "https://api.github.com/repos/Cloto-dev/cloto-mcp-servers/tarball/master";
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(120))
@@ -924,11 +1030,14 @@ async fn run_batch_install(
         .await?;
 
     if !resp.status().is_success() {
-        emit(tx, SetupProgressEvent::StepError {
-            step: "download".into(),
-            error: format!("GitHub API returned HTTP {}", resp.status()),
-            recoverable: true,
-        });
+        emit(
+            tx,
+            SetupProgressEvent::StepError {
+                step: "download".into(),
+                error: format!("GitHub API returned HTTP {}", resp.status()),
+                recoverable: true,
+            },
+        );
         return Ok(());
     }
 
@@ -948,43 +1057,69 @@ async fn run_batch_install(
             let progress = (downloaded as f32 / total as f32).min(1.0);
             let mb_done = downloaded as f64 / 1_048_576.0;
             let mb_total = total as f64 / 1_048_576.0;
-            emit(tx, SetupProgressEvent::StepProgress {
-                step: "download".into(),
-                progress,
-                detail: format!("{mb_done:.1} / {mb_total:.1} MB"),
-            });
+            emit(
+                tx,
+                SetupProgressEvent::StepProgress {
+                    step: "download".into(),
+                    progress,
+                    detail: format!("{mb_done:.1} / {mb_total:.1} MB"),
+                },
+            );
         }
     }
     file.flush().await?;
-    emit(tx, SetupProgressEvent::StepComplete { step: "download".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "download".into(),
+        },
+    );
 
     // Step 3: Batch extraction
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "extract".into(),
-        description: format!("Extracting {} servers", entries.len()),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "extract".into(),
+            description: format!("Extracting {} servers", entries.len()),
+        },
+    );
 
     let servers_dir = resolve_servers_dir(state);
     let directories: Vec<String> = entries.iter().map(|e| e.directory.clone()).collect();
-    let needs_common = entries.iter().any(|e| e.dependencies.contains(&"common".to_string()))
+    let needs_common = entries
+        .iter()
+        .any(|e| e.dependencies.contains(&"common".to_string()))
         && !servers_dir.join("common").join("__init__.py").exists();
 
     let archive_clone = archive_path.clone();
     let servers_dir_clone = servers_dir.clone();
     tokio::task::spawn_blocking(move || {
-        extract_batch(&archive_clone, &servers_dir_clone, &directories, needs_common)
+        extract_batch(
+            &archive_clone,
+            &servers_dir_clone,
+            &directories,
+            needs_common,
+        )
     })
     .await??;
-    emit(tx, SetupProgressEvent::StepComplete { step: "extract".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "extract".into(),
+        },
+    );
 
     // Step 4: Ensure venv + install dependencies
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "install_deps".into(),
-        description: "Installing dependencies".into(),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "install_deps".into(),
+            description: "Installing dependencies".into(),
+        },
+    );
 
-    let venv_dir = crate::managers::mcp_venv::resolve_venv_dir()
-        .unwrap_or_else(|| servers_dir.join(".venv"));
+    let venv_dir =
+        crate::managers::mcp_venv::resolve_venv_dir().unwrap_or_else(|| servers_dir.join(".venv"));
 
     if !venv_dir.join("pyvenv.cfg").exists() {
         if let Some(python_cmd) = crate::managers::mcp_venv::find_python() {
@@ -1005,10 +1140,13 @@ async fn run_batch_install(
     if needs_common {
         let common_path = servers_dir.join("common");
         if common_path.join("pyproject.toml").exists() {
-            emit(tx, SetupProgressEvent::ServerInstall {
-                server_name: "common".into(),
-                status: "installing".into(),
-            });
+            emit(
+                tx,
+                SetupProgressEvent::ServerInstall {
+                    server_name: "common".into(),
+                    status: "installing".into(),
+                },
+            );
             let result = tokio::process::Command::new(&pip_str)
                 .args(["install", &common_path.to_string_lossy(), "--quiet"])
                 .stdout(std::process::Stdio::piped())
@@ -1017,10 +1155,13 @@ async fn run_batch_install(
                 .await;
             match result {
                 Ok(output) if output.status.success() => {
-                    emit(tx, SetupProgressEvent::ServerInstall {
-                        server_name: "common".into(),
-                        status: "installed".into(),
-                    });
+                    emit(
+                        tx,
+                        SetupProgressEvent::ServerInstall {
+                            server_name: "common".into(),
+                            status: "installed".into(),
+                        },
+                    );
                 }
                 _ => warn!("Failed to install common dependency"),
             }
@@ -1033,19 +1174,25 @@ async fn run_batch_install(
     for entry in entries {
         // Skip already-running servers
         if running_servers.iter().any(|s| s.id == entry.id) {
-            emit(tx, SetupProgressEvent::ServerInstall {
-                server_name: entry.name.clone(),
-                status: "skipped".into(),
-            });
+            emit(
+                tx,
+                SetupProgressEvent::ServerInstall {
+                    server_name: entry.name.clone(),
+                    status: "skipped".into(),
+                },
+            );
             info!("Batch install: {} already running, skipped", entry.id);
             continue;
         }
 
         let server_path = servers_dir.join(&entry.directory);
-        emit(tx, SetupProgressEvent::ServerInstall {
-            server_name: entry.name.clone(),
-            status: "installing".into(),
-        });
+        emit(
+            tx,
+            SetupProgressEvent::ServerInstall {
+                server_name: entry.name.clone(),
+                status: "installing".into(),
+            },
+        );
 
         // pip install
         let result = tokio::process::Command::new(&pip_str)
@@ -1059,19 +1206,29 @@ async fn run_batch_install(
             Ok(output) if output.status.success() => {}
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                warn!("pip install failed for {}: {}", entry.id, stderr.lines().last().unwrap_or(""));
-                emit(tx, SetupProgressEvent::ServerInstall {
-                    server_name: entry.name.clone(),
-                    status: "failed".into(),
-                });
+                warn!(
+                    "pip install failed for {}: {}",
+                    entry.id,
+                    stderr.lines().last().unwrap_or("")
+                );
+                emit(
+                    tx,
+                    SetupProgressEvent::ServerInstall {
+                        server_name: entry.name.clone(),
+                        status: "failed".into(),
+                    },
+                );
                 continue;
             }
             Err(e) => {
                 warn!("Failed to run pip for {}: {}", entry.id, e);
-                emit(tx, SetupProgressEvent::ServerInstall {
-                    server_name: entry.name.clone(),
-                    status: "failed".into(),
-                });
+                emit(
+                    tx,
+                    SetupProgressEvent::ServerInstall {
+                        server_name: entry.name.clone(),
+                        status: "failed".into(),
+                    },
+                );
                 continue;
             }
         }
@@ -1092,15 +1249,19 @@ async fn run_batch_install(
             }
         }
 
-        match state.mcp_manager.add_dynamic_server(
-            entry.id.clone(),
-            command,
-            vec![server_script],
-            None,
-            Some(entry.description.clone()),
-            None,
-            env_map,
-        ).await {
+        match state
+            .mcp_manager
+            .add_dynamic_server(
+                entry.id.clone(),
+                command,
+                vec![server_script],
+                None,
+                Some(entry.description.clone()),
+                None,
+                env_map,
+            )
+            .await
+        {
             Ok(tools) => {
                 info!("Batch: {} connected ({} tools)", entry.id, tools.len());
             }
@@ -1110,8 +1271,13 @@ async fn run_batch_install(
         }
 
         if let Err(e) = crate::db::mcp::set_marketplace_fields(
-            &state.pool, &entry.id, &entry.version, &entry.id,
-        ).await {
+            &state.pool,
+            &entry.id,
+            &entry.version,
+            &entry.id,
+        )
+        .await
+        {
             warn!("Failed to set marketplace fields for {}: {e}", entry.id);
         }
 
@@ -1119,13 +1285,21 @@ async fn run_batch_install(
             let _ = state.mcp_manager.stop_server(&entry.id).await;
         }
 
-        emit(tx, SetupProgressEvent::ServerInstall {
-            server_name: entry.name.clone(),
-            status: "installed".into(),
-        });
+        emit(
+            tx,
+            SetupProgressEvent::ServerInstall {
+                server_name: entry.name.clone(),
+                status: "installed".into(),
+            },
+        );
     }
 
-    emit(tx, SetupProgressEvent::StepComplete { step: "install_deps".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "install_deps".into(),
+        },
+    );
 
     // Write setup-complete.json (for ensure_mcp_venv gate)
     let complete = serde_json::json!({

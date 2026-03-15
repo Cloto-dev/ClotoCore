@@ -88,15 +88,25 @@ async fn bind_llm_proxy(addr: SocketAddr) -> std::io::Result<tokio::net::TcpList
             Ok(()) => match socket.listen(1024) {
                 Ok(listener) => return Ok(listener),
                 Err(e) if attempt < MAX_RETRIES => {
-                    tracing::warn!("LLM proxy port {} listen failed (attempt {}/{}): {}",
-                        addr.port(), attempt + 1, MAX_RETRIES, e);
+                    tracing::warn!(
+                        "LLM proxy port {} listen failed (attempt {}/{}): {}",
+                        addr.port(),
+                        attempt + 1,
+                        MAX_RETRIES,
+                        e
+                    );
                     tokio::time::sleep(DELAY).await;
                 }
                 Err(e) => return Err(e),
             },
             Err(e) if attempt < MAX_RETRIES => {
-                tracing::warn!("LLM proxy port {} bind failed (attempt {}/{}): {}",
-                    addr.port(), attempt + 1, MAX_RETRIES, e);
+                tracing::warn!(
+                    "LLM proxy port {} bind failed (attempt {}/{}): {}",
+                    addr.port(),
+                    attempt + 1,
+                    MAX_RETRIES,
+                    e
+                );
                 tokio::time::sleep(DELAY).await;
             }
             Err(e) => return Err(e),

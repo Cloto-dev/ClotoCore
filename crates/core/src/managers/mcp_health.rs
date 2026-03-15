@@ -44,7 +44,8 @@ pub(super) fn spawn_health_monitor(
 async fn check_and_restart_dead_servers(manager: &McpClientManager) {
     let dead_servers: Vec<(String, ServerStatus, RestartPolicy)> = {
         let state = manager.state.read().await;
-        state.servers
+        state
+            .servers
             .iter()
             .filter_map(|(id, handle)| {
                 let policy = handle.config.effective_restart_policy();
@@ -92,15 +93,25 @@ async fn check_and_restart_dead_servers(manager: &McpClientManager) {
                 manager.lifecycle.reset_counter(&server_id);
 
                 super::mcp_lifecycle::emit_lifecycle_notification(
-                    manager, &server_id, "Error", "Connected", "Auto-restart succeeded"
-                ).await;
+                    manager,
+                    &server_id,
+                    "Error",
+                    "Connected",
+                    "Auto-restart succeeded",
+                )
+                .await;
 
-                super::mcp_events::deliver_event(manager, "lifecycle", &serde_json::json!({
-                    "server_id": server_id,
-                    "previous_state": "Error",
-                    "new_state": "Connected",
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                })).await;
+                super::mcp_events::deliver_event(
+                    manager,
+                    "lifecycle",
+                    &serde_json::json!({
+                        "server_id": server_id,
+                        "previous_state": "Error",
+                        "new_state": "Connected",
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    }),
+                )
+                .await;
             }
             Err(e) => {
                 error!(
@@ -114,16 +125,25 @@ async fn check_and_restart_dead_servers(manager: &McpClientManager) {
                 }
 
                 super::mcp_lifecycle::emit_lifecycle_notification(
-                    manager, &server_id, "Connected", "Error",
-                    &format!("Auto-restart failed: {}", e)
-                ).await;
+                    manager,
+                    &server_id,
+                    "Connected",
+                    "Error",
+                    &format!("Auto-restart failed: {}", e),
+                )
+                .await;
 
-                super::mcp_events::deliver_event(manager, "lifecycle", &serde_json::json!({
-                    "server_id": server_id,
-                    "previous_state": "Connected",
-                    "new_state": "Error",
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                })).await;
+                super::mcp_events::deliver_event(
+                    manager,
+                    "lifecycle",
+                    &serde_json::json!({
+                        "server_id": server_id,
+                        "previous_state": "Connected",
+                        "new_state": "Error",
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    }),
+                )
+                .await;
             }
         }
     }

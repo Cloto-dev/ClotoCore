@@ -2,10 +2,10 @@ use axum::{
     body::Body,
     http::{header, Request, StatusCode},
 };
+use cloto_core::events::SequencedEvent;
 use cloto_core::handlers;
 use cloto_core::test_utils::create_test_app_state as create_test_app_state_with_key;
 use cloto_core::AppState;
-use cloto_core::events::SequencedEvent;
 use cloto_shared::{ClotoEvent, ClotoEventData};
 use futures::StreamExt;
 use std::sync::Arc;

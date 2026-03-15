@@ -68,11 +68,7 @@ pub fn verify_seal(file_path: &Path, expected_seal: &str, key: &[u8]) -> anyhow:
 
     let computed = compute_seal(file_path, key)?;
     // Constant-time comparison of the hex strings to avoid timing side-channels.
-    Ok(subtle::ConstantTimeEq::ct_eq(
-        computed.as_bytes(),
-        expected_seal.as_bytes(),
-    )
-    .into())
+    Ok(subtle::ConstantTimeEq::ct_eq(computed.as_bytes(), expected_seal.as_bytes()).into())
 }
 
 /// Check seal status based on trust level and configuration.
@@ -136,9 +132,8 @@ pub fn check_seal(
 pub fn load_or_generate_seal_key(data_dir: &Path) -> anyhow::Result<Vec<u8>> {
     // 1. Check environment variable.
     if let Ok(env_key) = std::env::var("CLOTO_SEAL_KEY") {
-        let key = hex::decode(env_key.trim()).context(
-            "CLOTO_SEAL_KEY environment variable is not valid hex",
-        )?;
+        let key = hex::decode(env_key.trim())
+            .context("CLOTO_SEAL_KEY environment variable is not valid hex")?;
         if key.is_empty() {
             bail!("CLOTO_SEAL_KEY environment variable is empty");
         }
@@ -219,7 +214,10 @@ mod tests {
         let file = temp_file_with(b"deterministic content");
         let seal1 = compute_seal(file.path(), TEST_KEY).unwrap();
         let seal2 = compute_seal(file.path(), TEST_KEY).unwrap();
-        assert_eq!(seal1, seal2, "same file + same key should produce same seal");
+        assert_eq!(
+            seal1, seal2,
+            "same file + same key should produce same seal"
+        );
     }
 
     #[test]
@@ -227,7 +225,10 @@ mod tests {
         let file = temp_file_with(b"same content");
         let seal_a = compute_seal(file.path(), b"key-alpha").unwrap();
         let seal_b = compute_seal(file.path(), b"key-bravo").unwrap();
-        assert_ne!(seal_a, seal_b, "different keys should produce different seals");
+        assert_ne!(
+            seal_a, seal_b,
+            "different keys should produce different seals"
+        );
     }
 
     // --------------------------------------------------------
@@ -286,8 +287,14 @@ mod tests {
     #[test]
     fn check_seal_standard_valid_seal() {
         let (file, seal) = sealed_file();
-        let status =
-            check_seal(&TrustLevel::Standard, Some(&seal), file.path(), TEST_KEY, false).unwrap();
+        let status = check_seal(
+            &TrustLevel::Standard,
+            Some(&seal),
+            file.path(),
+            TEST_KEY,
+            false,
+        )
+        .unwrap();
         assert_eq!(status, SealStatus::Verified);
     }
 
@@ -308,8 +315,14 @@ mod tests {
     #[test]
     fn check_seal_untrusted_valid_seal() {
         let (file, seal) = sealed_file();
-        let status =
-            check_seal(&TrustLevel::Untrusted, Some(&seal), file.path(), TEST_KEY, false).unwrap();
+        let status = check_seal(
+            &TrustLevel::Untrusted,
+            Some(&seal),
+            file.path(),
+            TEST_KEY,
+            false,
+        )
+        .unwrap();
         assert_eq!(status, SealStatus::Verified);
     }
 
@@ -328,8 +341,14 @@ mod tests {
     fn check_seal_standard_invalid_seal() {
         let file = temp_file_with(b"binary");
         let bad = "sha256:badbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbad";
-        let status =
-            check_seal(&TrustLevel::Standard, Some(bad), file.path(), TEST_KEY, false).unwrap();
+        let status = check_seal(
+            &TrustLevel::Standard,
+            Some(bad),
+            file.path(),
+            TEST_KEY,
+            false,
+        )
+        .unwrap();
         assert_eq!(status, SealStatus::Failed);
     }
 
@@ -352,8 +371,14 @@ mod tests {
     fn check_seal_untrusted_invalid_seal() {
         let file = temp_file_with(b"binary");
         let bad = "sha256:badbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbad";
-        let status =
-            check_seal(&TrustLevel::Untrusted, Some(bad), file.path(), TEST_KEY, false).unwrap();
+        let status = check_seal(
+            &TrustLevel::Untrusted,
+            Some(bad),
+            file.path(),
+            TEST_KEY,
+            false,
+        )
+        .unwrap();
         assert_eq!(status, SealStatus::Failed);
     }
 
@@ -362,16 +387,14 @@ mod tests {
     #[test]
     fn check_seal_core_absent_allows() {
         let file = temp_file_with(b"binary");
-        let status =
-            check_seal(&TrustLevel::Core, None, file.path(), TEST_KEY, false).unwrap();
+        let status = check_seal(&TrustLevel::Core, None, file.path(), TEST_KEY, false).unwrap();
         assert_eq!(status, SealStatus::Unsigned);
     }
 
     #[test]
     fn check_seal_standard_absent_allows() {
         let file = temp_file_with(b"binary");
-        let status =
-            check_seal(&TrustLevel::Standard, None, file.path(), TEST_KEY, false).unwrap();
+        let status = check_seal(&TrustLevel::Standard, None, file.path(), TEST_KEY, false).unwrap();
         assert_eq!(status, SealStatus::Unsigned);
     }
 
@@ -402,8 +425,7 @@ mod tests {
     #[test]
     fn check_seal_untrusted_absent_allow_unsigned_skips() {
         let file = temp_file_with(b"binary");
-        let status =
-            check_seal(&TrustLevel::Untrusted, None, file.path(), TEST_KEY, true).unwrap();
+        let status = check_seal(&TrustLevel::Untrusted, None, file.path(), TEST_KEY, true).unwrap();
         assert_eq!(status, SealStatus::Skipped);
     }
 
@@ -411,8 +433,14 @@ mod tests {
     fn check_seal_untrusted_invalid_seal_allow_unsigned_still_fails() {
         let file = temp_file_with(b"binary");
         let bad = "sha256:badbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbad";
-        let status =
-            check_seal(&TrustLevel::Untrusted, Some(bad), file.path(), TEST_KEY, true).unwrap();
+        let status = check_seal(
+            &TrustLevel::Untrusted,
+            Some(bad),
+            file.path(),
+            TEST_KEY,
+            true,
+        )
+        .unwrap();
         assert_eq!(
             status,
             SealStatus::Failed,
