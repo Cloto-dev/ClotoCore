@@ -456,16 +456,16 @@ pub async fn upload_avatar(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to write avatar file: {}", e)))?;
 
-    // Attempt vision analysis (graceful degradation, 15s timeout)
+    // Attempt vision analysis (graceful degradation, 30s timeout for Ollama model load + inference)
     let avatar_description = match tokio::time::timeout(
-        std::time::Duration::from_secs(15),
+        std::time::Duration::from_secs(30),
         analyze_avatar(&state, &avatar_path_str),
     )
     .await
     {
         Ok(result) => result,
         Err(_) => {
-            tracing::warn!("Avatar vision analysis timed out after 15s, storing without description");
+            tracing::warn!("Avatar vision analysis timed out after 30s, storing without description");
             None
         }
     };
@@ -494,7 +494,8 @@ async fn analyze_avatar(state: &AppState, avatar_path: &str) -> Option<String> {
         "file_path": abs_path,
         "prompt": "Describe this character/avatar image concisely. \
                    Focus on appearance, style, colors, and mood. \
-                   This will be used as the agent's visual identity description."
+                   This will be used as the agent's visual identity description.",
+        "mode": "vision"
     });
 
     match state
@@ -507,11 +508,19 @@ async fn analyze_avatar(state: &AppState, avatar_path: &str) -> Option<String> {
                 if let crate::managers::mcp_protocol::ToolContent::Text { text } = content {
                     // Try parsing JSON response
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
+                        // Reject error responses (e.g. Ollama not running)
+                        if json.get("error").is_some() {
+                            warn!("Vision server returned error: {}", text);
+                            return None;
+                        }
                         if let Some(response) = json.get("response").and_then(|r| r.as_str()) {
-                            return Some(response.to_string());
+                            if !response.is_empty() {
+                                return Some(response.to_string());
+                            }
                         }
                     }
-                    return Some(text.clone());
+                    // Don't store raw unparsed text as description
+                    return None;
                 }
             }
             None
