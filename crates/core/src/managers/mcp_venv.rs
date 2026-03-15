@@ -25,7 +25,8 @@ pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
     let config: super::mcp_protocol::McpConfigFile = toml::from_str(&content).ok()?;
     let raw = config.paths.get("servers")?;
     // Support env var expansion in path values: ${VAR_NAME}
-    let resolved = if let Some(var_name) = raw.strip_prefix("${").and_then(|s| s.strip_suffix('}')) {
+    let resolved = if let Some(var_name) = raw.strip_prefix("${").and_then(|s| s.strip_suffix('}'))
+    {
         std::env::var(var_name).ok()?
     } else {
         raw.clone()
@@ -167,7 +168,10 @@ pub async fn ensure_mcp_venv(data_dir: Option<&Path>) {
     let (venv_dir, mcp_servers_dir) = if let Some(servers_dir) = resolve_servers_dir_from_config() {
         (servers_dir.join(".venv"), servers_dir)
     } else {
-        (project_root.join("mcp-servers").join(".venv"), project_root.join("mcp-servers"))
+        (
+            project_root.join("mcp-servers").join(".venv"),
+            project_root.join("mcp-servers"),
+        )
     };
     let venv_exists = venv_dir.join("pyvenv.cfg").exists();
 

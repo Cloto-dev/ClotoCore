@@ -35,6 +35,10 @@ pub use cron::{
 };
 pub use events::post_event_handler;
 pub use llm::{delete_llm_provider_key, list_llm_providers, set_llm_provider_key};
+pub use marketplace::{
+    batch_install_handler, catalog_handler, install_handler, marketplace_progress_handler,
+    uninstall_handler,
+};
 pub use mcp::{
     apply_plugin_settings, call_mcp_tool, create_mcp_server, delete_mcp_server, get_agent_access,
     get_max_cron_generation, get_mcp_server_access, get_mcp_server_settings, get_plugin_config,
@@ -43,7 +47,6 @@ pub use mcp::{
     set_yolo_mode, start_mcp_server, stop_mcp_server, update_mcp_server_settings,
     update_plugin_config,
 };
-pub use marketplace::{batch_install_handler, catalog_handler, install_handler, marketplace_progress_handler, uninstall_handler};
 pub use permissions::{approve_permission, deny_permission, get_pending_permissions};
 
 /// GET /api/system/version
@@ -317,13 +320,16 @@ pub async fn get_history(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let history = state.event_history.read().await;
-    let history_vec: Vec<serde_json::Value> = history.iter().map(|se| {
-        let mut obj = serde_json::to_value(&*se.event).unwrap_or_default();
-        if let serde_json::Value::Object(ref mut map) = obj {
-            map.insert("seq_id".into(), serde_json::json!(se.seq_id));
-        }
-        obj
-    }).collect();
+    let history_vec: Vec<serde_json::Value> = history
+        .iter()
+        .map(|se| {
+            let mut obj = serde_json::to_value(&*se.event).unwrap_or_default();
+            if let serde_json::Value::Object(ref mut map) = obj {
+                map.insert("seq_id".into(), serde_json::json!(se.seq_id));
+            }
+            obj
+        })
+        .collect();
     ok_data(serde_json::json!(history_vec))
 }
 
@@ -365,8 +371,11 @@ pub async fn get_metrics(
 }
 
 /// Parse the first text content from an MCP tool result as JSON.
-fn parse_mcp_tool_result(result: &crate::managers::mcp_protocol::CallToolResult) -> Option<serde_json::Value> {
-    if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) = result.content.first() {
+fn parse_mcp_tool_result(
+    result: &crate::managers::mcp_protocol::CallToolResult,
+) -> Option<serde_json::Value> {
+    if let Some(crate::managers::mcp_protocol::ToolContent::Text { text }) = result.content.first()
+    {
         serde_json::from_str::<serde_json::Value>(text).ok()
     } else {
         None
@@ -380,9 +389,11 @@ async fn call_memory_tool_with_fallback(
     args: serde_json::Value,
     fallback: serde_json::Value,
 ) -> AppResult<Json<serde_json::Value>> {
-    match state.mcp_manager.call_capability_tool(
-        crate::managers::CapabilityType::Memory, tool, args, None,
-    ).await {
+    match state
+        .mcp_manager
+        .call_capability_tool(crate::managers::CapabilityType::Memory, tool, args, None)
+        .await
+    {
         Ok(result) => ok_data(parse_mcp_tool_result(&result).unwrap_or(fallback)),
         Err(e) => {
             tracing::warn!("Memory tool {} failed: {}", tool, e);
@@ -401,7 +412,13 @@ pub async fn get_memories(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "agent_id": "", "limit": 100 });
-    call_memory_tool_with_fallback(&state, "list_memories", args, serde_json::json!({ "memories": [], "count": 0 })).await
+    call_memory_tool_with_fallback(
+        &state,
+        "list_memories",
+        args,
+        serde_json::json!({ "memories": [], "count": 0 }),
+    )
+    .await
 }
 
 /// **Route:** `GET /api/episodes`
@@ -414,7 +431,13 @@ pub async fn get_episodes(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "agent_id": "", "limit": 50 });
-    call_memory_tool_with_fallback(&state, "list_episodes", args, serde_json::json!({ "episodes": [], "count": 0 })).await
+    call_memory_tool_with_fallback(
+        &state,
+        "list_episodes",
+        args,
+        serde_json::json!({ "episodes": [], "count": 0 }),
+    )
+    .await
 }
 
 /// **Route:** `DELETE /api/memories/:id`
@@ -425,8 +448,14 @@ pub async fn delete_memory(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "memory_id": id });
-    let result = state.mcp_manager
-        .call_capability_tool(crate::managers::CapabilityType::Memory, "delete_memory", args, None)
+    let result = state
+        .mcp_manager
+        .call_capability_tool(
+            crate::managers::CapabilityType::Memory,
+            "delete_memory",
+            args,
+            None,
+        )
         .await
         .map_err(AppError::Internal)?;
     ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({})))
@@ -440,8 +469,14 @@ pub async fn delete_episode(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "episode_id": id });
-    let result = state.mcp_manager
-        .call_capability_tool(crate::managers::CapabilityType::Memory, "delete_episode", args, None)
+    let result = state
+        .mcp_manager
+        .call_capability_tool(
+            crate::managers::CapabilityType::Memory,
+            "delete_episode",
+            args,
+            None,
+        )
         .await
         .map_err(AppError::Internal)?;
     ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({})))

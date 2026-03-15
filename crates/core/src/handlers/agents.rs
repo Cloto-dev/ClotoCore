@@ -465,7 +465,9 @@ pub async fn upload_avatar(
     {
         Ok(result) => result,
         Err(_) => {
-            tracing::warn!("Avatar vision analysis timed out after 30s, storing without description");
+            tracing::warn!(
+                "Avatar vision analysis timed out after 30s, storing without description"
+            );
             None
         }
     };
@@ -500,7 +502,12 @@ async fn analyze_avatar(state: &AppState, avatar_path: &str) -> Option<String> {
 
     match state
         .mcp_manager
-        .call_capability_tool(crate::managers::CapabilityType::Vision, "analyze_image", args, None)
+        .call_capability_tool(
+            crate::managers::CapabilityType::Vision,
+            "analyze_image",
+            args,
+            None,
+        )
         .await
     {
         Ok(result) => {

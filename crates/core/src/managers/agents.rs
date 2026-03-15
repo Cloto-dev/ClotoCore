@@ -303,12 +303,11 @@ impl AgentManager {
 
     /// Get just the VRM model path for serving (from metadata JSON).
     pub async fn get_vrm_path(&self, agent_id: &str) -> anyhow::Result<Option<String>> {
-        let row: (Option<String>,) = sqlx::query_as(
-            "SELECT json_extract(metadata, '$.vrm_path') FROM agents WHERE id = ?",
-        )
-        .bind(agent_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let row: (Option<String>,) =
+            sqlx::query_as("SELECT json_extract(metadata, '$.vrm_path') FROM agents WHERE id = ?")
+                .bind(agent_id)
+                .fetch_one(&self.pool)
+                .await?;
         Ok(row.0)
     }
 

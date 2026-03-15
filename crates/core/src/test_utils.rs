@@ -8,7 +8,9 @@ use tokio::sync::{broadcast, mpsc, Notify, RwLock};
 
 pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::AppState> {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
+    crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        .await
+        .unwrap();
 
     let (event_tx, _event_rx) = mpsc::channel(100);
     let (tx, _rx) = broadcast::channel::<crate::events::SequencedEvent>(100);

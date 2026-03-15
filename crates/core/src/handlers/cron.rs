@@ -91,17 +91,13 @@ pub async fn create_cron_job(
         let uid = payload["creator_user_id"]
             .as_str()
             .ok_or_else(|| {
-                AppError::Validation(
-                    "creator_user_id is required when source_type='user'".into(),
-                )
+                AppError::Validation("creator_user_id is required when source_type='user'".into())
             })?
             .to_string();
         let uname = payload["creator_user_name"]
             .as_str()
             .ok_or_else(|| {
-                AppError::Validation(
-                    "creator_user_name is required when source_type='user'".into(),
-                )
+                AppError::Validation("creator_user_name is required when source_type='user'".into())
             })?
             .to_string();
         (Some(uid), Some(uname))

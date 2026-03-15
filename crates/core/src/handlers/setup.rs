@@ -115,9 +115,7 @@ pub(crate) fn detect_python() -> (bool, Option<String>) {
 // ── Endpoints ────────────────────────────────────────────────────────
 
 /// GET /api/setup/status — lightweight check (no auth required, like health_handler).
-pub async fn status_handler(
-    State(state): State<Arc<AppState>>,
-) -> Json<serde_json::Value> {
+pub async fn status_handler(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     // Dev mode always reports complete
     if is_dev_mode() {
         return super::json_data(serde_json::json!(SetupStatus {
@@ -141,7 +139,12 @@ pub async fn status_handler(
     // TODO: Update to use mcp_venv::resolve_venv_dir() instead of hardcoded path.
     let venv_exists = root
         .as_ref()
-        .map(|r| r.join("mcp-servers").join(".venv").join("pyvenv.cfg").exists())
+        .map(|r| {
+            r.join("mcp-servers")
+                .join(".venv")
+                .join("pyvenv.cfg")
+                .exists()
+        })
         .unwrap_or(false);
 
     let (python_available, python_version) = detect_python();
@@ -186,9 +189,13 @@ pub async fn start_handler(
     super::check_auth(&state, &headers)?;
 
     // Prevent concurrent runs
-    let was_running = state.setup_in_progress.swap(true, std::sync::atomic::Ordering::SeqCst);
+    let was_running = state
+        .setup_in_progress
+        .swap(true, std::sync::atomic::Ordering::SeqCst);
     if was_running {
-        return Err(AppError::Validation("Setup is already in progress".to_string()));
+        return Err(AppError::Validation(
+            "Setup is already in progress".to_string(),
+        ));
     }
 
     let state_clone = state.clone();
@@ -252,7 +259,9 @@ async fn run_bootstrap(state: Arc<AppState>) {
 
     // Always reset flag on exit via inner function + unconditional reset
     let result = run_bootstrap_inner(&state, tx).await;
-    state.setup_in_progress.store(false, std::sync::atomic::Ordering::SeqCst);
+    state
+        .setup_in_progress
+        .store(false, std::sync::atomic::Ordering::SeqCst);
 
     if let Err(e) = result {
         error!("Bootstrap setup failed: {e}");
@@ -264,12 +273,14 @@ async fn run_bootstrap_inner(
     state: &Arc<AppState>,
     tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>,
 ) -> anyhow::Result<()> {
-
     // Step 1: Check Python
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "check_python".into(),
-        description: "Checking Python installation".into(),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "check_python".into(),
+            description: "Checking Python installation".into(),
+        },
+    );
 
     let (python_available, python_version) = detect_python();
     if !python_available {
@@ -285,21 +296,32 @@ async fn run_bootstrap_inner(
             "macos" => "Install Python via Homebrew: brew install python3",
             _ => "Install Python via your package manager: sudo apt install python3 python3-venv",
         };
-        emit(tx, SetupProgressEvent::PythonMissing {
-            os: os_name.into(),
-            guidance: guidance.into(),
-        });
+        emit(
+            tx,
+            SetupProgressEvent::PythonMissing {
+                os: os_name.into(),
+                guidance: guidance.into(),
+            },
+        );
         return Ok(());
     }
     let python_cmd = crate::managers::mcp_venv::find_python().unwrap();
     info!("Setup: Python found: {} ({:?})", python_cmd, python_version);
-    emit(tx, SetupProgressEvent::StepComplete { step: "check_python".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "check_python".into(),
+        },
+    );
 
     // Step 2: Download MCP server archive
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "download".into(),
-        description: "Downloading MCP server archive".into(),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "download".into(),
+            description: "Downloading MCP server archive".into(),
+        },
+    );
 
     let version = env!("CARGO_PKG_VERSION");
     let archive_name = format!("cloto-mcp-servers-{version}.tar.gz");
@@ -311,52 +333,79 @@ async fn run_bootstrap_inner(
 
     let tmp_dir = state.data_dir.join("tmp");
     if let Err(e) = tokio::fs::create_dir_all(&tmp_dir).await {
-        emit(tx, SetupProgressEvent::StepError {
-            step: "download".into(),
-            error: format!("Failed to create temp directory: {e}"),
-            recoverable: true,
-        });
+        emit(
+            tx,
+            SetupProgressEvent::StepError {
+                step: "download".into(),
+                error: format!("Failed to create temp directory: {e}"),
+                recoverable: true,
+            },
+        );
         return Ok(());
     }
     let archive_path = tmp_dir.join(&archive_name);
 
     match download_with_progress(tx, &download_url, &archive_path).await {
         Ok(()) => {
-            emit(tx, SetupProgressEvent::StepComplete { step: "download".into() });
+            emit(
+                tx,
+                SetupProgressEvent::StepComplete {
+                    step: "download".into(),
+                },
+            );
         }
         Err(e) => {
-            emit(tx, SetupProgressEvent::StepError {
-                step: "download".into(),
-                error: format!("Download failed: {e}"),
-                recoverable: true,
-            });
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "download".into(),
+                    error: format!("Download failed: {e}"),
+                    recoverable: true,
+                },
+            );
             return Ok(());
         }
     }
 
     // Step 3: Verify checksum
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "verify".into(),
-        description: "Verifying archive integrity".into(),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "verify".into(),
+            description: "Verifying archive integrity".into(),
+        },
+    );
 
     let checksum_url = format!("{download_url}.sha256");
     match verify_checksum(&archive_path, &checksum_url).await {
         Ok(()) => {
-            emit(tx, SetupProgressEvent::StepComplete { step: "verify".into() });
+            emit(
+                tx,
+                SetupProgressEvent::StepComplete {
+                    step: "verify".into(),
+                },
+            );
         }
         Err(e) => {
             warn!("Checksum verification skipped or failed: {e}");
             // Non-fatal: continue even if checksum file is unavailable
-            emit(tx, SetupProgressEvent::StepComplete { step: "verify".into() });
+            emit(
+                tx,
+                SetupProgressEvent::StepComplete {
+                    step: "verify".into(),
+                },
+            );
         }
     }
 
     // Step 4: Extract archive
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "extract".into(),
-        description: "Extracting MCP servers".into(),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "extract".into(),
+            description: "Extracting MCP servers".into(),
+        },
+    );
 
     let root = match resolve_root() {
         Some(r) => r,
@@ -369,23 +418,34 @@ async fn run_bootstrap_inner(
 
     match extract_archive(&archive_path, &root).await {
         Ok(()) => {
-            emit(tx, SetupProgressEvent::StepComplete { step: "extract".into() });
+            emit(
+                tx,
+                SetupProgressEvent::StepComplete {
+                    step: "extract".into(),
+                },
+            );
         }
         Err(e) => {
-            emit(tx, SetupProgressEvent::StepError {
-                step: "extract".into(),
-                error: format!("Extraction failed: {e}"),
-                recoverable: true,
-            });
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "extract".into(),
+                    error: format!("Extraction failed: {e}"),
+                    recoverable: true,
+                },
+            );
             return Ok(());
         }
     }
 
     // Step 5: Create venv
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "create_venv".into(),
-        description: "Creating Python virtual environment".into(),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "create_venv".into(),
+            description: "Creating Python virtual environment".into(),
+        },
+    );
 
     // TODO: Update to use [paths].servers from mcp.toml for venv location.
     let venv_dir = root.join("mcp-servers").join(".venv");
@@ -403,19 +463,25 @@ async fn run_bootstrap_inner(
                 info!("Setup: Created Python venv at {}", venv_dir.display());
             }
             Ok(status) => {
-                emit(tx, SetupProgressEvent::StepError {
-                    step: "create_venv".into(),
-                    error: format!("Failed to create venv (exit code: {:?})", status.code()),
-                    recoverable: true,
-                });
+                emit(
+                    tx,
+                    SetupProgressEvent::StepError {
+                        step: "create_venv".into(),
+                        error: format!("Failed to create venv (exit code: {:?})", status.code()),
+                        recoverable: true,
+                    },
+                );
                 return Ok(());
             }
             Err(e) => {
-                emit(tx, SetupProgressEvent::StepError {
-                    step: "create_venv".into(),
-                    error: format!("Failed to run Python for venv creation: {e}"),
-                    recoverable: true,
-                });
+                emit(
+                    tx,
+                    SetupProgressEvent::StepError {
+                        step: "create_venv".into(),
+                        error: format!("Failed to run Python for venv creation: {e}"),
+                        recoverable: true,
+                    },
+                );
                 return Ok(());
             }
         }
@@ -430,26 +496,42 @@ async fn run_bootstrap_inner(
             .status()
             .await;
     }
-    emit(tx, SetupProgressEvent::StepComplete { step: "create_venv".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "create_venv".into(),
+        },
+    );
 
     // Step 6: Install dependencies per server
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "install_deps".into(),
-        description: "Installing MCP server dependencies".into(),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "install_deps".into(),
+            description: "Installing MCP server dependencies".into(),
+        },
+    );
 
     // TODO: Update to use [paths].servers from mcp.toml for servers directory.
     let mcp_servers_dir = root.join("mcp-servers");
     let pip = venv_pip(&venv_dir);
     let pip_str = pip.to_string_lossy().to_string();
     let server_count = install_server_deps_with_progress(tx, &pip_str, &mcp_servers_dir).await;
-    emit(tx, SetupProgressEvent::StepComplete { step: "install_deps".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "install_deps".into(),
+        },
+    );
 
     // Step 7: Finalize — write setup-complete.json
-    emit(tx, SetupProgressEvent::StepStart {
-        step: "finalize".into(),
-        description: "Finalizing setup".into(),
-    });
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "finalize".into(),
+            description: "Finalizing setup".into(),
+        },
+    );
 
     let complete = SetupCompleteFile {
         completed_at: chrono::Utc::now().to_rfc3339(),
@@ -471,7 +553,12 @@ async fn run_bootstrap_inner(
         }
     }
 
-    emit(tx, SetupProgressEvent::StepComplete { step: "finalize".into() });
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "finalize".into(),
+        },
+    );
 
     // Cleanup temp archive
     let _ = tokio::fs::remove_file(&archive_path).await;
@@ -484,7 +571,10 @@ async fn run_bootstrap_inner(
 
 // ── Internal helpers ─────────────────────────────────────────────────
 
-pub(crate) fn emit(tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>, event: SetupProgressEvent) {
+pub(crate) fn emit(
+    tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>,
+    event: SetupProgressEvent,
+) {
     // Ignore send errors (no subscribers)
     let _ = tx.send(event);
 }
@@ -534,11 +624,14 @@ pub(crate) async fn download_with_progress(
             let progress = (downloaded as f32 / total as f32).min(1.0);
             let mb_done = downloaded as f64 / 1_048_576.0;
             let mb_total = total as f64 / 1_048_576.0;
-            emit(tx, SetupProgressEvent::StepProgress {
-                step: "download".into(),
-                progress,
-                detail: format!("{mb_done:.1} / {mb_total:.1} MB"),
-            });
+            emit(
+                tx,
+                SetupProgressEvent::StepProgress {
+                    step: "download".into(),
+                    progress,
+                    detail: format!("{mb_done:.1} / {mb_total:.1} MB"),
+                },
+            );
         }
     }
 
@@ -547,10 +640,7 @@ pub(crate) async fn download_with_progress(
 }
 
 /// Verify SHA256 checksum against a remote .sha256 file.
-async fn verify_checksum(
-    archive_path: &std::path::Path,
-    checksum_url: &str,
-) -> anyhow::Result<()> {
+async fn verify_checksum(archive_path: &std::path::Path, checksum_url: &str) -> anyhow::Result<()> {
     let client = reqwest::Client::new();
     let resp = client.get(checksum_url).send().await?;
     if !resp.status().is_success() {
@@ -572,9 +662,7 @@ async fn verify_checksum(
     let actual_hash = hex::encode(hash);
 
     if actual_hash != expected_hash {
-        anyhow::bail!(
-            "Checksum mismatch: expected {expected_hash}, got {actual_hash}"
-        );
+        anyhow::bail!("Checksum mismatch: expected {expected_hash}, got {actual_hash}");
     }
 
     info!("Checksum verified: {actual_hash}");
@@ -631,10 +719,13 @@ async fn install_server_deps_with_progress(
         let name = entry.file_name().to_string_lossy().to_string();
         let server_path = entry.path().to_string_lossy().to_string();
 
-        emit(tx, SetupProgressEvent::ServerInstall {
-            server_name: name.clone(),
-            status: "installing".into(),
-        });
+        emit(
+            tx,
+            SetupProgressEvent::ServerInstall {
+                server_name: name.clone(),
+                status: "installing".into(),
+            },
+        );
 
         let result = tokio::process::Command::new(pip_str)
             .args(["install", &server_path, "--quiet"])
@@ -646,25 +737,38 @@ async fn install_server_deps_with_progress(
         match result {
             Ok(output) if output.status.success() => {
                 installed += 1;
-                emit(tx, SetupProgressEvent::ServerInstall {
-                    server_name: name,
-                    status: "installed".into(),
-                });
+                emit(
+                    tx,
+                    SetupProgressEvent::ServerInstall {
+                        server_name: name,
+                        status: "installed".into(),
+                    },
+                );
             }
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                warn!("Failed to install {}: {}", name, stderr.lines().last().unwrap_or("unknown"));
-                emit(tx, SetupProgressEvent::ServerInstall {
-                    server_name: name,
-                    status: "failed".into(),
-                });
+                warn!(
+                    "Failed to install {}: {}",
+                    name,
+                    stderr.lines().last().unwrap_or("unknown")
+                );
+                emit(
+                    tx,
+                    SetupProgressEvent::ServerInstall {
+                        server_name: name,
+                        status: "failed".into(),
+                    },
+                );
             }
             Err(e) => {
                 warn!("Failed to run pip for {}: {}", name, e);
-                emit(tx, SetupProgressEvent::ServerInstall {
-                    server_name: name,
-                    status: "failed".into(),
-                });
+                emit(
+                    tx,
+                    SetupProgressEvent::ServerInstall {
+                        server_name: name,
+                        status: "failed".into(),
+                    },
+                );
             }
         }
     }

@@ -81,7 +81,8 @@ async fn test_dynamic_permission_elevation_flow() {
     let registry_raw = PluginRegistry::new(5, 10, 50);
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 5, 10, 50).unwrap());
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
-    let (tx_internal, _rx_internal) = tokio::sync::broadcast::channel::<cloto_core::events::SequencedEvent>(10);
+    let (tx_internal, _rx_internal) =
+        tokio::sync::broadcast::channel::<cloto_core::events::SequencedEvent>(10);
 
     // 2. Register Mock Plugin
     let plugin_id = "test.mock";
@@ -90,7 +91,9 @@ async fn test_dynamic_permission_elevation_flow() {
 
     {
         let mut state = registry_raw.state.write().await;
-        state.plugins.insert(plugin_id.to_string(), mock_plugin.clone());
+        state
+            .plugins
+            .insert(plugin_id.to_string(), mock_plugin.clone());
     }
 
     let registry = Arc::new(registry_raw);
@@ -166,7 +169,8 @@ async fn test_dynamic_permission_elevation_flow() {
     {
         let state = registry.state.read().await;
         assert!(state.effective_permissions.contains_key(&cloto_id));
-        assert!(state.effective_permissions
+        assert!(state
+            .effective_permissions
             .get(&cloto_id)
             .unwrap()
             .contains(&Permission::NetworkAccess));
