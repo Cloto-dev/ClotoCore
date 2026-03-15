@@ -398,18 +398,20 @@ impl AppConfig {
             );
         }
 
-        let memory_plugin_id = env::var("CLOTO_MEMORY_PLUGIN_ID")
-            .unwrap_or_else(|_| "memory.cpersona".to_string());
+        let memory_plugin_id =
+            env::var("CLOTO_MEMORY_PLUGIN_ID").unwrap_or_else(|_| "memory.cpersona".to_string());
 
         // P1: Configurable API host whitelist (default providers included for compatibility)
         let default_allowed_api_hosts = env::var("CLOTO_ALLOWED_API_HOSTS")
             .map(|s| s.split(',').map(|h| h.trim().to_string()).collect())
-            .unwrap_or_else(|_| vec![
-                "api.deepseek.com".to_string(),
-                "api.cerebras.ai".to_string(),
-                "api.openai.com".to_string(),
-                "api.anthropic.com".to_string(),
-            ]);
+            .unwrap_or_else(|_| {
+                vec![
+                    "api.deepseek.com".to_string(),
+                    "api.cerebras.ai".to_string(),
+                    "api.openai.com".to_string(),
+                    "api.anthropic.com".to_string(),
+                ]
+            });
 
         // P1: Configurable LLM provider-to-env-var mappings
         let llm_provider_env_mappings = env::var("CLOTO_LLM_ENV_MAPPINGS")
@@ -425,12 +427,14 @@ impl AppConfig {
                     })
                     .collect()
             })
-            .unwrap_or_else(|_| vec![
-                ("deepseek".to_string(), "DEEPSEEK_API_KEY".to_string()),
-                ("cerebras".to_string(), "CEREBRAS_API_KEY".to_string()),
-                ("claude".to_string(), "CLAUDE_API_KEY".to_string()),
-                ("ollama".to_string(), "OLLAMA_API_KEY".to_string()),
-            ]);
+            .unwrap_or_else(|_| {
+                vec![
+                    ("deepseek".to_string(), "DEEPSEEK_API_KEY".to_string()),
+                    ("cerebras".to_string(), "CEREBRAS_API_KEY".to_string()),
+                    ("claude".to_string(), "CLAUDE_API_KEY".to_string()),
+                    ("ollama".to_string(), "OLLAMA_API_KEY".to_string()),
+                ]
+            });
 
         Ok(Self {
             database_url,

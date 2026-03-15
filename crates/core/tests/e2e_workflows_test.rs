@@ -1,5 +1,5 @@
-use cloto_core::AppState;
 use cloto_core::events::SequencedEvent;
+use cloto_core::AppState;
 use cloto_shared::{ClotoEvent, ClotoEventData, ClotoMessage, MessageSource};
 use std::sync::Arc;
 
@@ -109,7 +109,10 @@ async fn test_permission_grant_flow() {
             permission,
         } => {
             assert_eq!(plugin_id, "test.plugin");
-            assert_eq!(permission, &cloto_shared::Permission::NetworkAccess.to_string());
+            assert_eq!(
+                permission,
+                &cloto_shared::Permission::NetworkAccess.to_string()
+            );
         }
         _ => panic!("Expected PermissionGranted event"),
     }

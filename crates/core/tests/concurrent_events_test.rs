@@ -63,7 +63,9 @@ async fn test_event_depth_limit_prevents_infinite_loop() {
 
     {
         let mut state = registry.state.write().await;
-        state.plugins.insert("mock".into(), plugin as Arc<dyn cloto_shared::Plugin>);
+        state
+            .plugins
+            .insert("mock".into(), plugin as Arc<dyn cloto_shared::Plugin>);
     }
 
     let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<EnvelopedEvent>(10);

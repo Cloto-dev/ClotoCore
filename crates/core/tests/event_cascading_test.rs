@@ -99,7 +99,8 @@ async fn test_event_cascading_protection() {
         );
     }
 
-    let (tx_broadcast, mut rx_broadcast) = broadcast::channel::<cloto_core::events::SequencedEvent>(1000);
+    let (tx_broadcast, mut rx_broadcast) =
+        broadcast::channel::<cloto_core::events::SequencedEvent>(1000);
     let (tx_internal, rx_internal) = mpsc::channel::<EnvelopedEvent>(1000);
 
     let metrics = Arc::new(cloto_core::managers::SystemMetrics::new());

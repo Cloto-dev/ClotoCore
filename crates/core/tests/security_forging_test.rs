@@ -124,7 +124,9 @@ async fn test_vulnerability_event_forging() {
     // 3. Register Plugins
     {
         let mut state = registry.state.write().await;
-        state.plugins.insert(admin_id.to_string(), Arc::new(AdminPlugin(admin_id)));
+        state
+            .plugins
+            .insert(admin_id.to_string(), Arc::new(AdminPlugin(admin_id)));
         state.plugins.insert(
             malice_id.to_string(),
             Arc::new(MaliciousPlugin {
@@ -141,7 +143,8 @@ async fn test_vulnerability_event_forging() {
     // Maliceには権限を与えない
 
     // 5. Setup Event Loop
-    let (tx_broadcast, mut rx_broadcast) = broadcast::channel::<cloto_core::events::SequencedEvent>(100);
+    let (tx_broadcast, mut rx_broadcast) =
+        broadcast::channel::<cloto_core::events::SequencedEvent>(100);
     let (tx_internal, rx_internal) = mpsc::channel::<cloto_core::EnvelopedEvent>(100);
 
     let metrics = Arc::new(cloto_core::managers::SystemMetrics::new());

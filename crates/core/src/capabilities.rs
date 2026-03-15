@@ -297,7 +297,8 @@ mod tests {
             "api.provider-a.test".to_string(),
             "api.provider-b.test".to_string(),
             "api.provider-c.test".to_string(),
-        ]).unwrap();
+        ])
+        .unwrap();
 
         assert!(client.is_whitelisted_host("api.provider-a.test"));
         assert!(client.is_whitelisted_host("api.provider-b.test"));

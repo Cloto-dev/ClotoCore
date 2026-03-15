@@ -1030,10 +1030,7 @@ pub(super) async fn execute_stream_cancel(
 }
 
 /// Execute mgp.stream.pace — control output rate of a streaming tool call.
-pub(super) async fn execute_stream_pace(
-    manager: &McpClientManager,
-    args: Value,
-) -> Result<Value> {
+pub(super) async fn execute_stream_pace(manager: &McpClientManager, args: Value) -> Result<Value> {
     let server_id = args
         .get("server_id")
         .and_then(|v| v.as_str())
@@ -1274,10 +1271,7 @@ const MAX_DELEGATION_DEPTH: usize = 3;
 /// The calling agent's `agent_id` is injected by the kernel (anti-spoofing).
 /// The target agent processes the prompt with its own LLM engine and system prompt.
 /// Context isolation: the target agent does NOT receive the caller's conversation history.
-pub(super) async fn execute_ask_agent(
-    manager: &McpClientManager,
-    args: Value,
-) -> Result<Value> {
+pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -> Result<Value> {
     // 1. YOLO mode check — inter-agent delegation is a privileged operation
     if !manager.yolo_mode.load(Ordering::Relaxed) {
         return Ok(serde_json::json!({
@@ -1297,10 +1291,7 @@ pub(super) async fn execute_ask_agent(
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: prompt"))?;
 
-    let context = args
-        .get("context")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let context = args.get("context").and_then(|v| v.as_str()).unwrap_or("");
 
     // 3. Get calling agent's ID (injected by kernel anti-spoofing)
     let caller_agent_id = args
@@ -1529,10 +1520,7 @@ fn gui_read_schema() -> Value {
 }
 
 /// Execute gui.map: read and return the component map file.
-pub(super) async fn execute_gui_map(
-    _manager: &McpClientManager,
-    _args: Value,
-) -> Result<Value> {
+pub(super) async fn execute_gui_map(_manager: &McpClientManager, _args: Value) -> Result<Value> {
     let map_path = std::path::Path::new("docs/gui/component-map.md");
     if !map_path.exists() {
         return Ok(serde_json::json!({
@@ -1558,10 +1546,7 @@ const GUI_READ_ALLOWED_EXTENSIONS: &[&str] = &["tsx", "ts", "json", "css", "md"]
 const GUI_READ_MAX_SIZE: u64 = 200 * 1024;
 
 /// Execute gui.read: read a specific dashboard source file with path traversal protection.
-pub(super) async fn execute_gui_read(
-    _manager: &McpClientManager,
-    args: Value,
-) -> Result<Value> {
+pub(super) async fn execute_gui_read(_manager: &McpClientManager, args: Value) -> Result<Value> {
     let rel_path = args
         .get("path")
         .and_then(|v| v.as_str())

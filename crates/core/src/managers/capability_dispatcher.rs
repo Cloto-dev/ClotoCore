@@ -46,11 +46,7 @@ impl CapabilityDispatcher {
     }
 
     /// Register capabilities from a newly connected server's tool list.
-    pub async fn build_from_tools(
-        &self,
-        server_id: &str,
-        tools: &[super::mcp_protocol::McpTool],
-    ) {
+    pub async fn build_from_tools(&self, server_id: &str, tools: &[super::mcp_protocol::McpTool]) {
         let mut mappings = self.mappings.write().await;
         for tool in tools {
             if let Some(cap) = classify_tool(server_id, &tool.name) {
@@ -170,13 +166,9 @@ mod tests {
             make_tool("recall"),
             make_tool("list_memories"),
         ];
-        dispatcher
-            .build_from_tools("memory.cpersona", &tools)
-            .await;
+        dispatcher.build_from_tools("memory.cpersona", &tools).await;
 
-        let result = dispatcher
-            .resolve(CapabilityType::Memory, "recall")
-            .await;
+        let result = dispatcher.resolve(CapabilityType::Memory, "recall").await;
         assert!(result.is_some());
         let (server, tool) = result.unwrap();
         assert_eq!(server, "memory.cpersona");
@@ -187,13 +179,9 @@ mod tests {
     async fn test_resolve_server() {
         let dispatcher = CapabilityDispatcher::new();
         let tools = vec![make_tool("analyze_image")];
-        dispatcher
-            .build_from_tools("vision.capture", &tools)
-            .await;
+        dispatcher.build_from_tools("vision.capture", &tools).await;
 
-        let server = dispatcher
-            .resolve_server(CapabilityType::Vision)
-            .await;
+        let server = dispatcher.resolve_server(CapabilityType::Vision).await;
         assert_eq!(server.as_deref(), Some("vision.capture"));
     }
 
@@ -201,9 +189,7 @@ mod tests {
     async fn test_remove_server() {
         let dispatcher = CapabilityDispatcher::new();
         let tools = vec![make_tool("store"), make_tool("recall")];
-        dispatcher
-            .build_from_tools("memory.cpersona", &tools)
-            .await;
+        dispatcher.build_from_tools("memory.cpersona", &tools).await;
 
         dispatcher.remove_server("memory.cpersona").await;
 
@@ -217,13 +203,9 @@ mod tests {
     async fn test_classify_by_tool_name() {
         let dispatcher = CapabilityDispatcher::new();
         let tools = vec![make_tool("store"), make_tool("recall")];
-        dispatcher
-            .build_from_tools("custom.storage", &tools)
-            .await;
+        dispatcher.build_from_tools("custom.storage", &tools).await;
 
-        let result = dispatcher
-            .resolve(CapabilityType::Memory, "recall")
-            .await;
+        let result = dispatcher.resolve(CapabilityType::Memory, "recall").await;
         assert!(result.is_some());
     }
 
@@ -231,12 +213,8 @@ mod tests {
     async fn test_no_duplicates() {
         let dispatcher = CapabilityDispatcher::new();
         let tools = vec![make_tool("store")];
-        dispatcher
-            .build_from_tools("memory.cpersona", &tools)
-            .await;
-        dispatcher
-            .build_from_tools("memory.cpersona", &tools)
-            .await;
+        dispatcher.build_from_tools("memory.cpersona", &tools).await;
+        dispatcher.build_from_tools("memory.cpersona", &tools).await;
 
         let all = dispatcher.resolve_all(CapabilityType::Memory).await;
         assert_eq!(all.len(), 1);

@@ -108,10 +108,7 @@ impl VoicevoxClient {
             })?;
 
         if !resp.status().is_success() {
-            return Err(format!(
-                "VOICEVOX audio_query error: {}",
-                resp.status()
-            ));
+            return Err(format!("VOICEVOX audio_query error: {}", resp.status()));
         }
 
         let mut query: Value = resp.json().map_err(|e| format!("JSON parse error: {e}"))?;
@@ -172,15 +169,17 @@ impl VoicevoxClient {
             .map_err(|e| format!("VOICEVOX synthesis failed: {e}"))?;
 
         if !resp.status().is_success() {
-            return Err(format!(
-                "VOICEVOX synthesis error: {}",
-                resp.status()
-            ));
+            return Err(format!("VOICEVOX synthesis error: {}", resp.status()));
         }
 
         let wav_bytes = resp.bytes().map_err(|e| format!("WAV read error: {e}"))?;
 
-        Ok((wav_bytes.to_vec(), viseme_timeline, total_duration_ms, audio_offset_ms))
+        Ok((
+            wav_bytes.to_vec(),
+            viseme_timeline,
+            total_duration_ms,
+            audio_offset_ms,
+        ))
     }
 
     /// List all available speakers from VOICEVOX Engine.
@@ -278,10 +277,7 @@ fn mora_to_viseme_timeline(accent_phrases: &[Value]) -> Vec<Value> {
                     .get("vowel_length")
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0);
-                let vowel = mora
-                    .get("vowel")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let vowel = mora.get("vowel").and_then(|v| v.as_str()).unwrap_or("");
 
                 // Consonant portion → neutral
                 let consonant_ms = consonant_len * 1000.0;

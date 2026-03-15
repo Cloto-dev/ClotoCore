@@ -118,7 +118,9 @@ async fn test_cascading_depth_limit_enforced() {
 
     {
         let mut state = registry.state.write().await;
-        state.plugins.insert("mock".into(), plugin as Arc<dyn cloto_shared::Plugin>);
+        state
+            .plugins
+            .insert("mock".into(), plugin as Arc<dyn cloto_shared::Plugin>);
     }
 
     let (event_tx, _event_rx) = tokio::sync::mpsc::channel::<cloto_core::EnvelopedEvent>(10);
