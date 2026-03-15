@@ -1,0 +1,9 @@
+pre-commit:
+  parallel: true
+  commands:
+    rust-fmt:
+      glob: "*.rs"
+      run: cargo fmt -- --check
+    ts-lint:
+      glob: "dashboard/src/**/*.{ts,tsx}"
+      run: cd dashboard && npx biome check {staged_files}
