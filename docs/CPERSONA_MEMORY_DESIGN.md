@@ -17,6 +17,8 @@
 | CPersona 2.2 | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Deprecated (Rust plugin) |
 | CPersona 2.3 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) | **Current** |
 | CPersona 2.4 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | LLM-powered + anti-contamination + gated recency boost | **Planned** |
+| CPersona 2.5 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency + RRF reranking | LLM-powered + anti-contamination + profile enrichment | **Planned** |
+| CPersona 3.0 | ClotoCore | SQLite + graph tables (nodes/edges) | Cascade + graph traversal (BFS) + bi-temporal | LLM-powered + anti-contamination + memory evolution (full) | **Planned** |
 
 ### 1.2 Capabilities Lost in 2.2 (restored in 2.3)
 
@@ -994,6 +996,171 @@ enhancements are planned for CPersona 2.4+:
 - [ ] **Oldest pending task age** — Expose `created_at` of the oldest pending task to detect queue staleness or stuck tasks
 - [ ] **Cumulative session statistics** — Track `processed_count`, `failed_count`, and `uptime` across the queue's lifetime for throughput monitoring
 - [ ] **Liveness indicator** — Report whether the background loop is actively running (`is_alive: true/false`), distinguishing "queue enabled but loop crashed" from normal idle
+
+#### CPersona 2.5 Roadmap — Search Precision & Profile Evolution
+
+**Theme:** Sharpen existing strengths without architectural changes.
+
+##### 1. Reciprocal Rank Fusion (RRF) Reranking
+
+Current recall merges results from 4 strategies by deduplication + relevance sort.
+RRF provides a principled fusion method that is backend-agnostic and parameter-free
+(no training required).
+
+```python
+# Applied after all 4 cascade strategies produce their ranked lists
+RRF_K = 60  # Standard constant (Cormack et al., 2009)
+
+def rrf_score(rank: int) -> float:
+    return 1.0 / (RRF_K + rank)
+
+# Each strategy produces a ranked list; RRF merges them:
+# final_score(doc) = Σ rrf_score(rank_in_strategy_i) for each strategy that returned doc
+```
+
+**Why RRF over alternatives:**
+- Cross-encoder reranking requires an additional model (latency + memory cost)
+- MMR requires tuning λ diversity parameter per domain
+- RRF is zero-parameter, works across heterogeneous score scales (cosine vs BM25 vs recency)
+- Proven effective: used by Zep/Graphiti as one of their 5 reranking options
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CPERSONA_RRF_ENABLED` | `false` | Enable RRF reranking (opt-in) |
+| `CPERSONA_RRF_K` | `60` | RRF constant (higher = more weight to lower-ranked results) |
+
+**Implementation scope:** `cloto-mcp-servers` repo (`servers/cpersona/server.py`,
+`recall()` function). Insert RRF merge step between strategy collection and final
+truncation. No schema changes.
+
+##### 2. Profile Enrichment (Limited Memory Evolution)
+
+Current `update_profile` only updates on contradiction ("keep all existing information
+unless explicitly contradicted"). v2.5 extends this to **contextual enrichment** —
+new information that adds context to existing facts without contradicting them.
+
+**Example:**
+- Existing profile: `"User is a software engineer"`
+- New conversation: User mentions working on distributed systems at a startup
+- Current behavior (v2.3): No update (no contradiction detected)
+- v2.5 behavior: `"User is a software engineer specializing in distributed systems, works at a startup"`
+
+**LLM prompt change** (in `_run_update_profile()`):
+```
+Current: "MERGE with existing facts — keep all existing information unless explicitly contradicted"
+v2.5:    "MERGE with existing facts — keep all existing information unless explicitly contradicted.
+          ENRICH existing facts with new contextual details when the conversation provides
+          additional specificity (e.g., job title → job title + specialization + company).
+          Do NOT infer or speculate — only add details explicitly stated in the conversation."
+```
+
+**Anti-contamination safeguard:** The "Do NOT infer or speculate" instruction prevents
+hallucinated enrichment. Only explicitly stated details are merged.
+
+**Implementation scope:** `cloto-mcp-servers` repo (`servers/cpersona/server.py`,
+`_run_update_profile()` LLM prompt only). No schema changes, no new tools.
+
+##### 3. Benchmark Verification Framework (Parallel Track)
+
+Establish baseline metrics on standard memory benchmarks to objectively measure
+improvements across versions.
+
+**Target benchmarks:**
+- **LOCOMO** — Multi-session conversation memory (Mem0's primary benchmark)
+- **LongMemEval** — Long-term memory evaluation (Zep/Graphiti benchmark)
+- **HaluMem** — Memory-induced hallucination detection (validates anti-contamination)
+
+**Deliverables:**
+- `benchmarks/` directory in `cloto-mcp-servers` repo
+- Evaluation scripts per benchmark (Python, dataset-agnostic runner)
+- Baseline scores for v2.3, re-measured after v2.4 and v2.5 changes
+- Results documented in this file (new Section 11: Benchmark Results)
+
+---
+
+#### CPersona 3.0 Roadmap — Graph Memory Paradigm
+
+**Theme:** Architectural shift from flat memory to structured knowledge graph.
+This is the pathway to closing the gap with Zep/Graphiti, Mem0, and Cognee.
+
+##### 1. Graph Memory (Core Feature)
+
+Introduce entity-relationship graph stored in SQLite (no external graph DB dependency).
+
+**New tables:**
+
+```sql
+CREATE TABLE entities (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id   TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    entity_type TEXT NOT NULL DEFAULT 'unknown',  -- person, place, concept, etc.
+    attributes TEXT NOT NULL DEFAULT '{}',          -- JSON key-value pairs
+    embedding  BLOB,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(agent_id, name, entity_type)
+);
+
+CREATE TABLE edges (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id    TEXT NOT NULL,
+    source_id   INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    target_id   INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    relation    TEXT NOT NULL,            -- "works_at", "friend_of", "likes", etc.
+    attributes  TEXT NOT NULL DEFAULT '{}',
+    valid_from  TEXT,                      -- bi-temporal: when the fact became true
+    valid_to    TEXT,                      -- bi-temporal: when the fact ceased to be true (NULL = current)
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(agent_id, source_id, target_id, relation)
+);
+
+CREATE TABLE entity_mentions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_id   INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    memory_id   INTEGER REFERENCES memories(id) ON DELETE SET NULL,
+    episode_id  INTEGER REFERENCES episodes(id) ON DELETE SET NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+**New MCP tools:**
+- `store_entity(agent_id, name, entity_type, attributes)` — Create/update entity node
+- `store_relation(agent_id, source, target, relation, valid_from?, valid_to?)` — Create edge
+- `query_graph(agent_id, entity_name, depth?, relation_filter?)` — BFS traversal from entity
+
+**Recall integration:** Graph traversal becomes Strategy 5 in the cascade, executed
+when vector/FTS5 results contain recognized entity names.
+
+##### 2. Bi-Temporal Model
+
+Every edge (relationship) carries `valid_from` / `valid_to` timestamps.
+Old facts are **invalidated**, not deleted — enabling temporal queries.
+
+**Example:**
+```
+Edge: User --[lives_in]--> Tokyo    valid_from: 2024-01, valid_to: 2025-06
+Edge: User --[lives_in]--> Osaka    valid_from: 2025-06, valid_to: NULL (current)
+```
+
+**Temporal query:** "Where did the user live last year?" → traverse edges where
+`valid_from <= 2025-03 AND (valid_to IS NULL OR valid_to > 2025-03)` → Tokyo.
+
+**Integration with anti-contamination:** Temporal annotations extended to include
+validity period: `[Memory from 2024-01, valid until 2025-06]`.
+
+##### 3. Full Memory Evolution
+
+Extension of v2.5's profile enrichment to the graph level:
+- New information triggers **retroactive edge updates** (A-MEM style)
+- LLM evaluates whether new facts modify existing entity attributes or create new edges
+- Cognee's memify concept: periodically prune stale nodes, strengthen frequent connections
+
+**Dependency:** Requires graph memory (item 1) to be implemented first.
+
+---
 
 #### ~~Semantic Cache~~ — **Cancelled**
 
