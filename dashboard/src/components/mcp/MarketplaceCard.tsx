@@ -27,9 +27,10 @@ const ICON_MAP: Record<string, LucideIcon> = {
 interface MarketplaceCardProps {
   entry: MarketplaceCatalogEntry;
   onInstall: (entry: MarketplaceCatalogEntry) => void;
+  onUninstall: (entry: MarketplaceCatalogEntry) => void;
 }
 
-export function MarketplaceCard({ entry, onInstall }: MarketplaceCardProps) {
+export function MarketplaceCard({ entry, onInstall, onUninstall }: MarketplaceCardProps) {
   const { t } = useTranslation('mcp');
   const Icon = (entry.icon && ICON_MAP[entry.icon]) || Package;
 
@@ -90,7 +91,15 @@ export function MarketplaceCard({ entry, onInstall }: MarketplaceCardProps) {
         </div>
 
         {/* Action button */}
-        {isInstalled && (
+        {isInstalled && entry.installed && (
+          <button
+            onClick={() => onUninstall(entry)}
+            className="px-2 py-1 text-[11px] font-sans rounded bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 transition-colors"
+          >
+            {t('marketplace.uninstall')}
+          </button>
+        )}
+        {isInstalled && !entry.installed && (
           <button
             disabled
             className="px-2 py-1 text-[11px] font-sans rounded bg-glass text-content-tertiary border border-edge cursor-default"
