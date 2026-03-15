@@ -53,7 +53,7 @@ export function MarketplaceCard({ entry, onInstall, onUninstall }: MarketplaceCa
   const isUpdate = entry.installed && entry.update_available;
 
   return (
-    <div className="bg-glass-strong backdrop-blur-sm border border-edge rounded-lg p-3 flex flex-col gap-2 transition-colors duration-200 hover:border-brand">
+    <div className="bg-surface-primary border border-edge rounded-xl p-4 flex flex-col gap-2 transition-all duration-200 hover:border-brand group">
       {/* Header */}
       <div className="flex items-center gap-2">
         <Icon size={14} className="text-brand shrink-0" />
@@ -70,7 +70,7 @@ export function MarketplaceCard({ entry, onInstall, onUninstall }: MarketplaceCa
       {entry.tags.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {entry.tags.map((tag) => (
-            <span key={tag} className="bg-surface-secondary text-content-tertiary text-[11px] px-1.5 rounded">
+            <span key={tag} className="bg-surface-secondary text-content-tertiary text-[11px] px-1.5 rounded border border-edge">
               {tag}
             </span>
           ))}
