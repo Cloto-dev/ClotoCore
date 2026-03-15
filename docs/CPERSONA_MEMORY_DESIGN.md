@@ -995,12 +995,6 @@ enhancements are planned for CPersona 2.4+:
 - [ ] **Cumulative session statistics** — Track `processed_count`, `failed_count`, and `uptime` across the queue's lifetime for throughput monitoring
 - [ ] **Liveness indicator** — Report whether the background loop is actively running (`is_alive: true/false`), distinguishing "queue enabled but loop crashed" from normal idle
 
-#### Semantic Cache (Deferred from Phase 3)
-
-- [ ] High-confidence recall caching — cache recall results with cosine similarity ≥ 0.95 threshold (KS2.1 pattern)
-- [ ] Cache invalidation on `store` / `delete_memory` / `delete_agent_data`
-- [ ] Configurable TTL and max cache size
-
 ### Phase 4: Anti-Contamination — **Partially Completed** (v0.5.9)
 
 - [x] **Timestamp annotations** — `_format_memory_timestamp()` converts ISO-8601 timestamps to human-readable local time; recall prepends `[Memory from YYYY-MM-DD HH:MM TZ]` to each memory
