@@ -24,7 +24,7 @@ pub struct RateLimiter {
 }
 
 impl RateLimiter {
-    /// Create a new rate limiter.
+    /// Create a new rate limiter with per-second quota.
     /// - `per_second`: token replenish rate per second
     /// - `burst`: maximum burst capacity
     #[must_use]
@@ -33,6 +33,20 @@ impl RateLimiter {
         let per_second = NonZeroU32::new(per_second).unwrap_or(NonZeroU32::MIN);
         let burst = NonZeroU32::new(burst).unwrap_or(NonZeroU32::MIN);
         let quota = Quota::per_second(per_second).allow_burst(burst);
+
+        Self {
+            limiters: DashMap::new(),
+            quota,
+        }
+    }
+
+    /// Create a new rate limiter with per-minute quota.
+    /// Suitable for heavy operations (e.g. marketplace install).
+    #[must_use]
+    pub fn per_minute(per_minute: u32, burst: u32) -> Self {
+        let per_minute = NonZeroU32::new(per_minute).unwrap_or(NonZeroU32::MIN);
+        let burst = NonZeroU32::new(burst).unwrap_or(NonZeroU32::MIN);
+        let quota = Quota::per_minute(per_minute).allow_burst(burst);
 
         Self {
             limiters: DashMap::new(),
