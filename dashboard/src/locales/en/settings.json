@@ -39,6 +39,8 @@
     "applying": "Applying update...",
     "applied": "Update applied successfully",
     "restart_hint": "Restart the application to use the new version.",
+    "auto_update": "Auto-check for updates",
+    "auto_update_desc": "Automatically check for new versions when the app starts.",
     "license": "License",
     "bsl": "Business Source License 1.1",
     "mit_convert": "Converts to MIT License on 2028-02-14",
