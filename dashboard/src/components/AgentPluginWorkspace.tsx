@@ -89,14 +89,6 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
     setSaveError('');
 
     try {
-      // --- Avatar operations (deferred until Save) ---
-      if (pendingAvatarDelete && !pendingAvatarFile) {
-        await api.deleteAvatar(agent.id);
-      }
-      if (pendingAvatarFile) {
-        await api.uploadAvatar(agent.id, pendingAvatarFile);
-      }
-
       const initial = initialGrantedRef.current;
       const added = [...grantedIds].filter((id) => !initial.has(id));
       const removed = [...initial].filter((id) => !grantedIds.has(id));
@@ -131,9 +123,9 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
       const memoryServer = grantedServers.find((s) => s.id.startsWith('memory.'));
 
       const metadata: Record<string, string> = { ...agent.metadata };
-      // Remove fields managed by dedicated APIs (avatar, VRM, password) — these are
-      // handled by uploadAvatar/deleteAvatar/uploadVrm/deleteVrm, not updateAgent.
-      // Keeping them here would overwrite whatever those APIs just wrote (race condition).
+      // Remove fields managed by dedicated APIs (avatar, VRM, password).
+      // updateAgent uses COALESCE(?, metadata) which does FULL REPLACEMENT,
+      // so these fields must not be present to avoid conflicts.
       delete metadata.has_avatar;
       delete metadata.avatar_path;
       delete metadata.avatar_description;
@@ -146,12 +138,22 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
         delete metadata.preferred_memory;
       }
 
+      // Step 1: updateAgent FIRST (full metadata replacement via COALESCE)
       await api.updateAgent(agent.id, {
         name: agentName !== agent.name ? agentName : undefined,
         description: agentDescription !== agent.description ? agentDescription : undefined,
         default_engine_id: engineServer?.id,
         metadata,
       });
+
+      // Step 2: Avatar operations AFTER updateAgent — these use json_set/json_remove
+      // which do partial updates, so avatar_path survives as the final state.
+      if (pendingAvatarDelete && !pendingAvatarFile) {
+        await api.deleteAvatar(agent.id);
+      }
+      if (pendingAvatarFile) {
+        await api.uploadAvatar(agent.id, pendingAvatarFile);
+      }
 
       // Clean up preview URL
       if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
