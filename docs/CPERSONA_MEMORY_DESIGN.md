@@ -1085,6 +1085,14 @@ improvements across versions.
 **Theme:** Architectural shift from flat memory to structured knowledge graph.
 This is the pathway to closing the gap with Zep/Graphiti, Mem0, and Cognee.
 
+**Scope boundary:** CPersona v3.0 is strictly about **knowledge representation**
+(what the AI knows/remembers). Real-time emotional state simulation is out of scope
+and belongs to `persona.emotion` v1.0 — a separate MCP server (see PROJECT_VISION.md
+Layer 4). The relationship is one-directional: `persona.emotion` may read personality
+traits from CPersona's profile/graph, but CPersona does not depend on the emotion
+engine. Emotional events *can* be stored as graph edges (e.g., `User --[felt]--> joy`)
+once both systems are available, but this is an integration point, not a v3.0 deliverable.
+
 ##### 1. Graph Memory (Core Feature)
 
 Introduce entity-relationship graph stored in SQLite (no external graph DB dependency).

@@ -43,7 +43,7 @@ by MGP (Model General Protocol) rather than embedded in the kernel.
 ├─────────────────────────────────────────────────────────┤
 │  Layer 2: Emotional Posture  ★ Research Required ★       │
 │  Continuous mapping: emotion vector → body tendencies     │
-│  cpersona v3 parameters → IK constraints + motion bias    │
+│  persona.emotion v1.0 → IK constraints + motion bias     │
 │  MGP: set_idle_behavior({ emotion_params })               │
 ├─────────────────────────────────────────────────────────┤
 │  Layer 1: Vitality (Always Active)                       │
@@ -101,14 +101,17 @@ use the new values. No per-frame MGP messages are sent.
 
 ### 2.2 Layer 2: Emotional Posture (感情姿勢) ★ Research Area ★
 
-Maps cpersona v3 emotion vectors to continuous body parameter adjustments.
+Maps `persona.emotion` v1.0 emotion vectors to continuous body parameter adjustments.
+`persona.emotion` is a dedicated MCP server, independent from `memory.cpersona`.
+It may read personality traits from CPersona's profile/graph data, but emotion
+state simulation runs as a separate process (see PROJECT_VISION.md Layer 4).
 This is neither discrete animation switching (predictable) nor full motion
 generation (too heavy for real-time) — it is a novel intermediate approach.
 
 #### Mapping Function
 
 ```
-cpersona v3 emotion vector:
+persona.emotion v1.0 emotion vector:
   { joy: 0.8, sadness: 0.0, anger: 0.1, surprise: 0.2, ... }
                     │
                     ▼
@@ -386,7 +389,7 @@ MGP Server ──stdio──→ Kernel ──SSE──→ Dashboard (three.js re
 |---------|-------|-------------|
 | **v0.6.2** | Layer 1: Vitality | Procedural breathing, blinking, micro-sway, gaze drift; Spring Bone physics; Look At 3-tier fallback; AgentThinking/Responding SSE integration; Basic VRM loading + WebGL rendering |
 | **v0.6.x** | Layer 3 Basics | Procedural gestures (nod, head tilt); Lip sync MVP (pre-computed viseme timeline) |
-| **v0.7.x** | Layer 2: Emotional Posture | Hand-designed emotion→body parameter mapping; cpersona v3 integration; MGP streaming for phoneme delivery |
+| **v0.7.x** | Layer 2: Emotional Posture | Hand-designed emotion→body parameter mapping; persona.emotion v1.0 integration; MGP streaming for phoneme delivery |
 | **v0.8.x** | Layer 3 Expansion | Animation clip support (.vrma); Swappable VRM model support; Live2D MCP server (avatar.live2d) |
 | **v1.x+** | Layer 2 Evolution | Learning-based emotion→body mapping; Community avatar MCP servers |
 
@@ -401,10 +404,10 @@ MGP Server ──stdio──→ Kernel ──SSE──→ Dashboard (three.js re
 | Noise generation | Custom or `simplex-noise` | Perlin/Simplex noise for procedural motion |
 | MGP server | Rust (`cloto_shared`, `serde`, `tokio`) | avatar.vrm MGP server |
 | TTS integration | `voice.tts` MCP (existing) | Phoneme timeline generation |
-| Emotion engine | `persona.emotion` / cpersona v3 | Emotion vector source |
+| Emotion engine | `persona.emotion` v1.0 (independent MCP server) | Emotion vector source (reads CPersona profile for personality traits) |
 | Gaze tracking | `vision.gaze_webcam` MCP (existing) | User face coordinates |
 
 ---
 
 *Document created: 2026-03-09*
-*Last updated: 2026-03-09*
+*Last updated: 2026-03-15*
