@@ -154,8 +154,13 @@ impl ConsensusOrchestrator {
         // Determine action under a single write lock, then release before synthesis
         enum Action {
             None,
-            NeedsSynthesis { combined_views: String, synthesizer: String },
-            Complete { content: String },
+            NeedsSynthesis {
+                combined_views: String,
+                synthesizer: String,
+            },
+            Complete {
+                content: String,
+            },
         }
 
         let action = {
@@ -206,7 +211,10 @@ impl ConsensusOrchestrator {
                             created_at: created,
                         };
 
-                        Action::NeedsSynthesis { combined_views, synthesizer }
+                        Action::NeedsSynthesis {
+                            combined_views,
+                            synthesizer,
+                        }
                     } else {
                         Action::None
                     }
@@ -219,14 +227,19 @@ impl ConsensusOrchestrator {
                         agent_id
                     );
                     state.sessions.remove(&trace_id);
-                    Action::Complete { content: content.to_string() }
+                    Action::Complete {
+                        content: content.to_string(),
+                    }
                 }
             }
         }; // state lock dropped here
 
         match action {
             Action::None => None,
-            Action::NeedsSynthesis { combined_views, synthesizer } => {
+            Action::NeedsSynthesis {
+                combined_views,
+                synthesizer,
+            } => {
                 info!(
                     trace_id = %trace_id,
                     synthesizer = %synthesizer,
@@ -264,15 +277,13 @@ impl ConsensusOrchestrator {
                     .data,
                 )
             }
-            Action::Complete { content } => {
-                Some(ClotoEventData::ThoughtResponse {
-                    agent_id: SYSTEM_CONSENSUS_AGENT.to_string(),
-                    engine_id: "consensus".to_string(),
-                    content,
-                    source_message_id: "consensus".to_string(),
-                    auto_spoken: false,
-                })
-            }
+            Action::Complete { content } => Some(ClotoEventData::ThoughtResponse {
+                agent_id: SYSTEM_CONSENSUS_AGENT.to_string(),
+                engine_id: "consensus".to_string(),
+                content,
+                source_message_id: "consensus".to_string(),
+                auto_spoken: false,
+            }),
         }
     }
 

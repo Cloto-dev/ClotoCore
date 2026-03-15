@@ -39,7 +39,8 @@ fn is_workspace_binary(command: &str) -> bool {
         return false;
     }
     // Relative path form
-    if normalized.starts_with("target/debug/mgp-") || normalized.starts_with("target/release/mgp-") {
+    if normalized.starts_with("target/debug/mgp-") || normalized.starts_with("target/release/mgp-")
+    {
         return true;
     }
     // Absolute path form (resolved by config loader)

@@ -73,8 +73,24 @@ fn is_japanese_char(c: char) -> bool {
 }
 
 fn is_punctuation(c: char) -> bool {
-    matches!(c, '。' | '.' | '！' | '!' | '？' | '?' | '、' | ',' | '；' | ';'
-        | '：' | ':' | '…' | '─' | '—' | '\n')
+    matches!(
+        c,
+        '。' | '.'
+            | '！'
+            | '!'
+            | '？'
+            | '?'
+            | '、'
+            | ','
+            | '；'
+            | ';'
+            | '：'
+            | ':'
+            | '…'
+            | '─'
+            | '—'
+            | '\n'
+    )
 }
 
 /// Split text into segments by language.
@@ -173,7 +189,7 @@ fn katakana_duration(c: char) -> u64 {
         'ン' => N_MS,
         'ッ' => SOKUON_MS,
         'ァ' | 'ィ' | 'ゥ' | 'ェ' | 'ォ' | 'ャ' | 'ュ' | 'ョ' => MORA_MS / 2, // small kana: half mora
-        'ー' => MORA_MS / 2, // extension
+        'ー' => MORA_MS / 2,                                                  // extension
         _ => MORA_MS,
     }
 }

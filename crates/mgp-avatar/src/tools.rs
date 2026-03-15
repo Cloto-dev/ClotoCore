@@ -14,8 +14,8 @@
 use crate::protocol::{JsonRpcNotification, McpTool};
 use crate::voicevox::VoicevoxClient;
 use serde_json::{json, Value};
-use std::sync::OnceLock;
 use std::sync::atomic::Ordering;
+use std::sync::OnceLock;
 
 static VOICEVOX: OnceLock<VoicevoxClient> = OnceLock::new();
 
@@ -46,10 +46,7 @@ pub fn tool_list() -> Vec<McpTool> {
 }
 
 /// Execute a tool call. Returns `(result_value, notifications_to_emit)`.
-pub fn execute(
-    tool_name: &str,
-    args: &Value,
-) -> Result<(Value, Vec<JsonRpcNotification>), String> {
+pub fn execute(tool_name: &str, args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), String> {
     match tool_name {
         "set_expression" => execute_set_expression(args),
         "set_pose" => execute_set_pose(args),
@@ -159,7 +156,9 @@ fn execute_set_pose(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), S
 fn set_idle_behavior_schema() -> McpTool {
     McpTool {
         name: "set_idle_behavior".into(),
-        description: "Adjust the avatar's idle animation parameters (breathing, sway, blinking, pose).".into(),
+        description:
+            "Adjust the avatar's idle animation parameters (breathing, sway, blinking, pose)."
+                .into(),
         input_schema: json!({
             "type": "object",
             "properties": {
@@ -377,7 +376,8 @@ fn list_speakers_schema() -> McpTool {
 fn set_speaker_schema() -> McpTool {
     McpTool {
         name: "set_speaker".into(),
-        description: "Change the active VOICEVOX speaker. Default: 47 (ナースロボ タイプT ノーマル)".into(),
+        description:
+            "Change the active VOICEVOX speaker. Default: 47 (ナースロボ タイプT ノーマル)".into(),
         input_schema: json!({
             "type": "object",
             "properties": {
@@ -392,13 +392,20 @@ fn set_speaker_schema() -> McpTool {
 }
 
 fn execute_speak(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), String> {
-    let text = args.get("text").and_then(|v| v.as_str()).ok_or("text is required")?;
-    let agent_id = args.get("agent_id").and_then(|v| v.as_str()).ok_or("agent_id is required")?;
+    let text = args
+        .get("text")
+        .and_then(|v| v.as_str())
+        .ok_or("text is required")?;
+    let agent_id = args
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .ok_or("agent_id is required")?;
     let speaker = args.get("speaker").and_then(|v| v.as_i64());
     let speed = args.get("speed").and_then(|v| v.as_f64());
 
     let client = voicevox();
-    let (wav_bytes, viseme_timeline, total_duration_ms, audio_offset_ms) = client.synthesize(text, speaker, speed)?;
+    let (wav_bytes, viseme_timeline, total_duration_ms, audio_offset_ms) =
+        client.synthesize(text, speaker, speed)?;
 
     // Encode WAV → OGG/Opus → base64 for inline delivery (no disk I/O, no HTTP round-trip)
     let audio_base64 = crate::voicevox::wav_to_opus_base64(&wav_bytes)?;
@@ -429,18 +436,29 @@ fn execute_speak(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), Stri
         }]
     });
 
-    tracing::info!("speak: text={}, speaker={}, duration={:.0}ms, offset={:.0}ms, opus_base64_len={}", text, actual_speaker, total_duration_ms, audio_offset_ms, audio_base64.len());
+    tracing::info!(
+        "speak: text={}, speaker={}, duration={:.0}ms, offset={:.0}ms, opus_base64_len={}",
+        text,
+        actual_speaker,
+        total_duration_ms,
+        audio_offset_ms,
+        audio_base64.len()
+    );
 
     Ok((result, vec![notif]))
 }
 
 fn execute_synthesize(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), String> {
-    let text = args.get("text").and_then(|v| v.as_str()).ok_or("text is required")?;
+    let text = args
+        .get("text")
+        .and_then(|v| v.as_str())
+        .ok_or("text is required")?;
     let speaker = args.get("speaker").and_then(|v| v.as_i64());
     let speed = args.get("speed").and_then(|v| v.as_f64());
 
     let client = voicevox();
-    let (wav_bytes, viseme_timeline, total_duration_ms, audio_offset_ms) = client.synthesize(text, speaker, speed)?;
+    let (wav_bytes, viseme_timeline, total_duration_ms, audio_offset_ms) =
+        client.synthesize(text, speaker, speed)?;
     let (abs_path, filename) = client.save_wav(&wav_bytes)?;
 
     let result = json!({

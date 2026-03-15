@@ -466,13 +466,15 @@ pub fn handle_callback_request(
         "Callback request received"
     );
 
-    CallbackHandleResult::NewCallback(Box::new(cloto_shared::ClotoEventData::McpCallbackRequested {
-        callback_id: callback_id.to_string(),
-        server_id: server_id.to_string(),
-        callback_type: callback_type.to_string(),
-        message: message.to_string(),
-        options,
-    }))
+    CallbackHandleResult::NewCallback(Box::new(
+        cloto_shared::ClotoEventData::McpCallbackRequested {
+            callback_id: callback_id.to_string(),
+            server_id: server_id.to_string(),
+            callback_type: callback_type.to_string(),
+            message: message.to_string(),
+            options,
+        },
+    ))
 }
 
 /// Execute mgp.callback.respond — respond to a pending callback.
@@ -500,7 +502,8 @@ pub(super) async fn respond_to_callback(manager: &McpClientManager, args: Value)
 
     // Send response to the originating server
     let state = manager.state.read().await;
-    let handle = state.servers
+    let handle = state
+        .servers
         .get(&server_id)
         .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", server_id))?;
     let client = handle

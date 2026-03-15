@@ -30,17 +30,15 @@ fn main() {
 
     // Auto-start VOICEVOX Engine if not running
     let config = voicevox::VoicevoxConfig::from_env();
-    let _engine = match engine::VoicevoxEngine::ensure_running(
-        &config.url,
-        config.engine_path.as_deref(),
-    ) {
-        Ok(engine) => Some(engine),
-        Err(e) => {
-            tracing::warn!("VOICEVOX Engine unavailable: {e}");
-            tracing::warn!("speak/synthesize tools will fail until VOICEVOX is started");
-            None
-        }
-    };
+    let _engine =
+        match engine::VoicevoxEngine::ensure_running(&config.url, config.engine_path.as_deref()) {
+            Ok(engine) => Some(engine),
+            Err(e) => {
+                tracing::warn!("VOICEVOX Engine unavailable: {e}");
+                tracing::warn!("speak/synthesize tools will fail until VOICEVOX is started");
+                None
+            }
+        };
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -141,14 +139,20 @@ fn handle_tools_call(request: &JsonRpcRequest) -> (JsonRpcResponse, Vec<JsonRpcN
     let params = match &request.params {
         Some(p) => p,
         None => {
-            return (JsonRpcResponse::err(request.id.clone(), -32602, "Missing params"), vec![]);
+            return (
+                JsonRpcResponse::err(request.id.clone(), -32602, "Missing params"),
+                vec![],
+            );
         }
     };
 
     let tool_name = match params.get("name").and_then(|v| v.as_str()) {
         Some(n) => n,
         None => {
-            return (JsonRpcResponse::err(request.id.clone(), -32602, "Missing tool name"), vec![]);
+            return (
+                JsonRpcResponse::err(request.id.clone(), -32602, "Missing tool name"),
+                vec![],
+            );
         }
     };
 
@@ -158,10 +162,14 @@ fn handle_tools_call(request: &JsonRpcRequest) -> (JsonRpcResponse, Vec<JsonRpcN
         .unwrap_or(Value::Object(serde_json::Map::new()));
 
     match tools::execute(tool_name, &args) {
-        Ok((result, notifications)) => {
-            (JsonRpcResponse::ok(request.id.clone(), result), notifications)
-        }
-        Err(msg) => (JsonRpcResponse::err(request.id.clone(), -32000, msg), vec![]),
+        Ok((result, notifications)) => (
+            JsonRpcResponse::ok(request.id.clone(), result),
+            notifications,
+        ),
+        Err(msg) => (
+            JsonRpcResponse::err(request.id.clone(), -32000, msg),
+            vec![],
+        ),
     }
 }
 

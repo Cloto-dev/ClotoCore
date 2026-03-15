@@ -368,8 +368,8 @@ mod tests {
 
     #[test]
     fn default_profile_untrusted() {
-        let p = derive_isolation_profile(TrustLevel::Untrusted, &[], None, "unt-srv", base())
-            .unwrap();
+        let p =
+            derive_isolation_profile(TrustLevel::Untrusted, &[], None, "unt-srv", base()).unwrap();
         assert_eq!(p.filesystem_scope, FilesystemScope::Sandbox);
         assert_eq!(p.network_scope, NetworkScope::None);
         assert_eq!(p.memory_limit_mb, Some(128));
@@ -405,11 +405,7 @@ mod tests {
         // Simulate a hypothetical scenario via direct unit test on the helper.
         let mut fs = FilesystemScope::None;
         let mut net = NetworkScope::None;
-        apply_permission_upgrades(
-            &["filesystem.read".to_string()],
-            &mut fs,
-            &mut net,
-        );
+        apply_permission_upgrades(&["filesystem.read".to_string()], &mut fs, &mut net);
         assert_eq!(fs, FilesystemScope::Readonly);
     }
 
@@ -437,12 +433,10 @@ mod tests {
         let result =
             derive_isolation_profile(TrustLevel::Untrusted, &[], Some(&ovr), "srv", base());
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Untrusted servers cannot have isolation overrides")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Untrusted servers cannot have isolation overrides"));
     }
 
     #[test]
@@ -454,8 +448,7 @@ mod tests {
             max_child_processes: Some(100),
             ..Default::default()
         };
-        let p =
-            derive_isolation_profile(TrustLevel::Core, &[], Some(&ovr), "srv", base()).unwrap();
+        let p = derive_isolation_profile(TrustLevel::Core, &[], Some(&ovr), "srv", base()).unwrap();
         assert_eq!(p.memory_limit_mb, Some(4096));
         assert_eq!(p.max_child_processes, Some(100));
     }
@@ -466,8 +459,7 @@ mod tests {
             filesystem_scope: Some("unrestricted".to_string()),
             ..Default::default()
         };
-        let result =
-            derive_isolation_profile(TrustLevel::Standard, &[], Some(&ovr), "srv", base());
+        let result = derive_isolation_profile(TrustLevel::Standard, &[], Some(&ovr), "srv", base());
         assert!(result.is_err());
     }
 
@@ -477,8 +469,7 @@ mod tests {
             network_scope: Some("unrestricted".to_string()),
             ..Default::default()
         };
-        let result =
-            derive_isolation_profile(TrustLevel::Standard, &[], Some(&ovr), "srv", base());
+        let result = derive_isolation_profile(TrustLevel::Standard, &[], Some(&ovr), "srv", base());
         assert!(result.is_err());
     }
 

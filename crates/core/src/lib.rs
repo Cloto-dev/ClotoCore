@@ -343,11 +343,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             None => config.yolo_mode, // fall back to env var
         }
     };
-    let mut mcp_manager = managers::McpClientManager::new(
-        pool.clone(),
-        yolo_mode,
-        config.mcp_request_timeout_secs,
-    );
+    let mut mcp_manager =
+        managers::McpClientManager::new(pool.clone(), yolo_mode, config.mcp_request_timeout_secs);
     mcp_manager.configure_isolation(&config);
     let mcp_manager = Arc::new(mcp_manager);
 
@@ -907,8 +904,14 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         // Marketplace (auth required)
         .route("/marketplace/catalog", get(handlers::catalog_handler))
         .route("/marketplace/install", post(handlers::install_handler))
-        .route("/marketplace/batch-install", post(handlers::batch_install_handler))
-        .route("/marketplace/servers/{id}", delete(handlers::uninstall_handler));
+        .route(
+            "/marketplace/batch-install",
+            post(handlers::batch_install_handler),
+        )
+        .route(
+            "/marketplace/servers/{id}",
+            delete(handlers::uninstall_handler),
+        );
 
     // Read endpoints (authenticated, rate-limited — bug-157)
     let api_routes = Router::new()
@@ -917,9 +920,15 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         // Bootstrap setup (no auth — like health_handler)
         .route("/setup/status", get(handlers::setup::status_handler))
         .route("/setup/progress", get(handlers::setup::progress_handler))
-        .route("/setup/check-python", post(handlers::setup::check_python_handler))
+        .route(
+            "/setup/check-python",
+            post(handlers::setup::check_python_handler),
+        )
         // Marketplace progress (no auth — SSE stream)
-        .route("/marketplace/progress", get(handlers::marketplace_progress_handler))
+        .route(
+            "/marketplace/progress",
+            get(handlers::marketplace_progress_handler),
+        )
         .route("/events", get(handlers::sse_handler))
         .route("/history", get(handlers::get_history))
         .route("/metrics", get(handlers::get_metrics))
@@ -1001,15 +1010,27 @@ async fn bind_with_retry(
             Ok(()) => match socket.listen(1024) {
                 Ok(listener) => return Ok(listener),
                 Err(e) if attempt < max_retries => {
-                    tracing::warn!("Port {} listen failed (attempt {}/{}): {}. Retrying in {:?}...",
-                        addr.port(), attempt + 1, max_retries, e, delay);
+                    tracing::warn!(
+                        "Port {} listen failed (attempt {}/{}): {}. Retrying in {:?}...",
+                        addr.port(),
+                        attempt + 1,
+                        max_retries,
+                        e,
+                        delay
+                    );
                     tokio::time::sleep(delay).await;
                 }
                 Err(e) => return Err(e.into()),
             },
             Err(e) if attempt < max_retries => {
-                tracing::warn!("Port {} bind failed (attempt {}/{}): {}. Retrying in {:?}...",
-                    addr.port(), attempt + 1, max_retries, e, delay);
+                tracing::warn!(
+                    "Port {} bind failed (attempt {}/{}): {}. Retrying in {:?}...",
+                    addr.port(),
+                    attempt + 1,
+                    max_retries,
+                    e,
+                    delay
+                );
                 tokio::time::sleep(delay).await;
             }
             Err(e) => return Err(e.into()),

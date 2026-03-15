@@ -266,11 +266,12 @@ pub async fn delete_chat_messages(
     let disk_paths = get_disk_attachment_paths(pool, &msg_ids).await?;
 
     // Delete messages (attachments cascade via ON DELETE CASCADE)
-    let delete_future =
-        sqlx::query("DELETE FROM chat_messages WHERE agent_id = ? AND (user_id = ? OR user_id = 'system')")
-            .bind(agent_id)
-            .bind(user_id)
-            .execute(pool);
+    let delete_future = sqlx::query(
+        "DELETE FROM chat_messages WHERE agent_id = ? AND (user_id = ? OR user_id = 'system')",
+    )
+    .bind(agent_id)
+    .bind(user_id)
+    .execute(pool);
 
     let result = db_timeout(delete_future).await?;
 

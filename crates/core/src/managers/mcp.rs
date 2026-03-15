@@ -143,7 +143,10 @@ impl McpClientManager {
                     "grants": {permission: {"granted": true}},
                     "approved_by": approved_by,
                 });
-                if let Err(e) = client.call("mgp/permission/grant", Some(grant_params)).await {
+                if let Err(e) = client
+                    .call("mgp/permission/grant", Some(grant_params))
+                    .await
+                {
                     debug!(
                         "Failed to send mgp/permission/grant to [{}]: {}",
                         server_id, e
@@ -209,9 +212,7 @@ impl McpClientManager {
             if parent.is_absolute() {
                 parent
             } else {
-                std::env::current_dir()
-                    .unwrap_or_default()
-                    .join(&parent)
+                std::env::current_dir().unwrap_or_default().join(&parent)
             }
         });
 
@@ -221,7 +222,9 @@ impl McpClientManager {
             .paths
             .iter()
             .map(|(k, v)| {
-                let resolved = if let Some(var_name) = v.strip_prefix("${").and_then(|s| s.strip_suffix('}')) {
+                let resolved = if let Some(var_name) =
+                    v.strip_prefix("${").and_then(|s| s.strip_suffix('}'))
+                {
                     std::env::var(var_name).unwrap_or_else(|_| v.clone())
                 } else {
                     v.clone()
@@ -313,7 +316,8 @@ impl McpClientManager {
                 );
                 // Register with Error status so it appears in list_servers()
                 let mut state = self.state.write().await;
-                state.servers
+                state
+                    .servers
                     .entry(server_config.id.clone())
                     .or_insert_with(|| McpServerHandle {
                         id: server_config.id.clone(),
@@ -410,7 +414,8 @@ impl McpClientManager {
                 );
                 // Register with Error status so it appears in list_servers()
                 let mut state = self.state.write().await;
-                state.servers
+                state
+                    .servers
                     .entry(config.id.clone())
                     .or_insert_with(|| McpServerHandle {
                         id: config.id.clone(),
@@ -563,9 +568,11 @@ impl McpClientManager {
             .mgp
             .as_ref()
             .and_then(|m| m.trust_level.as_deref())
-            .map(|s| serde_json::from_value::<super::mcp_mgp::TrustLevel>(
-                serde_json::Value::String(s.to_string()),
-            ))
+            .map(|s| {
+                serde_json::from_value::<super::mcp_mgp::TrustLevel>(serde_json::Value::String(
+                    s.to_string(),
+                ))
+            })
             .transpose()
             .unwrap_or(None)
             .unwrap_or(super::mcp_mgp::TrustLevel::Standard);
@@ -575,7 +582,10 @@ impl McpClientManager {
             let entry_point = std::path::Path::new(&config.command);
             if entry_point.exists() {
                 let seal_key = super::mcp_seal::load_or_generate_seal_key(
-                    &self.sandbox_base_dir.parent().unwrap_or(std::path::Path::new("data")),
+                    &self
+                        .sandbox_base_dir
+                        .parent()
+                        .unwrap_or(std::path::Path::new("data")),
                 )?;
                 let status = super::mcp_seal::check_seal(
                     &trust_level,
@@ -1011,15 +1021,25 @@ impl McpClientManager {
         .await;
 
         super::mcp_lifecycle::emit_lifecycle_notification(
-            self, &id, "Registered", "Connected", "Server connected"
-        ).await;
+            self,
+            &id,
+            "Registered",
+            "Connected",
+            "Server connected",
+        )
+        .await;
 
-        super::mcp_events::deliver_event(self, "lifecycle", &serde_json::json!({
-            "server_id": id,
-            "previous_state": "Registered",
-            "new_state": "Connected",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })).await;
+        super::mcp_events::deliver_event(
+            self,
+            "lifecycle",
+            &serde_json::json!({
+                "server_id": id,
+                "previous_state": "Registered",
+                "new_state": "Connected",
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            }),
+        )
+        .await;
 
         Ok(tool_names)
     }
@@ -1027,7 +1047,8 @@ impl McpClientManager {
     /// Disconnect and permanently remove an MCP server (also clears stopped_configs).
     pub async fn disconnect_server(&self, id: &str) -> Result<()> {
         let mut state = self.state.write().await;
-        let handle = state.servers
+        let handle = state
+            .servers
             .remove(id)
             .ok_or_else(|| anyhow::anyhow!("MCP server '{}' not found", id))?;
         for tool in &handle.tools {
@@ -1045,7 +1066,8 @@ impl McpClientManager {
     pub async fn list_servers(&self) -> Vec<McpServerInfo> {
         let state = self.state.read().await;
 
-        let mut result: Vec<McpServerInfo> = state.servers
+        let mut result: Vec<McpServerInfo> = state
+            .servers
             .values()
             .map(|h| McpServerInfo {
                 id: h.id.clone(),
@@ -1093,7 +1115,8 @@ impl McpClientManager {
     /// Return IDs of connected mind.* servers (reasoning engines).
     pub async fn list_connected_mind_servers(&self) -> Vec<String> {
         let state = self.state.read().await;
-        state.servers
+        state
+            .servers
             .iter()
             .filter(|(id, h)| id.starts_with("mind.") && h.status == ServerStatus::Connected)
             .map(|(id, _)| id.clone())
@@ -1109,7 +1132,8 @@ impl McpClientManager {
     /// Check if a specific server has a tool with the given name.
     pub async fn has_server_tool(&self, server_id: &str, tool_name: &str) -> bool {
         let state = self.state.read().await;
-        state.servers
+        state
+            .servers
             .get(server_id)
             .is_some_and(|h| h.tools.iter().any(|t| t.name == tool_name))
     }
@@ -1249,7 +1273,8 @@ impl McpClientManager {
     ) -> anyhow::Result<String> {
         let server_id = {
             let state = self.state.read().await;
-            state.tool_index
+            state
+                .tool_index
                 .get(tool_name)
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("MCP tool '{}' not found", tool_name))?
@@ -1274,7 +1299,11 @@ impl McpClientManager {
     /// Execute a tool by name, routing to the correct MCP server (kernel-internal).
     /// Handles kernel-native tools (create_mcp_server) internally.
     /// Applies kernel-side validation (A) before forwarding to the MCP server.
-    pub(crate) async fn execute_tool_internal(&self, tool_name: &str, args: Value) -> Result<Value> {
+    pub(crate) async fn execute_tool_internal(
+        &self,
+        tool_name: &str,
+        args: Value,
+    ) -> Result<Value> {
         // Kernel-native tools
         match tool_name {
             "create_mcp_server" => {
@@ -1320,8 +1349,7 @@ impl McpClientManager {
                 return super::mcp_kernel_tool::execute_events_replay(self, args).await;
             }
             "mgp.events.pending_callbacks" => {
-                return super::mcp_kernel_tool::execute_events_pending_callbacks(self, args)
-                    .await;
+                return super::mcp_kernel_tool::execute_events_pending_callbacks(self, args).await;
             }
             // Tier 3: Callbacks
             "mgp.callback.respond" => {
@@ -1430,12 +1458,17 @@ impl McpClientManager {
         // Update LRU timestamp in session cache (MGP §16.7)
         self.session_cache.touch("default", tool_name);
 
-        super::mcp_events::deliver_event(self, "tools", &serde_json::json!({
-            "server_id": server_id,
-            "tool_name": tool_name,
-            "result": if result.is_error == Some(true) { "error" } else { "success" },
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })).await;
+        super::mcp_events::deliver_event(
+            self,
+            "tools",
+            &serde_json::json!({
+                "server_id": server_id,
+                "tool_name": tool_name,
+                "result": if result.is_error == Some(true) { "error" } else { "success" },
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            }),
+        )
+        .await;
 
         // Convert CallToolResult to a simple JSON value
         if result.is_error == Some(true) {
@@ -1491,7 +1524,8 @@ impl McpClientManager {
                         return Err(mcp_mgp::MgpError::permission_denied(format!(
                             "Delegation chain depth {} exceeds maximum of 3",
                             chain.len()
-                        )).into());
+                        ))
+                        .into());
                     }
                 }
 
@@ -1550,7 +1584,8 @@ impl McpClientManager {
                 {
                     let valid = {
                         let state = self.state.read().await;
-                        state.servers
+                        state
+                            .servers
                             .get(delegated_via)
                             .is_some_and(|h| h.status.is_operational())
                     };
@@ -1613,14 +1648,21 @@ impl McpClientManager {
         done: bool,
     ) -> Option<Vec<u32>> {
         // Skip duplicate chunks (§12.5 retransmission dedup)
-        if self.stream_assembler.is_duplicate(server_id, request_id, index) {
+        if self
+            .stream_assembler
+            .is_duplicate(server_id, request_id, index)
+        {
             tracing::debug!(
-                server_id, request_id, index,
+                server_id,
+                request_id,
+                index,
                 "Skipping duplicate stream chunk"
             );
             return None;
         }
-        let gaps = self.stream_assembler.record_chunk(server_id, request_id, index);
+        let gaps = self
+            .stream_assembler
+            .record_chunk(server_id, request_id, index);
         if done {
             self.stream_assembler.remove(server_id, request_id);
         }
@@ -1866,13 +1908,16 @@ impl McpClientManager {
     pub async fn stop_server(&self, id: &str) -> Result<()> {
         {
             let mut state = self.state.write().await;
-            let handle = state.servers
+            let handle = state
+                .servers
                 .remove(id)
                 .ok_or_else(|| anyhow::anyhow!("Server '{}' not found or already stopped", id))?;
             state.tool_index.retain(|_, server_id| server_id != id);
 
             // Preserve config for restart capability (works for both config and dynamic)
-            state.stopped_configs.insert(id.to_string(), (handle.config.clone(), handle.source));
+            state
+                .stopped_configs
+                .insert(id.to_string(), (handle.config.clone(), handle.source));
 
             info!(server = %id, source = ?handle.source, "MCP server stopped (config preserved for restart)");
         }
@@ -1891,7 +1936,8 @@ impl McpClientManager {
         // Set status to Draining
         {
             let mut state = self.state.write().await;
-            let handle = state.servers
+            let handle = state
+                .servers
                 .get_mut(id)
                 .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", id))?;
             handle.status = ServerStatus::Draining;
@@ -1907,12 +1953,17 @@ impl McpClientManager {
         )
         .await;
 
-        super::mcp_events::deliver_event(self, "lifecycle", &serde_json::json!({
-            "server_id": id,
-            "previous_state": "Connected",
-            "new_state": "Draining",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })).await;
+        super::mcp_events::deliver_event(
+            self,
+            "lifecycle",
+            &serde_json::json!({
+                "server_id": id,
+                "previous_state": "Connected",
+                "new_state": "Draining",
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            }),
+        )
+        .await;
 
         // Notify the target server via standard lifecycle notification (§11.5)
         {
@@ -1994,15 +2045,25 @@ impl McpClientManager {
         }
 
         super::mcp_lifecycle::emit_lifecycle_notification(
-            self, id, "Connected", "Restarting", "Server restart initiated"
-        ).await;
+            self,
+            id,
+            "Connected",
+            "Restarting",
+            "Server restart initiated",
+        )
+        .await;
 
-        super::mcp_events::deliver_event(self, "lifecycle", &serde_json::json!({
-            "server_id": id,
-            "previous_state": "Connected",
-            "new_state": "Restarting",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        })).await;
+        super::mcp_events::deliver_event(
+            self,
+            "lifecycle",
+            &serde_json::json!({
+                "server_id": id,
+                "previous_state": "Connected",
+                "new_state": "Restarting",
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            }),
+        )
+        .await;
 
         // Stop if running (ignore error if already stopped)
         let _ = self.stop_server(id).await;
@@ -2012,7 +2073,8 @@ impl McpClientManager {
     /// Get a server's in-memory environment variables (from config or runtime).
     pub async fn get_server_env(&self, id: &str) -> HashMap<String, String> {
         let state = self.state.read().await;
-        state.servers
+        state
+            .servers
             .get(id)
             .map(|h| h.config.env.clone())
             .unwrap_or_default()
@@ -2149,7 +2211,9 @@ mod tests {
     #[tokio::test]
     async fn yolo_mode_initializes_correctly() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
 
         let manager_off = McpClientManager::new(pool.clone(), false, 120);
         assert!(!manager_off.yolo_mode.load(Ordering::Relaxed));
@@ -2161,7 +2225,9 @@ mod tests {
     #[tokio::test]
     async fn yolo_mode_toggle_at_runtime() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
 
         let manager = McpClientManager::new(pool, false, 120);
         assert!(!manager.yolo_mode.load(Ordering::Relaxed));
@@ -2176,7 +2242,9 @@ mod tests {
     #[tokio::test]
     async fn yolo_mode_affects_kernel_tool_schemas() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
 
         // YOLO off: no kernel tools
         let manager = McpClientManager::new(pool.clone(), false, 120);
@@ -2198,7 +2266,9 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_access_control() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
@@ -2223,7 +2293,9 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_audit_replay() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
@@ -2240,7 +2312,9 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_tier3_lifecycle() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
@@ -2265,7 +2339,9 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_tier3_streaming() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
@@ -2282,7 +2358,9 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_tier3_events() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
@@ -2311,7 +2389,9 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_total_count() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
 
         let manager = McpClientManager::new(pool, true, 120);
         let schemas = manager.collect_tool_schemas().await;
@@ -2354,7 +2434,9 @@ mod tests {
     #[tokio::test]
     async fn yolo_mode_persisted_to_db() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
 
         // Simulate set_yolo_mode handler persisting to DB
         sqlx::query(

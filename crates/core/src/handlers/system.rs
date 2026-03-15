@@ -181,18 +181,20 @@ impl SystemHandler {
 
         let mcp_memory: Option<(Arc<McpClientManager>, String)> = if memory_plugin.is_none() {
             if let Some(ref mcp) = self.registry.mcp_manager {
-                mcp.resolve_capability_server(crate::managers::CapabilityType::Memory).await.and_then(|server_id| {
-                    if granted_server_ids.contains(&server_id) {
-                        Some((mcp.clone(), server_id))
-                    } else {
-                        tracing::info!(
-                            agent_id = %target_agent_id,
-                            server_id = %server_id,
-                            "🔐 Agent lacks access to memory server — memory skipped"
-                        );
-                        None
-                    }
-                })
+                mcp.resolve_capability_server(crate::managers::CapabilityType::Memory)
+                    .await
+                    .and_then(|server_id| {
+                        if granted_server_ids.contains(&server_id) {
+                            Some((mcp.clone(), server_id))
+                        } else {
+                            tracing::info!(
+                                agent_id = %target_agent_id,
+                                server_id = %server_id,
+                                "🔐 Agent lacks access to memory server — memory skipped"
+                            );
+                            None
+                        }
+                    })
             } else {
                 None
             }
@@ -206,7 +208,8 @@ impl SystemHandler {
                 let manifest = plugin.manifest();
                 let reg_state = self.registry.state.read().await;
                 let plugin_cloto_id = cloto_shared::ClotoId::from_name(&manifest.id);
-                let has_memory_read = reg_state.effective_permissions
+                let has_memory_read = reg_state
+                    .effective_permissions
                     .get(&plugin_cloto_id)
                     .is_some_and(|p| p.contains(&cloto_shared::Permission::MemoryRead));
                 drop(reg_state);
@@ -559,11 +562,13 @@ impl SystemHandler {
 
                     // Auto-speak: if the agent has output.avatar access,
                     // the kernel speaks the final response directly (not the LLM).
-                    let will_auto_speak =
-                        granted_server_ids.contains(&"output.avatar".to_string())
-                            && self.registry.mcp_manager.is_some();
-                    let speak_content =
-                        if will_auto_speak { Some(content.clone()) } else { None };
+                    let will_auto_speak = granted_server_ids.contains(&"output.avatar".to_string())
+                        && self.registry.mcp_manager.is_some();
+                    let speak_content = if will_auto_speak {
+                        Some(content.clone())
+                    } else {
+                        None
+                    };
 
                     let thought_response = ClotoEventData::ThoughtResponse {
                         agent_id: agent.id.clone(),
@@ -689,7 +694,8 @@ impl SystemHandler {
                 let has_memory_write = {
                     let reg_state = self.registry.state.read().await;
                     let pid = cloto_shared::ClotoId::from_name(&manifest.id);
-                    reg_state.effective_permissions
+                    reg_state
+                        .effective_permissions
                         .get(&pid)
                         .is_some_and(|p| p.contains(&cloto_shared::Permission::MemoryWrite))
                 };
@@ -1127,19 +1133,19 @@ impl SystemHandler {
                         );
 
                         // Build a short hint for UI display (e.g., command name for execute_command)
-                        let tool_hint = call
-                            .arguments
-                            .get("command")
-                            .and_then(|v| v.as_str())
-                            .map(|cmd| {
-                                // Show first token (program name) + truncate
-                                let first_line = cmd.lines().next().unwrap_or(cmd);
-                                if first_line.len() > 60 {
-                                    format!("{}…", &first_line[..57])
-                                } else {
-                                    first_line.to_string()
-                                }
-                            });
+                        let tool_hint =
+                            call.arguments
+                                .get("command")
+                                .and_then(|v| v.as_str())
+                                .map(|cmd| {
+                                    // Show first token (program name) + truncate
+                                    let first_line = cmd.lines().next().unwrap_or(cmd);
+                                    if first_line.len() > 60 {
+                                        format!("{}…", &first_line[..57])
+                                    } else {
+                                        first_line.to_string()
+                                    }
+                                });
 
                         // Emit observability event
                         self.emit_event(
@@ -1360,7 +1366,12 @@ impl SystemHandler {
             });
 
             match mcp
-                .call_capability_tool(crate::managers::CapabilityType::Vision, "analyze_image", args, None)
+                .call_capability_tool(
+                    crate::managers::CapabilityType::Vision,
+                    "analyze_image",
+                    args,
+                    None,
+                )
                 .await
             {
                 Ok(result) => {
@@ -1469,7 +1480,12 @@ impl SystemHandler {
             });
 
             match mcp
-                .call_capability_tool(crate::managers::CapabilityType::Stt, "transcribe", args, None)
+                .call_capability_tool(
+                    crate::managers::CapabilityType::Stt,
+                    "transcribe",
+                    args,
+                    None,
+                )
                 .await
             {
                 Ok(result) => {
