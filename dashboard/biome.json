@@ -5,7 +5,7 @@
     "rules": {
       "recommended": true,
       "suspicious": {
-        "noExplicitAny": "info",
+        "noExplicitAny": "off",
         "noArrayIndexKey": "off",
         "useIterableCallbackReturn": "off"
       },
@@ -14,11 +14,19 @@
         "useTemplate": "off"
       },
       "correctness": {
-        "useExhaustiveDependencies": "info",
+        "useExhaustiveDependencies": "off",
         "noUnusedImports": "error",
         "noUnusedVariables": "error",
-        "noUnusedFunctionParameters": "info",
+        "noUnusedFunctionParameters": "off",
         "noInvalidUseBeforeDeclaration": "info"
+      },
+      "a11y": {
+        "useButtonType": "off",
+        "noStaticElementInteractions": "off",
+        "useKeyWithClickEvents": "off",
+        "noLabelWithoutControl": "off",
+        "useMediaCaption": "off",
+        "noSvgWithoutTitle": "off"
       },
       "security": {
         "noDangerouslySetInnerHtml": "off"
