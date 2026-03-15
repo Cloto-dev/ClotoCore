@@ -47,9 +47,8 @@ bash scripts/verify-issues.sh 2>&1 | tail -8 || true
 
 if [ "$ERRORS" -gt 0 ]; then
     echo ""
-    echo "❌ SENTINEL: $ERRORS warning(s) detected. Review required."
-    # Warning only — don't block CI yet (can be promoted to exit 1 later)
-    exit 0
+    echo "❌ SENTINEL: $ERRORS violation(s) detected."
+    exit 1
 fi
 
 echo "✅ Sentinel passed — no quality regressions detected"
