@@ -1,13 +1,13 @@
+import { AlertTriangle, RefreshCw, Search } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Search, AlertTriangle } from 'lucide-react';
-import { useMarketplace } from '../../hooks/useMarketplace';
 import { useApi } from '../../hooks/useApi';
-import { MarketplaceCard } from './MarketplaceCard';
-import { InstallDialog } from './InstallDialog';
-import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { MarketplaceCatalogEntry } from '../../types';
+import { useMarketplace } from '../../hooks/useMarketplace';
 import { extractError } from '../../lib/errors';
+import type { MarketplaceCatalogEntry } from '../../types';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { InstallDialog } from './InstallDialog';
+import { MarketplaceCard } from './MarketplaceCard';
 
 const CATEGORIES: Array<{ key: string; label: string }> = [
   { key: 'all', label: 'filter_all' },
@@ -32,7 +32,7 @@ export function MarketplaceTab() {
   const api = useApi();
 
   // Filter servers
-  const filtered = servers.filter(s => {
+  const filtered = servers.filter((s) => {
     // Category filter
     if (categoryFilter !== 'all' && s.category !== categoryFilter) return false;
     // Search filter
@@ -41,7 +41,7 @@ export function MarketplaceTab() {
       return (
         s.name.toLowerCase().includes(q) ||
         s.description.toLowerCase().includes(q) ||
-        s.tags.some(tag => tag.toLowerCase().includes(q))
+        s.tags.some((tag) => tag.toLowerCase().includes(q))
       );
     }
     return true;
@@ -104,7 +104,7 @@ export function MarketplaceTab() {
           <input
             type="text"
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('marketplace.search_placeholder')}
             className="w-full text-[12px] font-sans bg-glass border border-edge rounded pl-7 pr-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
           />
@@ -112,7 +112,7 @@ export function MarketplaceTab() {
 
         {/* Category filters */}
         <div className="flex items-center gap-1">
-          {CATEGORIES.map(cat => (
+          {CATEGORIES.map((cat) => (
             <button
               key={cat.key}
               onClick={() => setCategoryFilter(cat.key)}
@@ -144,7 +144,7 @@ export function MarketplaceTab() {
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-          {filtered.map(entry => (
+          {filtered.map((entry) => (
             <MarketplaceCard
               key={entry.id}
               entry={entry}
@@ -172,7 +172,10 @@ export function MarketplaceTab() {
         confirmLabel={uninstalling ? '...' : t('marketplace.uninstall')}
         variant="danger"
         onConfirm={handleUninstall}
-        onCancel={() => { setUninstallTarget(null); setUninstallError(null); }}
+        onCancel={() => {
+          setUninstallTarget(null);
+          setUninstallError(null);
+        }}
       />
 
       {/* Uninstall error */}

@@ -1,7 +1,7 @@
+import { ArrowLeft, ArrowRight, HelpCircle, type LucideIcon, Minus, Square, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, HelpCircle, Minus, Square, X, type LucideIcon } from 'lucide-react';
-import { isTauri, minimizeWindow, toggleMaximizeWindow, closeWindow } from '../lib/tauri';
 import { useConnection } from '../contexts/ConnectionContext';
+import { closeWindow, isTauri, minimizeWindow, toggleMaximizeWindow } from '../lib/tauri';
 import { StatusDot } from './ui/StatusDot';
 
 interface ViewHeaderProps {
@@ -16,7 +16,17 @@ interface ViewHeaderProps {
   canGoForward?: boolean;
 }
 
-export function ViewHeader({ icon: Icon, title, onBack, right, onHelp, navBack, navForward, canGoBack, canGoForward }: ViewHeaderProps) {
+export function ViewHeader({
+  icon: Icon,
+  title,
+  onBack,
+  right,
+  onHelp,
+  navBack,
+  navForward,
+  canGoBack,
+  canGoForward,
+}: ViewHeaderProps) {
   const { connected, checking } = useConnection();
 
   return (
@@ -25,11 +35,17 @@ export function ViewHeader({ icon: Icon, title, onBack, right, onHelp, navBack, 
       data-tauri-drag-region=""
     >
       {typeof onBack === 'string' ? (
-        <Link to={onBack} className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors">
+        <Link
+          to={onBack}
+          className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+        >
           <ArrowLeft size={16} />
         </Link>
       ) : onBack ? (
-        <button onClick={onBack} className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors">
+        <button
+          onClick={onBack}
+          className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+        >
           <ArrowLeft size={16} />
         </button>
       ) : null}
@@ -60,13 +76,20 @@ export function ViewHeader({ icon: Icon, title, onBack, right, onHelp, navBack, 
       {/* Help + Connection indicator + Window Controls */}
       <div className={`flex items-center gap-2 pr-1 ${right ? '' : 'ml-auto'}`}>
         {onHelp && (
-          <button onClick={onHelp} className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors" title="Help">
+          <button
+            onClick={onHelp}
+            className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
+            title="Help"
+          >
             <HelpCircle size={14} />
           </button>
         )}
         {/* Connection status dot */}
         {!checking && (
-          <div className="relative group flex items-center" title={connected ? 'Backend connected' : 'Backend unreachable'}>
+          <div
+            className="relative group flex items-center"
+            title={connected ? 'Backend connected' : 'Backend unreachable'}
+          >
             <StatusDot status={connected ? 'online' : 'error'} />
             {/* Tooltip */}
             <div className="absolute top-full right-0 mt-1 px-2 py-1 rounded bg-surface-primary border border-edge shadow-lg text-[9px] font-mono text-content-secondary whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
@@ -78,13 +101,22 @@ export function ViewHeader({ icon: Icon, title, onBack, right, onHelp, navBack, 
         {/* Window Controls (Tauri only) */}
         {isTauri && (
           <>
-            <button onClick={minimizeWindow} className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors">
+            <button
+              onClick={minimizeWindow}
+              className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+            >
               <Minus size={14} />
             </button>
-            <button onClick={toggleMaximizeWindow} className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors">
+            <button
+              onClick={toggleMaximizeWindow}
+              className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+            >
               <Square size={13} />
             </button>
-            <button onClick={closeWindow} className="p-1.5 ml-1 rounded hover:bg-red-500/20 text-content-tertiary hover:text-red-500 transition-colors">
+            <button
+              onClick={closeWindow}
+              className="p-1.5 ml-1 rounded hover:bg-red-500/20 text-content-tertiary hover:text-red-500 transition-colors"
+            >
               <X size={14} />
             </button>
           </>

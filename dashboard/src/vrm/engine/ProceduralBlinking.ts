@@ -1,4 +1,4 @@
-import { VRM } from '@pixiv/three-vrm';
+import type { VRM } from '@pixiv/three-vrm';
 import type { VrmExpressionMapper } from './VrmExpressionMapper';
 
 /**

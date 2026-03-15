@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useTranslation } from 'react-i18next';
-import { McpServerInfo } from '../../types';
-import { useEventStream } from '../../hooks/useEventStream';
-import { EVENTS_URL } from '../../services/api';
-import { useApi } from '../../hooks/useApi';
 import { Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useApi } from '../../hooks/useApi';
+import { useEventStream } from '../../hooks/useEventStream';
 import { displayServerId } from '../../lib/format';
+import { EVENTS_URL } from '../../services/api';
+import type { McpServerInfo } from '../../types';
 
 interface LogEntry {
   timestamp: string;
@@ -23,25 +23,31 @@ export function McpServerLogsTab({ server }: Props) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const handleEvent = useCallback((event: any) => {
-    const payload = event.payload as Record<string, unknown> | undefined;
-    const serverId = payload?.server_id as string | undefined;
+  const handleEvent = useCallback(
+    (event: any) => {
+      const payload = event.payload as Record<string, unknown> | undefined;
+      const serverId = payload?.server_id as string | undefined;
 
-    // Filter for events related to this server
-    if (serverId === server.id || event.type?.includes('MCP')) {
-      setLogs(prev => [...prev.slice(-199), {
-        timestamp: new Date(event.timestamp ?? Date.now()).toISOString().slice(11, 19),
-        type: event.type ?? 'unknown',
-        message: JSON.stringify(payload ?? event.data ?? {}).slice(0, 200),
-      }]);
-    }
-  }, [server.id]);
+      // Filter for events related to this server
+      if (serverId === server.id || event.type?.includes('MCP')) {
+        setLogs((prev) => [
+          ...prev.slice(-199),
+          {
+            timestamp: new Date(event.timestamp ?? Date.now()).toISOString().slice(11, 19),
+            type: event.type ?? 'unknown',
+            message: JSON.stringify(payload ?? event.data ?? {}).slice(0, 200),
+          },
+        ]);
+      }
+    },
+    [server.id],
+  );
 
   useEventStream(EVENTS_URL, handleEvent, api.apiKey);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs.length]);
+  }, []);
 
   return (
     <div className="flex flex-col h-full">
@@ -61,11 +67,7 @@ export function McpServerLogsTab({ server }: Props) {
 
       {/* Log entries */}
       <div className="flex-1 overflow-y-auto p-2 font-mono text-[10px] bg-black/5 dark:bg-white/5">
-        {logs.length === 0 && (
-          <div className="text-content-tertiary text-center py-8">
-            {t('logs.waiting')}
-          </div>
-        )}
+        {logs.length === 0 && <div className="text-content-tertiary text-center py-8">{t('logs.waiting')}</div>}
         {logs.map((log, i) => (
           <div key={`${log.timestamp}-${log.type}-${i}`} className="flex gap-2 py-0.5 hover:bg-glass rounded px-1">
             <span className="text-content-tertiary flex-shrink-0">{log.timestamp}</span>

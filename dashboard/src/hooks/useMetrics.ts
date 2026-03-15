@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useApi } from './useApi';
 import { usePolling } from './usePolling';
 
@@ -17,7 +17,7 @@ export function useMetrics(pollIntervalMs: number = 10000) {
     try {
       setMetrics(await api.getMetrics());
     } catch (e) {
-      console.error("Failed to fetch metrics", e);
+      console.error('Failed to fetch metrics', e);
     }
   }, [api]);
 

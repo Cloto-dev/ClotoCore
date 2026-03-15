@@ -1,5 +1,5 @@
+import { Eye, EyeOff, Plus, X } from 'lucide-react';
 import { useState } from 'react';
-import { Eye, EyeOff, X, Plus } from 'lucide-react';
 
 export interface EnvEntry {
   key: string;
@@ -30,7 +30,7 @@ export function EnvVariableEditor({
   const [newValue, setNewValue] = useState('');
 
   const toggleVisibility = (key: string) => {
-    setVisibleKeys(prev => {
+    setVisibleKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -39,17 +39,17 @@ export function EnvVariableEditor({
   };
 
   const updateValue = (key: string, value: string) => {
-    onChange(entries.map(e => e.key === key ? { ...e, value } : e));
+    onChange(entries.map((e) => (e.key === key ? { ...e, value } : e)));
   };
 
   const removeEntry = (key: string) => {
-    onChange(entries.filter(e => e.key !== key));
+    onChange(entries.filter((e) => e.key !== key));
   };
 
   const addEntry = () => {
     const trimmedKey = newKey.trim();
     if (!trimmedKey) return;
-    if (entries.some(e => e.key === trimmedKey)) return;
+    if (entries.some((e) => e.key === trimmedKey)) return;
     onChange([...entries, { key: trimmedKey, value: newValue }]);
     setNewKey('');
     setNewValue('');
@@ -57,7 +57,7 @@ export function EnvVariableEditor({
 
   return (
     <div className="space-y-2">
-      {entries.map(entry => (
+      {entries.map((entry) => (
         <div key={entry.key} className="flex items-center gap-2">
           <span className="text-[10px] font-mono text-content-secondary w-40 truncate shrink-0" title={entry.key}>
             {entry.key}
@@ -66,7 +66,7 @@ export function EnvVariableEditor({
             <input
               type={visibleKeys.has(entry.key) ? 'text' : 'password'}
               value={entry.value === '***' ? '' : entry.value}
-              onChange={e => updateValue(entry.key, e.target.value || '***')}
+              onChange={(e) => updateValue(entry.key, e.target.value || '***')}
               placeholder={entry.value === '***' ? '••••••• (saved)' : ''}
               className="w-full text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 pr-7 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
             />
@@ -93,18 +93,18 @@ export function EnvVariableEditor({
         <input
           type="text"
           value={newKey}
-          onChange={e => setNewKey(e.target.value.toUpperCase())}
+          onChange={(e) => setNewKey(e.target.value.toUpperCase())}
           placeholder={placeholderKey}
           className="w-40 text-[10px] font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors shrink-0"
-          onKeyDown={e => e.key === 'Enter' && addEntry()}
+          onKeyDown={(e) => e.key === 'Enter' && addEntry()}
         />
         <input
           type="password"
           value={newValue}
-          onChange={e => setNewValue(e.target.value)}
+          onChange={(e) => setNewValue(e.target.value)}
           placeholder={placeholderValue}
           className="flex-1 text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
-          onKeyDown={e => e.key === 'Enter' && addEntry()}
+          onKeyDown={(e) => e.key === 'Enter' && addEntry()}
         />
         <button
           onClick={addEntry}
@@ -117,9 +117,7 @@ export function EnvVariableEditor({
       </div>
 
       {entries.length === 0 && emptyHint && (
-        <p className="text-[9px] font-mono text-content-tertiary py-2">
-          {emptyHint}
-        </p>
+        <p className="text-[9px] font-mono text-content-tertiary py-2">{emptyHint}</p>
       )}
     </div>
   );

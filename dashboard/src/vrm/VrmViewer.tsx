@@ -1,12 +1,11 @@
-import { useRef, useEffect, useState } from 'react';
 import { Activity, AlertTriangle } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
-import { VrmSceneManager } from './engine/VrmSceneManager';
-import { VrmModelLoader } from './engine/VrmModelLoader';
-import { VrmAnimationController } from './engine/VrmAnimationController';
-import { useVrmContext } from './VrmContext';
-import { useVrmAvatar } from './useVrmAvatar';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
+import { VrmAnimationController } from './engine/VrmAnimationController';
+import { VrmModelLoader } from './engine/VrmModelLoader';
+import { VrmSceneManager } from './engine/VrmSceneManager';
+import { useVrmAvatar } from './useVrmAvatar';
+import { useVrmContext } from './VrmContext';
 
 interface Props {
   agentId: string;
@@ -14,7 +13,6 @@ interface Props {
 }
 
 export function VrmViewer({ agentId, apiKey }: Props) {
-  const { t } = useTranslation('agents');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const controllerRef = useRef<VrmAnimationController | null>(null);
   const sceneRef = useRef<VrmSceneManager | null>(null);
@@ -47,7 +45,8 @@ export function VrmViewer({ agentId, apiKey }: Props) {
 
     const vrmUrl = `${api.getAvatarUrl(agentId).replace('/avatar', '/vrm')}`;
 
-    loader.load(vrmUrl)
+    loader
+      .load(vrmUrl)
       .then((vrm) => {
         if (disposed) {
           loader.dispose();
@@ -107,11 +106,7 @@ export function VrmViewer({ agentId, apiKey }: Props) {
 
   return (
     <div className="relative w-64 h-full border-r border-edge bg-glass-strong flex-shrink-0">
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full"
-        style={{ display: loading || error ? 'none' : 'block' }}
-      />
+      <canvas ref={canvasRef} className="w-full h-full" style={{ display: loading || error ? 'none' : 'block' }} />
 
       {loading && (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-content-tertiary">
@@ -130,9 +125,11 @@ export function VrmViewer({ agentId, apiKey }: Props) {
       {/* Agent state indicator */}
       {!loading && !error && agentState !== 'idle' && (
         <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-full text-[9px] font-mono uppercase tracking-widest bg-glass border border-edge">
-          <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${
-            agentState === 'thinking' ? 'bg-blue-400 animate-pulse' : 'bg-brand animate-pulse'
-          }`} />
+          <span
+            className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${
+              agentState === 'thinking' ? 'bg-blue-400 animate-pulse' : 'bg-brand animate-pulse'
+            }`}
+          />
           {agentState}
         </div>
       )}

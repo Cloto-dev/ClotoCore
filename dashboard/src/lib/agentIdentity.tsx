@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import { User } from 'lucide-react';
-import { AgentMetadata } from '../types';
+import { useState } from 'react';
 import { api } from '../services/api';
+import type { AgentMetadata } from '../types';
 
 /** Get current brand hex from CSS variable */
 function getBrandHex(): string {
@@ -33,12 +33,18 @@ export function AgentIcon({ agent, size = 20 }: { agent: AgentMetadata; size?: n
 
 /** Status dot color classes (3-state) */
 export function statusDotColor(status: string): string {
-  return status === 'online' ? 'bg-emerald-500' :
-         status === 'degraded' ? 'bg-amber-500 animate-pulse' : 'bg-content-muted';
+  return status === 'online'
+    ? 'bg-emerald-500'
+    : status === 'degraded'
+      ? 'bg-amber-500 animate-pulse'
+      : 'bg-content-muted';
 }
 
 /** Status badge classes (3-state) */
 export function statusBadgeClass(status: string): string {
-  return status === 'online' ? 'bg-emerald-500/10 text-emerald-500' :
-         status === 'degraded' ? 'bg-amber-500/10 text-amber-500' : 'bg-surface-secondary text-content-tertiary';
+  return status === 'online'
+    ? 'bg-emerald-500/10 text-emerald-500'
+    : status === 'degraded'
+      ? 'bg-amber-500/10 text-amber-500'
+      : 'bg-surface-secondary text-content-tertiary';
 }

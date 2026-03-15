@@ -64,7 +64,11 @@ export async function openVrmWindow(agentId: string, apiKey?: string): Promise<v
 
     // Toggle off: close existing window
     if (vrmWindowOpen && vrmWindowRef) {
-      try { await vrmWindowRef.destroy(); } catch { /* already gone */ }
+      try {
+        await vrmWindowRef.destroy();
+      } catch {
+        /* already gone */
+      }
       vrmWindowOpen = false;
       vrmWindowRef = null;
       return;
@@ -79,7 +83,9 @@ export async function openVrmWindow(agentId: string, apiKey?: string): Promise<v
         vrmWindowRef = null;
         return;
       }
-    } catch { /* fine */ }
+    } catch {
+      /* fine */
+    }
 
     // Toggle on: create new window
     try {
@@ -153,7 +159,9 @@ export async function scanLanguagesDir(): Promise<Array<[string, string]>> {
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     return await invoke<Array<[string, string]>>('scan_languages_dir');
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 /** Save a language pack JSON file to the languages directory. */
@@ -163,7 +171,9 @@ export async function saveLanguagePack(filename: string, content: string): Promi
     const { invoke } = await import('@tauri-apps/api/core');
     await invoke('save_language_pack', { filename, content });
     return true;
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 /** Remove a language pack file from the languages directory. */
@@ -173,7 +183,9 @@ export async function removeLanguagePack(filename: string): Promise<boolean> {
     const { invoke } = await import('@tauri-apps/api/core');
     await invoke('remove_language_pack', { filename });
     return true;
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 /** Install bundled default language packs if they don't exist yet. */
@@ -182,7 +194,9 @@ export async function installDefaultPacks(): Promise<number> {
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     return await invoke<number>('install_default_packs');
-  } catch { return 0; }
+  } catch {
+    return 0;
+  }
 }
 
 // ── Auto API Key ──
@@ -192,7 +206,7 @@ export async function getAutoApiKey(): Promise<string | null> {
   if (!isTauri) return null;
   try {
     const { invoke } = await import('@tauri-apps/api/core');
-    return await invoke<string | null>('get_auto_api_key') ?? null;
+    return (await invoke<string | null>('get_auto_api_key')) ?? null;
   } catch {
     return null;
   }
@@ -219,10 +233,9 @@ function isNewerVersion(current: string, latest: string): boolean {
 
 export async function checkForUpdates(): Promise<UpdateInfo> {
   const current = __APP_VERSION__;
-  const resp = await fetch(
-    'https://api.github.com/repos/Cloto-dev/ClotoCore/releases/latest',
-    { headers: { Accept: 'application/vnd.github.v3+json' } }
-  );
+  const resp = await fetch('https://api.github.com/repos/Cloto-dev/ClotoCore/releases/latest', {
+    headers: { Accept: 'application/vnd.github.v3+json' },
+  });
   if (!resp.ok) throw new Error(`GitHub API error: ${resp.status}`);
   const data = await resp.json();
   const latest = (data.tag_name || '').replace(/^v/, '');

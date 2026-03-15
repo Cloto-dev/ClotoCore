@@ -1,4 +1,4 @@
-import { Activity, Database, MessageSquare, Puzzle, Clock, Settings, MessageCircle, ExternalLink } from 'lucide-react';
+import { Activity, Clock, Database, ExternalLink, MessageCircle, MessageSquare, Puzzle, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 declare const __APP_VERSION__: string;
@@ -24,12 +24,17 @@ export function HelpContent({ onAskAgent }: HelpContentProps) {
     <>
       {/* Menu Guide */}
       <div className="px-5 py-4 space-y-3">
-        <p className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-3">{t('help.navigation')}</p>
+        <p className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-3">
+          {t('help.navigation')}
+        </p>
         {menuGuide.map(({ icon: Icon, labelKey, label, descKey }) => (
           <div key={descKey} className="flex items-start gap-3">
             <Icon size={14} className="text-brand mt-0.5 shrink-0" />
             <div>
-              <span className="text-xs font-mono font-bold text-content-primary">{label ?? (labelKey ? (labelKey.includes(':') ? tNav(labelKey.split(':')[1]) : t(labelKey)) : '').toUpperCase()}</span>
+              <span className="text-xs font-mono font-bold text-content-primary">
+                {label ??
+                  (labelKey ? (labelKey.includes(':') ? tNav(labelKey.split(':')[1]) : t(labelKey)) : '').toUpperCase()}
+              </span>
               <span className="text-xs text-content-secondary ml-2">{t(descKey)}</span>
             </div>
           </div>
@@ -48,18 +53,26 @@ export function HelpContent({ onAskAgent }: HelpContentProps) {
           <MessageCircle size={14} />
           {t('help.ask_assistant')}
         </button>
-        <p className="text-[9px] text-content-tertiary text-center mt-2 font-mono">
-          {t('help.ask_hint')}
-        </p>
+        <p className="text-[9px] text-content-tertiary text-center mt-2 font-mono">{t('help.ask_hint')}</p>
       </div>
 
       {/* Footer */}
       <div className="border-t border-edge px-5 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3 text-[9px] font-mono text-content-tertiary">
-          <a href="https://github.com/Cloto-dev/ClotoCore" target="_blank" rel="noopener noreferrer" className="hover:text-content-secondary transition-colors flex items-center gap-1">
+          <a
+            href="https://github.com/Cloto-dev/ClotoCore"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-content-secondary transition-colors flex items-center gap-1"
+          >
             {t('help.docs')} <ExternalLink size={8} />
           </a>
-          <a href="https://github.com/Cloto-dev/ClotoCore/issues" target="_blank" rel="noopener noreferrer" className="hover:text-content-secondary transition-colors flex items-center gap-1">
+          <a
+            href="https://github.com/Cloto-dev/ClotoCore/issues"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-content-secondary transition-colors flex items-center gap-1"
+          >
             {t('help.github')} <ExternalLink size={8} />
           </a>
         </div>

@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
-import { SectionCard, Toggle } from './common';
 import { useLocalStorage } from '../../hooks/useStorage';
+import { SectionCard, Toggle } from './common';
 
 export function DisplaySection() {
   const { t } = useTranslation('settings');

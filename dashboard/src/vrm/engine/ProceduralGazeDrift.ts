@@ -1,5 +1,5 @@
+import type { VRM } from '@pixiv/three-vrm';
 import * as THREE from 'three';
-import { VRM } from '@pixiv/three-vrm';
 
 /**
  * Procedural gaze drift with micro-saccades.

@@ -1,9 +1,9 @@
-import React, { useState, useCallback } from 'react';
-import { Shield, Lock, Unlock, AlertTriangle, X, Check, ShieldAlert } from 'lucide-react';
-import { PermissionRequest } from '../types';
-import { Spinner } from '../lib/Spinner';
+import { AlertTriangle, Check, Lock, ShieldAlert, Unlock, X } from 'lucide-react';
+import { useCallback, useState } from 'react';
 import { useApi } from '../hooks/useApi';
 import { usePolling } from '../hooks/usePolling';
+import { Spinner } from '../lib/Spinner';
+import type { PermissionRequest } from '../types';
 
 export function SecurityGuard() {
   const api = useApi();
@@ -18,7 +18,7 @@ export function SecurityGuard() {
       setRequests(await api.getPendingPermissions());
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      console.error("Failed to fetch pending permissions:", err);
+      console.error('Failed to fetch pending permissions:', err);
     }
   }, [api]);
 
@@ -26,34 +26,34 @@ export function SecurityGuard() {
 
   const handleGrant = async (req: PermissionRequest) => {
     const reqId = req.request_id;
-    setAuthorizingIds(prev => [...prev, reqId]);
+    setAuthorizingIds((prev) => [...prev, reqId]);
     setError(null);
 
     try {
       await api.approvePermission(req.request_id, 'admin');
-      setAuthorizingIds(prev => prev.filter(id => id !== reqId));
-      setGrantedIds(prev => [...prev, reqId]);
+      setAuthorizingIds((prev) => prev.filter((id) => id !== reqId));
+      setGrantedIds((prev) => [...prev, reqId]);
 
       // Keep visible for 2 seconds to show success
       setTimeout(() => {
-        setRequests(prev => prev.filter(r => r.request_id !== reqId));
-        setGrantedIds(prev => prev.filter(id => id !== reqId));
+        setRequests((prev) => prev.filter((r) => r.request_id !== reqId));
+        setGrantedIds((prev) => prev.filter((id) => id !== reqId));
       }, 2000);
     } catch (err) {
-      setAuthorizingIds(prev => prev.filter(id => id !== reqId));
+      setAuthorizingIds((prev) => prev.filter((id) => id !== reqId));
       setError(`CRITICAL: Authorization failed. ${err}`);
-      console.error("Failed to grant permission:", err);
+      console.error('Failed to grant permission:', err);
     }
   };
 
   const handleDeny = async (req: PermissionRequest) => {
     try {
       await api.denyPermission(req.request_id, 'admin');
-      setRequests(prev => prev.filter(r => r.request_id !== req.request_id));
+      setRequests((prev) => prev.filter((r) => r.request_id !== req.request_id));
       setError(null);
     } catch (err) {
       setError(`Failed to deny permission: ${err}`);
-      console.error("Failed to deny permission:", err);
+      console.error('Failed to deny permission:', err);
     }
   };
 
@@ -65,11 +65,13 @@ export function SecurityGuard() {
         <div className="bg-red-500 text-white p-4 rounded-2xl shadow-lg flex items-center gap-3 animate-bounce">
           <AlertTriangle size={20} />
           <p className="text-xs font-bold uppercase tracking-tight">{error}</p>
-          <button onClick={() => setError(null)} className="ml-auto"><X size={14} /></button>
+          <button onClick={() => setError(null)} className="ml-auto">
+            <X size={14} />
+          </button>
         </div>
       )}
 
-      {requests.map((req, idx) => {
+      {requests.map((req, _idx) => {
         const reqId = req.request_id;
         const isAuthorizing = authorizingIds.includes(reqId);
         const isGranted = grantedIds.includes(reqId);
@@ -82,9 +84,11 @@ export function SecurityGuard() {
             }`}
           >
             {/* Header */}
-            <div className={`p-4 flex items-center justify-between text-white transition-colors duration-500 ${
-              isGranted ? 'bg-emerald-500' : 'bg-brand'
-            }`}>
+            <div
+              className={`p-4 flex items-center justify-between text-white transition-colors duration-500 ${
+                isGranted ? 'bg-emerald-500' : 'bg-brand'
+              }`}
+            >
               <div className="flex items-center gap-2">
                 {isGranted ? <Check size={18} /> : <ShieldAlert size={18} />}
                 <span className="text-[10px] font-black uppercase tracking-[0.2em]">
@@ -100,9 +104,11 @@ export function SecurityGuard() {
 
             <div className="p-6">
               <div className="flex items-start gap-4 mb-4">
-                <div className={`p-3 rounded-2xl transition-colors ${
-                  isGranted ? 'bg-emerald-500/10 text-emerald-500' : 'bg-brand/10 text-brand'
-                }`}>
+                <div
+                  className={`p-3 rounded-2xl transition-colors ${
+                    isGranted ? 'bg-emerald-500/10 text-emerald-500' : 'bg-brand/10 text-brand'
+                  }`}
+                >
                   {isGranted ? <Unlock size={20} /> : <Lock size={20} />}
                 </div>
                 <div>
@@ -114,36 +120,38 @@ export function SecurityGuard() {
               </div>
 
               <div className="bg-surface-base border border-edge-subtle rounded-xl p-3 mb-6">
-                 <div className="flex items-center gap-2 mb-2">
-                   <div className={`w-1.5 h-1.5 rounded-full ${isGranted ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                   <span className="text-[9px] font-black text-content-secondary uppercase tracking-widest">Capability Status</span>
-                 </div>
-                 <p className="text-xs font-bold text-content-primary uppercase tracking-wide mb-2">{req.permission_type}</p>
-                 {req.target_resource && (
-                   <p className="text-[9px] text-content-tertiary font-mono mb-1">{req.target_resource}</p>
-                 )}
-                 <p className="text-[10px] text-content-secondary leading-relaxed italic">
-                   {isGranted ? "Resource has been successfully injected into agent." : `"${req.justification}"`}
-                 </p>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className={`w-1.5 h-1.5 rounded-full ${isGranted ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                  <span className="text-[9px] font-black text-content-secondary uppercase tracking-widest">
+                    Capability Status
+                  </span>
+                </div>
+                <p className="text-xs font-bold text-content-primary uppercase tracking-wide mb-2">
+                  {req.permission_type}
+                </p>
+                {req.target_resource && (
+                  <p className="text-[9px] text-content-tertiary font-mono mb-1">{req.target_resource}</p>
+                )}
+                <p className="text-[10px] text-content-secondary leading-relaxed italic">
+                  {isGranted ? 'Resource has been successfully injected into agent.' : `"${req.justification}"`}
+                </p>
               </div>
 
               {!isGranted && (
                 <div className="flex gap-3">
-                  <button 
+                  <button
                     disabled={isAuthorizing}
                     onClick={() => handleDeny(req)}
                     className="flex-1 py-2.5 rounded-xl border border-edge text-[10px] font-bold text-content-tertiary hover:text-content-secondary hover:bg-surface-base transition-all uppercase tracking-widest disabled:opacity-30"
                   >
                     Deny
                   </button>
-                  <button 
+                  <button
                     disabled={isAuthorizing}
                     onClick={() => handleGrant(req)}
                     className="flex-1 py-2.5 rounded-xl bg-brand text-white text-[10px] font-bold shadow-lg shadow-brand/30 hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-50"
                   >
-                    {isAuthorizing ? (
-                      <Spinner size={3} />
-                    ) : <Unlock size={14} />}
+                    {isAuthorizing ? <Spinner size={3} /> : <Unlock size={14} />}
                     {isAuthorizing ? 'Authorizing...' : 'Authorize'}
                   </button>
                 </div>

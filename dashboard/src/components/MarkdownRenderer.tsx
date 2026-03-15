@@ -1,5 +1,5 @@
-import { useMemo, useRef, useEffect } from 'react';
 import DOMPurify from 'dompurify';
+import { useEffect, useMemo, useRef } from 'react';
 import { renderMarkdown, renderMarkdownIncremental } from '../lib/markdown';
 
 interface MarkdownRendererProps {
@@ -13,9 +13,7 @@ export function MarkdownRenderer({ content, incremental = false, onCodeBlock, cl
   const extractedCodesRef = useRef<Set<string>>(new Set());
 
   const html = useMemo(() => {
-    const raw = incremental
-      ? renderMarkdownIncremental(content)
-      : renderMarkdown(content);
+    const raw = incremental ? renderMarkdownIncremental(content) : renderMarkdown(content);
 
     if (!onCodeBlock) return raw;
 
@@ -33,7 +31,7 @@ export function MarkdownRenderer({ content, incremental = false, onCodeBlock, cl
           return `<div class="artifact-placeholder"><span class="text-[9px] font-mono uppercase tracking-wider opacity-60">${lang} · ${lines} lines</span><span class="text-[10px] font-mono opacity-80">View in panel →</span></div><pre style="display:none" data-lang="${lang}" data-lines="${linesStr}">`;
         }
         return `<pre class="hljs-code-block" data-lang="${lang}" data-lines="${linesStr}" data-raw="${rawEncoded}">`;
-      }
+      },
     );
   }, [content, incremental, onCodeBlock]);
 
@@ -47,9 +45,6 @@ export function MarkdownRenderer({ content, incremental = false, onCodeBlock, cl
   }, [content]);
 
   return (
-    <div
-      className={`chat-markdown ${className}`}
-      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
-    />
+    <div className={`chat-markdown ${className}`} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />
   );
 }

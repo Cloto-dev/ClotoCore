@@ -1,5 +1,5 @@
-import { expect, afterEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
+import { afterEach, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 
 // Cleanup after each test
@@ -72,7 +72,7 @@ Object.defineProperty(navigator, 'mediaDevices', {
         getTracks: () => [],
         getVideoTracks: () => [],
         getAudioTracks: () => [],
-      } as unknown as MediaStream)
+      } as unknown as MediaStream),
     ),
   },
   writable: true,

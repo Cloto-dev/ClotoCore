@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { SectionCard } from './common';
-import { LlmProvidersSection } from './LlmProvidersSection';
-import { SecretInput } from '../../components/ui/SecretInput';
 import { AlertCard } from '../../components/ui/AlertCard';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { SecretInput } from '../../components/ui/SecretInput';
 import { useApiKey } from '../../contexts/ApiKeyContext';
-import { api } from '../../services/api';
 import { useApi } from '../../hooks/useApi';
 import { useAsyncAction } from '../../hooks/useAsyncAction';
+import { api } from '../../services/api';
+import { SectionCard } from './common';
+import { LlmProvidersSection } from './LlmProvidersSection';
 
 export function SecuritySection() {
   const { setApiKey, forgetApiKey } = useApiKey();
@@ -52,13 +52,18 @@ export function SecuritySection() {
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${authApi.apiKey ? 'bg-green-500' : 'bg-amber-500'}`} />
-            <span className="text-xs text-content-secondary">{authApi.apiKey ? t('security.configured') : t('security.not_configured')}</span>
+            <span className="text-xs text-content-secondary">
+              {authApi.apiKey ? t('security.configured') : t('security.not_configured')}
+            </span>
           </div>
 
           <div className="flex gap-2">
             <SecretInput
               value={newKey}
-              onChange={v => { setNewKey(v); clearErrors(); }}
+              onChange={(v) => {
+                setNewKey(v);
+                clearErrors();
+              }}
               placeholder={authApi.apiKey ? t('security.placeholder_replace') : t('security.placeholder_new')}
               className="w-full bg-surface-secondary border border-edge rounded-lg px-3 py-2 pr-8 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
             />
@@ -71,9 +76,7 @@ export function SecuritySection() {
             </button>
           </div>
 
-          {error && (
-            <AlertCard>{error}</AlertCard>
-          )}
+          {error && <AlertCard>{error}</AlertCard>}
 
           {authApi.apiKey && (
             <div className="pt-3 border-t border-edge">

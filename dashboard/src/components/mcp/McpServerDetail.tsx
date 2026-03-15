@@ -1,11 +1,11 @@
+import { Play, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { McpServerInfo } from '../../types';
-import { McpServerSettingsTab } from './McpServerSettingsTab';
+import type { McpServerInfo } from '../../types';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { McpAccessControlTab } from './McpAccessControlTab';
 import { McpServerLogsTab } from './McpServerLogsTab';
-import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { Play, Square, RotateCcw, Trash2 } from 'lucide-react';
+import { McpServerSettingsTab } from './McpServerSettingsTab';
 
 type Tab = 'settings' | 'access' | 'logs';
 
@@ -104,7 +104,10 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
                 message={t('detail.delete_confirm', { id: server.id })}
                 confirmLabel={t('detail.delete')}
                 variant="danger"
-                onConfirm={() => { setConfirmDelete(false); handleAction('delete', () => onDelete(server.id)); }}
+                onConfirm={() => {
+                  setConfirmDelete(false);
+                  handleAction('delete', () => onDelete(server.id));
+                }}
                 onCancel={() => setConfirmDelete(false)}
               />
             </>
@@ -114,14 +117,16 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
 
       {/* Tabs */}
       <div className="flex border-b border-edge">
-        {tabs.map(tab => (
+        {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`px-4 py-2 text-[10px] font-mono uppercase tracking-wider transition-colors
-              ${activeTab === tab.id
-                ? 'text-content-primary border-b-2 border-brand'
-                : 'text-content-tertiary hover:text-content-secondary'}`}
+              ${
+                activeTab === tab.id
+                  ? 'text-content-primary border-b-2 border-brand'
+                  : 'text-content-tertiary hover:text-content-secondary'
+              }`}
           >
             {tab.label}
           </button>
@@ -130,15 +135,9 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
-        {activeTab === 'settings' && (
-          <McpServerSettingsTab server={server} onRefresh={onRefresh} />
-        )}
-        {activeTab === 'access' && (
-          <McpAccessControlTab server={server} />
-        )}
-        {activeTab === 'logs' && (
-          <McpServerLogsTab server={server} />
-        )}
+        {activeTab === 'settings' && <McpServerSettingsTab server={server} onRefresh={onRefresh} />}
+        {activeTab === 'access' && <McpAccessControlTab server={server} />}
+        {activeTab === 'logs' && <McpServerLogsTab server={server} />}
       </div>
     </div>
   );

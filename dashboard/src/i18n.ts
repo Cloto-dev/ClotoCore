@@ -1,23 +1,22 @@
 import i18n from 'i18next';
-import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
+import { initReactI18next } from 'react-i18next';
 import {
   installDefaultPacks,
-  scanLanguagesDir,
-  saveLanguagePack as savePack,
   removeLanguagePack as removePack,
+  saveLanguagePack as savePack,
+  scanLanguagesDir,
 } from './lib/tauri';
-
+import en_agents from './locales/en/agents.json';
 // Bundled: English only
 import en_common from './locales/en/common.json';
-import en_agents from './locales/en/agents.json';
-import en_settings from './locales/en/settings.json';
-import en_mcp from './locales/en/mcp.json';
-import en_nav from './locales/en/nav.json';
 import en_cron from './locales/en/cron.json';
+import en_mcp from './locales/en/mcp.json';
 import en_memory from './locales/en/memory.json';
-import en_wizard from './locales/en/wizard.json';
+import en_nav from './locales/en/nav.json';
+import en_settings from './locales/en/settings.json';
 import en_setup from './locales/en/setup.json';
+import en_wizard from './locales/en/wizard.json';
 
 const NAMESPACES = ['common', 'agents', 'settings', 'mcp', 'nav', 'cron', 'memory', 'wizard', 'setup'] as const;
 
@@ -26,7 +25,17 @@ i18n
   .use(initReactI18next)
   .init({
     resources: {
-      en: { common: en_common, agents: en_agents, settings: en_settings, mcp: en_mcp, nav: en_nav, cron: en_cron, memory: en_memory, wizard: en_wizard, setup: en_setup },
+      en: {
+        common: en_common,
+        agents: en_agents,
+        settings: en_settings,
+        mcp: en_mcp,
+        nav: en_nav,
+        cron: en_cron,
+        memory: en_memory,
+        wizard: en_wizard,
+        setup: en_setup,
+      },
     },
     fallbackLng: 'en',
     defaultNS: 'common',

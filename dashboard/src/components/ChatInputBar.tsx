@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, Plus, Mic, MicOff, X } from 'lucide-react';
+import { Mic, MicOff, Plus, Send, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ContentBlock, McpServerInfo } from '../types';
+import type { ContentBlock, McpServerInfo } from '../types';
 import { EngineSelector } from './EngineSelector';
 
 interface EditMode {
@@ -41,7 +41,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatI
       const timerId = setTimeout(() => inputRef.current?.focus(), 50);
       return () => clearTimeout(timerId);
     }
-  }, [editMode?.messageId]);
+  }, [editMode?.messageId, editMode]);
 
   const handleSend = () => {
     if ((!input.trim() && !attachment) || disabled) return;
@@ -64,7 +64,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatI
     // Fallback to Auto if selected engine is disconnected
     let engine = selectedEngine;
     if (engine) {
-      const srv = servers.find(s => s.id === engine);
+      const srv = servers.find((s) => s.id === engine);
       if (!srv || srv.status !== 'Connected') engine = null;
     }
 
@@ -129,11 +129,11 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatI
       };
 
       recorder.onstop = () => {
-        stream.getTracks().forEach(t => t.stop());
+        stream.getTracks().forEach((t) => t.stop());
         if (chunksRef.current.length > 0) {
           // Insert a note that audio was recorded — agent will use STT
           const audioDuration = Math.round(chunksRef.current.reduce((acc, c) => acc + c.size, 0) / 16000);
-          setInput(prev => prev + (prev ? ' ' : '') + `[Audio recorded: ~${audioDuration}s — please transcribe]`);
+          setInput((prev) => prev + (prev ? ' ' : '') + `[Audio recorded: ~${audioDuration}s — please transcribe]`);
         }
       };
 
@@ -150,10 +150,12 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatI
       {/* Attachment preview */}
       {attachment && (
         <div className="mb-2 flex items-center gap-2">
-          <img src={attachment.preview} alt="preview" className="w-16 h-16 object-cover rounded-lg border border-edge" />
-          <div className="flex-1 text-[10px] font-mono text-content-secondary truncate">
-            {attachment.file.name}
-          </div>
+          <img
+            src={attachment.preview}
+            alt="preview"
+            className="w-16 h-16 object-cover rounded-lg border border-edge"
+          />
+          <div className="flex-1 text-[10px] font-mono text-content-secondary truncate">{attachment.file.name}</div>
           <button
             onClick={() => setAttachment(null)}
             className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-red-400 transition-colors"
@@ -209,7 +211,13 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatI
           }}
           onPaste={handlePaste}
           disabled={disabled}
-          placeholder={editMode ? t('chat_input.placeholder_edit') : disabled ? t('chat_input.placeholder_processing') : t('chat_input.placeholder')}
+          placeholder={
+            editMode
+              ? t('chat_input.placeholder_edit')
+              : disabled
+                ? t('chat_input.placeholder_processing')
+                : t('chat_input.placeholder')
+          }
           className="flex-1 bg-surface-primary border rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none transition-colors placeholder:text-content-tertiary disabled:opacity-50 shadow-inner border-edge focus:border-brand"
           style={editMode ? { borderColor: '#fbbf24' } : undefined}
         />

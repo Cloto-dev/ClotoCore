@@ -1,13 +1,12 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { memo } from 'react';
-import { Brain, History, User, Trash2 } from 'lucide-react';
-import { SectionHeader } from './ui/SectionHeader';
+import { Brain, History, Trash2, User } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Memory, Episode, AgentMetadata } from '../types';
-import { useEventStream } from '../hooks/useEventStream';
-import { useMetrics, Metrics } from '../hooks/useMetrics';
 import { useApi } from '../hooks/useApi';
+import { useEventStream } from '../hooks/useEventStream';
+import { type Metrics, useMetrics } from '../hooks/useMetrics';
 import { EVENTS_URL } from '../services/api';
+import type { AgentMetadata, Episode, Memory } from '../types';
+import { SectionHeader } from './ui/SectionHeader';
 
 /** Extract a display name from an agent_id like "agent.サフィー___sapphy" */
 function agentDisplayName(agentId: string, agentMap: Map<string, string>): string {
@@ -46,28 +45,24 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
 
   // Filtered data
   const filteredMemories = useMemo(
-    () => selectedAgent ? memories.filter(m => m.agent_id === selectedAgent) : memories,
+    () => (selectedAgent ? memories.filter((m) => m.agent_id === selectedAgent) : memories),
     [memories, selectedAgent],
   );
   const filteredEpisodes = useMemo(
-    () => selectedAgent ? episodes.filter(e => e.agent_id === selectedAgent) : episodes,
+    () => (selectedAgent ? episodes.filter((e) => e.agent_id === selectedAgent) : episodes),
     [episodes, selectedAgent],
   );
 
   const fetchData = useCallback(async () => {
     try {
-      const [memories, episodes, agents] = await Promise.all([
-        api.getMemories(),
-        api.getEpisodes(),
-        api.getAgents(),
-      ]);
+      const [memories, episodes, agents] = await Promise.all([api.getMemories(), api.getEpisodes(), api.getAgents()]);
       setMemories(memories);
       setEpisodes(episodes);
       setAgents(agents);
     } catch (error) {
       console.error('Failed to fetch data', error);
     }
-  }, []);
+  }, [api.getAgents, api.getEpisodes, api.getMemories]);
 
   // H-18: Debounce fetchData to prevent cascading API calls on rapid events
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -95,7 +90,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
   const handleDeleteMemory = async (id: number) => {
     try {
       await api.deleteMemory(id);
-      setMemories(prev => prev.filter(m => m.id !== id));
+      setMemories((prev) => prev.filter((m) => m.id !== id));
     } catch (e) {
       console.error('Failed to delete memory:', e);
     }
@@ -104,32 +99,46 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
   const handleDeleteEpisode = async (id: number) => {
     try {
       await api.deleteEpisode(id);
-      setEpisodes(prev => prev.filter(e => e.id !== id));
+      setEpisodes((prev) => prev.filter((e) => e.id !== id));
     } catch (e) {
       console.error('Failed to delete episode:', e);
     }
   };
 
-  useEventStream(EVENTS_URL, (data) => {
-    if (data.type === '__reconnected' || data.type === '__lagged'
-      || data.type === 'MessageReceived' || data.type === 'VisionUpdated'
-      || data.type === 'SystemNotification') {
-       // H-18: Use debounced fetch to prevent cascading API calls
-       debouncedFetchData();
-    }
-  }, api.apiKey);
+  useEventStream(
+    EVENTS_URL,
+    (data) => {
+      if (
+        data.type === '__reconnected' ||
+        data.type === '__lagged' ||
+        data.type === 'MessageReceived' ||
+        data.type === 'VisionUpdated' ||
+        data.type === 'SystemNotification'
+      ) {
+        // H-18: Use debounced fetch to prevent cascading API calls
+        debouncedFetchData();
+      }
+    },
+    api.apiKey,
+  );
 
   return (
-    <div className={`${isWindowMode ? 'bg-transparent p-4' : 'h-full overflow-y-auto'} relative font-sans text-content-primary overflow-x-hidden animate-in fade-in duration-500`}>
+    <div
+      className={`${isWindowMode ? 'bg-transparent p-4' : 'h-full overflow-y-auto'} relative font-sans text-content-primary overflow-x-hidden animate-in fade-in duration-500`}
+    >
       {/* Inline header bar with metrics */}
       {!isWindowMode && (
         <div className="px-6 pt-4 pb-2 md:px-12 space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Brain className="text-brand" size={16} />
-              <h2 className="text-xs font-mono uppercase tracking-widest text-content-primary font-bold">{t('title')}</h2>
+              <h2 className="text-xs font-mono uppercase tracking-widest text-content-primary font-bold">
+                {t('title')}
+              </h2>
             </div>
-            <span className="text-[10px] font-mono text-content-tertiary">{metrics.ram_usage} / {metrics.total_memories} {t('objs')}</span>
+            <span className="text-[10px] font-mono text-content-tertiary">
+              {metrics.ram_usage} / {metrics.total_memories} {t('objs')}
+            </span>
           </div>
           {/* Agent filter tabs */}
           {agentTabs.length > 0 && (
@@ -144,7 +153,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
               >
                 {t('all')}
               </button>
-              {agentTabs.map(agentId => (
+              {agentTabs.map((agentId) => (
                 <button
                   key={agentId}
                   onClick={() => setSelectedAgent(agentId)}
@@ -163,69 +172,90 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
       )}
 
       <div className={`relative z-10 ${isWindowMode ? '' : 'p-6 md:px-12'}`}>
-
         <main className={`grid grid-cols-1 ${isWindowMode ? 'gap-4' : 'lg:grid-cols-3 gap-8'}`}>
           <section className={`${isWindowMode ? '' : 'lg:col-span-2'} space-y-4`}>
             <SectionHeader icon={User} title={t('long_term')} className="mb-2" />
-            
+
             <div className={`grid ${isWindowMode ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'} gap-4`}>
-              {filteredMemories.length > 0 ? filteredMemories.map((mem) => (
-                <div key={mem.id} className="bg-glass-strong backdrop-blur-sm p-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group flex flex-col max-h-48">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-brand/10 transition-colors">
-                      <User size={12} className="text-content-tertiary group-hover:text-brand" />
+              {filteredMemories.length > 0 ? (
+                filteredMemories.map((mem) => (
+                  <div
+                    key={mem.id}
+                    className="bg-glass-strong backdrop-blur-sm p-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group flex flex-col max-h-48"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-brand/10 transition-colors">
+                        <User size={12} className="text-content-tertiary group-hover:text-brand" />
+                      </div>
+                      <span className="text-[10px] font-mono text-content-tertiary">
+                        {agentDisplayName(mem.agent_id, agentMap)}
+                      </span>
                     </div>
-                    <span className="text-[10px] font-mono text-content-tertiary">{agentDisplayName(mem.agent_id, agentMap)}</span>
+                    <div className="flex-1 min-h-0 text-xs font-medium leading-relaxed text-content-secondary whitespace-pre-wrap line-clamp-6 font-mono">
+                      {mem.content}
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-edge-subtle flex justify-between items-center">
+                      <span className="text-[9px] text-content-tertiary font-bold uppercase tracking-widest">
+                        {mem.created_at}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteMemory(mem.id);
+                        }}
+                        className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+                        title={t('delete_memory')}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex-1 min-h-0 text-xs font-medium leading-relaxed text-content-secondary whitespace-pre-wrap line-clamp-6 font-mono">
-                    {mem.content}
-                  </div>
-                  <div className="mt-2 pt-2 border-t border-edge-subtle flex justify-between items-center">
-                    <span className="text-[9px] text-content-tertiary font-bold uppercase tracking-widest">{mem.created_at}</span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteMemory(mem.id); }}
-                      className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                      title={t('delete_memory')}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
+                ))
+              ) : (
+                <div className="col-span-full py-8 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
+                  {t('no_memories')}
                 </div>
-              )) : (
-                 <div className="col-span-full py-8 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
-                    {t('no_memories')}
-                 </div>
               )}
             </div>
           </section>
 
           <section className="space-y-4">
             <SectionHeader icon={History} title={t('episodic')} className="mb-2" />
-            
+
             <div className="space-y-3">
-              {filteredEpisodes.length > 0 ? filteredEpisodes.map((epi) => (
-                <div key={epi.id} className="bg-glass-strong backdrop-blur-sm p-3 rounded-lg border-l-2 border-brand shadow-sm hover:translate-x-1 transition-transform group">
-                  <div className="text-[10px] font-black text-brand mb-1 uppercase tracking-wider flex justify-between items-center">
-                    <span>{epi.created_at || "LOG: RECENT"}</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-content-tertiary font-mono">{agentDisplayName(epi.agent_id, agentMap)}</span>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteEpisode(epi.id); }}
-                        className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                        title={t('delete_episode')}
-                      >
-                        <Trash2 size={10} />
-                      </button>
+              {filteredEpisodes.length > 0 ? (
+                filteredEpisodes.map((epi) => (
+                  <div
+                    key={epi.id}
+                    className="bg-glass-strong backdrop-blur-sm p-3 rounded-lg border-l-2 border-brand shadow-sm hover:translate-x-1 transition-transform group"
+                  >
+                    <div className="text-[10px] font-black text-brand mb-1 uppercase tracking-wider flex justify-between items-center">
+                      <span>{epi.created_at || 'LOG: RECENT'}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-content-tertiary font-mono">
+                          {agentDisplayName(epi.agent_id, agentMap)}
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteEpisode(epi.id);
+                          }}
+                          className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+                          title={t('delete_episode')}
+                        >
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
                     </div>
+                    {epi.keywords && (
+                      <div className="text-[9px] font-mono text-content-tertiary mb-1">{epi.keywords}</div>
+                    )}
+                    <p className="text-xs text-content-secondary line-clamp-3 font-mono leading-relaxed group-hover:text-content-primary">
+                      {epi.summary}
+                    </p>
                   </div>
-                  {epi.keywords && (
-                    <div className="text-[9px] font-mono text-content-tertiary mb-1">{epi.keywords}</div>
-                  )}
-                  <p className="text-xs text-content-secondary line-clamp-3 font-mono leading-relaxed group-hover:text-content-primary">
-                    {epi.summary}
-                  </p>
-                </div>
-              )) : (
+                ))
+              ) : (
                 <div className="py-8 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
                   {t('no_episodes')}
                 </div>
@@ -233,7 +263,6 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
             </div>
           </section>
         </main>
-
       </div>
     </div>
   );

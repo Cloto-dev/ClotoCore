@@ -1,10 +1,24 @@
-import { useTranslation } from 'react-i18next';
-import { MarketplaceCatalogEntry } from '../../types';
 import {
-  Terminal, Wrench, Clock, Layers, Search, BookOpen, Image, Cpu,
-  Zap, Sparkles, Box, Brain, Monitor, Eye, Mic, Package,
+  BookOpen,
+  Box,
+  Brain,
+  Clock,
+  Cpu,
+  Eye,
+  Image,
+  Layers,
   type LucideIcon,
+  Mic,
+  Monitor,
+  Package,
+  Search,
+  Sparkles,
+  Terminal,
+  Wrench,
+  Zap,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import type { MarketplaceCatalogEntry } from '../../types';
 
 const ICON_MAP: Record<string, LucideIcon> = {
   terminal: Terminal,
@@ -50,14 +64,12 @@ export function MarketplaceCard({ entry, onInstall, onUninstall }: MarketplaceCa
       </div>
 
       {/* Description */}
-      <p className="text-[11px] font-sans text-content-tertiary line-clamp-2 leading-relaxed">
-        {entry.description}
-      </p>
+      <p className="text-[11px] font-sans text-content-tertiary line-clamp-2 leading-relaxed">{entry.description}</p>
 
       {/* Tags */}
       {entry.tags.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {entry.tags.map(tag => (
+          {entry.tags.map((tag) => (
             <span key={tag} className="bg-surface-secondary text-content-tertiary text-[11px] px-1.5 rounded">
               {tag}
             </span>

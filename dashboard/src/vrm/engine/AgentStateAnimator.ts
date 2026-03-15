@@ -1,6 +1,6 @@
+import type { VRM } from '@pixiv/three-vrm';
 import * as THREE from 'three';
-import { VRM } from '@pixiv/three-vrm';
-import { AvatarAgentState } from './types';
+import type { AvatarAgentState } from './types';
 
 /**
  * Applies agent-state-dependent bone modifiers on top of idle animation.
@@ -8,11 +8,11 @@ import { AvatarAgentState } from './types';
  */
 
 interface StateModifiers {
-  gazeYOffset: number;      // Added to gaze target Y
-  headTiltZ: number;        // Head Z rotation (radians)
-  spineLeanX: number;       // Spine X rotation (radians)
-  swayDamping: number;      // Multiplier on sway amplitude (0-1)
-  eyeClose: number;         // VRM blink expression (0 = open, 1 = closed)
+  gazeYOffset: number; // Added to gaze target Y
+  headTiltZ: number; // Head Z rotation (radians)
+  spineLeanX: number; // Spine X rotation (radians)
+  swayDamping: number; // Multiplier on sway amplitude (0-1)
+  eyeClose: number; // VRM blink expression (0 = open, 1 = closed)
 }
 
 const STATE_TARGETS: Record<AvatarAgentState, StateModifiers> = {
@@ -24,16 +24,16 @@ const STATE_TARGETS: Record<AvatarAgentState, StateModifiers> = {
     eyeClose: 0,
   },
   thinking: {
-    gazeYOffset: 0.15,        // Look slightly upward
-    headTiltZ: 0.05,          // ~3 degree head tilt
+    gazeYOffset: 0.15, // Look slightly upward
+    headTiltZ: 0.05, // ~3 degree head tilt
     spineLeanX: 0,
-    swayDamping: 0.5,         // Reduce sway while thinking
-    eyeClose: 0.2,            // Eyes slightly narrowed
+    swayDamping: 0.5, // Reduce sway while thinking
+    eyeClose: 0.2, // Eyes slightly narrowed
   },
   responding: {
     gazeYOffset: 0,
     headTiltZ: 0,
-    spineLeanX: 0.035,        // ~2 degree forward lean
+    spineLeanX: 0.035, // ~2 degree forward lean
     swayDamping: 0.8,
     eyeClose: 0,
   },
