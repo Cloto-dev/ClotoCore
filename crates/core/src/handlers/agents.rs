@@ -457,19 +457,16 @@ pub async fn upload_avatar(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to write avatar file: {}", e)))?;
 
     // Attempt vision analysis (graceful degradation, 30s timeout for Ollama model load + inference)
-    let avatar_description = match tokio::time::timeout(
+    let avatar_description = if let Ok(result) = tokio::time::timeout(
         std::time::Duration::from_secs(30),
         analyze_avatar(&state, &avatar_path_str),
     )
     .await
     {
-        Ok(result) => result,
-        Err(_) => {
-            tracing::warn!(
-                "Avatar vision analysis timed out after 30s, storing without description"
-            );
-            None
-        }
+        result
+    } else {
+        tracing::warn!("Avatar vision analysis timed out after 30s, storing without description");
+        None
     };
 
     state

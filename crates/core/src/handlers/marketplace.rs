@@ -148,12 +148,11 @@ pub async fn catalog_handler(
             let mp_record = marketplace_servers
                 .iter()
                 .find(|r| r.marketplace_id.as_deref() == Some(&entry.id));
-            let installed = mp_record.map(|r| r.is_active).unwrap_or(false);
+            let installed = mp_record.is_some_and(|r| r.is_active);
             let installed_version = mp_record.and_then(|r| r.installed_version.clone());
             let update_available = installed_version
                 .as_deref()
-                .map(|iv| iv != entry.version)
-                .unwrap_or(false);
+                .is_some_and(|iv| iv != entry.version);
             let running = running_servers.iter().any(|s| {
                 s.id == entry.id
                     && matches!(
@@ -186,10 +185,10 @@ pub async fn catalog_handler(
 
     let cached_at = {
         let cache = state.marketplace_cache.read().await;
-        cache
-            .fetched_at
-            .map(|t| format!("{:.0}s ago", t.elapsed().as_secs()))
-            .unwrap_or_else(|| "just now".to_string())
+        cache.fetched_at.map_or_else(
+            || "just now".to_string(),
+            |t| format!("{:.0}s ago", t.elapsed().as_secs()),
+        )
     };
 
     super::ok_data(serde_json::json!({

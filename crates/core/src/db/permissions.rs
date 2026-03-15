@@ -118,7 +118,7 @@ pub async fn get_permission_request(
     .bind(request_id)
     .fetch_optional(pool);
 
-    Ok(db_timeout(query_future).await?)
+    db_timeout(query_future).await
 }
 
 /// Update permission request status (approve/deny)

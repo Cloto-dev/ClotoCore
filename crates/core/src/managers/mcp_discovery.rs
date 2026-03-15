@@ -231,7 +231,7 @@ pub(super) async fn execute_discovery_list(
 
         // Include stopped servers when filter is "all" or "disconnected"
         if filter_status == "all" || filter_status == "disconnected" {
-            for (id, (config, _source)) in state.stopped_configs.iter() {
+            for (id, (config, _source)) in &state.stopped_configs {
                 // Check if already included from active servers
                 if servers_json
                     .iter()

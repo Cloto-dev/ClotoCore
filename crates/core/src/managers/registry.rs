@@ -377,7 +377,7 @@ impl PluginRegistry {
         use futures::FutureExt;
         let mut futures = FuturesUnordered::new();
 
-        for (id, plugin) in state.plugins.iter() {
+        for (id, plugin) in &state.plugins {
             let plugin = plugin.clone();
             let event = event.clone();
             let id = id.clone();

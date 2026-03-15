@@ -113,8 +113,7 @@ impl VoicevoxEngine {
             .build()
             .ok()
             .and_then(|c| c.get(&version_url).send().ok())
-            .map(|r| r.status().is_success())
-            .unwrap_or(false)
+            .is_some_and(|r| r.status().is_success())
     }
 
     /// Poll until engine responds or timeout.

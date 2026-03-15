@@ -48,7 +48,7 @@ impl LatencyTier {
 
 /// Classify a tool into a latency tier based on server suffix and tool name.
 fn classify_latency_tier(server_id: &str, tool_name: &str) -> LatencyTier {
-    let suffix = server_id.split('.').last().unwrap_or("");
+    let suffix = server_id.split('.').next_back().unwrap_or("");
 
     match (suffix, tool_name) {
         // Tier S — very expensive
@@ -59,20 +59,14 @@ fn classify_latency_tier(server_id: &str, tool_name: &str) -> LatencyTier {
 
         // Tier A — network or moderate LLM
         ("websearch", "fetch_page")
-        | ("cpersona", "update_profile")
-        | ("cpersona", "archive_episode")
-        | ("cpersona", "recall")
-        | ("ollama", "think")
-        | ("ollama", "think_with_tools") => LatencyTier::A,
+        | ("cpersona", "update_profile" | "archive_episode" | "recall")
+        | ("ollama", "think" | "think_with_tools") => LatencyTier::A,
 
         // Tier B — light network / local I/O / hallucination-prone
-        (_, "list_models")
-        | (_, "switch_model")
+        (_, "list_models" | "switch_model")
         | ("agent_utils", "get_current_time")
         | ("websearch", "search_status")
-        | ("gaze", "start_tracking")
-        | ("gaze", "stop_tracking")
-        | ("gaze", "get_tracker_status") => LatencyTier::B,
+        | ("gaze", "start_tracking" | "stop_tracking" | "get_tracker_status") => LatencyTier::B,
 
         // Tier C — everything else (fast / safe default)
         _ => LatencyTier::C,
@@ -301,7 +295,7 @@ fn extract_keywords(name: &str, description: &str) -> Vec<String> {
     let mut keywords = Vec::new();
 
     // Split name by underscores and dots
-    for part in name.split(|c: char| c == '_' || c == '.') {
+    for part in name.split(['_', '.']) {
         let lower = part.to_lowercase();
         if lower.len() > 1 {
             keywords.push(lower);
@@ -328,7 +322,7 @@ fn extract_categories(server_id: &str, tool_name: &str) -> Vec<String> {
     let mut categories = Vec::new();
 
     // Server prefix as category (e.g., "tool.terminal" → "terminal")
-    if let Some(suffix) = server_id.split('.').last() {
+    if let Some(suffix) = server_id.split('.').next_back() {
         categories.push(suffix.to_lowercase());
     }
 
@@ -677,7 +671,7 @@ pub(super) async fn execute_tools_discover(
         .unwrap_or("keyword");
     let max_results = args
         .get("max_results")
-        .and_then(|v| v.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(5) as usize;
 
     let filter = {

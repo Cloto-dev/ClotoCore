@@ -38,7 +38,14 @@ pub struct CapabilityDispatcher {
     mappings: RwLock<HashMap<CapabilityType, Vec<CapabilityMapping>>>,
 }
 
+impl Default for CapabilityDispatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CapabilityDispatcher {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             mappings: RwLock::new(HashMap::new()),
