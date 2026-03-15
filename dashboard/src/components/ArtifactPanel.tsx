@@ -1,6 +1,6 @@
 import { X } from 'lucide-react';
-import { CodeBlock } from './CodeBlock';
 import type { Artifact } from '../hooks/useArtifacts';
+import { CodeBlock } from './CodeBlock';
 
 interface ArtifactPanelProps {
   artifacts: Artifact[];
@@ -12,7 +12,7 @@ interface ArtifactPanelProps {
 
 function getLabel(code: string): string {
   const lines = code.split('\n');
-  const firstNonEmpty = lines.find(l => l.trim() && !l.trim().startsWith('//') && !l.trim().startsWith('#'));
+  const firstNonEmpty = lines.find((l) => l.trim() && !l.trim().startsWith('//') && !l.trim().startsWith('#'));
   if (!firstNonEmpty) return 'snippet';
   const trimmed = firstNonEmpty.trim();
   return trimmed.length > 37 ? trimmed.slice(0, 34) + '...' : trimmed;
@@ -70,12 +70,7 @@ export function ArtifactPanel({ artifacts, activeIndex, onTabChange, isOpen, onC
 
       {/* Code content */}
       <div className="flex-1 overflow-y-auto no-scrollbar p-2">
-        <CodeBlock
-          code={active.code}
-          language={active.language}
-          showHeader={true}
-          className="h-full"
-        />
+        <CodeBlock code={active.code} language={active.language} showHeader={true} className="h-full" />
       </div>
     </div>
   );

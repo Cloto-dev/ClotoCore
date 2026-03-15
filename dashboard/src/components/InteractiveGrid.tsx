@@ -70,12 +70,7 @@ export function InteractiveGrid() {
     return () => {
       window.removeEventListener('resize', draw);
     };
-  }, [colors]);
+  }, []);
 
-  return (
-    <canvas 
-      ref={gridCanvasRef} 
-      className="absolute inset-0 pointer-events-none z-0 w-full h-full" 
-    />
-  );
+  return <canvas ref={gridCanvasRef} className="absolute inset-0 pointer-events-none z-0 w-full h-full" />;
 }

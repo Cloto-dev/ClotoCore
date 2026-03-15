@@ -1,5 +1,5 @@
-import { Component, ReactNode } from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { Component, type ReactNode } from 'react';
 import i18n from '../i18n';
 
 interface Props {
@@ -37,7 +37,9 @@ export class ErrorBoundary extends Component<Props, State> {
               {i18n.t('common:error_boundary_title')}
             </div>
             <p className="text-[10px] font-mono text-content-tertiary px-4 break-all">
-              {import.meta.env.DEV ? (this.state.error?.message || i18n.t('common:error_boundary_message')) : i18n.t('common:error_boundary_message')}
+              {import.meta.env.DEV
+                ? this.state.error?.message || i18n.t('common:error_boundary_message')
+                : i18n.t('common:error_boundary_message')}
             </p>
             <button
               onClick={() => {

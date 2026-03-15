@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export function useLongPress(durationMs: number, onComplete: () => void) {
   const [progress, setProgress] = useState(0);
@@ -6,7 +6,9 @@ export function useLongPress(durationMs: number, onComplete: () => void) {
   const startRef = useRef(0);
   // Store callback in ref so the rAF loop always calls the latest version
   const onCompleteRef = useRef(onComplete);
-  useEffect(() => { onCompleteRef.current = onComplete; });
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  });
 
   const start = () => {
     startRef.current = Date.now();

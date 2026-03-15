@@ -1,5 +1,6 @@
-import React, { createContext, useContext } from 'react';
-import { useConnectionStatusProvider, ConnectionStatus } from '../hooks/useConnectionStatus';
+import type React from 'react';
+import { createContext, useContext } from 'react';
+import { type ConnectionStatus, useConnectionStatusProvider } from '../hooks/useConnectionStatus';
 
 const ConnectionContext = createContext<ConnectionStatus | null>(null);
 

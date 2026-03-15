@@ -1,8 +1,8 @@
-import { Camera, Upload, X, Box } from 'lucide-react';
+import { Box, Camera, Upload, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { AgentMetadata } from '../types';
-import { api } from '../services/api';
 import { AgentIcon } from '../lib/agentIdentity';
+import { api } from '../services/api';
+import type { AgentMetadata } from '../types';
 
 interface Props {
   agent: AgentMetadata;
@@ -17,7 +17,18 @@ interface Props {
   onVrmDelete: () => void;
 }
 
-export function AvatarSection({ agent, hasAvatar, hasVrm, avatarKey, avatarDescription, previewUrl, onUpload, onDelete, onVrmUpload, onVrmDelete }: Props) {
+export function AvatarSection({
+  agent,
+  hasAvatar,
+  hasVrm,
+  avatarKey,
+  avatarDescription,
+  previewUrl,
+  onUpload,
+  onDelete,
+  onVrmUpload,
+  onVrmDelete,
+}: Props) {
   const { t } = useTranslation('agents');
   const displayUrl = previewUrl ?? (hasAvatar ? `${api.getAvatarUrl(agent.id)}?v=${avatarKey}` : null);
 
@@ -25,17 +36,15 @@ export function AvatarSection({ agent, hasAvatar, hasVrm, avatarKey, avatarDescr
     <section>
       <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
         <Camera className="text-brand" size={16} />
-        <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('plugin_workspace.avatar')}</h2>
+        <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">
+          {t('plugin_workspace.avatar')}
+        </h2>
       </div>
       <div className="space-y-3">
         <div className="flex items-center gap-4">
           <div className="w-24 h-24 rounded-lg border border-edge overflow-hidden flex items-center justify-center bg-glass-strong shrink-0">
             {displayUrl ? (
-              <img
-                src={displayUrl}
-                alt="Avatar"
-                className="w-full h-full object-cover"
-              />
+              <img src={displayUrl} alt="Avatar" className="w-full h-full object-cover" />
             ) : (
               <AgentIcon agent={agent} size={48} />
             )}
@@ -63,7 +72,8 @@ export function AvatarSection({ agent, hasAvatar, hasVrm, avatarKey, avatarDescr
         </div>
         {avatarDescription && (
           <div className="text-[11px] text-content-tertiary font-mono bg-glass rounded-lg p-3 border border-edge leading-relaxed">
-            <span className="text-content-tertiary font-bold">{t('plugin_workspace.avatar_vision')} </span>{avatarDescription}
+            <span className="text-content-tertiary font-bold">{t('plugin_workspace.avatar_vision')} </span>
+            {avatarDescription}
           </div>
         )}
 
@@ -90,12 +100,7 @@ export function AvatarSection({ agent, hasAvatar, hasVrm, avatarKey, avatarDescr
               <label className="cursor-pointer inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand hover:border-brand transition-all">
                 <Upload size={14} />
                 Upload VRM
-                <input
-                  type="file"
-                  accept=".vrm,model/gltf-binary"
-                  className="hidden"
-                  onChange={onVrmUpload}
-                />
+                <input type="file" accept=".vrm,model/gltf-binary" className="hidden" onChange={onVrmUpload} />
               </label>
             )}
           </div>

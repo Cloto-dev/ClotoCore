@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import { McpServerInfo, AccessControlEntry, AccessTreeResponse, AgentMetadata } from '../../types';
-import { McpAccessTree } from './McpAccessTree';
-import { McpAccessSummaryBar } from './McpAccessSummaryBar';
-import { AlertCard } from '../ui/AlertCard';
 import { Save } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useApi } from '../../hooks/useApi';
 import { useAsyncAction } from '../../hooks/useAsyncAction';
+import type { AccessControlEntry, AccessTreeResponse, AgentMetadata, McpServerInfo } from '../../types';
+import { AlertCard } from '../ui/AlertCard';
+import { McpAccessSummaryBar } from './McpAccessSummaryBar';
+import { McpAccessTree } from './McpAccessTree';
 
 interface Props {
   server: McpServerInfo;
@@ -25,14 +25,11 @@ export function McpAccessControlTab({ server }: Props) {
 
   useEffect(() => {
     loadData();
-  }, [server.id]);
+  }, [loadData]);
 
   async function loadData() {
     await loadAction.run(async () => {
-      const [access, agentList] = await Promise.all([
-        api.getMcpServerAccess(server.id),
-        api.getAgents(),
-      ]);
+      const [access, agentList] = await Promise.all([api.getMcpServerAccess(server.id), api.getAgents()]);
       setAccessData(access);
       setAgents(agentList);
       setLocalEntries(access.entries);
@@ -50,7 +47,7 @@ export function McpAccessControlTab({ server }: Props) {
 
   async function handleSave() {
     await saveAction.run(async () => {
-      const toSave = localEntries.filter(e => e.entry_type !== 'capability');
+      const toSave = localEntries.filter((e) => e.entry_type !== 'capability');
       await api.putMcpServerAccess(server.id, toSave);
       await loadData();
     });
@@ -60,7 +57,7 @@ export function McpAccessControlTab({ server }: Props) {
   const saving = saveAction.isLoading;
 
   const serverGrantCount = localEntries.filter(
-    e => e.entry_type === 'server_grant' && e.server_id === server.id
+    (e) => e.entry_type === 'server_grant' && e.server_id === server.id,
   ).length;
 
   return (
@@ -89,11 +86,13 @@ export function McpAccessControlTab({ server }: Props) {
         <label className="text-[10px] font-mono text-content-tertiary">{t('access.agent')}</label>
         <select
           value={selectedAgent}
-          onChange={e => setSelectedAgent(e.target.value)}
+          onChange={(e) => setSelectedAgent(e.target.value)}
           className="text-xs font-mono bg-glass border border-edge rounded px-2 py-1 text-content-primary"
         >
-          {agents.map(agent => (
-            <option key={agent.id} value={agent.id}>{agent.id} — {agent.name}</option>
+          {agents.map((agent) => (
+            <option key={agent.id} value={agent.id}>
+              {agent.id} — {agent.name}
+            </option>
           ))}
         </select>
       </div>

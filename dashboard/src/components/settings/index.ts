@@ -1,8 +1,8 @@
-export { GeneralSection } from './GeneralSection';
-export { SecuritySection } from './SecuritySection';
-export { LlmProvidersSection } from './LlmProvidersSection';
-export { DisplaySection } from './DisplaySection';
-export { LogSection } from './LogSection';
-export { AdvancedSection } from './AdvancedSection';
 export { AboutSection } from './AboutSection';
-export { Toggle, SectionCard } from './common';
+export { AdvancedSection } from './AdvancedSection';
+export { SectionCard, Toggle } from './common';
+export { DisplaySection } from './DisplaySection';
+export { GeneralSection } from './GeneralSection';
+export { LlmProvidersSection } from './LlmProvidersSection';
+export { LogSection } from './LogSection';
+export { SecuritySection } from './SecuritySection';

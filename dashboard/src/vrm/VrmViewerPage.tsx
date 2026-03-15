@@ -3,17 +3,18 @@
  * Opened via /vrm-viewer/:agentId route.
  * Self-contained: manages its own SSE subscription and VRM context.
  */
-import { useEffect, useRef, useState, useCallback } from 'react';
+
+import { Activity, AlertTriangle, Copy, Settings, Upload } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import * as THREE from 'three';
-import { Activity, AlertTriangle, Settings, Copy, Upload } from 'lucide-react';
-import { VrmSceneManager } from './engine/VrmSceneManager';
-import { VrmModelLoader } from './engine/VrmModelLoader';
-import { VrmAnimationController } from './engine/VrmAnimationController';
 import { useEventStream } from '../hooks/useEventStream';
-import { API_BASE, EVENTS_URL, api } from '../services/api';
-import { AvatarAgentState, DefaultPoseParams, DEFAULT_POSE, POSE_PRESETS } from './engine/types';
 import { isTauri } from '../lib/tauri';
+import { API_BASE, api, EVENTS_URL } from '../services/api';
+import { type AvatarAgentState, DEFAULT_POSE, type DefaultPoseParams, POSE_PRESETS } from './engine/types';
+import { VrmAnimationController } from './engine/VrmAnimationController';
+import { VrmModelLoader } from './engine/VrmModelLoader';
+import { VrmSceneManager } from './engine/VrmSceneManager';
 
 const POSE_LABELS: Record<string, string> = {
   relaxed: 'Relaxed',
@@ -131,73 +132,81 @@ export function VrmViewerPage() {
   const apiKey = new URLSearchParams(window.location.search).get('key') || undefined;
 
   // SSE subscription for agent state + lip sync + MGP avatar commands
-  useEventStream(EVENTS_URL, (event) => {
-    // MGP server notifications (output.avatar)
-    if (event.type === 'McpNotification') {
-      const d = event.data as Record<string, unknown>;
-      const serverId = d?.server_id as string | undefined;
-      const params = d?.params as Record<string, unknown> | undefined;
-      if (!params) return;
-      const channel = params.channel as string | undefined;
-      const data = params.data as Record<string, unknown> | undefined;
-      if (!data || data.agent_id !== agentId) return;
+  useEventStream(
+    EVENTS_URL,
+    (event) => {
+      // MGP server notifications (output.avatar)
+      if (event.type === 'McpNotification') {
+        const d = event.data as Record<string, unknown>;
+        const serverId = d?.server_id as string | undefined;
+        const params = d?.params as Record<string, unknown> | undefined;
+        if (!params) return;
+        const channel = params.channel as string | undefined;
+        const data = params.data as Record<string, unknown> | undefined;
+        if (!data || data.agent_id !== agentId) return;
 
-      // output.avatar server channels (includes VOICEVOX TTS)
-      if (serverId === 'output.avatar') {
-        if (channel === 'avatar_set_expression') {
-          controllerRef.current?.setExpression(data.expression as string, (data.intensity as number) ?? 1.0);
-        } else if (channel === 'avatar_set_pose') {
-          controllerRef.current?.setPose(data.pose as string, (data.transition as number) ?? 0.5);
-          setActivePose(data.pose as string);
-        } else if (channel === 'avatar_set_idle_behavior') {
-          controllerRef.current?.setIdleBehavior(data as Record<string, unknown>);
-        } else if (channel === 'viseme_correction') {
-          controllerRef.current?.playVisemes((data.entries as Array<{ viseme: string; start_ms: number; duration_ms: number }>) ?? []);
-        } else if (channel === 'avatar_speech_play') {
-          const timeline = (data.viseme_timeline as Array<{ viseme: string; start_ms: number; duration_ms: number }>) ?? [];
-          const audioOffsetMs = (data.audio_offset_ms as number) ?? 0;
-          if (data.audio_data) {
-            controllerRef.current?.playSpeechData(data.audio_data as string, timeline, audioOffsetMs);
-          } else if (data.audio_url) {
-            const audioUrl = `${API_BASE}${data.audio_url as string}`;
-            controllerRef.current?.playSpeech(audioUrl, timeline, audioOffsetMs);
+        // output.avatar server channels (includes VOICEVOX TTS)
+        if (serverId === 'output.avatar') {
+          if (channel === 'avatar_set_expression') {
+            controllerRef.current?.setExpression(data.expression as string, (data.intensity as number) ?? 1.0);
+          } else if (channel === 'avatar_set_pose') {
+            controllerRef.current?.setPose(data.pose as string, (data.transition as number) ?? 0.5);
+            setActivePose(data.pose as string);
+          } else if (channel === 'avatar_set_idle_behavior') {
+            controllerRef.current?.setIdleBehavior(data as Record<string, unknown>);
+          } else if (channel === 'viseme_correction') {
+            controllerRef.current?.playVisemes(
+              (data.entries as Array<{ viseme: string; start_ms: number; duration_ms: number }>) ?? [],
+            );
+          } else if (channel === 'avatar_speech_play') {
+            const timeline =
+              (data.viseme_timeline as Array<{ viseme: string; start_ms: number; duration_ms: number }>) ?? [];
+            const audioOffsetMs = (data.audio_offset_ms as number) ?? 0;
+            if (data.audio_data) {
+              controllerRef.current?.playSpeechData(data.audio_data as string, timeline, audioOffsetMs);
+            } else if (data.audio_url) {
+              const audioUrl = `${API_BASE}${data.audio_url as string}`;
+              controllerRef.current?.playSpeech(audioUrl, timeline, audioOffsetMs);
+            }
           }
         }
+
+        return;
       }
 
-      return;
-    }
+      const evtData = event.data as Record<string, unknown> | undefined;
+      if (!evtData || evtData.agent_id !== agentId) return;
 
-    const evtData = event.data as Record<string, unknown> | undefined;
-    if (!evtData || evtData.agent_id !== agentId) return;
-
-    switch (event.type) {
-      case 'AgentThinking':
-        clearIdleTimeout();
-        setAgentState('thinking');
-        break;
-      case 'ThoughtResponse':
-        clearIdleTimeout();
-        setAgentState('responding');
-        idleTimeoutRef.current = setTimeout(() => setAgentState('idle'), 3000);
-        // Trigger lip sync: generate visemes from response text
-        // Skip when auto_spoken — the kernel already triggered VOICEVOX speech
-        if (evtData.content && agentId && !evtData.auto_spoken) {
-          api.generateVisemes(agentId, evtData.content as string, apiKey)
-            .then((timeline) => {
-              controllerRef.current?.playVisemes(timeline.entries);
-            })
-            .catch((err) => console.warn('[VRM] Viseme generation failed:', err));
-        }
-        break;
-      case 'AgenticLoopCompleted':
-        clearIdleTimeout();
-        setAgentState('idle');
-        // Don't kill active speech audio — only stop text-based visemes
-        controllerRef.current?.stopVisemesSafe();
-        break;
-    }
-  }, apiKey);
+      switch (event.type) {
+        case 'AgentThinking':
+          clearIdleTimeout();
+          setAgentState('thinking');
+          break;
+        case 'ThoughtResponse':
+          clearIdleTimeout();
+          setAgentState('responding');
+          idleTimeoutRef.current = setTimeout(() => setAgentState('idle'), 3000);
+          // Trigger lip sync: generate visemes from response text
+          // Skip when auto_spoken — the kernel already triggered VOICEVOX speech
+          if (evtData.content && agentId && !evtData.auto_spoken) {
+            api
+              .generateVisemes(agentId, evtData.content as string, apiKey)
+              .then((timeline) => {
+                controllerRef.current?.playVisemes(timeline.entries);
+              })
+              .catch((err) => console.warn('[VRM] Viseme generation failed:', err));
+          }
+          break;
+        case 'AgenticLoopCompleted':
+          clearIdleTimeout();
+          setAgentState('idle');
+          // Don't kill active speech audio — only stop text-based visemes
+          controllerRef.current?.stopVisemesSafe();
+          break;
+      }
+    },
+    apiKey,
+  );
 
   function clearIdleTimeout() {
     if (idleTimeoutRef.current) {
@@ -206,10 +215,13 @@ export function VrmViewerPage() {
     }
   }
 
-  useEffect(() => () => {
-    clearIdleTimeout();
-    if (footerTimeoutRef.current) clearTimeout(footerTimeoutRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      clearIdleTimeout();
+      if (footerTimeoutRef.current) clearTimeout(footerTimeoutRef.current);
+    },
+    [clearIdleTimeout],
+  );
 
   // Make html/body fully transparent for this window
   useEffect(() => {
@@ -245,9 +257,13 @@ export function VrmViewerPage() {
 
     const vrmUrl = `${api.getAvatarUrl(agentId).replace('/avatar', '/vrm')}`;
 
-    loader.load(vrmUrl)
+    loader
+      .load(vrmUrl)
       .then((vrm) => {
-        if (disposed) { loader.dispose(); return; }
+        if (disposed) {
+          loader.dispose();
+          return;
+        }
         controller.setVrm(vrm);
 
         // Frame camera on head bone for centered face view
@@ -329,7 +345,7 @@ export function VrmViewerPage() {
   }
 
   const handleSliderChange = useCallback((key: keyof DefaultPoseParams, value: number) => {
-    setPoseValues(prev => {
+    setPoseValues((prev) => {
       const next = { ...prev, [key]: value };
       controllerRef.current?.setDirectPose(next);
       return next;
@@ -338,7 +354,7 @@ export function VrmViewerPage() {
   }, []);
 
   function toggleSettings() {
-    setShowSettings(s => !s);
+    setShowSettings((s) => !s);
     resetFooterTimeout();
   }
 
@@ -405,11 +421,7 @@ export function VrmViewerPage() {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
         >
-          <canvas
-            ref={canvasRef}
-            className="w-full h-full"
-            style={{ display: loading || error ? 'none' : 'block' }}
-          />
+          <canvas ref={canvasRef} className="w-full h-full" style={{ display: loading || error ? 'none' : 'block' }} />
 
           {/* VRMA drag & drop overlay */}
           {isDragOver && (
@@ -435,9 +447,11 @@ export function VrmViewerPage() {
           {/* Agent state indicator */}
           {!loading && !error && agentState !== 'idle' && (
             <div className="absolute bottom-2 left-3 px-2.5 py-1 rounded-full text-[10px] font-mono uppercase tracking-widest bg-black/50 border border-white/10 text-white/80 backdrop-blur-sm">
-              <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${
-                agentState === 'thinking' ? 'bg-blue-400 animate-pulse' : 'bg-brand animate-pulse'
-              }`} />
+              <span
+                className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${
+                  agentState === 'thinking' ? 'bg-blue-400 animate-pulse' : 'bg-brand animate-pulse'
+                }`}
+              />
               {agentState}
             </div>
           )}
@@ -447,7 +461,10 @@ export function VrmViewerPage() {
             <div
               className="absolute top-0 left-0 bottom-0 w-56 bg-black/80 backdrop-blur-xl border-r border-white/10 overflow-y-auto z-10"
               onMouseMove={handleFooterInteraction}
-              onClick={(e) => { e.stopPropagation(); handleFooterInteraction(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleFooterInteraction();
+              }}
             >
               <div className="p-2 space-y-3">
                 <button
@@ -494,9 +511,7 @@ export function VrmViewerPage() {
       {/* Bottom control bar + brand line — hidden by default, shown on lower-half click */}
       <div
         className={`flex-shrink-0 transition-all duration-300 ${
-          showFooter && !loading && !error
-            ? 'max-h-20 opacity-100'
-            : 'max-h-0 opacity-0 overflow-hidden'
+          showFooter && !loading && !error ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0 overflow-hidden'
         }`}
         onMouseMove={handleFooterInteraction}
         onClick={handleFooterInteraction}
@@ -534,20 +549,14 @@ export function VrmViewerPage() {
           >
             <Upload size={14} />
           </button>
-          <input
-            ref={vrmaInputRef}
-            type="file"
-            accept=".vrma,.glb"
-            className="hidden"
-            onChange={handleVrmaInput}
-          />
+          <input ref={vrmaInputRef} type="file" accept=".vrma,.glb" className="hidden" onChange={handleVrmaInput} />
           {vrmaName && (
             <button
               onClick={handleStopVrma}
               className="px-2 py-0.5 rounded-full text-[10px] font-mono tracking-wider bg-brand/30 text-brand hover:bg-brand/50 transition-colors"
               title="Stop VRMA, return to preset pose"
             >
-              {vrmaName}  ✕
+              {vrmaName} ✕
             </button>
           )}
         </div>

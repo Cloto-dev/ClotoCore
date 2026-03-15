@@ -2,7 +2,7 @@ import type { VRM } from '@pixiv/three-vrm';
 import type { VrmExpressionMapper } from './VrmExpressionMapper';
 
 export interface VisemeEntry {
-  viseme: string;   // "aa" | "ih" | "ou" | "ee" | "oh" | "neutral"
+  viseme: string; // "aa" | "ih" | "ou" | "ee" | "oh" | "neutral"
   start_ms: number;
   duration_ms: number;
 }
@@ -106,9 +106,7 @@ export class VisemePlayer {
       return;
     }
 
-    const elapsedMs = this.externalClock
-      ? this.externalTimeMs
-      : performance.now() - this.startTime;
+    const elapsedMs = this.externalClock ? this.externalTimeMs : performance.now() - this.startTime;
 
     // Find the current viseme entry
     let currentEntry: VisemeEntry | null = null;

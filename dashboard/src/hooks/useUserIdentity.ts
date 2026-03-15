@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 
 const STORAGE_KEY_ID = 'cloto-user-id';
 const STORAGE_KEY_NAME = 'cloto-user-name';
@@ -27,7 +27,9 @@ export function useUserIdentityProvider(): UserIdentityHookValue {
     try {
       localStorage.setItem(STORAGE_KEY_ID, safeId);
       localStorage.setItem(STORAGE_KEY_NAME, safeName);
-    } catch { /* storage unavailable */ }
+    } catch {
+      /* storage unavailable */
+    }
     setIdentityState({ id: safeId, name: safeName });
   }, []);
 

@@ -35,7 +35,7 @@ export function useAgentCreation(onCreated: () => void) {
 
   const updateField = <K extends keyof CreationForm>(key: K, value: CreationForm[K]) => {
     setCreateError(null);
-    setForm(prev => ({ ...prev, [key]: value }));
+    setForm((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleCreate = async () => {
@@ -54,7 +54,7 @@ export function useAgentCreation(onCreated: () => void) {
         description: form.desc,
         default_engine: form.engine,
         metadata,
-        password: form.password || undefined
+        password: form.password || undefined,
       });
       setForm(INITIAL_FORM);
       onCreated();
@@ -68,14 +68,14 @@ export function useAgentCreation(onCreated: () => void) {
   };
 
   const addRoutingRule = () => {
-    setForm(prev => ({
+    setForm((prev) => ({
       ...prev,
       routingRules: [...prev.routingRules, { match: 'default', engine: '' }],
     }));
   };
 
   const updateRoutingRule = (index: number, field: keyof RoutingRuleEntry, value: string | boolean | undefined) => {
-    setForm(prev => {
+    setForm((prev) => {
       const rules = [...prev.routingRules];
       rules[index] = { ...rules[index], [field]: value };
       return { ...prev, routingRules: rules };
@@ -83,14 +83,20 @@ export function useAgentCreation(onCreated: () => void) {
   };
 
   const removeRoutingRule = (index: number) => {
-    setForm(prev => ({
+    setForm((prev) => ({
       ...prev,
       routingRules: prev.routingRules.filter((_, i) => i !== index),
     }));
   };
 
   return {
-    form, updateField, handleCreate, isCreating, createError,
-    addRoutingRule, updateRoutingRule, removeRoutingRule,
+    form,
+    updateField,
+    handleCreate,
+    isCreating,
+    createError,
+    addRoutingRule,
+    updateRoutingRule,
+    removeRoutingRule,
   };
 }

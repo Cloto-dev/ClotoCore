@@ -81,7 +81,9 @@ export class VrmSceneManager {
           this.mouseTarget.set(nx * 0.5, this.headY + ny * 0.3, 1.0);
         }
       };
-    } catch { /* BroadcastChannel not supported, local-only gaze */ }
+    } catch {
+      /* BroadcastChannel not supported, local-only gaze */
+    }
   }
 
   private handleResize() {
@@ -105,7 +107,7 @@ export class VrmSceneManager {
       const offset = this.cameraOffset.clone().sub(this.lookAtTarget);
       const spherical = new THREE.Spherical().setFromVector3(offset);
       spherical.theta -= dx; // horizontal orbit
-      spherical.phi -= dy;   // vertical orbit
+      spherical.phi -= dy; // vertical orbit
       // Clamp phi to avoid flipping (5°–175°)
       spherical.phi = Math.max(0.09, Math.min(Math.PI - 0.09, spherical.phi));
       offset.setFromSpherical(spherical);

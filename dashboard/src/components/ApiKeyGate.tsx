@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Lock, Key, X, Eye, EyeOff, AlertTriangle, CheckCircle2, Loader } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, Key, Loader, Lock, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useApiKey } from '../contexts/ApiKeyContext';
+import { useApi } from '../hooks/useApi';
 import { api } from '../services/api';
 import { AlertCard } from './ui/AlertCard';
-import { useApi } from '../hooks/useApi';
 
 export function ApiKeyGate() {
   const { apiKey, setApiKey, forgetApiKey } = useApiKey();
@@ -115,14 +115,13 @@ export function ApiKeyGate() {
             <input
               type={show ? 'text' : 'password'}
               value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSave()}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSave()}
               placeholder="Enter API key..."
-              autoFocus
               className="w-full pl-7 pr-8 py-2 rounded-lg border border-edge text-xs font-mono text-content-primary bg-surface-base placeholder:text-content-tertiary focus:outline-none focus:border-brand"
             />
             <button
-              onClick={() => setShow(s => !s)}
+              onClick={() => setShow((s) => !s)}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-primary"
             >
               {show ? <EyeOff size={12} /> : <Eye size={12} />}
@@ -172,7 +171,11 @@ export function ApiKeyGate() {
             <div className="p-3 bg-red-500/10 rounded-lg border border-red-500/20 space-y-2">
               <div className="flex items-start gap-2 text-red-400 text-[10px]">
                 <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" />
-                <span>このキーはClotoシステム全体で永久に使用不可になります。<br />新しいキーで再起動するまで管理操作ができなくなります。</span>
+                <span>
+                  このキーはClotoシステム全体で永久に使用不可になります。
+                  <br />
+                  新しいキーで再起動するまで管理操作ができなくなります。
+                </span>
               </div>
               {invalidateError && <p className="text-[10px] text-red-400">{invalidateError}</p>}
               <div className="flex gap-2">

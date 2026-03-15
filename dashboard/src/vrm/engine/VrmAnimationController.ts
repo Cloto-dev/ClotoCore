@@ -1,18 +1,24 @@
-import * as THREE from 'three';
-import { VRM } from '@pixiv/three-vrm';
-import { AvatarAgentState, IdleBehaviorParams, DefaultPoseParams, DEFAULT_IDLE_PARAMS, POSE_PRESETS } from './types';
-import { VrmSceneManager } from './VrmSceneManager';
-import { ProceduralBreathing } from './ProceduralBreathing';
-import { ProceduralBlinking } from './ProceduralBlinking';
-import { ProceduralMicroSway } from './ProceduralMicroSway';
-import { ProceduralGazeDrift } from './ProceduralGazeDrift';
-import { AgentStateAnimator } from './AgentStateAnimator';
-import { DefaultPoseApplicator } from './DefaultPoseApplicator';
-import { VisemePlayer, type VisemeEntry } from './VisemePlayer';
-import { AudioPlaybackManager } from './AudioPlaybackManager';
-import { VrmExpressionMapper } from './VrmExpressionMapper';
-import { VrmaLoader } from './VrmaLoader';
+import type { VRM } from '@pixiv/three-vrm';
 import type { VRMAnimation } from '@pixiv/three-vrm-animation';
+import * as THREE from 'three';
+import { AgentStateAnimator } from './AgentStateAnimator';
+import { AudioPlaybackManager } from './AudioPlaybackManager';
+import { DefaultPoseApplicator } from './DefaultPoseApplicator';
+import { ProceduralBlinking } from './ProceduralBlinking';
+import { ProceduralBreathing } from './ProceduralBreathing';
+import { ProceduralGazeDrift } from './ProceduralGazeDrift';
+import { ProceduralMicroSway } from './ProceduralMicroSway';
+import {
+  type AvatarAgentState,
+  DEFAULT_IDLE_PARAMS,
+  type DefaultPoseParams,
+  type IdleBehaviorParams,
+  POSE_PRESETS,
+} from './types';
+import { type VisemeEntry, VisemePlayer } from './VisemePlayer';
+import { VrmaLoader } from './VrmaLoader';
+import { VrmExpressionMapper } from './VrmExpressionMapper';
+import type { VrmSceneManager } from './VrmSceneManager';
 
 /**
  * Orchestrates all procedural animation layers.
@@ -292,9 +298,7 @@ export class VrmAnimationController {
     // 5.5. Apply lip sync visemes (sync to audio clock when playing speech)
     //       Subtract audioOffsetMs to skip pre-phoneme silence in the WAV.
     if (this.audioManager.isPlaying()) {
-      this.visemePlayer.setExternalTime(
-        Math.max(0, this.audioManager.getCurrentTimeMs() - this.audioOffsetMs),
-      );
+      this.visemePlayer.setExternalTime(Math.max(0, this.audioManager.getCurrentTimeMs() - this.audioOffsetMs));
     } else if (this.visemePlayer.isPlaying() && this.visemePlayer.isSynced()) {
       // Audio ended naturally while visemes were in sync mode → stop visemes
       this.visemePlayer.stop();

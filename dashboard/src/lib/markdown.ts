@@ -1,17 +1,16 @@
-import { marked, type Renderer, type Tokens } from 'marked';
 import hljs from 'highlight.js/lib/core';
-
+import bash from 'highlight.js/lib/languages/bash';
+import css from 'highlight.js/lib/languages/css';
 // Tree-shake: register only needed languages
 import javascript from 'highlight.js/lib/languages/javascript';
-import typescript from 'highlight.js/lib/languages/typescript';
+import json from 'highlight.js/lib/languages/json';
 import python from 'highlight.js/lib/languages/python';
 import rust from 'highlight.js/lib/languages/rust';
-import bash from 'highlight.js/lib/languages/bash';
-import json from 'highlight.js/lib/languages/json';
-import css from 'highlight.js/lib/languages/css';
-import xml from 'highlight.js/lib/languages/xml';
 import sql from 'highlight.js/lib/languages/sql';
+import typescript from 'highlight.js/lib/languages/typescript';
+import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
+import { marked, type Renderer, type Tokens } from 'marked';
 
 hljs.registerLanguage('javascript', javascript);
 hljs.registerLanguage('js', javascript);
@@ -37,9 +36,7 @@ export { hljs };
 const renderer: Partial<Renderer> = {
   code({ text, lang }: Tokens.Code) {
     const language = lang && hljs.getLanguage(lang) ? lang : null;
-    const highlighted = language
-      ? hljs.highlight(text, { language }).value
-      : hljs.highlightAuto(text).value;
+    const highlighted = language ? hljs.highlight(text, { language }).value : hljs.highlightAuto(text).value;
     const detectedLang = language || 'text';
     const lineCount = text.split('\n').length;
     return `<pre class="hljs-code-block" data-lang="${detectedLang}" data-lines="${lineCount}" data-raw="${encodeURIComponent(text)}"><code class="hljs language-${detectedLang}">${highlighted}</code></pre>`;

@@ -1,9 +1,9 @@
+import { Info, MousePointer, ScrollText, Settings, Shield, Sun, Zap } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sun, Shield, MousePointer, ScrollText, Info, Zap, Settings } from 'lucide-react';
-import { ViewHeader } from './ViewHeader';
 import { InteractiveGrid } from './InteractiveGrid';
-import { GeneralSection, SecuritySection, DisplaySection, AdvancedSection, LogSection, AboutSection } from './settings';
+import { AboutSection, AdvancedSection, DisplaySection, GeneralSection, LogSection, SecuritySection } from './settings';
+import { ViewHeader } from './ViewHeader';
 
 type Section = 'general' | 'security' | 'display' | 'advanced' | 'log' | 'about';
 
@@ -31,33 +31,33 @@ export function SettingsView({ onBack }: { onBack?: () => void }) {
       )}
 
       <div className="relative z-10 flex flex-1 overflow-hidden">
-      {/* Sidebar Navigation */}
-      <nav className="w-44 border-r border-edge bg-glass-subtle backdrop-blur-sm flex flex-col py-4">
-        {NAV_ITEMS.map(({ id, labelKey, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveSection(id)}
-            className={`flex items-center gap-3 px-5 py-3 text-sm font-bold tracking-widest uppercase transition-all ${
-              activeSection === id
-                ? 'text-brand bg-brand/5 border-r-2 border-brand'
-                : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-secondary'
-            }`}
-          >
-            <Icon size={16} />
-            {t(labelKey)}
-          </button>
-        ))}
-      </nav>
+        {/* Sidebar Navigation */}
+        <nav className="w-44 border-r border-edge bg-glass-subtle backdrop-blur-sm flex flex-col py-4">
+          {NAV_ITEMS.map(({ id, labelKey, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveSection(id)}
+              className={`flex items-center gap-3 px-5 py-3 text-sm font-bold tracking-widest uppercase transition-all ${
+                activeSection === id
+                  ? 'text-brand bg-brand/5 border-r-2 border-brand'
+                  : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-secondary'
+              }`}
+            >
+              <Icon size={16} />
+              {t(labelKey)}
+            </button>
+          ))}
+        </nav>
 
-      {/* Content Area */}
-      <div className="flex-1 overflow-y-auto p-8">
-        {activeSection === 'general' && <GeneralSection />}
-        {activeSection === 'security' && <SecuritySection />}
-        {activeSection === 'display' && <DisplaySection />}
-        {activeSection === 'advanced' && <AdvancedSection />}
-        {activeSection === 'log' && <LogSection />}
-        {activeSection === 'about' && <AboutSection />}
-      </div>
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto p-8">
+          {activeSection === 'general' && <GeneralSection />}
+          {activeSection === 'security' && <SecuritySection />}
+          {activeSection === 'display' && <DisplaySection />}
+          {activeSection === 'advanced' && <AdvancedSection />}
+          {activeSection === 'log' && <LogSection />}
+          {activeSection === 'about' && <AboutSection />}
+        </div>
       </div>
     </div>
   );
