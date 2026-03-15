@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { extractError } from '../lib/errors';
 
 /* Module-level caches shared across all hook instances */
@@ -38,14 +38,17 @@ export function useRemoteData<T>(
     const existing = inflights.get(key);
     if (existing) return existing as Promise<T[]>;
 
-    const promise = fetcherRef.current().then(result => {
-      caches.set(key, { data: result, ts: Date.now() });
-      inflights.delete(key);
-      return result;
-    }).catch(err => {
-      inflights.delete(key);
-      throw err;
-    });
+    const promise = fetcherRef
+      .current()
+      .then((result) => {
+        caches.set(key, { data: result, ts: Date.now() });
+        inflights.delete(key);
+        return result;
+      })
+      .catch((err) => {
+        inflights.delete(key);
+        throw err;
+      });
 
     inflights.set(key, promise as Promise<unknown[]>);
     return promise;
@@ -56,9 +59,7 @@ export function useRemoteData<T>(
     inflights.delete(key);
     setIsLoading(true);
     setError(null);
-    const minSpin = minRefetchMs > 0
-      ? new Promise<void>(r => setTimeout(r, minRefetchMs))
-      : Promise.resolve();
+    const minSpin = minRefetchMs > 0 ? new Promise<void>((r) => setTimeout(r, minRefetchMs)) : Promise.resolve();
     try {
       const [result] = await Promise.all([fetchCached(), minSpin]);
       setData(result);
@@ -73,15 +74,24 @@ export function useRemoteData<T>(
   useEffect(() => {
     let cancelled = false;
     fetchCached()
-      .then(d => { if (!cancelled) { setData(d); setError(null); } })
-      .catch(err => {
+      .then((d) => {
+        if (!cancelled) {
+          setData(d);
+          setError(null);
+        }
+      })
+      .catch((err) => {
         if (!cancelled) {
           setError(extractError(err, errorMessage));
           console.error(`${errorMessage}:`, err);
         }
       })
-      .finally(() => { if (!cancelled) setIsLoading(false); });
-    return () => { cancelled = true; };
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [fetchCached, errorMessage]);
 
   return { data, isLoading, error, refetch };

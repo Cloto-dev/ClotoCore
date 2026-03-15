@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { AlertTriangle, CheckCircle, Loader, Package } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Modal } from '../Modal';
-import { Package, CheckCircle, AlertTriangle, Loader } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
-import { MarketplaceCatalogEntry } from '../../types';
+import type { MarketplaceCatalogEntry } from '../../types';
+import { Modal } from '../Modal';
 
 interface InstallDialogProps {
   entry: MarketplaceCatalogEntry;
@@ -52,7 +52,7 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
   }, []);
 
   function handleEnvChange(key: string, value: string) {
-    setEnvVars(prev => ({ ...prev, [key]: value }));
+    setEnvVars((prev) => ({ ...prev, [key]: value }));
   }
 
   async function handleInstall() {
@@ -106,7 +106,7 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
 
     switch (type) {
       case 'StepStart':
-        setSteps(prev => [
+        setSteps((prev) => [
           ...prev,
           {
             step: data.step as string,
@@ -117,8 +117,8 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
         break;
 
       case 'StepProgress':
-        setSteps(prev =>
-          prev.map(s =>
+        setSteps((prev) =>
+          prev.map((s) =>
             s.step === data.step
               ? { ...s, progress: data.progress as number, detail: data.detail as string | undefined }
               : s,
@@ -127,18 +127,12 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
         break;
 
       case 'StepComplete':
-        setSteps(prev =>
-          prev.map(s => (s.step === data.step ? { ...s, status: 'complete' as const } : s)),
-        );
+        setSteps((prev) => prev.map((s) => (s.step === data.step ? { ...s, status: 'complete' as const } : s)));
         break;
 
       case 'StepError':
-        setSteps(prev =>
-          prev.map(s =>
-            s.step === data.step
-              ? { ...s, status: 'error' as const, error: data.error as string }
-              : s,
-          ),
+        setSteps((prev) =>
+          prev.map((s) => (s.step === data.step ? { ...s, status: 'error' as const, error: data.error as string } : s)),
         );
         if (!(data.recoverable as boolean)) {
           setInstallError(data.error as string);
@@ -164,12 +158,7 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
   const allEnvVars = [...entry.env_vars, ...entry.optional_env_vars];
 
   return (
-    <Modal
-      title={t('marketplace.install_title', { name: entry.name })}
-      icon={Package}
-      size="sm"
-      onClose={onClose}
-    >
+    <Modal title={t('marketplace.install_title', { name: entry.name })} icon={Package} size="sm" onClose={onClose}>
       <div className="px-5 py-4 space-y-4">
         {/* Server info */}
         <div className="space-y-1">
@@ -178,9 +167,7 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
             <span className="px-1.5 rounded bg-surface-secondary uppercase">{entry.category}</span>
             <span className="px-1.5 rounded bg-surface-secondary">{entry.trust_level}</span>
           </div>
-          <p className="text-[10px] font-mono text-content-secondary leading-relaxed">
-            {entry.description}
-          </p>
+          <p className="text-[10px] font-mono text-content-secondary leading-relaxed">{entry.description}</p>
         </div>
 
         {/* Env vars form */}
@@ -189,8 +176,8 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
             <span className="text-[10px] font-mono text-content-tertiary uppercase tracking-wider">
               Environment Variables
             </span>
-            {allEnvVars.map(ev => {
-              const isRequired = entry.env_vars.some(v => v.key === ev.key);
+            {allEnvVars.map((ev) => {
+              const isRequired = entry.env_vars.some((v) => v.key === ev.key);
               return (
                 <div key={ev.key}>
                   <label className="flex items-center gap-1 text-[10px] font-mono text-content-tertiary mb-0.5">
@@ -203,7 +190,7 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
                   <input
                     type="text"
                     value={envVars[ev.key] ?? ''}
-                    onChange={e => handleEnvChange(ev.key, e.target.value)}
+                    onChange={(e) => handleEnvChange(ev.key, e.target.value)}
                     placeholder={ev.default ?? ''}
                     className="w-full text-[10px] font-mono bg-glass border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
                   />
@@ -216,30 +203,18 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
         {/* Progress steps */}
         {installing && steps.length > 0 && (
           <div className="space-y-2">
-            {steps.map(step => (
+            {steps.map((step) => (
               <div key={step.step} className="flex items-center gap-2">
-                {step.status === 'running' && (
-                  <Loader size={12} className="text-brand animate-spin shrink-0" />
-                )}
-                {step.status === 'complete' && (
-                  <CheckCircle size={12} className="text-emerald-500 shrink-0" />
-                )}
-                {step.status === 'error' && (
-                  <AlertTriangle size={12} className="text-red-500 shrink-0" />
-                )}
-                {step.status === 'pending' && (
-                  <span className="w-3 h-3 rounded-full border border-edge shrink-0" />
-                )}
+                {step.status === 'running' && <Loader size={12} className="text-brand animate-spin shrink-0" />}
+                {step.status === 'complete' && <CheckCircle size={12} className="text-emerald-500 shrink-0" />}
+                {step.status === 'error' && <AlertTriangle size={12} className="text-red-500 shrink-0" />}
+                {step.status === 'pending' && <span className="w-3 h-3 rounded-full border border-edge shrink-0" />}
                 <div className="flex-1 min-w-0">
-                  <span className="text-[10px] font-mono text-content-secondary">
-                    {step.description ?? step.step}
-                  </span>
+                  <span className="text-[10px] font-mono text-content-secondary">{step.description ?? step.step}</span>
                   {step.detail && (
                     <span className="text-[9px] font-mono text-content-tertiary ml-2">{step.detail}</span>
                   )}
-                  {step.error && (
-                    <p className="text-[9px] font-mono text-red-400 mt-0.5">{step.error}</p>
-                  )}
+                  {step.error && <p className="text-[9px] font-mono text-red-400 mt-0.5">{step.error}</p>}
                 </div>
               </div>
             ))}

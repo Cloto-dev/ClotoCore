@@ -1,18 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { SectionCard } from './common';
 import { useApi } from '../../hooks/useApi';
+import { SectionCard } from './common';
 
 export function LlmProvidersSection() {
   const api = useApi();
   const { t } = useTranslation('settings');
   const { t: tc } = useTranslation();
-  const [providers, setProviders] = useState<Array<{ id: string; display_name: string; has_key: boolean; model_id: string }>>([]);
+  const [providers, setProviders] = useState<
+    Array<{ id: string; display_name: string; has_key: boolean; model_id: string }>
+  >([]);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
 
   useEffect(() => {
-    api.listLlmProviders().then(d => setProviders(d.providers)).catch(() => {});
+    api
+      .listLlmProviders()
+      .then((d) => setProviders(d.providers))
+      .catch(() => {});
   }, [api]);
 
   const handleSave = async (providerId: string) => {
@@ -20,10 +25,12 @@ export function LlmProvidersSection() {
     setSaving(providerId);
     try {
       await api.setLlmProviderKey(providerId, keyInputs[providerId].trim());
-      setKeyInputs(prev => ({ ...prev, [providerId]: '' }));
+      setKeyInputs((prev) => ({ ...prev, [providerId]: '' }));
       const d = await api.listLlmProviders();
       setProviders(d.providers);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     setSaving(null);
   };
 
@@ -37,8 +44,11 @@ export function LlmProvidersSection() {
     <SectionCard title={t('llm_providers.title')}>
       <p className="text-xs text-content-tertiary mb-4">{t('llm_providers.desc')}</p>
       <div className="space-y-3">
-        {providers.map(p => (
-          <div key={p.id} className="flex items-center gap-3 p-3 bg-surface-secondary rounded-lg border border-edge-subtle">
+        {providers.map((p) => (
+          <div
+            key={p.id}
+            className="flex items-center gap-3 p-3 bg-surface-secondary rounded-lg border border-edge-subtle"
+          >
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${p.has_key ? 'bg-green-500' : 'bg-amber-500'}`} />
@@ -49,7 +59,7 @@ export function LlmProvidersSection() {
                 <input
                   type="password"
                   value={keyInputs[p.id] || ''}
-                  onChange={e => setKeyInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
+                  onChange={(e) => setKeyInputs((prev) => ({ ...prev, [p.id]: e.target.value }))}
                   placeholder={p.has_key ? t('llm_providers.placeholder_saved') : t('llm_providers.placeholder_new')}
                   className="flex-1 bg-surface-base border border-edge rounded px-2 py-1 text-xs font-mono text-content-primary placeholder:text-content-tertiary"
                 />
@@ -72,9 +82,7 @@ export function LlmProvidersSection() {
             </div>
           </div>
         ))}
-        {providers.length === 0 && (
-          <p className="text-xs text-content-tertiary italic">{t('llm_providers.empty')}</p>
-        )}
+        {providers.length === 0 && <p className="text-xs text-content-tertiary italic">{t('llm_providers.empty')}</p>}
       </div>
     </SectionCard>
   );

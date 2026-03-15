@@ -1,12 +1,24 @@
-import { useState, useCallback, useMemo } from 'react';
 import DOMPurify from 'dompurify';
-import { Copy, Check, Download } from 'lucide-react';
+import { Check, Copy, Download } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 import { hljs } from '../lib/markdown';
 
 const EXT_MAP: Record<string, string> = {
-  typescript: 'ts', javascript: 'js', python: 'py', rust: 'rs',
-  bash: 'sh', json: 'json', css: 'css', html: 'html', sql: 'sql',
-  yaml: 'yml', xml: 'xml', ts: 'ts', js: 'js', py: 'py', sh: 'sh',
+  typescript: 'ts',
+  javascript: 'js',
+  python: 'py',
+  rust: 'rs',
+  bash: 'sh',
+  json: 'json',
+  css: 'css',
+  html: 'html',
+  sql: 'sql',
+  yaml: 'yml',
+  xml: 'xml',
+  ts: 'ts',
+  js: 'js',
+  py: 'py',
+  sh: 'sh',
 };
 
 interface CodeBlockProps {
@@ -48,9 +60,7 @@ export function CodeBlock({ code, language, showHeader = true, maxHeight = 'none
     <div className={`rounded-lg overflow-hidden my-2 ${className}`} style={{ backgroundColor: '#0d1117' }}>
       {showHeader && (
         <div className="flex items-center justify-between px-3 py-1.5" style={{ backgroundColor: '#161b22' }}>
-          <span className="text-[9px] font-mono uppercase tracking-wider text-gray-400">
-            {language}
-          </span>
+          <span className="text-[9px] font-mono uppercase tracking-wider text-gray-400">{language}</span>
           <div className="flex items-center gap-1">
             <button
               onClick={handleCopy}
@@ -73,7 +83,9 @@ export function CodeBlock({ code, language, showHeader = true, maxHeight = 'none
         <pre className="p-3 m-0 text-[11px] leading-relaxed font-mono">
           <code
             className={`hljs language-${language}`}
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(highlighted, { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] }) }}
+            dangerouslySetInnerHTML={{
+              __html: DOMPurify.sanitize(highlighted, { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] }),
+            }}
           />
         </pre>
       </div>

@@ -1,17 +1,17 @@
-import { useState, useCallback } from 'react';
+import { AlertTriangle, Plus, RefreshCw, Server } from 'lucide-react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useMcpServers } from '../hooks/useMcpServers';
-import { useAsyncAction } from '../hooks/useAsyncAction';
-import { extractError } from '../lib/errors';
-import { McpServerDetail } from '../components/mcp/McpServerDetail';
-import { MarketplaceTab } from '../components/mcp/MarketplaceTab';
 import { Modal } from '../components/Modal';
-import { StatusDot, type StatusDotStatus } from '../components/ui/StatusDot';
-import { displayServerId } from '../lib/format';
+import { MarketplaceTab } from '../components/mcp/MarketplaceTab';
+import { McpServerDetail } from '../components/mcp/McpServerDetail';
 import { AlertCard } from '../components/ui/AlertCard';
-import { McpServerInfo } from '../types';
-import { Server, Plus, RefreshCw, AlertTriangle } from 'lucide-react';
+import { StatusDot, type StatusDotStatus } from '../components/ui/StatusDot';
 import { useApi } from '../hooks/useApi';
+import { useAsyncAction } from '../hooks/useAsyncAction';
+import { useMcpServers } from '../hooks/useMcpServers';
+import { extractError } from '../lib/errors';
+import { displayServerId } from '../lib/format';
+import type { McpServerInfo } from '../types';
 
 function mcpStatusToDot(status: McpServerInfo['status']): StatusDotStatus {
   if (status === 'Connected') return 'connected';
@@ -38,11 +38,15 @@ export function McpServersPage() {
 
   const isValidServerName = (name: string) => /^[a-z][a-z0-9._-]{0,62}[a-z0-9]$/.test(name);
 
-  const selectedServer = servers.find(s => s.id === selectedId);
+  const selectedServer = servers.find((s) => s.id === selectedId);
 
   // Category sort
   const categoryOrder: Record<string, number> = {
-    'mind.': 0, 'memory.': 1, 'tool.': 2, 'voice.': 3, 'vision.': 4,
+    'mind.': 0,
+    'memory.': 1,
+    'tool.': 2,
+    'voice.': 3,
+    'vision.': 4,
   };
   const getOrder = (id: string) => {
     for (const [prefix, order] of Object.entries(categoryOrder)) {
@@ -51,11 +55,12 @@ export function McpServersPage() {
     return 9;
   };
   const sortedServers = [...servers].sort((a, b) => {
-    const oa = getOrder(a.id), ob = getOrder(b.id);
+    const oa = getOrder(a.id),
+      ob = getOrder(b.id);
     return oa !== ob ? oa - ob : a.id.localeCompare(b.id);
   });
 
-  const running = servers.filter(s => s.status === 'Connected').length;
+  const running = servers.filter((s) => s.status === 'Connected').length;
 
   function statusLabel(status: McpServerInfo['status']) {
     if (status === 'Connected') return t('status_running');
@@ -63,26 +68,42 @@ export function McpServersPage() {
     return t('status_stopped');
   }
 
-  const handleDelete = useCallback((id: string) => action.run(async () => {
-    await api.deleteMcpServer(id);
-    if (selectedId === id) setSelectedId(null);
-    refetch();
-  }), [api, selectedId, refetch, action.run]);
+  const handleDelete = useCallback(
+    (id: string) =>
+      action.run(async () => {
+        await api.deleteMcpServer(id);
+        if (selectedId === id) setSelectedId(null);
+        refetch();
+      }),
+    [api, selectedId, refetch, action.run],
+  );
 
-  const handleStart = useCallback((id: string) => action.run(async () => {
-    await api.startMcpServer(id);
-    setTimeout(refetch, 500);
-  }), [api, refetch, action.run]);
+  const handleStart = useCallback(
+    (id: string) =>
+      action.run(async () => {
+        await api.startMcpServer(id);
+        setTimeout(refetch, 500);
+      }),
+    [api, refetch, action.run],
+  );
 
-  const handleStop = useCallback((id: string) => action.run(async () => {
-    await api.stopMcpServer(id);
-    setTimeout(refetch, 500);
-  }), [api, refetch, action.run]);
+  const handleStop = useCallback(
+    (id: string) =>
+      action.run(async () => {
+        await api.stopMcpServer(id);
+        setTimeout(refetch, 500);
+      }),
+    [api, refetch, action.run],
+  );
 
-  const handleRestart = useCallback((id: string) => action.run(async () => {
-    await api.restartMcpServer(id);
-    setTimeout(refetch, 500);
-  }), [api, refetch, action.run]);
+  const handleRestart = useCallback(
+    (id: string) =>
+      action.run(async () => {
+        await api.restartMcpServer(id);
+        setTimeout(refetch, 500);
+      }),
+    [api, refetch, action.run],
+  );
 
   async function handleAdd() {
     if (!newName.trim()) return;
@@ -136,27 +157,29 @@ export function McpServersPage() {
         <button
           onClick={() => setActiveTab('servers')}
           className={`px-4 py-2 text-[12px] font-mono uppercase tracking-wider transition-colors
-            ${activeTab === 'servers'
-              ? 'text-content-primary border-b-2 border-brand'
-              : 'text-content-tertiary hover:text-content-secondary'}`}
+            ${
+              activeTab === 'servers'
+                ? 'text-content-primary border-b-2 border-brand'
+                : 'text-content-tertiary hover:text-content-secondary'
+            }`}
         >
           {t('marketplace.tab_servers')}
         </button>
         <button
           onClick={() => setActiveTab('marketplace')}
           className={`px-4 py-2 text-[12px] font-mono uppercase tracking-wider transition-colors
-            ${activeTab === 'marketplace'
-              ? 'text-content-primary border-b-2 border-brand'
-              : 'text-content-tertiary hover:text-content-secondary'}`}
+            ${
+              activeTab === 'marketplace'
+                ? 'text-content-primary border-b-2 border-brand'
+                : 'text-content-tertiary hover:text-content-secondary'
+            }`}
         >
           {t('marketplace.tab_marketplace')}
         </button>
       </div>
 
       {/* Action error banner */}
-      {action.error && (
-        <AlertCard className="mx-5 mt-1 shrink-0">{action.error}</AlertCard>
-      )}
+      {action.error && <AlertCard className="mx-5 mt-1 shrink-0">{action.error}</AlertCard>}
 
       {/* Connection error */}
       {fetchError && (
@@ -185,17 +208,24 @@ export function McpServersPage() {
             )}
 
             <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-              {sortedServers.map(server => (
+              {sortedServers.map((server) => (
                 <button
                   key={server.id}
                   onClick={() => setSelectedId(server.id)}
                   className="text-left p-4 rounded-xl border border-edge bg-surface-primary hover:bg-surface-secondary/80 hover:border-brand transition-all duration-200 group"
                 >
                   <div className="flex items-center gap-2.5 mb-2">
-                    <Server size={14} className="text-content-tertiary group-hover:text-brand transition-colors shrink-0" />
-                    <span className="text-xs font-mono font-bold text-content-primary truncate">{displayServerId(server.id)}</span>
+                    <Server
+                      size={14}
+                      className="text-content-tertiary group-hover:text-brand transition-colors shrink-0"
+                    />
+                    <span className="text-xs font-mono font-bold text-content-primary truncate">
+                      {displayServerId(server.id)}
+                    </span>
                     {server.source === 'config' && (
-                      <span className="text-[9px] font-mono text-amber-500/70 shrink-0" title="Config-loaded">CONFIG</span>
+                      <span className="text-[9px] font-mono text-amber-500/70 shrink-0" title="Config-loaded">
+                        CONFIG
+                      </span>
                     )}
                   </div>
                   <div className="flex items-center gap-3 text-[10px] font-mono text-content-tertiary">
@@ -231,16 +261,26 @@ export function McpServersPage() {
 
       {/* Add Server Modal */}
       {addModalOpen && (
-        <Modal title={t('add_modal.title')} icon={Plus} size="sm" onClose={() => { setAddModalOpen(false); setAddError(null); }}>
+        <Modal
+          title={t('add_modal.title')}
+          icon={Plus}
+          size="sm"
+          onClose={() => {
+            setAddModalOpen(false);
+            setAddError(null);
+          }}
+        >
           <div className="px-5 py-4 space-y-3">
             {addError && <AlertCard>{addError}</AlertCard>}
 
             <div>
-              <label className="block text-[10px] font-mono text-content-tertiary mb-1">{t('add_modal.server_name')}</label>
+              <label className="block text-[10px] font-mono text-content-tertiary mb-1">
+                {t('add_modal.server_name')}
+              </label>
               <input
                 type="text"
                 value={newName}
-                onChange={e => setNewName(e.target.value)}
+                onChange={(e) => setNewName(e.target.value)}
                 placeholder="my-server"
                 className="w-full text-xs font-mono bg-glass border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
               />
@@ -251,17 +291,19 @@ export function McpServersPage() {
               <input
                 type="text"
                 value={newCommand}
-                onChange={e => setNewCommand(e.target.value)}
+                onChange={(e) => setNewCommand(e.target.value)}
                 placeholder="python3"
                 className="w-full text-xs font-mono bg-glass border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
               />
             </div>
             <div>
-              <label className="block text-[10px] font-mono text-content-tertiary mb-1">{t('add_modal.arguments')}</label>
+              <label className="block text-[10px] font-mono text-content-tertiary mb-1">
+                {t('add_modal.arguments')}
+              </label>
               <input
                 type="text"
                 value={newArgs}
-                onChange={e => setNewArgs(e.target.value)}
+                onChange={(e) => setNewArgs(e.target.value)}
                 placeholder="scripts/my_server.py"
                 className="w-full text-xs font-mono bg-glass border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
               />
@@ -269,7 +311,10 @@ export function McpServersPage() {
 
             <div className="flex justify-end gap-2 pt-1">
               <button
-                onClick={() => { setAddModalOpen(false); setAddError(null); }}
+                onClick={() => {
+                  setAddModalOpen(false);
+                  setAddError(null);
+                }}
                 className="px-3 py-1.5 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-tertiary transition-colors border border-edge"
               >
                 {tc('cancel')}

@@ -1,19 +1,13 @@
 import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useAgentContext } from '../contexts/AgentContext';
 import { AgentTerminal } from '../components/AgentTerminal';
 import { KernelMonitor } from '../components/KernelMonitor';
+import { useAgentContext } from '../contexts/AgentContext';
 
 export function AgentPage() {
   const [searchParams] = useSearchParams();
-  const {
-    agents,
-    selectedAgentId,
-    setSelectedAgentId,
-    systemActive,
-    setSystemActive,
-    refetchAgents,
-  } = useAgentContext();
+  const { agents, selectedAgentId, setSelectedAgentId, systemActive, setSystemActive, refetchAgents } =
+    useAgentContext();
 
   // Sync URL params → Context
   useEffect(() => {
@@ -32,7 +26,7 @@ export function AgentPage() {
     }
   }, [searchParams, setSelectedAgentId, setSystemActive]);
 
-  const selectedAgent = agents.find(a => a.id === selectedAgentId) || null;
+  const selectedAgent = agents.find((a) => a.id === selectedAgentId) || null;
 
   if (systemActive) {
     return <KernelMonitor onClose={() => setSystemActive(false)} />;

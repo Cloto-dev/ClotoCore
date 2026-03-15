@@ -40,7 +40,7 @@ function connect(url: string, apiKey?: string) {
       // Dedup by seq_id (prevents replayed events from being processed twice)
       if (event.lastEventId) {
         const seqId = parseInt(event.lastEventId, 10);
-        if (!isNaN(seqId)) {
+        if (!Number.isNaN(seqId)) {
           if (seqId <= lastSeenSeqId) return;
           lastSeenSeqId = seqId;
         }
@@ -68,7 +68,7 @@ function connect(url: string, apiKey?: string) {
   });
 
   es.onerror = () => {
-    const delay = Math.min(INITIAL_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
+    const delay = Math.min(INITIAL_DELAY_MS * 2 ** attempt, MAX_DELAY_MS);
     attempt++;
     console.error(`SSE Connection Error. Retrying in ${delay / 1000}s...`);
     es.close();
@@ -98,11 +98,7 @@ function disconnect() {
   lastSeenSeqId = 0;
 }
 
-export function useEventStream(
-  url: string,
-  onMessage: (data: ServerEvent) => void,
-  apiKey?: string,
-) {
+export function useEventStream(url: string, onMessage: (data: ServerEvent) => void, apiKey?: string) {
   const handlerRef = useRef(onMessage);
 
   useEffect(() => {

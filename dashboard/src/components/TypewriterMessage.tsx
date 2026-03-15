@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTypewriter } from '../hooks/useTypewriter';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
@@ -42,11 +42,7 @@ export function TypewriterMessage({ text, onComplete, onCodeBlock }: TypewriterM
   // Always pass onCodeBlock — MarkdownRenderer deduplicates via useArtifacts
   return (
     <div onClick={handleClick} className={isAnimating ? 'cursor-pointer' : ''}>
-      <MarkdownRenderer
-        content={displayText}
-        incremental={isAnimating}
-        onCodeBlock={onCodeBlock}
-      />
+      <MarkdownRenderer content={displayText} incremental={isAnimating} onCodeBlock={onCodeBlock} />
       {isAnimating && (
         <span className="inline-block w-[2px] h-[1em] bg-current animate-blink ml-0.5 align-text-bottom" />
       )}

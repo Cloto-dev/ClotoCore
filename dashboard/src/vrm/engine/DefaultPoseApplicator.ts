@@ -1,5 +1,5 @@
-import { VRM } from '@pixiv/three-vrm';
-import { DefaultPoseParams, DEFAULT_POSE } from './types';
+import type { VRM } from '@pixiv/three-vrm';
+import { DEFAULT_POSE, type DefaultPoseParams } from './types';
 
 /** Lerp a single number. */
 function lerp(a: number, b: number, t: number): number {

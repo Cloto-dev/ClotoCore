@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Terminal, Check, Shield, X } from 'lucide-react';
-import { SystemAlertCard } from './SystemAlertCard';
+import { Check, Shield, Terminal, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useApi } from '../hooks/useApi';
+import { SystemAlertCard } from './SystemAlertCard';
 
 interface CommandEntry {
   command: string;
@@ -22,7 +22,7 @@ export function CommandApprovalCard({ approvalId, commands, onResolved }: Props)
   useEffect(() => {
     if (status !== 'pending') return;
     const interval = setInterval(() => {
-      setSecondsLeft(prev => {
+      setSecondsLeft((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
           setStatus('resolved');
@@ -50,10 +50,8 @@ export function CommandApprovalCard({ approvalId, commands, onResolved }: Props)
 
   if (status === 'resolved') return null;
 
-  const uniqueNames = [...new Set(commands.map(c => c.command_name))];
-  const trustLabel = uniqueNames.length === 1
-    ? `Trust '${uniqueNames[0]}'`
-    : `Trust ${uniqueNames.length} commands`;
+  const uniqueNames = [...new Set(commands.map((c) => c.command_name))];
+  const trustLabel = uniqueNames.length === 1 ? `Trust '${uniqueNames[0]}'` : `Trust ${uniqueNames.length} commands`;
 
   return (
     <SystemAlertCard
@@ -98,7 +96,8 @@ export function CommandApprovalCard({ approvalId, commands, onResolved }: Props)
       <div className="font-mono text-xs text-content-secondary space-y-1 whitespace-pre-line">
         {commands.map((cmd, i) => (
           <div key={i} className="break-all">
-            <span className="text-content-muted select-none">$ </span>{cmd.command}
+            <span className="text-content-muted select-none">$ </span>
+            {cmd.command}
           </div>
         ))}
       </div>

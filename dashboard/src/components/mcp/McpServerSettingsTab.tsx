@@ -1,12 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { RotateCcw, Save } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { McpServerInfo, McpServerSettings, DefaultPolicy } from '../../types';
-import { useApi } from '../../hooks/useApi';
-import { useAsyncAction } from '../../hooks/useAsyncAction';
-import { Save, RotateCcw } from 'lucide-react';
-import { displayServerId } from '../../lib/format';
 import { AlertCard } from '../../components/ui/AlertCard';
 import { EnvVariableEditor } from '../../components/ui/EnvVariableEditor';
+import { useApi } from '../../hooks/useApi';
+import { useAsyncAction } from '../../hooks/useAsyncAction';
+import { displayServerId } from '../../lib/format';
+import type { DefaultPolicy, McpServerInfo, McpServerSettings } from '../../types';
 
 interface Props {
   server: McpServerInfo;
@@ -56,10 +56,7 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
         }
       }
 
-      await api.updateMcpServerSettings(
-        server.id,
-        { default_policy: defaultPolicy, env: envObj },
-      );
+      await api.updateMcpServerSettings(server.id, { default_policy: defaultPolicy, env: envObj });
       await loadSettings();
       onRefresh();
     });
@@ -71,12 +68,12 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
   // Detect changes
   const envChanged = (() => {
     if (!settings) return false;
-    const currentKeys = new Set(envEntries.map(e => e.key));
+    const currentKeys = new Set(envEntries.map((e) => e.key));
     if (currentKeys.size !== initialEnvKeys.size) return true;
     for (const key of initialEnvKeys) {
       if (!currentKeys.has(key)) return true;
     }
-    return envEntries.some(e => e.value !== (initialEnvValues[e.key] ?? ''));
+    return envEntries.some((e) => e.value !== (initialEnvValues[e.key] ?? ''));
   })();
 
   const hasChanges = (settings && defaultPolicy !== settings.default_policy) || envChanged;
@@ -89,7 +86,9 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
 
       {/* Server Configuration */}
       <section>
-        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">{t('settings_tab.server_config')}</h3>
+        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">
+          {t('settings_tab.server_config')}
+        </h3>
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <label className="text-[10px] font-mono text-content-tertiary w-20">{t('settings_tab.command')}</label>
@@ -112,7 +111,9 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
 
       {/* Environment Variables */}
       <section>
-        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">{t('settings_tab.env_vars')}</h3>
+        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">
+          {t('settings_tab.env_vars')}
+        </h3>
         <EnvVariableEditor
           entries={envEntries}
           onChange={setEnvEntries}
@@ -126,25 +127,27 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
 
       {/* Default Policy */}
       <section>
-        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">{t('settings_tab.default_policy')}</h3>
+        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">
+          {t('settings_tab.default_policy')}
+        </h3>
         <select
           value={defaultPolicy}
-          onChange={e => setDefaultPolicy(e.target.value as DefaultPolicy)}
+          onChange={(e) => setDefaultPolicy(e.target.value as DefaultPolicy)}
           className="text-xs font-mono bg-glass border border-edge rounded px-2 py-1 text-content-primary"
         >
           <option value="opt-in">{t('settings_tab.policy_opt_in')}</option>
           <option value="opt-out">{t('settings_tab.policy_opt_out')}</option>
         </select>
         <p className="mt-1 text-[9px] font-mono text-content-tertiary">
-          {defaultPolicy === 'opt-in'
-            ? t('settings_tab.policy_opt_in_desc')
-            : t('settings_tab.policy_opt_out_desc')}
+          {defaultPolicy === 'opt-in' ? t('settings_tab.policy_opt_in_desc') : t('settings_tab.policy_opt_out_desc')}
         </p>
       </section>
 
       {/* Manifest */}
       <section>
-        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">{t('settings_tab.manifest')}</h3>
+        <h3 className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-2">
+          {t('settings_tab.manifest')}
+        </h3>
         <div className="space-y-1">
           <div className="flex gap-2 text-[10px] font-mono">
             <span className="text-content-tertiary w-16">{t('settings_tab.id')}</span>

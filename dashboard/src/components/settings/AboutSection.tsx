@@ -1,10 +1,10 @@
+import { CheckCircle, Download, RefreshCw, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
-import { RefreshCw, Download, CheckCircle, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { SectionCard } from './common';
-import { AlertCard } from '../ui/AlertCard';
-import { isTauri, checkForUpdates, applyUpdate, UpdateInfo } from '../../lib/tauri';
+import { applyUpdate, checkForUpdates, isTauri, type UpdateInfo } from '../../lib/tauri';
 import { SetupWizard } from '../SetupWizard';
+import { AlertCard } from '../ui/AlertCard';
+import { SectionCard } from './common';
 
 type UpdateState = 'idle' | 'checking' | 'up-to-date' | 'available' | 'updating' | 'updated' | 'error';
 
@@ -55,9 +55,7 @@ export function AboutSection() {
     <>
       <SectionCard title={t('about.clotocore')}>
         <div className="space-y-3">
-          <p className="text-xs text-content-secondary leading-relaxed">
-            {t('about.description')}
-          </p>
+          <p className="text-xs text-content-secondary leading-relaxed">{t('about.description')}</p>
           <div className="text-2xl font-mono font-black text-brand">v{__APP_VERSION__}</div>
         </div>
       </SectionCard>
@@ -106,9 +104,7 @@ export function AboutSection() {
                 <Download size={14} />
                 {t('about.available', { version: updateInfo.latestVersion })}
                 {updateInfo.releaseDate && (
-                  <span className="text-content-tertiary font-normal">
-                    ({formatDate(updateInfo.releaseDate)})
-                  </span>
+                  <span className="text-content-tertiary font-normal">({formatDate(updateInfo.releaseDate)})</span>
                 )}
               </div>
 
@@ -164,9 +160,7 @@ export function AboutSection() {
           )}
 
           {/* Error */}
-          {updateState === 'error' && error && (
-            <AlertCard>{error}</AlertCard>
-          )}
+          {updateState === 'error' && error && <AlertCard>{error}</AlertCard>}
         </div>
       </SectionCard>
 
@@ -180,11 +174,17 @@ export function AboutSection() {
       <SectionCard title={t('about.links')}>
         <div className="space-y-3">
           {[
-            { labelKey: 'about.repository', value: 'github.com/Cloto-dev/ClotoCore', href: 'https://github.com/Cloto-dev/ClotoCore' },
+            {
+              labelKey: 'about.repository',
+              value: 'github.com/Cloto-dev/ClotoCore',
+              href: 'https://github.com/Cloto-dev/ClotoCore',
+            },
             { labelKey: 'about.contact', value: 'ClotoCore@proton.me', href: 'mailto:ClotoCore@proton.me' },
-          ].map(link => (
+          ].map((link) => (
             <div key={link.labelKey} className="flex items-center justify-between">
-              <span className="text-xs text-content-tertiary uppercase tracking-widest font-bold">{t(link.labelKey)}</span>
+              <span className="text-xs text-content-tertiary uppercase tracking-widest font-bold">
+                {t(link.labelKey)}
+              </span>
               <a
                 href={link.href}
                 target="_blank"
@@ -212,10 +212,12 @@ export function AboutSection() {
       </SectionCard>
 
       {showWizard && (
-        <SetupWizard onComplete={() => {
-          setShowWizard(false);
-          window.dispatchEvent(new CustomEvent('cloto-setup-rerun-complete'));
-        }} />
+        <SetupWizard
+          onComplete={() => {
+            setShowWizard(false);
+            window.dispatchEvent(new CustomEvent('cloto-setup-rerun-complete'));
+          }}
+        />
       )}
     </>
   );

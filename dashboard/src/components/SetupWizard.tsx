@@ -1,13 +1,27 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  AlertTriangle,
+  Brain,
+  Check,
+  ChevronDown,
+  Circle,
+  Clock,
+  Loader2,
+  Monitor,
+  Moon,
+  Server,
+  Settings,
+  Sun,
+  Users,
+} from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sun, Moon, Monitor, Users, Server, Clock, Brain, Settings, ChevronDown, Loader2, Check, AlertTriangle, Circle } from 'lucide-react';
-import { useTheme } from '../hooks/useTheme';
-import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApiKey } from '../contexts/ApiKeyContext';
+import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApi } from '../hooks/useApi';
-import { createAuthenticatedApi } from '../services/api';
-import { getAutoApiKey } from '../lib/tauri';
+import { useTheme } from '../hooks/useTheme';
 import { getCustomLanguages } from '../i18n';
+import { getAutoApiKey } from '../lib/tauri';
+import { createAuthenticatedApi } from '../services/api';
 
 const BUILTIN_LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -25,9 +39,18 @@ import { SERVER_PRESETS, STANDARD_SERVERS } from '../lib/presets';
 const ENGINE_IDS = ['mind.cerebras', 'mind.deepseek', 'mind.claude', 'mind.ollama'] as const;
 
 const ALL_SELECTABLE_SERVER_IDS = [
-  'memory.cpersona', 'tool.terminal', 'tool.cron', 'tool.websearch',
-  'tool.research', 'tool.agent_utils', 'tool.embedding', 'tool.imagegen',
-  'vision.capture', 'vision.gaze_webcam', 'voice.stt', 'voice.tts',
+  'memory.cpersona',
+  'tool.terminal',
+  'tool.cron',
+  'tool.websearch',
+  'tool.research',
+  'tool.agent_utils',
+  'tool.embedding',
+  'tool.imagegen',
+  'vision.capture',
+  'vision.gaze_webcam',
+  'voice.stt',
+  'voice.tts',
 ] as const;
 
 /** Map server ID → translation key (e.g., "memory.cpersona" → "server_memory_cpersona") */
@@ -41,7 +64,11 @@ function engineTKey(id: string): string {
 }
 
 const MANUAL_START_SERVERS = new Set([
-  'vision.gaze_webcam', 'vision.capture', 'tool.imagegen', 'voice.stt', 'voice.tts',
+  'vision.gaze_webcam',
+  'vision.capture',
+  'tool.imagegen',
+  'voice.stt',
+  'voice.tts',
 ]);
 
 const DEFAULT_AGENT_ID = 'agent.cloto_default';
@@ -75,35 +102,37 @@ export function SetupWizard({ onComplete }: Props) {
   const [installComplete, setInstallComplete] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   const [serverStatuses, setServerStatuses] = useState<Array<{ name: string; status: string }>>([]);
-  const [installSteps, setInstallSteps] = useState<Array<{ step: string; description: string; status: string; detail?: string; progress?: number }>>([]);
+  const [installSteps, setInstallSteps] = useState<
+    Array<{ step: string; description: string; status: string; detail?: string; progress?: number }>
+  >([]);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    return () => { eventSourceRef.current?.close(); };
+    return () => {
+      eventSourceRef.current?.close();
+    };
   }, []);
 
   useEffect(() => {
     getCustomLanguages().then(setCustomLangs);
   }, []);
 
-  const builtinCodes = new Set(BUILTIN_LANGUAGES.map(l => l.code));
-  const allLanguages = [
-    ...BUILTIN_LANGUAGES,
-    ...customLangs.filter(l => !builtinCodes.has(l.code)),
-  ];
+  const builtinCodes = new Set(BUILTIN_LANGUAGES.map((l) => l.code));
+  const allLanguages = [...BUILTIN_LANGUAGES, ...customLangs.filter((l) => !builtinCodes.has(l.code))];
 
-  const next = () => setStep(s => Math.min(s + 1, TOTAL_STEPS - 1));
+  const next = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1));
   // Skip step 5 (installation) when going back — it's a one-way step
-  const back = () => setStep(s => {
-    const prev = Math.max(s - 1, 0);
-    return prev === 5 ? 4 : prev;
-  });
+  const back = () =>
+    setStep((s) => {
+      const prev = Math.max(s - 1, 0);
+      return prev === 5 ? 4 : prev;
+    });
 
   // When preset changes, sync engine and custom servers
   const handlePresetSelect = (presetId: string) => {
     setSelectedPreset(presetId);
     if (presetId !== 'custom') {
-      const preset = SERVER_PRESETS.find(p => p.id === presetId);
+      const preset = SERVER_PRESETS.find((p) => p.id === presetId);
       if (preset) {
         setSelectedEngine(preset.defaultEngine);
         setCustomServers(new Set(preset.servers));
@@ -112,7 +141,7 @@ export function SetupWizard({ onComplete }: Props) {
   };
 
   const toggleCustomServer = (serverId: string) => {
-    setCustomServers(prev => {
+    setCustomServers((prev) => {
       const next = new Set(prev);
       if (next.has(serverId)) next.delete(serverId);
       else next.add(serverId);
@@ -121,9 +150,10 @@ export function SetupWizard({ onComplete }: Props) {
   };
 
   const getActiveServers = (): string[] => {
-    const base = selectedPreset === 'custom'
-      ? Array.from(customServers)
-      : (SERVER_PRESETS.find(p => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
+    const base =
+      selectedPreset === 'custom'
+        ? Array.from(customServers)
+        : (SERVER_PRESETS.find((p) => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
     // Always include the selected engine in server grants
     if (selectedEngine && !base.includes(selectedEngine)) {
       return [...base, selectedEngine];
@@ -161,8 +191,8 @@ export function SetupWizard({ onComplete }: Props) {
       const currentAccess = await authedApi.getAgentAccess(DEFAULT_AGENT_ID);
       const currentGranted = new Set(
         currentAccess.entries
-          .filter(e => e.entry_type === 'server_grant' && e.permission === 'allow')
-          .map(e => e.server_id)
+          .filter((e) => e.entry_type === 'server_grant' && e.permission === 'allow')
+          .map((e) => e.server_id),
       );
 
       const desired = new Set(servers);
@@ -170,13 +200,15 @@ export function SetupWizard({ onComplete }: Props) {
       // Add new grants
       for (const serverId of desired) {
         if (!currentGranted.has(serverId)) {
-          await authedApi.putMcpServerAccess(serverId, [{
-            entry_type: 'server_grant',
-            agent_id: DEFAULT_AGENT_ID,
-            server_id: serverId,
-            permission: 'allow',
-            granted_at: new Date().toISOString(),
-          }]);
+          await authedApi.putMcpServerAccess(serverId, [
+            {
+              entry_type: 'server_grant',
+              agent_id: DEFAULT_AGENT_ID,
+              server_id: serverId,
+              permission: 'allow',
+              granted_at: new Date().toISOString(),
+            },
+          ]);
         }
       }
 
@@ -240,24 +272,29 @@ export function SetupWizard({ onComplete }: Props) {
           const data = JSON.parse(ev.data);
           switch (data.type) {
             case 'StepStart':
-              setInstallSteps(prev => [...prev, { step: data.step, description: data.description, status: 'running' }]);
+              setInstallSteps((prev) => [
+                ...prev,
+                { step: data.step, description: data.description, status: 'running' },
+              ]);
               break;
             case 'StepProgress':
-              setInstallSteps(prev => prev.map(s => s.step === data.step ? { ...s, progress: data.progress, detail: data.detail } : s));
+              setInstallSteps((prev) =>
+                prev.map((s) => (s.step === data.step ? { ...s, progress: data.progress, detail: data.detail } : s)),
+              );
               break;
             case 'StepComplete':
-              setInstallSteps(prev => prev.map(s => s.step === data.step ? { ...s, status: 'complete' } : s));
+              setInstallSteps((prev) => prev.map((s) => (s.step === data.step ? { ...s, status: 'complete' } : s)));
               break;
             case 'StepError':
-              setInstallSteps(prev => prev.map(s => s.step === data.step ? { ...s, status: 'error' } : s));
+              setInstallSteps((prev) => prev.map((s) => (s.step === data.step ? { ...s, status: 'error' } : s)));
               if (!data.recoverable) {
                 setInstallError(data.error);
                 es.close();
               }
               break;
             case 'ServerInstall':
-              setServerStatuses(prev => {
-                const existing = prev.findIndex(s => s.name === data.server_name);
+              setServerStatuses((prev) => {
+                const existing = prev.findIndex((s) => s.name === data.server_name);
                 if (existing >= 0) {
                   const copy = [...prev];
                   copy[existing] = { name: data.server_name, status: data.status };
@@ -273,7 +310,9 @@ export function SetupWizard({ onComplete }: Props) {
               setTimeout(() => next(), 1000);
               break;
           }
-        } catch { /* ignore parse errors */ }
+        } catch {
+          /* ignore parse errors */
+        }
       });
 
       es.onerror = () => {
@@ -286,7 +325,7 @@ export function SetupWizard({ onComplete }: Props) {
     } catch (e) {
       setInstallError(e instanceof Error ? e.message : 'Installation failed');
     }
-  }, [installStarted, api, installComplete]);
+  }, [installStarted, api, installComplete, getActiveServers, next]);
 
   // Auto-start installation when entering step 5
   useEffect(() => {
@@ -316,12 +355,8 @@ export function SetupWizard({ onComplete }: Props) {
         <div className="p-8 min-h-[340px] flex flex-col items-center justify-center">
           {step === 0 && (
             <div className="text-center space-y-6">
-              <h1 className="text-3xl font-black tracking-[0.15em] text-content-primary">
-                CLOTO SYSTEM
-              </h1>
-              <p className="text-sm text-content-secondary max-w-sm">
-                {t('welcome_desc')}
-              </p>
+              <h1 className="text-3xl font-black tracking-[0.15em] text-content-primary">CLOTO SYSTEM</h1>
+              <p className="text-sm text-content-secondary max-w-sm">{t('welcome_desc')}</p>
               <button
                 onClick={next}
                 className="px-8 py-3 bg-brand text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity"
@@ -333,15 +368,13 @@ export function SetupWizard({ onComplete }: Props) {
 
           {step === 1 && (
             <div className="text-center space-y-6 w-full max-w-xs">
-              <h2 className="text-xl font-bold text-content-primary">
-                {t('select_language')}
-              </h2>
+              <h2 className="text-xl font-bold text-content-primary">{t('select_language')}</h2>
               <select
                 value={i18n.language.split('-')[0]}
-                onChange={e => i18n.changeLanguage(e.target.value)}
+                onChange={(e) => i18n.changeLanguage(e.target.value)}
                 className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-brand focus:outline-none transition-colors"
               >
-                {allLanguages.map(lang => (
+                {allLanguages.map((lang) => (
                   <option key={lang.code} value={lang.code}>
                     {lang.label}
                   </option>
@@ -352,9 +385,7 @@ export function SetupWizard({ onComplete }: Props) {
 
           {step === 2 && (
             <div className="text-center space-y-6">
-              <h2 className="text-xl font-bold text-content-primary">
-                {t('select_theme')}
-              </h2>
+              <h2 className="text-xl font-bold text-content-primary">{t('select_theme')}</h2>
               <div className="flex gap-3">
                 {themes.map(({ value, icon: Icon, label }) => (
                   <button
@@ -376,20 +407,16 @@ export function SetupWizard({ onComplete }: Props) {
 
           {step === 3 && (
             <div className="text-center space-y-6 w-full max-w-xs">
-              <h2 className="text-xl font-bold text-content-primary">
-                {t('enter_name')}
-              </h2>
+              <h2 className="text-xl font-bold text-content-primary">{t('enter_name')}</h2>
               <input
                 type="text"
                 value={displayName}
-                onChange={e => setDisplayName(e.target.value)}
+                onChange={(e) => setDisplayName(e.target.value)}
                 onBlur={handleNameBlur}
                 placeholder={t('name_placeholder')}
                 className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-brand focus:outline-none transition-colors text-center"
               />
-              <p className="text-[11px] text-content-tertiary">
-                {t('name_hint')}
-              </p>
+              <p className="text-[11px] text-content-tertiary">{t('name_hint')}</p>
             </div>
           )}
 
@@ -414,7 +441,7 @@ export function SetupWizard({ onComplete }: Props) {
               {/* Progress steps */}
               {installSteps.length > 0 && (
                 <div className="space-y-2">
-                  {installSteps.map(s => (
+                  {installSteps.map((s) => (
                     <div key={s.step} className="flex items-center gap-2 text-[11px] font-mono">
                       {s.status === 'running' && <Loader2 size={12} className="text-brand animate-spin shrink-0" />}
                       {s.status === 'complete' && <Check size={12} className="text-emerald-500 shrink-0" />}
@@ -429,17 +456,21 @@ export function SetupWizard({ onComplete }: Props) {
               {/* Server statuses */}
               {serverStatuses.length > 0 && (
                 <div className="max-h-[140px] overflow-y-auto space-y-1 border border-edge rounded-lg p-2">
-                  {serverStatuses.map(s => (
+                  {serverStatuses.map((s) => (
                     <div key={s.name} className="flex items-center gap-2 text-[11px]">
                       {s.status === 'installing' && <Loader2 size={10} className="text-brand animate-spin shrink-0" />}
                       {s.status === 'installed' && <Check size={10} className="text-emerald-500 shrink-0" />}
                       {s.status === 'failed' && <AlertTriangle size={10} className="text-red-500 shrink-0" />}
                       {s.status === 'skipped' && <Circle size={10} className="text-content-tertiary shrink-0" />}
-                      <span className={`font-sans ${s.status === 'failed' ? 'text-red-400' : s.status === 'skipped' ? 'text-content-tertiary' : 'text-content-secondary'}`}>
+                      <span
+                        className={`font-sans ${s.status === 'failed' ? 'text-red-400' : s.status === 'skipped' ? 'text-content-tertiary' : 'text-content-secondary'}`}
+                      >
                         {s.name}
                       </span>
                       {s.status === 'skipped' && (
-                        <span className="text-[9px] text-content-tertiary ml-auto">{t('step_install_skipped', { defaultValue: 'already installed' })}</span>
+                        <span className="text-[9px] text-content-tertiary ml-auto">
+                          {t('step_install_skipped', { defaultValue: 'already installed' })}
+                        </span>
                       )}
                     </div>
                   ))}
@@ -471,12 +502,13 @@ export function SetupWizard({ onComplete }: Props) {
 
           {step === 6 && (
             <div className="space-y-5 w-full">
-              <h2 className="text-xl font-bold text-content-primary text-center">
-                {t('quick_guide')}
-              </h2>
+              <h2 className="text-xl font-bold text-content-primary text-center">{t('quick_guide')}</h2>
               <div className="space-y-3">
                 {guideItems.map(({ icon: Icon, label, desc }) => (
-                  <div key={label} className="flex items-start gap-3 px-4 py-3 bg-surface-secondary rounded-xl border border-edge">
+                  <div
+                    key={label}
+                    className="flex items-start gap-3 px-4 py-3 bg-surface-secondary rounded-xl border border-edge"
+                  >
                     <Icon size={18} className="text-brand shrink-0 mt-0.5" />
                     <div>
                       <span className="text-xs font-bold text-content-primary">{label}</span>
@@ -508,9 +540,7 @@ export function SetupWizard({ onComplete }: Props) {
             {Array.from({ length: TOTAL_STEPS }, (_, i) => (
               <div
                 key={i}
-                className={`w-2 h-2 rounded-full transition-colors ${
-                  i === step ? 'bg-brand' : 'bg-edge'
-                }`}
+                className={`w-2 h-2 rounded-full transition-colors ${i === step ? 'bg-brand' : 'bg-edge'}`}
               />
             ))}
           </div>
@@ -574,19 +604,22 @@ interface PresetStepProps {
 }
 
 function PresetStep({
-  t, selectedPreset, selectedEngine, customServers,
-  onSelectPreset, onSelectEngine, onToggleServer,
+  t,
+  selectedPreset,
+  selectedEngine,
+  customServers,
+  onSelectPreset,
+  onSelectEngine,
+  onToggleServer,
 }: PresetStepProps) {
-  const presetCards = [
-    ...SERVER_PRESETS.map(p => ({ id: p.id, icon: p.icon })),
-    { id: 'custom', icon: Settings },
-  ];
+  const presetCards = [...SERVER_PRESETS.map((p) => ({ id: p.id, icon: p.icon })), { id: 'custom', icon: Settings }];
 
-  const activeServers = selectedPreset === 'custom'
-    ? customServers
-    : new Set(SERVER_PRESETS.find(p => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
+  const activeServers =
+    selectedPreset === 'custom'
+      ? customServers
+      : new Set(SERVER_PRESETS.find((p) => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
 
-  const hasManualStart = Array.from(activeServers).some(s => MANUAL_START_SERVERS.has(s));
+  const hasManualStart = Array.from(activeServers).some((s) => MANUAL_START_SERVERS.has(s));
 
   return (
     <div className="space-y-4 w-full">
@@ -608,17 +641,13 @@ function PresetStep({
             }`}
           >
             <Icon size={18} />
-            <span className="text-[10px] font-bold leading-tight">
-              {t(`preset_${id}`)}
-            </span>
+            <span className="text-[10px] font-bold leading-tight">{t(`preset_${id}`)}</span>
           </button>
         ))}
       </div>
 
       {/* Description */}
-      <p className="text-[11px] text-content-secondary text-center px-4">
-        {t(`preset_${selectedPreset}_desc`)}
-      </p>
+      <p className="text-[11px] text-content-secondary text-center px-4">{t(`preset_${selectedPreset}_desc`)}</p>
 
       {/* Engine selector */}
       <div className="space-y-1.5">
@@ -628,14 +657,19 @@ function PresetStep({
         <div className="relative">
           <select
             value={selectedEngine}
-            onChange={e => onSelectEngine(e.target.value)}
+            onChange={(e) => onSelectEngine(e.target.value)}
             className="w-full px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-xs text-content-primary focus:border-brand focus:outline-none appearance-none"
           >
-            {ENGINE_IDS.map(id => (
-              <option key={id} value={id}>{t(engineTKey(id))}</option>
+            {ENGINE_IDS.map((id) => (
+              <option key={id} value={id}>
+                {t(engineTKey(id))}
+              </option>
             ))}
           </select>
-          <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-content-tertiary pointer-events-none" />
+          <ChevronDown
+            size={12}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-content-tertiary pointer-events-none"
+          />
         </div>
       </div>
 
@@ -646,7 +680,7 @@ function PresetStep({
         </label>
         {selectedPreset === 'custom' ? (
           <div className="grid grid-cols-2 gap-1.5 max-h-[120px] overflow-y-auto pr-1">
-            {ALL_SELECTABLE_SERVER_IDS.map(id => (
+            {ALL_SELECTABLE_SERVER_IDS.map((id) => (
               <label
                 key={id}
                 className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] cursor-pointer transition-colors ${
@@ -661,44 +695,42 @@ function PresetStep({
                   onChange={() => onToggleServer(id)}
                   className="sr-only"
                 />
-                <div className={`w-3 h-3 rounded border flex items-center justify-center shrink-0 ${
-                  customServers.has(id)
-                    ? 'bg-brand border-brand'
-                    : 'border-edge'
-                }`}>
+                <div
+                  className={`w-3 h-3 rounded border flex items-center justify-center shrink-0 ${
+                    customServers.has(id) ? 'bg-brand border-brand' : 'border-edge'
+                  }`}
+                >
                   {customServers.has(id) && (
                     <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                      <path d="M1.5 4L3 5.5L6.5 2" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      <path
+                        d="M1.5 4L3 5.5L6.5 2"
+                        stroke="white"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
                     </svg>
                   )}
                 </div>
                 <span className="truncate">{t(serverTKey(id))}</span>
-                {MANUAL_START_SERVERS.has(id) && (
-                  <span className="text-[9px] text-amber-500 shrink-0">*</span>
-                )}
+                {MANUAL_START_SERVERS.has(id) && <span className="text-[9px] text-amber-500 shrink-0">*</span>}
               </label>
             ))}
           </div>
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            {Array.from(activeServers).map(id => (
+            {Array.from(activeServers).map((id) => (
               <span
                 key={id}
                 className="px-2 py-1 bg-surface-secondary border border-edge rounded-md text-[10px] text-content-secondary"
               >
                 {t(serverTKey(id))}
-                {MANUAL_START_SERVERS.has(id) && (
-                  <span className="text-amber-500 ml-0.5">*</span>
-                )}
+                {MANUAL_START_SERVERS.has(id) && <span className="text-amber-500 ml-0.5">*</span>}
               </span>
             ))}
           </div>
         )}
-        {hasManualStart && (
-          <p className="text-[9px] text-amber-500">
-            * {t('preset_manual_note')}
-          </p>
-        )}
+        {hasManualStart && <p className="text-[9px] text-amber-500">* {t('preset_manual_note')}</p>}
       </div>
     </div>
   );

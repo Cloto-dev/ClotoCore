@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
+import { AlertTriangle, Plus, RefreshCw, Server, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { McpServerInfo } from '../../types';
-import { Server, Plus, RefreshCw, AlertTriangle, X } from 'lucide-react';
-import { AlertCard } from '../ui/AlertCard';
 import { displayServerId } from '../../lib/format';
+import type { McpServerInfo } from '../../types';
+import { AlertCard } from '../ui/AlertCard';
 
 interface Props {
   servers: McpServerInfo[];
@@ -17,9 +17,24 @@ interface Props {
 
 function statusIndicator(status: McpServerInfo['status']) {
   switch (status) {
-    case 'Connected': return <span className="text-green-500" title="Running">●</span>;
-    case 'Disconnected': return <span className="text-content-muted" title="Stopped">○</span>;
-    case 'Error': return <span className="text-red-500" title="Error">◉</span>;
+    case 'Connected':
+      return (
+        <span className="text-green-500" title="Running">
+          ●
+        </span>
+      );
+    case 'Disconnected':
+      return (
+        <span className="text-content-muted" title="Stopped">
+          ○
+        </span>
+      );
+    case 'Error':
+      return (
+        <span className="text-red-500" title="Error">
+          ◉
+        </span>
+      );
   }
 }
 
@@ -38,7 +53,11 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
 
   // Category sort: mind > memory > tool > voice > vision > other
   const categoryOrder: Record<string, number> = {
-    'mind.': 0, 'memory.': 1, 'tool.': 2, 'voice.': 3, 'vision.': 4,
+    'mind.': 0,
+    'memory.': 1,
+    'tool.': 2,
+    'voice.': 3,
+    'vision.': 4,
   };
   const getOrder = (id: string) => {
     for (const [prefix, order] of Object.entries(categoryOrder)) {
@@ -48,20 +67,22 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
   };
 
   const sortedServers = [...servers].sort((a, b) => {
-    const oa = getOrder(a.id), ob = getOrder(b.id);
+    const oa = getOrder(a.id),
+      ob = getOrder(b.id);
     return oa !== ob ? oa - ob : a.id.localeCompare(b.id);
   });
 
   const filteredServers = filterText
-    ? sortedServers.filter(s =>
-        s.id.toLowerCase().includes(filterText.toLowerCase()) ||
-        s.tools.some(t => t.toLowerCase().includes(filterText.toLowerCase())) ||
-        s.status.toLowerCase().includes(filterText.toLowerCase())
+    ? sortedServers.filter(
+        (s) =>
+          s.id.toLowerCase().includes(filterText.toLowerCase()) ||
+          s.tools.some((t) => t.toLowerCase().includes(filterText.toLowerCase())) ||
+          s.status.toLowerCase().includes(filterText.toLowerCase()),
       )
     : sortedServers;
 
-  const running = servers.filter(s => s.status === 'Connected').length;
-  const stopped = servers.filter(s => s.status !== 'Connected').length;
+  const running = servers.filter((s) => s.status === 'Connected').length;
+  const stopped = servers.filter((s) => s.status !== 'Connected').length;
 
   const handleExitFilter = () => {
     setIsFiltering(false);
@@ -78,12 +99,18 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
               ref={inputRef}
               type="text"
               value={filterText}
-              onChange={e => setFilterText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Escape') handleExitFilter(); }}
+              onChange={(e) => setFilterText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') handleExitFilter();
+              }}
               placeholder={t('list.filter')}
               className="w-full bg-transparent text-[10px] font-mono uppercase tracking-widest text-content-primary placeholder:text-content-tertiary outline-none"
             />
-            <button onClick={handleExitFilter} className="p-0.5 rounded hover:bg-glass text-content-muted hover:text-content-primary transition-colors" title={t('list.clear_filter')}>
+            <button
+              onClick={handleExitFilter}
+              className="p-0.5 rounded hover:bg-glass text-content-muted hover:text-content-primary transition-colors"
+              title={t('list.clear_filter')}
+            >
               <X size={10} />
             </button>
           </div>
@@ -97,10 +124,18 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
           </span>
         )}
         <div className="flex gap-1">
-          <button onClick={onRefresh} className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors" title={t('refresh')}>
+          <button
+            onClick={onRefresh}
+            className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+            title={t('refresh')}
+          >
             <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
           </button>
-          <button onClick={onAdd} className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors" title={t('add_server')}>
+          <button
+            onClick={onAdd}
+            className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+            title={t('add_server')}
+          >
             <Plus size={12} />
           </button>
         </div>
@@ -121,20 +156,24 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
             {filterText ? t('list.no_match') : t('list.no_servers')}
           </div>
         )}
-        {filteredServers.map(server => (
+        {filteredServers.map((server) => (
           <button
             key={server.id}
             onClick={() => onSelect(server.id)}
             className={`w-full text-left px-3 py-2 flex items-center gap-2 transition-colors text-xs font-mono
-              ${selectedId === server.id
-                ? 'bg-glass-strong text-content-primary'
-                : 'hover:bg-glass text-content-secondary hover:text-content-primary'}`}
+              ${
+                selectedId === server.id
+                  ? 'bg-glass-strong text-content-primary'
+                  : 'hover:bg-glass text-content-secondary hover:text-content-primary'
+              }`}
           >
             <span className="text-[10px]">{statusIndicator(server.status)}</span>
             <Server size={12} className="text-content-tertiary flex-shrink-0" />
             <span className="truncate">{displayServerId(server.id)}</span>
             {server.source === 'config' && (
-              <span className="text-[9px] text-amber-500/70 flex-shrink-0" title="Config-loaded">C</span>
+              <span className="text-[9px] text-amber-500/70 flex-shrink-0" title="Config-loaded">
+                C
+              </span>
             )}
             <span className="ml-auto text-[9px] text-content-tertiary">{server.tools.length}t</span>
           </button>

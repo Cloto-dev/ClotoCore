@@ -6,14 +6,11 @@ import type { ChatMessage } from '../types';
  *
  * Legacy messages (parent_id = null/undefined) are returned in created_at order.
  */
-export function flattenConversation(
-  messages: ChatMessage[],
-  activeBranches: Record<string, number>,
-): ChatMessage[] {
+export function flattenConversation(messages: ChatMessage[], activeBranches: Record<string, number>): ChatMessage[] {
   if (messages.length === 0) return [];
 
   // If all messages lack parent_id, treat as legacy linear chain
-  const hasAnyParent = messages.some(m => m.parent_id != null);
+  const hasAnyParent = messages.some((m) => m.parent_id != null);
   if (!hasAnyParent) return messages;
 
   // Build parent → children index
@@ -60,9 +57,9 @@ export function flattenConversation(
         queue.unshift(group[0]);
       } else {
         // Pick active branch (default: highest branch_index = latest)
-        const activeIdx = activeBranches[current.id + ':' + group[0].source]
-          ?? Math.max(...group.map(m => m.branch_index ?? 0));
-        const picked = group.find(m => (m.branch_index ?? 0) === activeIdx) ?? group[group.length - 1];
+        const activeIdx =
+          activeBranches[current.id + ':' + group[0].source] ?? Math.max(...group.map((m) => m.branch_index ?? 0));
+        const picked = group.find((m) => (m.branch_index ?? 0) === activeIdx) ?? group[group.length - 1];
         queue.unshift(picked);
       }
     }
@@ -79,7 +76,10 @@ export function findBranchPoints(
   messages: ChatMessage[],
   activeBranches: Record<string, number>,
 ): Map<string, { parentId: string; source: string; count: number; activeIndex: number; indices: number[] }> {
-  const result = new Map<string, { parentId: string; source: string; count: number; activeIndex: number; indices: number[] }>();
+  const result = new Map<
+    string,
+    { parentId: string; source: string; count: number; activeIndex: number; indices: number[] }
+  >();
   if (messages.length === 0) return result;
 
   // Group messages by (parent_id, source)
@@ -94,7 +94,7 @@ export function findBranchPoints(
 
   for (const [key, group] of groups) {
     if (group.length < 2) continue;
-    const indices = group.map(m => m.branch_index ?? 0).sort((a, b) => a - b);
+    const indices = group.map((m) => m.branch_index ?? 0).sort((a, b) => a - b);
     const maxIdx = Math.max(...indices);
     const activeIndex = activeBranches[key] ?? maxIdx;
     const parentId = group[0].parent_id!;

@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface UseTypewriterOptions {
   text: string;
-  speed?: number;       // ms per character (default: 5)
-  enabled?: boolean;    // default: true
+  speed?: number; // ms per character (default: 5)
+  enabled?: boolean; // default: true
   onComplete?: () => void;
 }
 
@@ -11,7 +11,7 @@ interface UseTypewriterResult {
   displayText: string;
   isAnimating: boolean;
   skip: () => void;
-  progress: number;     // 0..1
+  progress: number; // 0..1
 }
 
 export function useTypewriter({

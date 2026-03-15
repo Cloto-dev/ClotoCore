@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { Power, Lock } from 'lucide-react';
-import { AgentMetadata } from '../types';
-import { useAsyncAction } from '../hooks/useAsyncAction';
+import { Lock, Power } from 'lucide-react';
+import { useState } from 'react';
 import { useApi } from '../hooks/useApi';
+import { useAsyncAction } from '../hooks/useAsyncAction';
+import type { AgentMetadata } from '../types';
 
 interface Props {
   agent: AgentMetadata;
@@ -17,17 +17,20 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
 
   const needsPassword = agent.metadata?.has_power_password === 'true';
 
-  const handleConfirm = () => action.run(async () => {
-    await api.toggleAgentPower(agent.id, !agent.enabled, needsPassword ? password : undefined);
-    onClose();
-    onSuccess();
-  });
+  const handleConfirm = () =>
+    action.run(async () => {
+      await api.toggleAgentPower(agent.id, !agent.enabled, needsPassword ? password : undefined);
+      onClose();
+      onSuccess();
+    });
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm">
       <div className="bg-surface-primary rounded-2xl shadow-2xl p-6 w-80 space-y-4 animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-lg ${agent.enabled ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+          <div
+            className={`p-2 rounded-lg ${agent.enabled ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'}`}
+          >
             <Power size={18} />
           </div>
           <div>
@@ -35,7 +38,9 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
               {agent.enabled ? 'Power Off' : 'Power On'} {agent.name}
             </h3>
             <p className="text-[10px] text-content-tertiary">
-              {needsPassword ? 'Enter power password to continue' : `Are you sure you want to ${agent.enabled ? 'stop' : 'start'} this agent?`}
+              {needsPassword
+                ? 'Enter power password to continue'
+                : `Are you sure you want to ${agent.enabled ? 'stop' : 'start'} this agent?`}
             </p>
           </div>
         </div>
@@ -45,17 +50,14 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
             <input
               type="password"
               value={password}
-              onChange={e => setPassword(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && password && handleConfirm()}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && password && handleConfirm()}
               className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-edge text-sm focus:outline-none focus:border-brand"
               placeholder="Password"
-              autoFocus
             />
           </div>
         )}
-        {action.error && (
-          <p className="text-[10px] text-red-500 font-medium">{action.error}</p>
-        )}
+        {action.error && <p className="text-[10px] text-red-500 font-medium">{action.error}</p>}
         <div className="flex gap-2">
           <button
             onClick={onClose}

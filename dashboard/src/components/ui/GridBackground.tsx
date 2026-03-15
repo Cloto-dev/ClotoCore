@@ -8,7 +8,7 @@
  *   Style-only:    style={gridStyle()} on any element
  */
 
-import { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 export function gridStyle({
   size = 24,
@@ -22,8 +22,7 @@ export function gridStyle({
   const c = color ?? `rgba(255,255,255,${opacity})`;
   return {
     backgroundImage:
-      `linear-gradient(to right, ${c} 1px, transparent 1px),` +
-      `linear-gradient(to bottom, ${c} 1px, transparent 1px)`,
+      `linear-gradient(to right, ${c} 1px, transparent 1px),` + `linear-gradient(to bottom, ${c} 1px, transparent 1px)`,
     backgroundSize: `${size}px ${size}px`,
   };
 }

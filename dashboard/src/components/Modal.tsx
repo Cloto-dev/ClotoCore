@@ -1,4 +1,4 @@
-import { X, type LucideIcon } from 'lucide-react';
+import { type LucideIcon, X } from 'lucide-react';
 
 interface ModalProps {
   title: string;
@@ -14,7 +14,9 @@ export function Modal({ title, icon: Icon, size = 'sm', onClose, children }: Mod
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/[0.35] backdrop-blur-[2px] animate-in fade-in duration-200"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         style={isLarge ? { width: '70vw', height: 'calc(70vw * 9 / 16)' } : undefined}
@@ -35,9 +37,7 @@ export function Modal({ title, icon: Icon, size = 'sm', onClose, children }: Mod
         </div>
 
         {/* Content */}
-        <div className={`flex-1 min-h-0 ${isLarge ? 'overflow-hidden' : 'overflow-y-auto'}`}>
-          {children}
-        </div>
+        <div className={`flex-1 min-h-0 ${isLarge ? 'overflow-hidden' : 'overflow-y-auto'}`}>{children}</div>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
+import { type VRM, VRMLoaderPlugin } from '@pixiv/three-vrm';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { VRMLoaderPlugin, VRM } from '@pixiv/three-vrm';
 
 /**
  * Loads a VRM model from the kernel API and adds it to a three.js scene.

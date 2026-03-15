@@ -1,16 +1,16 @@
-import { useState, useEffect, useRef, Suspense, lazy } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Cpu, Settings, HelpCircle } from 'lucide-react';
-import { useLocalStorage } from '../hooks/useStorage';
-import { ViewHeader } from './ViewHeader';
-import { InteractiveGrid } from './InteractiveGrid';
-import { AppSidebar } from './AppSidebar';
-import { Modal } from './Modal';
-import { HelpContent } from './HelpContent';
-import { SecurityGuard } from './SecurityGuard';
+import { Cpu, HelpCircle, Settings } from 'lucide-react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAgentContext } from '../contexts/AgentContext';
+import { useLocalStorage } from '../hooks/useStorage';
+import { AppSidebar } from './AppSidebar';
+import { HelpContent } from './HelpContent';
+import { InteractiveGrid } from './InteractiveGrid';
+import { Modal } from './Modal';
+import { SecurityGuard } from './SecurityGuard';
+import { ViewHeader } from './ViewHeader';
 
-const SettingsView = lazy(() => import('./SettingsView').then(m => ({ default: m.SettingsView })));
+const SettingsView = lazy(() => import('./SettingsView').then((m) => ({ default: m.SettingsView })));
 
 export interface AppOutletContext {
   setImmersive: (v: boolean) => void;
@@ -23,10 +23,10 @@ export function AppLayout() {
   const [sidebarRaw, setSidebarRaw] = useLocalStorage('sidebar-collapsed', 'false');
   const sidebarCollapsed = sidebarRaw === 'true';
   const navigate = useNavigate();
-  const location = useLocation();
+  const _location = useLocation();
   const { agents, setSelectedAgentId } = useAgentContext();
 
-  const activeCount = agents.filter(a => a.enabled).length;
+  const activeCount = agents.filter((a) => a.enabled).length;
 
   // Track navigation history for back/forward button states
   const maxIdxRef = useRef(0);
@@ -38,7 +38,7 @@ export function AppLayout() {
     maxIdxRef.current = Math.max(maxIdxRef.current, idx);
     setCanGoBack(idx > 0);
     setCanGoForward(idx < maxIdxRef.current);
-  }, [location]);
+  }, []);
 
   const handleToggleSidebar = () => setSidebarRaw(sidebarCollapsed ? 'false' : 'true');
 
@@ -55,7 +55,7 @@ export function AppLayout() {
   const handleAskAgent = () => {
     setHelpOpen(false);
     navigate('/');
-    const defaultAgent = agents.find(a => a.id === 'agent.cloto_default');
+    const defaultAgent = agents.find((a) => a.id === 'agent.cloto_default');
     if (defaultAgent) setSelectedAgentId(defaultAgent.id);
   };
 
@@ -71,7 +71,11 @@ export function AppLayout() {
           navForward={() => navigate(1)}
           canGoBack={canGoBack}
           canGoForward={canGoForward}
-          right={<span className="text-[10px] font-mono text-content-tertiary">{activeCount} / {agents.length} Active</span>}
+          right={
+            <span className="text-[10px] font-mono text-content-tertiary">
+              {activeCount} / {agents.length} Active
+            </span>
+          }
         />
       )}
 
@@ -80,11 +84,21 @@ export function AppLayout() {
         <InteractiveGrid />
         {!immersive && (
           <div className="relative z-10">
-            <AppSidebar onSettingsClick={() => setSettingsOpen(true)} collapsed={sidebarCollapsed} onToggleCollapse={handleToggleSidebar} />
+            <AppSidebar
+              onSettingsClick={() => setSettingsOpen(true)}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={handleToggleSidebar}
+            />
           </div>
         )}
         <main className="flex-1 h-full overflow-hidden relative z-10">
-          <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">LOADING CLOTO...</div>}>
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
+                LOADING CLOTO...
+              </div>
+            }
+          >
             <Outlet context={{ setImmersive } satisfies AppOutletContext} />
           </Suspense>
         </main>
@@ -93,7 +107,13 @@ export function AppLayout() {
       {/* Settings modal */}
       {settingsOpen && (
         <Modal title="Settings" icon={Settings} size="lg" onClose={() => setSettingsOpen(false)}>
-          <Suspense fallback={<div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">SYNCHRONIZING...</div>}>
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
+                SYNCHRONIZING...
+              </div>
+            }
+          >
             <SettingsView />
           </Suspense>
         </Modal>

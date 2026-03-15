@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 
 export interface Artifact {
   id: string;
@@ -24,9 +24,9 @@ export function useArtifacts(): UseArtifactsResult {
   const [activeIndex, setActiveIndex] = useState(0);
 
   const addArtifact = useCallback((artifact: Omit<Artifact, 'id'>) => {
-    setArtifacts(prev => {
+    setArtifacts((prev) => {
       // Deduplicate by code content
-      if (prev.some(a => a.code === artifact.code)) return prev;
+      if (prev.some((a) => a.code === artifact.code)) return prev;
       const id = `artifact-${Date.now()}-${prev.length}`;
       const next = [...prev, { ...artifact, id }];
       setActiveIndex(next.length - 1);

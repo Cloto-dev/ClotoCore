@@ -1,14 +1,14 @@
-import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Save, Activity } from 'lucide-react';
+import { Activity, ArrowLeft, Save } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AgentMetadata, AccessControlEntry } from '../types';
-import { AgentIcon, agentColor } from '../lib/agentIdentity';
-import { AlertCard } from './ui/AlertCard';
 import { useApi } from '../hooks/useApi';
 import { useMcpServers } from '../hooks/useMcpServers';
+import { AgentIcon, agentColor } from '../lib/agentIdentity';
+import type { AccessControlEntry, AgentMetadata } from '../types';
 import { AvatarSection } from './AvatarSection';
 import { ProfileSection } from './ProfileSection';
 import { ServerAccessSection } from './ServerAccessSection';
+import { AlertCard } from './ui/AlertCard';
 
 interface Props {
   agent: AgentMetadata;
@@ -35,7 +35,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const [agentDescription, setAgentDescription] = useState(agent.description);
 
   // Avatar state (deferred — only persisted on Save)
-  const [avatarKey, setAvatarKey] = useState(0);
+  const [avatarKey, _setAvatarKey] = useState(0);
   const [hasAvatar, setHasAvatar] = useState(agent.metadata?.has_avatar === 'true');
   const [avatarDescription, setAvatarDescription] = useState(agent.metadata?.avatar_description || '');
   const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
@@ -47,28 +47,29 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
 
   // Load current access entries for this agent
   useEffect(() => {
-    api.getAgentAccess(agent.id)
-      .then(data => {
+    api
+      .getAgentAccess(agent.id)
+      .then((data) => {
         const granted = new Set(
           data.entries
-            .filter(e => e.entry_type === 'server_grant' && e.permission === 'allow')
-            .map(e => e.server_id)
+            .filter((e) => e.entry_type === 'server_grant' && e.permission === 'allow')
+            .map((e) => e.server_id),
         );
         setGrantedIds(granted);
         initialGrantedRef.current = new Set(granted);
       })
-      .catch(e => {
+      .catch((e) => {
         console.error('Failed to load agent access:', e);
       })
       .finally(() => setIsLoading(false));
-  }, [agent.id]);
+  }, [agent.id, api.getAgentAccess]);
 
   const grantServer = (serverId: string) => {
-    setGrantedIds(prev => new Set([...prev, serverId]));
+    setGrantedIds((prev) => new Set([...prev, serverId]));
   };
 
   const revokeServer = (serverId: string) => {
-    setGrantedIds(prev => {
+    setGrantedIds((prev) => {
       const next = new Set(prev);
       next.delete(serverId);
       return next;
@@ -76,9 +77,9 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   };
 
   const applyPreset = (presetServerIds: string[]) => {
-    setGrantedIds(prev => {
+    setGrantedIds((prev) => {
       // Keep existing mind.* engines, replace everything else with preset
-      const engines = [...prev].filter(id => id.startsWith('mind.'));
+      const engines = [...prev].filter((id) => id.startsWith('mind.'));
       return new Set([...engines, ...presetServerIds]);
     });
   };
@@ -97,17 +98,15 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
       }
 
       const initial = initialGrantedRef.current;
-      const added = [...grantedIds].filter(id => !initial.has(id));
-      const removed = [...initial].filter(id => !grantedIds.has(id));
+      const added = [...grantedIds].filter((id) => !initial.has(id));
+      const removed = [...initial].filter((id) => !grantedIds.has(id));
 
       const now = new Date().toISOString();
 
       // Process added servers
       for (const serverId of added) {
         const tree = await api.getMcpServerAccess(serverId);
-        const existing = tree.entries.filter(
-          e => !(e.agent_id === agent.id && e.entry_type === 'server_grant')
-        );
+        const existing = tree.entries.filter((e) => !(e.agent_id === agent.id && e.entry_type === 'server_grant'));
         const newEntry: AccessControlEntry = {
           entry_type: 'server_grant',
           agent_id: agent.id,
@@ -122,16 +121,14 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
       // Process removed servers
       for (const serverId of removed) {
         const tree = await api.getMcpServerAccess(serverId);
-        const filtered = tree.entries.filter(
-          e => !(e.agent_id === agent.id && e.entry_type === 'server_grant')
-        );
+        const filtered = tree.entries.filter((e) => !(e.agent_id === agent.id && e.entry_type === 'server_grant'));
         await api.putMcpServerAccess(serverId, filtered);
       }
 
       // Derive default_engine_id and preferred_memory from granted servers
-      const grantedServers = servers.filter(s => grantedIds.has(s.id));
-      const engineServer = grantedServers.find(s => s.id.startsWith('mind.'));
-      const memoryServer = grantedServers.find(s => s.id.startsWith('memory.'));
+      const grantedServers = servers.filter((s) => grantedIds.has(s.id));
+      const engineServer = grantedServers.find((s) => s.id.startsWith('mind.'));
+      const memoryServer = grantedServers.find((s) => s.id.startsWith('memory.'));
 
       const metadata: Record<string, string> = { ...agent.metadata };
       // Remove backend-injected fields (managed by their respective APIs, not metadata column)
@@ -145,15 +142,12 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
         delete metadata.preferred_memory;
       }
 
-      await api.updateAgent(
-        agent.id,
-        {
-          name: agentName !== agent.name ? agentName : undefined,
-          description: agentDescription !== agent.description ? agentDescription : undefined,
-          default_engine_id: engineServer?.id,
-          metadata,
-        },
-      );
+      await api.updateAgent(agent.id, {
+        name: agentName !== agent.name ? agentName : undefined,
+        description: agentDescription !== agent.description ? agentDescription : undefined,
+        default_engine_id: engineServer?.id,
+        metadata,
+      });
 
       // Clean up preview URL
       if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
@@ -218,8 +212,8 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
     }
   };
 
-  const grantedServers = servers.filter(s => grantedIds.has(s.id));
-  const availableServers = servers.filter(s => !grantedIds.has(s.id));
+  const grantedServers = servers.filter((s) => grantedIds.has(s.id));
+  const availableServers = servers.filter((s) => !grantedIds.has(s.id));
 
   return (
     <div className="flex flex-col h-full overflow-hidden animate-in fade-in duration-500">
@@ -232,16 +226,25 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
           >
             <ArrowLeft size={18} />
           </button>
-          <div className="w-10 h-10 rounded-md flex items-center justify-center shadow-sm text-white overflow-hidden" style={{ backgroundColor: agentColor(agent) }}>
+          <div
+            className="w-10 h-10 rounded-md flex items-center justify-center shadow-sm text-white overflow-hidden"
+            style={{ backgroundColor: agentColor(agent) }}
+          >
             <AgentIcon agent={agent} size={40} />
           </div>
           <div>
-            <h1 className="text-xl font-black tracking-tighter text-content-primary uppercase">{agent.name} · {t('plugin_workspace.mcp_access')}</h1>
-            <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em]">{t('plugin_workspace.server_access_control')}</p>
+            <h1 className="text-xl font-black tracking-tighter text-content-primary uppercase">
+              {agent.name} · {t('plugin_workspace.mcp_access')}
+            </h1>
+            <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em]">
+              {t('plugin_workspace.server_access_control')}
+            </p>
           </div>
         </div>
         <div className="bg-glass-subtle backdrop-blur-sm px-4 py-2 rounded-md flex items-center gap-3 shadow-sm border border-edge">
-          <span className="text-[9px] uppercase font-bold text-content-tertiary tracking-widest">{t('plugin_workspace.granted_count', { count: grantedIds.size })}</span>
+          <span className="text-[9px] uppercase font-bold text-content-tertiary tracking-widest">
+            {t('plugin_workspace.granted_count', { count: grantedIds.size })}
+          </span>
         </div>
       </header>
 

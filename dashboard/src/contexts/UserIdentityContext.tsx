@@ -1,5 +1,6 @@
-import React, { createContext, useContext } from 'react';
-import { useUserIdentityProvider, UserIdentityHookValue } from '../hooks/useUserIdentity';
+import type React from 'react';
+import { createContext, useContext } from 'react';
+import { type UserIdentityHookValue, useUserIdentityProvider } from '../hooks/useUserIdentity';
 
 const UserIdentityContext = createContext<UserIdentityHookValue | null>(null);
 

@@ -5,11 +5,7 @@ import { useEffect, useRef } from 'react';
  * Calls `fn` immediately on mount, then every `intervalMs` milliseconds.
  * Set `enabled` to false to pause polling without destroying the hook.
  */
-export function usePolling(
-  fn: () => void | Promise<void>,
-  intervalMs: number,
-  enabled = true,
-) {
+export function usePolling(fn: () => void | Promise<void>, intervalMs: number, enabled = true) {
   const fnRef = useRef(fn);
   fnRef.current = fn;
 
