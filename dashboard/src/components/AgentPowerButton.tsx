@@ -1,8 +1,11 @@
 import { Power } from 'lucide-react';
-import { AgentMetadata } from '../types';
+import type { AgentMetadata } from '../types';
 
 /** Unified power button: always click → confirmation dialog */
-export function AgentPowerButton({ agent, onPowerToggle }: {
+export function AgentPowerButton({
+  agent,
+  onPowerToggle,
+}: {
   agent: AgentMetadata;
   onPowerToggle: (agent: AgentMetadata) => void;
 }) {
@@ -16,7 +19,10 @@ export function AgentPowerButton({ agent, onPowerToggle }: {
           : 'border-edge text-content-tertiary hover:bg-surface-secondary'
       }`}
       title={isOn ? 'Power Off' : 'Power On'}
-      onClick={(e) => { e.stopPropagation(); onPowerToggle(agent); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onPowerToggle(agent);
+      }}
     >
       <Power size={12} />
       {isOn ? 'ON' : 'OFF'}

@@ -6,7 +6,9 @@ export function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggl
         onClick={onToggle}
         className={`w-10 h-5 rounded-full transition-colors relative ${enabled ? 'bg-brand' : 'bg-surface-secondary border border-edge'}`}
       >
-        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+        <div
+          className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0.5'}`}
+        />
       </button>
     </label>
   );

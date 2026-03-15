@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useState } from 'react';
 import { useAgents } from '../hooks/useAgents';
 import type { AgentMetadata } from '../types';
 

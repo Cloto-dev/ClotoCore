@@ -1,19 +1,30 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 
 function createStorageHook(getStorage: () => Storage) {
   return function useStorage(key: string, fallback: string): [string, (v: string) => void, () => void] {
     const [value, setInner] = useState<string>(() => {
-      try { return getStorage().getItem(key) ?? fallback; } catch { return fallback; }
+      try {
+        return getStorage().getItem(key) ?? fallback;
+      } catch {
+        return fallback;
+      }
     });
 
-    const set = useCallback((v: string) => {
-      setInner(v);
-      try { getStorage().setItem(key, v); } catch {}
-    }, [key]);
+    const set = useCallback(
+      (v: string) => {
+        setInner(v);
+        try {
+          getStorage().setItem(key, v);
+        } catch {}
+      },
+      [key],
+    );
 
     const remove = useCallback(() => {
       setInner(fallback);
-      try { getStorage().removeItem(key); } catch {}
+      try {
+        getStorage().removeItem(key);
+      } catch {}
     }, [key, fallback]);
 
     return [value, set, remove];

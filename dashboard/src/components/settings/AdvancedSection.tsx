@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { SectionCard, Toggle } from './common';
 import { useApi } from '../../hooks/useApi';
+import { SectionCard, Toggle } from './common';
 
 export function AdvancedSection() {
   const api = useApi();
@@ -12,12 +12,14 @@ export function AdvancedSection() {
   const [maxCronGen, setMaxCronGen] = useState(2);
 
   useEffect(() => {
-    api.fetchJson<{ enabled: boolean }>('/settings/yolo')
-      .then(data => setYoloEnabled(data.enabled))
+    api
+      .fetchJson<{ enabled: boolean }>('/settings/yolo')
+      .then((data) => setYoloEnabled(data.enabled))
       .catch(() => {})
       .finally(() => setLoading(false));
-    api.fetchJson<{ value: number }>('/settings/max-cron-generation')
-      .then(data => setMaxCronGen(data.value))
+    api
+      .fetchJson<{ value: number }>('/settings/max-cron-generation')
+      .then((data) => setMaxCronGen(data.value))
       .catch(() => {});
   }, [api]);
 
@@ -52,28 +54,26 @@ export function AdvancedSection() {
             <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
               <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
               <div className="space-y-1">
-                <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">{t('advanced.yolo_warning')}</p>
+                <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">
+                  {t('advanced.yolo_warning')}
+                </p>
               </div>
             </div>
           )}
-          {!yoloEnabled && (
-            <p className="text-xs text-content-tertiary">{t('advanced.yolo_desc')}</p>
-          )}
+          {!yoloEnabled && <p className="text-xs text-content-tertiary">{t('advanced.yolo_desc')}</p>}
         </div>
       </SectionCard>
 
       <SectionCard title={t('advanced.cron_limit_title')}>
         <div className="space-y-3">
-          <p className="text-xs text-content-tertiary">
-            {t('advanced.cron_limit_desc')}
-          </p>
+          <p className="text-xs text-content-tertiary">{t('advanced.cron_limit_desc')}</p>
           <div className="flex items-center gap-3">
             <input
               type="number"
               min={0}
               max={6}
               value={maxCronGen}
-              onChange={e => handleSetMaxCronGen(Number(e.target.value))}
+              onChange={(e) => handleSetMaxCronGen(Number(e.target.value))}
               className="w-16 bg-surface-secondary border border-edge rounded px-2 py-1 text-xs font-mono text-content-primary"
             />
             <span className="text-xs text-content-tertiary">{t('advanced.cron_limit_hint')}</span>

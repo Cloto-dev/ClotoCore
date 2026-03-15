@@ -12,31 +12,35 @@ export function useVrmAvatar(agentId: string, apiKey?: string) {
   const { setAgentState, vrmEnabled } = useVrmContext();
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEventStream(EVENTS_URL, (event) => {
-    if (!vrmEnabled) return;
-    if (!event.data || event.data.agent_id !== agentId) return;
+  useEventStream(
+    EVENTS_URL,
+    (event) => {
+      if (!vrmEnabled) return;
+      if (!event.data || event.data.agent_id !== agentId) return;
 
-    switch (event.type) {
-      case 'AgentThinking':
-        clearIdleTimeout();
-        setAgentState('thinking');
-        break;
+      switch (event.type) {
+        case 'AgentThinking':
+          clearIdleTimeout();
+          setAgentState('thinking');
+          break;
 
-      case 'ThoughtResponse':
-        clearIdleTimeout();
-        setAgentState('responding');
-        // Non-agentic fallback: auto-idle after 3s if no AgenticLoopCompleted
-        idleTimeoutRef.current = setTimeout(() => {
+        case 'ThoughtResponse':
+          clearIdleTimeout();
+          setAgentState('responding');
+          // Non-agentic fallback: auto-idle after 3s if no AgenticLoopCompleted
+          idleTimeoutRef.current = setTimeout(() => {
+            setAgentState('idle');
+          }, 3000);
+          break;
+
+        case 'AgenticLoopCompleted':
+          clearIdleTimeout();
           setAgentState('idle');
-        }, 3000);
-        break;
-
-      case 'AgenticLoopCompleted':
-        clearIdleTimeout();
-        setAgentState('idle');
-        break;
-    }
-  }, apiKey);
+          break;
+      }
+    },
+    apiKey,
+  );
 
   function clearIdleTimeout() {
     if (idleTimeoutRef.current) {
@@ -48,5 +52,5 @@ export function useVrmAvatar(agentId: string, apiKey?: string) {
   // Cleanup on unmount
   useEffect(() => {
     return () => clearIdleTimeout();
-  }, []);
+  }, [clearIdleTimeout]);
 }

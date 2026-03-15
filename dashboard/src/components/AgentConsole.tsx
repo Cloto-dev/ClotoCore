@@ -1,28 +1,45 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Activity, Zap, User as UserIcon, RotateCcw, ArrowLeft, Volume2, Pencil, RotateCcw as RetryIcon, Box } from 'lucide-react';
+import {
+  Activity,
+  ArrowLeft,
+  Box,
+  Pencil,
+  RotateCcw as RetryIcon,
+  RotateCcw,
+  User as UserIcon,
+  Volume2,
+  Zap,
+} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AgentMetadata, ClotoMessage, ChatMessage, ContentBlock, CommandApprovalRequest, McpServerInfo } from '../types';
+import { useUserIdentity } from '../contexts/UserIdentityContext';
+import { useApi } from '../hooks/useApi';
+import { useArtifacts } from '../hooks/useArtifacts';
 import { useEventStream } from '../hooks/useEventStream';
-import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { useLongPress } from '../hooks/useLongPress';
-import { MessageContent } from './ContentBlockView';
+import { useMcpServers } from '../hooks/useMcpServers';
+import { AgentIcon, agentColor } from '../lib/agentIdentity';
+import { findBranchPoints, flattenConversation } from '../lib/conversationTree';
+import { sendNativeNotification } from '../lib/notifications';
+import { openVrmWindow } from '../lib/tauri';
+import { EVENTS_URL } from '../services/api';
+import type {
+  AgentMetadata,
+  ChatMessage,
+  ClotoMessage,
+  CommandApprovalRequest,
+  ContentBlock,
+  McpServerInfo,
+} from '../types';
+import { useGazeBroadcast } from '../vrm/useGazeBroadcast';
+import { ArtifactPanel } from './ArtifactPanel';
+import { BranchNavigator } from './BranchNavigator';
 import { ChatInputBar } from './ChatInputBar';
 import { CommandApprovalCard } from './CommandApprovalCard';
-import { SystemAlertCard } from './SystemAlertCard';
-import { BranchNavigator } from './BranchNavigator';
-import { EVENTS_URL } from '../services/api';
-import { useApi } from '../hooks/useApi';
-import { useUserIdentity } from '../contexts/UserIdentityContext';
-import { useMcpServers } from '../hooks/useMcpServers';
-import { StatusDot } from './ui/StatusDot';
+import { MessageContent } from './ContentBlockView';
 import { SkeletonThinking } from './SkeletonThinking';
+import { SystemAlertCard } from './SystemAlertCard';
 import { TypewriterMessage } from './TypewriterMessage';
-import { ArtifactPanel } from './ArtifactPanel';
-import { useArtifacts } from '../hooks/useArtifacts';
-import { sendNativeNotification } from '../lib/notifications';
-import { flattenConversation, findBranchPoints } from '../lib/conversationTree';
-import { openVrmWindow } from '../lib/tauri';
-import { useGazeBroadcast } from '../vrm/useGazeBroadcast';
+import { StatusDot } from './ui/StatusDot';
 
 // Legacy localStorage key prefix for migration
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
@@ -49,7 +66,10 @@ function LongPressResetButton({ onReset }: { onReset: () => void }) {
 }
 
 /** Migrate legacy localStorage session data to server */
-async function migrateLegacyData(agentId: string, postChatMessage: (agentId: string, msg: { id: string; source: string; content: ContentBlock[] }) => Promise<unknown>) {
+async function migrateLegacyData(
+  agentId: string,
+  postChatMessage: (agentId: string, msg: { id: string; source: string; content: ContentBlock[] }) => Promise<unknown>,
+) {
   const key = LEGACY_SESSION_KEY_PREFIX + agentId;
   try {
     const raw = localStorage.getItem(key);
@@ -78,7 +98,7 @@ async function migrateLegacyData(agentId: string, postChatMessage: (agentId: str
   }
 }
 
-export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: () => void }) {
+export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: () => void }) {
   const { t } = useTranslation('agents');
   const api = useApi();
   const { identity } = useUserIdentity();
@@ -89,8 +109,15 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   const [isLoading, setIsLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [pendingResponse, setPendingResponse] = useState<{ id: string; text: string; elapsedSecs: number; parentId?: string } | null>(null);
-  const [thinkingSteps, setThinkingSteps] = useState<Array<{ id: number; status: 'ok' | 'fail' | 'done' | 'thought'; text: string; detail?: string; ts: number }>>([]);
+  const [pendingResponse, setPendingResponse] = useState<{
+    id: string;
+    text: string;
+    elapsedSecs: number;
+    parentId?: string;
+  } | null>(null);
+  const [thinkingSteps, setThinkingSteps] = useState<
+    Array<{ id: number; status: 'ok' | 'fail' | 'done' | 'thought'; text: string; detail?: string; ts: number }>
+  >([]);
   const [pendingApprovals, setPendingApprovals] = useState<CommandApprovalRequest[]>([]);
   const thinkingIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -107,26 +134,25 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
   useGazeBroadcast(hasVrm);
 
   // Flatten branching conversation to linear display
-  const displayMessages = useMemo(
-    () => flattenConversation(messages, activeBranches),
-    [messages, activeBranches],
-  );
-  const branchPoints = useMemo(
-    () => findBranchPoints(messages, activeBranches),
-    [messages, activeBranches],
-  );
+  const displayMessages = useMemo(() => flattenConversation(messages, activeBranches), [messages, activeBranches]);
+  const branchPoints = useMemo(() => findBranchPoints(messages, activeBranches), [messages, activeBranches]);
 
   // Resolve agent's granted mind.* servers for engine selector
   useEffect(() => {
-    api.getAgentAccess(agent.id).then(({ entries }) => {
-      const grantedMindIds = new Set(
-        entries
-          .filter(e => e.entry_type === 'server_grant' && e.permission === 'allow' && e.server_id.startsWith('mind.'))
-          .map(e => e.server_id)
-      );
-      setAgentEngines(mcpServers.filter(s => grantedMindIds.has(s.id)));
-    }).catch(() => {});
-  }, [agent.id, mcpServers]);
+    api
+      .getAgentAccess(agent.id)
+      .then(({ entries }) => {
+        const grantedMindIds = new Set(
+          entries
+            .filter(
+              (e) => e.entry_type === 'server_grant' && e.permission === 'allow' && e.server_id.startsWith('mind.'),
+            )
+            .map((e) => e.server_id),
+        );
+        setAgentEngines(mcpServers.filter((s) => grantedMindIds.has(s.id)));
+      })
+      .catch(() => {});
+  }, [agent.id, mcpServers, api.getAgentAccess]);
 
   // Load initial messages from server
   useEffect(() => {
@@ -155,7 +181,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       }
     };
     loadMessages();
-  }, [agent.id, api]);
+  }, [agent.id, api, identity.id]);
 
   // Recovery: if isTyping is true but we missed the SSE response,
   // re-check the server for messages. Triggers on:
@@ -167,9 +193,9 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       const { messages: latest } = await api.getChatMessages(agent.id, undefined, 5, identity.id);
       if (latest.length > 0 && latest[0].source === 'agent') {
         const reversed = latest.reverse();
-        setMessages(prev => {
-          const existingIds = new Set(prev.map(m => m.id));
-          const newMsgs = reversed.filter(m => !existingIds.has(m.id));
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id));
+          const newMsgs = reversed.filter((m) => !existingIds.has(m.id));
           return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev;
         });
         setIsTyping(false);
@@ -178,7 +204,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     } catch {
       // Silently ignore — next event or timeout will retry
     }
-  }, [isTyping, agent.id, api]);
+  }, [isTyping, agent.id, api, identity.id]);
 
   useEffect(() => {
     if (!isTyping) return;
@@ -198,7 +224,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     if (!isLoading && isScrolledToBottom.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages.length, isLoading, pendingResponse]);
+  }, [isLoading]);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -218,11 +244,11 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
           loadOlderMessages();
         }
       },
-      { root: scrollRef.current, threshold: 0.1 }
+      { root: scrollRef.current, threshold: 0.1 },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, isLoading, isLoadingMore, messages]);
+  }, [hasMore, isLoading, isLoadingMore, loadOlderMessages]);
 
   const loadOlderMessages = useCallback(async () => {
     if (isLoadingMore || !hasMore || messages.length === 0) return;
@@ -237,7 +263,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         const scrollEl = scrollRef.current;
         const prevHeight = scrollEl?.scrollHeight || 0;
 
-        setMessages(prev => [...older.reverse(), ...prev]);
+        setMessages((prev) => [...older.reverse(), ...prev]);
         setHasMore(has_more);
 
         // Restore scroll position after prepending
@@ -254,145 +280,176 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     } finally {
       setIsLoadingMore(false);
     }
-  }, [agent.id, api, messages, isLoadingMore, hasMore]);
+  }, [agent.id, api, messages, isLoadingMore, hasMore, identity.id]);
 
   // Subscribe to system-wide events
-  useEventStream(EVENTS_URL, (event) => {
-    // SSE reconnection / lagged recovery: refetch recent messages from API
-    if (event.type === '__reconnected' || event.type === '__lagged') {
-      api.getChatMessages(agent.id, undefined, 10, identity.id)
-        .then(({ messages: latest }) => {
-          if (latest.length > 0) {
-            const reversed = latest.reverse();
-            setMessages(prev => {
-              const existingIds = new Set(prev.map(m => m.id));
-              const newMsgs = reversed.filter(m => !existingIds.has(m.id));
-              if (newMsgs.length > 0) {
-                if (newMsgs.some(m => m.source === 'agent')) {
-                  setIsTyping(false);
-                  setThinkingSteps([]);
+  useEventStream(
+    EVENTS_URL,
+    (event) => {
+      // SSE reconnection / lagged recovery: refetch recent messages from API
+      if (event.type === '__reconnected' || event.type === '__lagged') {
+        api
+          .getChatMessages(agent.id, undefined, 10, identity.id)
+          .then(({ messages: latest }) => {
+            if (latest.length > 0) {
+              const reversed = latest.reverse();
+              setMessages((prev) => {
+                const existingIds = new Set(prev.map((m) => m.id));
+                const newMsgs = reversed.filter((m) => !existingIds.has(m.id));
+                if (newMsgs.length > 0) {
+                  if (newMsgs.some((m) => m.source === 'agent')) {
+                    setIsTyping(false);
+                    setThinkingSteps([]);
+                  }
+                  return [...prev, ...newMsgs];
                 }
-                return [...prev, ...newMsgs];
-              }
-              return prev;
-            });
-          }
-        })
-        .catch(() => {});
-      return;
-    }
-
-    // Thinking process visualization
-    if (event.data?.agent_id === agent.id || (event.data?.engine_id as string | undefined)?.startsWith('mind.')) {
-      if (event.type === 'ToolInvoked' && event.data.agent_id === agent.id) {
-        const tool = (event.data.tool_name as string) || 'unknown';
-        const success = event.data.success as boolean;
-        setThinkingSteps(prev => [...prev, {
-          id: thinkingIdRef.current++,
-          status: success ? 'ok' : 'fail',
-          text: tool,
-          detail: success ? `${event.data.duration_ms}ms` : 'failed',
-          ts: Date.now(),
-        }]);
+                return prev;
+              });
+            }
+          })
+          .catch(() => {});
+        return;
       }
-      if (event.type === 'AgenticLoopCompleted' && event.data.agent_id === agent.id) {
-        setThinkingSteps(prev => [...prev, {
-          id: thinkingIdRef.current++,
-          status: 'done',
-          text: 'complete',
-          detail: `${event.data.total_iterations || 0} iter, ${event.data.total_tool_calls || 0} calls`,
-          ts: Date.now(),
-        }]);
-      }
-      if (event.type === 'AgentThinking' && event.data?.agent_id === agent.id && event.data.content) {
-        setThinkingSteps(prev => [...prev, {
-          id: thinkingIdRef.current++,
-          status: 'thought',
-          text: (event.data.content as string).slice(0, 120),
-          ts: Date.now(),
-        }]);
-      }
-    }
 
-    // Command approval request from kernel (batch)
-    if (event.type === 'CommandApprovalRequested' && event.data?.agent_id === agent.id) {
-      const approvalData = event.data as { approval_id: string; agent_id: string; commands?: Array<{ command: string; command_name: string }> };
-      setPendingApprovals(prev => {
-        if (prev.some(a => a.approval_id === approvalData.approval_id)) return prev;
-        return [...prev, {
-          approval_id: approvalData.approval_id,
-          agent_id: approvalData.agent_id,
-          commands: approvalData.commands || [],
-        }];
-      });
-      if (document.hidden) {
-        const count = approvalData.commands?.length || 1;
-        sendNativeNotification('Command Approval', `${agent.name}: ${count} command(s) pending`);
-      }
-    }
-    if (event.type === 'CommandApprovalResult') {
-      setPendingApprovals(prev => prev.filter(a => a.approval_id !== event.data.approval_id));
-    }
-
-    if (event.type === 'ThoughtResponse' && event.data.agent_id === agent.id) {
-      setIsTyping(false);
-      setThinkingSteps([]);
-      const msgId = event.data.source_message_id + "-resp";
-      const now = Date.now();
-      const elapsedSecs = sendTimestampRef.current > 0
-        ? Math.round((now - sendTimestampRef.current) / 100) / 10
-        : 0;
-      // Reset for next response in the agentic loop — measures per-message, not cumulative
-      sendTimestampRef.current = now;
-
-      // Use correct parent_id: retryParentIdRef during retry, otherwise SSE source
-      const sourceId = event.data.source_message_id;
-      const parentId = retryParentIdRef.current ?? sourceId;
-      // Clear retry guard so recoverTypingState can resume
-      retryParentIdRef.current = null;
-
-      // If a previous typewriter is still running, finalize it immediately
-      setPendingResponse(prev => {
-        if (prev) {
-          const prevMsg: ChatMessage = {
-            id: prev.id, agent_id: agent.id, user_id: identity.id,
-            source: 'agent',
-            content: [{ type: 'text', text: prev.text }],
-            metadata: { elapsed_secs: prev.elapsedSecs },
-            created_at: Date.now(),
-            parent_id: prev.parentId,
-          };
-          setMessages(msgs => [...msgs, prevMsg]);
+      // Thinking process visualization
+      if (event.data?.agent_id === agent.id || (event.data?.engine_id as string | undefined)?.startsWith('mind.')) {
+        if (event.type === 'ToolInvoked' && event.data.agent_id === agent.id) {
+          const tool = (event.data.tool_name as string) || 'unknown';
+          const success = event.data.success as boolean;
+          setThinkingSteps((prev) => [
+            ...prev,
+            {
+              id: thinkingIdRef.current++,
+              status: success ? 'ok' : 'fail',
+              text: tool,
+              detail: success ? `${event.data.duration_ms}ms` : 'failed',
+              ts: Date.now(),
+            },
+          ]);
         }
-        return { id: msgId, text: event.data.content as string, elapsedSecs, parentId: parentId as string | undefined };
-      });
+        if (event.type === 'AgenticLoopCompleted' && event.data.agent_id === agent.id) {
+          setThinkingSteps((prev) => [
+            ...prev,
+            {
+              id: thinkingIdRef.current++,
+              status: 'done',
+              text: 'complete',
+              detail: `${event.data.total_iterations || 0} iter, ${event.data.total_tool_calls || 0} calls`,
+              ts: Date.now(),
+            },
+          ]);
+        }
+        if (event.type === 'AgentThinking' && event.data?.agent_id === agent.id && event.data.content) {
+          setThinkingSteps((prev) => [
+            ...prev,
+            {
+              id: thinkingIdRef.current++,
+              status: 'thought',
+              text: (event.data.content as string).slice(0, 120),
+              ts: Date.now(),
+            },
+          ]);
+        }
+      }
 
-      // Agent response is persisted backend-side (system.rs) before SSE emission.
-    }
-  }, api.apiKey);
+      // Command approval request from kernel (batch)
+      if (event.type === 'CommandApprovalRequested' && event.data?.agent_id === agent.id) {
+        const approvalData = event.data as {
+          approval_id: string;
+          agent_id: string;
+          commands?: Array<{ command: string; command_name: string }>;
+        };
+        setPendingApprovals((prev) => {
+          if (prev.some((a) => a.approval_id === approvalData.approval_id)) return prev;
+          return [
+            ...prev,
+            {
+              approval_id: approvalData.approval_id,
+              agent_id: approvalData.agent_id,
+              commands: approvalData.commands || [],
+            },
+          ];
+        });
+        if (document.hidden) {
+          const count = approvalData.commands?.length || 1;
+          sendNativeNotification('Command Approval', `${agent.name}: ${count} command(s) pending`);
+        }
+      }
+      if (event.type === 'CommandApprovalResult') {
+        setPendingApprovals((prev) => prev.filter((a) => a.approval_id !== event.data.approval_id));
+      }
+
+      if (event.type === 'ThoughtResponse' && event.data.agent_id === agent.id) {
+        setIsTyping(false);
+        setThinkingSteps([]);
+        const msgId = event.data.source_message_id + '-resp';
+        const now = Date.now();
+        const elapsedSecs = sendTimestampRef.current > 0 ? Math.round((now - sendTimestampRef.current) / 100) / 10 : 0;
+        // Reset for next response in the agentic loop — measures per-message, not cumulative
+        sendTimestampRef.current = now;
+
+        // Use correct parent_id: retryParentIdRef during retry, otherwise SSE source
+        const sourceId = event.data.source_message_id;
+        const parentId = retryParentIdRef.current ?? sourceId;
+        // Clear retry guard so recoverTypingState can resume
+        retryParentIdRef.current = null;
+
+        // If a previous typewriter is still running, finalize it immediately
+        setPendingResponse((prev) => {
+          if (prev) {
+            const prevMsg: ChatMessage = {
+              id: prev.id,
+              agent_id: agent.id,
+              user_id: identity.id,
+              source: 'agent',
+              content: [{ type: 'text', text: prev.text }],
+              metadata: { elapsed_secs: prev.elapsedSecs },
+              created_at: Date.now(),
+              parent_id: prev.parentId,
+            };
+            setMessages((msgs) => [...msgs, prevMsg]);
+          }
+          return {
+            id: msgId,
+            text: event.data.content as string,
+            elapsedSecs,
+            parentId: parentId as string | undefined,
+          };
+        });
+
+        // Agent response is persisted backend-side (system.rs) before SSE emission.
+      }
+    },
+    api.apiKey,
+  );
 
   // Typewriter completion: move pending response to static messages
   const handleTypewriterComplete = useCallback(() => {
-    setPendingResponse(prev => {
+    setPendingResponse((prev) => {
       if (!prev) return null;
       const agentMsg: ChatMessage = {
-        id: prev.id, agent_id: agent.id, user_id: identity.id,
+        id: prev.id,
+        agent_id: agent.id,
+        user_id: identity.id,
         source: 'agent',
         content: [{ type: 'text', text: prev.text }],
         metadata: { elapsed_secs: prev.elapsedSecs },
         created_at: Date.now(),
         parent_id: prev.parentId,
       };
-      setMessages(msgs => [...msgs, agentMsg]);
+      setMessages((msgs) => [...msgs, agentMsg]);
       return null;
     });
-  }, [agent.id]);
+  }, [agent.id, identity.id]);
 
-  const handleCodeBlockExtracted = useCallback((code: string, language: string, lineCount: number) => {
-    if (lineCount >= 15) {
-      artifactPanel.addArtifact({ code, language, lineCount });
-    }
-  }, [artifactPanel.addArtifact]);
+  const handleCodeBlockExtracted = useCallback(
+    (code: string, language: string, lineCount: number) => {
+      if (lineCount >= 15) {
+        artifactPanel.addArtifact({ code, language, lineCount });
+      }
+    },
+    [artifactPanel.addArtifact],
+  );
 
   const sendMessage = async (blocks?: ContentBlock[], rawText?: string, engineOverride?: string | null) => {
     const text = rawText ?? '';
@@ -410,22 +467,22 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       created_at: Date.now(),
     };
 
-    setMessages(prev => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     setIsTyping(true);
     setThinkingSteps([]);
     sendTimestampRef.current = Date.now();
 
     // Extract text content for event bus (which expects a plain string)
     const textContent = contentBlocks
-      .filter(b => b.type === 'text')
-      .map(b => b.text || '')
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text || '')
       .join(' ');
 
     try {
       // If content blocks include media (image/audio), persist them via
       // postChatMessage first so the kernel can find attachments in DB
       // when running maybe_analyze_images / maybe_transcribe_audio.
-      const hasMedia = contentBlocks.some(b => b.type === 'image' || b.type === 'audio');
+      const hasMedia = contentBlocks.some((b) => b.type === 'image' || b.type === 'audio');
       if (hasMedia) {
         await api.postChatMessage(agent.id, {
           id: msgId,
@@ -450,15 +507,15 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
           ...(engineOverride ? { engine_override: engineOverride } : {}),
           // Tell system.rs not to re-persist the user message (already saved above)
           ...(hasMedia ? { skip_user_persist: 'true' } : {}),
-        }
+        },
       };
 
       await api.postChat(clotoMsg);
     } catch (err) {
-      setMessages(prev => prev.filter(m => m.id !== msgId));
+      setMessages((prev) => prev.filter((m) => m.id !== msgId));
       setIsTyping(false);
       const errMsg = err instanceof Error ? err.message : 'Failed to send message';
-      console.error("Failed to send message:", errMsg);
+      console.error('Failed to send message:', errMsg);
       const errId = `err-${msgId}`;
       const errBubble: ChatMessage = {
         id: errId,
@@ -468,13 +525,16 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         content: [{ type: 'text', text: `⚠ ${errMsg}` }],
         created_at: Date.now(),
       };
-      setMessages(prev => [...prev, errBubble]);
-      setTimeout(() => setMessages(prev => prev.filter(m => m.id !== errId)), 5000);
+      setMessages((prev) => [...prev, errBubble]);
+      setTimeout(() => setMessages((prev) => prev.filter((m) => m.id !== errId)), 5000);
     }
   };
 
   const speakText = async (content: ContentBlock[]) => {
-    const text = content.filter(b => b.type === 'text').map(b => b.text || '').join(' ');
+    const text = content
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text || '')
+      .join(' ');
     if (!text.trim()) return;
     try {
       const clotoMsg: ClotoMessage = {
@@ -483,7 +543,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
         target_agent: agent.id,
         content: text,
         timestamp: new Date().toISOString(),
-        metadata: { target_agent_id: agent.id, tool_hint: 'speak', skip_user_persist: 'true' }
+        metadata: { target_agent_id: agent.id, tool_hint: 'speak', skip_user_persist: 'true' },
       };
       await api.postChat(clotoMsg);
     } catch (err) {
@@ -496,7 +556,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     if (!editingMessage || isTyping || pendingResponse) return;
 
     const text = rawText?.trim() || '';
-    const contentBlocks = blocks?.length ? blocks : (text ? [{ type: 'text' as const, text }] : []);
+    const contentBlocks = blocks?.length ? blocks : text ? [{ type: 'text' as const, text }] : [];
     if (contentBlocks.length === 0) return;
 
     const now = Date.now();
@@ -504,9 +564,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     const parentId = editingMessage.parent_id ?? undefined;
 
     // Count existing siblings to determine branch_index
-    const siblingCount = messages.filter(
-      m => m.parent_id === parentId && m.source === 'user'
-    ).length;
+    const siblingCount = messages.filter((m) => m.parent_id === parentId && m.source === 'user').length;
 
     const userMsg: ChatMessage = {
       id: editId,
@@ -519,7 +577,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
       branch_index: siblingCount,
     };
 
-    setMessages(prev => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     setEditingMessage(null);
     setIsTyping(true);
     setThinkingSteps([]);
@@ -528,12 +586,12 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
     // Update active branch to show the new edit
     if (parentId) {
-      setActiveBranches(prev => ({ ...prev, [parentId + ':user']: siblingCount }));
+      setActiveBranches((prev) => ({ ...prev, [parentId + ':user']: siblingCount }));
     }
 
     const textContent = contentBlocks
-      .filter(b => b.type === 'text')
-      .map(b => b.text || '')
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text || '')
       .join(' ');
 
     try {
@@ -547,35 +605,37 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
           target_agent_id: agent.id,
           ...(parentId ? { parent_id: parentId, branch_index: String(siblingCount) } : {}),
           ...(engineOverride ? { engine_override: engineOverride } : {}),
-        }
+        },
       };
       await api.postChat(clotoMsg);
     } catch (err) {
-      setMessages(prev => prev.filter(m => m.id !== editId));
+      setMessages((prev) => prev.filter((m) => m.id !== editId));
       setIsTyping(false);
       console.error('Failed to send edited message:', err);
     }
   };
 
-  const handleChatSend = useCallback((blocks: ContentBlock[], rawText: string, engineOverride: string | null) => {
-    if (editingMessage) {
-      handleEditMessage(blocks, rawText, engineOverride);
-    } else {
-      sendMessage(blocks, rawText, engineOverride);
-    }
-  }, [editingMessage, handleEditMessage, sendMessage]);
+  const handleChatSend = useCallback(
+    (blocks: ContentBlock[], rawText: string, engineOverride: string | null) => {
+      if (editingMessage) {
+        handleEditMessage(blocks, rawText, engineOverride);
+      } else {
+        sendMessage(blocks, rawText, engineOverride);
+      }
+    },
+    [editingMessage, handleEditMessage, sendMessage],
+  );
 
   // Retry handler: remove old response immediately, re-generate in place
   const handleRetry = async (agentResponseMsg: ChatMessage) => {
     if (isTyping || pendingResponse) return;
 
     // Find the user message this response was generated from
-    const userMsgId = agentResponseMsg.parent_id
-      ?? agentResponseMsg.id.replace(/-resp$/, '');
+    const userMsgId = agentResponseMsg.parent_id ?? agentResponseMsg.id.replace(/-resp$/, '');
 
     // Store correct parent_id for the new response (also acts as retry-in-progress guard)
     retryParentIdRef.current = userMsgId;
-    setMessages(prev => prev.filter(m => m.id !== agentResponseMsg.id));
+    setMessages((prev) => prev.filter((m) => m.id !== agentResponseMsg.id));
     setIsTyping(true);
     setThinkingSteps([]);
     sendTimestampRef.current = Date.now();
@@ -584,7 +644,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
     try {
       await api.retryResponse(agent.id, userMsgId);
     } catch (err) {
-      setMessages(prev => [...prev, agentResponseMsg]);
+      setMessages((prev) => [...prev, agentResponseMsg]);
       retryParentIdRef.current = null;
       setIsTyping(false);
       console.error('Failed to retry response:', err);
@@ -618,14 +678,19 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
           >
             <ArrowLeft size={16} />
           </button>
-          <div className="w-10 h-10 text-white rounded-md shadow-sm overflow-hidden flex items-center justify-center" style={{ backgroundColor: agentColor(agent) }}>
+          <div
+            className="w-10 h-10 text-white rounded-md shadow-sm overflow-hidden flex items-center justify-center"
+            style={{ backgroundColor: agentColor(agent) }}
+          >
             <AgentIcon agent={agent} size={40} />
           </div>
           <div>
             <h2 className="text-xl font-black text-content-primary tracking-tighter uppercase">{agent.name}</h2>
             <div className="flex items-center gap-2">
               <StatusDot status={agent.enabled ? 'online' : 'offline'} size="sm" />
-              <span className="text-[10px] font-mono text-content-tertiary uppercase tracking-[0.2em]">{agent.enabled ? t('console.connected') : t('console.offline')}</span>
+              <span className="text-[10px] font-mono text-content-tertiary uppercase tracking-[0.2em]">
+                {agent.enabled ? t('console.connected') : t('console.offline')}
+              </span>
             </div>
           </div>
         </div>
@@ -646,210 +711,245 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata, onBack: 
 
       {/* Content area: chat + optional artifact panel */}
       <div className="flex flex-1 overflow-hidden">
-      {/* Chat column */}
-      <div className="flex flex-col flex-1 min-w-0">
-      {/* Message Stream */}
-      <div ref={scrollRef} onScroll={handleScroll} onClick={() => editingMessage && setEditingMessage(null)} className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
-        {/* Sentinel for lazy loading older messages */}
-        {hasMore && <div ref={sentinelRef} className="h-1" />}
-        {isLoadingMore && (
-          <div className="text-center text-[9px] font-mono text-content-tertiary py-2 animate-pulse">
-            {t('console.loading_older')}
-          </div>
-        )}
+        {/* Chat column */}
+        <div className="flex flex-col flex-1 min-w-0">
+          {/* Message Stream */}
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            onClick={() => editingMessage && setEditingMessage(null)}
+            className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar"
+          >
+            {/* Sentinel for lazy loading older messages */}
+            {hasMore && <div ref={sentinelRef} className="h-1" />}
+            {isLoadingMore && (
+              <div className="text-center text-[9px] font-mono text-content-tertiary py-2 animate-pulse">
+                {t('console.loading_older')}
+              </div>
+            )}
 
-        {isLoading ? (
-          <div className="h-full flex flex-col items-center justify-center text-content-tertiary space-y-4">
-            <Activity size={24} className="animate-pulse" />
-            <p className="text-[10px] font-mono tracking-[0.2em] uppercase">{t('console.loading_session')}</p>
-          </div>
-        ) : displayMessages.length === 0 && !pendingResponse && !isTyping ? (
-          <div className="h-full flex flex-col items-center justify-center text-content-tertiary space-y-4">
-            <Zap size={32} strokeWidth={1} className="opacity-20" />
-            <p className="text-[10px] font-mono tracking-[0.2em] uppercase">{t('console.ready')}</p>
-          </div>
-        ) : (
-          displayMessages.map((msg) => {
-            const isUser = msg.source === 'user';
-            const firstText = Array.isArray(msg.content) ? msg.content.find(b => b.type === 'text')?.text || '' : '';
-            const isError = !isUser && firstText.startsWith('[Error]');
-            // Check if this message's parent has branch siblings
-            const branchKey = msg.parent_id ? msg.parent_id + ':' + msg.source : null;
-            const branch = branchKey ? branchPoints.get(branchKey) : undefined;
-            return (
-              <div key={msg.id}>
-                {isError ? (
-                  <SystemAlertCard
-                    icon={<Activity size={14} />}
-                    title={t('console.engine_error')}
-                  >
-                    <div className="text-xs text-content-secondary whitespace-pre-line">{firstText.replace(/^\[Error\]\s*/, '')}</div>
-                  </SystemAlertCard>
-                ) : (
-                <div className={`group flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm overflow-hidden ${
-                    isUser ? 'bg-surface-primary border border-edge-subtle text-content-tertiary'
-                    : 'text-white'
-                  }`} style={!isUser ? { backgroundColor: agentColor(agent) } : undefined}>
-                    {isUser ? <UserIcon size={14} />
-                     : <AgentIcon agent={agent} size={32} />}
-                  </div>
-                  <div className={`max-w-[80%] text-base leading-7 select-text ${
-                    isUser
-                      ? 'p-4 rounded-2xl rounded-tr-none shadow-sm bg-surface-primary text-content-primary'
-                      : 'pt-1 text-content-primary'
-                  }`}>
-                    <MessageContent content={msg.content} />
-                    {!isUser && (
-                      <div className="mt-2 flex items-center gap-2">
-                        {msg.metadata?.elapsed_secs != null && (
-                          <span className="text-xs font-mono text-content-tertiary">
-                            {String(msg.metadata.elapsed_secs)}s
-                          </span>
-                        )}
-                        <button
-                          onClick={() => speakText(msg.content as ContentBlock[])}
-                          className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
-                          title={t('console.read_aloud')}
+            {isLoading ? (
+              <div className="h-full flex flex-col items-center justify-center text-content-tertiary space-y-4">
+                <Activity size={24} className="animate-pulse" />
+                <p className="text-[10px] font-mono tracking-[0.2em] uppercase">{t('console.loading_session')}</p>
+              </div>
+            ) : displayMessages.length === 0 && !pendingResponse && !isTyping ? (
+              <div className="h-full flex flex-col items-center justify-center text-content-tertiary space-y-4">
+                <Zap size={32} strokeWidth={1} className="opacity-20" />
+                <p className="text-[10px] font-mono tracking-[0.2em] uppercase">{t('console.ready')}</p>
+              </div>
+            ) : (
+              displayMessages.map((msg) => {
+                const isUser = msg.source === 'user';
+                const firstText = Array.isArray(msg.content)
+                  ? msg.content.find((b) => b.type === 'text')?.text || ''
+                  : '';
+                const isError = !isUser && firstText.startsWith('[Error]');
+                // Check if this message's parent has branch siblings
+                const branchKey = msg.parent_id ? msg.parent_id + ':' + msg.source : null;
+                const branch = branchKey ? branchPoints.get(branchKey) : undefined;
+                return (
+                  <div key={msg.id}>
+                    {isError ? (
+                      <SystemAlertCard icon={<Activity size={14} />} title={t('console.engine_error')}>
+                        <div className="text-xs text-content-secondary whitespace-pre-line">
+                          {firstText.replace(/^\[Error\]\s*/, '')}
+                        </div>
+                      </SystemAlertCard>
+                    ) : (
+                      <div className={`group flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+                        <div
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm overflow-hidden ${
+                            isUser ? 'bg-surface-primary border border-edge-subtle text-content-tertiary' : 'text-white'
+                          }`}
+                          style={!isUser ? { backgroundColor: agentColor(agent) } : undefined}
                         >
-                          <Volume2 size={12} />
-                        </button>
-                        {!isTyping && !pendingResponse && (
+                          {isUser ? <UserIcon size={14} /> : <AgentIcon agent={agent} size={32} />}
+                        </div>
+                        <div
+                          className={`max-w-[80%] text-base leading-7 select-text ${
+                            isUser
+                              ? 'p-4 rounded-2xl rounded-tr-none shadow-sm bg-surface-primary text-content-primary'
+                              : 'pt-1 text-content-primary'
+                          }`}
+                        >
+                          <MessageContent content={msg.content} />
+                          {!isUser && (
+                            <div className="mt-2 flex items-center gap-2">
+                              {msg.metadata?.elapsed_secs != null && (
+                                <span className="text-xs font-mono text-content-tertiary">
+                                  {String(msg.metadata.elapsed_secs)}s
+                                </span>
+                              )}
+                              <button
+                                onClick={() => speakText(msg.content as ContentBlock[])}
+                                className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
+                                title={t('console.read_aloud')}
+                              >
+                                <Volume2 size={12} />
+                              </button>
+                              {!isTyping && !pendingResponse && (
+                                <button
+                                  onClick={() => handleRetry(msg)}
+                                  className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
+                                  title={t('console.retry')}
+                                >
+                                  <RetryIcon size={12} />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {/* Edit button — outside bubble, to the left of user messages */}
+                        {isUser && !isTyping && !pendingResponse && (
                           <button
-                            onClick={() => handleRetry(msg)}
-                            className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
-                            title={t('console.retry')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingMessage(msg);
+                            }}
+                            className="self-start mt-1 p-1.5 rounded-full hover:bg-glass text-content-primary/40 hover:text-brand transition-all shrink-0"
+                            title={t('console.edit_message')}
                           >
-                            <RetryIcon size={12} />
+                            <Pencil size={13} />
                           </button>
                         )}
                       </div>
                     )}
+                    {/* Branch navigator */}
+                    {branch && (
+                      <div className={`flex ${isUser ? 'justify-end mr-11' : 'ml-11'}`}>
+                        <BranchNavigator
+                          count={branch.count}
+                          activeIndex={branch.activeIndex}
+                          indices={branch.indices}
+                          onNavigate={(idx) => {
+                            if (branchKey) {
+                              setActiveBranches((prev) => ({ ...prev, [branchKey]: idx }));
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
-                  {/* Edit button — outside bubble, to the left of user messages */}
-                  {isUser && !isTyping && !pendingResponse && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setEditingMessage(msg); }}
-                      className="self-start mt-1 p-1.5 rounded-full hover:bg-glass text-content-primary/40 hover:text-brand transition-all shrink-0"
-                      title={t('console.edit_message')}
-                    >
-                      <Pencil size={13} />
-                    </button>
+                );
+              })
+            )}
+            {/* Typewriter animation for current response */}
+            {pendingResponse && (
+              <div className="flex items-start gap-3 message-enter">
+                <div
+                  className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm overflow-hidden"
+                  style={{ backgroundColor: agentColor(agent) }}
+                >
+                  <AgentIcon agent={agent} size={32} />
+                </div>
+                <div className="max-w-[80%] pt-1 text-base leading-7 select-text text-content-primary">
+                  <TypewriterMessage
+                    text={pendingResponse.text}
+                    onComplete={handleTypewriterComplete}
+                    onCodeBlock={handleCodeBlockExtracted}
+                  />
+                  {pendingResponse.elapsedSecs > 0 && (
+                    <div className="mt-1 text-[10px] font-mono text-content-tertiary">
+                      {pendingResponse.elapsedSecs}s
+                    </div>
                   )}
                 </div>
-                )}
-                {/* Branch navigator */}
-                {branch && (
-                  <div className={`flex ${isUser ? 'justify-end mr-11' : 'ml-11'}`}>
-                    <BranchNavigator
-                      count={branch.count}
-                      activeIndex={branch.activeIndex}
-                      indices={branch.indices}
-                      onNavigate={(idx) => {
-                        if (branchKey) {
-                          setActiveBranches(prev => ({ ...prev, [branchKey]: idx }));
-                        }
-                      }}
-                    />
-                  </div>
-                )}
               </div>
-            );
-          })
-        )}
-        {/* Typewriter animation for current response */}
-        {pendingResponse && (
-          <div className="flex items-start gap-3 message-enter">
-            <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm overflow-hidden"
-                 style={{ backgroundColor: agentColor(agent) }}>
-              <AgentIcon agent={agent} size={32} />
-            </div>
-            <div className="max-w-[80%] pt-1 text-base leading-7 select-text text-content-primary">
-              <TypewriterMessage
-                text={pendingResponse.text}
-                onComplete={handleTypewriterComplete}
-                onCodeBlock={handleCodeBlockExtracted}
+            )}
+            {/* Thinking process steps (real-time tool invocations) */}
+            {isTyping && thinkingSteps.length > 0 && (
+              <div className="flex items-start gap-3">
+                <div
+                  className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm overflow-hidden opacity-40"
+                  style={{ backgroundColor: agentColor(agent) }}
+                >
+                  <AgentIcon agent={agent} size={32} />
+                </div>
+                <div className="flex-1 space-y-0.5 py-1">
+                  {thinkingSteps.map((step) => (
+                    <div
+                      key={step.id}
+                      className={`flex items-center gap-2 text-[10px] font-mono animate-in fade-in duration-200 ${step.status === 'thought' ? 'italic' : ''}`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                          step.status === 'ok'
+                            ? 'bg-brand'
+                            : step.status === 'fail'
+                              ? 'bg-red-500'
+                              : step.status === 'done'
+                                ? 'bg-emerald-500'
+                                : step.status === 'thought'
+                                  ? 'bg-blue-400 animate-pulse'
+                                  : 'bg-amber-500 animate-pulse'
+                        }`}
+                      />
+                      <span
+                        className={`${step.status === 'fail' ? 'text-red-400' : step.status === 'thought' ? 'text-content-secondary' : 'text-content-tertiary'}`}
+                      >
+                        {step.text}
+                      </span>
+                      {step.detail && (
+                        <span
+                          className={`ml-auto ${step.status === 'fail' ? 'text-red-400/60' : 'text-content-tertiary'}`}
+                        >
+                          {step.detail}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Command Approval Cards */}
+            {pendingApprovals.map((approval) => (
+              <CommandApprovalCard
+                key={approval.approval_id}
+                approvalId={approval.approval_id}
+                commands={approval.commands}
+                onResolved={(id) => setPendingApprovals((prev) => prev.filter((a) => a.approval_id !== id))}
               />
-              {pendingResponse.elapsedSecs > 0 && (
-                <div className="mt-1 text-[10px] font-mono text-content-tertiary">
-                  {pendingResponse.elapsedSecs}s
-                </div>
-              )}
-            </div>
+            ))}
+            {/* Skeleton (waiting for SSE response) */}
+            {isTyping && pendingApprovals.length === 0 && (
+              <SkeletonThinking agentColor={agentColor(agent)} agentIcon={<AgentIcon agent={agent} size={32} />} />
+            )}
           </div>
-        )}
-        {/* Thinking process steps (real-time tool invocations) */}
-        {isTyping && thinkingSteps.length > 0 && (
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm overflow-hidden opacity-40"
-                 style={{ backgroundColor: agentColor(agent) }}>
-              <AgentIcon agent={agent} size={32} />
-            </div>
-            <div className="flex-1 space-y-0.5 py-1">
-              {thinkingSteps.map(step => (
-                <div key={step.id} className={`flex items-center gap-2 text-[10px] font-mono animate-in fade-in duration-200 ${step.status === 'thought' ? 'italic' : ''}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                    step.status === 'ok' ? 'bg-brand'
-                    : step.status === 'fail' ? 'bg-red-500'
-                    : step.status === 'done' ? 'bg-emerald-500'
-                    : step.status === 'thought' ? 'bg-blue-400 animate-pulse'
-                    : 'bg-amber-500 animate-pulse'
-                  }`} />
-                  <span className={`${step.status === 'fail' ? 'text-red-400' : step.status === 'thought' ? 'text-content-secondary' : 'text-content-tertiary'}`}>
-                    {step.text}
-                  </span>
-                  {step.detail && (
-                    <span className={`ml-auto ${step.status === 'fail' ? 'text-red-400/60' : 'text-content-tertiary'}`}>
-                      {step.detail}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {/* Command Approval Cards */}
-        {pendingApprovals.map(approval => (
-          <CommandApprovalCard
-            key={approval.approval_id}
-            approvalId={approval.approval_id}
-            commands={approval.commands}
-            onResolved={(id) => setPendingApprovals(prev => prev.filter(a => a.approval_id !== id))}
+
+          {/* Input Area */}
+          <ChatInputBar
+            onSend={handleChatSend}
+            disabled={isTyping || !!pendingResponse}
+            servers={agentEngines}
+            editMode={
+              editingMessage
+                ? {
+                    messageId: editingMessage.id,
+                    initialContent: Array.isArray(editingMessage.content)
+                      ? editingMessage.content
+                          .filter((b) => b.type === 'text')
+                          .map((b) => b.text || '')
+                          .join(' ')
+                      : '',
+                    onCancel: () => setEditingMessage(null),
+                  }
+                : null
+            }
           />
-        ))}
-        {/* Skeleton (waiting for SSE response) */}
-        {isTyping && pendingApprovals.length === 0 && (
-          <SkeletonThinking
-            agentColor={agentColor(agent)}
-            agentIcon={<AgentIcon agent={agent} size={32} />}
-          />
-        )}
+        </div>
+        {/* end chat column */}
+
+        {/* Artifact Panel */}
+        <ArtifactPanel
+          artifacts={artifactPanel.artifacts}
+          activeIndex={artifactPanel.activeIndex}
+          onTabChange={artifactPanel.setActiveIndex}
+          isOpen={artifactPanel.isOpen}
+          onClose={artifactPanel.closePanel}
+        />
       </div>
-
-      {/* Input Area */}
-      <ChatInputBar
-        onSend={handleChatSend}
-        disabled={isTyping || !!pendingResponse}
-        servers={agentEngines}
-        editMode={editingMessage ? {
-          messageId: editingMessage.id,
-          initialContent: Array.isArray(editingMessage.content)
-            ? editingMessage.content.filter(b => b.type === 'text').map(b => b.text || '').join(' ')
-            : '',
-          onCancel: () => setEditingMessage(null),
-        } : null}
-      />
-      </div>{/* end chat column */}
-
-      {/* Artifact Panel */}
-      <ArtifactPanel
-        artifacts={artifactPanel.artifacts}
-        activeIndex={artifactPanel.activeIndex}
-        onTabChange={artifactPanel.setActiveIndex}
-        isOpen={artifactPanel.isOpen}
-        onClose={artifactPanel.closePanel}
-      />
-      </div>{/* end content area */}
+      {/* end content area */}
     </div>
   );
 }

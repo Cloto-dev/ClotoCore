@@ -2,7 +2,11 @@ import { useEffect, useRef } from 'react';
 import { useTheme } from '../hooks/useTheme';
 import { getDpr } from '../lib/canvasUtils';
 
-interface Point { x: number; y: number; r: number }
+interface Point {
+  x: number;
+  y: number;
+  r: number;
+}
 
 export function CustomCursor() {
   const trailCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -16,7 +20,9 @@ export function CustomCursor() {
   // Hide native cursor globally while this component is mounted
   useEffect(() => {
     document.body.classList.add('neural-cursor-active');
-    return () => { document.body.classList.remove('neural-cursor-active'); };
+    return () => {
+      document.body.classList.remove('neural-cursor-active');
+    };
   }, []);
 
   useEffect(() => {
@@ -113,7 +119,7 @@ export function CustomCursor() {
       // Instantaneous speed (px/frame)
       const frameDx = mx - prevMx;
       const frameDy = my - prevMy;
-      const frameSpeed = (prevMx === -1000) ? 0 : Math.sqrt(frameDx * frameDx + frameDy * frameDy);
+      const frameSpeed = prevMx === -1000 ? 0 : Math.sqrt(frameDx * frameDx + frameDy * frameDy);
 
       const alpha = frameSpeed > smoothSpeed ? 0.3 : 0.05;
       smoothSpeed += (frameSpeed - smoothSpeed) * alpha;
@@ -169,7 +175,7 @@ export function CustomCursor() {
           points.current.unshift({
             x: lastPlacedMouse.current.x + dx * (i / steps),
             y: lastPlacedMouse.current.y + dy * (i / steps),
-            r: 3
+            r: 3,
           });
         }
         lastPlacedMouse.current = { x: mx, y: my };
@@ -186,7 +192,10 @@ export function CustomCursor() {
         if (points.current.length > 0) points.current.pop();
       }
 
-      let minX = mx, maxX = mx, minY = my, maxY = my;
+      let minX = mx,
+        maxX = mx,
+        minY = my,
+        maxY = my;
       for (let i = 0; i < points.current.length; i++) {
         const p = points.current[i];
         if (p.x < minX) minX = p.x;
@@ -267,10 +276,7 @@ export function CustomCursor() {
           </filter>
         </defs>
       </svg>
-      <canvas
-        ref={trailCanvasRef}
-        className="fixed inset-0 pointer-events-none z-[9999] w-full h-full"
-      />
+      <canvas ref={trailCanvasRef} className="fixed inset-0 pointer-events-none z-[9999] w-full h-full" />
     </>
   );
 }

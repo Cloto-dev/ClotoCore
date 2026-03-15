@@ -1,11 +1,7 @@
+import type { VRM } from '@pixiv/three-vrm';
+import { createVRMAnimationClip, type VRMAnimation, VRMAnimationLoaderPlugin } from '@pixiv/three-vrm-animation';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { VRM } from '@pixiv/three-vrm';
-import {
-  VRMAnimation,
-  VRMAnimationLoaderPlugin,
-  createVRMAnimationClip,
-} from '@pixiv/three-vrm-animation';
 
 /**
  * Loads VRMA files and applies them to VRM.
@@ -94,9 +90,7 @@ export class VrmaLoader {
         if (node) {
           this.poseTargets.push({
             node,
-            quaternion: new THREE.Quaternion(
-              track.values[0], track.values[1], track.values[2], track.values[3],
-            ),
+            quaternion: new THREE.Quaternion(track.values[0], track.values[1], track.values[2], track.values[3]),
           });
         }
       }
@@ -193,10 +187,7 @@ export class VrmaLoader {
 
     // Advance influence transition (smoothstep easing)
     if (this.transitionElapsed < this.transitionDuration) {
-      this.transitionElapsed = Math.min(
-        this.transitionElapsed + deltaTime,
-        this.transitionDuration,
-      );
+      this.transitionElapsed = Math.min(this.transitionElapsed + deltaTime, this.transitionDuration);
       const t = this.transitionElapsed / this.transitionDuration;
       const ease = t * t * (3 - 2 * t); // smoothstep
       this.influence = this.transitionFrom + (this.transitionTo - this.transitionFrom) * ease;

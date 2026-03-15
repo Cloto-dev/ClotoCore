@@ -1,15 +1,11 @@
-import { useRef, useState, useEffect } from 'react';
-import { Sun, Moon, Monitor, Globe, Upload, Download } from 'lucide-react';
+import { Download, Globe, Monitor, Moon, Sun, Upload } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { SectionCard } from './common';
-import { useTheme } from '../../hooks/useTheme';
 import { useUserIdentity } from '../../contexts/UserIdentityContext';
-import {
-  exportLanguageTemplate,
-  importLanguagePack,
-  getCustomLanguages,
-} from '../../i18n';
-import { isTauri, openFileDialog, readTextFile, getLanguagesDir } from '../../lib/tauri';
+import { useTheme } from '../../hooks/useTheme';
+import { exportLanguageTemplate, getCustomLanguages, importLanguagePack } from '../../i18n';
+import { getLanguagesDir, isTauri, openFileDialog, readTextFile } from '../../lib/tauri';
+import { SectionCard } from './common';
 
 const BUILTIN_LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -30,11 +26,11 @@ export function GeneralSection() {
     getCustomLanguages().then(setCustomLangs);
   }, []);
 
-  const builtinCodes = new Set(BUILTIN_LANGUAGES.map(l => l.code));
+  const builtinCodes = new Set(BUILTIN_LANGUAGES.map((l) => l.code));
 
   const allLanguages = [
     ...BUILTIN_LANGUAGES,
-    ...customLangs.filter(l => !builtinCodes.has(l.code)).map(l => ({ ...l, custom: true })),
+    ...customLangs.filter((l) => !builtinCodes.has(l.code)).map((l) => ({ ...l, custom: true })),
   ];
 
   const themes: { value: 'light' | 'dark' | 'system'; icon: typeof Sun; labelKey: string }[] = [
@@ -77,7 +73,7 @@ export function GeneralSection() {
 
     if (isTauri) {
       // Native dialog with default path to Documents/ClotoCore/languages
-      const defaultPath = await getLanguagesDir() ?? undefined;
+      const defaultPath = (await getLanguagesDir()) ?? undefined;
       const filePath = await openFileDialog({
         title: t('general.import_pack'),
         defaultPath,
@@ -132,12 +128,13 @@ export function GeneralSection() {
             <Globe size={14} className="text-content-tertiary shrink-0" />
             <select
               value={i18n.language.split('-')[0]}
-              onChange={e => i18n.changeLanguage(e.target.value)}
+              onChange={(e) => i18n.changeLanguage(e.target.value)}
               className="px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-sm text-content-primary focus:border-brand focus:outline-none transition-colors"
             >
-              {allLanguages.map(lang => (
+              {allLanguages.map((lang) => (
                 <option key={lang.code} value={lang.code}>
-                  {lang.label}{'custom' in lang ? ` (${t('general.custom_label')})` : ''}
+                  {lang.label}
+                  {'custom' in lang ? ` (${t('general.custom_label')})` : ''}
                 </option>
               ))}
             </select>
@@ -159,13 +156,7 @@ export function GeneralSection() {
               <Upload size={12} />
               {t('general.import_pack')}
             </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json"
-              onChange={handleImport}
-              className="hidden"
-            />
+            <input ref={fileInputRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
           </div>
 
           {/* Import status message */}
@@ -180,22 +171,21 @@ export function GeneralSection() {
       <SectionCard title={t('general.user_identity')}>
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-content-tertiary font-bold uppercase tracking-widest block mb-1">{t('general.display_name')}</label>
+            <label className="text-xs text-content-tertiary font-bold uppercase tracking-widest block mb-1">
+              {t('general.display_name')}
+            </label>
             <input
               type="text"
               value={displayName}
-              onChange={e => setDisplayName(e.target.value)}
+              onChange={(e) => setDisplayName(e.target.value)}
               onBlur={() => setIdentity(identity.id, displayName)}
               className="w-full px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-sm text-content-primary focus:border-brand focus:outline-none transition-colors"
               placeholder={t('general.name_placeholder')}
             />
           </div>
-          <p className="text-xs text-content-tertiary">
-            {t('general.name_hint')}
-          </p>
+          <p className="text-xs text-content-tertiary">{t('general.name_hint')}</p>
         </div>
       </SectionCard>
-
     </>
   );
 }

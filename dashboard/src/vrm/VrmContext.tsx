@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { AvatarAgentState, IdleBehaviorParams, DEFAULT_IDLE_PARAMS } from './engine/types';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { type AvatarAgentState, DEFAULT_IDLE_PARAMS, type IdleBehaviorParams } from './engine/types';
 
 interface VrmContextValue {
   agentState: AvatarAgentState;
@@ -15,13 +15,7 @@ const VrmContext = createContext<VrmContextValue | null>(null);
 
 const VRM_VISIBLE_KEY = 'cloto-vrm-visible';
 
-export function VrmProvider({
-  vrmEnabled,
-  children,
-}: {
-  vrmEnabled: boolean;
-  children: React.ReactNode;
-}) {
+export function VrmProvider({ vrmEnabled, children }: { vrmEnabled: boolean; children: React.ReactNode }) {
   const [agentState, setAgentState] = useState<AvatarAgentState>('idle');
   const [idleParams, setIdleParams] = useState<IdleBehaviorParams>(DEFAULT_IDLE_PARAMS);
   const [vrmVisible, setVrmVisibleState] = useState(() => {
@@ -36,24 +30,28 @@ export function VrmProvider({
     setVrmVisibleState(v);
     try {
       localStorage.setItem(VRM_VISIBLE_KEY, String(v));
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   // Reset state when vrmEnabled changes (agent switch)
   useEffect(() => {
     setAgentState('idle');
-  }, [vrmEnabled]);
+  }, []);
 
   return (
-    <VrmContext.Provider value={{
-      agentState,
-      setAgentState,
-      idleParams,
-      setIdleParams,
-      vrmEnabled,
-      vrmVisible: vrmEnabled && vrmVisible,
-      setVrmVisible,
-    }}>
+    <VrmContext.Provider
+      value={{
+        agentState,
+        setAgentState,
+        idleParams,
+        setIdleParams,
+        vrmEnabled,
+        vrmVisible: vrmEnabled && vrmVisible,
+        setVrmVisible,
+      }}
+    >
       {children}
     </VrmContext.Provider>
   );

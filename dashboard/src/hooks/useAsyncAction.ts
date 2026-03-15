@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { extractError } from '../lib/errors';
 
 /**
@@ -13,19 +13,22 @@ export function useAsyncAction(errorFallback = 'Operation failed') {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const run = useCallback(async <T>(fn: () => Promise<T>): Promise<T | undefined> => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const result = await fn();
-      return result;
-    } catch (err) {
-      setError(extractError(err, errorFallback));
-      return undefined;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [errorFallback]);
+  const run = useCallback(
+    async <T>(fn: () => Promise<T>): Promise<T | undefined> => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const result = await fn();
+        return result;
+      } catch (err) {
+        setError(extractError(err, errorFallback));
+        return undefined;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [errorFallback],
+  );
 
   const clearError = useCallback(() => setError(null), []);
 

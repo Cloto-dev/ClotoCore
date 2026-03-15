@@ -2,10 +2,7 @@ export type ClotoId = string;
 
 export interface ClotoMessage {
   id: string;
-  source: 
-    | { type: 'User'; id: string; name: string }
-    | { type: 'Agent'; id: string }
-    | { type: 'System' };
+  source: { type: 'User'; id: string; name: string } | { type: 'Agent'; id: string } | { type: 'System' };
   target_agent?: string;
   content: string;
   timestamp: string;
@@ -36,14 +33,7 @@ export type Permission =
   | 'MemoryWrite'
   | 'AdminAccess';
 
-export type CapabilityType =
-  | 'Reasoning'
-  | 'Memory'
-  | 'Communication'
-  | 'Tool'
-  | 'Vision'
-  | 'HAL'
-  | 'Web';
+export type CapabilityType = 'Reasoning' | 'Memory' | 'Communication' | 'Tool' | 'Vision' | 'HAL' | 'Web';
 
 // Event types for SSE stream and history
 export interface StrictSystemEvent {
