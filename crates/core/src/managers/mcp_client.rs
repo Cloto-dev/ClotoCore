@@ -145,7 +145,7 @@ impl McpClient {
                             if is_stream {
                                 if let Some(ref params) = notif.params {
                                     if let Some(req_id) =
-                                        params.get("request_id").and_then(|v| v.as_i64())
+                                        params.get("request_id").and_then(serde_json::Value::as_i64)
                                     {
                                         let collectors = stream_collectors.lock().await;
                                         if let Some(tx) = collectors.get(&req_id) {

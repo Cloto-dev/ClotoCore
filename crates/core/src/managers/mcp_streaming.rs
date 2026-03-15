@@ -40,7 +40,10 @@ impl StreamAssembler {
 
         tracker.received_count += 1;
 
-        if index != tracker.expected_index {
+        if index == tracker.expected_index {
+            tracker.expected_index = index + 1;
+            None
+        } else {
             // Record gap: all indices between expected and received
             let mut gap_indices = Vec::new();
             for i in tracker.expected_index..index {
@@ -53,9 +56,6 @@ impl StreamAssembler {
             } else {
                 Some(gap_indices)
             }
-        } else {
-            tracker.expected_index = index + 1;
-            None
         }
     }
 

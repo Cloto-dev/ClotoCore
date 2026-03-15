@@ -712,9 +712,12 @@ pub(super) async fn execute_audit_replay(manager: &McpClientManager, args: Value
         }));
     }
 
-    let since_seq = args.get("since_seq").and_then(|v| v.as_i64());
+    let since_seq = args.get("since_seq").and_then(serde_json::Value::as_i64);
     let since_timestamp = args.get("since_timestamp").and_then(|v| v.as_str());
-    let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
+    let limit = args
+        .get("limit")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(100);
 
     let entries =
         crate::db::query_audit_logs_since(manager.pool(), since_seq, since_timestamp, limit)
@@ -921,7 +924,7 @@ pub(super) async fn execute_lifecycle_shutdown(
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: reason"))?;
     let timeout_ms = args
         .get("timeout_ms")
-        .and_then(|v| v.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(5000);
 
     manager.drain_server(&server_id, reason, timeout_ms).await?;
@@ -1008,7 +1011,7 @@ pub(super) async fn execute_stream_cancel(
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
     let request_id = args
         .get("request_id")
-        .and_then(|v| v.as_i64())
+        .and_then(serde_json::Value::as_i64)
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: request_id"))?;
 
     let reason = args
@@ -1037,11 +1040,11 @@ pub(super) async fn execute_stream_pace(manager: &McpClientManager, args: Value)
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
     let request_id = args
         .get("request_id")
-        .and_then(|v| v.as_i64())
+        .and_then(serde_json::Value::as_i64)
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: request_id"))?;
     let max_chunks = args
         .get("max_chunks_per_second")
-        .and_then(|v| v.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: max_chunks_per_second"))?
         as u32;
     let reason = args.get("reason").and_then(|v| v.as_str());

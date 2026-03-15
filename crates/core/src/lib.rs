@@ -286,8 +286,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let is_dev = {
         let exe = std::env::current_exe().unwrap_or_default();
         managers::McpClientManager::detect_project_root(&exe)
-            .map(|r| r.join("Cargo.toml").exists())
-            .unwrap_or(false)
+            .is_some_and(|r| r.join("Cargo.toml").exists())
     };
     if setup_json.exists() || is_dev {
         managers::mcp_venv::ensure_mcp_venv(Some(&data_dir)).await;
@@ -649,15 +648,15 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                             if let Some(ref params) = notif.params {
                                 let request_id = params
                                     .get("request_id")
-                                    .and_then(|v| v.as_i64())
+                                    .and_then(serde_json::Value::as_i64)
                                     .unwrap_or(-1);
                                 let index = params
                                     .get("index")
-                                    .and_then(|v| v.as_u64())
+                                    .and_then(serde_json::Value::as_u64)
                                     .unwrap_or(0) as u32;
                                 let done = params
                                     .get("done")
-                                    .and_then(|v| v.as_bool())
+                                    .and_then(serde_json::Value::as_bool)
                                     .unwrap_or(false);
                                 let mgr = notif_mcp_manager.clone();
                                 let sid = notif.server_id.clone();

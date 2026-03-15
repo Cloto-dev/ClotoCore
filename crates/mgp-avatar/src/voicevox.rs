@@ -48,7 +48,7 @@ impl VoicevoxConfig {
 fn resolve_output_dir() -> PathBuf {
     std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
         .unwrap_or_else(|| PathBuf::from("."))
         .join("data")
         .join("speech")
@@ -122,7 +122,7 @@ impl VoicevoxClient {
         // prePhonemeLength is a fixed pad — NOT affected by speedScale.
         let pre_phoneme_length = query
             .get("prePhonemeLength")
-            .and_then(|v| v.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.1);
         let audio_offset_ms = pre_phoneme_length * 1000.0;
 
@@ -139,8 +139,8 @@ impl VoicevoxClient {
         if (speed - 1.0).abs() > 0.01 {
             for entry in &mut viseme_timeline {
                 if let (Some(start), Some(dur)) = (
-                    entry.get("start_ms").and_then(|v| v.as_f64()),
-                    entry.get("duration_ms").and_then(|v| v.as_f64()),
+                    entry.get("start_ms").and_then(serde_json::Value::as_f64),
+                    entry.get("duration_ms").and_then(serde_json::Value::as_f64),
                 ) {
                     entry["start_ms"] = json!((start / speed).round() as i64);
                     entry["duration_ms"] = json!((dur / speed).round() as i64);
@@ -239,7 +239,6 @@ fn vowel_to_viseme(vowel: &str) -> &'static str {
         "u" => "ou",
         "e" => "ee",
         "o" => "oh",
-        "N" | "cl" | "pau" => "neutral",
         _ => "neutral",
     }
 }
@@ -254,7 +253,7 @@ fn mora_to_viseme_timeline(accent_phrases: &[Value]) -> Vec<Value> {
         if let Some(pause) = phrase.get("pause_mora") {
             let vowel_len = pause
                 .get("vowel_length")
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0);
             let duration_ms = vowel_len * 1000.0;
             if duration_ms > 0.0 {
@@ -271,11 +270,11 @@ fn mora_to_viseme_timeline(accent_phrases: &[Value]) -> Vec<Value> {
             for mora in moras {
                 let consonant_len = mora
                     .get("consonant_length")
-                    .and_then(|v| v.as_f64())
+                    .and_then(serde_json::Value::as_f64)
                     .unwrap_or(0.0);
                 let vowel_len = mora
                     .get("vowel_length")
-                    .and_then(|v| v.as_f64())
+                    .and_then(serde_json::Value::as_f64)
                     .unwrap_or(0.0);
                 let vowel = mora.get("vowel").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -346,7 +345,7 @@ fn extract_pcm_samples(wav_bytes: &[u8]) -> Result<Vec<i16>, String> {
         }
 
         pos += 8 + chunk_size;
-        if chunk_size % 2 != 0 {
+        if !chunk_size.is_multiple_of(2) {
             pos += 1; // word-align
         }
     }

@@ -133,6 +133,7 @@ impl MgpError {
     }
 
     /// Attach recovery hints to this error.
+    #[must_use]
     pub fn with_recovery(mut self, recovery: MgpErrorRecovery) -> Self {
         self.recovery = Some(recovery);
         self
@@ -564,7 +565,7 @@ pub fn derive_effective_risk_level(
     // Validator → risk (§4.6)
     let validator_risk = match validator {
         Some("readonly") => RiskLevel::Safe,
-        Some("sandbox") | Some("network_restricted") | Some("code_safety") => RiskLevel::Moderate,
+        Some("sandbox" | "network_restricted" | "code_safety") => RiskLevel::Moderate,
         Some("none") => RiskLevel::Dangerous,
         _ => RiskLevel::Safe,
     };

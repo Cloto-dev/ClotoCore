@@ -104,7 +104,7 @@ pub(crate) fn detect_python() -> (bool, Option<String>) {
                 combined
                     .trim()
                     .strip_prefix("Python ")
-                    .map(|s| s.to_string())
+                    .map(std::string::ToString::to_string)
             });
         (true, version)
     } else {
@@ -133,19 +133,15 @@ pub async fn status_handler(State(state): State<Arc<AppState>>) -> Json<serde_js
     // repo separation is complete for production deployments.
     let mcp_servers_present = root
         .as_ref()
-        .map(|r| r.join("mcp-servers").exists())
-        .unwrap_or(false);
+        .is_some_and(|r| r.join("mcp-servers").exists());
 
     // TODO: Update to use mcp_venv::resolve_venv_dir() instead of hardcoded path.
-    let venv_exists = root
-        .as_ref()
-        .map(|r| {
-            r.join("mcp-servers")
-                .join(".venv")
-                .join("pyvenv.cfg")
-                .exists()
-        })
-        .unwrap_or(false);
+    let venv_exists = root.as_ref().is_some_and(|r| {
+        r.join("mcp-servers")
+            .join(".venv")
+            .join("pyvenv.cfg")
+            .exists()
+    });
 
     let (python_available, python_version) = detect_python();
 
@@ -407,13 +403,12 @@ async fn run_bootstrap_inner(
         },
     );
 
-    let root = match resolve_root() {
-        Some(r) => r,
-        None => {
-            // Fallback: use exe parent dir
-            let exe = std::env::current_exe().unwrap();
-            exe.parent().unwrap().to_path_buf()
-        }
+    let root = if let Some(r) = resolve_root() {
+        r
+    } else {
+        // Fallback: use exe parent dir
+        let exe = std::env::current_exe().unwrap();
+        exe.parent().unwrap().to_path_buf()
     };
 
     match extract_archive(&archive_path, &root).await {
@@ -713,7 +708,7 @@ async fn install_server_deps_with_progress(
         })
         .collect();
 
-    servers.sort_by_key(|e| e.file_name());
+    servers.sort_by_key(std::fs::DirEntry::file_name);
 
     for entry in &servers {
         let name = entry.file_name().to_string_lossy().to_string();
