@@ -181,7 +181,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                 filteredMemories.map((mem) => (
                   <div
                     key={mem.id}
-                    className="bg-glass-strong backdrop-blur-sm p-4 rounded-lg shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group flex flex-col max-h-48"
+                    className="bg-surface-primary/50 p-4 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group flex flex-col max-h-48"
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-brand/10 transition-colors">
@@ -227,7 +227,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                 filteredEpisodes.map((epi) => (
                   <div
                     key={epi.id}
-                    className="bg-glass-strong backdrop-blur-sm p-3 rounded-lg border-l-2 border-brand shadow-sm hover:translate-x-1 transition-transform group"
+                    className="bg-surface-primary/50 p-3 rounded-xl border-l-2 border-brand shadow-sm hover:translate-x-1 transition-transform group"
                   >
                     <div className="text-[10px] font-black text-brand mb-1 uppercase tracking-wider flex justify-between items-center">
                       <span>{epi.created_at || 'LOG: RECENT'}</span>
