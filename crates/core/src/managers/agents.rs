@@ -254,7 +254,7 @@ impl AgentManager {
     pub async fn clear_avatar(&self, agent_id: &str) -> anyhow::Result<()> {
         sqlx::query(
             "UPDATE agents SET metadata = json_remove(\
-             COALESCE(metadata, '{}'), '$.avatar_path', '$.avatar_description') \
+             COALESCE(metadata, '{}'), '$.avatar_path', '$.avatar_description', '$.has_avatar') \
              WHERE id = ?",
         )
         .bind(agent_id)
