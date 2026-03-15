@@ -1,4 +1,4 @@
-import { Play, RotateCcw, Square, Trash2 } from 'lucide-react';
+import { CheckCircle, Loader2, Play, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { McpServerInfo } from '../../types';
@@ -22,6 +22,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
   const { t } = useTranslation('mcp');
   const [activeTab, setActiveTab] = useState<Tab>('settings');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionDone, setActionDone] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isRunning = server.status === 'Connected';
@@ -29,8 +30,11 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
 
   async function handleAction(action: string, fn: () => Promise<void>) {
     setActionLoading(action);
+    setActionDone(null);
     try {
       await fn();
+      setActionDone(action);
+      setTimeout(() => setActionDone(null), 2000);
       setTimeout(onRefresh, 500);
     } finally {
       setActionLoading(null);
@@ -67,26 +71,41 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
             <button
               onClick={() => handleAction('start', () => onStart(server.id))}
               disabled={actionLoading !== null}
-              className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-secondary hover:text-green-500 transition-colors border border-edge"
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded transition-colors border ${
+                actionDone === 'start'
+                  ? 'bg-green-500/10 text-green-500 border-green-500/30'
+                  : 'bg-glass hover:bg-glass-strong text-content-secondary hover:text-green-500 border-edge'
+              }`}
             >
-              <Play size={10} /> {t('detail.start')}
+              {actionLoading === 'start' ? <Loader2 size={10} className="animate-spin" /> : actionDone === 'start' ? <CheckCircle size={10} /> : <Play size={10} />}
+              {t('detail.start')}
             </button>
           )}
           {isRunning && (
             <button
               onClick={() => handleAction('stop', () => onStop(server.id))}
               disabled={actionLoading !== null}
-              className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-secondary hover:text-red-500 transition-colors border border-edge"
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded transition-colors border ${
+                actionDone === 'stop'
+                  ? 'bg-green-500/10 text-green-500 border-green-500/30'
+                  : 'bg-glass hover:bg-glass-strong text-content-secondary hover:text-red-500 border-edge'
+              }`}
             >
-              <Square size={10} /> {t('detail.stop')}
+              {actionLoading === 'stop' ? <Loader2 size={10} className="animate-spin" /> : actionDone === 'stop' ? <CheckCircle size={10} /> : <Square size={10} />}
+              {t('detail.stop')}
             </button>
           )}
           <button
             onClick={() => handleAction('restart', () => onRestart(server.id))}
             disabled={actionLoading !== null}
-            className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-secondary hover:text-brand transition-colors border border-edge"
+            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded transition-colors border ${
+              actionDone === 'restart'
+                ? 'bg-green-500/10 text-green-500 border-green-500/30'
+                : 'bg-glass hover:bg-glass-strong text-content-secondary hover:text-brand border-edge'
+            }`}
           >
-            <RotateCcw size={10} /> {t('detail.restart')}
+            {actionLoading === 'restart' ? <Loader2 size={10} className="animate-spin" /> : actionDone === 'restart' ? <CheckCircle size={10} /> : <RotateCcw size={10} />}
+            {t('detail.restart')}
           </button>
           {server.source === 'dynamic' && (
             <>
