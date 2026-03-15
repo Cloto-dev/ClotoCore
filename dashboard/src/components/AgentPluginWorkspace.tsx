@@ -131,16 +131,15 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
       const memoryServer = grantedServers.find((s) => s.id.startsWith('memory.'));
 
       const metadata: Record<string, string> = { ...agent.metadata };
-      // Remove backend-injected fields (managed by their respective APIs, not metadata column)
+      // Remove fields managed by dedicated APIs (avatar, VRM, password) — these are
+      // handled by uploadAvatar/deleteAvatar/uploadVrm/deleteVrm, not updateAgent.
+      // Keeping them here would overwrite whatever those APIs just wrote (race condition).
       delete metadata.has_avatar;
+      delete metadata.avatar_path;
       delete metadata.avatar_description;
       delete metadata.has_power_password;
       delete metadata.has_vrm;
-      // Remove avatar/VRM paths if pending deletion — prevents updateAgent from
-      // re-inserting paths that deleteAvatar/deleteVrm just removed (race condition)
-      if (pendingAvatarDelete && !pendingAvatarFile) {
-        delete metadata.avatar_path;
-      }
+      delete metadata.vrm_path;
       if (memoryServer) {
         metadata.preferred_memory = memoryServer.id;
       } else {
