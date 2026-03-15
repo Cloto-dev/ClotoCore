@@ -1031,6 +1031,14 @@ def rrf_score(rank: int) -> float:
 | `CPERSONA_RRF_ENABLED` | `false` | Enable RRF reranking (opt-in) |
 | `CPERSONA_RRF_K` | `60` | RRF constant (higher = more weight to lower-ranked results) |
 
+**v2.4 recency boost interaction:** RRF is rank-based, not score-based — it ignores
+absolute score values. To preserve v2.4's recency boost effect, each strategy's rank
+list must be sorted by its **adjusted score** (i.e., `cosine + recency_boost` for
+vector strategy) before being fed to RRF. This ensures that a recent memory boosted
+from rank #8 to rank #3 within the vector strategy contributes a higher RRF score
+(`1/(60+3)` vs `1/(60+8)`) to the final fusion. Without this, recency boost would
+be partially negated by RRF's rank-only view.
+
 **Implementation scope:** `cloto-mcp-servers` repo (`servers/cpersona/server.py`,
 `recall()` function). Insert RRF merge step between strategy collection and final
 truncation. No schema changes.
@@ -1059,6 +1067,13 @@ v2.5:    "MERGE with existing facts — keep all existing information unless exp
 **Anti-contamination safeguard:** The "Do NOT infer or speculate" instruction prevents
 hallucinated enrichment. Only explicitly stated details are merged.
 
+**Quality risk:** Enrichment quality depends heavily on the LLM's instruction-following
+precision. The boundary between "enrich with stated details" and "infer unstated details"
+is subtle, especially for smaller/faster models (e.g., Cerebras gpt-oss-120b). Mitigation:
+use the Benchmark Verification Framework (item 3) to measure profile quality before/after
+enrichment — specifically, a **profile diff audit** that compares enriched profiles against
+source conversations to detect hallucinated additions.
+
 **Implementation scope:** `cloto-mcp-servers` repo (`servers/cpersona/server.py`,
 `_run_update_profile()` LLM prompt only). No schema changes, no new tools.
 
@@ -1075,8 +1090,12 @@ improvements across versions.
 **Deliverables:**
 - `benchmarks/` directory in `cloto-mcp-servers` repo
 - Evaluation scripts per benchmark (Python, dataset-agnostic runner)
+- `benchmarks/results/` with JSON score history per version (machine-readable for CI/regression detection)
 - Baseline scores for v2.3, re-measured after v2.4 and v2.5 changes
 - Results documented in this file (new Section 11: Benchmark Results)
+- **Profile enrichment audit**: side-channel benchmark comparing enriched profiles against source conversations to detect hallucinated additions (validates item 2 quality)
+
+**CI integration:** Runner scripts should be executable as `python benchmarks/run.py --suite locomo --output benchmarks/results/v2.5-locomo.json`, enabling future automation in CI pipelines. Score history accumulation in `benchmarks/results/` enables regression detection when v3.0 graph memory is introduced.
 
 ---
 
@@ -1134,6 +1153,24 @@ CREATE TABLE entity_mentions (
 );
 ```
 
+**Entity resolution challenge:** The `UNIQUE(agent_id, name, entity_type)` constraint
+handles "Tokyo (place)" vs "Tokyo (company)" via different `entity_type`, but cannot
+distinguish same-name, same-type entities (e.g., two different people named "田中").
+This ambiguity resolution is delegated to the LLM extraction pipeline, which must use
+conversational context to disambiguate (e.g., "田中 from work" vs "田中 from school").
+Strategies under consideration:
+
+- **Contextual suffix**: LLM appends disambiguator to name (`"田中 (colleague)"`,
+  `"田中 (school friend)"`) — simple, human-readable, but fragile
+- **Canonical ID**: LLM assigns a stable identifier; `name` becomes display label,
+  `attributes.canonical_id` becomes the unique key — robust, but requires LLM consistency
+- **Merge-on-conflict**: Allow duplicate names, use embedding similarity to detect
+  and merge duplicates periodically — tolerant, but requires cleanup pipeline
+
+Decision deferred to v3.0 implementation phase; the schema supports all three approaches
+(the UNIQUE constraint can be relaxed to `UNIQUE(agent_id, name, entity_type, canonical_id)`
+if needed).
+
 **New MCP tools:**
 - `store_entity(agent_id, name, entity_type, attributes)` — Create/update entity node
 - `store_relation(agent_id, source, target, relation, valid_from?, valid_to?)` — Create edge
@@ -1156,6 +1193,26 @@ Edge: User --[lives_in]--> Osaka    valid_from: 2025-06, valid_to: NULL (current
 **Temporal query:** "Where did the user live last year?" → traverse edges where
 `valid_from <= 2025-03 AND (valid_to IS NULL OR valid_to > 2025-03)` → Tokyo.
 
+**Temporal extraction strategy:** Determining `valid_from`/`valid_to` is non-trivial.
+Three approaches, in order of preference:
+
+1. **LLM-extracted with conversation anchor** (primary): LLM extracts temporal
+   references from conversation ("I moved to Osaka last June") and resolves them
+   against the conversation timestamp to produce absolute dates. The conversation
+   timestamp serves as an anchor for relative references.
+2. **Conversation timestamp fallback**: When the LLM cannot extract an explicit
+   temporal reference, `valid_from` defaults to the conversation timestamp (the
+   moment the fact was first mentioned). This is imprecise but safe — it records
+   "when we learned this" rather than "when it became true".
+3. **NULL (unknown)**: When neither extraction nor timestamp is meaningful (e.g.,
+   timeless facts like "User likes cats"), `valid_from` remains NULL, meaning
+   "always valid".
+
+**Hallucination risk:** LLM temporal extraction (approach 1) carries higher
+hallucination risk than factual extraction. Mitigation: extracted dates are
+cross-validated against conversation timestamp — if the LLM claims a `valid_from`
+in the future or implausibly distant past, fall back to approach 2.
+
 **Integration with anti-contamination:** Temporal annotations extended to include
 validity period: `[Memory from 2024-01, valid until 2025-06]`.
 
@@ -1167,6 +1224,21 @@ Extension of v2.5's profile enrichment to the graph level:
 - Cognee's memify concept: periodically prune stale nodes, strengthen frequent connections
 
 **Dependency:** Requires graph memory (item 1) to be implemented first.
+
+##### Sub-Phasing (Risk Management)
+
+v3.0's three features have sequential dependencies. Explicit sub-phases prevent
+scope creep and enable incremental validation against v2.5 benchmark baselines.
+
+| Sub-Phase | Scope | Deliverable | Validation |
+|-----------|-------|-------------|------------|
+| **v3.0-alpha** | Graph tables + `store_entity` / `store_relation` | Schema migration, entity/edge CRUD, LLM entity extraction pipeline | Entities and edges populate correctly from conversations |
+| **v3.0-beta** | Bi-temporal + `query_graph` (BFS) | `valid_from`/`valid_to` extraction, temporal queries, Strategy 5 in recall cascade | Temporal queries return correct results; LOCOMO/LongMemEval scores measured |
+| **v3.0** | Full memory evolution (memify) | Retroactive edge updates, stale node pruning, connection strengthening | Benchmark regression test vs v3.0-beta; no precision loss from pruning |
+
+Each sub-phase is independently deployable. v3.0-alpha can ship without temporal
+queries; v3.0-beta can ship without memory evolution. This ensures the system remains
+functional at every checkpoint and allows course correction based on benchmark results.
 
 ---
 
