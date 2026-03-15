@@ -1126,6 +1126,21 @@ impl SystemHandler {
                             "  🔧 Tool executed"
                         );
 
+                        // Build a short hint for UI display (e.g., command name for execute_command)
+                        let tool_hint = call
+                            .arguments
+                            .get("command")
+                            .and_then(|v| v.as_str())
+                            .map(|cmd| {
+                                // Show first token (program name) + truncate
+                                let first_line = cmd.lines().next().unwrap_or(cmd);
+                                if first_line.len() > 60 {
+                                    format!("{}…", &first_line[..57])
+                                } else {
+                                    first_line.to_string()
+                                }
+                            });
+
                         // Emit observability event
                         self.emit_event(
                             trace_id,
@@ -1137,6 +1152,7 @@ impl SystemHandler {
                                 success,
                                 duration_ms,
                                 iteration,
+                                tool_hint,
                             },
                         )
                         .await;
