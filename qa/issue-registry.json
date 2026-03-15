@@ -109,7 +109,7 @@
       "file": "mcp-servers/websearch/server.py",
       "pattern": "\\.aclose\\(\\)",
       "expected": "present",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-161",
@@ -121,7 +121,7 @@
       "file": "mcp-servers/ollama/server.py",
       "pattern": "from common\\.llm_provider import",
       "expected": "present",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-162",
@@ -133,7 +133,7 @@
       "file": "mcp-servers/ollama/server.py",
       "pattern": "_model_lock",
       "expected": "present",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-163",
@@ -145,7 +145,7 @@
       "file": "mcp-servers/requirements.lock",
       "pattern": "==",
       "expected": "present",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-164",
@@ -205,7 +205,7 @@
       "file": "mcp-servers/embedding/server.py",
       "pattern": "1 <= EMBEDDING_HTTP_PORT <= 65535",
       "expected": "present",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-169",
@@ -217,7 +217,7 @@
       "file": "mcp-servers/tests/test_cpersona_limits.py",
       "pattern": "_clamp_limit",
       "expected": "present",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-170",
@@ -937,7 +937,7 @@
       "file": "mcp-servers/common/llm_provider.py",
       "pattern": "entry\\.get\\(\"role\"\\) == \"tool\"",
       "expected": "present",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-230",
@@ -1189,7 +1189,7 @@
       "file": "dashboard/src/main.tsx",
       "pattern": "\\[BOOT_LINES\\]\\)",
       "expected": "present",
-      "status": "fixed"
+      "status": "obsolete"
     },
     {
       "id": "bug-251",
@@ -1360,7 +1360,7 @@
       "file": "dashboard/src/components/KernelMonitor.tsx",
       "pattern": "agents, isLoading \\} = useAgents",
       "expected": "present",
-      "status": "open",
+      "status": "obsolete",
       "github_issue": 35
     },
     {
