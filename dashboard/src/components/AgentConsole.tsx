@@ -232,24 +232,6 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     isScrolledToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
   }, []);
 
-  // Lazy load older messages on scroll to top
-  useEffect(() => {
-    if (!hasMore || isLoading) return;
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
-          loadOlderMessages();
-        }
-      },
-      { root: scrollRef.current, threshold: 0.1 },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasMore, isLoading, isLoadingMore, loadOlderMessages]);
-
   const loadOlderMessages = useCallback(async () => {
     if (isLoadingMore || !hasMore || messages.length === 0) return;
     setIsLoadingMore(true);
@@ -281,6 +263,24 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
       setIsLoadingMore(false);
     }
   }, [agent.id, api, messages, isLoadingMore, hasMore, identity.id]);
+
+  // Lazy load older messages on scroll to top
+  useEffect(() => {
+    if (!hasMore || isLoading) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
+          loadOlderMessages();
+        }
+      },
+      { root: scrollRef.current, threshold: 0.1 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, isLoading, isLoadingMore, loadOlderMessages]);
 
   // Subscribe to system-wide events
   useEventStream(
