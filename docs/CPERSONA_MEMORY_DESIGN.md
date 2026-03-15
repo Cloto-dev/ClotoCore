@@ -995,6 +995,14 @@ enhancements are planned for CPersona 2.4+:
 - [ ] **Cumulative session statistics** — Track `processed_count`, `failed_count`, and `uptime` across the queue's lifetime for throughput monitoring
 - [ ] **Liveness indicator** — Report whether the background loop is actively running (`is_alive: true/false`), distinguishing "queue enabled but loop crashed" from normal idle
 
+#### ~~Semantic Cache~~ — **Cancelled**
+
+Previously planned as recall-level caching (cosine ≥ 0.95 → return cached result set).
+Cancelled because: (1) `tool.embedding` LRU cache already eliminates the main bottleneck
+(embedding generation), (2) DB scan + 500× dot product is sub-millisecond with NumPy,
+(3) cache invalidation on every `store`/`delete` adds complexity with minimal gain,
+(4) incompatible with v2.4 recency-weighted scoring (cached results become stale as time passes).
+
 ### Phase 4: Anti-Contamination — **Partially Completed** (v0.5.9)
 
 - [x] **Timestamp annotations** — `_format_memory_timestamp()` converts ISO-8601 timestamps to human-readable local time; recall prepends `[Memory from YYYY-MM-DD HH:MM TZ]` to each memory
