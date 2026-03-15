@@ -154,7 +154,10 @@ pub(crate) async fn install_server_deps(pip_str: &str, mcp_servers_dir: &Path) -
 /// Ensure the MCP Python venv exists and has dependencies installed.
 /// Non-fatal: logs warnings on failure but does not prevent kernel startup.
 /// Re-syncs dependencies on every startup so late-added servers are picked up.
-pub async fn ensure_mcp_venv() {
+///
+/// If `data_dir` is provided, also syncs marketplace-installed servers from
+/// `data_dir/mcp-servers/` so they survive venv recreation.
+pub async fn ensure_mcp_venv(data_dir: Option<&Path>) {
     let Some(project_root) = resolve_project_root() else {
         warn!("Could not detect project root — skipping MCP venv setup");
         return;
@@ -225,7 +228,20 @@ pub async fn ensure_mcp_venv() {
     // Always sync dependencies — handles late-added servers and new packages.
     let pip = venv_pip(&venv_dir);
     let pip_str = pip.to_string_lossy().to_string();
-    let installed = install_server_deps(&pip_str, &mcp_servers_dir).await;
+    let mut installed = install_server_deps(&pip_str, &mcp_servers_dir).await;
+
+    // Also sync marketplace-installed servers from data_dir/mcp-servers/.
+    // pip install is idempotent (no-op for satisfied packages), so double-scanning is safe.
+    if let Some(data_dir) = data_dir {
+        let marketplace_dir = data_dir.join("mcp-servers");
+        if marketplace_dir.is_dir() && marketplace_dir != mcp_servers_dir {
+            let mp_count = install_server_deps(&pip_str, &marketplace_dir).await;
+            if mp_count > 0 {
+                info!("Marketplace dep sync: {} server(s) processed", mp_count);
+            }
+            installed += mp_count;
+        }
+    }
 
     info!(
         "MCP venv dep sync complete: {} server(s) processed at {}",
