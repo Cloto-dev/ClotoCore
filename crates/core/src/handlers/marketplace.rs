@@ -2,7 +2,7 @@
 //! from the cloto-mcp-servers registry.
 
 use axum::{
-    extract::{Query, State},
+    extract::{ConnectInfo, Query, State},
     http::HeaderMap,
     response::sse::{Event, Sse},
     Json,
@@ -185,11 +185,20 @@ pub async fn catalog_handler(
 
 /// POST /api/marketplace/install — install a server from the marketplace.
 pub async fn install_handler(
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Json(request): Json<InstallRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     super::check_auth(&state, &headers)?;
+
+    // Tier 1 rate limit: 5 req/min per IP for heavy operations
+    if !state.install_limiter.check(addr.ip()) {
+        tracing::warn!(ip = %addr.ip(), "Install rate limit exceeded");
+        return Err(AppError::Validation(
+            "Too many install requests. Please wait before trying again.".to_string(),
+        ));
+    }
 
     // Validate server_id against cached registry
     let registry = {
