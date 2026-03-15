@@ -543,6 +543,29 @@ pub async fn update_marketplace_server_version(
     .rows_affected())
 }
 
+/// Hard-delete a marketplace-installed server from the DB, including access control entries.
+pub async fn delete_marketplace_server(pool: &SqlitePool, name: &str) -> anyhow::Result<()> {
+    // Clean up orphaned access control entries first
+    db_timeout(
+        sqlx::query("DELETE FROM mcp_access_control WHERE server_id = ?")
+            .bind(name)
+            .execute(pool),
+    )
+    .await?;
+
+    let result = db_timeout(
+        sqlx::query("DELETE FROM mcp_servers WHERE name = ? AND source = 'marketplace'")
+            .bind(name)
+            .execute(pool),
+    )
+    .await?;
+
+    if result.rows_affected() == 0 {
+        anyhow::bail!("No marketplace server found with name '{}'", name);
+    }
+    Ok(())
+}
+
 /// Insert a config-loaded MCP server into the DB so its settings can be persisted.
 pub async fn ensure_mcp_server_in_db(
     pool: &SqlitePool,

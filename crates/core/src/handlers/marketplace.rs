@@ -2,7 +2,7 @@
 //! from the cloto-mcp-servers registry.
 
 use axum::{
-    extract::{ConnectInfo, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::HeaderMap,
     response::sse::{Event, Sse},
     Json,
@@ -292,6 +292,74 @@ pub async fn marketplace_progress_handler(
             .interval(Duration::from_secs(15))
             .text("keep-alive"),
     )
+}
+
+/// DELETE /api/marketplace/servers/:id — uninstall a marketplace server.
+pub async fn uninstall_handler(
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    State(state): State<Arc<AppState>>,
+    Path(server_id): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+
+    // Tier 1 rate limit: 5 req/min per IP for heavy operations
+    if !state.install_limiter.check(addr.ip()) {
+        tracing::warn!(ip = %addr.ip(), "Uninstall rate limit exceeded");
+        return Err(AppError::Validation(
+            "Too many requests. Please wait before trying again.".to_string(),
+        ));
+    }
+
+    // Disconnect from manager (stops process + removes from memory).
+    // remove_dynamic_server() rejects config-loaded servers but allows marketplace.
+    // It also calls deactivate_mcp_server() internally, which is fine —
+    // we'll hard-delete the DB record right after.
+    if let Err(e) = state.mcp_manager.remove_dynamic_server(&server_id).await {
+        let msg = e.to_string();
+        if msg.contains("config-loaded") {
+            return Err(AppError::Validation(
+                "Cannot uninstall a config-loaded server. Edit mcp.toml instead.".to_string(),
+            ));
+        }
+        // Server might already be stopped/disconnected — log and continue
+        warn!("remove_dynamic_server warning for {}: {}", server_id, msg);
+    }
+
+    // Hard-delete from DB (mcp_servers + mcp_access_control)
+    if let Err(e) = crate::db::mcp::delete_marketplace_server(&state.pool, &server_id).await {
+        warn!("DB cleanup for {}: {}", server_id, e);
+        // Don't fail — the server is already disconnected
+    }
+
+    // Delete server files from disk.
+    // Resolve directory name from catalog cache, fallback to id-based convention.
+    let directory = {
+        let cache = state.marketplace_cache.read().await;
+        cache.data.as_ref().and_then(|reg| {
+            reg.servers
+                .iter()
+                .find(|s| s.id == server_id)
+                .map(|s| s.directory.clone())
+        })
+    }
+    .unwrap_or_else(|| server_id.replace('.', "-"));
+
+    let server_dir = state.data_dir.join("mcp-servers").join(&directory);
+    if server_dir.is_dir() {
+        if let Err(e) = tokio::fs::remove_dir_all(&server_dir).await {
+            warn!("Failed to remove server directory {}: {}", server_dir.display(), e);
+        } else {
+            info!("Removed marketplace server directory: {}", server_dir.display());
+        }
+    }
+
+    info!("Marketplace server uninstalled: {}", server_id);
+
+    super::ok_data(serde_json::json!({
+        "server_id": server_id,
+        "uninstalled": true,
+    }))
 }
 
 // ── Registry fetch with cache ───────────────────────────────────────

@@ -43,7 +43,7 @@ pub use mcp::{
     set_yolo_mode, start_mcp_server, stop_mcp_server, update_mcp_server_settings,
     update_plugin_config,
 };
-pub use marketplace::{catalog_handler, install_handler, marketplace_progress_handler};
+pub use marketplace::{catalog_handler, install_handler, marketplace_progress_handler, uninstall_handler};
 pub use permissions::{approve_permission, deny_permission, get_pending_permissions};
 
 /// GET /api/system/version

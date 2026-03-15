@@ -323,6 +323,9 @@ export const api = {
 
   getMarketplaceProgressUrl: (): string => `${API_BASE}/marketplace/progress`,
 
+  uninstallMarketplaceServer: (serverId: string, apiKey: string) =>
+    mutate(`/marketplace/servers/${encodeURIComponent(serverId)}`, 'DELETE', 'uninstall marketplace server', undefined, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
+
   // Memory Management
   deleteMemory: (memoryId: number, apiKey: string) =>
     mutate(`/memories/${memoryId}`, 'DELETE', 'delete memory', undefined, { 'X-API-Key': apiKey }).then(() => {}),
@@ -417,6 +420,7 @@ export function createAuthenticatedApi(apiKey: string) {
     // Marketplace
     getMarketplaceCatalog: (forceRefresh?: boolean) => api.getMarketplaceCatalog(k, forceRefresh),
     installMarketplaceServer: (payload: { server_id: string; env?: Record<string, string>; auto_start?: boolean }) => api.installMarketplaceServer(payload, k),
+    uninstallMarketplaceServer: (serverId: string) => api.uninstallMarketplaceServer(serverId, k),
     getMarketplaceProgressUrl: () => api.getMarketplaceProgressUrl(),
   };
 }
