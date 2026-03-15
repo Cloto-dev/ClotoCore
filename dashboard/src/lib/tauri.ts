@@ -222,12 +222,29 @@ export interface UpdateInfo {
   releaseNotes?: string;
 }
 
+/**
+ * Parse a semver string into [major, minor, patch] + optional pre-release tag.
+ * Stable releases are considered NEWER than pre-releases of the same version.
+ */
+function parseSemver(v: string): { nums: number[]; pre: string | null } {
+  const [core, ...preParts] = v.split('-');
+  const nums = core.split('.').map((n) => Number.parseInt(n, 10) || 0);
+  const pre = preParts.length > 0 ? preParts.join('-') : null;
+  return { nums, pre };
+}
+
 function isNewerVersion(current: string, latest: string): boolean {
-  const c = current.split('.').map(Number);
-  const l = latest.split('.').map(Number);
+  const c = parseSemver(current);
+  const l = parseSemver(latest);
+  // Compare major.minor.patch
   for (let i = 0; i < 3; i++) {
-    if ((l[i] || 0) !== (c[i] || 0)) return (l[i] || 0) > (c[i] || 0);
+    if ((l.nums[i] || 0) !== (c.nums[i] || 0)) return (l.nums[i] || 0) > (c.nums[i] || 0);
   }
+  // Same major.minor.patch — compare pre-release
+  // stable (null) > pre-release ("alpha.2")
+  if (c.pre !== null && l.pre === null) return true; // current is pre, latest is stable → upgrade
+  if (c.pre === null && l.pre !== null) return false; // current is stable, latest is pre → no downgrade
+  // Both pre-release or both stable with same version → no upgrade
   return false;
 }
 

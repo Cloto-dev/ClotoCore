@@ -1,4 +1,6 @@
-import { ArrowLeft, ArrowRight, HelpCircle, type LucideIcon, Minus, Square, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowUp, HelpCircle, type LucideIcon, Minus, Square, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useConnection } from '../contexts/ConnectionContext';
 import { closeWindow, isTauri, minimizeWindow, toggleMaximizeWindow } from '../lib/tauri';
@@ -28,6 +30,17 @@ export function ViewHeader({
   canGoForward,
 }: ViewHeaderProps) {
   const { connected, checking } = useConnection();
+  const { t } = useTranslation();
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setUpdateVersion(detail?.version ?? 'new');
+    };
+    window.addEventListener('cloto-update-available', handler);
+    return () => window.removeEventListener('cloto-update-available', handler);
+  }, []);
 
   return (
     <header
@@ -75,6 +88,19 @@ export function ViewHeader({
 
       {/* Help + Connection indicator + Window Controls */}
       <div className={`flex items-center gap-2 pr-1 ${right ? '' : 'ml-auto'}`}>
+        {/* Update available indicator (Discord-style green arrow) */}
+        {updateVersion && (
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('cloto-open-settings', { detail: { section: 'about' } }))}
+            className="p-1 rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-500 transition-colors"
+            title={t('update_available_banner', {
+              version: updateVersion,
+              defaultValue: `ClotoCore ${updateVersion} is available`,
+            })}
+          >
+            <ArrowUp size={14} />
+          </button>
+        )}
         {onHelp && (
           <button
             onClick={onHelp}

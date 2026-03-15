@@ -11,7 +11,7 @@ import { AgentProvider } from './contexts/AgentContext';
 import { ApiKeyProvider } from './contexts/ApiKeyContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { UserIdentityProvider } from './contexts/UserIdentityContext';
-import { isTauri } from './lib/tauri';
+import { checkForUpdates, isTauri } from './lib/tauri';
 import { AgentPage } from './pages/AgentPage';
 import './i18n';
 import { loadExternalLanguages } from './i18n';
@@ -44,6 +44,26 @@ function App() {
 
   const { connected } = useConnection();
   const { t } = useTranslation();
+
+  // Auto-update check on startup (Tauri only, user-configurable)
+  useEffect(() => {
+    if (!connected || !isTauri) return;
+    if (localStorage.getItem('cloto-auto-update') === 'off') return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const info = await checkForUpdates();
+        if (info.available) {
+          window.dispatchEvent(
+            new CustomEvent('cloto-update-available', { detail: { version: info.latestVersion } }),
+          );
+        }
+      } catch {
+        // Silent fail — network unavailable, rate limited, etc.
+      }
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [connected]);
 
   // VRM viewer window bypasses connection gate (it loads VRM directly from API)
   const isVrmRoute = window.location.pathname.startsWith('/vrm-viewer/');
