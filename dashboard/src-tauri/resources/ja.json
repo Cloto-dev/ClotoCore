@@ -314,7 +314,10 @@
       "cancel": "キャンセル",
       "installing": "インストール中...",
       "complete": "インストール完了",
-      "install_error": "インストールに失敗しました"
+      "install_error": "インストールに失敗しました",
+      "uninstall": "アンインストール",
+      "uninstall_confirm": "{{name}} をアンインストールしますか？サーバーとファイルが削除されます。",
+      "uninstall_error": "サーバーのアンインストールに失敗しました"
     }
   },
   "nav": {
