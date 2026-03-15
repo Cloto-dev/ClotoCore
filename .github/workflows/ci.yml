@@ -157,6 +157,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint (Biome)
+        run: npx biome lint src/
+
       - name: Build
         run: npm run build
 
