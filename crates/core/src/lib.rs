@@ -103,6 +103,9 @@ pub struct AppState {
     pub setup_progress_tx: broadcast::Sender<handlers::setup::SetupProgressEvent>,
     /// In-memory cache for marketplace catalog (registry.json).
     pub marketplace_cache: Arc<tokio::sync::RwLock<handlers::marketplace::CatalogCache>>,
+    /// Stricter rate limiter for heavy operations (install, setup).
+    /// 5 req/min per IP to prevent GitHub API abuse and disk exhaustion.
+    pub install_limiter: Arc<middleware::RateLimiter>,
 }
 
 pub enum AppError {
@@ -470,6 +473,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         config.rate_limit_per_sec,
         config.rate_limit_burst,
     ));
+    // Stricter limiter for heavy operations (marketplace install, batch setup)
+    let install_limiter = Arc::new(middleware::RateLimiter::per_minute(5, 5));
 
     // Load revoked key hashes into memory
     let revoked_keys = {
@@ -515,6 +520,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         marketplace_cache: Arc::new(tokio::sync::RwLock::new(
             handlers::marketplace::CatalogCache::default(),
         )),
+        install_limiter: install_limiter.clone(),
     });
 
     // Wire up kernel event bus to MCP manager (for PermissionRequested emission)
@@ -729,6 +735,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
 
     // 6b. Rate limiter cleanup task (every 10 minutes)
     let rl = rate_limiter.clone();
+    let il = install_limiter.clone();
     let shutdown_clone = app_state.shutdown.clone();
     tokio::spawn(async move {
         let mut interval =
@@ -741,6 +748,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 }
                 _ = interval.tick() => {
                     rl.cleanup();
+                    il.cleanup();
                 }
             }
         }
