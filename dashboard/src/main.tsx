@@ -12,7 +12,6 @@ import { AppLayout } from './components/AppLayout'
 import { AgentPage } from './pages/AgentPage'
 import { CustomCursor } from './components/CustomCursor'
 import { SetupWizard } from './components/SetupWizard'
-import { api } from './services/api'
 import { isTauri } from './lib/tauri'
 import './i18n';
 import { loadExternalLanguages } from './i18n';
@@ -24,10 +23,7 @@ const MemoryCore = lazy(() => import('./components/MemoryCore').then(m => ({ def
 const McpServersPage = lazy(() => import('./pages/McpServersPage').then(m => ({ default: m.McpServersPage })));
 const CronJobs = lazy(() => import('./components/CronJobs').then(m => ({ default: m.CronJobs })));
 const VrmViewerPage = lazy(() => import('./vrm/VrmViewerPage').then(m => ({ default: m.VrmViewerPage })));
-const DependencySetup = lazy(() => import('./components/DependencySetup').then(m => ({ default: m.DependencySetup })));
-
 function App() {
-  const [depsReady, setDepsReady] = useState<boolean | null>(null);
   const [setupDone, setSetupDone] = useState(
     () => localStorage.getItem('cloto-setup-completed') === '1'
   );
@@ -48,16 +44,6 @@ function App() {
 
   const { connected } = useConnection();
   const { t } = useTranslation();
-
-  // Check dependency setup status after connection
-  const forceSetup = new URLSearchParams(window.location.search).get('debug-setup') === '1';
-  useEffect(() => {
-    if (!connected) return;
-    if (forceSetup) { setDepsReady(false); return; }
-    api.getSetupStatus()
-      .then(s => setDepsReady(s.setup_complete))
-      .catch(() => setDepsReady(false));
-  }, [connected, forceSetup]);
 
   // VRM viewer window bypasses connection gate (it loads VRM directly from API)
   const isVrmRoute = window.location.pathname.startsWith('/vrm-viewer/');
@@ -92,29 +78,6 @@ function App() {
           </p>
         </div>
       </div>
-    );
-  }
-
-  // Dependency setup gate (skip for VRM viewer window)
-  if (depsReady === null && !isVrmRoute) {
-    return (
-      <div className="min-h-screen bg-surface-base flex flex-col items-center justify-center select-none">
-        <h1 className="text-4xl font-black tracking-[0.2em] text-content-primary">
-          {t('boot.title')}
-        </h1>
-        <div className="mt-6 h-6 flex items-center justify-center">
-          <p className="text-[11px] font-mono text-brand/70 uppercase tracking-[0.15em] animate-boot-line">
-            {BOOT_LINES[lineIdx]}
-          </p>
-        </div>
-      </div>
-    );
-  }
-  if (depsReady === false && !isVrmRoute) {
-    return (
-      <Suspense fallback={null}>
-        <DependencySetup onComplete={() => setDepsReady(true)} debug={forceSetup} />
-      </Suspense>
     );
   }
 

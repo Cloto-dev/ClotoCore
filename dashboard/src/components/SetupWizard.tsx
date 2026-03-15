@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sun, Moon, Monitor, Users, Server, Clock, Brain, Settings, ChevronDown } from 'lucide-react';
+import { Sun, Moon, Monitor, Users, Server, Clock, Brain, Settings, ChevronDown, Loader2, Check, AlertTriangle, Circle } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApiKey } from '../contexts/ApiKeyContext';
+import { useApi } from '../hooks/useApi';
 import { createAuthenticatedApi } from '../services/api';
 import { getAutoApiKey } from '../lib/tauri';
 import { getCustomLanguages } from '../i18n';
@@ -13,7 +14,7 @@ const BUILTIN_LANGUAGES = [
   { code: 'ja', label: '日本語' },
 ];
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 7;
 
 // ============================================================
 // Preset Definitions
@@ -68,6 +69,19 @@ export function SetupWizard({ onComplete }: Props) {
   const [customServers, setCustomServers] = useState<Set<string>>(new Set(STANDARD_SERVERS));
   const [applying, setApplying] = useState(false);
 
+  // Installation state (Step 5)
+  const api = useApi();
+  const [installStarted, setInstallStarted] = useState(false);
+  const [installComplete, setInstallComplete] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [serverStatuses, setServerStatuses] = useState<Array<{ name: string; status: string }>>([]);
+  const [installSteps, setInstallSteps] = useState<Array<{ step: string; description: string; status: string; detail?: string; progress?: number }>>([]);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    return () => { eventSourceRef.current?.close(); };
+  }, []);
+
   useEffect(() => {
     getCustomLanguages().then(setCustomLangs);
   }, []);
@@ -79,7 +93,11 @@ export function SetupWizard({ onComplete }: Props) {
   ];
 
   const next = () => setStep(s => Math.min(s + 1, TOTAL_STEPS - 1));
-  const back = () => setStep(s => Math.max(s - 1, 0));
+  // Skip step 5 (installation) when going back — it's a one-way step
+  const back = () => setStep(s => {
+    const prev = Math.max(s - 1, 0);
+    return prev === 5 ? 4 : prev;
+  });
 
   // When preset changes, sync engine and custom servers
   const handlePresetSelect = (presetId: string) => {
@@ -194,11 +212,88 @@ export function SetupWizard({ onComplete }: Props) {
     next();
   };
 
-  // Step 4: skip (use defaults)
+  // Step 4: skip — jump directly to Quick Guide (step 6), skipping installation
   const handlePresetSkip = () => {
-    setSelectedPreset('standard');
-    next();
+    setStep(6);
   };
+
+  // Step 5: Start batch installation
+  const startInstallation = useCallback(async () => {
+    if (installStarted) return;
+    setInstallStarted(true);
+    setInstallError(null);
+    setServerStatuses([]);
+    setInstallSteps([]);
+
+    try {
+      const servers = getActiveServers();
+      await api.batchInstallMarketplaceServers({ server_ids: servers, auto_start: true });
+
+      // Connect SSE for progress
+      const progressUrl = api.getMarketplaceProgressUrl();
+      const sseUrl = `${progressUrl}?api_key=${encodeURIComponent(api.apiKey || '')}`;
+      const es = new EventSource(sseUrl);
+      eventSourceRef.current = es;
+
+      es.addEventListener('setup', (ev: MessageEvent) => {
+        try {
+          const data = JSON.parse(ev.data);
+          switch (data.type) {
+            case 'StepStart':
+              setInstallSteps(prev => [...prev, { step: data.step, description: data.description, status: 'running' }]);
+              break;
+            case 'StepProgress':
+              setInstallSteps(prev => prev.map(s => s.step === data.step ? { ...s, progress: data.progress, detail: data.detail } : s));
+              break;
+            case 'StepComplete':
+              setInstallSteps(prev => prev.map(s => s.step === data.step ? { ...s, status: 'complete' } : s));
+              break;
+            case 'StepError':
+              setInstallSteps(prev => prev.map(s => s.step === data.step ? { ...s, status: 'error' } : s));
+              if (!data.recoverable) {
+                setInstallError(data.error);
+                es.close();
+              }
+              break;
+            case 'ServerInstall':
+              setServerStatuses(prev => {
+                const existing = prev.findIndex(s => s.name === data.server_name);
+                if (existing >= 0) {
+                  const copy = [...prev];
+                  copy[existing] = { name: data.server_name, status: data.status };
+                  return copy;
+                }
+                return [...prev, { name: data.server_name, status: data.status }];
+              });
+              break;
+            case 'Complete':
+              setInstallComplete(true);
+              es.close();
+              // Auto-advance to next step after brief delay
+              setTimeout(() => next(), 1000);
+              break;
+          }
+        } catch { /* ignore parse errors */ }
+      });
+
+      es.onerror = () => {
+        es.close();
+        if (!installComplete) {
+          setInstallComplete(true);
+          setTimeout(() => next(), 1000);
+        }
+      };
+    } catch (e) {
+      setInstallError(e instanceof Error ? e.message : 'Installation failed');
+    }
+  }, [installStarted, api, installComplete]);
+
+  // Auto-start installation when entering step 5
+  useEffect(() => {
+    if (step === 5 && !installStarted) {
+      startInstallation();
+    }
+  }, [step, installStarted, startInstallation]);
 
   const themes = [
     { value: 'light' as const, icon: Sun, label: t('theme_light') },
@@ -311,6 +406,70 @@ export function SetupWizard({ onComplete }: Props) {
           )}
 
           {step === 5 && (
+            <div className="space-y-4 w-full">
+              <h2 className="text-xl font-bold text-content-primary text-center">
+                {t('step_install', { defaultValue: 'Installing Servers' })}
+              </h2>
+
+              {/* Progress steps */}
+              {installSteps.length > 0 && (
+                <div className="space-y-2">
+                  {installSteps.map(s => (
+                    <div key={s.step} className="flex items-center gap-2 text-[11px] font-mono">
+                      {s.status === 'running' && <Loader2 size={12} className="text-brand animate-spin shrink-0" />}
+                      {s.status === 'complete' && <Check size={12} className="text-emerald-500 shrink-0" />}
+                      {s.status === 'error' && <AlertTriangle size={12} className="text-red-500 shrink-0" />}
+                      <span className="text-content-secondary">{s.description}</span>
+                      {s.detail && <span className="text-content-tertiary ml-auto">{s.detail}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Server statuses */}
+              {serverStatuses.length > 0 && (
+                <div className="max-h-[140px] overflow-y-auto space-y-1 border border-edge rounded-lg p-2">
+                  {serverStatuses.map(s => (
+                    <div key={s.name} className="flex items-center gap-2 text-[11px]">
+                      {s.status === 'installing' && <Loader2 size={10} className="text-brand animate-spin shrink-0" />}
+                      {s.status === 'installed' && <Check size={10} className="text-emerald-500 shrink-0" />}
+                      {s.status === 'failed' && <AlertTriangle size={10} className="text-red-500 shrink-0" />}
+                      {s.status === 'skipped' && <Circle size={10} className="text-content-tertiary shrink-0" />}
+                      <span className={`font-sans ${s.status === 'failed' ? 'text-red-400' : s.status === 'skipped' ? 'text-content-tertiary' : 'text-content-secondary'}`}>
+                        {s.name}
+                      </span>
+                      {s.status === 'skipped' && (
+                        <span className="text-[9px] text-content-tertiary ml-auto">{t('step_install_skipped', { defaultValue: 'already installed' })}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Error */}
+              {installError && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-[11px] text-red-400">
+                  {installError}
+                </div>
+              )}
+
+              {/* Completion */}
+              {installComplete && !installError && (
+                <div className="text-center text-[11px] text-emerald-500 font-sans">
+                  {t('step_install_complete', { defaultValue: 'All servers installed' })}
+                </div>
+              )}
+
+              {/* Waiting state */}
+              {!installStarted && !installComplete && (
+                <div className="text-center text-[11px] text-content-tertiary">
+                  {t('step_install_preparing', { defaultValue: 'Preparing installation...' })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {step === 6 && (
             <div className="space-y-5 w-full">
               <h2 className="text-xl font-bold text-content-primary text-center">
                 {t('quick_guide')}
@@ -332,9 +491,9 @@ export function SetupWizard({ onComplete }: Props) {
 
         {/* Footer: dots + nav buttons */}
         <div className="px-8 pb-6 flex items-center justify-between">
-          {/* Back button */}
+          {/* Back button (hidden during installation step) */}
           <div className="w-20">
-            {step > 0 && step < TOTAL_STEPS && (
+            {step > 0 && step < TOTAL_STEPS && step !== 5 && (
               <button
                 onClick={back}
                 className="text-xs font-bold text-content-tertiary hover:text-content-primary transition-colors"
@@ -376,6 +535,8 @@ export function SetupWizard({ onComplete }: Props) {
                   {applying ? '...' : t('next')}
                 </button>
               </div>
+            ) : step === 5 ? (
+              <div /> // Installation auto-advances
             ) : step < TOTAL_STEPS - 1 ? (
               <button
                 onClick={next}

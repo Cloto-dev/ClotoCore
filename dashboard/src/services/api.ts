@@ -323,6 +323,9 @@ export const api = {
 
   getMarketplaceProgressUrl: (): string => `${API_BASE}/marketplace/progress`,
 
+  batchInstallMarketplaceServers: (payload: { server_ids: string[]; auto_start?: boolean }, apiKey: string) =>
+    mutate('/marketplace/batch-install', 'POST', 'batch install marketplace servers', payload, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
+
   uninstallMarketplaceServer: (serverId: string, apiKey: string) =>
     mutate(`/marketplace/servers/${encodeURIComponent(serverId)}`, 'DELETE', 'uninstall marketplace server', undefined, { 'X-API-Key': apiKey }).then(r => r.json()).then(b => b.data),
 
@@ -420,6 +423,7 @@ export function createAuthenticatedApi(apiKey: string) {
     // Marketplace
     getMarketplaceCatalog: (forceRefresh?: boolean) => api.getMarketplaceCatalog(k, forceRefresh),
     installMarketplaceServer: (payload: { server_id: string; env?: Record<string, string>; auto_start?: boolean }) => api.installMarketplaceServer(payload, k),
+    batchInstallMarketplaceServers: (payload: { server_ids: string[]; auto_start?: boolean }) => api.batchInstallMarketplaceServers(payload, k),
     uninstallMarketplaceServer: (serverId: string) => api.uninstallMarketplaceServer(serverId, k),
     getMarketplaceProgressUrl: () => api.getMarketplaceProgressUrl(),
   };
