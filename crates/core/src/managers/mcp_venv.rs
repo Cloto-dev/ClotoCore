@@ -18,6 +18,7 @@ fn resolve_project_root() -> Option<PathBuf> {
 /// Read `[paths].servers` from `mcp.toml` in the project root.
 /// Uses the same `McpConfigFile` typed deserialization as `load_config_file()`
 /// to avoid silent failures from generic `toml::Value` parsing.
+#[must_use]
 pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
     let root = resolve_project_root()?;
     let config_path = root.join("mcp.toml");

@@ -280,6 +280,7 @@ fn default_transport() -> String {
 
 impl McpServerConfig {
     /// Returns the effective restart policy, respecting legacy auto_restart fallback.
+    #[must_use]
     pub fn effective_restart_policy(&self) -> RestartPolicy {
         self.restart_policy.clone().unwrap_or_else(|| {
             if self.auto_restart.unwrap_or(false) {

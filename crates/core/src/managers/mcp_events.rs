@@ -124,9 +124,7 @@ impl EventManager {
         buffer
             .iter()
             .filter(|e| e.seq > after_seq)
-            .filter(|e| {
-                channels.map_or(true, |chs| chs.iter().any(|c| c == &e.channel || c == "*"))
-            })
+            .filter(|e| channels.is_none_or(|chs| chs.iter().any(|c| c == &e.channel || c == "*")))
             .take(limit)
             .map(|e| {
                 (
@@ -304,10 +302,13 @@ pub(super) async fn replay(manager: &McpClientManager, args: Value) -> Result<Va
         .get("subscription_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: subscription_id"))?;
-    let after_seq = args.get("after_seq").and_then(|v| v.as_u64()).unwrap_or(0);
+    let after_seq = args
+        .get("after_seq")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
     let limit = args
         .get("limit")
-        .and_then(|v| v.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(100)
         .min(1000) as usize;
 
@@ -340,7 +341,7 @@ pub(super) async fn replay(manager: &McpClientManager, args: Value) -> Result<Va
         && manager
             .events
             .min_buffered_seq()
-            .map_or(false, |min| min > after_seq + 1);
+            .is_some_and(|min| min > after_seq + 1);
 
     Ok(serde_json::json!({
         "subscription_id": sub_id,

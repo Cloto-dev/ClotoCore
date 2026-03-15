@@ -126,12 +126,14 @@ fn split_language_segments(text: &str) -> Vec<LangSegment> {
             continue;
         };
 
-        if current_lang.is_some() && current_lang != Some(lang) {
-            // Language boundary: flush
-            segments.push(LangSegment {
-                text: std::mem::take(&mut current),
-                lang: current_lang.unwrap(),
-            });
+        if let Some(prev_lang) = current_lang {
+            if prev_lang != lang {
+                // Language boundary: flush
+                segments.push(LangSegment {
+                    text: std::mem::take(&mut current),
+                    lang: prev_lang,
+                });
+            }
         }
         current_lang = Some(lang);
         current.push(c);
@@ -324,6 +326,7 @@ fn punctuation_duration(c: char) -> u64 {
 ///
 /// Handles mixed Japanese/English text by splitting into language segments,
 /// generating visemes for each, and merging with punctuation pauses.
+#[must_use]
 pub fn generate_timeline(text: &str) -> VisemeTimeline {
     let segments = split_language_segments(text);
     let mut all_entries = Vec::new();
@@ -364,10 +367,7 @@ pub fn generate_timeline(text: &str) -> VisemeTimeline {
         }
     }
 
-    let total = all_entries
-        .last()
-        .map(|e| e.start_ms + e.duration_ms)
-        .unwrap_or(0);
+    let total = all_entries.last().map_or(0, |e| e.start_ms + e.duration_ms);
 
     VisemeTimeline {
         entries: all_entries,

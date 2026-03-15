@@ -30,7 +30,7 @@ fn main() {
 
     // Auto-start VOICEVOX Engine if not running
     let config = voicevox::VoicevoxConfig::from_env();
-    let _engine =
+    let engine_guard =
         match engine::VoicevoxEngine::ensure_running(&config.url, config.engine_path.as_deref()) {
             Ok(engine) => Some(engine),
             Err(e) => {
@@ -82,8 +82,8 @@ fn main() {
         write_message(&mut stdout_lock, &response);
     }
 
-    // _engine is dropped here, which shuts down VOICEVOX if we started it
-    drop(_engine);
+    // engine_guard is dropped here, which shuts down VOICEVOX if we started it
+    drop(engine_guard);
     tracing::info!("MGP Avatar Server shutting down");
 }
 
@@ -136,24 +136,18 @@ fn handle_tools_list(request: &JsonRpcRequest) -> JsonRpcResponse {
 }
 
 fn handle_tools_call(request: &JsonRpcRequest) -> (JsonRpcResponse, Vec<JsonRpcNotification>) {
-    let params = match &request.params {
-        Some(p) => p,
-        None => {
-            return (
-                JsonRpcResponse::err(request.id.clone(), -32602, "Missing params"),
-                vec![],
-            );
-        }
+    let Some(params) = &request.params else {
+        return (
+            JsonRpcResponse::err(request.id.clone(), -32602, "Missing params"),
+            vec![],
+        );
     };
 
-    let tool_name = match params.get("name").and_then(|v| v.as_str()) {
-        Some(n) => n,
-        None => {
-            return (
-                JsonRpcResponse::err(request.id.clone(), -32602, "Missing tool name"),
-                vec![],
-            );
-        }
+    let Some(tool_name) = params.get("name").and_then(|v| v.as_str()) else {
+        return (
+            JsonRpcResponse::err(request.id.clone(), -32602, "Missing tool name"),
+            vec![],
+        );
     };
 
     let args = params

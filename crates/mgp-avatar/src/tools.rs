@@ -128,7 +128,7 @@ fn execute_set_pose(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), S
         .ok_or("pose is required")?;
     let transition = args
         .get("transition")
-        .and_then(|v| v.as_f64())
+        .and_then(serde_json::Value::as_f64)
         .unwrap_or(0.5);
 
     let notif = JsonRpcNotification::new(
@@ -217,7 +217,7 @@ fn execute_set_expression(args: &Value) -> Result<(Value, Vec<JsonRpcNotificatio
         .ok_or("expression is required")?;
     let intensity = args
         .get("intensity")
-        .and_then(|v| v.as_f64())
+        .and_then(serde_json::Value::as_f64)
         .unwrap_or(1.0);
 
     let notif = JsonRpcNotification::new(
@@ -275,13 +275,22 @@ fn execute_set_idle_behavior(args: &Value) -> Result<(Value, Vec<JsonRpcNotifica
     if let Some(mode) = args.get("mode").and_then(|v| v.as_str()) {
         changes.push(format!("mode={mode}"));
     }
-    if let Some(br) = args.get("breathing_rate").and_then(|v| v.as_f64()) {
+    if let Some(br) = args
+        .get("breathing_rate")
+        .and_then(serde_json::Value::as_f64)
+    {
         changes.push(format!("breathing={br:.1}"));
     }
-    if let Some(sa) = args.get("sway_amplitude").and_then(|v| v.as_f64()) {
+    if let Some(sa) = args
+        .get("sway_amplitude")
+        .and_then(serde_json::Value::as_f64)
+    {
         changes.push(format!("sway={sa:.1}"));
     }
-    if let Some(bf) = args.get("blink_frequency").and_then(|v| v.as_f64()) {
+    if let Some(bf) = args
+        .get("blink_frequency")
+        .and_then(serde_json::Value::as_f64)
+    {
         changes.push(format!("blink={bf:.1}"));
     }
     if args.get("pose").is_some() {
@@ -400,8 +409,8 @@ fn execute_speak(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), Stri
         .get("agent_id")
         .and_then(|v| v.as_str())
         .ok_or("agent_id is required")?;
-    let speaker = args.get("speaker").and_then(|v| v.as_i64());
-    let speed = args.get("speed").and_then(|v| v.as_f64());
+    let speaker = args.get("speaker").and_then(serde_json::Value::as_i64);
+    let speed = args.get("speed").and_then(serde_json::Value::as_f64);
 
     let client = voicevox();
     let (wav_bytes, viseme_timeline, total_duration_ms, audio_offset_ms) =
@@ -453,8 +462,8 @@ fn execute_synthesize(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>),
         .get("text")
         .and_then(|v| v.as_str())
         .ok_or("text is required")?;
-    let speaker = args.get("speaker").and_then(|v| v.as_i64());
-    let speed = args.get("speed").and_then(|v| v.as_f64());
+    let speaker = args.get("speaker").and_then(serde_json::Value::as_i64);
+    let speed = args.get("speed").and_then(serde_json::Value::as_f64);
 
     let client = voicevox();
     let (wav_bytes, viseme_timeline, total_duration_ms, audio_offset_ms) =
@@ -495,7 +504,7 @@ fn execute_list_speakers(_args: &Value) -> Result<(Value, Vec<JsonRpcNotificatio
                         .map(|s| {
                             json!({
                                 "name": s.get("name").and_then(|v| v.as_str()).unwrap_or(""),
-                                "id": s.get("id").and_then(|v| v.as_i64()).unwrap_or(0)
+                                "id": s.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0)
                             })
                         })
                         .collect()
@@ -524,7 +533,7 @@ fn execute_list_speakers(_args: &Value) -> Result<(Value, Vec<JsonRpcNotificatio
 fn execute_set_speaker(args: &Value) -> Result<(Value, Vec<JsonRpcNotification>), String> {
     let speaker_id = args
         .get("speaker")
-        .and_then(|v| v.as_i64())
+        .and_then(serde_json::Value::as_i64)
         .ok_or("speaker is required")?;
 
     let client = voicevox();
