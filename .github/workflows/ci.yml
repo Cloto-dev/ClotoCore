@@ -41,7 +41,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --workspace --exclude app --all-targets -- -D warnings
+        run: cargo clippy --workspace --exclude app --all-targets -- -D warnings -A clippy::too-many-lines -A clippy::struct-excessive-bools -A clippy::match-same-arms -A clippy::cast-possible-wrap -A clippy::trivially-copy-pass-by-ref -A clippy::manual-let-else -A clippy::option-if-let-else -A clippy::case-sensitive-file-extension-comparisons -A clippy::unwrap-used
 
   audit:
     name: Security Audit

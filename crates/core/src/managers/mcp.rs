@@ -582,8 +582,7 @@ impl McpClientManager {
             let entry_point = std::path::Path::new(&config.command);
             if entry_point.exists() {
                 let seal_key = super::mcp_seal::load_or_generate_seal_key(
-                    &self
-                        .sandbox_base_dir
+                    self.sandbox_base_dir
                         .parent()
                         .unwrap_or(std::path::Path::new("data")),
                 )?;
@@ -620,7 +619,7 @@ impl McpClientManager {
         let isolation_profile = if self.isolation_enabled {
             let approved_perms = config.required_permissions.clone();
             match super::mcp_isolation::derive_isolation_profile(
-                trust_level.clone(),
+                trust_level,
                 &approved_perms,
                 config.isolation.as_ref(),
                 &id,
@@ -1091,7 +1090,7 @@ impl McpClientManager {
             .collect();
 
         // Include stopped servers as Disconnected
-        for (id, (config, source)) in state.stopped_configs.iter() {
+        for (id, (config, source)) in &state.stopped_configs {
             if !state.servers.contains_key(id) {
                 result.push(McpServerInfo {
                     id: id.clone(),
@@ -1230,7 +1229,7 @@ impl McpClientManager {
         };
         // §16: Always include LLM meta-tools for dynamic discovery
         schemas.extend(super::mcp_kernel_tool::llm_meta_tool_schemas());
-        for (server_id, handle) in state.servers.iter() {
+        for (server_id, handle) in &state.servers {
             if handle.status != ServerStatus::Connected {
                 continue;
             }

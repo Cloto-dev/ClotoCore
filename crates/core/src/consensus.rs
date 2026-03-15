@@ -168,9 +168,7 @@ impl ConsensusOrchestrator {
             let min_proposals = state.config.min_proposals;
             let synthesizer_engine = state.config.synthesizer_engine.clone();
 
-            let Some(session) = state.sessions.get_mut(&trace_id) else {
-                return None;
-            };
+            let session = state.sessions.get_mut(&trace_id)?;
 
             match session {
                 SessionState::Collecting {
