@@ -287,7 +287,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             .unwrap_or(false)
     };
     if setup_json.exists() || is_dev {
-        managers::mcp_venv::ensure_mcp_venv().await;
+        managers::mcp_venv::ensure_mcp_venv(Some(&data_dir)).await;
     } else {
         tracing::info!("Setup not complete — skipping MCP venv sync");
     }
