@@ -136,6 +136,11 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
       delete metadata.avatar_description;
       delete metadata.has_power_password;
       delete metadata.has_vrm;
+      // Remove avatar/VRM paths if pending deletion — prevents updateAgent from
+      // re-inserting paths that deleteAvatar/deleteVrm just removed (race condition)
+      if (pendingAvatarDelete && !pendingAvatarFile) {
+        delete metadata.avatar_path;
+      }
       if (memoryServer) {
         metadata.preferred_memory = memoryServer.id;
       } else {

@@ -2089,6 +2089,18 @@
       "pattern": "let avatar_description = analyze_avatar",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-325",
+      "summary": "Avatar deletion undone by updateAgent race — deleteAvatar removes avatar_path but updateAgent re-inserts it from stale agent.metadata",
+      "severity": "HIGH",
+      "discovered": "2026-03-15T19:15:00Z",
+      "version": "0.6.3-alpha.2",
+      "commit": "ebde11a",
+      "file": "dashboard/src/components/AgentPluginWorkspace.tsx",
+      "pattern": "delete metadata.avatar_path",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }
