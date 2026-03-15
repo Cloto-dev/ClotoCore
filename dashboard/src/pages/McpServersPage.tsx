@@ -212,7 +212,7 @@ export function McpServersPage() {
                 <button
                   key={server.id}
                   onClick={() => setSelectedId(server.id)}
-                  className="text-left p-4 rounded-xl border border-edge bg-surface-primary hover:bg-surface-secondary/80 hover:border-brand transition-all duration-200 group"
+                  className="text-left p-4 rounded-xl border border-edge bg-surface-primary/50 hover:bg-surface-secondary/80 hover:border-brand transition-all duration-200 group"
                 >
                   <div className="flex items-center gap-2.5 mb-2">
                     <Server
