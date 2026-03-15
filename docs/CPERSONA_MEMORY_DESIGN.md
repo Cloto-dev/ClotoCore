@@ -16,6 +16,7 @@
 | CPersona 2.0/2.1 | ai_karin | SQLite (WAL, FTS5, vector) | FTS5 + cosine similarity + semantic cache | LLM-powered (DeepSeek Reasoner): profile extraction, episode archival | Reference implementation |
 | CPersona 2.2 | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Deprecated (Rust plugin) |
 | CPersona 2.3 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) | **Current** |
+| CPersona 2.4 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | LLM-powered + anti-contamination + gated recency boost | **Planned** |
 
 ### 1.2 Capabilities Lost in 2.2 (restored in 2.3)
 
@@ -928,6 +929,60 @@ that don't map to ClotoCore's agent_id model. Manual migration may be performed 
 - [x] Disable via `CPERSONA_TASK_QUEUE_ENABLED=false` (falls back to synchronous execution)
 
 ### CPersona 2.4+ Roadmap
+
+#### Recency-Weighted Vector Search (Planned — v2.4 scope)
+
+Current vector search treats all memories equally regardless of age. A fixed cosine
+similarity threshold (`CPERSONA_VECTOR_MIN_SIMILARITY = 0.3`) means a relevant
+recent memory at 0.28 is discarded while an older, less contextually relevant memory
+at 0.31 is returned.
+
+**Solution: Gated recency boost**
+
+```python
+COSINE_GATE = 0.20          # Minimum cosine similarity (hard floor)
+RECENCY_MAX_BOOST = 0.10    # Maximum score bonus from recency
+RECENCY_DECAY = 0.05        # Decay rate (higher = faster decay)
+
+if cosine_sim < COSINE_GATE:
+    continue  # Block semantically irrelevant memories regardless of recency
+
+age_hours = (now - timestamp).total_seconds() / 3600
+recency_boost = min(RECENCY_MAX_BOOST, RECENCY_MAX_BOOST / (1.0 + age_hours * RECENCY_DECAY))
+final_score = cosine_sim + recency_boost
+```
+
+**Score examples:**
+
+| Memory | cosine | age | boost | final | outcome |
+|--------|--------|-----|-------|-------|---------|
+| Unrelated chat (5 min ago) | 0.12 | 0.08h | — | — | Blocked by gate (< 0.20) |
+| Related recent talk (10 min ago) | 0.28 | 0.17h | +0.099 | 0.379 | Boosted above old threshold |
+| Birthday fact (6 months ago) | 0.35 | 4380h | +0.000 | 0.350 | Survives on cosine alone |
+| High-relevance old memory (1 week) | 0.55 | 168h | +0.011 | 0.561 | Still top-ranked |
+
+**Anti-contamination guarantees:**
+- `COSINE_GATE` mechanically blocks semantically irrelevant memories (prevents noise injection)
+- `RECENCY_MAX_BOOST` caps recency contribution (cosine similarity remains dominant signal)
+- Recency acts as a **tiebreaker** between memories of similar relevance, not a primary ranking factor
+- Profile memories are unaffected (retrieved via Strategy 2, not vector search)
+- Episode memories are unaffected (retrieved via Strategy 1 FTS5, not vector search)
+
+**Environment variables (all optional, defaults preserve current behavior):**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CPERSONA_COSINE_GATE` | 0.20 | Hard minimum cosine similarity |
+| `CPERSONA_RECENCY_MAX_BOOST` | 0.10 | Maximum recency score bonus |
+| `CPERSONA_RECENCY_DECAY` | 0.05 | Recency decay rate per hour |
+| `CPERSONA_RECENCY_ENABLED` | `false` | Set to `true` to enable (opt-in) |
+
+When `CPERSONA_RECENCY_ENABLED=false` (default), the system uses the existing fixed
+threshold behavior (`CPERSONA_VECTOR_MIN_SIMILARITY`). This ensures full backward
+compatibility.
+
+**Implementation scope:** `cloto-mcp-servers` repo only (`servers/cpersona/server.py`,
+`_search_vector()` function). No ClotoCore kernel changes required.
 
 #### Enhanced `get_queue_status` (Planned)
 
