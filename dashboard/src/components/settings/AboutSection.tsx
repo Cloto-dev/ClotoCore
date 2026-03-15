@@ -1,10 +1,11 @@
 import { CheckCircle, Download, RefreshCw, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useLocalStorage } from '../../hooks/useStorage';
 import { applyUpdate, checkForUpdates, isTauri, type UpdateInfo } from '../../lib/tauri';
 import { SetupWizard } from '../SetupWizard';
 import { AlertCard } from '../ui/AlertCard';
-import { SectionCard } from './common';
+import { SectionCard, Toggle } from './common';
 
 type UpdateState = 'idle' | 'checking' | 'up-to-date' | 'available' | 'updating' | 'updated' | 'error';
 
@@ -15,6 +16,8 @@ export function AboutSection() {
   const [updateOutput, setUpdateOutput] = useState('');
   const [showWizard, setShowWizard] = useState(false);
   const { t } = useTranslation('settings');
+  const [autoUpdateRaw, setAutoUpdateRaw] = useLocalStorage('cloto-auto-update', 'on');
+  const autoUpdateEnabled = autoUpdateRaw !== 'off';
 
   const handleCheck = async () => {
     setUpdateState('checking');
@@ -62,6 +65,18 @@ export function AboutSection() {
 
       <SectionCard title={t('about.updates')}>
         <div className="space-y-3">
+          {/* Auto-update toggle (Tauri desktop only) */}
+          {isTauri && (
+            <div className="mb-3 pb-3 border-b border-edge">
+              <Toggle
+                enabled={autoUpdateEnabled}
+                onToggle={() => setAutoUpdateRaw(autoUpdateEnabled ? 'off' : 'on')}
+                label={t('about.auto_update')}
+              />
+              <p className="text-[11px] text-content-tertiary mt-1">{t('about.auto_update_desc')}</p>
+            </div>
+          )}
+
           {/* Check button */}
           {(updateState === 'idle' || updateState === 'error') && (
             <button

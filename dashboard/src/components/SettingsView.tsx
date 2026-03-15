@@ -16,8 +16,8 @@ const NAV_ITEMS: { id: Section; labelKey: string; icon: typeof Sun }[] = [
   { id: 'about', labelKey: 'sections.about', icon: Info },
 ];
 
-export function SettingsView({ onBack }: { onBack?: () => void }) {
-  const [activeSection, setActiveSection] = useState<Section>('general');
+export function SettingsView({ onBack, initialSection }: { onBack?: () => void; initialSection?: Section }) {
+  const [activeSection, setActiveSection] = useState<Section>(initialSection ?? 'general');
   const { t } = useTranslation('settings');
 
   return (

@@ -18,6 +18,7 @@ export interface AppOutletContext {
 
 export function AppLayout() {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<'general' | 'about'>('general');
   const [helpOpen, setHelpOpen] = useState(false);
   const [immersive, setImmersive] = useState(false);
   const [sidebarRaw, setSidebarRaw] = useLocalStorage('sidebar-collapsed', 'false');
@@ -51,6 +52,17 @@ export function AppLayout() {
     window.addEventListener('cloto-setup-rerun-complete', handler);
     return () => window.removeEventListener('cloto-setup-rerun-complete', handler);
   }, [navigate]);
+
+  // Open settings (optionally to About section) when update button is clicked
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const section = (e as CustomEvent).detail?.section ?? 'general';
+      setSettingsInitialSection(section);
+      setSettingsOpen(true);
+    };
+    window.addEventListener('cloto-open-settings', handler);
+    return () => window.removeEventListener('cloto-open-settings', handler);
+  }, []);
 
   const handleAskAgent = () => {
     setHelpOpen(false);
@@ -106,7 +118,15 @@ export function AppLayout() {
 
       {/* Settings modal */}
       {settingsOpen && (
-        <Modal title="Settings" icon={Settings} size="lg" onClose={() => setSettingsOpen(false)}>
+        <Modal
+          title="Settings"
+          icon={Settings}
+          size="lg"
+          onClose={() => {
+            setSettingsOpen(false);
+            setSettingsInitialSection('general');
+          }}
+        >
           <Suspense
             fallback={
               <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
@@ -114,7 +134,7 @@ export function AppLayout() {
               </div>
             }
           >
-            <SettingsView />
+            <SettingsView initialSection={settingsInitialSection} />
           </Suspense>
         </Modal>
       )}
