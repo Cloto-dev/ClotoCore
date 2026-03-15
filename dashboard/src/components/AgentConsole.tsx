@@ -315,13 +315,14 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
       if (event.data?.agent_id === agent.id || (event.data?.engine_id as string | undefined)?.startsWith('mind.')) {
         if (event.type === 'ToolInvoked' && event.data.agent_id === agent.id) {
           const tool = (event.data.tool_name as string) || 'unknown';
+          const hint = event.data.tool_hint as string | undefined;
           const success = event.data.success as boolean;
           setThinkingSteps((prev) => [
             ...prev,
             {
               id: thinkingIdRef.current++,
               status: success ? 'ok' : 'fail',
-              text: tool,
+              text: hint || tool,
               detail: success ? `${event.data.duration_ms}ms` : 'failed',
               ts: Date.now(),
             },
