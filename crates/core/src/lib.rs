@@ -907,6 +907,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         // Marketplace (auth required)
         .route("/marketplace/catalog", get(handlers::catalog_handler))
         .route("/marketplace/install", post(handlers::install_handler))
+        .route("/marketplace/batch-install", post(handlers::batch_install_handler))
         .route("/marketplace/servers/{id}", delete(handlers::uninstall_handler));
 
     // Read endpoints (authenticated, rate-limited — bug-157)
