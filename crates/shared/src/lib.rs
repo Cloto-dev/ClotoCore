@@ -494,6 +494,9 @@ pub enum ClotoEventData {
         success: bool,
         duration_ms: u64,
         iteration: u8,
+        /// Short summary of tool arguments for UI display (e.g., command name).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_hint: Option<String>,
     },
     /// Intermediate reasoning text from the LLM before executing tool calls.
     AgentThinking {
