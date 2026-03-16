@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAgentContext } from '../contexts/AgentContext';
 import { useLocalStorage } from '../hooks/useStorage';
+import { AgentPage } from '../pages/AgentPage';
 import { AppSidebar } from './AppSidebar';
 import { HelpContent } from './HelpContent';
 import { InteractiveGrid } from './InteractiveGrid';
@@ -24,8 +25,9 @@ export function AppLayout() {
   const [sidebarRaw, setSidebarRaw] = useLocalStorage('sidebar-collapsed', 'false');
   const sidebarCollapsed = sidebarRaw === 'true';
   const navigate = useNavigate();
-  const _location = useLocation();
+  const location = useLocation();
   const { agents, setSelectedAgentId } = useAgentContext();
+  const isAgentRoute = location.pathname === '/';
 
   const activeCount = agents.filter((a) => a.enabled).length;
 
@@ -104,15 +106,23 @@ export function AppLayout() {
           </div>
         )}
         <main className="flex-1 h-full overflow-hidden relative z-10">
-          <Suspense
-            fallback={
-              <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
-                LOADING CLOTO...
-              </div>
-            }
-          >
-            <Outlet context={{ setImmersive } satisfies AppOutletContext} />
-          </Suspense>
+          {/* AgentPage is always mounted to preserve SSE connections,
+              thinking steps, and chat state across navigation.
+              Thinking steps also persisted in sessionStorage for reload. */}
+          <div className={isAgentRoute ? 'h-full' : 'hidden'}>
+            <AgentPage />
+          </div>
+          {!isAgentRoute && (
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
+                  LOADING CLOTO...
+                </div>
+              }
+            >
+              <Outlet context={{ setImmersive } satisfies AppOutletContext} />
+            </Suspense>
+          )}
         </main>
       </div>
 
