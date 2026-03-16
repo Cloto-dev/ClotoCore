@@ -32,7 +32,13 @@ pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
     } else {
         raw.clone()
     };
-    Some(PathBuf::from(resolved))
+    let path = PathBuf::from(&resolved);
+    // Resolve relative paths against project root (not CWD)
+    if path.is_relative() {
+        Some(root.join(path))
+    } else {
+        Some(path)
+    }
 }
 
 /// Get the path to the shared venv directory.
