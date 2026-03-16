@@ -12,7 +12,7 @@ import { ApiKeyProvider } from './contexts/ApiKeyContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { UserIdentityProvider } from './contexts/UserIdentityContext';
 import { checkForUpdates, isTauri } from './lib/tauri';
-import { AgentPage } from './pages/AgentPage';
+
 import './i18n';
 import { loadExternalLanguages } from './i18n';
 import './compiled-tailwind.css';
@@ -144,7 +144,7 @@ function App() {
             }
           />
           <Route element={<AppLayout />}>
-            <Route path="/" element={<AgentPage />} />
+            <Route path="/" element={null} />
             <Route path="/dashboard" element={<MemoryCore />} />
             <Route path="/mcp-servers" element={<McpServersPage />} />
             <Route path="/cron" element={<CronJobs />} />

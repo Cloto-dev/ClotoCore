@@ -115,9 +115,30 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     elapsedSecs: number;
     parentId?: string;
   } | null>(null);
-  const [thinkingSteps, setThinkingSteps] = useState<
+  const [thinkingSteps, setThinkingStepsRaw] = useState<
     Array<{ id: number; status: 'ok' | 'fail' | 'done' | 'thought'; text: string; detail?: string; ts: number }>
-  >([]);
+  >(() => {
+    try {
+      const saved = sessionStorage.getItem(`cloto-thinking-${agent.id}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  // Wrap setter to persist to sessionStorage
+  const setThinkingSteps: typeof setThinkingStepsRaw = (action) => {
+    setThinkingStepsRaw((prev) => {
+      const next = typeof action === 'function' ? action(prev) : action;
+      try {
+        if (next.length === 0) {
+          sessionStorage.removeItem(`cloto-thinking-${agent.id}`);
+        } else {
+          sessionStorage.setItem(`cloto-thinking-${agent.id}`, JSON.stringify(next.slice(-50)));
+        }
+      } catch { /* storage full */ }
+      return next;
+    });
+  };
   const [pendingApprovals, setPendingApprovals] = useState<CommandApprovalRequest[]>([]);
   const thinkingIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
