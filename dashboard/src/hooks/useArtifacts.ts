@@ -52,8 +52,25 @@ export function useArtifacts(): UseArtifactsResult {
 
   const addArtifact = useCallback((artifact: Omit<Artifact, 'id'>) => {
     setArtifacts((prev) => {
-      // Deduplicate by code content
+      // Exact duplicate — skip
       if (prev.some((a) => a.code === artifact.code)) return prev;
+
+      // Prefix match — streaming growth of the same code block.
+      // If an existing artifact's code is a prefix of the new one (or vice versa),
+      // update the existing entry instead of adding a new one.
+      const growthIndex = prev.findIndex(
+        (a) => a.language === artifact.language && (artifact.code.startsWith(a.code) || a.code.startsWith(artifact.code)),
+      );
+      if (growthIndex >= 0) {
+        // Keep the longer version
+        if (artifact.code.length <= prev[growthIndex].code.length) return prev;
+        const next = [...prev];
+        next[growthIndex] = { ...next[growthIndex], code: artifact.code, lineCount: artifact.lineCount };
+        setActiveIndex(growthIndex);
+        saveArtifacts(next);
+        return next;
+      }
+
       const id = `artifact-${Date.now()}-${prev.length}`;
       const next = [...prev, { ...artifact, id }];
       setActiveIndex(next.length - 1);
