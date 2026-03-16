@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { ChevronLeft, PanelRightClose } from 'lucide-react';
 import type { Artifact } from '../hooks/useArtifacts';
 import { CodeBlock } from './CodeBlock';
 
@@ -8,6 +8,7 @@ interface ArtifactPanelProps {
   onTabChange: (index: number) => void;
   isOpen: boolean;
   onClose: () => void;
+  onOpen: () => void;
 }
 
 function getLabel(code: string): string {
@@ -18,20 +19,35 @@ function getLabel(code: string): string {
   return trimmed.length > 37 ? trimmed.slice(0, 34) + '...' : trimmed;
 }
 
-export function ArtifactPanel({ artifacts, activeIndex, onTabChange, isOpen, onClose }: ArtifactPanelProps) {
+export function ArtifactPanel({ artifacts, activeIndex, onTabChange, isOpen, onClose, onOpen }: ArtifactPanelProps) {
   if (artifacts.length === 0) return null;
 
   const active = artifacts[activeIndex] || artifacts[0];
 
+  // Collapsed state: show a thin vertical tab to re-open
+  if (!isOpen) {
+    return (
+      <button
+        onClick={onOpen}
+        className="h-full w-8 shrink-0 border-l border-edge bg-surface-primary hover:bg-glass-strong flex flex-col items-center justify-center gap-2 transition-colors group"
+        title="Open Artifacts"
+      >
+        <ChevronLeft size={12} className="text-content-tertiary group-hover:text-brand transition-colors" />
+        <span className="text-[9px] font-black uppercase tracking-widest text-content-tertiary group-hover:text-content-secondary [writing-mode:vertical-rl] rotate-180">
+          Artifacts
+        </span>
+        <span className="text-[8px] font-mono text-brand/70">{artifacts.length}</span>
+      </button>
+    );
+  }
+
   return (
     <div
-      className="h-full bg-surface-primary border-l border-edge flex flex-col transition-all duration-300 ease-out"
+      className="h-full bg-surface-primary border-l border-edge flex flex-col"
       style={{
-        width: isOpen ? '480px' : '0px',
-        maxWidth: isOpen ? '50vw' : '0px',
-        minWidth: isOpen ? '320px' : '0px',
-        opacity: isOpen ? 1 : 0,
-        overflow: isOpen ? 'visible' : 'hidden',
+        width: '480px',
+        maxWidth: '50vw',
+        minWidth: '320px',
       }}
     >
       {/* Header */}
@@ -43,8 +59,9 @@ export function ArtifactPanel({ artifacts, activeIndex, onTabChange, isOpen, onC
         <button
           onClick={onClose}
           className="p-1.5 rounded-md hover:bg-surface-secondary text-content-tertiary hover:text-content-primary transition-all"
+          title="Collapse"
         >
-          <X size={14} />
+          <PanelRightClose size={14} />
         </button>
       </div>
 
