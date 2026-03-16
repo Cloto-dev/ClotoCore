@@ -32,7 +32,7 @@ tauri-plugin-single-instance = "2"
 # Screen capture
 xcap = "0.9"
 image = "0.25"
-base64 = "0.21"
+base64 = "0.22"
 
 # ClotoCore Kernel (provides axum, tower-http, tokio, tracing, etc.)
 cloto_core = { path = "../../crates/core" }
