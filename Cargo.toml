@@ -2,7 +2,6 @@
 members = [
     "crates/core",
     "crates/shared",
-    "crates/mgp-avatar",
     "dashboard/src-tauri",
 ]
 resolver = "2"
