@@ -365,13 +365,24 @@ impl AgentManager {
         // Preserve fields managed by dedicated APIs (avatar, VRM) that use
         // json_set/json_remove for partial updates. Without this, COALESCE
         // full-replacement would overwrite these fields.
+        // Only re-inject each field if it exists in the current row (IS NOT NULL),
+        // otherwise json_set would insert a JSON null which breaks deserialization.
         sqlx::query(
             "UPDATE agents SET metadata = CASE \
                WHEN ?1 IS NOT NULL THEN ( \
-                 SELECT json_set(json_set(json_set(?1, \
-                   '$.avatar_path', json_extract(metadata, '$.avatar_path')), \
-                   '$.avatar_description', json_extract(metadata, '$.avatar_description')), \
-                   '$.vrm_path', json_extract(metadata, '$.vrm_path')) \
+                 SELECT CASE WHEN json_extract(metadata, '$.vrm_path') IS NOT NULL \
+                   THEN json_set(m3, '$.vrm_path', json_extract(metadata, '$.vrm_path')) \
+                   ELSE m3 END \
+                 FROM ( \
+                   SELECT CASE WHEN json_extract(metadata, '$.avatar_description') IS NOT NULL \
+                     THEN json_set(m2, '$.avatar_description', json_extract(metadata, '$.avatar_description')) \
+                     ELSE m2 END AS m3 \
+                   FROM ( \
+                     SELECT CASE WHEN json_extract(metadata, '$.avatar_path') IS NOT NULL \
+                       THEN json_set(?1, '$.avatar_path', json_extract(metadata, '$.avatar_path')) \
+                       ELSE ?1 END AS m2 \
+                   ) \
+                 ) \
                ) \
                ELSE metadata END, \
              name = COALESCE(?2, name), \
