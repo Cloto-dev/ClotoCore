@@ -42,8 +42,10 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const [pendingAvatarDelete, setPendingAvatarDelete] = useState(false);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
 
-  // VRM state (immediate — uploaded/deleted on action, not deferred to Save)
+  // VRM state (deferred — only persisted on Save, same as avatar)
   const [hasVrm, setHasVrm] = useState(agent.metadata?.has_vrm === 'true');
+  const [pendingVrmFile, setPendingVrmFile] = useState<File | null>(null);
+  const [pendingVrmDelete, setPendingVrmDelete] = useState(false);
 
   // Load current access entries for this agent
   useEffect(() => {
@@ -155,6 +157,14 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
         await api.uploadAvatar(agent.id, pendingAvatarFile);
       }
 
+      // Step 3: VRM operations AFTER updateAgent (same deferred pattern as avatar)
+      if (pendingVrmDelete && !pendingVrmFile) {
+        await api.deleteVrm(agent.id);
+      }
+      if (pendingVrmFile) {
+        await api.uploadVrm(agent.id, pendingVrmFile);
+      }
+
       // Clean up preview URL
       if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
 
@@ -193,29 +203,24 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
     setAvatarDescription('');
   };
 
-  const handleVrmUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // VRM handlers — deferred to Save (same pattern as avatar)
+  const handleVrmUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 50 * 1024 * 1024) {
       setSaveError('VRM file too large (max 50MB)');
       return;
     }
-    try {
-      await api.uploadVrm(agent.id, file);
-      setHasVrm(true);
-    } catch (err: any) {
-      setSaveError(err?.message || 'Failed to upload VRM');
-    }
+    setPendingVrmFile(file);
+    setPendingVrmDelete(false);
+    setHasVrm(true);
     e.target.value = '';
   };
 
-  const handleVrmDelete = async () => {
-    try {
-      await api.deleteVrm(agent.id);
-      setHasVrm(false);
-    } catch (err: any) {
-      setSaveError(err?.message || 'Failed to delete VRM');
-    }
+  const handleVrmDelete = () => {
+    setPendingVrmFile(null);
+    setPendingVrmDelete(true);
+    setHasVrm(false);
   };
 
   const grantedServers = servers.filter((s) => grantedIds.has(s.id));
