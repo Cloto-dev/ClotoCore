@@ -1,5 +1,5 @@
 import { AlertTriangle, Plus, RefreshCw, Server } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../components/Modal';
 import { MarketplaceTab } from '../components/mcp/MarketplaceTab';
@@ -27,6 +27,7 @@ export function McpServersPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'servers' | 'marketplace'>('servers');
+  const marketplaceRefetchRef = useRef<(() => Promise<void>) | null>(null);
 
   // Add server form state
   const [newName, setNewName] = useState('');
@@ -132,14 +133,17 @@ export function McpServersPage() {
         <span className="text-[10px] font-mono text-content-tertiary ml-1">
           {t('servers_count', { count: servers.length })} &middot; {t('running_count', { count: running })}
         </span>
+        <button
+          onClick={() => {
+            refetch();
+            marketplaceRefetchRef.current?.();
+          }}
+          className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+          title={t('refresh')}
+        >
+          <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+        </button>
         <div className="ml-auto flex items-center gap-1">
-          <button
-            onClick={refetch}
-            className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
-            title={t('refresh')}
-          >
-            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
-          </button>
           {activeTab === 'servers' && (
             <button
               onClick={() => setAddModalOpen(true)}
@@ -242,7 +246,7 @@ export function McpServersPage() {
           </>
         )}
 
-        {activeTab === 'marketplace' && <MarketplaceTab />}
+        {activeTab === 'marketplace' && <MarketplaceTab onRefetchRef={marketplaceRefetchRef} />}
       </div>
 
       {/* Server Detail Modal */}
