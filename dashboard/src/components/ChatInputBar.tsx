@@ -15,6 +15,7 @@ interface ChatInputBarProps {
   disabled: boolean;
   servers?: McpServerInfo[];
   editMode?: EditMode | null;
+  agentId?: string;
 }
 
 interface PendingAttachment {
@@ -23,12 +24,23 @@ interface PendingAttachment {
   dataUrl: string;
 }
 
-export function ChatInputBar({ onSend, disabled, servers = [], editMode }: ChatInputBarProps) {
+export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId }: ChatInputBarProps) {
   const { t } = useTranslation('agents');
   const [input, setInput] = useState('');
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [selectedEngine, setSelectedEngine] = useState<string | null>(null);
+  const storageKey = agentId ? `cloto-engine-${agentId}` : null;
+  const [selectedEngine, setSelectedEngineRaw] = useState<string | null>(() => {
+    if (!storageKey) return null;
+    return localStorage.getItem(storageKey);
+  });
+  const setSelectedEngine = (id: string | null) => {
+    setSelectedEngineRaw(id);
+    if (storageKey) {
+      if (id) localStorage.setItem(storageKey, id);
+      else localStorage.removeItem(storageKey);
+    }
+  };
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
