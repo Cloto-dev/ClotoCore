@@ -958,6 +958,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                   }
                 : null
             }
+            agentId={agent.id}
           />
         </div>
         {/* end chat column */}
