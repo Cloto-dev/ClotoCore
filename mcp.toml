@@ -16,7 +16,7 @@
 #   network_scope = "proxyonly"         # unrestricted | proxyonly | none
 
 [paths]
-servers = "../cloto-mcp-servers/servers"
+servers = "${CLOTO_MCP_SERVERS}"
 
 [[servers]]
 id = "tool.terminal"
