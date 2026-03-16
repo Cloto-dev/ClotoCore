@@ -14,17 +14,21 @@ export interface UseRemoteDataOptions {
   errorMessage?: string;
   /** Minimum visual feedback duration on manual refetch (default: 0). */
   minRefetchMs?: number;
+  /** Alternative fetcher used on manual refetch (e.g. to bypass server cache). */
+  refetcher?: () => Promise<unknown[]>;
 }
 
 export function useRemoteData<T>(
   fetcher: () => Promise<T[]>,
   options: UseRemoteDataOptions,
 ): { data: T[]; isLoading: boolean; error: string | null; refetch: () => Promise<void> } {
-  const { key, ttl = 10_000, errorMessage = 'Failed to fetch', minRefetchMs = 0 } = options;
+  const { key, ttl = 10_000, errorMessage = 'Failed to fetch', minRefetchMs = 0, refetcher } = options;
 
   // Keep fetcher up-to-date without causing effect re-runs
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
+  const refetcherRef = useRef(refetcher);
+  refetcherRef.current = refetcher;
 
   const cached = caches.get(key) as { data: T[]; ts: number } | undefined;
   const [data, setData] = useState<T[]>(cached?.data ?? []);
@@ -61,7 +65,9 @@ export function useRemoteData<T>(
     setError(null);
     const minSpin = minRefetchMs > 0 ? new Promise<void>((r) => setTimeout(r, minRefetchMs)) : Promise.resolve();
     try {
-      const [result] = await Promise.all([fetchCached(), minSpin]);
+      const doFetch = refetcherRef.current ? (refetcherRef.current() as Promise<T[]>) : fetchCached();
+      const [result] = await Promise.all([doFetch, minSpin]);
+      caches.set(key, { data: result, ts: Date.now() });
       setData(result);
     } catch (err) {
       setError(extractError(err, errorMessage));
