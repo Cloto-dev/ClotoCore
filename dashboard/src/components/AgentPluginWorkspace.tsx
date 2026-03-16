@@ -4,10 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { useApi } from '../hooks/useApi';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
+import { extractVrmThumbnail } from '../lib/vrmThumbnail';
 import type { AccessControlEntry, AgentMetadata } from '../types';
 import { AvatarSection } from './AvatarSection';
 import { ProfileSection } from './ProfileSection';
 import { ServerAccessSection } from './ServerAccessSection';
+import { VrmThumbnailDialog } from './VrmThumbnailDialog';
 import { AlertCard } from './ui/AlertCard';
 
 interface Props {
@@ -46,6 +48,9 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const [hasVrm, setHasVrm] = useState(agent.metadata?.has_vrm === 'true');
   const [pendingVrmFile, setPendingVrmFile] = useState<File | null>(null);
   const [pendingVrmDelete, setPendingVrmDelete] = useState(false);
+  const [vrmThumbnailFile, setVrmThumbnailFile] = useState<File | null>(null);
+  const [vrmThumbnailUrl, setVrmThumbnailUrl] = useState<string | null>(null);
+  const [showVrmThumbnailDialog, setShowVrmThumbnailDialog] = useState(false);
 
   // Load current access entries for this agent
   useEffect(() => {
@@ -204,7 +209,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   };
 
   // VRM handlers — deferred to Save (same pattern as avatar)
-  const handleVrmUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVrmUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 50 * 1024 * 1024) {
@@ -215,6 +220,37 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
     setPendingVrmDelete(false);
     setHasVrm(true);
     e.target.value = '';
+
+    // Extract thumbnail and offer as avatar (unless user opted out)
+    if (sessionStorage.getItem('cloto-vrm-thumbnail-skip') === '1') return;
+    try {
+      const thumbnail = await extractVrmThumbnail(file);
+      if (thumbnail) {
+        const url = URL.createObjectURL(thumbnail);
+        setVrmThumbnailFile(thumbnail);
+        setVrmThumbnailUrl(url);
+        setShowVrmThumbnailDialog(true);
+      }
+    } catch {
+      // Thumbnail extraction failure is non-fatal
+    }
+  };
+
+  const handleVrmThumbnailApply = () => {
+    if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+    setPendingAvatarFile(vrmThumbnailFile);
+    setPendingAvatarDelete(false);
+    setAvatarPreviewUrl(vrmThumbnailUrl);
+    setHasAvatar(true);
+    setAvatarDescription('');
+    setShowVrmThumbnailDialog(false);
+  };
+
+  const handleVrmThumbnailSkip = () => {
+    if (vrmThumbnailUrl) URL.revokeObjectURL(vrmThumbnailUrl);
+    setVrmThumbnailFile(null);
+    setVrmThumbnailUrl(null);
+    setShowVrmThumbnailDialog(false);
   };
 
   const handleVrmDelete = () => {
@@ -304,6 +340,14 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
           </>
         )}
       </div>
+
+      {/* VRM Thumbnail Dialog */}
+      <VrmThumbnailDialog
+        open={showVrmThumbnailDialog}
+        thumbnailUrl={vrmThumbnailUrl ?? ''}
+        onApply={handleVrmThumbnailApply}
+        onSkip={handleVrmThumbnailSkip}
+      />
 
       {/* Footer */}
       <div className="p-4 border-t border-edge flex items-center justify-between">
