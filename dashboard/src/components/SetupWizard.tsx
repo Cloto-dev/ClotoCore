@@ -98,6 +98,8 @@ export function SetupWizard({ onComplete }: Props) {
 
   // Installation state (Step 5)
   const api = useApi();
+  const [pythonChecking, setPythonChecking] = useState(false);
+  const [pythonMissing, setPythonMissing] = useState(false);
   const [installStarted, setInstallStarted] = useState(false);
   const [installComplete, setInstallComplete] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
@@ -249,9 +251,8 @@ export function SetupWizard({ onComplete }: Props) {
     setStep(6);
   };
 
-  // Step 5: Start batch installation
-  const startInstallation = useCallback(async () => {
-    if (installStarted) return;
+  // Step 5: Core batch installation (after Python check passes)
+  const doInstall = useCallback(async () => {
     setInstallStarted(true);
     setInstallError(null);
     setServerStatuses([]);
@@ -325,14 +326,51 @@ export function SetupWizard({ onComplete }: Props) {
     } catch (e) {
       setInstallError(e instanceof Error ? e.message : 'Installation failed');
     }
-  }, [installStarted, api, installComplete, getActiveServers, next]);
+  }, [api, installComplete, getActiveServers, next]);
+
+  // Step 5: Check Python then start installation
+  const startInstallation = useCallback(async () => {
+    if (installStarted) return;
+    setPythonChecking(true);
+    setPythonMissing(false);
+    try {
+      const result = await api.checkPython();
+      if (!result.available) {
+        setPythonMissing(true);
+        setPythonChecking(false);
+        return;
+      }
+    } catch {
+      // If check itself fails, proceed and let backend handle it
+    }
+    setPythonChecking(false);
+    doInstall();
+  }, [installStarted, api, doInstall]);
+
+  // Retry after user installs Python
+  const handlePythonRetry = useCallback(async () => {
+    setPythonChecking(true);
+    setPythonMissing(false);
+    try {
+      const result = await api.checkPython();
+      if (!result.available) {
+        setPythonMissing(true);
+        setPythonChecking(false);
+        return;
+      }
+    } catch {
+      // Proceed on check failure
+    }
+    setPythonChecking(false);
+    doInstall();
+  }, [api, doInstall]);
 
   // Auto-start installation when entering step 5
   useEffect(() => {
-    if (step === 5 && !installStarted) {
+    if (step === 5 && !installStarted && !pythonMissing && !pythonChecking) {
       startInstallation();
     }
-  }, [step, installStarted, startInstallation]);
+  }, [step, installStarted, pythonMissing, pythonChecking, startInstallation]);
 
   const themes = [
     { value: 'light' as const, icon: Sun, label: t('theme_light') },
@@ -438,8 +476,59 @@ export function SetupWizard({ onComplete }: Props) {
                 {t('step_install', { defaultValue: 'Installing Servers' })}
               </h2>
 
-              {/* Progress steps */}
-              {installSteps.length > 0 && (
+              {/* Python checking */}
+              {pythonChecking && (
+                <div className="flex items-center justify-center gap-2 text-[11px] text-content-tertiary">
+                  <Loader2 size={14} className="text-brand animate-spin" />
+                  {t('python_checking', { defaultValue: 'Checking Python installation...' })}
+                </div>
+              )}
+
+              {/* Python missing error */}
+              {pythonMissing && !pythonChecking && (
+                <div className="space-y-3">
+                  <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 space-y-3">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <p className="text-xs font-bold text-red-400">
+                          {t('python_missing_title', { defaultValue: 'Python 3.10+ is required but not found' })}
+                        </p>
+                        <p className="text-[11px] text-content-secondary">
+                          {t('python_missing_desc', {
+                            defaultValue:
+                              'ClotoCore requires Python to run MCP servers. Please install Python and ensure it is added to your system PATH.',
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                    <a
+                      href="https://www.python.org/downloads/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block text-[11px] text-brand hover:underline font-bold"
+                    >
+                      python.org/downloads
+                    </a>
+                    <p className="text-[10px] text-content-tertiary">
+                      {t('python_path_hint', {
+                        defaultValue:
+                          'After installing, make sure "Add Python to PATH" is checked, then click Retry.',
+                      })}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handlePythonRetry}
+                    className="w-full px-4 py-2.5 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
+                  >
+                    {t('python_retry', { defaultValue: 'Retry' })}
+                  </button>
+                </div>
+              )}
+
+              {/* Progress steps (only when not blocked by Python check) */}
+              {!pythonMissing && !pythonChecking && installSteps.length > 0 && (
                 <div className="space-y-2">
                   {installSteps.map((s) => (
                     <div key={s.step} className="flex items-center gap-2 text-[11px] font-mono">
@@ -492,7 +581,7 @@ export function SetupWizard({ onComplete }: Props) {
               )}
 
               {/* Waiting state */}
-              {!installStarted && !installComplete && (
+              {!installStarted && !installComplete && !pythonMissing && !pythonChecking && (
                 <div className="text-center text-[11px] text-content-tertiary">
                   {t('step_install_preparing', { defaultValue: 'Preparing installation...' })}
                 </div>
