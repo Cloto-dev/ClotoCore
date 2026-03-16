@@ -1,6 +1,18 @@
 import DOMPurify from 'dompurify';
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { renderMarkdown, renderMarkdownIncremental } from '../lib/markdown';
+
+const EXT_MAP: Record<string, string> = {
+  typescript: 'ts', javascript: 'js', python: 'py', rust: 'rs',
+  bash: 'sh', json: 'json', css: 'css', html: 'html', sql: 'sql',
+  yaml: 'yml', xml: 'xml', ts: 'ts', js: 'js', py: 'py', sh: 'sh',
+};
+
+// Allow code block wrapper elements through DOMPurify
+const SANITIZE_CONFIG = {
+  ADD_TAGS: ['button', 'svg', 'rect', 'path', 'polyline', 'line'],
+  ADD_ATTR: ['data-raw', 'data-ext', 'data-lang', 'data-lines', 'viewBox', 'fill', 'stroke', 'stroke-width', 'd', 'x', 'y', 'width', 'height', 'rx', 'x1', 'y1', 'x2', 'y2', 'points'],
+};
 
 interface MarkdownRendererProps {
   content: string;
@@ -11,6 +23,7 @@ interface MarkdownRendererProps {
 
 export function MarkdownRenderer({ content, incremental = false, onCodeBlock, className = '' }: MarkdownRendererProps) {
   const extractedCodesRef = useRef<Set<string>>(new Set());
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const html = useMemo(() => {
     const raw = incremental ? renderMarkdownIncremental(content) : renderMarkdown(content);
@@ -44,7 +57,46 @@ export function MarkdownRenderer({ content, incremental = false, onCodeBlock, cl
     prevContentRef.current = content;
   }, [content]);
 
+  // Event delegation for code block copy/download buttons
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const copyBtn = target.closest('.code-block-copy') as HTMLElement | null;
+    const downloadBtn = target.closest('.code-block-download') as HTMLElement | null;
+
+    if (!copyBtn && !downloadBtn) return;
+
+    const wrapper = (copyBtn || downloadBtn)!.closest('.code-block-wrapper') as HTMLElement | null;
+    if (!wrapper) return;
+
+    const rawEncoded = wrapper.getAttribute('data-raw');
+    if (!rawEncoded) return;
+    const code = decodeURIComponent(rawEncoded);
+
+    if (copyBtn) {
+      navigator.clipboard.writeText(code);
+      copyBtn.classList.add('copied');
+      setTimeout(() => copyBtn.classList.remove('copied'), 2000);
+    }
+
+    if (downloadBtn) {
+      const lang = wrapper.getAttribute('data-ext') || 'text';
+      const ext = EXT_MAP[lang] || 'txt';
+      const blob = new Blob([code], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `snippet.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }, []);
+
   return (
-    <div className={`chat-markdown ${className}`} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />
+    <div
+      ref={containerRef}
+      className={`chat-markdown ${className}`}
+      onClick={handleClick}
+      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html, SANITIZE_CONFIG) }}
+    />
   );
 }
