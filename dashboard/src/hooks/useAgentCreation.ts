@@ -70,7 +70,7 @@ export function useAgentCreation(onCreated: () => void) {
   const addRoutingRule = () => {
     setForm((prev) => ({
       ...prev,
-      routingRules: [...prev.routingRules, { match: 'default', engine: '' }],
+      routingRules: [...prev.routingRules, { match: 'default', engine: '', cfr: true }],
     }));
   };
 
