@@ -948,6 +948,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
           onTabChange={artifactPanel.setActiveIndex}
           isOpen={artifactPanel.isOpen}
           onClose={artifactPanel.closePanel}
+          onOpen={artifactPanel.openPanel}
         />
       </div>
       {/* end content area */}
