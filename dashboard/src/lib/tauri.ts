@@ -244,24 +244,51 @@ function isNewerVersion(current: string, latest: string): boolean {
   // stable (null) > pre-release ("alpha.2")
   if (c.pre !== null && l.pre === null) return true; // current is pre, latest is stable → upgrade
   if (c.pre === null && l.pre !== null) return false; // current is stable, latest is pre → no downgrade
-  // Both pre-release or both stable with same version → no upgrade
+  if (c.pre === null && l.pre === null) return false; // both stable, same version
+  // Both pre-release: compare segments (e.g. alpha.4 vs alpha.5)
+  const cParts = c.pre!.split('.');
+  const lParts = l.pre!.split('.');
+  const len = Math.max(cParts.length, lParts.length);
+  for (let i = 0; i < len; i++) {
+    if (cParts[i] === undefined) return true; // latest has more segments → newer
+    if (lParts[i] === undefined) return false;
+    const cn = Number(cParts[i]);
+    const ln = Number(lParts[i]);
+    if (!Number.isNaN(cn) && !Number.isNaN(ln)) {
+      if (ln !== cn) return ln > cn;
+    } else if (lParts[i] !== cParts[i]) {
+      return lParts[i] > cParts[i];
+    }
+  }
   return false;
 }
 
 export async function checkForUpdates(): Promise<UpdateInfo> {
   const current = __APP_VERSION__;
-  const resp = await fetch('https://api.github.com/repos/Cloto-dev/ClotoCore/releases/latest', {
+  const isCurrentPreRelease = parseSemver(current).pre !== null;
+
+  const resp = await fetch('https://api.github.com/repos/Cloto-dev/ClotoCore/releases?per_page=30', {
     headers: { Accept: 'application/vnd.github.v3+json' },
   });
   if (!resp.ok) throw new Error(`GitHub API error: ${resp.status}`);
-  const data = await resp.json();
-  const latest = (data.tag_name || '').replace(/^v/, '');
+  const releases: Array<{ tag_name: string; prerelease: boolean; draft: boolean; published_at: string; body: string }> =
+    await resp.json();
+
+  // Pre-release users: newest overall. Stable users: newest stable only.
+  const published = releases.filter((r) => !r.draft);
+  const target = isCurrentPreRelease ? published[0] : published.find((r) => !r.prerelease);
+
+  if (!target) {
+    return { available: false, currentVersion: current, latestVersion: current };
+  }
+
+  const latest = (target.tag_name || '').replace(/^v/, '');
   return {
     available: isNewerVersion(current, latest),
     currentVersion: current,
     latestVersion: latest,
-    releaseDate: data.published_at,
-    releaseNotes: data.body,
+    releaseDate: target.published_at,
+    releaseNotes: target.body,
   };
 }
 
