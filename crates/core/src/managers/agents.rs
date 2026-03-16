@@ -362,12 +362,22 @@ impl AgentManager {
         metadata: Option<HashMap<String, String>>,
     ) -> anyhow::Result<()> {
         let metadata_json = metadata.map(|m| serde_json::to_string(&m)).transpose()?;
+        // Preserve fields managed by dedicated APIs (avatar, VRM) that use
+        // json_set/json_remove for partial updates. Without this, COALESCE
+        // full-replacement would overwrite these fields.
         sqlx::query(
-            "UPDATE agents SET metadata = COALESCE(?, metadata), \
-             name = COALESCE(?, name), \
-             description = COALESCE(?, description), \
-             default_engine_id = COALESCE(?, default_engine_id) \
-             WHERE id = ?",
+            "UPDATE agents SET metadata = CASE \
+               WHEN ?1 IS NOT NULL THEN ( \
+                 SELECT json_set(json_set(json_set(?1, \
+                   '$.avatar_path', json_extract(metadata, '$.avatar_path')), \
+                   '$.avatar_description', json_extract(metadata, '$.avatar_description')), \
+                   '$.vrm_path', json_extract(metadata, '$.vrm_path')) \
+               ) \
+               ELSE metadata END, \
+             name = COALESCE(?2, name), \
+             description = COALESCE(?3, description), \
+             default_engine_id = COALESCE(?4, default_engine_id) \
+             WHERE id = ?5",
         )
         .bind(&metadata_json)
         .bind(name)
