@@ -29,6 +29,14 @@ If a proposed change conflicts with any of these, flag it before proceeding.
 - Fix: update `expected`→`"absent"`, `status`→`"fixed"` → re-verify → must return `[FIXED]`
 - `scripts/verify-issues.sh` is **read-only infrastructure** — never modify without user approval
 
+## Agent Config Rules
+
+- All agent config operations MUST be deferred (pending state → apply on Save)
+- Direct mutation API calls (upload, delete, update) are PROHIBITED outside `handleSave`
+- Cancel/Back MUST discard all pending changes without API calls
+- Pattern: event handler → set pending state only, `handleSave` → execute all pending
+- Reference implementation: `AgentPluginWorkspace.tsx`
+
 ## Dashboard UI Rules
 
 - **Min text size**: `text-[9px]`. Never `text-[8px]` or smaller.
