@@ -84,7 +84,12 @@
     "preset_expert": "Expert",
     "status_connected": "Connected",
     "status_disconnected": "Disconnected",
-    "status_error": "Error"
+    "status_error": "Error",
+    "vrm_thumbnail_title": "VRM Thumbnail Detected",
+    "vrm_thumbnail_message": "VRM file contains a thumbnail image. Apply it as the agent avatar?",
+    "vrm_thumbnail_dont_show": "Don't show again this session",
+    "vrm_thumbnail_skip": "Skip",
+    "vrm_thumbnail_apply": "Apply"
   },
   "export_config": "Export",
   "import_config": "Import Config",
