@@ -1,5 +1,5 @@
-import { AlertTriangle, RefreshCw, Search } from 'lucide-react';
-import { useState } from 'react';
+import { AlertTriangle, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../hooks/useApi';
 import { useMarketplace } from '../../hooks/useMarketplace';
@@ -19,9 +19,21 @@ const CATEGORIES: Array<{ key: string; label: string }> = [
   { key: 'output', label: 'output' },
 ];
 
-export function MarketplaceTab() {
+interface MarketplaceTabProps {
+  onRefetchRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+}
+
+export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
   const { t } = useTranslation('mcp');
   const { servers, isLoading, error, refetch } = useMarketplace();
+
+  // Expose refetch to parent so header refresh button can trigger it
+  useEffect(() => {
+    if (onRefetchRef) onRefetchRef.current = refetch;
+    return () => {
+      if (onRefetchRef) onRefetchRef.current = null;
+    };
+  }, [onRefetchRef, refetch]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -127,14 +139,6 @@ export function MarketplaceTab() {
           ))}
         </div>
 
-        {/* Refresh button */}
-        <button
-          onClick={refetch}
-          className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
-          title={t('marketplace.refresh')}
-        >
-          <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
-        </button>
       </div>
 
       {/* Grid */}
