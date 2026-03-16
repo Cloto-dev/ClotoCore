@@ -27,7 +27,7 @@ export function VrmThumbnailDialog({ open, thumbnailUrl, onApply, onSkip }: VrmT
   return (
     <Modal title="VRM Thumbnail Detected" icon={ImageIcon} onClose={() => handleAction(false)}>
       <div className="p-4 space-y-4">
-        <p className="text-xs text-content-secondary">
+        <p className="text-[13px] text-content-secondary">
           VRM file contains a thumbnail image. Apply it as the agent avatar?
         </p>
 
@@ -46,19 +46,19 @@ export function VrmThumbnailDialog({ open, thumbnailUrl, onApply, onSkip }: VrmT
             onChange={(e) => setDontShowAgain(e.target.checked)}
             className="rounded border-edge"
           />
-          <span className="text-[10px] font-mono text-content-tertiary">Don't show again this session</span>
+          <span className="text-[11px] font-mono text-content-tertiary">Don't show again this session</span>
         </label>
 
         <div className="flex justify-end gap-2">
           <button
             onClick={() => handleAction(false)}
-            className="px-3 py-1.5 rounded text-[10px] font-mono uppercase tracking-widest text-content-tertiary hover:text-content-secondary hover:bg-glass transition-colors"
+            className="px-3 py-1.5 rounded text-[11px] font-mono uppercase tracking-widest text-content-tertiary hover:text-content-secondary hover:bg-glass transition-colors"
           >
             Skip
           </button>
           <button
             onClick={() => handleAction(true)}
-            className="px-3 py-1.5 rounded text-[10px] font-mono uppercase tracking-widest bg-brand/20 text-brand hover:bg-brand/30 transition-colors"
+            className="px-3 py-1.5 rounded text-[11px] font-mono uppercase tracking-widest bg-brand/20 text-brand hover:bg-brand/30 transition-colors"
           >
             Apply
           </button>
