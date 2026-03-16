@@ -162,6 +162,29 @@ body.neural-cursor-active * {
   border-radius: 0.25em !important; font-size: 0.9em !important;
 }
 .chat-markdown a { text-decoration: underline !important; opacity: 0.9; }
+.chat-markdown .code-block-wrapper {
+  margin: 0.5em 0 !important; border-radius: 0.5em !important; overflow: hidden !important;
+  background: #0d1117 !important;
+}
+.chat-markdown .code-block-wrapper pre.hljs-code-block {
+  margin: 0 !important; border-radius: 0 !important;
+}
+.chat-markdown .code-block-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.35em 0.75em; background: #161b22;
+}
+.chat-markdown .code-block-lang {
+  font-size: 9px; font-family: ui-monospace, monospace; text-transform: uppercase;
+  letter-spacing: 0.05em; color: #8b949e;
+}
+.chat-markdown .code-block-actions { display: flex; gap: 2px; }
+.chat-markdown .code-block-actions button {
+  padding: 4px; border-radius: 4px; border: none; background: transparent;
+  color: #8b949e; cursor: pointer; display: flex; align-items: center;
+  transition: background 0.15s, color 0.15s;
+}
+.chat-markdown .code-block-actions button:hover { background: rgba(255,255,255,0.1); color: #e6edf3; }
+.chat-markdown .code-block-actions button.copied { color: #3fb950; }
 .chat-markdown pre.hljs-code-block {
   margin: 0.5em 0 !important; border-radius: 0.5em !important; overflow-x: auto !important;
   background: #0d1117 !important;
