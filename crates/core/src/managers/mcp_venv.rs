@@ -26,9 +26,16 @@ pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
     let config: super::mcp_protocol::McpConfigFile = toml::from_str(&content).ok()?;
     let raw = config.paths.get("servers")?;
     // Support env var expansion in path values: ${VAR_NAME}
+    // CLOTO_MCP_SERVERS defaults to ../cloto-mcp-servers/servers when unset.
     let resolved = if let Some(var_name) = raw.strip_prefix("${").and_then(|s| s.strip_suffix('}'))
     {
-        std::env::var(var_name).ok()?
+        match std::env::var(var_name) {
+            Ok(val) => val,
+            Err(_) if var_name == "CLOTO_MCP_SERVERS" => {
+                "../cloto-mcp-servers/servers".to_string()
+            }
+            Err(_) => return None,
+        }
     } else {
         raw.clone()
     };

@@ -218,6 +218,8 @@ impl McpClientManager {
 
         // Build path variables from [paths] section.
         // Values may themselves reference env vars: ${ENV_VAR_NAME}
+        // Special case: CLOTO_MCP_SERVERS defaults to ../cloto-mcp-servers/servers
+        // (resolved against project root) when the env var is not set.
         let path_vars: HashMap<String, String> = config
             .paths
             .iter()
@@ -225,7 +227,14 @@ impl McpClientManager {
                 let resolved = if let Some(var_name) =
                     v.strip_prefix("${").and_then(|s| s.strip_suffix('}'))
                 {
-                    std::env::var(var_name).unwrap_or_else(|_| v.clone())
+                    std::env::var(var_name).unwrap_or_else(|_| {
+                        if var_name == "CLOTO_MCP_SERVERS" {
+                            let fallback = base_dir.join("../cloto-mcp-servers/servers");
+                            fallback.to_string_lossy().to_string()
+                        } else {
+                            v.clone()
+                        }
+                    })
                 } else {
                     v.clone()
                 };
