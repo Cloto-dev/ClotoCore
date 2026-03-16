@@ -53,7 +53,7 @@ export function LlmProvidersSection() {
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${p.has_key ? 'bg-green-500' : 'bg-amber-500'}`} />
                 <span className="text-xs font-bold text-content-primary">{p.display_name}</span>
-                <span className="text-[9px] font-mono text-content-tertiary">{p.model_id}</span>
+                <span className="text-[11px] font-mono text-content-tertiary">{p.model_id}</span>
               </div>
               <div className="flex gap-2 mt-2">
                 <input
