@@ -36,12 +36,13 @@ System views (non-route):
 - `ChatInputBar.tsx` — Message input field with send button. Supports multiline input.
 - `AgentPowerButton.tsx` — Green/gray power button for toggling agent on/off.
 - `PowerToggleModal.tsx` — Confirmation modal when toggling agent power (with optional password).
-- `AgentPluginWorkspace.tsx` — Agent configuration screen: avatar/VRM management, profile editing, MCP server access control. Deferred save pattern.
+- `AgentPluginWorkspace.tsx` — Agent configuration screen: avatar/VRM management, profile editing, MCP server access control. All operations use **deferred save pattern** (pending state → apply on Save, cancel discards all).
 - `EngineSelector.tsx` — LLM engine dropdown selector. Shows available MCP engine servers.
 - `ServerAccessSection.tsx` — Displays and manages MCP server access grants for an agent.
 
 #### Agent Creation & Identity
-- `AvatarSection.tsx` — Agent avatar display, upload, and deletion. VRM 3D model upload.
+- `AvatarSection.tsx` — Agent avatar display, upload, and deletion. VRM 3D model upload/delete.
+- `VrmThumbnailDialog.tsx` — Modal dialog offering to apply VRM embedded thumbnail as agent avatar. "Don't show again" option (sessionStorage).
 - `ProfileSection.tsx` — Agent name/description editing.
 - `SetupWizard.tsx` — First-run setup flow (7 steps): welcome, API key, language, presets, server installation, quick guide, completion.
 
@@ -59,7 +60,7 @@ System views (non-route):
 - `McpAccessControlTab.tsx` — Manage access control entries (server_grant, tool_grant, capability).
 - `McpAccessTree.tsx` — Tree visualization of access control hierarchy.
 - `McpAccessSummaryBar.tsx` — Summary bar showing access permission counts.
-- `MarketplaceTab.tsx` — Marketplace browser with search, category filter, install/uninstall.
+- `MarketplaceTab.tsx` — Marketplace browser with search, category filter (incl. output), install/uninstall. Refresh delegated to page header button.
 - `MarketplaceCard.tsx` — Individual marketplace server card (name, description, tags, status, action buttons).
 - `InstallDialog.tsx` — Server installation progress dialog.
 
@@ -143,13 +144,13 @@ System views (non-route):
 - `useAgents.ts` — Fetch and manage agent list.
 - `useAgentCreation.ts` — Agent creation workflow (form state, validation, submission).
 - `useMcpServers.ts` — Fetch MCP server list and status.
-- `useMarketplace.ts` — Marketplace catalog fetching and state management.
+- `useMarketplace.ts` — Marketplace catalog fetching. Uses `refetcher` with `force_refresh=true` to bypass 1-hour server cache on manual refresh.
 - `useApi.ts` — API client instance provider (wraps api.ts with API key injection).
 - `useApiKey.ts` — API key validation hook.
 - `useConnectionStatus.ts` — Monitor backend WebSocket/SSE connection.
 - `useEventStream.ts` — SSE event streaming subscription.
 - `usePolling.ts` — Interval-based polling with automatic cleanup.
-- `useRemoteData.ts` — Generic remote data fetching with loading/error states.
+- `useRemoteData.ts` — Generic remote data fetching with loading/error states. Supports `refetcher` option for server-side cache bypass on manual refresh.
 - `useAsyncAction.ts` — Async action wrapper with loading/error handling.
 - `useTheme.ts` — Theme switching (dark/light/system).
 - `useStorage.ts` — localStorage/sessionStorage utilities (`useLocalStorage`, `useSessionStorage`).
@@ -178,6 +179,7 @@ System views (non-route):
 - `format.ts` — Display formatting utilities (`displayServerId`, etc).
 - `json.ts` — JSON parsing utilities.
 - `notifications.ts` — Toast notification system.
+- `vrmThumbnail.ts` — Extract thumbnail image from VRM/GLB files (VRM 0.x and 1.0 support).
 - `canvasUtils.ts` — Canvas drawing utilities.
 - `Spinner.tsx` — Loading spinner component.
 
@@ -211,8 +213,9 @@ AppLayout
     │   ├── Agent card grid (create, select, delete, power)
     │   ├── AgentConsole (messages, thinking, tool calls)
     │   ├── ChatInputBar (user input)
-    │   └── AgentPluginWorkspace (config: avatar, profile, MCP access)
+    │   └── AgentPluginWorkspace (config: avatar, profile, MCP access — deferred save)
     │       ├── AvatarSection (avatar + VRM upload/delete)
+    │       ├── VrmThumbnailDialog (offer VRM thumbnail as avatar)
     │       ├── ProfileSection (name, description)
     │       └── ServerAccessSection (MCP server grants)
     │
