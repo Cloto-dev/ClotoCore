@@ -248,11 +248,15 @@ pub async fn install_handler(
             ))
         })?;
 
-    // Reject if server already exists (config-loaded or dynamic)
+    // Reject if server is already marketplace-installed (dynamic).
+    // Config-loaded servers (from mcp.toml) are allowed — marketplace install
+    // builds/registers independently and the config entry is effectively replaced.
     let running_servers = state.mcp_manager.list_servers().await;
-    if running_servers.iter().any(|s| s.id == request.server_id) {
+    if running_servers.iter().any(|s| {
+        s.id == request.server_id && s.source == crate::managers::mcp_types::ServerSource::Dynamic
+    }) {
         return Err(AppError::Validation(format!(
-            "Server '{}' is already installed and running",
+            "Server '{}' is already installed",
             request.server_id
         )));
     }
@@ -1386,8 +1390,11 @@ async fn run_batch_install(
     let running_servers = state.mcp_manager.list_servers().await;
 
     for entry in entries {
-        // Skip already-running servers
-        if running_servers.iter().any(|s| s.id == entry.id) {
+        // Skip already-installed marketplace servers (Dynamic source).
+        // Config-loaded servers are allowed to be re-installed via marketplace.
+        if running_servers.iter().any(|s| {
+            s.id == entry.id && s.source == crate::managers::mcp_types::ServerSource::Dynamic
+        }) {
             emit(
                 tx,
                 SetupProgressEvent::ServerInstall {
