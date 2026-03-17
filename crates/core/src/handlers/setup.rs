@@ -18,6 +18,7 @@ use crate::{AppError, AppResult, AppState};
 
 // ── Data structures ──────────────────────────────────────────────────
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Serialize, Clone, Debug)]
 pub struct SetupStatus {
     pub setup_complete: bool,
@@ -265,6 +266,7 @@ async fn run_bootstrap(state: Arc<AppState>) {
 }
 
 /// Inner bootstrap logic, returns Err on failure so the outer function can reset the flag.
+#[allow(clippy::too_many_lines)]
 async fn run_bootstrap_inner(
     state: &Arc<AppState>,
     tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>,

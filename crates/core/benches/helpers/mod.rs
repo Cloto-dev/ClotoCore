@@ -64,7 +64,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         max_cron_generation: Arc::new(AtomicU8::new(2)),
         setup_in_progress: Arc::new(AtomicBool::new(false)),
         setup_progress_tx: broadcast::channel(100).0,
-        marketplace_cache: Arc::new(tokio::sync::RwLock::new(Default::default())),
+        marketplace_cache: Arc::new(tokio::sync::RwLock::new(cloto_core::handlers::marketplace::CatalogCache::default())),
         install_limiter: Arc::new(cloto_core::middleware::RateLimiter::new(5, 60)),
     })
 }

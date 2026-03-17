@@ -749,7 +749,7 @@ pub(super) async fn execute_audit_replay(manager: &McpClientManager, args: Value
         .collect();
 
     let next_seq = events_json.last().and_then(|e| e.get("seq")).cloned();
-    let has_more = events_json.len() as i64 == limit;
+    let has_more = i64::try_from(events_json.len()).unwrap_or(i64::MAX) == limit;
 
     Ok(serde_json::json!({
         "events": events_json,
@@ -1274,6 +1274,7 @@ const MAX_DELEGATION_DEPTH: usize = 3;
 /// The calling agent's `agent_id` is injected by the kernel (anti-spoofing).
 /// The target agent processes the prompt with its own LLM engine and system prompt.
 /// Context isolation: the target agent does NOT receive the caller's conversation history.
+#[allow(clippy::too_many_lines)]
 pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -> Result<Value> {
     // 1. YOLO mode check — inter-agent delegation is a privileged operation
     if !manager.yolo_mode.load(Ordering::Relaxed) {
@@ -1342,14 +1343,11 @@ pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -
 
     // 7. Look up target agent
     let agent_mgr = super::agents::AgentManager::new(manager.pool().clone(), 30_000);
-    let (agent_meta, engine_id) = match agent_mgr.get_agent_config(target_agent_id).await {
-        Ok(config) => config,
-        Err(_) => {
-            return Ok(serde_json::json!({
-                "status": "error",
-                "reason": format!("Agent '{}' not found.", target_agent_id)
-            }));
-        }
+    let Ok((agent_meta, engine_id)) = agent_mgr.get_agent_config(target_agent_id).await else {
+        return Ok(serde_json::json!({
+            "status": "error",
+            "reason": format!("Agent '{}' not found.", target_agent_id)
+        }));
     };
 
     // 8. Check agent is enabled
@@ -1584,23 +1582,17 @@ pub(super) async fn execute_gui_read(_manager: &McpClientManager, args: Value) -
     let target = base_dir.join(rel_path);
 
     // Canonicalize both to resolve symlinks and verify containment
-    let canonical_base = match base_dir.canonicalize() {
-        Ok(p) => p,
-        Err(_) => {
-            return Ok(serde_json::json!({
-                "status": "error",
-                "reason": "Dashboard source directory not found"
-            }));
-        }
+    let Ok(canonical_base) = base_dir.canonicalize() else {
+        return Ok(serde_json::json!({
+            "status": "error",
+            "reason": "Dashboard source directory not found"
+        }));
     };
-    let canonical_target = match target.canonicalize() {
-        Ok(p) => p,
-        Err(_) => {
-            return Ok(serde_json::json!({
-                "status": "error",
-                "reason": format!("File not found: {}", rel_path)
-            }));
-        }
+    let Ok(canonical_target) = target.canonicalize() else {
+        return Ok(serde_json::json!({
+            "status": "error",
+            "reason": format!("File not found: {}", rel_path)
+        }));
     };
 
     // Path traversal protection: ensure resolved path is under dashboard/src/

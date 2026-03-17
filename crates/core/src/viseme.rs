@@ -154,33 +154,22 @@ fn split_language_segments(text: &str) -> Vec<LangSegment> {
 /// Map a katakana character to its vowel viseme.
 fn katakana_to_viseme(c: char) -> &'static str {
     match c {
-        // ア行
+        // ア行 + small ァ
         'ア' | 'カ' | 'サ' | 'タ' | 'ナ' | 'ハ' | 'マ' | 'ヤ' | 'ラ' | 'ワ' | 'ガ' | 'ザ'
-        | 'ダ' | 'バ' | 'パ' | 'ャ' | 'ヴ' => "aa",
-        // イ行
+        | 'ダ' | 'バ' | 'パ' | 'ャ' | 'ヴ' | 'ァ' => "aa",
+        // イ行 + small ィ
         'イ' | 'キ' | 'シ' | 'チ' | 'ニ' | 'ヒ' | 'ミ' | 'リ' | 'ギ' | 'ジ' | 'ヂ' | 'ビ'
-        | 'ピ' => "ih",
-        // ウ行
+        | 'ピ' | 'ィ' => "ih",
+        // ウ行 + small ゥ
         'ウ' | 'ク' | 'ス' | 'ツ' | 'ヌ' | 'フ' | 'ム' | 'ユ' | 'ル' | 'グ' | 'ズ' | 'ヅ'
-        | 'ブ' | 'プ' | 'ュ' => "ou",
-        // エ行
+        | 'ブ' | 'プ' | 'ュ' | 'ゥ' => "ou",
+        // エ行 + small ェ
         'エ' | 'ケ' | 'セ' | 'テ' | 'ネ' | 'ヘ' | 'メ' | 'レ' | 'ゲ' | 'ゼ' | 'デ' | 'ベ'
-        | 'ペ' => "ee",
-        // オ行
+        | 'ペ' | 'ェ' => "ee",
+        // オ行 + small ォ
         'オ' | 'コ' | 'ソ' | 'ト' | 'ノ' | 'ホ' | 'モ' | 'ヨ' | 'ロ' | 'ヲ' | 'ゴ' | 'ゾ'
-        | 'ド' | 'ボ' | 'ポ' | 'ョ' => "oh",
-        // ン (moraic nasal)
-        'ン' => "neutral",
-        // ッ (geminate consonant)
-        'ッ' => "neutral",
-        // Small kana (ァ,ィ,ゥ,ェ,ォ)
-        'ァ' => "aa",
-        'ィ' => "ih",
-        'ゥ' => "ou",
-        'ェ' => "ee",
-        'ォ' => "oh",
-        // Long vowel mark
-        'ー' => "neutral", // extend previous viseme (handled in timeline)
+        | 'ド' | 'ボ' | 'ポ' | 'ョ' | 'ォ' => "oh",
+        // ン (moraic nasal), ッ (geminate consonant), ー (long vowel mark)
         _ => "neutral",
     }
 }
@@ -190,8 +179,7 @@ fn katakana_duration(c: char) -> u64 {
     match c {
         'ン' => N_MS,
         'ッ' => SOKUON_MS,
-        'ァ' | 'ィ' | 'ゥ' | 'ェ' | 'ォ' | 'ャ' | 'ュ' | 'ョ' => MORA_MS / 2, // small kana: half mora
-        'ー' => MORA_MS / 2,                                                  // extension
+        'ァ' | 'ィ' | 'ゥ' | 'ェ' | 'ォ' | 'ャ' | 'ュ' | 'ョ' | 'ー' => MORA_MS / 2, // small kana + extension: half mora
         _ => MORA_MS,
     }
 }
@@ -313,9 +301,7 @@ fn english_to_visemes(text: &str) -> Vec<VisemeEntry> {
 
 fn punctuation_duration(c: char) -> u64 {
     match c {
-        '。' | '.' | '！' | '!' | '？' | '?' | '\n' => PERIOD_PAUSE_MS,
-        '、' | ',' | '；' | ';' | '：' | ':' => COMMA_PAUSE_MS,
-        '…' => PERIOD_PAUSE_MS,
+        '。' | '.' | '！' | '!' | '？' | '?' | '\n' | '…' => PERIOD_PAUSE_MS,
         _ => COMMA_PAUSE_MS,
     }
 }

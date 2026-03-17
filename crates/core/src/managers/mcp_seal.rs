@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn load_or_generate_creates_key_file() {
         // Guard against env var pollution from parallel test (load_or_generate_reads_env_var)
-        let _env_guard = std::env::var("CLOTO_SEAL_KEY").ok();
+        let env_guard = std::env::var("CLOTO_SEAL_KEY").ok();
         std::env::remove_var("CLOTO_SEAL_KEY");
 
         let dir = tempfile::tempdir().unwrap();
@@ -470,7 +470,7 @@ mod tests {
         assert_eq!(key, key2, "subsequent load should return same key");
 
         // Restore env var if it was set before
-        if let Some(val) = _env_guard {
+        if let Some(val) = env_guard {
             std::env::set_var("CLOTO_SEAL_KEY", val);
         }
     }

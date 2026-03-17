@@ -47,6 +47,7 @@ pub fn spawn_cron_task(
     });
 }
 
+#[allow(clippy::too_many_lines)]
 async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> anyhow::Result<()> {
     let now_ms = Utc::now().timestamp_millis();
     let due_jobs = db::get_due_cron_jobs(pool, now_ms).await?;
