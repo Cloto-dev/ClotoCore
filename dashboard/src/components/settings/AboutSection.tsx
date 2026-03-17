@@ -26,8 +26,9 @@ export function AboutSection() {
       const info = await checkForUpdates();
       setUpdateInfo(info);
       setUpdateState(info.available ? 'available' : 'up-to-date');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to check for updates');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to check for updates';
+      setError(message);
       setUpdateState('error');
     }
   };
@@ -39,8 +40,9 @@ export function AboutSection() {
       const output = await applyUpdate();
       setUpdateOutput(output);
       setUpdateState('updated');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to apply update');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to apply update';
+      setError(message);
       setUpdateState('error');
     }
   };

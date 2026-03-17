@@ -74,8 +74,9 @@ export function ApiKeyGate() {
       forgetApiKey();
       setOpen(false);
       setConfirmInvalidate(false);
-    } catch (e: any) {
-      setInvalidateError(e?.message || 'Failed to invalidate key');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Failed to invalidate key';
+      setInvalidateError(message);
     } finally {
       setInvalidating(false);
     }
