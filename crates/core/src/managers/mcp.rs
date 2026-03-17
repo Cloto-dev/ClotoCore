@@ -317,7 +317,9 @@ impl McpClientManager {
             .map(|cfg| {
                 let config = cfg.clone();
                 async move {
-                    let result = self.connect_server(config.clone(), ServerSource::Config).await;
+                    let result = self
+                        .connect_server(config.clone(), ServerSource::Config)
+                        .await;
                     (config, result)
                 }
             })
@@ -367,7 +369,7 @@ impl McpClientManager {
         }
     }
 
-    /// Restore persisted MCP servers from the database.
+    /// Restore persisted MCP servers from the database (concurrently).
     pub async fn restore_from_db(&self) -> Result<()> {
         let records = crate::db::load_active_mcp_servers(&self.pool).await?;
         if records.is_empty() {
@@ -376,36 +378,18 @@ impl McpClientManager {
 
         info!("Restoring {} MCP server(s) from database", records.len());
 
+        // Build configs from DB records, filtering out placeholders and duplicates
+        let existing_ids: std::collections::HashSet<String> =
+            self.state.read().await.servers.keys().cloned().collect();
+
+        let mut configs: Vec<McpServerConfig> = Vec::new();
         for record in records {
-            // Skip placeholder rows inserted by migration (config-loaded servers
-            // are already loaded from mcp.toml via load_config_file()).
             if record.command == "config-loaded" {
                 continue;
             }
-
-            // Skip servers already loaded from mcp.toml
-            if self.state.read().await.servers.contains_key(&record.name) {
+            if existing_ids.contains(&record.name) {
                 continue;
             }
-
-            let args: Vec<String> = serde_json::from_str(&record.args).unwrap_or_default();
-            let db_env: HashMap<String, String> =
-                serde_json::from_str(&record.env).unwrap_or_default();
-            let config = McpServerConfig {
-                id: record.name.clone(),
-                command: record.command,
-                args,
-                env: db_env,
-                transport: "stdio".to_string(),
-                auto_restart: Some(true),
-                required_permissions: Vec::new(),
-                tool_validators: HashMap::new(),
-                display_name: None,
-                mgp: None,
-                restart_policy: None,
-                seal: None,
-                isolation: None,
-            };
 
             // Regenerate script file if needed
             if let Some(ref content) = record.script_content {
@@ -424,16 +408,53 @@ impl McpClientManager {
                 }
             }
 
-            if let Err(e) = self
-                .connect_server(config.clone(), ServerSource::Dynamic)
-                .await
-            {
+            let args: Vec<String> = serde_json::from_str(&record.args).unwrap_or_default();
+            let db_env: HashMap<String, String> =
+                serde_json::from_str(&record.env).unwrap_or_default();
+            configs.push(McpServerConfig {
+                id: record.name.clone(),
+                command: record.command,
+                args,
+                env: db_env,
+                transport: "stdio".to_string(),
+                auto_restart: Some(true),
+                required_permissions: Vec::new(),
+                tool_validators: HashMap::new(),
+                display_name: None,
+                mgp: None,
+                restart_policy: None,
+                seal: None,
+                isolation: None,
+            });
+        }
+
+        if configs.is_empty() {
+            return Ok(());
+        }
+
+        // Connect all DB servers concurrently
+        let futures: Vec<_> = configs
+            .iter()
+            .map(|config| {
+                let config = config.clone();
+                async move {
+                    let result = self
+                        .connect_server(config.clone(), ServerSource::Dynamic)
+                        .await;
+                    (config, result)
+                }
+            })
+            .collect();
+
+        let results = futures::future::join_all(futures).await;
+
+        for (config, result) in results {
+            if let Err(e) = result {
                 warn!(
-                    name = %record.name,
+                    name = %config.id,
                     error = %e,
                     "Failed to restore MCP server"
                 );
-                // Register with Error status so it appears in list_servers()
                 let mut state = self.state.write().await;
                 state
                     .servers

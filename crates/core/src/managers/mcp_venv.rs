@@ -114,54 +114,72 @@ fn venv_pip(venv_dir: &Path) -> PathBuf {
 /// the shared venv. Uses `pip install --quiet` which is a no-op for already
 /// satisfied packages, so this is safe to run on every startup.
 pub(crate) async fn install_server_deps(pip_str: &str, mcp_servers_dir: &Path) -> u32 {
-    let mut installed = 0u32;
     let Ok(entries) = std::fs::read_dir(mcp_servers_dir) else {
         return 0;
     };
+
+    // Collect valid server directories (with pyproject.toml)
+    let mut server_dirs: Vec<(String, String)> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_dir() {
             continue;
         }
-
         let name = entry.file_name().to_string_lossy().to_string();
-
         // Skip .venv and common (not a standalone server)
         if name.starts_with('.') || name == "common" {
             continue;
         }
-
         if path.join("pyproject.toml").exists() {
-            let server_path = path.to_string_lossy().to_string();
-            info!("  Installing MCP deps: {}", name);
-
-            let result = tokio::process::Command::new(pip_str)
-                .args(["install", &server_path, "--quiet"])
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .output()
-                .await;
-
-            match result {
-                Ok(output) if output.status.success() => {
-                    installed += 1;
-                }
-                Ok(output) => {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    warn!(
-                        "  Failed to install {} (exit code {:?}): {}",
-                        name,
-                        output.status.code(),
-                        stderr.lines().last().unwrap_or("unknown error")
-                    );
-                }
-                Err(e) => {
-                    warn!("  Failed to run pip for {}: {}", name, e);
-                }
-            }
+            server_dirs.push((name, path.to_string_lossy().to_string()));
         }
     }
-    installed
+
+    if server_dirs.is_empty() {
+        return 0;
+    }
+
+    info!(
+        "  Installing MCP deps for {} server(s) in parallel",
+        server_dirs.len()
+    );
+
+    // Install all servers concurrently
+    let pip = pip_str.to_string();
+    let futures: Vec<_> = server_dirs
+        .into_iter()
+        .map(|(name, server_path)| {
+            let pip = pip.clone();
+            async move {
+                let result = tokio::process::Command::new(&pip)
+                    .args(["install", &server_path, "--quiet"])
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .output()
+                    .await;
+                match result {
+                    Ok(output) if output.status.success() => true,
+                    Ok(output) => {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        warn!(
+                            "  Failed to install {} (exit code {:?}): {}",
+                            name,
+                            output.status.code(),
+                            stderr.lines().last().unwrap_or("unknown error")
+                        );
+                        false
+                    }
+                    Err(e) => {
+                        warn!("  Failed to run pip for {}: {}", name, e);
+                        false
+                    }
+                }
+            }
+        })
+        .collect();
+
+    let results = futures::future::join_all(futures).await;
+    results.iter().filter(|&&ok| ok).count() as u32
 }
 
 /// Ensure the MCP Python venv exists and has dependencies installed.
