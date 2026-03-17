@@ -8,6 +8,8 @@ import { EVENTS_URL } from '../services/api';
 import type { AgentMetadata, Episode, Memory } from '../types';
 import { SectionHeader } from './ui/SectionHeader';
 
+const DEBOUNCE_DELAY_MS = 300;
+
 /** Extract a display name from an agent_id like "agent.サフィー___sapphy" */
 function agentDisplayName(agentId: string, agentMap: Map<string, string>): string {
   const mapped = agentMap.get(agentId);
@@ -72,7 +74,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
     }
     fetchTimeoutRef.current = setTimeout(() => {
       fetchData();
-    }, 300);
+    }, DEBOUNCE_DELAY_MS);
   }, [fetchData]);
 
   useEffect(() => {
