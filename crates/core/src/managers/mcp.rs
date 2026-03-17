@@ -307,16 +307,28 @@ impl McpClientManager {
         Ok(resolved)
     }
 
-    /// Connect a list of server configs, registering failures with Error status.
+    /// Connect a list of server configs **concurrently**, registering failures with Error status.
     pub async fn connect_server_configs(&self, configs: &[McpServerConfig]) {
         let total = configs.len();
-        let mut failed = 0usize;
 
-        for server_config in configs {
-            if let Err(e) = self
-                .connect_server(server_config.clone(), ServerSource::Config)
-                .await
-            {
+        // Connect all servers concurrently using join_all
+        let futures: Vec<_> = configs
+            .iter()
+            .map(|cfg| {
+                let config = cfg.clone();
+                async move {
+                    let result = self.connect_server(config.clone(), ServerSource::Config).await;
+                    (config, result)
+                }
+            })
+            .collect();
+
+        let results = futures::future::join_all(futures).await;
+
+        // Register failures
+        let mut failed = 0usize;
+        for (server_config, result) in results {
+            if let Err(e) = result {
                 failed += 1;
                 warn!(
                     id = %server_config.id,
