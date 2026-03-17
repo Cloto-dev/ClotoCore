@@ -217,6 +217,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     use tower_http::cors::CorsLayer;
     use tracing::info;
 
+    let kernel_start = std::time::Instant::now();
+
     info!("+---------------------------------------+");
     info!("|            Cloto System Kernel         |");
     info!(
@@ -984,8 +986,10 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         format!("{}:{}", config.bind_address, config.port).parse()?;
     let listener = bind_with_retry(bind_addr, 5, std::time::Duration::from_secs(2)).await?;
     info!(
-        "🚀 Cloto System Kernel is listening on http://{}:{}",
-        config.bind_address, config.port
+        "🚀 Cloto System Kernel is listening on http://{}:{} (startup: {:.1}s)",
+        config.bind_address,
+        config.port,
+        kernel_start.elapsed().as_secs_f64()
     );
 
     let shutdown_signal = app_state.shutdown.clone();
