@@ -556,36 +556,56 @@ async fn cargo_build_server(
         .stderr(std::process::Stdio::piped())
         .spawn()?;
 
-    // Stream stderr for build progress
-    if let Some(stderr) = child.stderr.take() {
+    // Stream stderr for build progress, collect error lines for failure reporting
+    let stderr_handle = if let Some(stderr) = child.stderr.take() {
         let tx_clone = tx.clone();
-        tokio::spawn(async move {
+        Some(tokio::spawn(async move {
             use tokio::io::{AsyncBufReadExt, BufReader};
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
+            let mut last_error_lines: Vec<String> = Vec::new();
             while let Ok(Some(line)) = lines.next_line().await {
                 if line.contains("Compiling") || line.contains("Downloading") {
                     emit(
                         &tx_clone,
                         SetupProgressEvent::StepProgress {
                             step: "cargo_build".into(),
-                            progress: -1.0, // indeterminate
+                            progress: -1.0,
                             detail: line,
                         },
                     );
+                } else if line.contains("error") {
+                    last_error_lines.push(line);
+                    // Keep only last 5 error lines
+                    if last_error_lines.len() > 5 {
+                        last_error_lines.remove(0);
+                    }
                 }
             }
-        });
-    }
+            last_error_lines
+        }))
+    } else {
+        None
+    };
 
     let status = child.wait().await?;
+    let error_lines = if let Some(handle) = stderr_handle {
+        handle.await.unwrap_or_default()
+    } else {
+        vec![]
+    };
+
     if !status.success() {
+        let detail = if error_lines.is_empty() {
+            "cargo build --release failed. Check Rust toolchain and dependencies.".to_string()
+        } else {
+            error_lines.join("\n")
+        };
         emit(
             tx,
             SetupProgressEvent::StepError {
                 step: "cargo_build".into(),
-                error: "cargo build --release failed. Check Rust toolchain and dependencies."
-                    .into(),
+                error: detail,
                 recoverable: false,
             },
         );
@@ -800,6 +820,30 @@ async fn run_install(
 
     let (command, args, venv_dir) = if is_rust {
         // ── Rust server: cargo build ──
+        // Verify extraction produced a valid Cargo project
+        if !server_path.join("Cargo.toml").exists() {
+            warn!(
+                "Extracted directory missing Cargo.toml: {}",
+                server_path.display()
+            );
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "cargo_build".into(),
+                    error: format!(
+                        "Cargo.toml not found in {}. Extraction may have failed.",
+                        server_path.display()
+                    ),
+                    recoverable: false,
+                },
+            );
+            return Ok(());
+        }
+        info!(
+            "Cargo.toml found, starting build in {}",
+            server_path.display()
+        );
+
         if !cargo_build_server(tx, &server_path, &entry.name).await? {
             return Ok(());
         }
