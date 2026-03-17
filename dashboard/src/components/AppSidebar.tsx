@@ -38,6 +38,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
   };
 
   const handleAddAgent = () => {
+    setSelectedAgentId(null);
+    setSystemActive(false);
     navigate('/');
   };
 
