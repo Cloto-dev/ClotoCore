@@ -10,7 +10,7 @@ use cloto_core::{
 use cloto_shared::{ClotoEvent, ClotoEventData, ClotoMessage, MessageSource};
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
-use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicBool, AtomicU8};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Notify, RwLock};
 
@@ -24,9 +24,9 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
     let (event_tx, _event_rx) = mpsc::channel(1000); // Larger buffer for benchmarks
     let (tx, _rx) = broadcast::channel(1000);
 
-    let registry = Arc::new(PluginRegistry::new(5, 10));
-    let agent_manager = AgentManager::new(pool.clone());
-    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10).unwrap());
+    let registry = Arc::new(PluginRegistry::new(5, 10, 50));
+    let agent_manager = AgentManager::new(pool.clone(), 30_000);
+    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10, 50).unwrap());
 
     let dynamic_router = Arc::new(DynamicRouter {
         router: RwLock::new(axum::Router::new()),
@@ -40,7 +40,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
 
     let rate_limiter = Arc::new(cloto_core::middleware::RateLimiter::new(100, 200));
 
-    let mcp_manager = Arc::new(McpClientManager::new(pool.clone(), false));
+    let mcp_manager = Arc::new(McpClientManager::new(pool.clone(), false, 30));
 
     Arc::new(AppState {
         tx,
@@ -57,11 +57,15 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         metrics,
         rate_limiter,
         shutdown: Arc::new(Notify::new()),
-        revoked_keys: Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
+        revoked_keys: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
         pending_command_approvals: Arc::new(dashmap::DashMap::new()),
         session_trusted_commands: Arc::new(dashmap::DashMap::new()),
         active_cron_contexts: Arc::new(dashmap::DashMap::new()),
         max_cron_generation: Arc::new(AtomicU8::new(2)),
+        setup_in_progress: Arc::new(AtomicBool::new(false)),
+        setup_progress_tx: broadcast::channel(100).0,
+        marketplace_cache: Arc::new(tokio::sync::RwLock::new(Default::default())),
+        install_limiter: Arc::new(cloto_core::middleware::RateLimiter::new(5, 60)),
     })
 }
 
