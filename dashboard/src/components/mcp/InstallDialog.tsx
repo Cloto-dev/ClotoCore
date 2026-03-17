@@ -170,6 +170,14 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
           <p className="text-[10px] font-mono text-content-secondary leading-relaxed">{entry.description}</p>
         </div>
 
+        {/* Rust toolchain notice */}
+        {entry.runtime === 'rust' && !installing && !complete && (
+          <div className="flex items-center gap-2 bg-orange-500/5 border border-orange-500/20 rounded px-3 py-2">
+            <AlertTriangle size={12} className="text-orange-400 shrink-0" />
+            <span className="text-[10px] font-mono text-orange-400">{t('marketplace.rust_notice')}</span>
+          </div>
+        )}
+
         {/* Env vars form */}
         {allEnvVars.length > 0 && !installing && !complete && (
           <div className="space-y-2">

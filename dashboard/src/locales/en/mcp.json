@@ -122,6 +122,7 @@
     "install_error": "Installation failed",
     "uninstall": "Uninstall",
     "uninstall_confirm": "Uninstall {{name}}? This will remove the server and its files.",
-    "uninstall_error": "Failed to uninstall server"
+    "uninstall_error": "Failed to uninstall server",
+    "rust_notice": "This server requires the Rust toolchain (cargo). First build may take 5-10 minutes."
   }
 }
