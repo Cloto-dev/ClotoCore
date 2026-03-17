@@ -12,7 +12,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAgentCreation } from '../hooks/useAgentCreation';
 import { useApi } from '../hooks/useApi';
@@ -40,6 +40,13 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
   const { t } = useTranslation('agents');
   const { t: tc } = useTranslation('common');
   const [configuringAgent, setConfiguringAgent] = useState<AgentMetadata | null>(null);
+
+  // Clear config mode when parent deselects the agent (e.g. sidebar navigation)
+  useEffect(() => {
+    if (!selectedAgent && configuringAgent) {
+      setConfiguringAgent(null);
+    }
+  }, [selectedAgent, configuringAgent]);
 
   // Power toggle modal
   const [powerTarget, setPowerTarget] = useState<AgentMetadata | null>(null);
