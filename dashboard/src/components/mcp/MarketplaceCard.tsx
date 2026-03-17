@@ -58,6 +58,11 @@ export function MarketplaceCard({ entry, onInstall, onUninstall }: MarketplaceCa
       <div className="flex items-center gap-2">
         <Icon size={14} className="text-brand shrink-0" />
         <span className="text-[13px] font-sans font-bold text-content-primary truncate">{entry.name}</span>
+        {entry.runtime === 'rust' && (
+          <span className="text-[9px] font-mono px-1 rounded bg-orange-500/15 text-orange-400 border border-orange-500/25 shrink-0">
+            Rust
+          </span>
+        )}
         <span className="ml-auto text-[11px] font-sans px-1.5 rounded bg-surface-secondary text-content-tertiary uppercase shrink-0">
           {entry.category}
         </span>
@@ -70,7 +75,10 @@ export function MarketplaceCard({ entry, onInstall, onUninstall }: MarketplaceCa
       {entry.tags.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {entry.tags.map((tag) => (
-            <span key={tag} className="bg-surface-secondary text-content-tertiary text-[11px] px-1.5 rounded border border-edge">
+            <span
+              key={tag}
+              className="bg-surface-secondary text-content-tertiary text-[11px] px-1.5 rounded border border-edge"
+            >
               {tag}
             </span>
           ))}
