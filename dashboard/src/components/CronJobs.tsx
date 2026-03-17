@@ -49,7 +49,7 @@ export const CronJobs = memo(function CronJobs() {
       const data = await api.listCronJobs();
       setJobs(data.jobs);
     } catch (e) {
-      console.error('Failed to fetch cron jobs', e);
+      if (import.meta.env.DEV) console.error('Failed to fetch cron jobs', e);
     }
   }, [api]);
 
@@ -58,7 +58,7 @@ export const CronJobs = memo(function CronJobs() {
       const data = await api.getAgents();
       setAgents(data);
     } catch (e) {
-      console.error('Failed to fetch agents', e);
+      if (import.meta.env.DEV) console.error('Failed to fetch agents', e);
     }
   }, [api]);
 

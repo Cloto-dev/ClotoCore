@@ -116,7 +116,7 @@ export async function openVrmWindow(agentId: string, apiKey?: string): Promise<v
         vrmWindowRef = null;
       });
     } catch (e) {
-      console.error('[VRM] Failed to create window:', e);
+      if (import.meta.env.DEV) console.error('[VRM] Failed to create window:', e);
       vrmWindowOpen = false;
       vrmWindowRef = null;
     }

@@ -140,7 +140,6 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
             </button>
           ))}
         </div>
-
       </div>
 
       {/* Grid */}

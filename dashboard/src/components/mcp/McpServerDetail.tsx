@@ -79,7 +79,13 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
                   : 'bg-glass hover:bg-glass-strong text-content-secondary hover:text-green-500 border-edge'
               }`}
             >
-              {actionLoading === 'start' ? <Loader2 size={10} className="animate-spin" /> : actionDone === 'start' ? <CheckCircle size={10} /> : <Play size={10} />}
+              {actionLoading === 'start' ? (
+                <Loader2 size={10} className="animate-spin" />
+              ) : actionDone === 'start' ? (
+                <CheckCircle size={10} />
+              ) : (
+                <Play size={10} />
+              )}
               {t('detail.start')}
             </button>
           )}
@@ -93,7 +99,13 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
                   : 'bg-glass hover:bg-glass-strong text-content-secondary hover:text-red-500 border-edge'
               }`}
             >
-              {actionLoading === 'stop' ? <Loader2 size={10} className="animate-spin" /> : actionDone === 'stop' ? <CheckCircle size={10} /> : <Square size={10} />}
+              {actionLoading === 'stop' ? (
+                <Loader2 size={10} className="animate-spin" />
+              ) : actionDone === 'stop' ? (
+                <CheckCircle size={10} />
+              ) : (
+                <Square size={10} />
+              )}
               {t('detail.stop')}
             </button>
           )}
@@ -106,7 +118,13 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
                 : 'bg-glass hover:bg-glass-strong text-content-secondary hover:text-brand border-edge'
             }`}
           >
-            {actionLoading === 'restart' ? <Loader2 size={10} className="animate-spin" /> : actionDone === 'restart' ? <CheckCircle size={10} /> : <RotateCcw size={10} />}
+            {actionLoading === 'restart' ? (
+              <Loader2 size={10} className="animate-spin" />
+            ) : actionDone === 'restart' ? (
+              <CheckCircle size={10} />
+            ) : (
+              <RotateCcw size={10} />
+            )}
             {t('detail.restart')}
           </button>
           {server.source === 'dynamic' && (

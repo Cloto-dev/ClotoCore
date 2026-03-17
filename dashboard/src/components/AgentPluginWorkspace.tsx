@@ -66,7 +66,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
         initialGrantedRef.current = new Set(granted);
       })
       .catch((e) => {
-        console.error('Failed to load agent access:', e);
+        if (import.meta.env.DEV) console.error('Failed to load agent access:', e);
       })
       .finally(() => setIsLoading(false));
   }, [agent.id, api.getAgentAccess]);

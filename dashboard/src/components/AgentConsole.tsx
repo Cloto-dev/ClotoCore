@@ -137,7 +137,9 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         } else {
           sessionStorage.setItem(`cloto-thinking-${agent.id}`, JSON.stringify(next.slice(-50)));
         }
-      } catch { /* storage full */ }
+      } catch {
+        /* storage full */
+      }
       return next;
     });
   };
@@ -174,7 +176,9 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         );
         setAgentEngines(mcpServers.filter((s) => grantedMindIds.has(s.id)));
       })
-      .catch(() => { /* engine list may be unavailable */ });
+      .catch(() => {
+        /* engine list may be unavailable */
+      });
   }, [agent.id, mcpServers, api.getAgentAccess]);
 
   // Load initial messages from server
@@ -198,7 +202,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
           setIsTyping(true);
         }
       } catch (err) {
-        console.error('Failed to load chat messages:', err);
+        if (import.meta.env.DEV) console.error('Failed to load chat messages:', err);
       } finally {
         setIsLoading(false);
       }
@@ -281,7 +285,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         setHasMore(false);
       }
     } catch (err) {
-      console.error('Failed to load older messages:', err);
+      if (import.meta.env.DEV) console.error('Failed to load older messages:', err);
     } finally {
       setIsLoadingMore(false);
     }
@@ -330,7 +334,9 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
               });
             }
           })
-          .catch(() => { /* non-critical: may fail during reconnect */ });
+          .catch(() => {
+            /* non-critical: may fail during reconnect */
+          });
         return;
       }
 
@@ -539,7 +545,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
       setMessages((prev) => prev.filter((m) => m.id !== msgId));
       setIsTyping(false);
       const errMsg = err instanceof Error ? err.message : 'Failed to send message';
-      console.error('Failed to send message:', errMsg);
+      if (import.meta.env.DEV) console.error('Failed to send message:', errMsg);
       const errId = `err-${msgId}`;
       const errBubble: ChatMessage = {
         id: errId,
@@ -571,7 +577,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
       };
       await api.postChat(clotoMsg);
     } catch (err) {
-      console.error('TTS request failed:', err);
+      if (import.meta.env.DEV) console.error('TTS request failed:', err);
     }
   };
 
@@ -635,7 +641,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== editId));
       setIsTyping(false);
-      console.error('Failed to send edited message:', err);
+      if (import.meta.env.DEV) console.error('Failed to send edited message:', err);
     }
   };
 
@@ -671,7 +677,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
       setMessages((prev) => [...prev, agentResponseMsg]);
       retryParentIdRef.current = null;
       setIsTyping(false);
-      console.error('Failed to retry response:', err);
+      if (import.meta.env.DEV) console.error('Failed to retry response:', err);
     }
   };
 
@@ -687,7 +693,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     try {
       await api.deleteChatMessages(agent.id, identity.id);
     } catch (err) {
-      console.error('Failed to delete chat messages:', err);
+      if (import.meta.env.DEV) console.error('Failed to delete chat messages:', err);
     }
   };
 

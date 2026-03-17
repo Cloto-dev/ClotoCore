@@ -59,7 +59,8 @@ export function useArtifacts(): UseArtifactsResult {
       // If an existing artifact's code is a prefix of the new one (or vice versa),
       // update the existing entry instead of adding a new one.
       const growthIndex = prev.findIndex(
-        (a) => a.language === artifact.language && (artifact.code.startsWith(a.code) || a.code.startsWith(artifact.code)),
+        (a) =>
+          a.language === artifact.language && (artifact.code.startsWith(a.code) || a.code.startsWith(artifact.code)),
       );
       if (growthIndex >= 0) {
         // Keep the longer version

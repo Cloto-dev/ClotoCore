@@ -30,7 +30,7 @@ function connect(url: string, apiKey?: string) {
   sharedApiKey = apiKey ?? null;
   // SSE EventSource cannot set custom headers — pass token via query param (bug-157)
   const connectUrl = apiKey ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(apiKey)}` : url;
-  console.log(`📡 Connecting to Event Stream: ${url}`);
+  if (import.meta.env.DEV) console.log(`📡 Connecting to Event Stream: ${url}`);
   const es = new EventSource(connectUrl);
   sharedEventSource = es;
 
@@ -48,7 +48,7 @@ function connect(url: string, apiKey?: string) {
       attempt = 0; // Reset backoff on successful message
       subscribers.forEach((handler) => handler(data));
     } catch (err) {
-      console.error('Failed to parse SSE event:', err);
+      if (import.meta.env.DEV) console.error('Failed to parse SSE event:', err);
     }
   };
 
@@ -63,14 +63,14 @@ function connect(url: string, apiKey?: string) {
 
   es.addEventListener('lagged', (e: MessageEvent) => {
     const count = parseInt(e.data, 10) || 0;
-    console.warn(`SSE: Server lagged by ${count} messages`);
+    if (import.meta.env.DEV) console.warn(`SSE: Server lagged by ${count} messages`);
     subscribers.forEach((h) => h({ type: '__lagged', data: { count } } as ServerEvent));
   });
 
   es.onerror = () => {
     const delay = Math.min(INITIAL_DELAY_MS * 2 ** attempt, MAX_DELAY_MS);
     attempt++;
-    console.error(`SSE Connection Error. Retrying in ${delay / 1000}s...`);
+    if (import.meta.env.DEV) console.error(`SSE Connection Error. Retrying in ${delay / 1000}s...`);
     es.close();
     sharedEventSource = null;
     if (reconnectTimeout) clearTimeout(reconnectTimeout);

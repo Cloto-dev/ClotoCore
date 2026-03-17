@@ -109,7 +109,7 @@ export class VrmAnimationController {
       await this.audioManager.play(audioUrl);
       this.visemePlayer.playSync(visemeTimeline);
     } catch (err) {
-      console.warn('[VRM] Speech playback failed:', err);
+      if (import.meta.env.DEV) console.warn('[VRM] Speech playback failed:', err);
       this.visemePlayer.stop();
     }
   }
@@ -121,7 +121,7 @@ export class VrmAnimationController {
       await this.audioManager.playData(base64Data);
       this.visemePlayer.playSync(visemeTimeline);
     } catch (err) {
-      console.warn('[VRM] Speech playback failed:', err);
+      if (import.meta.env.DEV) console.warn('[VRM] Speech playback failed:', err);
       this.visemePlayer.stop();
     }
   }
@@ -174,7 +174,7 @@ export class VrmAnimationController {
           animation = await this.vrmaLoader.load(vrmaUrl);
           this.vrmaPresetCache.set(name, animation);
         } catch (err) {
-          console.warn(`[VRM] Failed to load VRMA preset "${name}", falling back:`, err);
+          if (import.meta.env.DEV) console.warn(`[VRM] Failed to load VRMA preset "${name}", falling back:`, err);
           // Fall through to DefaultPoseApplicator below
         }
       }
@@ -193,7 +193,7 @@ export class VrmAnimationController {
 
     const preset = POSE_PRESETS[name];
     if (!preset) {
-      console.warn(`[VRM] Unknown pose preset: ${name}`);
+      if (import.meta.env.DEV) console.warn(`[VRM] Unknown pose preset: ${name}`);
       return;
     }
     this.defaultPose.transitionTo(preset, transitionSec);

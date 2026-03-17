@@ -175,7 +175,7 @@ export function SetupWizard({ onComplete }: Props) {
       }
     }
     if (!key) {
-      console.warn('[SetupWizard] API key not available, skipping preset apply');
+      if (import.meta.env.DEV) console.warn('[SetupWizard] API key not available, skipping preset apply');
       return;
     }
     setApplying(true);
@@ -221,7 +221,7 @@ export function SetupWizard({ onComplete }: Props) {
         }
       }
     } catch (e) {
-      console.error('Failed to apply preset:', e);
+      if (import.meta.env.DEV) console.error('Failed to apply preset:', e);
     } finally {
       setApplying(false);
     }
@@ -512,8 +512,7 @@ export function SetupWizard({ onComplete }: Props) {
                     </a>
                     <p className="text-[10px] text-content-tertiary">
                       {t('python_path_hint', {
-                        defaultValue:
-                          'After installing, make sure "Add Python to PATH" is checked, then click Retry.',
+                        defaultValue: 'After installing, make sure "Add Python to PATH" is checked, then click Retry.',
                       })}
                     </p>
                   </div>
