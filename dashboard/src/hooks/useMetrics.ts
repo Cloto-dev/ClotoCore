@@ -17,7 +17,7 @@ export function useMetrics(pollIntervalMs: number = 10000) {
     try {
       setMetrics(await api.getMetrics());
     } catch (e) {
-      console.error('Failed to fetch metrics', e);
+      if (import.meta.env.DEV) console.error('Failed to fetch metrics', e);
     }
   }, [api]);
 

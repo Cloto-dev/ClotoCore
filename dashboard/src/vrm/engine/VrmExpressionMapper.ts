@@ -64,11 +64,11 @@ export class VrmExpressionMapper {
     // Debug log
     const missing = [...this.expressionMap.entries()].filter(([, v]) => v === null).map(([k]) => k);
     if (missing.length > 0) {
-      console.warn('[VRM Mapper] Missing expressions:', missing.join(', '));
+      if (import.meta.env.DEV) console.warn('[VRM Mapper] Missing expressions:', missing.join(', '));
     }
     const missingV = [...this.visemeMap.entries()].filter(([, v]) => v === null).map(([k]) => k);
     if (missingV.length > 0) {
-      console.warn('[VRM Mapper] Missing visemes:', missingV.join(', '));
+      if (import.meta.env.DEV) console.warn('[VRM Mapper] Missing visemes:', missingV.join(', '));
     }
   }
 

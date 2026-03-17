@@ -153,7 +153,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
       recorder.start();
       setIsRecording(true);
     } catch (err) {
-      console.error('Microphone access denied:', err);
+      if (import.meta.env.DEV) console.error('Microphone access denied:', err);
     }
   };
 

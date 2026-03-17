@@ -71,7 +71,7 @@ export function useRemoteData<T>(
       setData(result);
     } catch (err) {
       setError(extractError(err, errorMessage));
-      console.error(`${errorMessage}:`, err);
+      if (import.meta.env.DEV) console.error(`${errorMessage}:`, err);
     } finally {
       setIsLoading(false);
     }
@@ -89,7 +89,7 @@ export function useRemoteData<T>(
       .catch((err) => {
         if (!cancelled) {
           setError(extractError(err, errorMessage));
-          console.error(`${errorMessage}:`, err);
+          if (import.meta.env.DEV) console.error(`${errorMessage}:`, err);
         }
       })
       .finally(() => {

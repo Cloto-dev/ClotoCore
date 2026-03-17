@@ -29,9 +29,7 @@ export function VrmThumbnailDialog({ open, thumbnailUrl, onApply, onSkip }: VrmT
   return (
     <Modal title={t('plugin_workspace.vrm_thumbnail_title')} icon={ImageIcon} onClose={() => handleAction(false)}>
       <div className="p-4 space-y-4">
-        <p className="text-[13px] text-content-secondary">
-          {t('plugin_workspace.vrm_thumbnail_message')}
-        </p>
+        <p className="text-[13px] text-content-secondary">{t('plugin_workspace.vrm_thumbnail_message')}</p>
 
         <div className="flex justify-center">
           <img
@@ -48,7 +46,9 @@ export function VrmThumbnailDialog({ open, thumbnailUrl, onApply, onSkip }: VrmT
             onChange={(e) => setDontShowAgain(e.target.checked)}
             className="rounded border-edge"
           />
-          <span className="text-[11px] font-mono text-content-tertiary">{t('plugin_workspace.vrm_thumbnail_dont_show')}</span>
+          <span className="text-[11px] font-mono text-content-tertiary">
+            {t('plugin_workspace.vrm_thumbnail_dont_show')}
+          </span>
         </label>
 
         <div className="flex justify-end gap-2">

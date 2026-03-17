@@ -91,7 +91,9 @@ export function ViewHeader({
         {/* Update available indicator (Discord-style green arrow) */}
         {updateVersion && (
           <button
-            onClick={() => window.dispatchEvent(new CustomEvent('cloto-open-settings', { detail: { section: 'about' } }))}
+            onClick={() =>
+              window.dispatchEvent(new CustomEvent('cloto-open-settings', { detail: { section: 'about' } }))
+            }
             className="p-1 rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-500 transition-colors"
             title={t('update_available_banner', {
               version: updateVersion,
