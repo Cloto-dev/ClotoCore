@@ -17,6 +17,8 @@ import './i18n';
 import { loadExternalLanguages } from './i18n';
 import './compiled-tailwind.css';
 
+const UPDATE_CHECK_DELAY_MS = 3000;
+
 declare const __APP_VERSION__: string;
 
 const MemoryCore = lazy(() => import('./components/MemoryCore').then((m) => ({ default: m.MemoryCore })));
@@ -61,7 +63,7 @@ function App() {
       } catch {
         // Silent fail — network unavailable, rate limited, etc.
       }
-    }, 3000);
+    }, UPDATE_CHECK_DELAY_MS);
     return () => clearTimeout(timer);
   }, [connected]);
 

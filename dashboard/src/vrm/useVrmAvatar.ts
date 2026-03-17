@@ -3,6 +3,8 @@ import { useEventStream } from '../hooks/useEventStream';
 import { EVENTS_URL } from '../services/api';
 import { useVrmContext } from './VrmContext';
 
+const AUTO_IDLE_MS = 3000;
+
 /**
  * Hook that subscribes to SSE events and drives avatar agent state transitions.
  * Maps: AgentThinking → thinking, ThoughtResponse → responding, AgenticLoopCompleted → idle.
@@ -30,7 +32,7 @@ export function useVrmAvatar(agentId: string, apiKey?: string) {
           // Non-agentic fallback: auto-idle after 3s if no AgenticLoopCompleted
           idleTimeoutRef.current = setTimeout(() => {
             setAgentState('idle');
-          }, 3000);
+          }, AUTO_IDLE_MS);
           break;
 
         case 'AgenticLoopCompleted':

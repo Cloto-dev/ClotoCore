@@ -8,6 +8,8 @@ const EXT_MAP: Record<string, string> = {
   yaml: 'yml', xml: 'xml', ts: 'ts', js: 'js', py: 'py', sh: 'sh',
 };
 
+const COPY_FEEDBACK_MS = 2000;
+
 // Allow code block wrapper elements through DOMPurify
 const SANITIZE_CONFIG = {
   ADD_TAGS: ['button', 'svg', 'rect', 'path', 'polyline', 'line'],
@@ -75,7 +77,7 @@ export function MarkdownRenderer({ content, incremental = false, onCodeBlock, cl
     if (copyBtn) {
       navigator.clipboard.writeText(code);
       copyBtn.classList.add('copied');
-      setTimeout(() => copyBtn.classList.remove('copied'), 2000);
+      setTimeout(() => copyBtn.classList.remove('copied'), COPY_FEEDBACK_MS);
     }
 
     if (downloadBtn) {

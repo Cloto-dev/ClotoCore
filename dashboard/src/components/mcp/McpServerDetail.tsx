@@ -7,6 +7,8 @@ import { McpAccessControlTab } from './McpAccessControlTab';
 import { McpServerLogsTab } from './McpServerLogsTab';
 import { McpServerSettingsTab } from './McpServerSettingsTab';
 
+const ACTION_FEEDBACK_MS = 2000;
+
 type Tab = 'settings' | 'access' | 'logs';
 
 interface Props {
@@ -34,7 +36,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
     try {
       await fn();
       setActionDone(action);
-      setTimeout(() => setActionDone(null), 2000);
+      setTimeout(() => setActionDone(null), ACTION_FEEDBACK_MS);
       setTimeout(onRefresh, 500);
     } finally {
       setActionLoading(null);

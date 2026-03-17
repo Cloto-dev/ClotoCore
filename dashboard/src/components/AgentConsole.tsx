@@ -44,10 +44,12 @@ import { StatusDot } from './ui/StatusDot';
 // Legacy localStorage key prefix for migration
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
 const SCROLL_BOTTOM_THRESHOLD_PX = 50;
+const LONG_PRESS_MS = 1500;
+const ERROR_DISPLAY_MS = 5000;
 
 function LongPressResetButton({ onReset }: { onReset: () => void }) {
   const { t } = useTranslation('agents');
-  const { progress, handlers } = useLongPress(1500, onReset);
+  const { progress, handlers } = useLongPress(LONG_PRESS_MS, onReset);
 
   return (
     <button
@@ -548,7 +550,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         created_at: Date.now(),
       };
       setMessages((prev) => [...prev, errBubble]);
-      setTimeout(() => setMessages((prev) => prev.filter((m) => m.id !== errId)), 5000);
+      setTimeout(() => setMessages((prev) => prev.filter((m) => m.id !== errId)), ERROR_DISPLAY_MS);
     }
   };
 

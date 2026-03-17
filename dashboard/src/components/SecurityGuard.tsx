@@ -5,6 +5,9 @@ import { usePolling } from '../hooks/usePolling';
 import { Spinner } from '../lib/Spinner';
 import type { PermissionRequest } from '../types';
 
+const POLLING_INTERVAL_MS = 3000;
+const GRANT_FEEDBACK_MS = 2000;
+
 export function SecurityGuard() {
   const api = useApi();
   const [requests, setRequests] = useState<PermissionRequest[]>([]);
@@ -22,7 +25,7 @@ export function SecurityGuard() {
     }
   }, [api]);
 
-  usePolling(fetchPending, 3000);
+  usePolling(fetchPending, POLLING_INTERVAL_MS);
 
   const handleGrant = async (req: PermissionRequest) => {
     const reqId = req.request_id;
@@ -38,7 +41,7 @@ export function SecurityGuard() {
       setTimeout(() => {
         setRequests((prev) => prev.filter((r) => r.request_id !== reqId));
         setGrantedIds((prev) => prev.filter((id) => id !== reqId));
-      }, 2000);
+      }, GRANT_FEEDBACK_MS);
     } catch (err) {
       setAuthorizingIds((prev) => prev.filter((id) => id !== reqId));
       setError(`CRITICAL: Authorization failed. ${err}`);
