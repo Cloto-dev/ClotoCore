@@ -99,7 +99,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      console.error('Export failed:', e);
+      if (import.meta.env.DEV) console.error('Export failed:', e);
     }
   };
 

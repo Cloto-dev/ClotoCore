@@ -62,7 +62,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
       setEpisodes(episodes);
       setAgents(agents);
     } catch (error) {
-      console.error('Failed to fetch data', error);
+      if (import.meta.env.DEV) console.error('Failed to fetch data', error);
     }
   }, [api.getAgents, api.getEpisodes, api.getMemories]);
 
@@ -94,7 +94,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
       await api.deleteMemory(id);
       setMemories((prev) => prev.filter((m) => m.id !== id));
     } catch (e) {
-      console.error('Failed to delete memory:', e);
+      if (import.meta.env.DEV) console.error('Failed to delete memory:', e);
     }
   };
 
@@ -103,7 +103,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
       await api.deleteEpisode(id);
       setEpisodes((prev) => prev.filter((e) => e.id !== id));
     } catch (e) {
-      console.error('Failed to delete episode:', e);
+      if (import.meta.env.DEV) console.error('Failed to delete episode:', e);
     }
   };
 

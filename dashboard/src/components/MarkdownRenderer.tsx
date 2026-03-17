@@ -3,9 +3,21 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { renderMarkdown, renderMarkdownIncremental } from '../lib/markdown';
 
 const EXT_MAP: Record<string, string> = {
-  typescript: 'ts', javascript: 'js', python: 'py', rust: 'rs',
-  bash: 'sh', json: 'json', css: 'css', html: 'html', sql: 'sql',
-  yaml: 'yml', xml: 'xml', ts: 'ts', js: 'js', py: 'py', sh: 'sh',
+  typescript: 'ts',
+  javascript: 'js',
+  python: 'py',
+  rust: 'rs',
+  bash: 'sh',
+  json: 'json',
+  css: 'css',
+  html: 'html',
+  sql: 'sql',
+  yaml: 'yml',
+  xml: 'xml',
+  ts: 'ts',
+  js: 'js',
+  py: 'py',
+  sh: 'sh',
 };
 
 const COPY_FEEDBACK_MS = 2000;
@@ -13,7 +25,27 @@ const COPY_FEEDBACK_MS = 2000;
 // Allow code block wrapper elements through DOMPurify
 const SANITIZE_CONFIG = {
   ADD_TAGS: ['button', 'svg', 'rect', 'path', 'polyline', 'line'],
-  ADD_ATTR: ['data-raw', 'data-ext', 'data-lang', 'data-lines', 'viewBox', 'fill', 'stroke', 'stroke-width', 'd', 'x', 'y', 'width', 'height', 'rx', 'x1', 'y1', 'x2', 'y2', 'points'],
+  ADD_ATTR: [
+    'data-raw',
+    'data-ext',
+    'data-lang',
+    'data-lines',
+    'viewBox',
+    'fill',
+    'stroke',
+    'stroke-width',
+    'd',
+    'x',
+    'y',
+    'width',
+    'height',
+    'rx',
+    'x1',
+    'y1',
+    'x2',
+    'y2',
+    'points',
+  ],
 };
 
 interface MarkdownRendererProps {

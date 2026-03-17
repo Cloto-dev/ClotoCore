@@ -58,7 +58,7 @@ export function VrmViewer({ agentId, apiKey }: Props) {
       })
       .catch((err) => {
         if (disposed) return;
-        console.error('VRM load failed:', err);
+        if (import.meta.env.DEV) console.error('VRM load failed:', err);
         setError(err.message || 'Failed to load VRM model');
         setLoading(false);
       });

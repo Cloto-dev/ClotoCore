@@ -198,7 +198,9 @@ export function VrmViewerPage() {
               .then((timeline) => {
                 controllerRef.current?.playVisemes(timeline.entries);
               })
-              .catch((err) => console.warn('[VRM] Viseme generation failed:', err));
+              .catch((err) => {
+                if (import.meta.env.DEV) console.warn('[VRM] Viseme generation failed:', err);
+              });
           }
           break;
         case 'AgenticLoopCompleted':
@@ -284,7 +286,7 @@ export function VrmViewerPage() {
       })
       .catch((err) => {
         if (disposed) return;
-        console.error('VRM load failed:', err);
+        if (import.meta.env.DEV) console.error('VRM load failed:', err);
         setError(err.message || 'Failed to load VRM model');
         setLoading(false);
       });
@@ -381,7 +383,7 @@ export function VrmViewerPage() {
       setVrmaName(file.name);
       setActivePose(''); // Deselect preset
     } catch (err) {
-      console.warn('[VRM] VRMA load failed:', err);
+      if (import.meta.env.DEV) console.warn('[VRM] VRMA load failed:', err);
     }
   }
 

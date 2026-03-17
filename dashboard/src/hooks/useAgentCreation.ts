@@ -61,7 +61,7 @@ export function useAgentCreation(onCreated: () => void) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       setCreateError(msg);
-      console.error(e);
+      if (import.meta.env.DEV) console.error(e);
     } finally {
       setIsCreating(false);
     }

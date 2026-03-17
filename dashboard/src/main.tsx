@@ -56,9 +56,7 @@ function App() {
       try {
         const info = await checkForUpdates();
         if (info.available) {
-          window.dispatchEvent(
-            new CustomEvent('cloto-update-available', { detail: { version: info.latestVersion } }),
-          );
+          window.dispatchEvent(new CustomEvent('cloto-update-available', { detail: { version: info.latestVersion } }));
         }
       } catch {
         // Silent fail — network unavailable, rate limited, etc.

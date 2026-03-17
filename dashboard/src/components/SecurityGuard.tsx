@@ -21,7 +21,7 @@ export function SecurityGuard() {
       setRequests(await api.getPendingPermissions());
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      console.error('Failed to fetch pending permissions:', err);
+      if (import.meta.env.DEV) console.error('Failed to fetch pending permissions:', err);
     }
   }, [api]);
 
@@ -45,7 +45,7 @@ export function SecurityGuard() {
     } catch (err) {
       setAuthorizingIds((prev) => prev.filter((id) => id !== reqId));
       setError(`CRITICAL: Authorization failed. ${err}`);
-      console.error('Failed to grant permission:', err);
+      if (import.meta.env.DEV) console.error('Failed to grant permission:', err);
     }
   };
 
@@ -56,7 +56,7 @@ export function SecurityGuard() {
       setError(null);
     } catch (err) {
       setError(`Failed to deny permission: ${err}`);
-      console.error('Failed to deny permission:', err);
+      if (import.meta.env.DEV) console.error('Failed to deny permission:', err);
     }
   };
 

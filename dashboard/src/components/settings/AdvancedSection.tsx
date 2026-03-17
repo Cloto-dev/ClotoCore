@@ -15,12 +15,16 @@ export function AdvancedSection() {
     api
       .fetchJson<{ enabled: boolean }>('/settings/yolo')
       .then((data) => setYoloEnabled(data.enabled))
-      .catch((e) => { if (import.meta.env.DEV) console.warn('Failed to load setting:', e); })
+      .catch((e) => {
+        if (import.meta.env.DEV) console.warn('Failed to load setting:', e);
+      })
       .finally(() => setLoading(false));
     api
       .fetchJson<{ value: number }>('/settings/max-cron-generation')
       .then((data) => setMaxCronGen(data.value))
-      .catch((e) => { if (import.meta.env.DEV) console.warn('Failed to load setting:', e); });
+      .catch((e) => {
+        if (import.meta.env.DEV) console.warn('Failed to load setting:', e);
+      });
   }, [api]);
 
   const handleToggle = async () => {
@@ -29,7 +33,7 @@ export function AdvancedSection() {
       await api.put('/settings/yolo', { enabled: next });
       setYoloEnabled(next);
     } catch (err) {
-      console.error('Failed to toggle YOLO mode:', err);
+      if (import.meta.env.DEV) console.error('Failed to toggle YOLO mode:', err);
     }
   };
 
@@ -39,7 +43,7 @@ export function AdvancedSection() {
       await api.put('/settings/max-cron-generation', { value: clamped });
       setMaxCronGen(clamped);
     } catch (err) {
-      console.error('Failed to set max cron generation:', err);
+      if (import.meta.env.DEV) console.error('Failed to set max cron generation:', err);
     }
   };
 
