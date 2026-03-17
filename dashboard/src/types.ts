@@ -190,6 +190,7 @@ export interface MarketplaceCatalogEntry {
   trust_level: string;
   auto_restart: boolean;
   icon?: string;
+  runtime: string;
   installed: boolean;
   installed_version?: string;
   update_available: boolean;
