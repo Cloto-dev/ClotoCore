@@ -1485,7 +1485,10 @@ async fn run_batch_install(
                 venv_dir.join("bin").join("python")
             };
             let server_script = server_path.join("server.py").to_string_lossy().to_string();
-            (venv_python.to_string_lossy().to_string(), vec![server_script])
+            (
+                venv_python.to_string_lossy().to_string(),
+                vec![server_script],
+            )
         };
 
         // Register via add_dynamic_server
