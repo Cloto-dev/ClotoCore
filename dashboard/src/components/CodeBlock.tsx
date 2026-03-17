@@ -21,6 +21,8 @@ const EXT_MAP: Record<string, string> = {
   sh: 'sh',
 };
 
+const COPY_FEEDBACK_MS = 2000;
+
 interface CodeBlockProps {
   code: string;
   language: string;
@@ -42,7 +44,7 @@ export function CodeBlock({ code, language, showHeader = true, maxHeight = 'none
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(code);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
   }, [code]);
 
   const handleDownload = useCallback(() => {

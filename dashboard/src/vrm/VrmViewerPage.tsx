@@ -16,6 +16,10 @@ import { VrmAnimationController } from './engine/VrmAnimationController';
 import { VrmModelLoader } from './engine/VrmModelLoader';
 import { VrmSceneManager } from './engine/VrmSceneManager';
 
+const AUTO_IDLE_MS = 3000;
+const ERROR_DISPLAY_MS = 5000;
+const COPY_FEEDBACK_MS = 1500;
+
 const POSE_LABELS: Record<string, string> = {
   relaxed: 'Relaxed',
   attentive: 'Attentive',
@@ -185,7 +189,7 @@ export function VrmViewerPage() {
         case 'ThoughtResponse':
           clearIdleTimeout();
           setAgentState('responding');
-          idleTimeoutRef.current = setTimeout(() => setAgentState('idle'), 3000);
+          idleTimeoutRef.current = setTimeout(() => setAgentState('idle'), AUTO_IDLE_MS);
           // Trigger lip sync: generate visemes from response text
           // Skip when auto_spoken — the kernel already triggered VOICEVOX speech
           if (evtData.content && agentId && !evtData.auto_spoken) {
@@ -329,7 +333,7 @@ export function VrmViewerPage() {
     if (footerTimeoutRef.current) clearTimeout(footerTimeoutRef.current);
     footerTimeoutRef.current = setTimeout(() => {
       if (!showSettings) setShowFooter(false);
-    }, 5000);
+    }, ERROR_DISPLAY_MS);
   }
 
   function handleFooterInteraction() {
@@ -366,7 +370,7 @@ export function VrmViewerPage() {
     const text = `{\n${lines}\n}`;
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
     });
   }
 

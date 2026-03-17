@@ -9,6 +9,8 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { InstallDialog } from './InstallDialog';
 import { MarketplaceCard } from './MarketplaceCard';
 
+const ERROR_DISPLAY_MS = 5000;
+
 const CATEGORIES: Array<{ key: string; label: string }> = [
   { key: 'all', label: 'filter_all' },
   { key: 'mind', label: 'mind' },
@@ -75,7 +77,7 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
     } catch (err) {
       setUninstallTarget(null);
       setUninstallError(extractError(err, t('marketplace.uninstall_error')));
-      setTimeout(() => setUninstallError(null), 5000);
+      setTimeout(() => setUninstallError(null), ERROR_DISPLAY_MS);
     } finally {
       setUninstalling(false);
     }
