@@ -60,10 +60,11 @@ export function GeneralSection() {
         type: 'success',
         message: t('general.import_success', { label: result.label, code: result.code }),
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errMessage = err instanceof Error ? err.message : 'Unknown import error';
       setImportStatus({
         type: 'error',
-        message: t('general.import_error', { error: err.message }),
+        message: t('general.import_error', { error: errMessage }),
       });
     }
   };

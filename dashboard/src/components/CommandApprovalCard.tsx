@@ -45,7 +45,8 @@ export function CommandApprovalCard({ approvalId, commands, onResolved }: Props)
       else await api.denyCommand(approvalId);
       setStatus('resolved');
       onResolved(approvalId);
-    } catch {
+    } catch (e) {
+      if (import.meta.env.DEV) console.error('Command approval action failed:', e);
       setStatus('pending');
     }
   };

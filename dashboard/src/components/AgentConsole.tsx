@@ -174,7 +174,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         );
         setAgentEngines(mcpServers.filter((s) => grantedMindIds.has(s.id)));
       })
-      .catch(() => {});
+      .catch(() => { /* engine list may be unavailable */ });
   }, [agent.id, mcpServers, api.getAgentAccess]);
 
   // Load initial messages from server
@@ -330,7 +330,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
               });
             }
           })
-          .catch(() => {});
+          .catch(() => { /* non-critical: may fail during reconnect */ });
         return;
       }
 
