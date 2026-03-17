@@ -8,7 +8,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        karin: {
+        cloto: {
           core: '#2e4de6',
           pink: '#ff007a',
           blue: '#00f2ff',
