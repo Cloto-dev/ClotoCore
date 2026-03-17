@@ -1979,7 +1979,7 @@
       "commit": "9525e97",
       "file": "crates/mgp-avatar/src/voicevox.rs",
       "pattern": "get\\(\"accent_phrases\"\\)",
-      "expected": "present",
+      "expected": "absent",
       "status": "fixed"
     },
     {
