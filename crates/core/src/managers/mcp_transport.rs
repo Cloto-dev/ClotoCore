@@ -108,6 +108,7 @@ impl StdioTransport {
     /// - For `NetworkScope::ProxyOnly`: `CLOTO_LLM_PROXY`, `HTTP_PROXY`, `HTTPS_PROXY`
     ///   are set to the kernel LLM proxy.
     /// - Sensitive env vars (LLM API keys) are stripped from the child environment.
+    #[allow(clippy::too_many_lines)]
     pub async fn start(
         command: &str,
         args: &[String],

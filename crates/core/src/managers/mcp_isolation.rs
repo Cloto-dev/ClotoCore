@@ -124,7 +124,7 @@ struct Defaults {
     max_child_processes: Option<u32>,
 }
 
-fn defaults_for(trust: &TrustLevel) -> Defaults {
+fn defaults_for(trust: TrustLevel) -> Defaults {
     match trust {
         TrustLevel::Core => Defaults {
             filesystem: FilesystemScope::Unrestricted,
@@ -191,7 +191,7 @@ fn apply_permission_upgrades(
 // ============================================================
 
 /// Validate that isolation overrides are permitted for the given trust level.
-fn validate_overrides(trust_level: &TrustLevel, overrides: &IsolationConfig) -> anyhow::Result<()> {
+fn validate_overrides(trust_level: TrustLevel, overrides: &IsolationConfig) -> anyhow::Result<()> {
     match trust_level {
         // Core: any override allowed.
         TrustLevel::Core => Ok(()),
@@ -279,11 +279,11 @@ pub fn derive_isolation_profile(
 ) -> anyhow::Result<IsolationProfile> {
     // 1. Validate overrides first.
     if let Some(ovr) = overrides {
-        validate_overrides(&trust_level, ovr)?;
+        validate_overrides(trust_level, ovr)?;
     }
 
     // 2. Start from trust-level defaults.
-    let defs = defaults_for(&trust_level);
+    let defs = defaults_for(trust_level);
     let mut fs_scope = defs.filesystem;
     let mut net_scope = defs.network;
     let mut memory_limit_mb = defs.memory_limit_mb;

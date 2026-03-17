@@ -140,6 +140,7 @@ impl ConsensusOrchestrator {
         None
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn on_thought_response(
         &self,
         trace_id: ClotoId,

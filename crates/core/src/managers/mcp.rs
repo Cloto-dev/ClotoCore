@@ -1340,6 +1340,7 @@ impl McpClientManager {
     /// Execute a tool by name, routing to the correct MCP server (kernel-internal).
     /// Handles kernel-native tools (create_mcp_server) internally.
     /// Applies kernel-side validation (A) before forwarding to the MCP server.
+    #[allow(clippy::too_many_lines)]
     pub(crate) async fn execute_tool_internal(
         &self,
         tool_name: &str,
@@ -1549,6 +1550,7 @@ impl McpClientManager {
     /// Execute a tool on a specific server by server ID and tool name.
     /// Applies kernel-side validation (A) and delegation checks (§5.6)
     /// before forwarding to the MCP server.
+    #[allow(clippy::too_many_lines)]
     pub async fn call_server_tool(
         &self,
         server_id: &str,

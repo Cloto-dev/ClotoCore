@@ -13,6 +13,7 @@ pub fn exe_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone)]
 pub struct AppConfig {
     pub database_url: String,

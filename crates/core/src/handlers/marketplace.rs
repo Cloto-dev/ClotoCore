@@ -82,6 +82,7 @@ const CACHE_TTL: Duration = Duration::from_secs(3600); // 1 hour
 
 // ── Response types ──────────────────────────────────────────────────
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Serialize)]
 pub struct CatalogEntry {
     // Registry fields
@@ -640,6 +641,7 @@ fn rust_binary_path(server_path: &std::path::Path, entry: &RegistryEntry) -> Pat
 
 // ── Install orchestration ───────────────────────────────────────────
 
+#[allow(clippy::too_many_lines)]
 async fn run_install(
     state: &AppState,
     entry: &RegistryEntry,
@@ -1208,6 +1210,7 @@ fn extract_batch(
 
 // ── Batch install orchestration ─────────────────────────────────────
 
+#[allow(clippy::too_many_lines)]
 async fn run_batch_install(
     state: &AppState,
     entries: &[RegistryEntry],

@@ -564,10 +564,9 @@ pub fn derive_effective_risk_level(
 
     // Validator → risk (§4.6)
     let validator_risk = match validator {
-        Some("readonly") => RiskLevel::Safe,
         Some("sandbox" | "network_restricted" | "code_safety") => RiskLevel::Moderate,
         Some("none") => RiskLevel::Dangerous,
-        _ => RiskLevel::Safe,
+        _ => RiskLevel::Safe, // includes "readonly" and unrecognized validators
     };
 
     // Permissions → risk (§4.6)
