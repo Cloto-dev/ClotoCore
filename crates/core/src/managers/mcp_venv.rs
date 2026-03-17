@@ -31,9 +31,7 @@ pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
     {
         match std::env::var(var_name) {
             Ok(val) => val,
-            Err(_) if var_name == "CLOTO_MCP_SERVERS" => {
-                "../cloto-mcp-servers/servers".to_string()
-            }
+            Err(_) if var_name == "CLOTO_MCP_SERVERS" => "../cloto-mcp-servers/servers".to_string(),
             Err(_) => return None,
         }
     } else {
