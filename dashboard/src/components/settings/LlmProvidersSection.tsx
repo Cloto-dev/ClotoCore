@@ -17,7 +17,7 @@ export function LlmProvidersSection() {
     api
       .listLlmProviders()
       .then((d) => setProviders(d.providers))
-      .catch(() => {});
+      .catch((e) => { if (import.meta.env.DEV) console.warn('Failed to load LLM providers:', e); });
   }, [api]);
 
   const handleSave = async (providerId: string) => {

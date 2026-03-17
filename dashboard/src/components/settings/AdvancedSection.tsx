@@ -15,12 +15,12 @@ export function AdvancedSection() {
     api
       .fetchJson<{ enabled: boolean }>('/settings/yolo')
       .then((data) => setYoloEnabled(data.enabled))
-      .catch(() => {})
+      .catch((e) => { if (import.meta.env.DEV) console.warn('Failed to load setting:', e); })
       .finally(() => setLoading(false));
     api
       .fetchJson<{ value: number }>('/settings/max-cron-generation')
       .then((data) => setMaxCronGen(data.value))
-      .catch(() => {});
+      .catch((e) => { if (import.meta.env.DEV) console.warn('Failed to load setting:', e); });
   }, [api]);
 
   const handleToggle = async () => {
