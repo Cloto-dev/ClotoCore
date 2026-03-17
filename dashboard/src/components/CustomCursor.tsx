@@ -25,6 +25,9 @@ export function CustomCursor() {
     };
   }, []);
 
+  // Canvas setup runs once. brandHexRef is a "latest value ref" pattern:
+  // brandHexRef.current is updated every render (line above), so the animation
+  // loop always reads the current theme color without re-initializing the canvas.
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       localMouse.current = { x: e.clientX, y: e.clientY };
