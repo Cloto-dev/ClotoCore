@@ -289,7 +289,13 @@ pub async fn run_kernel() -> anyhow::Result<()> {
             .is_some_and(|r| r.join("Cargo.toml").exists())
     };
     if setup_json.exists() || is_dev {
-        managers::mcp_venv::ensure_mcp_venv(Some(&data_dir)).await;
+        // Run venv dependency sync in background — not on the critical startup path.
+        // Servers can start immediately since the venv python and existing packages
+        // are already available; pip install only adds/updates packages.
+        let data_dir_bg = data_dir.clone();
+        tokio::spawn(async move {
+            managers::mcp_venv::ensure_mcp_venv(Some(&data_dir_bg)).await;
+        });
     } else {
         tracing::info!("Setup not complete — skipping MCP venv sync");
     }
