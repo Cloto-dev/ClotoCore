@@ -1265,6 +1265,7 @@ impl SystemHandler {
     /// Analyze image attachments via vision.capture MCP server.
     /// Prepends analysis text to the message content so the LLM engine
     /// can "see" images even though it only receives text.
+    #[allow(clippy::too_many_lines)]
     async fn maybe_analyze_images(
         &self,
         mut msg: cloto_shared::ClotoMessage,

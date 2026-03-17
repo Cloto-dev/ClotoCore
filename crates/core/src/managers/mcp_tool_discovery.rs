@@ -1463,6 +1463,7 @@ mod tests {
     /// Simulates a typical ClotoCore setup with multiple MCP servers
     /// and measures the token savings when using session cache vs full injection.
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn measure_context_reduction_realistic() {
         let index = ToolIndex::new();
 
@@ -1478,6 +1479,7 @@ mod tests {
         // stt: 2 tools (2-3 params)
         // tts: 3 tools (2-4 params)
         // gaze: 5 tools (3-6 params)
+        #[allow(clippy::type_complexity)]
         let server_configs: Vec<(&str, Vec<(&str, &str, usize)>)> = vec![
             (
                 "tool.terminal",

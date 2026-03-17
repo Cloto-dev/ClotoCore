@@ -91,6 +91,7 @@ impl McpClient {
         Ok((client, mgp_caps))
     }
 
+    #[allow(clippy::too_many_lines)]
     fn start_response_loop(&mut self, server_id: &str) {
         use super::mcp_protocol::JsonRpcMessage;
 
