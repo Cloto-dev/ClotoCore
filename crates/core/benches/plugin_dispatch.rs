@@ -74,8 +74,8 @@ fn plugin_dispatch_single(c: &mut Criterion) {
                 latency_ms: 10,
             });
             {
-                let mut plugins = state.registry.plugins.write().await;
-                plugins.insert("bench_plugin".to_string(), plugin);
+                let mut reg_state = state.registry.state.write().await;
+                reg_state.plugins.insert("bench_plugin".to_string(), plugin);
             }
 
             // Benchmark: dispatch event to single plugin
@@ -104,13 +104,13 @@ fn plugin_dispatch_concurrent(c: &mut Criterion) {
 
                     // Register multiple plugins with 100ms latency
                     {
-                        let mut plugins = state.registry.plugins.write().await;
+                        let mut reg_state = state.registry.state.write().await;
                         for i in 0..count {
                             let plugin: Arc<dyn Plugin> = Arc::new(BenchPlugin {
                                 id: format!("plugin_{}", i),
                                 latency_ms: 100,
                             });
-                            plugins.insert(format!("plugin_{}", i), plugin);
+                            reg_state.plugins.insert(format!("plugin_{}", i), plugin);
                         }
                     }
 
@@ -144,13 +144,13 @@ fn plugin_dispatch_no_latency(c: &mut Criterion) {
 
                     // Register plugins with zero latency (measure dispatch overhead only)
                     {
-                        let mut plugins = state.registry.plugins.write().await;
+                        let mut reg_state = state.registry.state.write().await;
                         for i in 0..count {
                             let plugin: Arc<dyn Plugin> = Arc::new(BenchPlugin {
                                 id: format!("plugin_{}", i),
                                 latency_ms: 0,
                             });
-                            plugins.insert(format!("plugin_{}", i), plugin);
+                            reg_state.plugins.insert(format!("plugin_{}", i), plugin);
                         }
                     }
 
@@ -175,13 +175,13 @@ fn plugin_semaphore_contention(c: &mut Criterion) {
 
             // Register 50 plugins (at semaphore limit from managers.rs:50)
             {
-                let mut plugins = state.registry.plugins.write().await;
+                let mut reg_state = state.registry.state.write().await;
                 for i in 0..50 {
                     let plugin: Arc<dyn Plugin> = Arc::new(BenchPlugin {
                         id: format!("plugin_{}", i),
                         latency_ms: 50,
                     });
-                    plugins.insert(format!("plugin_{}", i), plugin);
+                    reg_state.plugins.insert(format!("plugin_{}", i), plugin);
                 }
             }
 
