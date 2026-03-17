@@ -1385,8 +1385,8 @@
       "commit": "b60f329",
       "file": "dashboard/src/components/AgentConsole.tsx",
       "pattern": "\\.clientHeight < 50",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
       "github_issue": 37
     },
     {
@@ -1398,8 +1398,8 @@
       "commit": "b60f329",
       "file": "dashboard/src/components/CommandApprovalCard.tsx",
       "pattern": "useState\\(60\\)",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
       "github_issue": 38
     },
     {
@@ -1411,8 +1411,8 @@
       "commit": "b60f329",
       "file": "dashboard/src/components/MemoryCore.tsx",
       "pattern": "\\}, 300\\)",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
       "github_issue": 39
     },
     {
@@ -1437,8 +1437,8 @@
       "commit": "b60f329",
       "file": "dashboard/src/components/AgentConsole.tsx",
       "pattern": "console\\.log",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
       "github_issue": 41
     },
     {
@@ -1450,8 +1450,8 @@
       "commit": "b60f329",
       "file": "dashboard/src/hooks/useStorage.ts",
       "pattern": "catch \\{\\}",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
       "github_issue": 42
     },
     {

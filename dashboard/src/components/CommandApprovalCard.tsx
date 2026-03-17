@@ -14,10 +14,12 @@ interface Props {
   onResolved: (approvalId: string) => void;
 }
 
+const APPROVAL_TIMEOUT_SECS = 60;
+
 export function CommandApprovalCard({ approvalId, commands, onResolved }: Props) {
   const api = useApi();
   const [status, setStatus] = useState<'pending' | 'acting' | 'resolved'>('pending');
-  const [secondsLeft, setSecondsLeft] = useState(60);
+  const [secondsLeft, setSecondsLeft] = useState(APPROVAL_TIMEOUT_SECS);
 
   useEffect(() => {
     if (status !== 'pending') return;
@@ -88,7 +90,7 @@ export function CommandApprovalCard({ approvalId, commands, onResolved }: Props)
       <div className="h-0.5 bg-amber-500/10 rounded-full overflow-hidden">
         <div
           className="h-full bg-amber-500/40 transition-all duration-1000 ease-linear"
-          style={{ width: `${(secondsLeft / 60) * 100}%` }}
+          style={{ width: `${(secondsLeft / APPROVAL_TIMEOUT_SECS) * 100}%` }}
         />
       </div>
 

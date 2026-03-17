@@ -43,6 +43,7 @@ import { StatusDot } from './ui/StatusDot';
 
 // Legacy localStorage key prefix for migration
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
+const SCROLL_BOTTOM_THRESHOLD_PX = 50;
 
 function LongPressResetButton({ onReset }: { onReset: () => void }) {
   const { t } = useTranslation('agents');
@@ -92,7 +93,6 @@ async function migrateLegacyData(
 
     // Remove legacy data
     localStorage.removeItem(key);
-    console.log(`Migrated ${legacyMessages.length} legacy messages for agent ${agentId}`);
   } catch {
     // Silently ignore migration errors
   }
@@ -250,7 +250,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    isScrolledToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+    isScrolledToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_BOTTOM_THRESHOLD_PX;
   }, []);
 
   const loadOlderMessages = useCallback(async () => {

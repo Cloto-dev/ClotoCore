@@ -15,7 +15,9 @@ function createStorageHook(getStorage: () => Storage) {
         setInner(v);
         try {
           getStorage().setItem(key, v);
-        } catch {}
+        } catch (e) {
+          console.warn(`useStorage: failed to write key "${key}"`, e);
+        }
       },
       [key],
     );
@@ -24,7 +26,9 @@ function createStorageHook(getStorage: () => Storage) {
       setInner(fallback);
       try {
         getStorage().removeItem(key);
-      } catch {}
+      } catch (e) {
+        console.warn(`useStorage: failed to remove key "${key}"`, e);
+      }
     }, [key, fallback]);
 
     return [value, set, remove];
