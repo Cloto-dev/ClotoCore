@@ -821,7 +821,8 @@ async fn run_install(
     let (command, args, venv_dir) = if is_rust {
         // ── Rust server: cargo build ──
         // Verify extraction produced a valid Cargo project
-        if !server_path.join("Cargo.toml").exists() {
+        let cargo_toml = server_path.join("Cargo.toml");
+        if !cargo_toml.exists() {
             warn!(
                 "Extracted directory missing Cargo.toml: {}",
                 server_path.display()
@@ -838,6 +839,15 @@ async fn run_install(
                 },
             );
             return Ok(());
+        }
+        // Ensure the package is not absorbed by a parent workspace.
+        // Append [workspace] to Cargo.toml so Cargo treats it as standalone.
+        {
+            let content = std::fs::read_to_string(&cargo_toml).unwrap_or_default();
+            if !content.contains("[workspace]") {
+                std::fs::write(&cargo_toml, format!("{content}\n[workspace]\n"))
+                    .unwrap_or_else(|e| warn!("Failed to patch Cargo.toml: {e}"));
+            }
         }
         info!(
             "Cargo.toml found, starting build in {}",
@@ -1463,6 +1473,16 @@ async fn run_batch_install(
 
         // Build or install depending on runtime
         let (command, args) = if is_rust {
+            // Ensure standalone workspace for Cargo
+            let cargo_toml = server_path.join("Cargo.toml");
+            if cargo_toml.exists() {
+                let content = std::fs::read_to_string(&cargo_toml).unwrap_or_default();
+                if !content.contains("[workspace]") {
+                    std::fs::write(&cargo_toml, format!("{content}\n[workspace]\n"))
+                        .unwrap_or_else(|e| warn!("Failed to patch Cargo.toml: {e}"));
+                }
+            }
+
             // Rust server: cargo build --release
             match cargo_build_server(tx, &server_path, &entry.name).await {
                 Ok(true) => {}
