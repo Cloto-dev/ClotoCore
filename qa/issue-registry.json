@@ -1347,7 +1347,7 @@
       "file": "dashboard/src/lib/agentIdentity.tsx",
       "pattern": "function agentColor\\(_agent",
       "expected": "present",
-      "status": "open",
+      "status": "wontfix",
       "github_issue": 34
     },
     {
@@ -1359,8 +1359,8 @@
       "commit": "b60f329",
       "file": "dashboard/src/components/KernelMonitor.tsx",
       "pattern": "agents, isLoading \\} = useAgents",
-      "expected": "present",
-      "status": "obsolete",
+      "expected": "absent",
+      "status": "fixed",
       "github_issue": 35
     },
     {
@@ -1373,7 +1373,7 @@
       "file": "dashboard/src/components/CustomCursor.tsx",
       "pattern": "\\}, \\[\\]\\);",
       "expected": "present",
-      "status": "open",
+      "status": "wontfix",
       "github_issue": 36
     },
     {
