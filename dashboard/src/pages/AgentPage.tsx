@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { AgentTerminal } from '../components/AgentTerminal';
 import { KernelMonitor } from '../components/KernelMonitor';
 import { useAgentContext } from '../contexts/AgentContext';
@@ -7,6 +7,7 @@ import { useAgentContext } from '../contexts/AgentContext';
 export function AgentPage() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const { agents, selectedAgentId, setSelectedAgentId, systemActive, setSystemActive, refetchAgents } =
     useAgentContext();
 
@@ -46,6 +47,10 @@ export function AgentPage() {
         } else {
           setSelectedAgentId(null);
           setSystemActive(false);
+          // Clean URL so sidebar navigate('/?agent=X') always triggers a URL change
+          if (location.search) {
+            navigate('/', { replace: true });
+          }
         }
       }}
     />
