@@ -1349,7 +1349,8 @@ impl SystemHandler {
             let ext = att.mime_type.strip_prefix("image/").unwrap_or("png");
             let ext = if ext == "jpeg" { "jpg" } else { ext };
             let temp_path = format!("data/tmp_vision_{}.{ext}", uuid::Uuid::new_v4());
-            if tokio::fs::write(&temp_path, &image_bytes).await.is_err() {
+            if let Err(e) = tokio::fs::write(&temp_path, &image_bytes).await {
+                tracing::warn!(error = %e, "Failed to write vision temp file: {}", temp_path);
                 continue;
             }
 
@@ -1467,7 +1468,8 @@ impl SystemHandler {
                 other => other.strip_prefix("audio/").unwrap_or("wav"),
             };
             let temp_path = format!("data/tmp_stt_{}.{ext}", uuid::Uuid::new_v4());
-            if tokio::fs::write(&temp_path, &audio_bytes).await.is_err() {
+            if let Err(e) = tokio::fs::write(&temp_path, &audio_bytes).await {
+                tracing::warn!(error = %e, "Failed to write STT temp file: {}", temp_path);
                 continue;
             }
 
