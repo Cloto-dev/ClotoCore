@@ -177,14 +177,3 @@ auto_restart = false
 [servers.env]
 STT_MODEL = "base"
 STT_LANGUAGE = "ja"
-
-[[servers]]
-id = "output.avatar"
-command = "${servers}/avatar/target/debug/mgp-avatar"
-args = []
-transport = "stdio"
-auto_restart = false
-[servers.env]
-VOICEVOX_URL = "http://localhost:50021"
-VOICEVOX_SPEAKER = "47"
-VOICEVOX_SPEED = "1.0"
