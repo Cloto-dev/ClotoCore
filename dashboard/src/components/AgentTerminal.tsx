@@ -217,6 +217,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
         agent={configuringAgent}
         onBack={() => {
           setConfiguringAgent(null);
+          onSelectAgent(null);
           onRefresh();
         }}
       />
@@ -399,6 +400,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
                           onClick={(e) => {
                             e.stopPropagation();
+                            onSelectAgent(agent);
                             setConfiguringAgent(agent);
                           }}
                         >
