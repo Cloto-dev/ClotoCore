@@ -26,6 +26,8 @@ const API_URL =
 export const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
 export const EVENTS_URL = `${API_BASE}/events`;
 
+const HEALTH_CHECK_TIMEOUT_MS = 3000;
+
 /** Throw with detailed error message from JSON body if available */
 async function throwIfNotOk(res: Response, ctx: string): Promise<void> {
   if (res.ok) return;
@@ -62,7 +64,7 @@ async function mutate(
 
 export const api = {
   getHealth: async (): Promise<{ status: string }> => {
-    const res = await fetch(`${API_BASE}/system/health`, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`${API_BASE}/system/health`, { signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS) });
     if (!res.ok) throw new Error(res.statusText);
     return res.json().then((b) => b.data);
   },
