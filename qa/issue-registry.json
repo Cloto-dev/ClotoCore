@@ -1320,8 +1320,8 @@
       "commit": "b60f329",
       "file": "dashboard/src/index.css",
       "pattern": "shimmer-line",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
       "github_issue": 32
     },
     {
@@ -1333,8 +1333,8 @@
       "commit": "b60f329",
       "file": "dashboard/src/index.css",
       "pattern": "thought-fade",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
       "github_issue": 33
     },
     {
@@ -1424,8 +1424,8 @@
       "commit": "b60f329",
       "file": "dashboard/tailwind.config.js",
       "pattern": "karin",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
       "github_issue": 40
     },
     {
