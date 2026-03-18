@@ -61,7 +61,7 @@ Client Request
 3. Event Channel (mpsc) buffers event
        │
 4. Event Processor loop:
-   ├── Depth check (max 5 levels, prevents infinite cascade)
+   ├── Depth check (configurable, default 10 levels, prevents infinite cascade)
    ├── Broadcast to SSE subscribers
    ├── Save to event history ring buffer
    └── Dispatch to Plugin Manager
@@ -112,10 +112,19 @@ ClotoCore/
 │   │       │   ├── mcp_types.rs #   Shared MCP types (McpServerHandle, etc.)
 │   │       │   ├── mcp_protocol.rs # MCP JSON-RPC message types
 │   │       │   ├── mcp_transport.rs # stdio transport layer
-│   │       │   ├── mcp_kernel_tool.rs # create_mcp_server tool
+│   │       │   ├── mcp_mgp.rs  #   MGP capability negotiation & types
+│   │       │   ├── mcp_kernel_tool.rs # MGP kernel tool registry (mgp.* namespace, 21 tools)
 │   │       │   ├── mcp_tool_validator.rs # Code security validation
+│   │       │   ├── mcp_lifecycle.rs # Server lifecycle state machine
+│   │       │   ├── mcp_streaming.rs # Streaming & flow control
+│   │       │   ├── mcp_events.rs #  Event subscriptions & callbacks
+│   │       │   ├── mcp_discovery.rs # Runtime server discovery
+│   │       │   ├── mcp_tool_discovery.rs # Dynamic tool discovery & session cache
+│   │       │   ├── mcp_isolation.rs # OS isolation profile enforcement
+│   │       │   ├── mcp_seal.rs  #   Magic Seal binary verification
 │   │       │   ├── mcp_health.rs #  Server health monitor + auto-restart
 │   │       │   ├── mcp_venv.rs  #   Python venv auto-setup
+│   │       │   ├── capability_dispatcher.rs # Capability-based event dispatch
 │   │       │   ├── registry.rs  #   PluginRegistry (event dispatch)
 │   │       │   ├── plugin.rs    #   PluginManager (lifecycle)
 │   │       │   ├── agents.rs    #   AgentManager
