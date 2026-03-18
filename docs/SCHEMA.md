@@ -168,6 +168,9 @@ Dynamic MCP server persistence for restart restoration.
 | `is_active` | BOOLEAN | NOT NULL DEFAULT 1 | Active state |
 | `env` | TEXT | NOT NULL DEFAULT '{}' | JSON map of environment variables |
 | `default_policy` | TEXT | NOT NULL DEFAULT 'opt-in' | `opt-in` (deny by default) / `opt-out` (allow by default) |
+| `source` | TEXT | NOT NULL DEFAULT 'dynamic' | Origin: `config` (mcp.toml), `dynamic` (API/YOLO), `marketplace` |
+| `installed_version` | TEXT | | Installed version from marketplace |
+| `marketplace_id` | TEXT | | Marketplace package identifier |
 
 ### mcp_access_control
 
@@ -296,3 +299,4 @@ Per-agent command approval for the terminal security system.
 | `20260310100000_llm_provider_auth_type.sql` | Add auth_type to llm_providers |
 | `20260310200000_add_agent_type.sql` | Add agent_type column to agents |
 | `20260312000000_add_cron_source_type.sql` | Add source_type/creator columns to cron_jobs |
+| `20260315000000_add_marketplace_fields.sql` | Add source/installed_version/marketplace_id to mcp_servers |
