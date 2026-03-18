@@ -19,6 +19,8 @@ If a proposed change conflicts with any of these, flag it before proceeding.
 - Dashboard lint: `cd dashboard && npx biome check src/`
 - Dashboard format: `cd dashboard && npx biome format --write src/`
 - Dashboard build: `cd dashboard && npm run build`
+- Dev launch: `cd dashboard && npx tauri dev` (starts Vite + Tauri together. Do NOT run `app.exe` directly — the debug build's devUrl points to the Vite dev server)
+- Release build: `cd dashboard && npx tauri build` (`cargo build --release -p app` is prohibited)
 - Bug verify: `bash scripts/verify-issues.sh`
 - Test ratchet: `bash scripts/check-test-count.sh`
 
