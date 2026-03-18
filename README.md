@@ -7,7 +7,7 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-174%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-104%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
@@ -120,17 +120,16 @@ All plugin functionality is delivered via **MCP (Model Context Protocol)** serve
 | `vision.gaze_webcam` | Vision | Eye gaze tracking via MediaPipe |
 | `vision.capture` | Vision | Screen/image analysis via Ollama (hybrid OCR) |
 | `voice.stt` | Voice | Speech-to-text via Whisper |
-| `voice.tts` | Voice | Text-to-speech via pyttsx3 |
+| `output.avatar` | Output | VRM expression, idle behavior, and VOICEVOX TTS (Rust) |
 
-MCP servers are configured via `mcp.toml` and can be written in any language.
-See [MCP Plugin Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) for details.
+MCP servers live in the [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers) repository
+and are configured via `mcp.toml`. See [MCP Plugin Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) for details.
 
 ## Project Structure
 
 ```
 crates/core/        Kernel — event bus, MCP manager, HTTP API, rate limiter
 crates/shared/      Plugin SDK — traits, capability injection, event types, LLM utilities
-mcp-servers/        MCP servers (Python): 16 servers across mind, memory, tool, vision, voice
 dashboard/          React/TypeScript web UI (Tauri desktop app)
 scripts/            Build tools, verification scripts
 qa/                 Issue registry and quality assurance data
@@ -277,14 +276,12 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 
 ## Testing
 
-163 tests (Rust 98 + Python 65).
+104 tests (Rust 90 + Dashboard 14). MCP server tests (Python 65) are in [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers).
 
 ```bash
 cargo test                              # all Rust tests
 cargo test --package cloto_core          # kernel only
 cargo test --test '*'                   # integration tests only
-
-cd mcp-servers && .venv/Scripts/python -m pytest tests/ -v  # Python MCP tests
 ```
 
 ## Security
@@ -302,16 +299,14 @@ See [Architecture](docs/ARCHITECTURE.md) for the full security model.
 - [Architecture](docs/ARCHITECTURE.md) — Design principles, event flow, security model
 - [Project Vision](docs/PROJECT_VISION.md) — Strategic direction and roadmap
 - [Development](docs/DEVELOPMENT.md) — Coding standards, guardrails, PR process
-- [MGP Spec](docs/MGP_SPEC.md) — Model Gateway Protocol specification
-- [MGP Guide](docs/MGP_GUIDE.md) — MGP usage guide
-- [MGP Security](docs/MGP_SECURITY.md) — MGP security model
-- [MGP Isolation](docs/MGP_ISOLATION_DESIGN.md) — MGP isolation design
-- [MGP Communication](docs/MGP_COMMUNICATION.md) — MGP communication protocol
-- [MGP Discovery](docs/MGP_DISCOVERY.md) — MGP service discovery
-- [MGP Implementation Roadmap](docs/MGP_IMPLEMENTATION_ROADMAP.md) — MGP implementation roadmap
+- [MGP Spec](docs/MGP_SPEC.md) — Model General Protocol specification
+- [MGP Guide](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_GUIDE.md) — MGP usage guide
+- [MGP Security](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_SECURITY.md) — MGP security model
+- [MGP Isolation](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_ISOLATION_DESIGN.md) — MGP isolation design
+- [MGP Communication](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_COMMUNICATION.md) — MGP communication protocol
+- [MGP Discovery](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_DISCOVERY.md) — MGP service discovery
 - [MCP Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) — MCP server communication protocol
 - [CPersona Memory](docs/CPERSONA_MEMORY_DESIGN.md) — Memory system design
-- [Discord Bridge](docs/DISCORD_BRIDGE_DESIGN.md) — Discord integration design
 - [Database Schema](docs/SCHEMA.md) — SQLite schema reference
 - [Changelog](docs/CHANGELOG.md) — Development history
 
