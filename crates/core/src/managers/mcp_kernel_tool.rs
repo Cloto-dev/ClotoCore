@@ -1249,7 +1249,7 @@ fn ask_agent_schema() -> Value {
                 "properties": {
                     "target_agent_id": {
                         "type": "string",
-                        "description": "The ID of the agent to ask (e.g., 'agent.chef', 'agent.reviewer'). Use the agent list to discover available agents."
+                        "description": "The agent ID (not display name). IDs use the format 'agent.<name>' (e.g., 'agent.cloto_default'). Call mgp.discovery.list first to get the exact agent IDs."
                     },
                     "prompt": {
                         "type": "string",
