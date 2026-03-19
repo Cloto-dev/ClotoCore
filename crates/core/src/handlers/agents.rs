@@ -738,7 +738,9 @@ pub async fn serve_speech_file(
     check_auth(&state, &headers)?;
 
     // Validate filename: alphanumeric + underscores + dots only, must end with .wav
-    if !std::path::Path::new(&filename).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
+    if !std::path::Path::new(&filename)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
         || filename.contains("..")
         || filename.contains('/')
         || filename.contains('\\')
