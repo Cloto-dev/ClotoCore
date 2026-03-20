@@ -428,6 +428,18 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 managers::McpClientManager::resolve_project_path(fallback).unwrap_or(config_path)
             }
         };
+        // Production fallback: Tauri NSIS bundles mcp.toml as a resource
+        // alongside the executable (not in data/).
+        let config_path = if std::path::Path::new(&config_path).exists() {
+            config_path
+        } else {
+            let alongside_exe = config::exe_dir().join("mcp.toml");
+            if alongside_exe.exists() {
+                alongside_exe.to_string_lossy().to_string()
+            } else {
+                config_path
+            }
+        };
 
         match mcp_manager.parse_config_file(&config_path) {
             Ok(all_configs) => {
