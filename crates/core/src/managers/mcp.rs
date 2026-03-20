@@ -299,9 +299,7 @@ impl McpClientManager {
                 server_config
                     .env
                     .entry("CLOTO_PROJECT_DIR".to_string())
-                    .or_insert_with(|| {
-                        normalize_path_separators(&base_dir.to_string_lossy())
-                    });
+                    .or_insert_with(|| normalize_path_separators(&base_dir.to_string_lossy()));
 
                 server_config
             })
