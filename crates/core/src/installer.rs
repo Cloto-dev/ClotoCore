@@ -76,6 +76,11 @@ DATABASE_URL=sqlite:{db_path}
 # the same origin, so CORS is only needed for external API clients.
 # CORS_ORIGINS=http://localhost:5173
 
+# --- MCP Servers ---
+# Path to cloto-mcp-servers/servers directory.
+# Required for MCP server auto-discovery from mcp.toml.
+# CLOTO_MCP_SERVERS=C:\path\to\cloto-mcp-servers\servers
+
 # --- Plugin Network Access (Principle #5) ---
 # Additional hosts that plugins with NetworkAccess permission may reach.
 # Default whitelist: api.deepseek.com, api.cerebras.ai, api.openai.com, api.anthropic.com
