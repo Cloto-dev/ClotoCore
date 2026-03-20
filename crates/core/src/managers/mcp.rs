@@ -229,8 +229,7 @@ impl McpClientManager {
                 {
                     std::env::var(var_name).unwrap_or_else(|_| {
                         if var_name == "CLOTO_MCP_SERVERS" {
-                            let fallback = base_dir.join("../cloto-mcp-servers/servers");
-                            fallback.to_string_lossy().to_string()
+                            resolve_mcp_servers_dir(&base_dir)
                         } else {
                             v.clone()
                         }
@@ -2222,6 +2221,34 @@ impl McpClientManager {
     pub fn spawn_health_monitor(self: Arc<Self>, shutdown: Arc<tokio::sync::Notify>) {
         super::mcp_health::spawn_health_monitor(self, shutdown);
     }
+}
+
+/// Resolve `CLOTO_MCP_SERVERS` by probing multiple candidate directories.
+///
+/// Search order:
+/// 1. `base_dir/cloto-mcp-servers/servers` — bundled alongside `mcp.toml` (production)
+/// 2. `base_dir/../cloto-mcp-servers/servers` — sibling repo (development)
+/// 3. `exe_dir/mcp-servers/servers` — legacy bundled layout
+fn resolve_mcp_servers_dir(base_dir: &std::path::Path) -> String {
+    let candidates = [
+        base_dir.join("cloto-mcp-servers/servers"),
+        base_dir.join("../cloto-mcp-servers/servers"),
+        crate::config::exe_dir().join("mcp-servers/servers"),
+    ];
+    candidates
+        .iter()
+        .find(|p| p.exists())
+        .map_or_else(
+            || {
+                let fb = base_dir.join("../cloto-mcp-servers/servers");
+                info!(
+                    "CLOTO_MCP_SERVERS not set, no servers dir found; fallback: {}",
+                    fb.display()
+                );
+                fb.to_string_lossy().to_string()
+            },
+            |p| p.to_string_lossy().to_string(),
+        )
 }
 
 /// Expand `${var}` references in a string using the `[paths]` table.
