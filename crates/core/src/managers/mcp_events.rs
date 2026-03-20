@@ -154,10 +154,14 @@ impl EventManager {
 
     /// Return the minimum buffered sequence number (for truncation detection).
     pub fn min_buffered_seq(&self) -> Option<u64> {
-        self.event_buffer.lock().unwrap_or_else(|e| {
-            warn!("EventManager mutex was poisoned, recovering");
-            e.into_inner()
-        }).front().map(|e| e.seq)
+        self.event_buffer
+            .lock()
+            .unwrap_or_else(|e| {
+                warn!("EventManager mutex was poisoned, recovering");
+                e.into_inner()
+            })
+            .front()
+            .map(|e| e.seq)
     }
 
     /// Register a pending callback request.

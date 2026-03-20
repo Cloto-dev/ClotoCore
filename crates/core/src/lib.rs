@@ -772,10 +772,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     );
     match tokio::time::timeout(std::time::Duration::from_secs(15), llm_proxy_rx).await {
         Ok(Ok(Ok(()))) => {
-            info!(
-                "LLM Proxy ready on port {}",
-                config.llm_proxy_port
-            );
+            info!("LLM Proxy ready on port {}", config.llm_proxy_port);
         }
         Ok(Ok(Err(msg))) => {
             tracing::warn!(
