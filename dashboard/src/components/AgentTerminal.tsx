@@ -415,7 +415,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                         </button>
                         {agent.id !== DEFAULT_AGENT_ID && (
                           <button
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-red-500 hover:bg-red-500/10 transition-all"
                             onClick={(e) => {
                               e.stopPropagation();
                               setDeleteTarget(agent);
@@ -548,7 +548,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                           placeholder="contains:keyword"
                           className="flex-1 px-2 py-1 rounded border border-edge text-[10px] font-mono bg-surface-primary focus:outline-none focus:border-brand min-w-0"
                         />
-                        <span className="text-[10px] text-content-muted shrink-0">&rarr;</span>
+                        <span className="text-[10px] text-content-tertiary shrink-0">&rarr;</span>
                         <select
                           value={rule.engine}
                           onChange={(e) => updateRoutingRule(i, 'engine', e.target.value)}
@@ -582,7 +582,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                         </label>
                         {rule.cfr && (
                           <>
-                            <span className="text-[9px] text-content-muted">&rarr;</span>
+                            <span className="text-[9px] text-content-tertiary">&rarr;</span>
                             <select
                               value={rule.escalate_to || ''}
                               onChange={(e) => updateRoutingRule(i, 'escalate_to', e.target.value || undefined)}
