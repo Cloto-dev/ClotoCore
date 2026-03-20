@@ -229,6 +229,8 @@ async fn test_vulnerability_event_forging() {
         Ok(Err(e)) => panic!("Broadcast error: {}", e),
         Err(_) => {
             // タイムアウト = イベントが来なかった = ブロックされた = 成功！
+            let blocked = true;
+            assert!(blocked, "forged event was correctly blocked (timed out)");
         }
     }
 }

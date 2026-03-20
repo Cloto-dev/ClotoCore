@@ -2235,20 +2235,17 @@ fn resolve_mcp_servers_dir(base_dir: &std::path::Path) -> String {
         base_dir.join("../cloto-mcp-servers/servers"),
         crate::config::exe_dir().join("mcp-servers/servers"),
     ];
-    candidates
-        .iter()
-        .find(|p| p.exists())
-        .map_or_else(
-            || {
-                let fb = base_dir.join("../cloto-mcp-servers/servers");
-                info!(
-                    "CLOTO_MCP_SERVERS not set, no servers dir found; fallback: {}",
-                    fb.display()
-                );
-                fb.to_string_lossy().to_string()
-            },
-            |p| p.to_string_lossy().to_string(),
-        )
+    candidates.iter().find(|p| p.exists()).map_or_else(
+        || {
+            let fb = base_dir.join("../cloto-mcp-servers/servers");
+            info!(
+                "CLOTO_MCP_SERVERS not set, no servers dir found; fallback: {}",
+                fb.display()
+            );
+            fb.to_string_lossy().to_string()
+        },
+        |p| p.to_string_lossy().to_string(),
+    )
 }
 
 /// Expand `${var}` references in a string using the `[paths]` table.
