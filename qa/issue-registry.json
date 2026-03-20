@@ -2101,6 +2101,126 @@
       "pattern": "delete metadata.avatar_path",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-326",
+      "summary": "Kernel startup failure silently ignored — Tauri UI opens normally while all backend operations fail (zombie app state)",
+      "severity": "CRITICAL",
+      "discovered": "2026-03-20T00:00:00Z",
+      "version": "0.6.3-alpha.10",
+      "commit": "08fc0e1",
+      "file": "dashboard/src-tauri/src/lib.rs",
+      "pattern": "cloto_core::run_kernel\\(\\).await",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-327",
+      "summary": "LLM proxy bind failure silently ignored — Mind MCP servers hang on every LLM request with no diagnostic",
+      "severity": "CRITICAL",
+      "discovered": "2026-03-20T00:00:00Z",
+      "version": "0.6.3-alpha.10",
+      "commit": "08fc0e1",
+      "file": "crates/core/src/managers/llm_proxy.rs",
+      "pattern": "oneshot::Receiver<Result<\\(\\), String>>",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-328",
+      "summary": "MCP deferred boot race condition — yield_now does not guarantee HTTP server readiness, MGP callbacks may fail",
+      "severity": "CRITICAL",
+      "discovered": "2026-03-20T00:00:00Z",
+      "version": "0.6.3-alpha.10",
+      "commit": "08fc0e1",
+      "file": "crates/core/src/lib.rs",
+      "pattern": "tokio::task::yield_now\\(\\).await",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-329",
+      "summary": "Tauri tray icon unwrap panics if default_window_icon is None — crashes app on startup with corrupted resources",
+      "severity": "HIGH",
+      "discovered": "2026-03-20T00:00:00Z",
+      "version": "0.6.3-alpha.10",
+      "commit": "08fc0e1",
+      "file": "dashboard/src-tauri/src/lib.rs",
+      "pattern": "default_window_icon\\(\\)\\.unwrap\\(\\)",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-330",
+      "summary": "EventManager Mutex poisoning cascade — single thread panic propagates to entire event system via lock().unwrap()",
+      "severity": "HIGH",
+      "discovered": "2026-03-20T00:00:00Z",
+      "version": "0.6.3-alpha.10",
+      "commit": "08fc0e1",
+      "file": "crates/core/src/managers/mcp_events.rs",
+      "pattern": "unwrap_or_else",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-331",
+      "summary": "McpAccessControlTab infinite re-render loop — loadData function declaration creates new reference every render, triggers useEffect endlessly",
+      "severity": "HIGH",
+      "discovered": "2026-03-20T00:00:00Z",
+      "version": "0.6.3-alpha.10",
+      "commit": "08fc0e1",
+      "file": "dashboard/src/components/mcp/McpAccessControlTab.tsx",
+      "pattern": "useCallback",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-332",
+      "summary": "MCP path resolution preserves Windows backslashes — child processes may misinterpret backslashes in arguments",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-20T00:00:00Z",
+      "version": "0.6.3-alpha.10",
+      "commit": "08fc0e1",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "normalize_path_separators",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-333",
+      "summary": "MCP config parse error silently disables all MCP servers — single typo in mcp.toml causes zero servers with only a warn log",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-20T00:00:00Z",
+      "version": "0.6.3-alpha.10",
+      "commit": "08fc0e1",
+      "file": "crates/core/src/lib.rs",
+      "pattern": "CRITICAL: Failed to parse MCP config file",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-334",
+      "summary": "Graceful shutdown drains MCP servers sequentially — N servers × 5s timeout causes excessive shutdown delay",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-20T00:00:00Z",
+      "version": "0.6.3-alpha.10",
+      "commit": "08fc0e1",
+      "file": "crates/core/src/handlers.rs",
+      "pattern": "join_all\\(drain_futures\\)",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-335",
+      "summary": "AgentPluginWorkspace import order violates biome organizeImports — VrmThumbnailDialog before ui/AlertCard",
+      "severity": "LOW",
+      "discovered": "2026-03-20T00:00:00Z",
+      "version": "0.6.3-alpha.10",
+      "commit": "08fc0e1",
+      "file": "dashboard/src/components/AgentPluginWorkspace.tsx",
+      "pattern": "import \\{ AlertCard \\} from './ui/AlertCard'",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }
