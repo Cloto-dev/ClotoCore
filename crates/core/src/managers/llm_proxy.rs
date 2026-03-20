@@ -38,15 +38,27 @@ struct ProxyState {
 /// Mind MCP servers send requests to this proxy with an `X-LLM-Provider` header
 /// indicating which provider to route to. The proxy looks up the API key from
 /// the database and forwards the request with proper authentication.
-pub fn spawn_llm_proxy(pool: SqlitePool, port: u16, timeout_secs: u64, shutdown: Arc<Notify>) {
+///
+/// Returns a oneshot receiver that resolves to `Ok(())` when the proxy binds
+/// successfully, or `Err(message)` on failure.
+pub fn spawn_llm_proxy(
+    pool: SqlitePool,
+    port: u16,
+    timeout_secs: u64,
+    shutdown: Arc<Notify>,
+) -> tokio::sync::oneshot::Receiver<Result<(), String>> {
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+
     let http_client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
         .build()
     {
         Ok(client) => client,
         Err(e) => {
-            error!("Failed to create LLM proxy HTTP client: {}", e);
-            return;
+            let msg = format!("Failed to create LLM proxy HTTP client: {}", e);
+            error!("{}", msg);
+            let _ = ready_tx.send(Err(msg));
+            return ready_rx;
         }
     };
     let state = Arc::new(ProxyState { pool, http_client });
@@ -61,11 +73,14 @@ pub fn spawn_llm_proxy(pool: SqlitePool, port: u16, timeout_secs: u64, shutdown:
         let listener = match bind_llm_proxy(addr).await {
             Ok(l) => l,
             Err(e) => {
-                error!("Failed to bind LLM proxy on port {}: {}", port, e);
+                let msg = format!("Failed to bind LLM proxy on port {}: {}", port, e);
+                error!("{}", msg);
+                let _ = ready_tx.send(Err(msg));
                 return;
             }
         };
         info!("LLM Proxy listening on http://{}", addr);
+        let _ = ready_tx.send(Ok(()));
 
         axum::serve(listener, app)
             .with_graceful_shutdown(async move {
@@ -75,6 +90,8 @@ pub fn spawn_llm_proxy(pool: SqlitePool, port: u16, timeout_secs: u64, shutdown:
             .await
             .ok();
     });
+
+    ready_rx
 }
 
 /// Bind with retry to handle port conflicts during `tauri dev` restarts.

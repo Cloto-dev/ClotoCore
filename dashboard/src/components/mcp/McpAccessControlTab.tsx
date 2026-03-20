@@ -1,5 +1,5 @@
 import { Save } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../hooks/useApi';
 import { useAsyncAction } from '../../hooks/useAsyncAction';
@@ -23,22 +23,23 @@ export function McpAccessControlTab({ server }: Props) {
   const loadAction = useAsyncAction('Failed to load access data');
   const saveAction = useAsyncAction('Failed to save access control');
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     await loadAction.run(async () => {
       const [access, agentList] = await Promise.all([api.getMcpServerAccess(server.id), api.getAgents()]);
       setAccessData(access);
       setAgents(agentList);
       setLocalEntries(access.entries);
-      if (!selectedAgent && agentList.length > 0) {
-        setSelectedAgent(agentList[0].id);
+      if (agentList.length > 0) {
+        setSelectedAgent((prev) => prev || agentList[0].id);
       }
       setDirty(false);
     });
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [server.id]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   function handleEntriesChange(updated: AccessControlEntry[]) {
     setLocalEntries(updated);
