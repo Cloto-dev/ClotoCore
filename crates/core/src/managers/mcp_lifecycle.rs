@@ -9,7 +9,7 @@ use super::mcp_types::ServerStatus;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tracing::info;
+use tracing::{info, warn};
 
 pub(super) struct RestartCounter {
     pub count: u32,
@@ -49,7 +49,10 @@ impl LifecycleManager {
 
     /// Check whether the restart budget (max_restarts within restart_window_secs) allows another restart.
     fn check_restart_budget(&self, server_id: &str, policy: &RestartPolicy) -> bool {
-        let mut counters = self.restart_counters.lock().unwrap();
+        let mut counters = self.restart_counters.lock().unwrap_or_else(|e| {
+            warn!("LifecycleManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         let now = Instant::now();
 
         let counter = counters
@@ -72,7 +75,10 @@ impl LifecycleManager {
 
     /// Record a restart attempt and calculate the backoff duration.
     pub fn calculate_backoff(&self, server_id: &str, policy: &RestartPolicy) -> Duration {
-        let mut counters = self.restart_counters.lock().unwrap();
+        let mut counters = self.restart_counters.lock().unwrap_or_else(|e| {
+            warn!("LifecycleManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         let now = Instant::now();
 
         let counter = counters
@@ -95,7 +101,10 @@ impl LifecycleManager {
 
     /// Reset restart counter for a server (e.g., after successful connection).
     pub fn reset_counter(&self, server_id: &str) {
-        let mut counters = self.restart_counters.lock().unwrap();
+        let mut counters = self.restart_counters.lock().unwrap_or_else(|e| {
+            warn!("LifecycleManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         counters.remove(server_id);
     }
 }

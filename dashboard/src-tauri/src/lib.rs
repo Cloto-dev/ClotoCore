@@ -300,8 +300,11 @@ pub fn run() {
                 ],
             )?;
 
-            TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            let mut tray_builder = TrayIconBuilder::new();
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
+            }
+            tray_builder
                 .tooltip("Cloto System")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(true)
@@ -359,9 +362,28 @@ pub fn run() {
             // Extract bundled mcp.toml to data/ before kernel reads it.
             extract_default_mcp_config();
 
+            let kernel_app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = cloto_core::run_kernel().await {
-                    eprintln!("Failed to start Cloto Kernel: {}", e);
+                match cloto_core::start_kernel().await {
+                    Ok(_handle) => {
+                        // Kernel ready — _handle is kept alive by the spawn.
+                        // Shutdown is triggered via the /api/system/shutdown endpoint.
+                    }
+                    Err(e) => {
+                        eprintln!("FATAL: Failed to start Cloto Kernel: {}", e);
+                        let msg = format!(
+                            "Cloto Kernel failed to start:\n\n{}\n\nThe application will now exit.",
+                            e
+                        );
+                        use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+                        kernel_app_handle
+                            .dialog()
+                            .message(msg)
+                            .kind(MessageDialogKind::Error)
+                            .title("Cloto Startup Error")
+                            .blocking_show();
+                        kernel_app_handle.exit(1);
+                    }
                 }
             });
 

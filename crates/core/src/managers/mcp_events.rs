@@ -10,7 +10,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 // ============================================================
 // Event Subscriptions
@@ -74,20 +74,29 @@ impl EventManager {
     /// Add a new event subscription.
     pub fn add_subscription(&self, sub: EventSubscription) -> String {
         let id = sub.id.clone();
-        let mut subs = self.subscriptions.lock().unwrap();
+        let mut subs = self.subscriptions.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         subs.insert(id.clone(), sub);
         id
     }
 
     /// Remove an event subscription.
     pub fn remove_subscription(&self, subscription_id: &str) -> bool {
-        let mut subs = self.subscriptions.lock().unwrap();
+        let mut subs = self.subscriptions.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         subs.remove(subscription_id).is_some()
     }
 
     /// Get all subscriptions that match a given channel.
     pub fn matching_subscriptions(&self, channel: &str) -> Vec<EventSubscription> {
-        let subs = self.subscriptions.lock().unwrap();
+        let subs = self.subscriptions.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         subs.values()
             .filter(|s| s.channels.iter().any(|c| c == channel || c == "*"))
             .cloned()
@@ -98,7 +107,10 @@ impl EventManager {
     pub fn buffer_event(&self, channel: &str, data: &Value) -> (u64, String) {
         let seq = self.event_seq.fetch_add(1, Ordering::Relaxed) + 1;
         let timestamp = chrono::Utc::now().to_rfc3339();
-        let mut buffer = self.event_buffer.lock().unwrap();
+        let mut buffer = self.event_buffer.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         buffer.push_back(BufferedEvent {
             seq,
             channel: channel.to_string(),
@@ -120,7 +132,10 @@ impl EventManager {
         limit: usize,
         channels: Option<&[String]>,
     ) -> Vec<(u64, String, Value, String)> {
-        let buffer = self.event_buffer.lock().unwrap();
+        let buffer = self.event_buffer.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         buffer
             .iter()
             .filter(|e| e.seq > after_seq)
@@ -139,7 +154,10 @@ impl EventManager {
 
     /// Return the minimum buffered sequence number (for truncation detection).
     pub fn min_buffered_seq(&self) -> Option<u64> {
-        self.event_buffer.lock().unwrap().front().map(|e| e.seq)
+        self.event_buffer.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        }).front().map(|e| e.seq)
     }
 
     /// Register a pending callback request.
@@ -152,7 +170,10 @@ impl EventManager {
         message: &str,
         options: Option<Vec<String>>,
     ) -> bool {
-        let mut cbs = self.callbacks.lock().unwrap();
+        let mut cbs = self.callbacks.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         if cbs.contains_key(callback_id) {
             return false; // dedup
         }
@@ -173,7 +194,10 @@ impl EventManager {
 
     /// Mark a callback as responded and return the server_id for routing.
     pub fn resolve_callback(&self, callback_id: &str, response: &str) -> Option<String> {
-        let mut cbs = self.callbacks.lock().unwrap();
+        let mut cbs = self.callbacks.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         let cb = cbs.get_mut(callback_id)?;
         if cb.responded {
             return None; // already responded
@@ -185,7 +209,10 @@ impl EventManager {
 
     /// Get the recorded response for a previously responded callback (§13.4 dedup re-send).
     pub fn get_recorded_response(&self, callback_id: &str) -> Option<(String, String)> {
-        let cbs = self.callbacks.lock().unwrap();
+        let cbs = self.callbacks.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         let cb = cbs.get(callback_id)?;
         if !cb.responded {
             return None;
@@ -197,7 +224,10 @@ impl EventManager {
 
     /// Check if a callback type is llm_completion (§13.4).
     pub fn is_llm_completion(&self, callback_id: &str) -> bool {
-        let cbs = self.callbacks.lock().unwrap();
+        let cbs = self.callbacks.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         cbs.get(callback_id)
             .is_some_and(|cb| cb.callback_type == "llm_completion")
     }
@@ -205,7 +235,10 @@ impl EventManager {
     /// Return info about all pending (unresponded) callbacks.
     #[allow(clippy::type_complexity)]
     pub fn pending_callbacks(&self) -> Vec<(String, String, String, Option<Vec<String>>, u64)> {
-        let cbs = self.callbacks.lock().unwrap();
+        let cbs = self.callbacks.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         cbs.iter()
             .filter(|(_, cb)| !cb.responded)
             .map(|(id, cb)| {
@@ -222,7 +255,10 @@ impl EventManager {
 
     /// Remove callbacks that have been responded to and are older than `timeout`.
     pub fn cleanup_stale_callbacks(&self, timeout: std::time::Duration) -> usize {
-        let mut cbs = self.callbacks.lock().unwrap();
+        let mut cbs = self.callbacks.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         let before = cbs.len();
         cbs.retain(|_, cb| !cb.responded || cb.created_at.elapsed() < timeout);
         before - cbs.len()
@@ -314,7 +350,10 @@ pub(super) async fn replay(manager: &McpClientManager, args: Value) -> Result<Va
 
     // Look up the subscription's channels to scope the replay
     let channels = {
-        let subs = manager.events.subscriptions.lock().unwrap();
+        let subs = manager.events.subscriptions.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
         subs.get(sub_id).map(|s| s.channels.clone())
     };
     let channels =

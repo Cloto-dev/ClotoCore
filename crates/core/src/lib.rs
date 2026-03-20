@@ -202,9 +202,25 @@ impl From<sqlx::Error> for AppError {
 
 pub type AppResult<T> = Result<T, AppError>;
 
-/// Kernel 起動用のエントリポイント
+/// Handle returned by [`start_kernel`] — keeps the kernel alive.
+///
+/// Dropping this handle does **not** trigger shutdown; use [`KernelHandle::shutdown`]
+/// or the `/api/system/shutdown` endpoint instead.
+pub struct KernelHandle {
+    /// Notify to trigger graceful shutdown of the HTTP server and background tasks.
+    pub shutdown: Arc<Notify>,
+    /// Join handle for the HTTP server task.
+    _server_task: tokio::task::JoinHandle<()>,
+}
+
+/// Initialize the kernel (DB, plugins, MCP, LLM proxy, event loop) and spawn the
+/// HTTP server in the background.  Returns a [`KernelHandle`] on success.
+///
+/// Use this from Tauri (or other embedders) when you need to detect startup failures
+/// **before** showing the UI.  For standalone CLI usage, prefer [`run_kernel`] which
+/// blocks until shutdown.
 #[allow(clippy::too_many_lines)]
-pub async fn run_kernel() -> anyhow::Result<()> {
+pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     use crate::config::AppConfig;
     use crate::db;
     use crate::events::EventProcessor;
@@ -473,7 +489,11 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 deferred
             }
             Err(e) => {
-                tracing::warn!(error = %e, "Failed to parse MCP config file");
+                tracing::error!(
+                    error = %e,
+                    path = %config_path,
+                    "CRITICAL: Failed to parse MCP config file — all MCP servers disabled"
+                );
                 Vec::new()
             }
         }
@@ -590,12 +610,26 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     );
 
     // 6b. MCP deferred boot — connect non-priority servers in background
+    //     Wait for HTTP server to be ready before connecting (MGP callbacks need it).
+    let http_ready = Arc::new(Notify::new());
     if !deferred_mcp_configs.is_empty() {
         let deferred_mcp = mcp_manager.clone();
         let deferred_shutdown = app_state.shutdown.clone();
+        let deferred_http_ready = http_ready.clone();
         tokio::spawn(async move {
-            // Brief yield to let the HTTP server start accepting connections
-            tokio::task::yield_now().await;
+            // Wait for HTTP server to bind before connecting deferred MCP servers,
+            // because they may send MGP callbacks that hit kernel HTTP endpoints.
+            if tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                deferred_http_ready.notified(),
+            )
+            .await
+            .is_err()
+            {
+                tracing::warn!(
+                    "HTTP server readiness timed out (30s), proceeding with deferred MCP boot"
+                );
+            }
             info!(
                 count = deferred_mcp_configs.len(),
                 "🔌 Background: connecting deferred MCP servers"
@@ -730,12 +764,34 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     }
 
     // 6d. Internal LLM Proxy (MGP §13.4 — centralized API key management)
-    managers::llm_proxy::spawn_llm_proxy(
+    let llm_proxy_rx = managers::llm_proxy::spawn_llm_proxy(
         pool.clone(),
         config.llm_proxy_port,
         config.llm_proxy_timeout_secs,
         app_state.shutdown.clone(),
     );
+    match tokio::time::timeout(std::time::Duration::from_secs(15), llm_proxy_rx).await {
+        Ok(Ok(Ok(()))) => {
+            info!(
+                "LLM Proxy ready on port {}",
+                config.llm_proxy_port
+            );
+        }
+        Ok(Ok(Err(msg))) => {
+            tracing::warn!(
+                "⚠️  LLM Proxy failed to start: {}. Mind servers will not have LLM access.",
+                msg
+            );
+        }
+        Ok(Err(_)) => {
+            tracing::warn!("⚠️  LLM Proxy startup channel dropped unexpectedly");
+        }
+        Err(_) => {
+            tracing::warn!(
+                "⚠️  LLM Proxy startup timed out (15s). Mind servers may not have LLM access."
+            );
+        }
+    }
 
     let event_tx_clone = event_tx.clone();
     let processor_clone = processor.clone();
@@ -997,6 +1053,8 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     let bind_addr: std::net::SocketAddr =
         format!("{}:{}", config.bind_address, config.port).parse()?;
     let listener = bind_with_retry(bind_addr, 5, std::time::Duration::from_secs(2)).await?;
+    // Signal deferred MCP boot that the HTTP server is now ready for callbacks.
+    http_ready.notify_waiters();
     info!(
         "🚀 Cloto System Kernel is listening on http://{}:{} (startup: {:.1}s)",
         config.bind_address,
@@ -1004,16 +1062,34 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         kernel_start.elapsed().as_secs_f64()
     );
 
+    let shutdown_handle = app_state.shutdown.clone();
     let shutdown_signal = app_state.shutdown.clone();
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .with_graceful_shutdown(async move {
-        shutdown_signal.notified().await;
-        info!("🛑 Graceful shutdown signal received. Stopping server...");
+    let server_task = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(async move {
+            shutdown_signal.notified().await;
+            info!("🛑 Graceful shutdown signal received. Stopping server...");
+        })
+        .await
+        .ok();
+    });
+
+    Ok(KernelHandle {
+        shutdown: shutdown_handle,
+        _server_task: server_task,
     })
-    .await?;
+}
+
+/// Initialize the kernel and block until shutdown.
+///
+/// Convenience wrapper around [`start_kernel`] for standalone CLI usage.
+pub async fn run_kernel() -> anyhow::Result<()> {
+    let handle = start_kernel().await?;
+    // Block until the shutdown signal is received.
+    handle.shutdown.notified().await;
     Ok(())
 }
 

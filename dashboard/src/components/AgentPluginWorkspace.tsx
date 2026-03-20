@@ -9,8 +9,8 @@ import type { AccessControlEntry, AgentMetadata } from '../types';
 import { AvatarSection } from './AvatarSection';
 import { ProfileSection } from './ProfileSection';
 import { ServerAccessSection } from './ServerAccessSection';
-import { VrmThumbnailDialog } from './VrmThumbnailDialog';
 import { AlertCard } from './ui/AlertCard';
+import { VrmThumbnailDialog } from './VrmThumbnailDialog';
 
 interface Props {
   agent: AgentMetadata;

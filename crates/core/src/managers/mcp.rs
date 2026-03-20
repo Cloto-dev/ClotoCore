@@ -264,11 +264,13 @@ impl McpClientManager {
                     if p.is_relative() && p.components().count() > 1 {
                         let resolved = base_dir.join(p);
                         if resolved.exists() {
-                            server_config.command = resolved.to_string_lossy().to_string();
+                            server_config.command =
+                                normalize_path_separators(&resolved.to_string_lossy());
                         } else if cfg!(windows) && resolved.extension().is_none() {
                             let with_exe = resolved.with_extension("exe");
                             if with_exe.exists() {
-                                server_config.command = with_exe.to_string_lossy().to_string();
+                                server_config.command =
+                                    normalize_path_separators(&with_exe.to_string_lossy());
                             }
                         }
                     }
@@ -285,7 +287,7 @@ impl McpClientManager {
                         if p.is_relative() {
                             let resolved = base_dir.join(p);
                             if resolved.exists() {
-                                return resolved.to_string_lossy().to_string();
+                                return normalize_path_separators(&resolved.to_string_lossy());
                             }
                         }
                         expanded
@@ -297,7 +299,9 @@ impl McpClientManager {
                 server_config
                     .env
                     .entry("CLOTO_PROJECT_DIR".to_string())
-                    .or_insert_with(|| base_dir.to_string_lossy().to_string());
+                    .or_insert_with(|| {
+                        normalize_path_separators(&base_dir.to_string_lossy())
+                    });
 
                 server_config
             })
@@ -2246,6 +2250,17 @@ fn resolve_mcp_servers_dir(base_dir: &std::path::Path) -> String {
         },
         |p| p.to_string_lossy().to_string(),
     )
+}
+
+/// Normalize path separators to forward slashes for cross-platform compatibility.
+/// Windows APIs accept forward slashes, but some child processes (e.g. Python)
+/// may misinterpret backslashes as escape characters in arguments.
+fn normalize_path_separators(path: &str) -> String {
+    if cfg!(windows) {
+        path.replace('\\', "/")
+    } else {
+        path.to_string()
+    }
 }
 
 /// Expand `${var}` references in a string using the `[paths]` table.
