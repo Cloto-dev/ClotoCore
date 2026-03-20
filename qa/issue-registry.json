@@ -2221,6 +2221,30 @@
       "pattern": "import \\{ AlertCard \\} from './ui/AlertCard'",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-336",
+      "summary": "ArtifactPanel badge uses text-[8px] violating minimum text size rule (text-[9px])",
+      "severity": "LOW",
+      "discovered": "2026-03-21T00:00:00Z",
+      "version": "0.6.3-alpha.11",
+      "commit": "c4d0741",
+      "file": "dashboard/src/components/ArtifactPanel.tsx",
+      "pattern": "text-\\[8px\\]",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-337",
+      "summary": "AgentTerminal uses text-content-muted for readable text (delete button, routing arrows) violating minimum text color rule",
+      "severity": "LOW",
+      "discovered": "2026-03-21T00:00:00Z",
+      "version": "0.6.3-alpha.11",
+      "commit": "c4d0741",
+      "file": "dashboard/src/components/AgentTerminal.tsx",
+      "pattern": "text-content-tertiary shrink-0",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }

@@ -36,7 +36,7 @@ export function ArtifactPanel({ artifacts, activeIndex, onTabChange, isOpen, onC
         <span className="text-[9px] font-black uppercase tracking-widest text-content-tertiary group-hover:text-content-secondary [writing-mode:vertical-rl] rotate-180">
           Artifacts
         </span>
-        <span className="text-[8px] font-mono text-brand/70">{artifacts.length}</span>
+        <span className="text-[9px] font-mono text-brand/70">{artifacts.length}</span>
       </button>
     );
   }
