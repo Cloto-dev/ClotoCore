@@ -148,6 +148,7 @@ fn remove_language_pack(filename: String) -> Result<(), String> {
 ///
 /// Returns the number of packs installed or updated.
 const DEFAULT_JA_PACK: &str = include_str!("../resources/ja.json");
+const DEFAULT_MCP_CONFIG: &str = include_str!("../../../mcp.toml");
 
 #[tauri::command]
 fn install_default_packs() -> Result<u32, String> {
@@ -182,6 +183,41 @@ fn install_default_packs() -> Result<u32, String> {
     }
 
     Ok(installed)
+}
+
+/// Extract bundled `mcp.toml` to `{exe_dir}/data/` on first run.
+///
+/// Uses the same snapshot pattern as `install_default_packs`:
+/// - If `mcp.toml` doesn't exist → write both config and snapshot
+/// - If `mcp.toml` matches snapshot → safe to overwrite (no user edits)
+/// - If `mcp.toml` differs from snapshot → user customized, skip
+fn extract_default_mcp_config() {
+    let data_dir = cloto_core::config::exe_dir().join("data");
+    if std::fs::create_dir_all(&data_dir).is_err() {
+        return;
+    }
+
+    let config_path = data_dir.join("mcp.toml");
+    let snapshot_path = data_dir.join(".mcp_bundled");
+
+    let needs_write = if config_path.exists() {
+        let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
+        let snapshot = std::fs::read_to_string(&snapshot_path).unwrap_or_default();
+        if existing.trim() == DEFAULT_MCP_CONFIG.trim() {
+            false // Already up to date
+        } else if !snapshot_path.exists() || existing.trim() == snapshot.trim() {
+            true // No user edits → safe to update
+        } else {
+            false // User customized → skip
+        }
+    } else {
+        true // First run
+    };
+
+    if needs_write {
+        let _ = std::fs::write(&config_path, DEFAULT_MCP_CONFIG);
+        let _ = std::fs::write(&snapshot_path, DEFAULT_MCP_CONFIG);
+    }
 }
 
 /// Returns the API key for dashboard use (auto-generated or from .env).
@@ -319,6 +355,9 @@ pub fn run() {
                     let _ = DASHBOARD_API_KEY.set(key);
                 }
             }
+
+            // Extract bundled mcp.toml to data/ before kernel reads it.
+            extract_default_mcp_config();
 
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = cloto_core::run_kernel().await {
