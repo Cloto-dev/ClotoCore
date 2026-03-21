@@ -570,6 +570,31 @@ impl SystemHandler {
                         None
                     };
 
+                    // CRON dialogue completion: emit updated AgentDialogue with response
+                    if let Some(dialogue_id) = msg.metadata.get("cron_dialogue_id") {
+                        let data = cloto_shared::ClotoEventData::AgentDialogue {
+                            dialogue_id: dialogue_id.clone(),
+                            caller_agent_id: "system.cron".to_string(),
+                            caller_agent_name: msg
+                                .metadata
+                                .get("cron_job_name")
+                                .cloned()
+                                .unwrap_or_else(|| "CRON".to_string()),
+                            target_agent_id: agent.id.clone(),
+                            target_agent_name: agent.name.clone(),
+                            prompt: msg.content.clone(),
+                            engine_id: engine_id.clone(),
+                            response: Some(content.clone()),
+                            chain_depth: 0,
+                            status: "success".to_string(),
+                        };
+                        if let Err(e) =
+                            self.sender.send(crate::EnvelopedEvent::system(data)).await
+                        {
+                            error!("Failed to emit CRON dialogue completion: {}", e);
+                        }
+                    }
+
                     let thought_response = ClotoEventData::ThoughtResponse {
                         agent_id: agent.id.clone(),
                         engine_id: engine_id.clone(),

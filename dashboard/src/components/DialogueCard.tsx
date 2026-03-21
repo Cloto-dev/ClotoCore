@@ -80,16 +80,25 @@ export function DialogueCard({ dialogue }: DialogueCardProps) {
         )
       )}
 
-      {/* Expand/collapse toggle */}
-      {canExpand && !isPending && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="mt-2 flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-content-tertiary hover:text-content-secondary transition-colors"
-        >
-          {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-          {expanded ? 'Collapse' : 'Expand'}
-        </button>
-      )}
+      {/* Footer: expand toggle + timestamp */}
+      <div className="mt-2 flex items-center justify-between">
+        {canExpand && !isPending ? (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-content-tertiary hover:text-content-secondary transition-colors"
+          >
+            {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+            {expanded ? 'Collapse' : 'Expand'}
+          </button>
+        ) : (
+          <span />
+        )}
+        {!isPending && (
+          <span className="text-[10px] font-mono text-content-tertiary">
+            {new Date(dialogue.timestamp).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
