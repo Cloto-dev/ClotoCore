@@ -127,6 +127,23 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
             "Cron job dispatched"
         );
 
+        // Emit AgentDialogue for Actions panel (skip hidden-prompt jobs to reduce noise)
+        if !job.hide_prompt {
+            let data = ClotoEventData::AgentDialogue {
+                dialogue_id: format!("cron-{}-{}", job.id, now_ms),
+                caller_agent_id: "system.cron".to_string(),
+                caller_agent_name: format!("CRON: {}", job.name),
+                target_agent_id: job.agent_id.clone(),
+                target_agent_name: job.agent_id.clone(),
+                prompt: job.message.clone(),
+                engine_id: job.engine_id.clone().unwrap_or_default(),
+                response: None,
+                chain_depth: 0,
+                status: "success".to_string(),
+            };
+            let _ = event_tx.send(EnvelopedEvent::system(data)).await;
+        }
+
         // Audit log for hidden-prompt cron jobs (observability guarantee)
         if job.hide_prompt {
             crate::db::spawn_audit_log(
