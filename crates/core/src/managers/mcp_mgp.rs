@@ -1,4 +1,4 @@
-//! MGP (Model General Protocol) Tier 1 — Capability Negotiation + Tool Security Metadata.
+//! MGP (Multi-Agent Gateway Protocol) Tier 1 — Capability Negotiation + Tool Security Metadata.
 //!
 //! MGP is a strict superset of MCP. This module implements Tier 1:
 //! - `mgp` field in `initialize` handshake (capability negotiation)

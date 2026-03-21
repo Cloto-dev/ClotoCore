@@ -17,7 +17,7 @@ reacting to conversation context, and synchronizing lip movement with speech.
 
 This document defines the **Layered Motion Architecture** that achieves natural
 movement through three independent, additively composited motion layers, driven
-by MGP (Model General Protocol) rather than embedded in the kernel.
+by MGP (Multi-Agent Gateway Protocol) rather than embedded in the kernel.
 
 ### 1.1 Design Principles
 
