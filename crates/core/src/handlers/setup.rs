@@ -374,8 +374,10 @@ async fn run_bootstrap_inner(
         },
     );
 
-    let checksum_url = format!("{download_url}.sha256");
-    match verify_checksum(&archive_path, &checksum_url).await {
+    let sums_url = format!(
+        "https://github.com/Cloto-dev/ClotoCore/releases/download/v{version}/SHA256SUMS.txt"
+    );
+    match verify_checksum(&archive_path, &archive_name, &sums_url).await {
         Ok(()) => {
             emit(
                 tx,
@@ -636,20 +638,24 @@ pub(crate) async fn download_with_progress(
     Ok(())
 }
 
-/// Verify SHA256 checksum against a remote .sha256 file.
-async fn verify_checksum(archive_path: &std::path::Path, checksum_url: &str) -> anyhow::Result<()> {
+/// Verify SHA256 checksum against a remote SHA256SUMS.txt manifest.
+async fn verify_checksum(
+    archive_path: &std::path::Path,
+    filename: &str,
+    sums_url: &str,
+) -> anyhow::Result<()> {
     let client = reqwest::Client::new();
-    let resp = client.get(checksum_url).send().await?;
+    let resp = client.get(sums_url).send().await?;
     if !resp.status().is_success() {
-        anyhow::bail!("Checksum file not available (HTTP {})", resp.status());
+        anyhow::bail!("SHA256SUMS.txt not available (HTTP {})", resp.status());
     }
 
-    let checksum_text = resp.text().await?;
-    // Format: "<hash>  <filename>" or just "<hash>"
-    let expected_hash = checksum_text
-        .split_whitespace()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Empty checksum file"))?
+    let sums_text = resp.text().await?;
+    let expected_hash = sums_text
+        .lines()
+        .find(|line| line.ends_with(filename))
+        .and_then(|line| line.split_whitespace().next())
+        .ok_or_else(|| anyhow::anyhow!("No checksum for '{}' in SHA256SUMS.txt", filename))?
         .to_lowercase();
 
     // Compute local hash
