@@ -540,6 +540,23 @@ pub enum ClotoEventData {
         /// "approved", "trusted", "denied", "timeout"
         decision: String,
     },
+    /// Inter-agent dialogue: one agent delegated a question to another via ask_agent.
+    /// Emitted at request time (response = None) and at completion (response = Some).
+    AgentDialogue {
+        dialogue_id: String,
+        caller_agent_id: String,
+        caller_agent_name: String,
+        target_agent_id: String,
+        target_agent_name: String,
+        prompt: String,
+        engine_id: String,
+        /// None while pending, Some when completed or failed.
+        response: Option<String>,
+        /// Delegation chain depth (1-based).
+        chain_depth: u8,
+        /// "pending", "success", "error"
+        status: String,
+    },
 }
 
 impl ClotoEvent {

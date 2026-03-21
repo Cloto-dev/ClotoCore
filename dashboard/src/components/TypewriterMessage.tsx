@@ -39,7 +39,7 @@ export function TypewriterMessage({ text, onComplete, onCodeBlock }: TypewriterM
     if (isAnimating) skip();
   }, [isAnimating, skip]);
 
-  // Always pass onCodeBlock — MarkdownRenderer deduplicates via useArtifacts
+  // Always pass onCodeBlock — MarkdownRenderer deduplicates via useActions
   return (
     <div onClick={handleClick} className={isAnimating ? 'cursor-pointer' : ''}>
       <MarkdownRenderer content={displayText} incremental={isAnimating} onCodeBlock={onCodeBlock} />
