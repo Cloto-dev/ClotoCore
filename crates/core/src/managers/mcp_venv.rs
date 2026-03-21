@@ -101,6 +101,71 @@ pub(crate) fn find_python() -> Option<String> {
     None
 }
 
+/// Extract the Python version from a venv's `pyvenv.cfg` (e.g., "3.13.3").
+fn read_venv_python_version(venv_dir: &Path) -> Option<String> {
+    let cfg_path = venv_dir.join("pyvenv.cfg");
+    let content = std::fs::read_to_string(cfg_path).ok()?;
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(version) = line.strip_prefix("version") {
+            let version = version.trim_start_matches([' ', '=']);
+            let version = version.trim();
+            if !version.is_empty() {
+                return Some(version.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Get the system Python major.minor version string (e.g., "3.13").
+fn system_python_major_minor() -> Option<String> {
+    let cmd = find_python()?;
+    let output = std::process::Command::new(&cmd)
+        .arg("--version")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .ok()?;
+    let out = String::from_utf8_lossy(&output.stdout);
+    let err = String::from_utf8_lossy(&output.stderr);
+    let combined = if out.contains("Python") { out } else { err };
+    let version = combined.trim().strip_prefix("Python ")?;
+    // Extract major.minor only (e.g., "3.13.3" → "3.13")
+    let mut parts = version.splitn(3, '.');
+    let major = parts.next()?;
+    let minor = parts.next()?;
+    Some(format!("{major}.{minor}"))
+}
+
+/// Check if an existing venv's Python version mismatches the system Python.
+/// Returns `true` if the venv is stale and should be recreated.
+/// Returns `false` if the venv is OK, or if versions cannot be determined.
+pub(crate) fn is_venv_stale(venv_dir: &Path) -> bool {
+    let Some(venv_version) = read_venv_python_version(venv_dir) else {
+        return false; // Can't read venv version — assume OK
+    };
+    let Some(system_mm) = system_python_major_minor() else {
+        return false; // Can't detect system Python — assume OK
+    };
+    // Extract major.minor from venv version (e.g., "3.13.3" → "3.13")
+    let venv_mm: String = venv_version
+        .splitn(3, '.')
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(".");
+
+    if venv_mm != system_mm {
+        tracing::info!(
+            venv_python = %venv_mm,
+            system_python = %system_mm,
+            "Venv Python version mismatch detected"
+        );
+        return true;
+    }
+    false
+}
+
 /// Get the pip executable path inside the venv.
 fn venv_pip(venv_dir: &Path) -> PathBuf {
     if cfg!(windows) {
@@ -203,7 +268,17 @@ pub async fn ensure_mcp_venv(data_dir: Option<&Path>) {
             project_root.join("mcp-servers"),
         )
     };
-    let venv_exists = venv_dir.join("pyvenv.cfg").exists();
+    let mut venv_exists = venv_dir.join("pyvenv.cfg").exists();
+
+    // Detect stale venv (Python major.minor mismatch) and recreate
+    if venv_exists && is_venv_stale(&venv_dir) {
+        warn!(
+            "Python version mismatch — recreating venv at {}",
+            venv_dir.display()
+        );
+        let _ = std::fs::remove_dir_all(&venv_dir);
+        venv_exists = false;
+    }
 
     if venv_exists {
         info!("MCP Python venv found at {}", venv_dir.display());

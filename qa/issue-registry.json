@@ -2257,6 +2257,18 @@
       "pattern": "Check result in background to avoid blocking HTTP server startup",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-340",
+      "summary": "Stale venv from previous Python version causes pip install to hang during setup — no version mismatch detection",
+      "severity": "HIGH",
+      "discovered": "2026-03-21T00:00:00Z",
+      "version": "0.6.3-alpha.11",
+      "commit": "ae6cf45",
+      "file": "crates/core/src/managers/mcp_venv.rs",
+      "pattern": "fn is_venv_stale",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }
