@@ -280,18 +280,11 @@ async fn update_command(
             )
         })?;
 
-    let sha256_name = format!("{}.sha256", expected_name);
-    let sha256_asset = release
+    let sums_asset = release
         .assets
         .iter()
-        .find(|a| a.name == sha256_name)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "No checksum '{}' found in release v{}",
-                sha256_name,
-                latest_version
-            )
-        })?;
+        .find(|a| a.name == "SHA256SUMS.txt")
+        .ok_or_else(|| anyhow::anyhow!("No SHA256SUMS.txt found in release v{}", latest_version))?;
 
     println!(
         "Binary:   {} ({:.1} MB)",
@@ -315,20 +308,21 @@ async fn update_command(
         }
     }
 
-    // Download checksum
-    print!("Downloading checksum... ");
+    // Download checksums manifest
+    print!("Downloading checksums... ");
     std::io::Write::flush(&mut std::io::stdout())?;
-    let expected_hash = client
-        .get(&sha256_asset.browser_download_url)
+    let sums_text = client
+        .get(&sums_asset.browser_download_url)
         .header("User-Agent", &ua)
         .send()
         .await?
         .text()
         .await?;
-    let expected_hash = expected_hash
-        .split_whitespace()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Checksum file is empty or malformed"))?
+    let expected_hash = sums_text
+        .lines()
+        .find(|line| line.ends_with(&expected_name))
+        .and_then(|line| line.split_whitespace().next())
+        .ok_or_else(|| anyhow::anyhow!("No checksum for '{}' in SHA256SUMS.txt", expected_name))?
         .trim()
         .to_lowercase();
     if expected_hash.len() != 64 || !expected_hash.chars().all(|c| c.is_ascii_hexdigit()) {

@@ -196,29 +196,6 @@ jobs:
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" `
             "cloto_system-${{ matrix.target }}"
 
-      - name: Generate checksums
-        shell: bash
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          PLATFORM="${{ matrix.platform }}"
-          TARGET="${{ matrix.target }}"
-
-          if command -v sha256sum &>/dev/null; then
-            SHA_CMD="sha256sum"
-          else
-            SHA_CMD="shasum -a 256"
-          fi
-
-          # Archive checksum
-          if [[ "${{ matrix.archive }}" == "tar.gz" ]]; then
-            $SHA_CMD "cloto-${VERSION}-${PLATFORM}.tar.gz" > "cloto-${VERSION}-${PLATFORM}.tar.gz.sha256"
-          else
-            $SHA_CMD "cloto-${VERSION}-${PLATFORM}.zip" > "cloto-${VERSION}-${PLATFORM}.zip.sha256"
-          fi
-
-          # Bare binary checksum (for self-update verification)
-          $SHA_CMD "cloto_system-${TARGET}" > "cloto_system-${TARGET}.sha256"
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
@@ -226,7 +203,6 @@ jobs:
           path: |
             cloto-${{ steps.version.outputs.version }}-${{ matrix.platform }}.*
             cloto_system-${{ matrix.target }}
-            cloto_system-${{ matrix.target }}.sha256
           retention-days: 7
 
   build-tauri:
