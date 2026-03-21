@@ -589,7 +589,34 @@ async fn cargo_build_server(
         None
     };
 
-    let status = child.wait().await?;
+    let status = match tokio::time::timeout(Duration::from_secs(600), child.wait()).await {
+        Ok(Ok(status)) => status,
+        Ok(Err(e)) => {
+            warn!("cargo build process error: {e}");
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "cargo_build".into(),
+                    error: format!("cargo build process error: {e}"),
+                    recoverable: true,
+                },
+            );
+            return Ok(false);
+        }
+        Err(_) => {
+            warn!("cargo build --release timed out after 10 minutes for {server_name}");
+            child.kill().await.ok();
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "cargo_build".into(),
+                    error: "Build timed out after 10 minutes".into(),
+                    recoverable: true,
+                },
+            );
+            return Ok(false);
+        }
+    };
     let error_lines = if let Some(handle) = stderr_handle {
         handle.await.unwrap_or_default()
     } else {
@@ -899,16 +926,20 @@ async fn run_install(
         let venv_dir = crate::managers::mcp_venv::resolve_venv_dir()
             .unwrap_or_else(|| servers_dir.join(".venv"));
 
-        // Ensure venv exists
+        // Ensure venv exists (with timeout to avoid hanging)
         if !venv_dir.join("pyvenv.cfg").exists() {
             if let Some(python_cmd) = crate::managers::mcp_venv::find_python() {
                 let venv_path_str = venv_dir.to_string_lossy().to_string();
-                let _ = tokio::process::Command::new(&python_cmd)
-                    .args(["-m", "venv", &venv_path_str])
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped())
-                    .status()
-                    .await;
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(60),
+                    tokio::process::Command::new(&python_cmd)
+                        .args(["-m", "venv", &venv_path_str])
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped())
+                        .status(),
+                )
+                .await;
             }
         }
 
@@ -1402,12 +1433,24 @@ async fn run_batch_install(
         if !venv_dir.join("pyvenv.cfg").exists() {
             if let Some(python_cmd) = crate::managers::mcp_venv::find_python() {
                 let venv_path_str = venv_dir.to_string_lossy().to_string();
-                let _ = tokio::process::Command::new(&python_cmd)
-                    .args(["-m", "venv", &venv_path_str])
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped())
-                    .status()
-                    .await;
+                match tokio::time::timeout(
+                    Duration::from_secs(60),
+                    tokio::process::Command::new(&python_cmd)
+                        .args(["-m", "venv", &venv_path_str])
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped())
+                        .status(),
+                )
+                .await
+                {
+                    Ok(Ok(s)) if s.success() => {
+                        info!("Created venv at {}", venv_dir.display());
+                    }
+                    Ok(Ok(s)) => warn!("python -m venv failed (exit {:?})", s.code()),
+                    Ok(Err(e)) => warn!("Failed to run python -m venv: {e}"),
+                    Err(_) => warn!("python -m venv timed out (60s)"),
+                }
             }
         }
         let pip = venv_pip(&venv_dir);

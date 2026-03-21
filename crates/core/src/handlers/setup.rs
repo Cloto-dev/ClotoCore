@@ -455,18 +455,22 @@ async fn run_bootstrap_inner(
     }
     if !venv_dir.join("pyvenv.cfg").exists() {
         let venv_path_str = venv_dir.to_string_lossy().to_string();
-        let result = tokio::process::Command::new(&python_cmd)
-            .args(["-m", "venv", &venv_path_str])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .status()
-            .await;
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            tokio::process::Command::new(&python_cmd)
+                .args(["-m", "venv", &venv_path_str])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .status(),
+        )
+        .await;
 
         match result {
-            Ok(status) if status.success() => {
+            Ok(Ok(status)) if status.success() => {
                 info!("Setup: Created Python venv at {}", venv_dir.display());
             }
-            Ok(status) => {
+            Ok(Ok(status)) => {
                 emit(
                     tx,
                     SetupProgressEvent::StepError {
@@ -477,12 +481,23 @@ async fn run_bootstrap_inner(
                 );
                 return Ok(());
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 emit(
                     tx,
                     SetupProgressEvent::StepError {
                         step: "create_venv".into(),
                         error: format!("Failed to run Python for venv creation: {e}"),
+                        recoverable: true,
+                    },
+                );
+                return Ok(());
+            }
+            Err(_) => {
+                emit(
+                    tx,
+                    SetupProgressEvent::StepError {
+                        step: "create_venv".into(),
+                        error: "Python venv creation timed out (60s)".into(),
                         recoverable: true,
                     },
                 );
