@@ -1343,6 +1343,15 @@ pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -
 
     // 7. Look up target agent
     let agent_mgr = super::agents::AgentManager::new(manager.pool().clone(), 30_000);
+
+    // Resolve caller agent display name for dialogue events
+    let caller_agent_name = agent_mgr
+        .get_agent_config(caller_agent_id)
+        .await
+        .map_or_else(|_| caller_agent_id.to_string(), |(meta, _)| meta.name);
+
+    let dialogue_id = format!("dlg-{}", chrono::Utc::now().timestamp_millis());
+
     let Ok((agent_meta, engine_id)) = agent_mgr.get_agent_config(target_agent_id).await else {
         return Ok(serde_json::json!({
             "status": "error",
@@ -1401,6 +1410,21 @@ pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -
         delegation_chain.len() + 1
     );
 
+    // Emit AgentDialogue "pending" event
+    let chain_depth = (delegation_chain.len() + 1) as u8;
+    manager.emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
+        dialogue_id: dialogue_id.clone(),
+        caller_agent_id: caller_agent_id.to_string(),
+        caller_agent_name: caller_agent_name.clone(),
+        target_agent_id: target_agent_id.to_string(),
+        target_agent_name: agent_meta.name.clone(),
+        prompt: prompt.to_string(),
+        engine_id: engine_id.clone(),
+        response: None,
+        chain_depth,
+        status: "pending".to_string(),
+    }).await;
+
     // 12. Call the target agent's engine
     let result = match manager
         .call_server_tool(&engine_id, "think", think_args)
@@ -1408,6 +1432,19 @@ pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -
     {
         Ok(result) => result,
         Err(e) => {
+            // Emit AgentDialogue "error" event
+            manager.emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
+                dialogue_id: dialogue_id.clone(),
+                caller_agent_id: caller_agent_id.to_string(),
+                caller_agent_name: caller_agent_name.clone(),
+                target_agent_id: target_agent_id.to_string(),
+                target_agent_name: agent_meta.name.clone(),
+                prompt: prompt.to_string(),
+                engine_id: engine_id.clone(),
+                response: Some(format!("Engine call failed: {}", e)),
+                chain_depth,
+                status: "error".to_string(),
+            }).await;
             // Audit: delegation failed
             manager
                 .broadcast_audit_event(&crate::db::AuditLogEntry {
@@ -1452,6 +1489,20 @@ pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -
     } else {
         response_text
     };
+
+    // Emit AgentDialogue "success" event
+    manager.emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
+        dialogue_id: dialogue_id.clone(),
+        caller_agent_id: caller_agent_id.to_string(),
+        caller_agent_name: caller_agent_name.clone(),
+        target_agent_id: target_agent_id.to_string(),
+        target_agent_name: agent_meta.name.clone(),
+        prompt: prompt.to_string(),
+        engine_id: engine_id.clone(),
+        response: Some(response.clone()),
+        chain_depth,
+        status: "success".to_string(),
+    }).await;
 
     // 14. Audit log: DELEGATION_EXECUTED
     manager
