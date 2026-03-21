@@ -764,30 +764,36 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     }
 
     // 6d. Internal LLM Proxy (MGP §13.4 — centralized API key management)
+    //     Check result in background to avoid blocking HTTP server startup.
     let llm_proxy_rx = managers::llm_proxy::spawn_llm_proxy(
         pool.clone(),
         config.llm_proxy_port,
         config.llm_proxy_timeout_secs,
         app_state.shutdown.clone(),
     );
-    match tokio::time::timeout(std::time::Duration::from_secs(15), llm_proxy_rx).await {
-        Ok(Ok(Ok(()))) => {
-            info!("LLM Proxy ready on port {}", config.llm_proxy_port);
-        }
-        Ok(Ok(Err(msg))) => {
-            tracing::warn!(
-                "⚠️  LLM Proxy failed to start: {}. Mind servers will not have LLM access.",
-                msg
-            );
-        }
-        Ok(Err(_)) => {
-            tracing::warn!("⚠️  LLM Proxy startup channel dropped unexpectedly");
-        }
-        Err(_) => {
-            tracing::warn!(
-                "⚠️  LLM Proxy startup timed out (15s). Mind servers may not have LLM access."
-            );
-        }
+    {
+        let proxy_port = config.llm_proxy_port;
+        tokio::spawn(async move {
+            match tokio::time::timeout(std::time::Duration::from_secs(15), llm_proxy_rx).await {
+                Ok(Ok(Ok(()))) => {
+                    info!("LLM Proxy ready on port {}", proxy_port);
+                }
+                Ok(Ok(Err(msg))) => {
+                    tracing::warn!(
+                        "⚠️  LLM Proxy failed to start: {}. Mind servers will not have LLM access.",
+                        msg
+                    );
+                }
+                Ok(Err(_)) => {
+                    tracing::warn!("⚠️  LLM Proxy startup channel dropped unexpectedly");
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "⚠️  LLM Proxy startup timed out (15s). Mind servers may not have LLM access."
+                    );
+                }
+            }
+        });
     }
 
     let event_tx_clone = event_tx.clone();
