@@ -1425,26 +1425,44 @@ pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -
         status: "pending".to_string(),
     }).await;
 
-    // 12. Call the target agent's engine
-    let result = match manager
-        .call_server_tool(&engine_id, "think", think_args)
-        .await
+    // 12. Run mini agentic loop (think_with_tools if available, else plain think)
+    let supports_tools = manager
+        .has_server_tool(&engine_id, "think_with_tools")
+        .await;
+    let tools = if supports_tools {
+        manager
+            .collect_tool_schemas_for_agent(target_agent_id)
+            .await
+    } else {
+        vec![]
+    };
+
+    let response = match run_ask_agent_loop(
+        manager,
+        &engine_id,
+        &think_args,
+        &tools,
+        target_agent_id,
+    )
+    .await
     {
-        Ok(result) => result,
+        Ok(content) => content,
         Err(e) => {
             // Emit AgentDialogue "error" event
-            manager.emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
-                dialogue_id: dialogue_id.clone(),
-                caller_agent_id: caller_agent_id.to_string(),
-                caller_agent_name: caller_agent_name.clone(),
-                target_agent_id: target_agent_id.to_string(),
-                target_agent_name: agent_meta.name.clone(),
-                prompt: prompt.to_string(),
-                engine_id: engine_id.clone(),
-                response: Some(format!("Engine call failed: {}", e)),
-                chain_depth,
-                status: "error".to_string(),
-            }).await;
+            manager
+                .emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
+                    dialogue_id: dialogue_id.clone(),
+                    caller_agent_id: caller_agent_id.to_string(),
+                    caller_agent_name: caller_agent_name.clone(),
+                    target_agent_id: target_agent_id.to_string(),
+                    target_agent_name: agent_meta.name.clone(),
+                    prompt: prompt.to_string(),
+                    engine_id: engine_id.clone(),
+                    response: Some(format!("Engine call failed: {}", e)),
+                    chain_depth,
+                    status: "error".to_string(),
+                })
+                .await;
             // Audit: delegation failed
             manager
                 .broadcast_audit_event(&crate::db::AuditLogEntry {
@@ -1466,28 +1484,6 @@ pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -
                 "target_agent": target_agent_id,
             }));
         }
-    };
-
-    // 13. Extract response text from CallToolResult
-    let response_text: String = result
-        .content
-        .iter()
-        .filter_map(|c| match c {
-            super::mcp_protocol::ToolContent::Text { text } => Some(text.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    // Parse response — engine returns JSON with { type: "final", content: "..." }
-    let response = if let Ok(parsed) = serde_json::from_str::<Value>(&response_text) {
-        parsed
-            .get("content")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&response_text)
-            .to_string()
-    } else {
-        response_text
     };
 
     // Emit AgentDialogue "success" event
@@ -1675,4 +1671,244 @@ pub(super) async fn execute_gui_read(_manager: &McpClientManager, args: Value) -
         "size_bytes": metadata.len(),
         "content": content,
     }))
+}
+
+// ────────────────────────────────────────────────────────────────────
+// ask_agent Mini Agentic Loop
+// ────────────────────────────────────────────────────────────────────
+
+/// Maximum tool iterations for ask_agent (keeps delegations concise).
+const ASK_AGENT_MAX_TOOL_ITERATIONS: u8 = 5;
+/// Tool execution timeout in seconds.
+const ASK_AGENT_TOOL_TIMEOUT_SECS: u64 = 30;
+
+/// Run a mini agentic loop for ask_agent: think_with_tools → execute tools → repeat.
+/// Falls back to plain `think` if no tools are available.
+#[allow(clippy::too_many_lines)]
+async fn run_ask_agent_loop(
+    manager: &McpClientManager,
+    engine_id: &str,
+    think_args: &Value,
+    tools: &[Value],
+    target_agent_id: &str,
+) -> anyhow::Result<String> {
+    // No tools available → plain think (single inference)
+    if tools.is_empty() {
+        let result = manager
+            .call_server_tool(engine_id, "think", think_args.clone())
+            .await?;
+        return Ok(extract_think_response(&result));
+    }
+
+    // Build initial args for think_with_tools
+    let mut loop_args = think_args.clone();
+    if let Some(obj) = loop_args.as_object_mut() {
+        obj.insert("tools".to_string(), Value::Array(tools.to_vec()));
+    }
+
+    let mut tool_history: Vec<Value> = Vec::new();
+
+    for iteration in 0..ASK_AGENT_MAX_TOOL_ITERATIONS {
+        // Add accumulated tool_history
+        if let Some(obj) = loop_args.as_object_mut() {
+            obj.insert(
+                "tool_history".to_string(),
+                Value::Array(tool_history.clone()),
+            );
+        }
+
+        let result = manager
+            .call_server_tool(engine_id, "think_with_tools", loop_args.clone())
+            .await?;
+
+        match parse_think_result(&result)? {
+            cloto_shared::ThinkResult::Final(content) => {
+                info!(
+                    "ask_agent loop: final response at iteration {}",
+                    iteration + 1
+                );
+                return Ok(content);
+            }
+            cloto_shared::ThinkResult::ToolCalls {
+                assistant_content,
+                calls,
+            } => {
+                // Build assistant message for tool_history
+                let tool_calls_json: Vec<Value> = calls
+                    .iter()
+                    .map(|tc| {
+                        serde_json::json!({
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": serde_json::to_string(&tc.arguments)
+                                    .unwrap_or_default()
+                            }
+                        })
+                    })
+                    .collect();
+
+                tool_history.push(serde_json::json!({
+                    "role": "assistant",
+                    "content": assistant_content.as_deref().unwrap_or(""),
+                    "tool_calls": tool_calls_json,
+                }));
+
+                // Execute each tool call
+                for call in &calls {
+                    // Anti-spoofing: inject target agent's ID
+                    let mut safe_args = call.arguments.clone();
+                    if let Some(obj) = safe_args.as_object_mut() {
+                        obj.insert(
+                            "agent_id".to_string(),
+                            Value::String(target_agent_id.to_string()),
+                        );
+                    }
+
+                    // Resolve tool name → server ID (avoids recursive async through execute_tool_internal)
+                    let server_id = manager.resolve_tool_server(&call.name).await;
+                    let tool_result = if let Some(sid) = server_id {
+                        tokio::time::timeout(
+                            std::time::Duration::from_secs(ASK_AGENT_TOOL_TIMEOUT_SECS),
+                            manager.call_server_tool(&sid, &call.name, safe_args),
+                        )
+                        .await
+                    } else {
+                        Ok(Err(anyhow::anyhow!(
+                            "Tool '{}' not found in any connected server",
+                            call.name
+                        )))
+                    };
+
+                    let result_text = match tool_result {
+                        Ok(Ok(v)) => {
+                            // Extract text from CallToolResult
+                            v.content
+                                .iter()
+                                .filter_map(|c| match c {
+                                    super::mcp_protocol::ToolContent::Text { text } => {
+                                        Some(text.clone())
+                                    }
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        }
+                        Ok(Err(e)) => format!("Error: {e}"),
+                        Err(_) => "Error: tool execution timed out".to_string(),
+                    };
+
+                    info!(
+                        "ask_agent loop: tool {} executed (iteration {})",
+                        call.name,
+                        iteration + 1
+                    );
+
+                    tool_history.push(serde_json::json!({
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "content": result_text,
+                    }));
+                }
+            }
+        }
+    }
+
+    // Max iterations reached — return last assistant content or error
+    Err(anyhow::anyhow!(
+        "ask_agent agentic loop exceeded {} iterations",
+        ASK_AGENT_MAX_TOOL_ITERATIONS
+    ))
+}
+
+/// Extract text response from a plain `think` CallToolResult.
+fn extract_think_response(result: &super::mcp_protocol::CallToolResult) -> String {
+    let text: String = result
+        .content
+        .iter()
+        .filter_map(|c| match c {
+            super::mcp_protocol::ToolContent::Text { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if let Ok(parsed) = serde_json::from_str::<Value>(&text) {
+        parsed
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&text)
+            .to_string()
+    } else {
+        text
+    }
+}
+
+/// Parse ThinkResult from MCP think_with_tools() response.
+/// Standalone version of SystemHandler::parse_mcp_think_result for use in ask_agent.
+fn parse_think_result(
+    result: &super::mcp_protocol::CallToolResult,
+) -> anyhow::Result<cloto_shared::ThinkResult> {
+    use cloto_shared::ToolCall;
+
+    for content in &result.content {
+        if let super::mcp_protocol::ToolContent::Text { text } = content {
+            let json: Value = serde_json::from_str(text)
+                .map_err(|e| anyhow::anyhow!("MCP engine returned invalid JSON: {}", e))?;
+
+            if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
+                return Err(anyhow::anyhow!("Engine error: {}", error));
+            }
+
+            let result_type = json
+                .get("type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("final");
+
+            if result_type == "tool_calls" {
+                let assistant_content = json
+                    .get("assistant_content")
+                    .and_then(|c| c.as_str())
+                    .map(std::string::ToString::to_string);
+                let calls_json = json
+                    .get("calls")
+                    .and_then(|c| c.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+
+                let calls: Vec<ToolCall> = calls_json
+                    .iter()
+                    .filter_map(|tc| {
+                        let id = tc.get("id")?.as_str()?.to_string();
+                        let name = tc.get("name")?.as_str()?.to_string();
+                        let arguments = tc
+                            .get("arguments")
+                            .cloned()
+                            .unwrap_or(serde_json::json!({}));
+                        Some(ToolCall {
+                            id,
+                            name,
+                            arguments,
+                        })
+                    })
+                    .collect();
+
+                return Ok(cloto_shared::ThinkResult::ToolCalls {
+                    assistant_content,
+                    calls,
+                });
+            }
+
+            let content = json
+                .get("content")
+                .and_then(|c| c.as_str())
+                .unwrap_or("")
+                .to_string();
+            return Ok(cloto_shared::ThinkResult::Final(content));
+        }
+    }
+    Err(anyhow::anyhow!(
+        "MCP engine returned no parseable ThinkResult"
+    ))
 }
