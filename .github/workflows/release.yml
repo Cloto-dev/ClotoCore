@@ -350,7 +350,8 @@ jobs:
           mkdir -p tauri-artifacts
           find target/release/bundle/deb -type f -name "*.deb" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
           find target/release/bundle/appimage -type f -name "*.AppImage" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
-          find target/release/bundle -type f -name "*.sig" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
+          # Collect only AppImage signatures (skip .deb.sig — not used by Tauri updater)
+          find target/release/bundle/appimage -type f -name "*.sig" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
           echo "Tauri artifacts:"
           ls -lh tauri-artifacts/
 
@@ -371,8 +372,6 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             arch: arm64
-          - target: x86_64-apple-darwin
-            arch: x64
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
 
