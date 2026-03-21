@@ -448,6 +448,11 @@ async fn run_bootstrap_inner(
 
     // TODO: Update to use [paths].servers from mcp.toml for venv location.
     let venv_dir = root.join("mcp-servers").join(".venv");
+    let venv_stale = crate::managers::mcp_venv::is_venv_stale(&venv_dir);
+    if venv_stale && venv_dir.exists() {
+        info!("Setup: Removing stale venv (Python version mismatch)");
+        let _ = tokio::fs::remove_dir_all(&venv_dir).await;
+    }
     if !venv_dir.join("pyvenv.cfg").exists() {
         let venv_path_str = venv_dir.to_string_lossy().to_string();
         let result = tokio::process::Command::new(&python_cmd)
