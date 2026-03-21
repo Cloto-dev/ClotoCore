@@ -47,7 +47,9 @@ export function DialogueCard({ dialogue }: DialogueCardProps) {
 
       {/* Prompt */}
       <div className="mb-2">
-        <div className="text-[9px] font-bold uppercase tracking-wider text-content-tertiary mb-0.5">{dialogue.caller_agent_name}</div>
+        <div className="text-[9px] font-bold uppercase tracking-wider text-content-tertiary mb-0.5">
+          {dialogue.caller_agent_name}
+        </div>
         <div className="text-[11px] text-content-primary whitespace-pre-wrap break-words leading-relaxed">
           {promptPreview.truncated}
           {!expanded && promptPreview.isTruncated && <span className="text-content-tertiary">...</span>}

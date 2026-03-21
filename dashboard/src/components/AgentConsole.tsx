@@ -985,8 +985,6 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
           activeArtifactIndex={actions.activeArtifactIndex}
           onArtifactTabChange={actions.setActiveArtifactIndex}
           dialogues={actions.dialogues}
-          activeDialogueIndex={actions.activeDialogueIndex}
-          onDialogueTabChange={actions.setActiveDialogueIndex}
           unreadDialogueCount={actions.unreadDialogueCount}
           totalCount={actions.totalCount}
         />

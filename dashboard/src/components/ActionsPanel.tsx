@@ -1,4 +1,4 @@
-import { ArrowRight, ChevronLeft, PanelRightClose } from 'lucide-react';
+import { ChevronLeft, PanelRightClose } from 'lucide-react';
 import type { ActionCategory, Artifact, DialogueTab } from '../hooks/useActions';
 import { CodeBlock } from './CodeBlock';
 import { DialogueCard } from './DialogueCard';
@@ -14,8 +14,6 @@ interface ActionsPanelProps {
   activeArtifactIndex: number;
   onArtifactTabChange: (index: number) => void;
   dialogues: DialogueTab[];
-  activeDialogueIndex: number;
-  onDialogueTabChange: (index: number) => void;
   unreadDialogueCount: number;
   totalCount: number;
 }
@@ -39,15 +37,12 @@ export function ActionsPanel({
   activeArtifactIndex,
   onArtifactTabChange,
   dialogues,
-  activeDialogueIndex,
-  onDialogueTabChange,
   unreadDialogueCount,
   totalCount,
 }: ActionsPanelProps) {
   if (totalCount === 0) return null;
 
   const active = artifacts[activeArtifactIndex] || artifacts[0];
-  const activeDialogue = dialogues[activeDialogueIndex] || dialogues[0];
 
   // Collapsed state
   if (!isOpen) {
@@ -159,44 +154,13 @@ export function ActionsPanel({
         </div>
       )}
 
-      {/* Content: Dialogues */}
+      {/* Content: Dialogues — vertical scroll list, newest first */}
       {activeCategory === 'dialogues' && dialogues.length > 0 && (
-        <>
-          {/* Dialogue tab bar */}
-          {dialogues.length > 1 && (
-            <div className="flex border-b border-edge overflow-x-auto no-scrollbar shrink-0">
-              {dialogues.map((tab, i) => (
-                <button
-                  key={tab.dialogue.dialogue_id}
-                  onClick={() => onDialogueTabChange(i)}
-                  className={`px-3 py-2 text-[10px] font-mono whitespace-nowrap transition-all border-b-2 relative ${
-                    i === activeDialogueIndex
-                      ? 'border-brand text-content-primary'
-                      : 'border-transparent text-content-tertiary hover:text-content-secondary'
-                  }`}
-                >
-                  <span className="truncate max-w-[120px] inline-block align-bottom">
-                    {tab.dialogue.caller_agent_name}
-                  </span>
-                  <ArrowRight size={8} className="inline mx-0.5 opacity-50" />
-                  <span className="truncate max-w-[120px] inline-block align-bottom">
-                    {tab.dialogue.target_agent_name}
-                  </span>
-                  {tab.unread && i !== activeDialogueIndex && (
-                    <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-brand" />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Dialogue content */}
-          {activeDialogue && (
-            <div className="flex-1 overflow-y-auto no-scrollbar p-3">
-              <DialogueCard dialogue={activeDialogue.dialogue} />
-            </div>
-          )}
-        </>
+        <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-3">
+          {[...dialogues].reverse().map((tab) => (
+            <DialogueCard key={tab.dialogue.dialogue_id} dialogue={tab.dialogue} />
+          ))}
+        </div>
       )}
     </div>
   );
