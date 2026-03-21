@@ -64,6 +64,11 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
         metadata.insert("target_agent_id".into(), job.agent_id.clone());
         metadata.insert("cron_job_id".into(), job.id.clone());
         metadata.insert("cron_source".into(), "scheduler".into());
+        metadata.insert("cron_job_name".into(), format!("CRON: {}", job.name));
+        let dialogue_id = format!("cron-{}", job.id);
+        if !job.hide_prompt {
+            metadata.insert("cron_dialogue_id".into(), dialogue_id.clone());
+        }
         if let Some(ref engine_id) = job.engine_id {
             metadata.insert("engine_override".into(), engine_id.clone());
         }
@@ -127,10 +132,10 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
             "Cron job dispatched"
         );
 
-        // Emit AgentDialogue for Actions panel (skip hidden-prompt jobs to reduce noise)
+        // Emit AgentDialogue "pending" for Actions panel (skip hidden-prompt jobs)
         if !job.hide_prompt {
             let data = ClotoEventData::AgentDialogue {
-                dialogue_id: format!("cron-{}-{}", job.id, now_ms),
+                dialogue_id: dialogue_id.clone(),
                 caller_agent_id: "system.cron".to_string(),
                 caller_agent_name: format!("CRON: {}", job.name),
                 target_agent_id: job.agent_id.clone(),
@@ -139,7 +144,7 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
                 engine_id: job.engine_id.clone().unwrap_or_default(),
                 response: None,
                 chain_depth: 0,
-                status: "success".to_string(),
+                status: "pending".to_string(),
             };
             let _ = event_tx.send(EnvelopedEvent::system(data)).await;
         }
