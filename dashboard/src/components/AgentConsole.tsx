@@ -11,9 +11,9 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useActionsContext } from '../contexts/ActionsContext';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApi } from '../hooks/useApi';
-import { useArtifacts } from '../hooks/useArtifacts';
 import { useEventStream } from '../hooks/useEventStream';
 import { useLongPress } from '../hooks/useLongPress';
 import { useMcpServers } from '../hooks/useMcpServers';
@@ -31,7 +31,7 @@ import type {
   McpServerInfo,
 } from '../types';
 import { useGazeBroadcast } from '../vrm/useGazeBroadcast';
-import { ArtifactPanel } from './ArtifactPanel';
+import { ActionsPanel } from './ActionsPanel';
 import { BranchNavigator } from './BranchNavigator';
 import { ChatInputBar } from './ChatInputBar';
 import { CommandApprovalCard } from './CommandApprovalCard';
@@ -152,7 +152,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
   const sendTimestampRef = useRef<number>(0);
   // Holds the correct parent_id during retry (null = not retrying)
   const retryParentIdRef = useRef<string | null>(null);
-  const artifactPanel = useArtifacts();
+  const actions = useActionsContext();
   const [activeBranches, setActiveBranches] = useState<Record<string, number>>({});
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const hasVrm = agent.metadata?.has_vrm === 'true';
@@ -449,6 +449,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
 
         // Agent response is persisted backend-side (system.rs) before SSE emission.
       }
+
+      // AgentDialogue events handled globally by ActionsProvider
     },
     api.apiKey,
   );
@@ -475,17 +477,17 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
   const handleCodeBlockExtracted = useCallback(
     (code: string, language: string, lineCount: number) => {
       if (lineCount >= 15) {
-        artifactPanel.addArtifact({ code, language, lineCount });
+        actions.addArtifact({ code, language, lineCount });
       }
     },
-    [artifactPanel.addArtifact],
+    [actions.addArtifact],
   );
 
   const sendMessage = async (blocks?: ContentBlock[], rawText?: string, engineOverride?: string | null) => {
     const text = rawText ?? '';
     const contentBlocks = blocks ?? (text.trim() ? [{ type: 'text' as const, text: text.trim() }] : []);
     if (contentBlocks.length === 0 || isTyping || pendingResponse) return;
-    artifactPanel.clearArtifacts();
+    actions.clearArtifacts();
 
     const msgId = Date.now().toString();
     const userMsg: ChatMessage = {
@@ -612,7 +614,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     setIsTyping(true);
     setThinkingSteps([]);
     sendTimestampRef.current = now;
-    artifactPanel.clearArtifacts();
+    actions.clearArtifacts();
 
     // Update active branch to show the new edit
     if (parentId) {
@@ -669,7 +671,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     setIsTyping(true);
     setThinkingSteps([]);
     sendTimestampRef.current = Date.now();
-    artifactPanel.clearArtifacts();
+    actions.clearArtifacts();
 
     try {
       await api.retryResponse(agent.id, userMsgId);
@@ -689,7 +691,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     setActiveBranches({});
     setEditingMessage(null);
     initialLoadDone.current = false;
-    artifactPanel.clearArtifacts();
+    actions.clearAll();
     try {
       await api.deleteChatMessages(agent.id, identity.id);
     } catch (err) {
@@ -971,14 +973,22 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         </div>
         {/* end chat column */}
 
-        {/* Artifact Panel */}
-        <ArtifactPanel
-          artifacts={artifactPanel.artifacts}
-          activeIndex={artifactPanel.activeIndex}
-          onTabChange={artifactPanel.setActiveIndex}
-          isOpen={artifactPanel.isOpen}
-          onClose={artifactPanel.closePanel}
-          onOpen={artifactPanel.openPanel}
+        {/* Actions Panel */}
+        <ActionsPanel
+          isOpen={actions.isOpen}
+          onClose={actions.closePanel}
+          onOpen={actions.openPanel}
+          activeCategory={actions.activeCategory}
+          onCategoryChange={actions.setActiveCategory}
+          hasDialogues={actions.hasDialogues}
+          artifacts={actions.artifacts}
+          activeArtifactIndex={actions.activeArtifactIndex}
+          onArtifactTabChange={actions.setActiveArtifactIndex}
+          dialogues={actions.dialogues}
+          activeDialogueIndex={actions.activeDialogueIndex}
+          onDialogueTabChange={actions.setActiveDialogueIndex}
+          unreadDialogueCount={actions.unreadDialogueCount}
+          totalCount={actions.totalCount}
         />
       </div>
       {/* end content area */}

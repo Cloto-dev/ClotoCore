@@ -427,6 +427,22 @@ impl EventProcessor {
                         "✅ Agentic loop completed"
                     );
                 }
+                cloto_shared::ClotoEventData::AgentDialogue {
+                    ref caller_agent_id,
+                    ref target_agent_id,
+                    ref status,
+                    chain_depth,
+                    ..
+                } => {
+                    info!(
+                        trace_id = %trace_id,
+                        caller = %caller_agent_id,
+                        target = %target_agent_id,
+                        status = %status,
+                        depth = chain_depth,
+                        "🗣️ Agent dialogue"
+                    );
+                }
                 _ => {}
             }
         }

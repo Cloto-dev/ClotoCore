@@ -231,3 +231,19 @@ export interface CronJob {
   creator_user_id?: string;
   creator_user_name?: string;
 }
+
+// ── Actions Panel: Inter-agent dialogue ──
+
+export interface AgentDialogue {
+  dialogue_id: string;
+  caller_agent_id: string;
+  caller_agent_name: string;
+  target_agent_id: string;
+  target_agent_name: string;
+  prompt: string;
+  engine_id: string;
+  response: string | null;
+  chain_depth: number;
+  status: 'pending' | 'success' | 'error';
+  timestamp: number;
+}

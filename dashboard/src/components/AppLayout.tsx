@@ -1,6 +1,7 @@
 import { Cpu, HelpCircle, Settings } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { ActionsProvider } from '../contexts/ActionsContext';
 import { useAgentContext } from '../contexts/AgentContext';
 import { useLocalStorage } from '../hooks/useStorage';
 import { AgentPage } from '../pages/AgentPage';
@@ -74,89 +75,91 @@ export function AppLayout() {
   };
 
   return (
-    <div className="h-screen bg-surface-base flex flex-col overflow-hidden relative font-sans text-content-primary select-none">
-      {/* 1. ViewHeader — first child, full width */}
-      {!immersive && (
-        <ViewHeader
-          icon={Cpu}
-          title="Cloto System"
-          onHelp={() => setHelpOpen(true)}
-          navBack={() => navigate(-1)}
-          navForward={() => navigate(1)}
-          canGoBack={canGoBack}
-          canGoForward={canGoForward}
-          right={
-            <span className="text-[10px] font-mono text-content-tertiary">
-              {activeCount} / {agents.length} Active
-            </span>
-          }
-        />
-      )}
-
-      {/* 2. Body — second child, sidebar + content */}
-      <div className="flex flex-1 overflow-hidden relative">
-        <InteractiveGrid />
+    <ActionsProvider>
+      <div className="h-screen bg-surface-base flex flex-col overflow-hidden relative font-sans text-content-primary select-none">
+        {/* 1. ViewHeader — first child, full width */}
         {!immersive && (
-          <div className="relative z-10">
-            <AppSidebar
-              onSettingsClick={() => setSettingsOpen(true)}
-              collapsed={sidebarCollapsed}
-              onToggleCollapse={handleToggleSidebar}
-            />
-          </div>
+          <ViewHeader
+            icon={Cpu}
+            title="Cloto System"
+            onHelp={() => setHelpOpen(true)}
+            navBack={() => navigate(-1)}
+            navForward={() => navigate(1)}
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
+            right={
+              <span className="text-[10px] font-mono text-content-tertiary">
+                {activeCount} / {agents.length} Active
+              </span>
+            }
+          />
         )}
-        <main className="flex-1 h-full overflow-hidden relative z-10">
-          {/* AgentPage is always mounted to preserve SSE connections,
+
+        {/* 2. Body — second child, sidebar + content */}
+        <div className="flex flex-1 overflow-hidden relative">
+          <InteractiveGrid />
+          {!immersive && (
+            <div className="relative z-10">
+              <AppSidebar
+                onSettingsClick={() => setSettingsOpen(true)}
+                collapsed={sidebarCollapsed}
+                onToggleCollapse={handleToggleSidebar}
+              />
+            </div>
+          )}
+          <main className="flex-1 h-full overflow-hidden relative z-10">
+            {/* AgentPage is always mounted to preserve SSE connections,
               thinking steps, and chat state across navigation.
               Thinking steps also persisted in sessionStorage for reload. */}
-          <div className={isAgentRoute ? 'h-full' : 'hidden'}>
-            <AgentPage />
-          </div>
-          {!isAgentRoute && (
+            <div className={isAgentRoute ? 'h-full' : 'hidden'}>
+              <AgentPage />
+            </div>
+            {!isAgentRoute && (
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
+                    LOADING CLOTO...
+                  </div>
+                }
+              >
+                <Outlet context={{ setImmersive } satisfies AppOutletContext} />
+              </Suspense>
+            )}
+          </main>
+        </div>
+
+        {/* Settings modal */}
+        {settingsOpen && (
+          <Modal
+            title="Settings"
+            icon={Settings}
+            size="lg"
+            onClose={() => {
+              setSettingsOpen(false);
+              setSettingsInitialSection('general');
+            }}
+          >
             <Suspense
               fallback={
                 <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
-                  LOADING CLOTO...
+                  SYNCHRONIZING...
                 </div>
               }
             >
-              <Outlet context={{ setImmersive } satisfies AppOutletContext} />
+              <SettingsView initialSection={settingsInitialSection} />
             </Suspense>
-          )}
-        </main>
+          </Modal>
+        )}
+
+        {/* Help modal */}
+        {helpOpen && (
+          <Modal title="Help" icon={HelpCircle} size="sm" onClose={() => setHelpOpen(false)}>
+            <HelpContent onAskAgent={handleAskAgent} />
+          </Modal>
+        )}
+
+        <SecurityGuard />
       </div>
-
-      {/* Settings modal */}
-      {settingsOpen && (
-        <Modal
-          title="Settings"
-          icon={Settings}
-          size="lg"
-          onClose={() => {
-            setSettingsOpen(false);
-            setSettingsInitialSection('general');
-          }}
-        >
-          <Suspense
-            fallback={
-              <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
-                SYNCHRONIZING...
-              </div>
-            }
-          >
-            <SettingsView initialSection={settingsInitialSection} />
-          </Suspense>
-        </Modal>
-      )}
-
-      {/* Help modal */}
-      {helpOpen && (
-        <Modal title="Help" icon={HelpCircle} size="sm" onClose={() => setHelpOpen(false)}>
-          <HelpContent onAskAgent={handleAskAgent} />
-        </Modal>
-      )}
-
-      <SecurityGuard />
-    </div>
+    </ActionsProvider>
   );
 }

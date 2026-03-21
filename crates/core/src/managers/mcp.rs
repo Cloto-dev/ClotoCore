@@ -120,6 +120,13 @@ impl McpClientManager {
         *self.kernel_event_tx.lock().await = Some(tx);
     }
 
+    /// Emit a kernel event via the event bus (if connected).
+    pub async fn emit_kernel_event(&self, data: cloto_shared::ClotoEventData) {
+        if let Some(tx) = self.kernel_event_tx.lock().await.as_ref() {
+            let _ = tx.send(crate::EnvelopedEvent::system(data)).await;
+        }
+    }
+
     /// Take the notification receiver (can only be called once).
     /// The Kernel event loop uses this to forward MCP notifications to the event bus.
     pub async fn take_notification_receiver(&self) -> Option<mpsc::Receiver<McpNotification>> {
