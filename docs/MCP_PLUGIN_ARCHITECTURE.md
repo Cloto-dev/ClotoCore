@@ -4,7 +4,7 @@
 > **Supersedes:** Three-Tier Plugin Model (Rust/Python Bridge/WASM) → Two-Layer Model (Rust Core + MCP/MGP)
 > **Related:** `ARCHITECTURE.md` Section 3, [MGP_SPEC.md](MGP_SPEC.md)
 >
-> **Note:** ClotoCore implements **MGP (Model General Protocol)**, a strict superset of MCP.
+> **Note:** ClotoCore implements **MGP (Multi-Agent Gateway Protocol)**, a strict superset of MCP.
 > All MCP servers are MGP-compliant. MGP adds trust levels, isolation policies, handshake
 > extensions, and event forwarding on top of the standard MCP protocol.
 > See [MGP_SPEC.md](MGP_SPEC.md) for the full specification and

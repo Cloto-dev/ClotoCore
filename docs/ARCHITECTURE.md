@@ -426,5 +426,5 @@ These principles define the "correct approach" within ClotoCore. The following c
 
 ### Related Design Documents
 
-- [MGP_SPEC.md](MGP_SPEC.md) — Model General Protocol specification (index)
+- [MGP_SPEC.md](MGP_SPEC.md) — Multi-Agent Gateway Protocol specification (index)
 - [MGP Isolation Design](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_ISOLATION_DESIGN.md) — OS-Level isolation design (in cloto-mcp-servers repo)

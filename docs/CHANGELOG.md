@@ -36,7 +36,7 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 ## [0.6.0] — 2026-03-08
 
 ### Added
-- **MGP (Model General Protocol) Tier 1-4 implementation complete**
+- **MGP (Multi-Agent Gateway Protocol) Tier 1-4 implementation complete**
   - Tier 1: Security primitives — protocol-level access control and audit trails
   - Tier 2: Observability — monitoring, metrics, and diagnostic capabilities
   - Tier 3: Bidirectional communication — server→kernel notifications and tool discovery

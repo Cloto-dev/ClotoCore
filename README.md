@@ -299,7 +299,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the full security model.
 - [Architecture](docs/ARCHITECTURE.md) — Design principles, event flow, security model
 - [Project Vision](docs/PROJECT_VISION.md) — Strategic direction and roadmap
 - [Development](docs/DEVELOPMENT.md) — Coding standards, guardrails, PR process
-- [MGP Spec](docs/MGP_SPEC.md) — Model General Protocol specification
+- [MGP Spec](docs/MGP_SPEC.md) — Multi-Agent Gateway Protocol specification
 - [MGP Guide](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_GUIDE.md) — MGP usage guide
 - [MGP Security](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_SECURITY.md) — MGP security model
 - [MGP Isolation](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_ISOLATION_DESIGN.md) — MGP isolation design

@@ -1,4 +1,4 @@
-# MGP — Model General Protocol
+# MGP — Multi-Agent Gateway Protocol
 
 **Version:** 0.6.0-draft
 **Status:** Draft
@@ -16,7 +16,7 @@
 
 ### 1.1 What is MGP?
 
-MGP (Model General Protocol) is a **strict superset of MCP** (Model Context Protocol) that adds
+MGP (Multi-Agent Gateway Protocol) is a **strict superset of MCP** (Model Context Protocol) that adds
 protocol-level security, access control, and observability while maintaining full backward
 compatibility.
 
