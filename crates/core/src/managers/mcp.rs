@@ -1178,6 +1178,12 @@ impl McpClientManager {
         state.servers.contains_key(id)
     }
 
+    /// Resolve a tool name to its owning server ID via the tool index.
+    pub async fn resolve_tool_server(&self, tool_name: &str) -> Option<String> {
+        let state = self.state.read().await;
+        state.tool_index.get(tool_name).cloned()
+    }
+
     /// Check if a specific server has a tool with the given name.
     pub async fn has_server_tool(&self, server_id: &str, tool_name: &str) -> bool {
         let state = self.state.read().await;
