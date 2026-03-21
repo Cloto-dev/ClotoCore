@@ -3,6 +3,7 @@ import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApi } from '../hooks/useApi';
+import { useMcpServers } from '../hooks/useMcpServers';
 import type { AgentMetadata, CronJob } from '../types';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 
@@ -30,6 +31,8 @@ export const CronJobs = memo(function CronJobs() {
   const { t: tc } = useTranslation('common');
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [agents, setAgents] = useState<AgentMetadata[]>([]);
+  const { servers: mcpServers } = useMcpServers();
+  const mcpEngines = mcpServers.filter((s) => s.id.startsWith('mind.') && s.status === 'Connected');
   const [showForm, setShowForm] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
@@ -227,6 +230,23 @@ export const CronJobs = memo(function CronJobs() {
                   <option value="user">{t('source_user')}</option>
                 </select>
               </div>
+              <div>
+                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">
+                  {t('engine', { defaultValue: 'Engine' })}
+                </label>
+                <select
+                  value={form.engine_id}
+                  onChange={(e) => setForm({ ...form, engine_id: e.target.value })}
+                  className="w-full bg-surface-secondary border border-edge rounded px-3 py-2 text-xs font-mono text-content-primary"
+                >
+                  <option value="">{t('engine_default', { defaultValue: 'Agent Default' })}</option>
+                  {mcpEngines.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.id.replace('mind.', '')}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="md:col-span-2">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
@@ -290,6 +310,12 @@ export const CronJobs = memo(function CronJobs() {
                       <div>
                         {t('agent_label')} <span className="text-content-secondary">{job.agent_id}</span>
                       </div>
+                      {job.engine_id && (
+                        <div>
+                          {t('engine_label', { defaultValue: 'Engine:' })}{' '}
+                          <span className="text-content-secondary">{job.engine_id}</span>
+                        </div>
+                      )}
                       <div>
                         {t('schedule_label')}{' '}
                         <span className="text-content-secondary">
