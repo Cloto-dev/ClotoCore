@@ -1394,6 +1394,11 @@ async fn run_batch_install(
         crate::managers::mcp_venv::resolve_venv_dir().unwrap_or_else(|| servers_dir.join(".venv"));
 
     let pip_str = if has_python_servers {
+        // Remove stale venv (Python version mismatch) before creating a new one
+        if crate::managers::mcp_venv::is_venv_stale(&venv_dir) && venv_dir.exists() {
+            info!("Marketplace: Removing stale venv (Python version mismatch)");
+            let _ = tokio::fs::remove_dir_all(&venv_dir).await;
+        }
         if !venv_dir.join("pyvenv.cfg").exists() {
             if let Some(python_cmd) = crate::managers::mcp_venv::find_python() {
                 let venv_path_str = venv_dir.to_string_lossy().to_string();
