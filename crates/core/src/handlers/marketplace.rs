@@ -1422,14 +1422,23 @@ async fn run_batch_install(
                     status: "installing".into(),
                 },
             );
-            let result = tokio::process::Command::new(&pip_str)
-                .args(["install", &common_path.to_string_lossy(), "--quiet"])
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .output()
-                .await;
+            let result = tokio::time::timeout(
+                Duration::from_secs(120),
+                tokio::process::Command::new(&pip_str)
+                    .args([
+                        "install",
+                        &common_path.to_string_lossy(),
+                        "--quiet",
+                        "--no-input",
+                    ])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .output(),
+            )
+            .await;
             match result {
-                Ok(output) if output.status.success() => {
+                Ok(Ok(output)) if output.status.success() => {
                     emit(
                         tx,
                         SetupProgressEvent::ServerInstall {
@@ -1438,7 +1447,14 @@ async fn run_batch_install(
                         },
                     );
                 }
-                _ => warn!("Failed to install common dependency"),
+                Ok(Ok(output)) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    warn!(
+                        "Failed to install common: {}",
+                        stderr.lines().last().unwrap_or("")
+                    );
+                }
+                _ => warn!("Failed to install common dependency (timeout or process error)"),
             }
         }
     }
@@ -1514,17 +1530,26 @@ async fn run_batch_install(
             let bin_path = rust_binary_path(&server_path, entry);
             (bin_path.to_string_lossy().to_string(), vec![])
         } else {
-            // Python server: pip install
-            let result = tokio::process::Command::new(&pip_str)
-                .args(["install", &server_path.to_string_lossy(), "--quiet"])
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .output()
-                .await;
+            // Python server: pip install (120s timeout, no interactive prompts)
+            let result = tokio::time::timeout(
+                Duration::from_secs(120),
+                tokio::process::Command::new(&pip_str)
+                    .args([
+                        "install",
+                        &server_path.to_string_lossy(),
+                        "--quiet",
+                        "--no-input",
+                    ])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .output(),
+            )
+            .await;
 
             match result {
-                Ok(output) if output.status.success() => {}
-                Ok(output) => {
+                Ok(Ok(output)) if output.status.success() => {}
+                Ok(Ok(output)) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     warn!(
                         "pip install failed for {}: {}",
@@ -1540,8 +1565,19 @@ async fn run_batch_install(
                     );
                     continue;
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     warn!("Failed to run pip for {}: {}", entry.id, e);
+                    emit(
+                        tx,
+                        SetupProgressEvent::ServerInstall {
+                            server_name: entry.name.clone(),
+                            status: "failed".into(),
+                        },
+                    );
+                    continue;
+                }
+                Err(_) => {
+                    warn!("pip install timed out for {} (120s)", entry.id);
                     emit(
                         tx,
                         SetupProgressEvent::ServerInstall {

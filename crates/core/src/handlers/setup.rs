@@ -730,15 +730,19 @@ async fn install_server_deps_with_progress(
             },
         );
 
-        let result = tokio::process::Command::new(pip_str)
-            .args(["install", &server_path, "--quiet"])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .await;
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            tokio::process::Command::new(pip_str)
+                .args(["install", &server_path, "--quiet", "--no-input"])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .output(),
+        )
+        .await;
 
         match result {
-            Ok(output) if output.status.success() => {
+            Ok(Ok(output)) if output.status.success() => {
                 installed += 1;
                 emit(
                     tx,
@@ -748,7 +752,7 @@ async fn install_server_deps_with_progress(
                     },
                 );
             }
-            Ok(output) => {
+            Ok(Ok(output)) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 warn!(
                     "Failed to install {}: {}",
@@ -763,8 +767,18 @@ async fn install_server_deps_with_progress(
                     },
                 );
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 warn!("Failed to run pip for {}: {}", name, e);
+                emit(
+                    tx,
+                    SetupProgressEvent::ServerInstall {
+                        server_name: name,
+                        status: "failed".into(),
+                    },
+                );
+            }
+            Err(_) => {
+                warn!("pip install timed out for {} (120s)", name);
                 emit(
                     tx,
                     SetupProgressEvent::ServerInstall {
