@@ -2245,6 +2245,18 @@
       "pattern": "text-content-tertiary shrink-0",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-338",
+      "summary": "LLM proxy readiness wait blocks HTTP server startup — up to 15s delay before API becomes available, causing frontend spinner on first launch",
+      "severity": "CRITICAL",
+      "discovered": "2026-03-21T00:00:00Z",
+      "version": "0.6.3-alpha.11",
+      "commit": "33cc197",
+      "file": "crates/core/src/lib.rs",
+      "pattern": "Check result in background to avoid blocking HTTP server startup",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }
