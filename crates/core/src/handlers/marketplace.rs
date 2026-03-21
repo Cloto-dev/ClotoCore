@@ -1423,6 +1423,13 @@ async fn run_batch_install(
 
     let venv_dir =
         crate::managers::mcp_venv::resolve_venv_dir().unwrap_or_else(|| servers_dir.join(".venv"));
+    info!(
+        "Batch install: venv_dir={}, exists={}, has_python={}, has_rust={}",
+        venv_dir.display(),
+        venv_dir.join("pyvenv.cfg").exists(),
+        has_python_servers,
+        has_rust_servers,
+    );
 
     let pip_str = if has_python_servers {
         // Remove stale venv (Python version mismatch) before creating a new one
@@ -1454,10 +1461,18 @@ async fn run_batch_install(
             }
         }
         let pip = venv_pip(&venv_dir);
-        pip.to_string_lossy().to_string()
+        let pip_path = pip.to_string_lossy().to_string();
+        info!("Batch install: pip={}, exists={}", pip_path, pip.exists());
+        pip_path
     } else {
         String::new()
     };
+
+    info!(
+        "Batch install: entering server loop ({} servers, needs_common={})",
+        entries.len(),
+        needs_common
+    );
 
     // Install common once if needed
     if needs_common {
