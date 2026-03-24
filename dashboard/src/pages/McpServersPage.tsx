@@ -140,6 +140,7 @@ export function McpServersPage() {
           }}
           className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
           title={t('refresh')}
+          aria-label={t('refresh')}
         >
           <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
         </button>
@@ -147,6 +148,7 @@ export function McpServersPage() {
           {activeTab === 'servers' && (
             <button
               onClick={() => setAddModalOpen(true)}
+              aria-label={t('add_server')}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/30 text-brand text-[10px] font-mono font-bold tracking-wide transition-colors"
             >
               <Plus size={12} />
@@ -160,6 +162,7 @@ export function McpServersPage() {
       <div className="flex border-b border-edge mb-4 px-5 shrink-0">
         <button
           onClick={() => setActiveTab('servers')}
+          aria-label={t('marketplace.tab_servers')}
           className={`px-4 py-2 text-[12px] font-mono uppercase tracking-wider transition-colors
             ${
               activeTab === 'servers'
@@ -171,6 +174,7 @@ export function McpServersPage() {
         </button>
         <button
           onClick={() => setActiveTab('marketplace')}
+          aria-label={t('marketplace.tab_marketplace')}
           className={`px-4 py-2 text-[12px] font-mono uppercase tracking-wider transition-colors
             ${
               activeTab === 'marketplace'
@@ -203,6 +207,7 @@ export function McpServersPage() {
                 <p className="text-xs font-mono">{t('no_servers_configured')}</p>
                 <button
                   onClick={() => setAddModalOpen(true)}
+                  aria-label={t('add_server')}
                   className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/30 text-brand text-[10px] font-mono font-bold transition-colors"
                 >
                   <Plus size={12} />
@@ -216,6 +221,7 @@ export function McpServersPage() {
                 <button
                   key={server.id}
                   onClick={() => setSelectedId(server.id)}
+                  aria-label={displayServerId(server.id)}
                   className="text-left p-4 rounded-xl border border-edge bg-surface-primary/50 hover:bg-surface-secondary/80 hover:border-brand transition-all duration-200 group"
                 >
                   <div className="flex items-center gap-2.5 mb-2">
@@ -319,6 +325,7 @@ export function McpServersPage() {
                   setAddModalOpen(false);
                   setAddError(null);
                 }}
+                aria-label={tc('cancel')}
                 className="px-3 py-1.5 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-tertiary transition-colors border border-edge"
               >
                 {tc('cancel')}
@@ -326,6 +333,7 @@ export function McpServersPage() {
               <button
                 onClick={handleAdd}
                 disabled={adding || !isValidServerName(newName.trim())}
+                aria-label={t('add_modal.add')}
                 className="px-3 py-1.5 text-[10px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand disabled:opacity-40 transition-colors border border-brand/20"
               >
                 {adding ? t('add_modal.adding') : t('add_modal.add')}

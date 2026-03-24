@@ -76,6 +76,7 @@ export function ServerAccessSection({
               <button
                 key={preset.id}
                 onClick={() => onApplyPreset(preset.servers)}
+                aria-label={t(`plugin_workspace.preset_${preset.id}`)}
                 className={`px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider border transition-all ${
                   isActive
                     ? 'border-brand bg-brand/10 text-brand'
@@ -105,10 +106,17 @@ export function ServerAccessSection({
         ) : (
           <div className="space-y-2">
             {grantedServers.map((server) => (
+              // biome-ignore lint/a11y/useSemanticElements: clickable div preserved to avoid structural changes
               <div
                 key={server.id}
                 className="bg-glass-strong backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-red-500 transition-all flex items-center gap-3 group cursor-pointer"
+                role="button"
+                tabIndex={0}
+                aria-label={`${t('plugin_workspace.revoke')} ${displayServerId(server.id)}`}
                 onClick={() => onRevoke(server.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') onRevoke(server.id);
+                }}
               >
                 <div
                   className="p-1.5 rounded-md"
@@ -144,10 +152,17 @@ export function ServerAccessSection({
           </div>
           <div className="space-y-2">
             {availableServers.map((server) => (
+              // biome-ignore lint/a11y/useSemanticElements: clickable div preserved to avoid structural changes
               <div
                 key={server.id}
                 className="bg-glass backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-brand transition-all flex items-center gap-3 group cursor-pointer"
+                role="button"
+                tabIndex={0}
+                aria-label={`${t('plugin_workspace.grant')} ${displayServerId(server.id)}`}
                 onClick={() => onGrant(server.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') onGrant(server.id);
+                }}
               >
                 <div className="p-1.5 rounded-md text-content-muted group-hover:text-brand transition-colors">
                   <Server size={16} />

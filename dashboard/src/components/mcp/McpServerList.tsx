@@ -19,19 +19,19 @@ function statusIndicator(status: McpServerInfo['status']) {
   switch (status) {
     case 'Connected':
       return (
-        <span className="text-green-500" title="Running">
+        <span role="img" className="text-green-500" title="Running" aria-label="Running">
           ●
         </span>
       );
     case 'Disconnected':
       return (
-        <span className="text-content-muted" title="Stopped">
+        <span role="img" className="text-content-muted" title="Stopped" aria-label="Stopped">
           ○
         </span>
       );
     case 'Error':
       return (
-        <span className="text-red-500" title="Error">
+        <span role="img" className="text-red-500" title="Error" aria-label="Error">
           ◉
         </span>
       );
@@ -110,6 +110,7 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
               onClick={handleExitFilter}
               className="p-0.5 rounded hover:bg-glass text-content-muted hover:text-content-primary transition-colors"
               title={t('list.clear_filter')}
+              aria-label={t('list.clear_filter')}
             >
               <X size={10} />
             </button>
@@ -128,6 +129,7 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
             onClick={onRefresh}
             className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
             title={t('refresh')}
+            aria-label={t('refresh')}
           >
             <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
           </button>
@@ -135,6 +137,7 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
             onClick={onAdd}
             className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
             title={t('add_server')}
+            aria-label={t('add_server')}
           >
             <Plus size={12} />
           </button>
@@ -160,6 +163,7 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
           <button
             key={server.id}
             onClick={() => onSelect(server.id)}
+            aria-label={displayServerId(server.id)}
             className={`w-full text-left px-3 py-2 flex items-center gap-2 transition-colors text-xs font-mono
               ${
                 selectedId === server.id

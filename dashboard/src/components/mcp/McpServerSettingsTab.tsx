@@ -171,12 +171,14 @@ export function McpServerSettingsTab({ server, onRefresh }: Props) {
         <button
           onClick={handleSave}
           disabled={saveAction.isLoading || !hasChanges}
+          aria-label={t('settings_tab.save_changes')}
           className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-brand/20"
         >
           <Save size={10} /> {saveAction.isLoading ? t('settings_tab.saving') : t('settings_tab.save_changes')}
         </button>
         <button
           onClick={loadSettings}
+          aria-label={t('settings_tab.reset')}
           className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-tertiary transition-colors border border-edge"
         >
           <RotateCcw size={10} /> {t('settings_tab.reset')}

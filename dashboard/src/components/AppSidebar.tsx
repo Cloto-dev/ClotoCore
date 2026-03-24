@@ -60,6 +60,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
       <button
         onClick={handleSelectSystem}
         title={collapsed ? t('system') : undefined}
+        aria-label={t('system')}
         className={`relative mx-2 flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 ${
           systemActive && isAgentPageActive
             ? 'bg-surface-primary shadow-sm text-brand ring-1 ring-brand/20'
@@ -84,6 +85,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
               key={agent.id}
               onClick={() => handleSelectAgent(agent.id)}
               title={collapsed ? agent.name : undefined}
+              aria-label={agent.name}
               className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-left w-full ${
                 isActive
                   ? 'bg-surface-primary text-brand shadow-sm ring-1 ring-brand/20'
@@ -96,7 +98,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
               <div className="relative flex-shrink-0 w-7 h-7 overflow-hidden rounded-md flex items-center justify-center">
                 <AgentIcon agent={agent} size={28} />
                 <div
+                  role="img"
                   className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-surface-secondary ${statusDotColor(agent.status)}`}
+                  aria-label={
+                    agent.status === 'online' ? 'Online' : agent.status === 'offline' ? 'Offline' : agent.status
+                  }
                 />
               </div>
               {!collapsed && (
@@ -126,6 +132,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
                 else handleNavClick(path);
               }}
               title={collapsed ? label : undefined}
+              aria-label={label}
               className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-xs font-bold uppercase tracking-wide ${
                 isActive
                   ? 'bg-surface-primary text-brand shadow-sm ring-1 ring-brand/20'
@@ -149,6 +156,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
         <button
           onClick={onToggleCollapse}
           title={collapsed ? t('expand_sidebar') : t('collapse_sidebar')}
+          aria-label={collapsed ? t('expand_sidebar') : t('collapse_sidebar')}
           className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-content-tertiary hover:text-content-secondary hover:bg-glass-strong w-full`}
         >
           {collapsed ? (

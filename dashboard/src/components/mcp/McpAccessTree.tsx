@@ -126,6 +126,8 @@ export function McpAccessTree({ entries, tools, agentId, serverId, onChange }: P
       <div>
         <button
           onClick={() => setExpanded(!expanded)}
+          aria-label={expanded ? t('access.collapse_tools') : t('access.expand_tools')}
+          aria-expanded={expanded}
           className="flex items-center gap-1 py-1 px-1 w-full hover:bg-glass rounded transition-colors"
         >
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}

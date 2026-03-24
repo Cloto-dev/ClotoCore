@@ -15,6 +15,7 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
     >
       <button
         onClick={onClose}
+        aria-label="Close lightbox"
         className="absolute top-4 right-4 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors z-[9991]"
       >
         <X size={20} />
@@ -178,6 +179,7 @@ export function ContentBlockView({ block }: { block: ContentBlock }) {
         <a
           href={block.attachment_id ? api.getAttachmentUrl(block.attachment_id) : block.url}
           download={block.filename}
+          aria-label={`Download ${block.filename || 'file'}`}
           className="inline-flex items-center gap-1 underline text-[10px] mt-1"
         >
           <Download size={10} />

@@ -4,6 +4,9 @@ export function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggl
       <span className="text-sm text-content-secondary group-hover:text-content-primary transition-colors">{label}</span>
       <button
         onClick={onToggle}
+        role="switch"
+        aria-checked={enabled}
+        aria-label={label}
         className={`w-10 h-5 rounded-full transition-colors relative ${enabled ? 'bg-brand' : 'bg-surface-secondary border border-edge'}`}
       >
         <div
