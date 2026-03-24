@@ -478,7 +478,7 @@ impl AppConfig {
             llm_provider_env_mappings,
             allow_unsigned: env::var("CLOTO_ALLOW_UNSIGNED")
                 .map(|v| v == "true" || v == "1")
-                .unwrap_or(true), // Default: true (development mode)
+                .unwrap_or(false), // Default: false (secure). Set CLOTO_ALLOW_UNSIGNED=true for dev.
             isolation_enabled: env::var("CLOTO_ISOLATION_ENABLED")
                 .map(|v| v != "false" && v != "0")
                 .unwrap_or(true), // Default: true

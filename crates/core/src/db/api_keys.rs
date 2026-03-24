@@ -7,21 +7,14 @@ use super::db_timeout;
 // ============================================================
 
 /// Compute a deterministic fingerprint of a key for revocation storage.
-/// Uses DefaultHasher with a fixed salt (not crypto-grade, but sufficient
-/// for revocation purposes on a local LAN-only dashboard).
+/// Uses SHA-256 with a fixed salt for stable, collision-resistant hashing.
 #[must_use]
 pub fn hash_api_key(key: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::fmt::Write as _;
-    use std::hash::{Hash, Hasher};
-    let mut h = DefaultHasher::new();
-    key.hash(&mut h);
-    key.len().hash(&mut h);
-    b"cloto-revoke-salt-2026".hash(&mut h);
-    let val = h.finish();
-    let mut out = String::new();
-    write!(out, "{:016x}{:016x}", val, val ^ 0xdead_beef_cafe_babe).unwrap();
-    out
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"cloto-revoke-salt-2026:");
+    hasher.update(key.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 pub async fn revoke_api_key(pool: &SqlitePool, key: &str) -> anyhow::Result<()> {

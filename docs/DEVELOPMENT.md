@@ -183,6 +183,19 @@ Plugins maintain their own version numbers because they can evolve independently
 
 ---
 
+## 4. Known Limitations
+
+### 4.1 Tauri CSP: `unsafe-eval` Requirement
+
+The Content Security Policy in `dashboard/src-tauri/tauri.conf.json` includes `script-src 'self' 'unsafe-inline' 'unsafe-eval'`. The `unsafe-eval` directive is required by the VRM avatar rendering pipeline:
+
+- **Three.js** and **@pixiv/three-vrm** use dynamic code evaluation internally for shader compilation and GLTF/VRM model parsing.
+- Removing `unsafe-eval` causes runtime errors in the VRM viewer (`VrmViewerPage.tsx`).
+
+**Removal condition**: When `@pixiv/three-vrm` and Three.js eliminate their dependency on `eval()` / `new Function()`, `unsafe-eval` should be removed from the CSP. Track upstream: https://github.com/pixiv/three-vrm/issues
+
+---
+
 *Document History:*
 - 2026-02-08: Initial guardrails created (Event Security, Cascading Protection, Lock Aggregation, Storage Consistency)
 - 2026-02-10: Added UI/UX Clarity, Physical Safety, MCP Resource Control, Privacy & Biometrics
