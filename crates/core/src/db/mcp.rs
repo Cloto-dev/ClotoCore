@@ -35,6 +35,7 @@ pub enum DefaultPolicy {
 }
 
 impl DefaultPolicy {
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::OptIn => "opt-in",
@@ -42,6 +43,7 @@ impl DefaultPolicy {
         }
     }
 
+    #[must_use]
     pub fn from_str_lossy(s: &str) -> Self {
         match s {
             "opt-out" => Self::OptOut,
@@ -49,6 +51,7 @@ impl DefaultPolicy {
         }
     }
 
+    #[must_use]
     pub fn default_permission(&self) -> PermissionLevel {
         match self {
             Self::OptOut => PermissionLevel::Allow,
@@ -67,6 +70,7 @@ pub enum MessageSource {
 }
 
 impl MessageSource {
+    #[must_use]
     pub fn from_str_validated(s: &str) -> Option<Self> {
         match s {
             "user" => Some(Self::User),

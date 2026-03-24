@@ -596,8 +596,7 @@ impl SystemHandler {
                             chain_depth: 0,
                             status: "success".to_string(),
                         };
-                        if let Err(e) =
-                            self.sender.send(crate::EnvelopedEvent::system(data)).await
+                        if let Err(e) = self.sender.send(crate::EnvelopedEvent::system(data)).await
                         {
                             error!("Failed to emit CRON dialogue completion: {}", e);
                         }
