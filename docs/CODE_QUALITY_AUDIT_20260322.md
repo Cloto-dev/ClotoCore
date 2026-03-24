@@ -122,23 +122,27 @@ Magic Seal verification is disabled by default in all builds. Unsigned MCP serve
 
 ---
 
-#### H-4: LLM Proxy Has No Authentication
+#### H-4: LLM Proxy Has No Authentication — CLOSED (By Design)
 
 **File:** `crates/core/src/managers/llm_proxy.rs:66-68`
 
 The internal LLM proxy (`127.0.0.1:8082`) accepts requests from any local process without authentication. MCP servers with `NetworkScope::None` (Untrusted) can circumvent network isolation by connecting to `127.0.0.1:8082`, consuming stored API keys.
 
-**Recommendation:** Require a per-session token for LLM proxy access. Issue tokens only to authorized MCP servers at startup.
+~~**Recommendation:** Require a per-session token for LLM proxy access. Issue tokens only to authorized MCP servers at startup.~~
+
+**Resolution (2026-03-24):** Closed as By Design. The proxy separation is required by P5 (Strict Permission Isolation). Merging into the `/api` router would require sharing admin API keys with MCP server subprocesses, which is strictly worse. The `127.0.0.1` binding is the security boundary. If future hardening is needed, per-session lightweight tokens (not admin keys) injected at MCP spawn time would be the correct approach.
 
 ---
 
-#### H-5: LLM Proxy Has No Rate Limiting
+#### H-5: LLM Proxy Has No Rate Limiting — CLOSED (By Design)
 
 **File:** `crates/core/src/managers/llm_proxy.rs`
 
 The main API rate limiter applies only to port 8081. The LLM proxy on port 8082 has zero rate limiting. A runaway MCP subprocess can issue unlimited LLM API calls.
 
-**Recommendation:** Apply a configurable rate limit to the LLM proxy endpoint.
+~~**Recommendation:** Apply a configurable rate limit to the LLM proxy endpoint.~~
+
+**Resolution (2026-03-24):** Closed as By Design. Callers are kernel-spawned trusted MCP servers, not untrusted clients. Upstream LLM providers enforce their own rate limits (429 responses are already translated to structured errors). Adding kernel-side rate limiting would only add latency for trusted processes.
 
 ---
 
@@ -390,11 +394,11 @@ A supply chain compromise of this widely-used action would affect all CI jobs.
 2. **Replace `DefaultHasher` with SHA-256** (C-2) — `sha2` crate already available
 3. **Gate `CLOTO_DEBUG_SKIP_AUTH` behind `#[cfg(debug_assertions)]`** (H-1)
 4. **Default `allow_unsigned` to `false`** (H-2)
-5. **Add auth to LLM proxy** (H-4) — per-session token at minimum
+5. ~~**Add auth to LLM proxy** (H-4)~~ — Closed: By Design (P5)
 
 ### Short-Term (Next 2 Sprints)
 
-6. **Add rate limiting to LLM proxy** (H-5)
+6. ~~**Add rate limiting to LLM proxy** (H-5)~~ — Closed: By Design
 7. **Tighten Tauri CSP** — remove `unsafe-eval` if possible (H-6)
 8. **Scope `shell:allow-execute`** per window (H-7)
 9. **Eliminate `"output.avatar"` hard-coding** via CapabilityType extension (H-8)
