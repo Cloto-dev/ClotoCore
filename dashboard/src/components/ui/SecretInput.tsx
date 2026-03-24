@@ -28,6 +28,7 @@ export function SecretInput({ value, onChange, placeholder, className, onKeyDown
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
+        aria-label={visible ? 'Hide value' : 'Show value'}
         className="absolute right-1.5 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-secondary"
       >
         {visible ? <EyeOff size={12} /> : <Eye size={12} />}

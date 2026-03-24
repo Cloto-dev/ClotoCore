@@ -397,6 +397,7 @@ export function SetupWizard({ onComplete }: Props) {
               <p className="text-sm text-content-secondary max-w-sm">{t('welcome_desc')}</p>
               <button
                 onClick={next}
+                aria-label={t('get_started')}
                 className="px-8 py-3 bg-brand text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity"
               >
                 {t('get_started')}
@@ -429,6 +430,7 @@ export function SetupWizard({ onComplete }: Props) {
                   <button
                     key={value}
                     onClick={() => setPreference(value)}
+                    aria-label={label}
                     className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all ${
                       preference === value
                         ? 'bg-brand text-white shadow-md'
@@ -519,6 +521,7 @@ export function SetupWizard({ onComplete }: Props) {
                   <button
                     type="button"
                     onClick={handlePythonRetry}
+                    aria-label={t('python_retry', { defaultValue: 'Retry' })}
                     className="w-full px-4 py-2.5 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
                   >
                     {t('python_retry', { defaultValue: 'Retry' })}
@@ -616,6 +619,7 @@ export function SetupWizard({ onComplete }: Props) {
             {step > 0 && step < TOTAL_STEPS && step !== 5 && (
               <button
                 onClick={back}
+                aria-label={t('back')}
                 className="text-xs font-bold text-content-tertiary hover:text-content-primary transition-colors"
               >
                 {t('back')}
@@ -641,6 +645,7 @@ export function SetupWizard({ onComplete }: Props) {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handlePresetSkip}
+                  aria-label={t('preset_skip')}
                   className="text-[11px] text-content-tertiary hover:text-content-primary transition-colors"
                 >
                   {t('preset_skip')}
@@ -648,6 +653,7 @@ export function SetupWizard({ onComplete }: Props) {
                 <button
                   onClick={handlePresetNext}
                   disabled={applying}
+                  aria-label={t('next')}
                   className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
                   {applying ? '...' : t('next')}
@@ -658,6 +664,7 @@ export function SetupWizard({ onComplete }: Props) {
             ) : step < TOTAL_STEPS - 1 ? (
               <button
                 onClick={next}
+                aria-label={t('next')}
                 className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
               >
                 {t('next')}
@@ -665,6 +672,7 @@ export function SetupWizard({ onComplete }: Props) {
             ) : (
               <button
                 onClick={handleFinish}
+                aria-label={t('finish')}
                 className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity whitespace-nowrap"
               >
                 {t('finish')}
@@ -722,6 +730,7 @@ function PresetStep({
           <button
             key={id}
             onClick={() => onSelectPreset(id)}
+            aria-label={t(`preset_${id}`)}
             className={`flex flex-col items-center gap-1.5 p-3 rounded-xl text-center transition-all ${
               selectedPreset === id
                 ? 'bg-brand text-white shadow-md'

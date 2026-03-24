@@ -270,6 +270,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
         <div className="flex items-center gap-4">
           <button
             onClick={onBack}
+            aria-label={tc('back')}
             className="p-2.5 rounded-full bg-glass-subtle backdrop-blur-sm border border-edge hover:border-brand hover:text-brand transition-all"
           >
             <ArrowLeft size={18} />
@@ -357,6 +358,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
         <div className="flex gap-2">
           <button
             onClick={onBack}
+            aria-label={tc('cancel')}
             className="px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:bg-surface-secondary transition-all"
           >
             {tc('cancel')}
@@ -364,6 +366,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
           <button
             onClick={handleSave}
             disabled={isSaving || isLoading}
+            aria-label={tc('save')}
             className="flex items-center gap-1.5 px-6 py-2 rounded-lg bg-brand text-white text-xs font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-50"
           >
             {isSaving ? <Activity size={14} className="animate-spin" /> : <Save size={14} />}

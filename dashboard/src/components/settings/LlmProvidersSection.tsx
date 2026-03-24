@@ -53,7 +53,11 @@ export function LlmProvidersSection() {
           >
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${p.has_key ? 'bg-green-500' : 'bg-amber-500'}`} />
+                <span
+                  role="img"
+                  className={`w-2 h-2 rounded-full ${p.has_key ? 'bg-green-500' : 'bg-amber-500'}`}
+                  aria-label={p.has_key ? 'API key configured' : 'API key not configured'}
+                />
                 <span className="text-xs font-bold text-content-primary">{p.display_name}</span>
                 <span className="text-[11px] font-mono text-content-tertiary">{p.model_id}</span>
               </div>
@@ -68,6 +72,7 @@ export function LlmProvidersSection() {
                 <button
                   onClick={() => handleSave(p.id)}
                   disabled={!keyInputs[p.id]?.trim() || saving === p.id}
+                  aria-label={`${tc('save')} ${p.display_name}`}
                   className="px-3 py-1 bg-brand text-white text-xs font-bold rounded disabled:opacity-40"
                 >
                   {saving === p.id ? '...' : tc('save')}
@@ -75,6 +80,7 @@ export function LlmProvidersSection() {
                 {p.has_key && (
                   <button
                     onClick={() => handleDelete(p.id)}
+                    aria-label={`${t('llm_providers.clear')} ${p.display_name}`}
                     className="px-2 py-1 text-red-400 text-xs hover:bg-red-500/10 rounded"
                   >
                     {t('llm_providers.clear')}

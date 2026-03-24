@@ -251,6 +251,7 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
             <button
               onClick={onClose}
               disabled={installing}
+              aria-label={t('marketplace.cancel')}
               className="px-3 py-1.5 text-[11px] font-mono rounded bg-glass hover:bg-glass-strong text-content-tertiary transition-colors border border-edge disabled:opacity-40"
             >
               {t('marketplace.cancel')}
@@ -258,6 +259,7 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
             <button
               onClick={handleInstall}
               disabled={installing}
+              aria-label={t('marketplace.install_start')}
               className="px-3 py-1.5 text-[11px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand disabled:opacity-40 transition-colors border border-brand/20"
             >
               {installing ? t('marketplace.installing') : t('marketplace.install_start')}
@@ -269,6 +271,7 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
           <div className="flex justify-end pt-1">
             <button
               onClick={onClose}
+              aria-label="OK"
               className="px-3 py-1.5 text-[11px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand transition-colors border border-brand/20"
             >
               OK

@@ -134,6 +134,7 @@ export const CronJobs = memo(function CronJobs() {
           </div>
           <button
             onClick={() => setShowForm(!showForm)}
+            aria-label={t('new_job')}
             className="flex items-center gap-1.5 px-3 py-1 rounded bg-brand/10 text-brand hover:bg-brand/20 text-[10px] font-mono uppercase tracking-wider transition-colors"
           >
             <Plus size={12} /> {t('new_job')}
@@ -263,12 +264,14 @@ export const CronJobs = memo(function CronJobs() {
               <button
                 onClick={handleCreate}
                 disabled={!form.agent_id || !form.name || !form.message}
+                aria-label={t('create_job')}
                 className="px-4 py-2 bg-brand text-white rounded text-xs font-mono uppercase tracking-wider hover:bg-brand/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {t('create_job')}
               </button>
               <button
                 onClick={() => setShowForm(false)}
+                aria-label={tc('cancel')}
                 className="px-4 py-2 bg-surface-secondary border border-edge text-content-secondary rounded text-xs font-mono uppercase tracking-wider hover:bg-surface-secondary/80 transition-colors"
               >
                 {tc('cancel')}
@@ -290,7 +293,11 @@ export const CronJobs = memo(function CronJobs() {
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={`w-2 h-2 rounded-full ${job.enabled ? 'bg-green-500' : 'bg-gray-500'}`} />
+                      <span
+                        role="img"
+                        className={`w-2 h-2 rounded-full ${job.enabled ? 'bg-green-500' : 'bg-gray-500'}`}
+                        aria-label={job.enabled ? 'Enabled' : 'Disabled'}
+                      />
                       <span className="text-sm font-medium text-content-primary truncate">{job.name}</span>
                       <span className="text-[10px] font-mono text-content-tertiary px-1.5 py-0.5 bg-surface-secondary rounded">
                         {job.schedule_type}
@@ -362,6 +369,7 @@ export const CronJobs = memo(function CronJobs() {
                     <button
                       onClick={() => handleRunNow(job.id)}
                       title={t('run_now')}
+                      aria-label={t('run_now')}
                       className="p-1.5 rounded hover:bg-brand/10 text-content-tertiary hover:text-brand transition-colors"
                     >
                       <Play size={14} />
@@ -369,6 +377,7 @@ export const CronJobs = memo(function CronJobs() {
                     <button
                       onClick={() => handleToggle(job)}
                       title={job.enabled ? t('disable') : t('enable')}
+                      aria-label={job.enabled ? t('disable') : t('enable')}
                       className="p-1.5 rounded hover:bg-brand/10 text-content-tertiary hover:text-brand transition-colors"
                     >
                       <Power size={14} className={job.enabled ? 'text-green-500' : 'text-gray-500'} />
@@ -376,6 +385,7 @@ export const CronJobs = memo(function CronJobs() {
                     <button
                       onClick={() => handleDelete(job.id)}
                       title={tc('delete')}
+                      aria-label={tc('delete')}
                       className="p-1.5 rounded hover:bg-red-500/10 text-content-tertiary hover:text-red-400 transition-colors"
                     >
                       <Trash2 size={14} />
@@ -402,7 +412,11 @@ export const CronJobs = memo(function CronJobs() {
         >
           {notification.type === 'error' && <AlertTriangle size={14} />}
           <span>{notification.message}</span>
-          <button onClick={() => setNotification(null)} className="ml-2 opacity-60 hover:opacity-100">
+          <button
+            onClick={() => setNotification(null)}
+            aria-label="Dismiss notification"
+            className="ml-2 opacity-60 hover:opacity-100"
+          >
             &times;
           </button>
         </div>

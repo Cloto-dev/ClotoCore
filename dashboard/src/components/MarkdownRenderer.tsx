@@ -26,6 +26,7 @@ const COPY_FEEDBACK_MS = 2000;
 const SANITIZE_CONFIG = {
   ADD_TAGS: ['button', 'svg', 'rect', 'path', 'polyline', 'line'],
   ADD_ATTR: [
+    'aria-label',
     'data-raw',
     'data-ext',
     'data-lang',

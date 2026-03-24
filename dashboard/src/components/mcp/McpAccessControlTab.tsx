@@ -117,12 +117,14 @@ export function McpAccessControlTab({ server }: Props) {
           <button
             onClick={handleSave}
             disabled={saving}
+            aria-label={t('access.save_changes')}
             className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand disabled:opacity-40 transition-colors border border-brand/20"
           >
             <Save size={10} /> {saving ? t('access.saving') : t('access.save_changes')}
           </button>
           <button
             onClick={loadData}
+            aria-label={t('access.discard')}
             className="px-3 py-1.5 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-tertiary transition-colors border border-edge"
           >
             {t('access.discard')}

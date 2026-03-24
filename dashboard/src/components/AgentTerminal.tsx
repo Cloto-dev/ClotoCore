@@ -244,7 +244,12 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm">
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('delete.title')}
+        >
           <div className="bg-surface-primary border border-edge rounded-2xl shadow-xl p-6 w-80 space-y-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-red-500/10 text-red-500">
@@ -278,6 +283,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                   setDeletePassword('');
                 }}
                 disabled={isDeleting}
+                aria-label={tc('cancel')}
                 className="flex-1 py-2 rounded-xl border border-edge text-xs font-bold text-content-secondary hover:bg-surface-secondary transition-all disabled:opacity-50"
               >
                 {tc('cancel')}
@@ -285,6 +291,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
               <button
                 onClick={handleDeleteConfirm}
                 disabled={isDeleting || (deleteTarget.metadata?.has_password === 'true' && !deletePassword)}
+                aria-label={tc('delete')}
                 className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
               >
                 {isDeleting ? <Activity size={12} className="animate-spin" /> : <Trash2 size={12} />}
@@ -315,6 +322,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
             />
             <button
               onClick={() => importRef.current?.click()}
+              aria-label={t('import_config')}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
             >
               <Upload size={14} /> {t('import_config')}
@@ -331,6 +339,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
               ))}
               <button
                 onClick={() => setImportWarnings([])}
+                aria-label={tc('close')}
                 className="text-[10px] text-content-tertiary hover:text-brand mt-1"
               >
                 &times; {tc('close')}
@@ -363,7 +372,9 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                     {/* Row 1: Status + Name + Power */}
                     <div className="flex items-center gap-3 mb-2">
                       <div
+                        role="img"
                         className={`w-3 h-3 rounded-full flex-shrink-0 ${agent.enabled ? 'bg-emerald-500' : 'bg-content-muted'}`}
+                        aria-label={agent.enabled ? t('status_enabled') : t('status_disabled')}
                       />
                       <h3 className="font-bold text-content-primary text-base flex-1 truncate">{agent.name}</h3>
                       <AgentPowerButton agent={agent} onPowerToggle={handlePowerToggle} />
@@ -385,6 +396,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                       <div className="flex items-center gap-2">
                         <button
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-brand hover:bg-brand/10 transition-all"
+                          aria-label={t('chat')}
                           onClick={(e) => {
                             e.stopPropagation();
                             onSelectAgent(agent);
@@ -395,6 +407,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                         {agent.id !== DEFAULT_AGENT_ID && (
                           <button
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+                            aria-label={t('export_config')}
                             onClick={(e) => {
                               e.stopPropagation();
                               handleExport(agent);
@@ -405,6 +418,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                         )}
                         <button
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+                          aria-label={t('config')}
                           onClick={(e) => {
                             e.stopPropagation();
                             onSelectAgent(agent);
@@ -416,6 +430,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                         {agent.id !== DEFAULT_AGENT_ID && (
                           <button
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-red-500 hover:bg-red-500/10 transition-all"
+                            aria-label={tc('delete')}
                             onClick={(e) => {
                               e.stopPropagation();
                               setDeleteTarget(agent);
@@ -564,6 +579,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                         <button
                           type="button"
                           onClick={() => removeRoutingRule(i)}
+                          aria-label={t('routing.remove_rule')}
                           className="p-0.5 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all shrink-0"
                         >
                           <X size={12} />
@@ -620,6 +636,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                   <button
                     type="button"
                     onClick={addRoutingRule}
+                    aria-label={t('routing.add_rule')}
                     className="w-full py-1 rounded border border-dashed border-edge text-[10px] font-bold text-content-tertiary hover:text-brand hover:border-brand transition-all flex items-center justify-center gap-1"
                   >
                     <Plus size={10} /> {t('routing.add_rule')}
@@ -633,6 +650,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
             <button
               onClick={handleCreate}
               disabled={!newAgent.name || !newAgent.desc || !newAgent.engine || isCreating}
+              aria-label={t('create_agent')}
               className="w-full text-white py-2 rounded-lg text-xs font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 bg-brand"
             >
               {isCreating ? <Activity size={14} className="animate-spin" /> : <Plus size={14} />}

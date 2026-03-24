@@ -73,6 +73,7 @@ export function EnvVariableEditor({
             <button
               type="button"
               onClick={() => toggleVisibility(entry.key)}
+              aria-label={visibleKeys.has(entry.key) ? 'Hide value' : 'Show value'}
               className="absolute right-1.5 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-secondary"
             >
               {visibleKeys.has(entry.key) ? <EyeOff size={12} /> : <Eye size={12} />}
@@ -82,6 +83,7 @@ export function EnvVariableEditor({
             onClick={() => removeEntry(entry.key)}
             className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
             title={removeLabel}
+            aria-label={removeLabel}
           >
             <X size={12} />
           </button>
@@ -111,6 +113,7 @@ export function EnvVariableEditor({
           disabled={!newKey.trim()}
           className="p-1 rounded text-brand hover:bg-brand/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
           title={addLabel}
+          aria-label={addLabel}
         >
           <Plus size={14} />
         </button>

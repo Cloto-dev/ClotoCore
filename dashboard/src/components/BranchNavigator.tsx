@@ -18,6 +18,7 @@ export function BranchNavigator({ count, activeIndex, indices, onNavigate }: Bra
           if (currentPos > 0) onNavigate(indices[currentPos - 1]);
         }}
         disabled={currentPos <= 0}
+        aria-label="Previous branch"
         className="p-0.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-30 disabled:cursor-default"
       >
         <ChevronLeft size={12} />
@@ -30,6 +31,7 @@ export function BranchNavigator({ count, activeIndex, indices, onNavigate }: Bra
           if (currentPos < indices.length - 1) onNavigate(indices[currentPos + 1]);
         }}
         disabled={currentPos >= indices.length - 1}
+        aria-label="Next branch"
         className="p-0.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-30 disabled:cursor-default"
       >
         <ChevronRight size={12} />
