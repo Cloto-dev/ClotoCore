@@ -939,7 +939,8 @@ that don't map to ClotoCore's agent_id model. Manual migration may be performed 
 - [x] MemoryCore dashboard Export/Import UI (client-side JSONL + POST /api/memories/import Rust endpoint)
 - [x] Claude Code integration documentation (`docs/CLAUDE_CODE_INTEGRATION.md`)
 - [ ] Dashboard Export/Import UI verification (`npx tauri dev`)
-- [ ] Claude Code `recall` tool verification (next session)
+- [ ] Claude Code `recall` tool verification
+- [ ] Embedding server port conflict resolution (multiple Claude Code sessions share port 8401 — second instance fails to bind, blocking cpersona startup)
 
 ### CPersona 2.4+ Roadmap
 
