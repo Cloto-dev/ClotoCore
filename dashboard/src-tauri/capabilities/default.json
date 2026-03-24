@@ -17,7 +17,16 @@
     "core:webview:allow-webview-close",
     "core:window:allow-destroy",
     "shell:allow-open",
-    "shell:allow-execute",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "cloto_system",
+          "cmd": "cloto_system",
+          "args": true
+        }
+      ]
+    },
     "notification:default",
     "updater:default",
     "dialog:default",

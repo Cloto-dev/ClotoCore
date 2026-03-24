@@ -113,18 +113,27 @@ pub(crate) fn check_auth_with_query(
             }
         }
     } else {
-        let skip_auth = std::env::var("CLOTO_DEBUG_SKIP_AUTH")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
-        if !skip_auth {
+        #[cfg(debug_assertions)]
+        {
+            let skip_auth = std::env::var("CLOTO_DEBUG_SKIP_AUTH")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+            if !skip_auth {
+                return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                    cloto_shared::Permission::AdminAccess,
+                )));
+            }
+            tracing::warn!(
+                "⚠️  SECURITY: Admin API access without authentication (CLOTO_DEBUG_SKIP_AUTH=true)"
+            );
+            tracing::warn!("⚠️  Set CLOTO_API_KEY in .env before deploying to production");
+        }
+        #[cfg(not(debug_assertions))]
+        {
             return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
                 cloto_shared::Permission::AdminAccess,
             )));
         }
-        tracing::warn!(
-            "⚠️  SECURITY: Admin API access without authentication (CLOTO_DEBUG_SKIP_AUTH=true)"
-        );
-        tracing::warn!("⚠️  Set CLOTO_API_KEY in .env before deploying to production");
     }
     Ok(())
 }

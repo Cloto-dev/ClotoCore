@@ -352,12 +352,26 @@ if __name__ == "__main__":
                 code = code,
             );
 
-            // Write script to scripts/ directory
+            // Validate code safety before writing to disk
+            if let Err(violations) = crate::managers::mcp_tool_validator::validate_mcp_code(
+                code,
+                crate::managers::mcp_mgp::CodeSafetyLevel::Standard,
+            ) {
+                return Err(AppError::Validation(format!(
+                    "Code validation failed: {}",
+                    violations.join("; ")
+                )));
+            }
+
+            // Write script to data/mcp_scripts/ directory
             let script_filename = format!("mcp_{}.py", name);
-            let scripts_dir = std::path::Path::new("scripts");
+            let scripts_dir = std::path::Path::new("data/mcp_scripts");
             if !scripts_dir.exists() {
                 std::fs::create_dir_all(scripts_dir).map_err(|e| {
-                    AppError::Internal(anyhow::anyhow!("Failed to create scripts directory: {}", e))
+                    AppError::Internal(anyhow::anyhow!(
+                        "Failed to create data/mcp_scripts directory: {}",
+                        e
+                    ))
                 })?;
             }
             std::fs::write(scripts_dir.join(&script_filename), &script).map_err(|e| {
@@ -367,7 +381,7 @@ if __name__ == "__main__":
             let python = if cfg!(windows) { "python" } else { "python3" };
             (
                 python.to_string(),
-                vec![format!("scripts/{}", script_filename)],
+                vec![format!("data/mcp_scripts/{}", script_filename)],
                 Some(script),
             )
         } else {

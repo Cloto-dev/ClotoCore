@@ -209,7 +209,7 @@ const READONLY_BLOCKED_PATTERNS: &[&str] = &[
 /// - `Standard`: size limit + blocked imports + blocked patterns (original behavior)
 /// - `Strict`: Standard + import allowlist check
 /// - `Readonly`: Strict + write-operation blocking
-pub(super) fn validate_mcp_code(
+pub(crate) fn validate_mcp_code(
     code: &str,
     level: CodeSafetyLevel,
 ) -> std::result::Result<(), Vec<String>> {
