@@ -1,6 +1,6 @@
 # CPersona Memory System — MCP Server Design
 
-> **Status:** Implemented (Phase 1-5 complete, v2.4 in progress)
+> **Status:** Implemented (Phase 1-5 complete, v2.3.1 in progress)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
 > **MCP Server ID:** `memory.cpersona`
 > **Companion Server:** `tool.embedding` (pluggable vector embedding)
@@ -15,9 +15,11 @@
 |---------|---------|---------|--------|-------------------|--------|
 | CPersona 2.0/2.1 | ai_karin | SQLite (WAL, FTS5, vector) | FTS5 + cosine similarity + semantic cache | LLM-powered (DeepSeek Reasoner): profile extraction, episode archival | Reference implementation |
 | CPersona 2.2 | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Deprecated (Rust plugin) |
-| CPersona 2.3 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) + background task queue (Phase 5) | Superseded |
-| CPersona 2.4 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | 2.3 + JSONL export/import, pre-computed summary/keywords in archive_episode, Claude Code integration | **Current** |
-| CPersona 3.0 | Standalone | Dedicated SQLite | Same as 2.4 | MIT license, PyPI packaging (`uvx cpersona`), setup automation, kernel-independent validation | **Planned** |
+| CPersona 2.3 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) + background task queue (Phase 5) | **Current** |
+| CPersona 2.3.1 | ClotoCore | Same as 2.3 | Same as 2.3 | 2.3 + JSONL export/import, pre-computed summary/keywords in archive_episode, Claude Code integration | **In Progress** |
+| CPersona 2.4 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | LLM-powered + anti-contamination + gated recency boost | Planned |
+| CPersona 2.5 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency + RRF reranking | LLM-powered + anti-contamination + profile enrichment | Planned |
+| CPersona 3.0 | Standalone | SQLite + graph tables (nodes/edges) | Cascade + graph traversal (BFS) + bi-temporal | MIT license, PyPI packaging, memory evolution (full) | Planned |
 
 ### 1.2 Capabilities Lost in 2.2 (restored in 2.3)
 
@@ -928,6 +930,16 @@ that don't map to ClotoCore's agent_id model. Manual migration may be performed 
 - [x] Startup recovery: pending tasks from previous crash automatically reprocessed
 - [x] New tool: `get_queue_status` for monitoring
 - [x] Disable via `CPERSONA_TASK_QUEUE_ENABLED=false` (falls back to synchronous execution)
+
+### CPersona 2.3.1: Memory Portability & Claude Code Integration — **In Progress**
+
+- [x] `export_memories` tool: JSONL output (header/memory/episode/profile records, optional base64 embeddings)
+- [x] `import_memories` tool: JSONL input with msg_id deduplication (idempotent), agent_id remapping, dry_run preview, profile UPSERT
+- [x] `archive_episode` pre-computed summary/keywords: skip LLM proxy when caller provides summary (enables sub-agent summarization via Sonnet/Haiku)
+- [x] MemoryCore dashboard Export/Import UI (client-side JSONL + POST /api/memories/import Rust endpoint)
+- [x] Claude Code integration documentation (`docs/CLAUDE_CODE_INTEGRATION.md`)
+- [ ] Dashboard Export/Import UI verification (`npx tauri dev`)
+- [ ] Claude Code `recall` tool verification (next session)
 
 ### CPersona 2.4+ Roadmap
 
