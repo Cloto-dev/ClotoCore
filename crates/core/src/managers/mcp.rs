@@ -1309,14 +1309,12 @@ impl McpClientManager {
                 {
                     continue;
                 }
-                match crate::db::resolve_tool_access(&self.pool, agent_id, server_id, &tool.name)
-                    .await
+                if let Ok(crate::db::mcp::PermissionLevel::Allow) =
+                    crate::db::resolve_tool_access(&self.pool, agent_id, server_id, &tool.name)
+                        .await
                 {
-                    Ok(crate::db::mcp::PermissionLevel::Allow) => {
-                        let security = Self::compute_tool_security(handle, &tool.name);
-                        schemas.push(mcp_tool_schema(tool, security.as_ref()));
-                    }
-                    _ => {} // deny or error → skip
+                    let security = Self::compute_tool_security(handle, &tool.name);
+                    schemas.push(mcp_tool_schema(tool, security.as_ref()));
                 }
             }
         }

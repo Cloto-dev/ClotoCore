@@ -293,6 +293,67 @@ pub async fn revoke_permission_handler(
 // MCP Dynamic Server Management
 // ============================================================
 
+/// Generate, validate, and write a dynamic MCP server Python script.
+fn generate_mcp_script(
+    name: &str,
+    code: &str,
+    description: &str,
+) -> AppResult<(String, Vec<String>, String)> {
+    // Validate code safety before writing to disk
+    if let Err(violations) = crate::managers::mcp_tool_validator::validate_mcp_code(
+        code,
+        crate::managers::mcp_mgp::CodeSafetyLevel::Standard,
+    ) {
+        return Err(AppError::Validation(format!(
+            "Code validation failed: {}",
+            violations.join("; ")
+        )));
+    }
+
+    let script = format!(
+        r#""""MCP Server: {name} — {description}"""
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+
+app = Server("{name}")
+
+{code}
+
+async def main():
+    async with stdio_server() as (read, write):
+        await app.run(read, write)
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+"#,
+        name = name,
+        description = description.replace('"', r#"\""#),
+        code = code,
+    );
+
+    let script_filename = format!("mcp_{}.py", name);
+    let scripts_dir = std::path::Path::new("data/mcp_scripts");
+    if !scripts_dir.exists() {
+        std::fs::create_dir_all(scripts_dir).map_err(|e| {
+            AppError::Internal(anyhow::anyhow!(
+                "Failed to create data/mcp_scripts directory: {}",
+                e
+            ))
+        })?;
+    }
+    std::fs::write(scripts_dir.join(&script_filename), &script).map_err(|e| {
+        AppError::Internal(anyhow::anyhow!("Failed to write MCP server script: {}", e))
+    })?;
+
+    let python = if cfg!(windows) { "python" } else { "python3" };
+    Ok((
+        python.to_string(),
+        vec![format!("data/mcp_scripts/{}", script_filename)],
+        script,
+    ))
+}
+
 pub async fn create_mcp_server(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -328,62 +389,8 @@ pub async fn create_mcp_server(
                 .get("description")
                 .and_then(|v| v.as_str())
                 .unwrap_or("A dynamically generated MCP server.");
-
-            // Auto-generate MCP server Python script
-            let script = format!(
-                r#""""MCP Server: {name} — {description}"""
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-
-app = Server("{name}")
-
-{code}
-
-async def main():
-    async with stdio_server() as (read, write):
-        await app.run(read, write)
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
-"#,
-                name = name,
-                description = description.replace('"', r#"\""#),
-                code = code,
-            );
-
-            // Validate code safety before writing to disk
-            if let Err(violations) = crate::managers::mcp_tool_validator::validate_mcp_code(
-                code,
-                crate::managers::mcp_mgp::CodeSafetyLevel::Standard,
-            ) {
-                return Err(AppError::Validation(format!(
-                    "Code validation failed: {}",
-                    violations.join("; ")
-                )));
-            }
-
-            // Write script to data/mcp_scripts/ directory
-            let script_filename = format!("mcp_{}.py", name);
-            let scripts_dir = std::path::Path::new("data/mcp_scripts");
-            if !scripts_dir.exists() {
-                std::fs::create_dir_all(scripts_dir).map_err(|e| {
-                    AppError::Internal(anyhow::anyhow!(
-                        "Failed to create data/mcp_scripts directory: {}",
-                        e
-                    ))
-                })?;
-            }
-            std::fs::write(scripts_dir.join(&script_filename), &script).map_err(|e| {
-                AppError::Internal(anyhow::anyhow!("Failed to write MCP server script: {}", e))
-            })?;
-
-            let python = if cfg!(windows) { "python" } else { "python3" };
-            (
-                python.to_string(),
-                vec![format!("data/mcp_scripts/{}", script_filename)],
-                Some(script),
-            )
+            let (command, args, script) = generate_mcp_script(name, code, description)?;
+            (command, args, Some(script))
         } else {
             // Explicit command/args
             let command = body
