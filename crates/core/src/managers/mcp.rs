@@ -96,7 +96,7 @@ impl McpClientManager {
             llm_proxy_port: 8082,
             sensitive_env_keys: Vec::new(),
             isolation_enabled: true,
-            allow_unsigned: true,
+            allow_unsigned: false,
             sandbox_base_dir: std::path::PathBuf::from("data/mcp-sandbox"),
         }
     }
