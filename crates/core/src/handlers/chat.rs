@@ -98,7 +98,7 @@ pub async fn post_message(
     }
 
     // Validate source
-    if !["user", "agent", "system"].contains(&payload.source.as_str()) {
+    if crate::db::mcp::MessageSource::from_str_validated(&payload.source).is_none() {
         return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
             "source must be 'user', 'agent', or 'system'".to_string(),
         )));

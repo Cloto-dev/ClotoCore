@@ -1303,7 +1303,7 @@ impl McpClientManager {
                 match crate::db::resolve_tool_access(&self.pool, agent_id, server_id, &tool.name)
                     .await
                 {
-                    Ok(ref perm) if perm == "allow" => {
+                    Ok(crate::db::mcp::PermissionLevel::Allow) => {
                         let security = Self::compute_tool_security(handle, &tool.name);
                         schemas.push(mcp_tool_schema(tool, security.as_ref()));
                     }
@@ -1325,7 +1325,7 @@ impl McpClientManager {
         &self,
         agent_id: &str,
         tool_name: &str,
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<crate::db::mcp::PermissionLevel> {
         let server_id = {
             let state = self.state.read().await;
             state
@@ -1619,9 +1619,9 @@ impl McpClientManager {
                         tool_name,
                     )
                     .await
-                    .unwrap_or_else(|_| "deny".to_string());
+                    .unwrap_or(crate::db::mcp::PermissionLevel::Deny);
 
-                    if permission == "deny" {
+                    if permission == crate::db::mcp::PermissionLevel::Deny {
                         warn!(
                             original_actor = %original_actor,
                             server = %server_id,

@@ -766,11 +766,11 @@ pub async fn put_mcp_server_access(
                 entry.server_id, name
             )));
         }
-        if !["server_grant", "tool_grant"].contains(&entry.entry_type.as_str()) {
-            return Err(AppError::Validation(format!(
-                "Cannot bulk-update entry_type '{}'; only server_grant and tool_grant allowed",
-                entry.entry_type
-            )));
+        if entry.entry_type == crate::db::mcp::EntryType::Capability {
+            return Err(AppError::Validation(
+                "Cannot bulk-update capability entries; only server_grant and tool_grant allowed"
+                    .into(),
+            ));
         }
     }
 

@@ -325,10 +325,10 @@ impl PluginRegistry {
 
             let access = mcp.check_tool_access(agent_id, tool_name).await;
             match access {
-                Ok(ref perm) if perm == "allow" => {
+                Ok(crate::db::mcp::PermissionLevel::Allow) => {
                     return mcp.execute_tool_internal(tool_name, args).await;
                 }
-                Ok(_) => {
+                Ok(crate::db::mcp::PermissionLevel::Deny) => {
                     return Err(anyhow::anyhow!(
                         "Access denied: agent '{}' cannot use tool '{}'",
                         agent_id,

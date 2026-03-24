@@ -171,11 +171,11 @@ pub async fn create_agent(
     for server_id in &servers_to_grant {
         let entry = crate::db::mcp::AccessControlEntry {
             id: None,
-            entry_type: "server_grant".to_string(),
+            entry_type: crate::db::mcp::EntryType::ServerGrant,
             agent_id: agent_id.clone(),
             server_id: server_id.clone(),
             tool_name: None,
-            permission: "allow".to_string(),
+            permission: crate::db::mcp::PermissionLevel::Allow,
             granted_by: Some("system".to_string()),
             granted_at: now.clone(),
             expires_at: None,
