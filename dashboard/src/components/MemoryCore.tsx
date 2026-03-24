@@ -147,6 +147,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
               <button
                 onClick={() => setSelectedAgent(null)}
+                aria-label={t('all')}
                 className={`px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider transition-colors whitespace-nowrap ${
                   selectedAgent === null
                     ? 'bg-brand text-white'
@@ -159,6 +160,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                 <button
                   key={agentId}
                   onClick={() => setSelectedAgent(agentId)}
+                  aria-label={agentDisplayName(agentId, agentMap)}
                   className={`px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider transition-colors whitespace-nowrap ${
                     selectedAgent === agentId
                       ? 'bg-brand text-white'
@@ -207,6 +209,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                         }}
                         className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
                         title={t('delete_memory')}
+                        aria-label={t('delete_memory')}
                       >
                         <Trash2 size={12} />
                       </button>
@@ -244,6 +247,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                           }}
                           className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
                           title={t('delete_episode')}
+                          aria-label={t('delete_episode')}
                         >
                           <Trash2 size={10} />
                         </button>

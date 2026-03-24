@@ -66,6 +66,7 @@ export function CommandApprovalCard({ approvalId, commands, onResolved }: Props)
           <button
             onClick={() => handle('approve')}
             disabled={status === 'acting'}
+            aria-label="Approve command"
             className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50 transition-colors"
           >
             <Check size={12} /> Yes
@@ -73,6 +74,7 @@ export function CommandApprovalCard({ approvalId, commands, onResolved }: Props)
           <button
             onClick={() => handle('trust')}
             disabled={status === 'acting'}
+            aria-label={trustLabel}
             className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider text-amber-500 hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
           >
             <Shield size={12} /> {trustLabel}
@@ -80,6 +82,7 @@ export function CommandApprovalCard({ approvalId, commands, onResolved }: Props)
           <button
             onClick={() => handle('deny')}
             disabled={status === 'acting'}
+            aria-label="Deny command"
             className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider text-content-secondary hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
           >
             <X size={12} /> No

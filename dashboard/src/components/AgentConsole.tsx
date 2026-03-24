@@ -54,6 +54,7 @@ function LongPressResetButton({ onReset }: { onReset: () => void }) {
   return (
     <button
       {...handlers}
+      aria-label={progress > 0 ? t('console.hold') : t('console.reset')}
       className="relative px-3 py-1.5 rounded-full border border-edge text-[9px] font-bold text-content-tertiary hover:text-amber-500 hover:border-amber-400/30 transition-all uppercase tracking-widest flex items-center gap-1.5 overflow-hidden"
     >
       {progress > 0 && (
@@ -706,6 +707,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
+            aria-label={t('console.back')}
             className="p-2 rounded-full bg-glass-subtle border border-edge hover:border-brand hover:text-brand transition-all"
           >
             <ArrowLeft size={16} />
@@ -732,6 +734,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
               onClick={() => openVrmWindow(agent.id, api.apiKey)}
               className="px-3 py-1.5 rounded-full border border-edge text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5 transition-all text-content-tertiary hover:text-brand hover:border-brand/30"
               title="Open 3D Avatar Window"
+              aria-label="Open 3D Avatar Window"
             >
               <Box size={10} />
               <span>VRM</span>
@@ -817,6 +820,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                                 onClick={() => speakText(msg.content as ContentBlock[])}
                                 className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
                                 title={t('console.read_aloud')}
+                                aria-label={t('console.read_aloud')}
                               >
                                 <Volume2 size={12} />
                               </button>
@@ -825,6 +829,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                                   onClick={() => handleRetry(msg)}
                                   className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
                                   title={t('console.retry')}
+                                  aria-label={t('console.retry')}
                                 >
                                   <RetryIcon size={12} />
                                 </button>
@@ -841,6 +846,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                             }}
                             className="self-start mt-1 p-1.5 rounded-full hover:bg-glass text-content-primary/40 hover:text-brand transition-all shrink-0"
                             title={t('console.edit_message')}
+                            aria-label={t('console.edit_message')}
                           >
                             <Pencil size={13} />
                           </button>

@@ -25,7 +25,12 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
     });
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm">
+    <div
+      className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${agent.enabled ? 'Power Off' : 'Power On'} ${agent.name}`}
+    >
       <div className="bg-surface-primary rounded-2xl shadow-2xl p-6 w-80 space-y-4 animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center gap-3">
           <div
@@ -61,6 +66,7 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
         <div className="flex gap-2">
           <button
             onClick={onClose}
+            aria-label="Cancel"
             className="flex-1 py-2 rounded-xl border border-edge text-xs font-bold text-content-secondary hover:bg-surface-base transition-all"
             disabled={action.isLoading}
           >
@@ -69,6 +75,7 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
           <button
             onClick={handleConfirm}
             disabled={(needsPassword && !password) || action.isLoading}
+            aria-label="Confirm"
             className={`flex-1 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-50 ${
               agent.enabled ? 'bg-red-500 hover:bg-red-600' : 'bg-emerald-500 hover:bg-emerald-600'
             }`}

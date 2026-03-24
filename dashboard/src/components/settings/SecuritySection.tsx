@@ -51,7 +51,11 @@ export function SecuritySection() {
       <SectionCard title={t('security.api_key_title')}>
         <div className="space-y-4">
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${authApi.apiKey ? 'bg-green-500' : 'bg-amber-500'}`} />
+            <div
+              role="img"
+              className={`w-2 h-2 rounded-full ${authApi.apiKey ? 'bg-green-500' : 'bg-amber-500'}`}
+              aria-label={authApi.apiKey ? t('security.configured') : t('security.not_configured')}
+            />
             <span className="text-xs text-content-secondary">
               {authApi.apiKey ? t('security.configured') : t('security.not_configured')}
             </span>
@@ -70,6 +74,7 @@ export function SecuritySection() {
             <button
               onClick={handleSave}
               disabled={!newKey.trim() || saveAction.isLoading}
+              aria-label={tc('save')}
               className="px-4 py-2 bg-brand text-white text-xs font-bold rounded-lg disabled:opacity-40 hover:bg-brand/90 transition-colors"
             >
               {saveAction.isLoading ? '...' : tc('save')}
@@ -82,6 +87,7 @@ export function SecuritySection() {
             <div className="pt-3 border-t border-edge">
               <button
                 onClick={() => setConfirmInvalidate(true)}
+                aria-label={t('security.invalidate_label')}
                 className="text-xs text-red-400 hover:text-red-300 font-bold uppercase tracking-widest transition-colors"
               >
                 {t('security.invalidate_label')}

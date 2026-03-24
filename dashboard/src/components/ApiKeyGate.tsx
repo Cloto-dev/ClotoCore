@@ -93,6 +93,7 @@ export function ApiKeyGate() {
             : 'bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20'
         }`}
         title={isSet ? 'API Key is set' : 'Set API Key'}
+        aria-label={isSet ? 'API Key is set' : 'Set API Key'}
       >
         {isSet ? <Key size={11} /> : <Lock size={11} />}
         {isSet ? '●●●●●●●●' : 'API Key'}
@@ -105,7 +106,11 @@ export function ApiKeyGate() {
             <span className="text-xs font-bold text-content-primary flex items-center gap-1.5">
               <Key size={12} className="text-brand" /> Admin API Key
             </span>
-            <button onClick={() => setOpen(false)} className="text-content-muted hover:text-content-primary">
+            <button
+              onClick={() => setOpen(false)}
+              aria-label="Close"
+              className="text-content-muted hover:text-content-primary"
+            >
               <X size={14} />
             </button>
           </div>
@@ -123,6 +128,7 @@ export function ApiKeyGate() {
             />
             <button
               onClick={() => setShow((s) => !s)}
+              aria-label={show ? 'Hide API key' : 'Show API key'}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-primary"
             >
               {show ? <EyeOff size={12} /> : <Eye size={12} />}
@@ -142,6 +148,7 @@ export function ApiKeyGate() {
             <button
               onClick={handleSave}
               disabled={!draft.trim() || validating}
+              aria-label="Validate and save API key"
               className="flex-1 py-1.5 rounded-lg bg-brand text-white text-xs font-bold disabled:opacity-40 hover:bg-brand/90 transition-colors flex items-center justify-center gap-1"
             >
               {validating ? <Loader size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
@@ -152,6 +159,7 @@ export function ApiKeyGate() {
                 onClick={handleForget}
                 className="px-3 py-1.5 rounded-lg border border-edge text-xs text-content-secondary hover:text-red-400 hover:border-red-400/40 transition-colors"
                 title="セッションからキーを削除"
+                aria-label="Remove API key from session"
               >
                 削除
               </button>
@@ -162,6 +170,7 @@ export function ApiKeyGate() {
           {isSet && !confirmInvalidate && (
             <button
               onClick={() => setConfirmInvalidate(true)}
+              aria-label="Invalidate API key system-wide"
               className="w-full py-1.5 rounded-lg border border-red-500/20 text-red-400 text-[10px] font-bold hover:bg-red-500/10 transition-colors"
             >
               このキーをシステム全体で無効化...
@@ -182,6 +191,7 @@ export function ApiKeyGate() {
               <div className="flex gap-2">
                 <button
                   onClick={() => setConfirmInvalidate(false)}
+                  aria-label="Cancel invalidation"
                   className="flex-1 py-1 rounded-lg border border-edge text-[10px] text-content-secondary hover:bg-surface-secondary transition-colors"
                 >
                   キャンセル
@@ -189,6 +199,7 @@ export function ApiKeyGate() {
                 <button
                   onClick={handleInvalidate}
                   disabled={invalidating}
+                  aria-label="Confirm invalidation"
                   className="flex-1 py-1 rounded-lg bg-red-600 text-white text-[10px] font-bold hover:bg-red-700 disabled:opacity-50 transition-colors"
                 >
                   {invalidating ? '処理中...' : '無効化する'}

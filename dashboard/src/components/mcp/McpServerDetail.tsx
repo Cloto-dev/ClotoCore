@@ -56,7 +56,11 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
         <div className="flex items-center gap-4 text-[10px] font-mono text-content-tertiary">
           <span className="flex items-center gap-1">
             {t('detail.status')}
-            <span className={isRunning ? 'text-green-500' : isError ? 'text-red-500' : 'text-content-tertiary'}>
+            <span
+              role="status"
+              className={isRunning ? 'text-green-500' : isError ? 'text-red-500' : 'text-content-tertiary'}
+              aria-label={isRunning ? t('status_running') : isError ? t('status_error') : t('status_stopped')}
+            >
               {isRunning ? `● ${t('status_running')}` : isError ? `◉ ${t('status_error')}` : `○ ${t('status_stopped')}`}
             </span>
           </span>
@@ -73,6 +77,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
             <button
               onClick={() => handleAction('start', () => onStart(server.id))}
               disabled={actionLoading !== null}
+              aria-label={t('detail.start')}
               className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded transition-colors border ${
                 actionDone === 'start'
                   ? 'bg-green-500/10 text-green-500 border-green-500/30'
@@ -93,6 +98,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
             <button
               onClick={() => handleAction('stop', () => onStop(server.id))}
               disabled={actionLoading !== null}
+              aria-label={t('detail.stop')}
               className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded transition-colors border ${
                 actionDone === 'stop'
                   ? 'bg-green-500/10 text-green-500 border-green-500/30'
@@ -112,6 +118,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
           <button
             onClick={() => handleAction('restart', () => onRestart(server.id))}
             disabled={actionLoading !== null}
+            aria-label={t('detail.restart')}
             className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded transition-colors border ${
               actionDone === 'restart'
                 ? 'bg-green-500/10 text-green-500 border-green-500/30'
@@ -133,6 +140,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
               <button
                 onClick={() => setConfirmDelete(true)}
                 disabled={actionLoading !== null}
+                aria-label={t('detail.delete')}
                 className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-red-500/10 text-content-secondary hover:text-red-500 transition-colors border border-edge"
               >
                 <Trash2 size={10} /> {t('detail.delete')}
@@ -160,6 +168,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
+            aria-label={tab.label}
             className={`px-4 py-2 text-[10px] font-mono uppercase tracking-wider transition-colors
               ${
                 activeTab === tab.id
