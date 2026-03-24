@@ -19,6 +19,8 @@ pub enum CapabilityType {
     Vision,
     /// Speech-to-text (transcribe)
     Stt,
+    /// Speech output / text-to-speech (speak)
+    Speech,
 }
 
 /// A mapping from capability to a specific server/tool pair.
@@ -138,6 +140,9 @@ fn classify_tool(server_id: &str, tool_name: &str) -> Option<CapabilityType> {
     if server_id.starts_with("stt.") {
         return Some(CapabilityType::Stt);
     }
+    if server_id.starts_with("output.") {
+        return Some(CapabilityType::Speech);
+    }
 
     // Tool name fallback for non-standard server prefixes
     match tool_name {
@@ -148,6 +153,7 @@ fn classify_tool(server_id: &str, tool_name: &str) -> Option<CapabilityType> {
         "think" | "think_with_tools" => Some(CapabilityType::Reasoning),
         "analyze_image" | "capture_screenshot" => Some(CapabilityType::Vision),
         "transcribe" => Some(CapabilityType::Stt),
+        "speak" => Some(CapabilityType::Speech),
         _ => None,
     }
 }
