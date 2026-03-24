@@ -1276,6 +1276,8 @@ impl McpClientManager {
 
     /// Collect tool schemas for a specific agent using `resolve_tool_access()`.
     /// Iterates all connected servers and includes only tools the agent is allowed to use.
+    /// Deduplicates tool names — if multiple servers provide the same tool name,
+    /// only the first encountered is included (bug-341).
     pub async fn collect_tool_schemas_for_agent(&self, agent_id: &str) -> Vec<Value> {
         let state = self.state.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
@@ -1285,6 +1287,16 @@ impl McpClientManager {
         };
         // §16: Always include LLM meta-tools for dynamic discovery
         schemas.extend(super::mcp_kernel_tool::llm_meta_tool_schemas());
+        // Track seen tool names to prevent duplicates sent to LLM (bug-341)
+        let mut seen_tool_names: std::collections::HashSet<String> = schemas
+            .iter()
+            .filter_map(|s| {
+                s.get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+                    .map(String::from)
+            })
+            .collect();
         for (server_id, handle) in &state.servers {
             if handle.status != ServerStatus::Connected {
                 continue;
@@ -1310,10 +1322,14 @@ impl McpClientManager {
                 {
                     continue;
                 }
+                if seen_tool_names.contains(&tool.name) {
+                    continue;
+                }
                 if let Ok(crate::db::mcp::PermissionLevel::Allow) =
                     crate::db::resolve_tool_access(&self.pool, agent_id, server_id, &tool.name)
                         .await
                 {
+                    seen_tool_names.insert(tool.name.clone());
                     let security = Self::compute_tool_security(handle, &tool.name);
                     schemas.push(mcp_tool_schema(tool, security.as_ref()));
                 }

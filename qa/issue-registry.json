@@ -2269,6 +2269,18 @@
       "pattern": "fn is_venv_stale",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-341",
+      "summary": "collect_tool_schemas_for_agent sends duplicate tool names to LLM when multiple servers provide the same tool name (e.g., list_models from tool.imagegen and voice.stt)",
+      "severity": "HIGH",
+      "discovered": "2026-03-24T00:00:00Z",
+      "version": "0.6.3-alpha.11",
+      "commit": "e157f89",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "seen_tool_names",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }
