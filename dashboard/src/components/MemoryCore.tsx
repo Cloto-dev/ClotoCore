@@ -1,4 +1,4 @@
-import { Brain, History, Trash2, User } from 'lucide-react';
+import { Brain, Download, History, Trash2, Upload, User } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../hooks/useApi';
@@ -107,6 +107,117 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
     }
   };
 
+  // --- Export: build JSONL client-side from existing data ---
+  const handleExport = useCallback(() => {
+    const exportMemories = selectedAgent ? memories.filter((m) => m.agent_id === selectedAgent) : memories;
+    const exportEpisodes = selectedAgent ? episodes.filter((e) => e.agent_id === selectedAgent) : episodes;
+
+    const lines: string[] = [];
+    // Header
+    lines.push(
+      JSON.stringify({
+        _type: 'header',
+        version: 'cpersona-export/1.0',
+        agent_id: selectedAgent ?? '',
+        exported_at: new Date().toISOString(),
+        memory_count: exportMemories.length,
+        episode_count: exportEpisodes.length,
+        has_profile: false,
+      }),
+    );
+    // Memories
+    for (const m of exportMemories) {
+      lines.push(
+        JSON.stringify({
+          _type: 'memory',
+          id: m.id,
+          agent_id: m.agent_id,
+          content: m.content,
+          source: m.source,
+          timestamp: m.timestamp,
+          created_at: m.created_at,
+        }),
+      );
+    }
+    // Episodes
+    for (const e of exportEpisodes) {
+      lines.push(
+        JSON.stringify({
+          _type: 'episode',
+          id: e.id,
+          agent_id: e.agent_id,
+          summary: e.summary,
+          keywords: e.keywords,
+          start_time: e.start_time,
+          end_time: e.end_time,
+          created_at: e.created_at,
+        }),
+      );
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'application/x-ndjson' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const datePart = new Date().toISOString().slice(0, 10);
+    const agentPart = selectedAgent ? agentDisplayName(selectedAgent, agentMap).replace(/\s+/g, '_') : 'all';
+    a.download = `${agentPart}_memories_${datePart}.jsonl`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [memories, episodes, selectedAgent, agentMap]);
+
+  // --- Import: file picker + confirmation + API call ---
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+
+  const handleImportClick = () => fileInputRef.current?.click();
+
+  const handleImportFile = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      // Reset so same file can be re-selected
+      e.target.value = '';
+
+      const text = await file.text();
+      const lines = text.split('\n').filter((l) => l.trim());
+
+      // Parse header for confirmation
+      let memCount = 0;
+      let epCount = 0;
+      for (const line of lines) {
+        try {
+          const rec = JSON.parse(line);
+          if (rec._type === 'memory') memCount++;
+          else if (rec._type === 'episode') epCount++;
+        } catch {
+          /* skip malformed lines */
+        }
+      }
+
+      const msg = t('import_confirm', { memories: memCount, episodes: epCount });
+      if (!window.confirm(msg)) return;
+
+      setImporting(true);
+      try {
+        const result = await api.importMemories(text, selectedAgent ?? '');
+        const info = t('import_success', {
+          memories: result.imported_memories,
+          episodes: result.imported_episodes,
+          skipped: result.skipped_memories,
+        });
+        window.alert(info);
+        fetchData();
+      } catch (err) {
+        if (import.meta.env.DEV) console.error('Import failed:', err);
+        window.alert(t('import_error'));
+      } finally {
+        setImporting(false);
+      }
+    },
+    [api, selectedAgent, t, fetchData],
+  );
+
   useEventStream(
     EVENTS_URL,
     (data) => {
@@ -138,9 +249,37 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                 {t('title')}
               </h2>
             </div>
-            <span className="text-[10px] font-mono text-content-tertiary">
-              {metrics.ram_usage} / {metrics.total_memories} {t('objs')}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-content-tertiary">
+                {metrics.ram_usage} / {metrics.total_memories} {t('objs')}
+              </span>
+              <button
+                onClick={handleExport}
+                disabled={filteredMemories.length === 0 && filteredEpisodes.length === 0}
+                title={t('export_tooltip')}
+                aria-label={t('export')}
+                className="p-1 rounded text-content-tertiary hover:text-brand hover:bg-brand/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <Download size={14} />
+              </button>
+              <button
+                onClick={handleImportClick}
+                disabled={importing}
+                title={t('import_tooltip')}
+                aria-label={t('import')}
+                className="p-1 rounded text-content-tertiary hover:text-brand hover:bg-brand/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <Upload size={14} />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".jsonl,.ndjson"
+                className="hidden"
+                onChange={handleImportFile}
+                aria-label={t('import')}
+              />
+            </div>
           </div>
           {/* Agent filter tabs */}
           {agentTabs.length > 0 && (

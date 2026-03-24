@@ -1014,6 +1014,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .route("/memories/:id", delete(handlers::delete_memory))
         .route("/episodes", get(handlers::get_episodes))
         .route("/episodes/:id", delete(handlers::delete_episode))
+        .route("/memories/import", post(handlers::import_memories))
         .route("/plugins", get(handlers::get_plugins))
         .route("/plugins/:id/config", get(handlers::get_plugin_config))
         .route("/agents", get(handlers::get_agents))

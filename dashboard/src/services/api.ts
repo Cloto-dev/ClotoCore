@@ -560,7 +560,31 @@ export const api = {
 
   deleteEpisode: (episodeId: number, apiKey: string) =>
     mutate(`/episodes/${episodeId}`, 'DELETE', 'delete episode', undefined, { 'X-API-Key': apiKey }).then(() => {}),
+
+  importMemories: async (data: string, agentId: string, apiKey: string): Promise<ImportMemoriesResult> => {
+    const res = await mutate(
+      '/memories/import',
+      'POST',
+      'import memories',
+      { data, agent_id: agentId },
+      {
+        'X-API-Key': apiKey,
+      },
+    );
+    const body = await res.json();
+    return body.data as ImportMemoriesResult;
+  },
 };
+
+export interface ImportMemoriesResult {
+  ok: boolean;
+  dry_run: boolean;
+  imported_memories: number;
+  skipped_memories: number;
+  imported_episodes: number;
+  profile_updated: boolean;
+  errors?: string[];
+}
 
 /** Pre-bind apiKey to all API methods, eliminating repetitive key passing. */
 export function createAuthenticatedApi(apiKey: string) {
@@ -646,6 +670,7 @@ export function createAuthenticatedApi(apiKey: string) {
     // Memory
     deleteMemory: (memoryId: number) => api.deleteMemory(memoryId, k),
     deleteEpisode: (episodeId: number) => api.deleteEpisode(episodeId, k),
+    importMemories: (data: string, agentId: string) => api.importMemories(data, agentId, k),
     // Setup
     getSetupStatus: () => api.getSetupStatus(),
     startSetup: () => api.startSetup(k),

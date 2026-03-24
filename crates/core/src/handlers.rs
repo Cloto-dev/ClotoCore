@@ -510,6 +510,56 @@ pub async fn delete_episode(
     ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({})))
 }
 
+/// **Route:** `POST /api/memories/import`
+///
+/// Import memories from JSONL data via CPersona's `import_memories` tool.
+/// Body: `{ "data": "...jsonl lines...", "agent_id": "optional-remap" }`
+pub async fn import_memories(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let data = body
+        .get("data")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Validation("missing 'data' field".into()))?;
+
+    let target_agent_id = body.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
+
+    // Write JSONL to a temp file for the MCP tool
+    let tmp_path = std::env::temp_dir()
+        .join(format!("cloto-import-{}.jsonl", std::process::id()))
+        .to_string_lossy()
+        .to_string();
+
+    std::fs::write(&tmp_path, data)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to write temp file: {}", e)))?;
+
+    let args = serde_json::json!({
+        "input_path": tmp_path,
+        "target_agent_id": target_agent_id,
+        "dry_run": false,
+    });
+
+    let result = state
+        .mcp_manager
+        .call_capability_tool(
+            crate::managers::CapabilityType::Memory,
+            "import_memories",
+            args,
+            None,
+        )
+        .await;
+
+    // Clean up temp file regardless of result
+    let _ = std::fs::remove_file(&tmp_path);
+
+    let result = result.map_err(AppError::Internal)?;
+    ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({"ok": false})))
+}
+
 // ============================================================
 // API Key Invalidation
 // ============================================================
