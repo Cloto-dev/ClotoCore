@@ -1,6 +1,6 @@
 # CPersona Memory System — MCP Server Design
 
-> **Status:** Implemented (Phase 1-4 complete as of v0.5.9)
+> **Status:** Implemented (Phase 1-5 complete, v2.4)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
 > **MCP Server ID:** `memory.cpersona`
 > **Companion Server:** `tool.embedding` (pluggable vector embedding)
@@ -15,10 +15,9 @@
 |---------|---------|---------|--------|-------------------|--------|
 | CPersona 2.0/2.1 | ai_karin | SQLite (WAL, FTS5, vector) | FTS5 + cosine similarity + semantic cache | LLM-powered (DeepSeek Reasoner): profile extraction, episode archival | Reference implementation |
 | CPersona 2.2 | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Deprecated (Rust plugin) |
-| CPersona 2.3 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) | **Current** |
-| CPersona 2.4 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | LLM-powered + anti-contamination + gated recency boost | **Planned** |
-| CPersona 2.5 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency + RRF reranking | LLM-powered + anti-contamination + profile enrichment | **Planned** |
-| CPersona 3.0 | ClotoCore | SQLite + graph tables (nodes/edges) | Cascade + graph traversal (BFS) + bi-temporal | LLM-powered + anti-contamination + memory evolution (full) | **Planned** |
+| CPersona 2.3 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) + background task queue (Phase 5) | Superseded |
+| CPersona 2.4 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | 2.3 + JSONL export/import, pre-computed summary/keywords in archive_episode, Claude Code integration | **Current** |
+| CPersona 3.0 | Standalone | Dedicated SQLite | Same as 2.4 | MIT license, PyPI packaging (`uvx cpersona`), setup automation, kernel-independent validation | **Planned** |
 
 ### 1.2 Capabilities Lost in 2.2 (restored in 2.3)
 
@@ -33,7 +32,7 @@ The following capabilities were dropped and subsequently restored in 2.3:
 | **Vector Search** | MiniLM, cosine similarity | None | Pluggable embedding (Phase 2) | Restored |
 | **Anti-Contamination** | None | None | Memory boundary markers, timestamp annotations, anti-hallucination guardrails (Phase 4) | **New** |
 | **Semantic Cache** | ≥0.95 similarity cache | None | None | Not yet restored |
-| **Background Task Queue** | DB-persisted with crash recovery | None | None | Not yet restored |
+| **Background Task Queue** | DB-persisted with crash recovery | None | DB-persisted, crash-recoverable (Phase 5) | Restored |
 | **Cross-Scope Sharing** | Per-user, per-guild | Per-agent flat store | Per-agent flat store | Not yet restored |
 
 ### 1.3 Design Goals
