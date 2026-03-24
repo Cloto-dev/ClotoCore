@@ -224,7 +224,10 @@ impl AgentManager {
         let entries = crate::db::get_access_entries_for_agent(&self.pool, agent_id).await?;
         Ok(entries
             .into_iter()
-            .filter(|e| e.entry_type == "server_grant" && e.permission == "allow")
+            .filter(|e| {
+                e.entry_type == crate::db::mcp::EntryType::ServerGrant
+                    && e.permission == crate::db::mcp::PermissionLevel::Allow
+            })
             .map(|e| e.server_id)
             .collect())
     }

@@ -4,6 +4,80 @@ use sqlx::SqlitePool;
 use super::db_timeout;
 
 // ============================================================
+// Access Control Enums
+// ============================================================
+
+/// Type of access control entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum EntryType {
+    Capability,
+    ServerGrant,
+    ToolGrant,
+}
+
+/// Permission level for an access control entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionLevel {
+    Allow,
+    Deny,
+}
+
+/// Default policy for an MCP server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DefaultPolicy {
+    OptIn,
+    OptOut,
+}
+
+impl DefaultPolicy {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::OptIn => "opt-in",
+            Self::OptOut => "opt-out",
+        }
+    }
+
+    pub fn from_str_lossy(s: &str) -> Self {
+        match s {
+            "opt-out" => Self::OptOut,
+            _ => Self::OptIn,
+        }
+    }
+
+    pub fn default_permission(&self) -> PermissionLevel {
+        match self {
+            Self::OptOut => PermissionLevel::Allow,
+            Self::OptIn => PermissionLevel::Deny,
+        }
+    }
+}
+
+/// Source of a chat message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageSource {
+    User,
+    Agent,
+    System,
+}
+
+impl MessageSource {
+    pub fn from_str_validated(s: &str) -> Option<Self> {
+        match s {
+            "user" => Some(Self::User),
+            "agent" => Some(Self::Agent),
+            "system" => Some(Self::System),
+            _ => None,
+        }
+    }
+}
+
+// ============================================================
 // MCP Dynamic Server Persistence
 // ============================================================
 
@@ -77,11 +151,11 @@ pub async fn deactivate_mcp_server(pool: &SqlitePool, name: &str) -> anyhow::Res
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AccessControlEntry {
     pub id: Option<i64>,
-    pub entry_type: String, // "capability" | "server_grant" | "tool_grant"
+    pub entry_type: EntryType,
     pub agent_id: String,
     pub server_id: String,
     pub tool_name: Option<String>,
-    pub permission: String, // "allow" | "deny"
+    pub permission: PermissionLevel,
     pub granted_by: Option<String>,
     pub granted_at: String,
     pub expires_at: Option<String>,
@@ -187,7 +261,7 @@ pub async fn put_access_entries(
 
         // Insert new entries
         for entry in entries {
-            if entry.entry_type == "capability" {
+            if entry.entry_type == EntryType::Capability {
                 continue; // Don't overwrite capability entries via bulk update
             }
             sqlx::query(
@@ -262,7 +336,7 @@ pub async fn resolve_tool_access(
     agent_id: &str,
     server_id: &str,
     tool_name: &str,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<PermissionLevel> {
     // 1. Check for explicit tool_grant
     let tool_grant = db_timeout(
         sqlx::query_scalar::<_, String>(
@@ -278,8 +352,11 @@ pub async fn resolve_tool_access(
     )
     .await?;
 
-    if let Some(permission) = tool_grant {
-        return Ok(permission);
+    if let Some(ref perm) = tool_grant {
+        if perm == "allow" {
+            return Ok(PermissionLevel::Allow);
+        }
+        return Ok(PermissionLevel::Deny);
     }
 
     // 2. Check for server_grant
@@ -296,8 +373,11 @@ pub async fn resolve_tool_access(
     )
     .await?;
 
-    if let Some(permission) = server_grant {
-        return Ok(permission);
+    if let Some(ref perm) = server_grant {
+        if perm == "allow" {
+            return Ok(PermissionLevel::Allow);
+        }
+        return Ok(PermissionLevel::Deny);
     }
 
     // 3. Fall back to server default_policy
@@ -310,10 +390,7 @@ pub async fn resolve_tool_access(
     )
     .await?;
 
-    match policy.as_deref() {
-        Some("opt-out") => Ok("allow".to_string()),
-        _ => Ok("deny".to_string()), // opt-in = deny by default
-    }
+    Ok(DefaultPolicy::from_str_lossy(policy.as_deref().unwrap_or("opt-in")).default_permission())
 }
 
 /// Get access summary for a server's tools (Summary Bar data).

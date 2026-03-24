@@ -592,13 +592,20 @@ pub(super) async fn execute_access_grant(manager: &McpClientManager, args: Value
     let tool_name = args.get("tool_name").and_then(|v| v.as_str());
     let justification = args.get("justification").and_then(|v| v.as_str());
 
+    let parsed_entry_type: crate::db::mcp::EntryType =
+        serde_json::from_value(serde_json::Value::String(entry_type.to_string()))
+            .map_err(|_| anyhow::anyhow!("Invalid entry_type: '{}'", entry_type))?;
+    let parsed_permission: crate::db::mcp::PermissionLevel =
+        serde_json::from_value(serde_json::Value::String(permission.to_string()))
+            .map_err(|_| anyhow::anyhow!("Invalid permission: '{}'", permission))?;
+
     let entry = crate::db::AccessControlEntry {
         id: None,
-        entry_type: entry_type.to_string(),
+        entry_type: parsed_entry_type,
         agent_id: agent_id.to_string(),
         server_id: server_id.to_string(),
         tool_name: tool_name.map(str::to_string),
-        permission: permission.to_string(),
+        permission: parsed_permission,
         granted_by: Some("kernel".to_string()),
         granted_at: chrono::Utc::now().to_rfc3339(),
         expires_at: None,
