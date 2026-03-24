@@ -1,6 +1,6 @@
 # CPersona Memory System — MCP Server Design
 
-> **Status:** Implemented (Phase 1-5 complete, v2.4)
+> **Status:** Implemented (Phase 1-5 complete, v2.4 in progress)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
 > **MCP Server ID:** `memory.cpersona`
 > **Companion Server:** `tool.embedding` (pluggable vector embedding)
