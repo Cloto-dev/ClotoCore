@@ -3,6 +3,19 @@
 //! Mind MCP servers call this proxy instead of LLM provider APIs directly.
 //! The proxy adds the appropriate Authorization header from the `llm_providers` table.
 //! This ensures API keys are never exposed to MCP server subprocesses.
+//!
+//! ## Design Decision: Separate Port (By Design, not a vulnerability)
+//!
+//! This proxy intentionally runs on a **separate port** (default 8082) without
+//! X-API-Key authentication. This is required by P5 (Strict Permission Isolation):
+//!
+//! - MCP servers are kernel-spawned child processes that must NOT hold admin API keys.
+//! - Merging into the `/api` router (port 8081) would require sharing admin credentials
+//!   with MCP servers, which is strictly worse for security.
+//! - The `127.0.0.1` binding is the security boundary — external access is impossible.
+//! - Upstream LLM providers enforce their own rate limits (429 → structured error).
+//!
+//! See: Code Quality Audit H-4/H-5 (2026-03-22) — closed as By Design.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
