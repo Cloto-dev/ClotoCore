@@ -1294,18 +1294,19 @@ impl McpClientManager {
                 continue;
             }
             for tool in &handle.tools {
-                // speak is auto-invoked by the kernel after the agentic loop;
-                // Exclude Speech-capability tools (e.g., "speak") from LLM tool schemas;
-                // the kernel auto-speaks the final response directly, preventing the LLM
-                // from generating different speech text than the displayed response.
-                if self
-                    .dispatcher
-                    .resolve(
-                        super::capability_dispatcher::CapabilityType::Speech,
-                        &tool.name,
-                    )
-                    .await
-                    .is_some()
+                // Exclude the "speak" tool from LLM tool schemas when a Speech-capable
+                // server provides it; the kernel auto-speaks the final response directly,
+                // preventing the LLM from generating different speech text.
+                // Other output.* tools (set_expression, set_pose, etc.) remain available.
+                if tool.name == "speak"
+                    && self
+                        .dispatcher
+                        .resolve(
+                            super::capability_dispatcher::CapabilityType::Speech,
+                            &tool.name,
+                        )
+                        .await
+                        .is_some()
                 {
                     continue;
                 }
