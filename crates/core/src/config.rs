@@ -476,9 +476,12 @@ impl AppConfig {
             memory_plugin_id,
             default_allowed_api_hosts,
             llm_provider_env_mappings,
+            // Magic Seal: block unsigned MCP servers at Untrusted trust level.
+            // Core/Standard/Experimental servers are always allowed without a seal.
+            // Only affects Untrusted servers — set to true if you register Untrusted servers in dev.
             allow_unsigned: env::var("CLOTO_ALLOW_UNSIGNED")
                 .map(|v| v == "true" || v == "1")
-                .unwrap_or(false), // Default: false (secure). Set CLOTO_ALLOW_UNSIGNED=true for dev.
+                .unwrap_or(false),
             isolation_enabled: env::var("CLOTO_ISOLATION_ENABLED")
                 .map(|v| v != "false" && v != "0")
                 .unwrap_or(true), // Default: true
