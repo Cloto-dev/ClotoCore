@@ -560,10 +560,18 @@ impl SystemHandler {
                         error!("Chat persist DROPPED agent response: {}", e);
                     }
 
-                    // Auto-speak: if the agent has output.avatar access,
-                    // the kernel speaks the final response directly (not the LLM).
-                    let will_auto_speak = granted_server_ids.contains(&"output.avatar".to_string())
-                        && self.registry.mcp_manager.is_some();
+                    // Auto-speak: if a Speech-capable server is connected and the agent
+                    // has access to it, the kernel speaks the final response directly.
+                    let will_auto_speak = if let Some(ref mcp) = self.registry.mcp_manager {
+                        mcp.resolve_capability_server(
+                            crate::managers::capability_dispatcher::CapabilityType::Speech,
+                        )
+                        .await
+                        .filter(|sid| granted_server_ids.contains(sid))
+                        .is_some()
+                    } else {
+                        false
+                    };
                     let speak_content = if will_auto_speak {
                         Some(content.clone())
                     } else {
@@ -634,7 +642,12 @@ impl SystemHandler {
                             tokio::spawn(async move {
                                 match tokio::time::timeout(
                                     Duration::from_secs(timeout_secs),
-                                    mcp_clone.execute_tool_internal("speak", speak_args),
+                                    mcp_clone.call_capability_tool(
+                                        crate::managers::capability_dispatcher::CapabilityType::Speech,
+                                        "speak",
+                                        speak_args,
+                                        None,
+                                    ),
                                 )
                                 .await
                                 {

@@ -67,6 +67,8 @@ pub enum CapabilityType {
     Vision,
     /// 音声文字起こし能力 (Speech-to-Text)
     Stt,
+    /// 音声出力能力 (Text-to-Speech / speak)
+    Speech,
     /// 物理/ハードウェア操作能力
     HAL,
     /// Webサーバー拡張能力 (APIエンドポイント提供)
@@ -450,7 +452,7 @@ pub enum ClotoEventData {
         engine_id: String,
         content: String,
         source_message_id: String,
-        /// When true, the kernel will auto-speak this response via output.avatar.
+        /// When true, the kernel has auto-spoken this response via a Speech-capable server.
         /// Dashboard should skip text-based viseme generation to avoid conflicts.
         #[serde(default)]
         auto_spoken: bool,
