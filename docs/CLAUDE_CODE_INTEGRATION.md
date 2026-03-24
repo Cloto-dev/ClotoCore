@@ -31,37 +31,35 @@ pip install -r requirements.txt
 
 ## Claude Code Configuration
 
-Add the following to your Claude Code MCP settings
-(`~/.claude/settings.json` or project-level `.claude/settings.json`):
+Register both MCP servers using `claude mcp add-json` (user scope):
 
-```json
-{
-  "mcpServers": {
-    "cpersona": {
-      "command": "C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/.venv/Scripts/python.exe",
-      "args": [
-        "C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/cpersona/server.py"
-      ],
-      "env": {
-        "CPERSONA_DB_PATH": "C:/Users/Cycia/.claude/cpersona.db",
-        "CPERSONA_EMBEDDING_MODE": "http",
-        "CPERSONA_EMBEDDING_URL": "http://127.0.0.1:8401/embed",
-        "CPERSONA_TASK_QUEUE_ENABLED": "false"
-      }
-    },
-    "embedding": {
-      "command": "C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/.venv/Scripts/python.exe",
-      "args": [
-        "C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/embedding/server.py"
-      ],
-      "env": {
-        "EMBEDDING_PROVIDER": "onnx_miniml",
-        "EMBEDDING_HTTP_PORT": "8401"
-      }
-    }
+```bash
+# Embedding server (must start before CPersona for vector operations)
+claude mcp add-json embedding '{
+  "type": "stdio",
+  "command": "C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/.venv/Scripts/python.exe",
+  "args": ["C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/embedding/server.py"],
+  "env": {
+    "EMBEDDING_PROVIDER": "onnx_miniml",
+    "EMBEDDING_HTTP_PORT": "8401"
   }
-}
+}' -s user
+
+# CPersona memory server
+claude mcp add-json cpersona '{
+  "type": "stdio",
+  "command": "C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/.venv/Scripts/python.exe",
+  "args": ["C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/cpersona/server.py"],
+  "env": {
+    "CPERSONA_DB_PATH": "C:/Users/Cycia/.claude/cpersona.db",
+    "CPERSONA_EMBEDDING_MODE": "http",
+    "CPERSONA_EMBEDDING_URL": "http://127.0.0.1:8401/embed",
+    "CPERSONA_TASK_QUEUE_ENABLED": "false"
+  }
+}' -s user
 ```
+
+Verify with `claude mcp list` — both should show "Connected".
 
 > **Note:** The `CPERSONA_DB_PATH` is intentionally separate from ClotoCore's
 > database. Each environment (ClotoCore, Claude Code, mobile) maintains its own
