@@ -7,5 +7,13 @@
   "episodic": "Episodic Stream",
   "no_episodes": "No episodes logged.",
   "delete_memory": "Delete memory",
-  "delete_episode": "Delete episode"
+  "delete_episode": "Delete episode",
+  "export": "Export",
+  "import": "Import",
+  "export_tooltip": "Export memories as JSONL",
+  "import_tooltip": "Import memories from JSONL",
+  "import_confirm": "Import {{memories}} memories and {{episodes}} episodes?",
+  "import_success": "Imported {{memories}} memories, {{episodes}} episodes ({{skipped}} skipped)",
+  "import_error": "Import failed",
+  "importing": "Importing..."
 }
