@@ -1419,18 +1419,20 @@ pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -
 
     // Emit AgentDialogue "pending" event
     let chain_depth = (delegation_chain.len() + 1) as u8;
-    manager.emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
-        dialogue_id: dialogue_id.clone(),
-        caller_agent_id: caller_agent_id.to_string(),
-        caller_agent_name: caller_agent_name.clone(),
-        target_agent_id: target_agent_id.to_string(),
-        target_agent_name: agent_meta.name.clone(),
-        prompt: prompt.to_string(),
-        engine_id: engine_id.clone(),
-        response: None,
-        chain_depth,
-        status: "pending".to_string(),
-    }).await;
+    manager
+        .emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
+            dialogue_id: dialogue_id.clone(),
+            caller_agent_id: caller_agent_id.to_string(),
+            caller_agent_name: caller_agent_name.clone(),
+            target_agent_id: target_agent_id.to_string(),
+            target_agent_name: agent_meta.name.clone(),
+            prompt: prompt.to_string(),
+            engine_id: engine_id.clone(),
+            response: None,
+            chain_depth,
+            status: "pending".to_string(),
+        })
+        .await;
 
     // 12. Run mini agentic loop (think_with_tools if available, else plain think)
     let supports_tools = manager
@@ -1444,68 +1446,63 @@ pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -
         vec![]
     };
 
-    let response = match run_ask_agent_loop(
-        manager,
-        &engine_id,
-        &think_args,
-        &tools,
-        target_agent_id,
-    )
-    .await
-    {
-        Ok(content) => content,
-        Err(e) => {
-            // Emit AgentDialogue "error" event
-            manager
-                .emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
-                    dialogue_id: dialogue_id.clone(),
-                    caller_agent_id: caller_agent_id.to_string(),
-                    caller_agent_name: caller_agent_name.clone(),
-                    target_agent_id: target_agent_id.to_string(),
-                    target_agent_name: agent_meta.name.clone(),
-                    prompt: prompt.to_string(),
-                    engine_id: engine_id.clone(),
-                    response: Some(format!("Engine call failed: {}", e)),
-                    chain_depth,
-                    status: "error".to_string(),
-                })
-                .await;
-            // Audit: delegation failed
-            manager
-                .broadcast_audit_event(&crate::db::AuditLogEntry {
-                    timestamp: chrono::Utc::now(),
-                    event_type: "DELEGATION_FAILED".to_string(),
-                    actor_id: Some(caller_agent_id.to_string()),
-                    target_id: Some(target_agent_id.to_string()),
-                    permission: None,
-                    result: "error".to_string(),
-                    reason: e.to_string(),
-                    metadata: None,
-                    trace_id: None,
-                })
-                .await;
-            return Ok(serde_json::json!({
-                "status": "error",
-                "reason": format!("Engine call failed: {}", e),
-                "source_agent": caller_agent_id,
-                "target_agent": target_agent_id,
-            }));
-        }
-    };
+    let response =
+        match run_ask_agent_loop(manager, &engine_id, &think_args, &tools, target_agent_id).await {
+            Ok(content) => content,
+            Err(e) => {
+                // Emit AgentDialogue "error" event
+                manager
+                    .emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
+                        dialogue_id: dialogue_id.clone(),
+                        caller_agent_id: caller_agent_id.to_string(),
+                        caller_agent_name: caller_agent_name.clone(),
+                        target_agent_id: target_agent_id.to_string(),
+                        target_agent_name: agent_meta.name.clone(),
+                        prompt: prompt.to_string(),
+                        engine_id: engine_id.clone(),
+                        response: Some(format!("Engine call failed: {}", e)),
+                        chain_depth,
+                        status: "error".to_string(),
+                    })
+                    .await;
+                // Audit: delegation failed
+                manager
+                    .broadcast_audit_event(&crate::db::AuditLogEntry {
+                        timestamp: chrono::Utc::now(),
+                        event_type: "DELEGATION_FAILED".to_string(),
+                        actor_id: Some(caller_agent_id.to_string()),
+                        target_id: Some(target_agent_id.to_string()),
+                        permission: None,
+                        result: "error".to_string(),
+                        reason: e.to_string(),
+                        metadata: None,
+                        trace_id: None,
+                    })
+                    .await;
+                return Ok(serde_json::json!({
+                    "status": "error",
+                    "reason": format!("Engine call failed: {}", e),
+                    "source_agent": caller_agent_id,
+                    "target_agent": target_agent_id,
+                }));
+            }
+        };
 
     // Emit AgentDialogue "success" event
-    manager.emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
-        dialogue_id: dialogue_id.clone(),
-        caller_agent_id: caller_agent_id.to_string(),
-        caller_agent_name: caller_agent_name.clone(),
-        target_agent_id: target_agent_id.to_string(),
-        target_agent_name: agent_meta.name.clone(),
-        prompt: prompt.to_string(),
-        engine_id: engine_id.clone(),
-        response: Some(response.clone()),
-        chain_depth,
-        status: "success".to_string(),
-    }).await;
+    manager
+        .emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
+            dialogue_id: dialogue_id.clone(),
+            caller_agent_id: caller_agent_id.to_string(),
+            caller_agent_name: caller_agent_name.clone(),
+            target_agent_id: target_agent_id.to_string(),
+            target_agent_name: agent_meta.name.clone(),
+            prompt: prompt.to_string(),
+            engine_id: engine_id.clone(),
+            response: Some(response.clone()),
+            chain_depth,
+            status: "success".to_string(),
+        })
+        .await;
 
     // 14. Audit log: DELEGATION_EXECUTED
     manager
@@ -1868,10 +1865,7 @@ fn parse_think_result(
                 return Err(anyhow::anyhow!("Engine error: {}", error));
             }
 
-            let result_type = json
-                .get("type")
-                .and_then(|t| t.as_str())
-                .unwrap_or("final");
+            let result_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("final");
 
             if result_type == "tool_calls" {
                 let assistant_content = json
