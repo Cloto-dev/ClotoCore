@@ -178,15 +178,16 @@ auto_restart = false
 STT_MODEL = "base"
 STT_LANGUAGE = "ja"
 
-# ── I/O Bridge Servers ──
-
-[[servers]]
-id = "io.discord"
-display_name = "Discord"
-command = "${servers}/discord/target/release/mgp-discord"
-transport = "stdio"
-auto_restart = true
-[servers.env]
-DISCORD_BOT_TOKEN = "${DISCORD_BOT_TOKEN}"
-ALLOWED_CHANNEL_IDS = ""
-BLOCK_EVERYONE = "true"
+# ── I/O Bridge Servers (1 bot = 1 agent) ──
+# Each Discord bot is a separate mgp-discord instance with its own token.
+#
+# [[servers]]
+# id = "io.discord.sapphy"
+# display_name = "Discord (Sapphy)"
+# command = "${servers}/discord/target/release/mgp-discord"
+# transport = "stdio"
+# auto_restart = true
+# [servers.env]
+# DISCORD_BOT_TOKEN = "${DISCORD_BOT_TOKEN_SAPPHY}"
+# ALLOWED_CHANNEL_IDS = ""
+# BLOCK_EVERYONE = "true"
