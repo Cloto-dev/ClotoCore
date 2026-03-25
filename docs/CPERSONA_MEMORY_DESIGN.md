@@ -17,7 +17,9 @@
 | CPersona 2.2 | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Deprecated (Rust plugin) |
 | CPersona 2.3 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) + background task queue (Phase 5) | **Current** |
 | CPersona 2.3.1 | ClotoCore | Same as 2.3 | Same as 2.3 | 2.3 + JSONL export/import, pre-computed summary/keywords in archive_episode, Claude Code integration | **In Progress** |
-| CPersona 2.4 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | LLM-powered + anti-contamination + gated recency boost | Planned |
+| CPersona 2.3.2 | ClotoCore | Same as 2.3 | Same as 2.3 | 2.3.1 + Memory Confidence Score (recall output enriched with confidence metadata: cosine, age, geometric mean score) | Planned |
+| CPersona 2.3.3 | ClotoCore | Same as 2.3 | Same as 2.3 | 2.3.2 + Embedding model auto-calibration (statistical COSINE_FLOOR/CEIL per model) | Planned |
+| CPersona 2.4 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | LLM-powered + anti-contamination + gated recency boost (reuses v2.3.2 normalization) | Planned |
 | CPersona 2.5 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency + RRF reranking | LLM-powered + anti-contamination + profile enrichment | Planned |
 | CPersona 3.0 | Standalone | SQLite + graph tables (nodes/edges) | Cascade + graph traversal (BFS) + bi-temporal | MIT license, PyPI packaging, memory evolution (full) | Planned |
 
@@ -215,7 +217,31 @@ Recall relevant memories for a query.
 }
 ```
 
-**Response:** `{"messages": [{"id": "...", "content": "[Memory from 2026-03-13 14:30 JST] ...", "source": {...}, "timestamp": "..."}]}`
+**Response:**
+```json
+{
+  "messages": [
+    {
+      "id": "...",
+      "content": "[Memory from 2026-03-13 14:30 JST] ...",
+      "source": {"User": "..."},
+      "timestamp": "2026-03-13T14:30:00+09:00",
+      "confidence": {
+        "cosine": 0.55,
+        "age_hours": 120.0,
+        "score": 0.59
+      }
+    }
+  ]
+}
+```
+
+The `confidence` field is included when `CPERSONA_CONFIDENCE_ENABLED=true` (v2.3.2+).
+When disabled, the field is omitted and the response format is identical to v2.3.1.
+
+- `cosine`: Raw cosine similarity from vector search (0.0–1.0). Omitted for non-vector results (FTS5, keyword, profile).
+- `age_hours`: Hours elapsed since memory's `timestamp` (falls back to `created_at` if `timestamp` is absent).
+- `score`: Unified confidence score (0.0–1.0). See v2.3.2 section for computation details.
 
 **Search Strategy (cascading):**
 
@@ -775,6 +801,10 @@ CPERSONA_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
 | `CPERSONA_TASK_QUEUE_ENABLED` | `true` | Enable background task queue for `update_profile`/`archive_episode` |
 | `CPERSONA_TASK_MAX_RETRIES` | `3` | Max retry attempts before discarding a failed task |
 | `CPERSONA_TASK_RETRY_DELAY` | `30` | Seconds to wait between retries |
+| `CPERSONA_CONFIDENCE_ENABLED` | `false` | Enable confidence metadata in recall output (v2.3.2) |
+| `CPERSONA_COSINE_FLOOR` | `0.20` | Cosine normalization lower bound (model-dependent; v2.3.2) |
+| `CPERSONA_COSINE_CEIL` | `0.75` | Cosine normalization upper bound (model-dependent; v2.3.2) |
+| `CPERSONA_DECAY_RATE` | `0.005` | Time decay rate per hour for confidence score (v2.3.2) |
 
 ---
 
@@ -942,6 +972,121 @@ that don't map to ClotoCore's agent_id model. Manual migration may be performed 
 - [ ] Claude Code `recall` tool verification
 - [ ] Embedding server port conflict resolution (multiple Claude Code sessions share port 8401 — second instance fails to bind, blocking cpersona startup)
 
+### CPersona 2.3.2: Memory Confidence Score — **Planned**
+
+Enrich recall output with machine-computed confidence metadata so that consuming
+agents can modulate their response certainty without hardcoded behavioral rules.
+
+**Design philosophy:** CPersona provides **raw numerical data only**. It does NOT
+prescribe behavioral labels (e.g., "assertive", "uncertain"). The consuming agent's
+persona layer interprets the numbers and decides how to express confidence — a formal
+agent might say "records indicate…" while a casual agent might say "たぶんね".
+
+```
+CPersona (memory layer)     → confidence: { cosine: 0.55, age_hours: 120, score: 0.59 }
+  ↓
+Persona / System Prompt     → interprets score according to personality
+  ↓
+Agent output                → personality-appropriate certainty expression
+```
+
+**Confidence score computation:**
+
+```python
+# Step 1: Cosine normalization (compress practical range to 0.0–1.0)
+COSINE_FLOOR = 0.20   # Env: CPERSONA_COSINE_FLOOR
+COSINE_CEIL  = 0.75   # Env: CPERSONA_COSINE_CEIL
+norm_cos = clamp((raw_cosine - COSINE_FLOOR) / (COSINE_CEIL - COSINE_FLOOR), 0.0, 1.0)
+
+# Step 2: Time decay (hyperbolic, approaches 0 but never reaches it)
+DECAY_RATE = 0.005    # Env: CPERSONA_DECAY_RATE
+age_hours = (now - timestamp).total_seconds() / 3600
+time_decay = 1.0 / (1.0 + age_hours * DECAY_RATE)
+
+# Step 3: Geometric mean (preserves 2D quadrant separation)
+score = math.sqrt(norm_cos * time_decay)
+```
+
+**Why geometric mean over alternatives:**
+
+| Formula | High cos + old (168h) | Low cos + new (1h) | Problem |
+|---------|----------------------|-------------------|---------|
+| `cos * decay` (product) | 0.35 | 0.09 | Scores compress toward zero — old relevant memories die |
+| `cos + decay` (sum) | 1.18 | 1.08 | Exceeds 1.0, low-cos memories score too high |
+| `α·cos + (1-α)·decay` (weighted) | 0.52–0.61 | 0.36–0.42 | Requires tuning α; low-cos new memories rank too high |
+| **`√(cos·decay)`** (geometric mean) | **0.59** | **0.30** | **Clean quadrant separation, 0.0–1.0 range, no extra parameters** |
+
+**Score examples (DECAY_RATE=0.005):**
+
+| Memory scenario | raw cos | norm_cos | age | time_decay | **score** |
+|----------------|---------|----------|-----|------------|-----------|
+| High relevance + just now | 0.65 | 0.82 | 1h | 0.995 | **0.90** |
+| High relevance + 1 week | 0.55 | 0.64 | 168h | 0.54 | **0.59** |
+| High relevance + 6 months | 0.60 | 0.73 | 4380h | 0.04 | **0.17** |
+| Low relevance + just now | 0.25 | 0.09 | 1h | 0.995 | **0.30** |
+| Low relevance + 6 months | 0.25 | 0.09 | 4380h | 0.04 | **0.06** |
+
+**Quadrant interpretation (for persona designers, NOT enforced by CPersona):**
+
+```
+                    cosine (semantic relevance)
+                    Low ←————————→ High
+              ┌─────────────┬─────────────┐
+  New (age)   │  ~0.30      │  ~0.90      │
+              │  (uncertain)│  (confident) │
+              ├─────────────┼─────────────┤
+  Old (age)   │  ~0.06      │  ~0.17–0.59 │
+              │  (no basis) │  (fading)    │
+              └─────────────┴─────────────┘
+```
+
+**Scope:**
+
+- [ ] Extend `_search_vector()` to compute and attach `confidence` dict to each result
+- [ ] Extend `do_recall()` to include `confidence` in output messages (opt-in via `CPERSONA_CONFIDENCE_ENABLED`)
+- [ ] Timestamp selection: prefer `memories.timestamp`, fall back to `memories.created_at`
+- [ ] Non-vector results (FTS5, keyword, profile): `confidence.cosine` omitted, `confidence.score` based on `age_hours` only (`score = sqrt(time_decay)`)
+- [ ] Environment variables: `CPERSONA_CONFIDENCE_ENABLED`, `CPERSONA_COSINE_FLOOR`, `CPERSONA_COSINE_CEIL`, `CPERSONA_DECAY_RATE`
+- [ ] Unit tests: score computation, edge cases (NULL timestamp, zero age, cosine outside floor/ceil range)
+- [ ] `DECAY_RATE` default (0.005) requires empirical validation — test with real memory corpus
+
+**Implementation scope:** `cloto-mcp-servers` repo only (`servers/cpersona/server.py`).
+No ClotoCore kernel changes required. No schema changes.
+
+### CPersona 2.3.3: Embedding Model Auto-Calibration — **Planned**
+
+`COSINE_FLOOR` / `COSINE_CEIL` in v2.3.2 are embedding-model-dependent constants.
+Different models produce different cosine similarity distributions — MiniLM clusters
+around 0.2–0.7, while OpenAI text-embedding-3-small may cluster around 0.3–0.8.
+Manual tuning per model is fragile and error-prone.
+
+**Solution: Statistical auto-calibration on startup**
+
+```python
+# On CPersona startup (after embedding client is initialized):
+# 1. Sample N random memories with embeddings
+# 2. Compute pairwise cosine similarities (or sample-vs-sample)
+# 3. Set COSINE_FLOOR = percentile(similarities, 5)   # bottom 5%
+# 4. Set COSINE_CEIL  = percentile(similarities, 95)   # top 95%
+# 5. Log calibrated values for transparency
+# 6. Skip if < MIN_CALIBRATION_SAMPLES memories exist (fall back to env defaults)
+```
+
+**Scope:**
+
+- [ ] Startup calibration routine in `server.py` (runs once after DB + embedding init)
+- [ ] `CPERSONA_AUTO_CALIBRATE` env var (`true`/`false`, default `false`)
+- [ ] `CPERSONA_CALIBRATION_SAMPLES` env var (default `100`)
+- [ ] `CPERSONA_CALIBRATION_PERCENTILE_LOW` / `_HIGH` (default `5` / `95`)
+- [ ] Manual overrides (`COSINE_FLOOR`/`CEIL`) take precedence when explicitly set
+- [ ] Log calibrated values at INFO level for debugging
+- [ ] Re-calibration on embedding model change (detect via stored model name in DB metadata?)
+
+**Dependency:** Requires v2.3.2 (confidence score uses the calibrated COSINE_FLOOR/CEIL).
+
+**Implementation scope:** `cloto-mcp-servers` repo only. No schema changes (calibration
+is ephemeral, computed per startup from existing data).
+
 ### CPersona 2.4+ Roadmap
 
 #### Recency-Weighted Vector Search (Planned — v2.4 scope)
@@ -994,6 +1139,20 @@ final_score = cosine_sim + recency_boost
 When `CPERSONA_RECENCY_ENABLED=false` (default), the system uses the existing fixed
 threshold behavior (`CPERSONA_VECTOR_MIN_SIMILARITY`). This ensures full backward
 compatibility.
+
+**Relationship with v2.3.2 (Confidence Score):**
+v2.3.2 and v2.4 address different concerns using overlapping concepts:
+- **v2.3.2** = output metadata (annotates returned memories with confidence scores for the agent to interpret)
+- **v2.4** = search ranking (changes *which* memories are returned by boosting recent relevant results)
+
+When both are enabled, v2.4's recency-boosted `final_score` is used for ranking, and
+v2.3.2's geometric mean `confidence.score` is attached to each result independently.
+The two scores serve different purposes and are computed separately — v2.4 uses additive
+boost for ranking, v2.3.2 uses geometric mean for certainty communication.
+
+v2.4 can reuse v2.3.2's cosine normalization utilities (`COSINE_FLOOR`/`COSINE_CEIL`)
+and timestamp parsing logic. `COSINE_GATE` may be expressed as `COSINE_FLOOR` (the
+normalized equivalent of gate=0.0) when v2.3.2 normalization is available.
 
 **Implementation scope:** `cloto-mcp-servers` repo only (`servers/cpersona/server.py`,
 `_search_vector()` function). No ClotoCore kernel changes required.
