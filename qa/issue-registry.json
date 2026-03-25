@@ -2281,6 +2281,18 @@
       "pattern": "seen_tool_names",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-342",
+      "summary": "WebView2 data corruption causes silent window creation failure — backend runs headless without user awareness (window.show() result discarded)",
+      "severity": "MEDIUM",
+      "discovered": "2026-03-25T00:00:00Z",
+      "version": "0.6.3-alpha.11",
+      "commit": "e00a9d9",
+      "file": "dashboard/src-tauri/src/lib.rs",
+      "pattern": "let _ = window.show()",
+      "expected": "present",
+      "status": "open"
     }
   ]
 }
