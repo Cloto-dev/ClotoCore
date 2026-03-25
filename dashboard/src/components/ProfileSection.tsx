@@ -38,7 +38,7 @@ export function ProfileSection({ name, description, onNameChange, onDescriptionC
           <textarea
             value={description}
             onChange={(e) => onDescriptionChange(e.target.value)}
-            maxLength={1000}
+            maxLength={5000}
             className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary font-mono h-20 resize-none"
           />
         </div>
