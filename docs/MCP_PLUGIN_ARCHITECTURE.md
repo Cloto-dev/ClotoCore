@@ -557,3 +557,82 @@ resolution. The future approach (C) will use Python package-based invocation
 - **MCP Server Marketplace**: Distribution platform for community-built MCP Servers
 - **MCP Sampling**: Standardize Kernel-side reasoning invocation after the MCP Sampling feature matures
 - **Third-party Support**: Introduce OS-level sandboxing (seccomp / AppArmor) per MGP isolation design
+- **Remote MCP Transport**: See §13.1
+
+### 13.1 Remote MCP Transport (Streamable HTTP) — Planned
+
+**Status:** Not implemented. All MCP connections currently use stdio (subprocess spawning).
+
+**Problem:** `McpClient::connect()` unconditionally calls `StdioTransport::start()`,
+ignoring `McpServerConfig.transport`. The `transport` field exists in the config struct
+and `mcp.toml` schema but is never read during connection. `MGP_SPEC.md` §1.4 declares
+Streamable HTTP support, but the implementation does not match the specification.
+
+**Existing provisions (already in place):**
+- `McpServerConfig.transport`: `String` field (default `"stdio"`)
+- Discovery API: `transport` enum includes `["stdio", "http"]`
+- `reqwest`: Already a workspace dependency (used in marketplace, capabilities, LLM proxy)
+
+**Design:**
+
+```
+mcp.toml
+
+  [[servers]]
+  id = "memory.cpersona"
+  transport = "streamable-http"       # ← new transport type
+  url = "https://cpersona.example.com/mcp"  # ← new field (replaces command/args)
+  auto_restart = true
+  [servers.env]
+  CPERSONA_AUTH_TOKEN = "${CPERSONA_AUTH_TOKEN}"
+```
+
+**Implementation scope:**
+
+1. **`HttpTransport` struct** (`mcp_transport.rs`)
+   - HTTP POST for JSON-RPC requests (`reqwest::Client`)
+   - SSE (Server-Sent Events) response parsing
+   - `Mcp-Session-Id` header tracking
+   - Bearer token authentication (`Authorization` header from env)
+   - Reconnection with exponential backoff on connection loss
+   - Same `sender()` / `recv()` interface as `StdioTransport` (trait extraction)
+
+2. **Transport trait extraction**
+   - Extract common interface from `StdioTransport` into a `McpTransport` trait
+   - `HttpTransport` and `StdioTransport` both implement the trait
+   - `McpClient` becomes transport-agnostic
+
+3. **`McpClient::connect()` branching** (`mcp_client.rs`)
+   ```rust
+   match config.transport.as_str() {
+       "stdio" => StdioTransport::start(command, args, env, ...),
+       "streamable-http" => HttpTransport::connect(url, auth, ...),
+       _ => bail!("unsupported transport: {}", config.transport),
+   }
+   ```
+
+4. **`McpServerConfig` extension** (`mcp_protocol.rs`)
+   - Add `url: Option<String>` field
+   - Validation: `transport="stdio"` requires `command`; `transport="streamable-http"` requires `url`
+
+5. **`mcp.toml` parser update**
+   - Accept `url` field for HTTP servers
+   - Reject `command`/`args` when `transport="streamable-http"` (mutual exclusion)
+
+6. **Security considerations**
+   - HTTP servers bypass OS-level process isolation (no subprocess)
+   - Bearer token or mTLS authentication required
+   - HTTPS enforcement for non-localhost URLs
+   - MGP isolation profiles may need adaptation (no process to sandbox)
+
+7. **Dashboard UI**
+   - MCP Server management page: transport type indicator (stdio / HTTP)
+   - Connection status for HTTP servers (latency, last heartbeat)
+
+**What this does NOT cover:**
+- WebSocket transport (not part of MCP spec)
+- MCP server discovery/registration via HTTP (out of scope)
+- Automatic migration of stdio servers to HTTP
+
+**Dependency:** None — can be implemented independently of other roadmap items.
+Existing stdio servers are unaffected.
