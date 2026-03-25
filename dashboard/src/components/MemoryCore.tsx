@@ -260,7 +260,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                 aria-label={t('export')}
                 className="p-1 rounded text-content-tertiary hover:text-brand hover:bg-brand/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                <Download size={14} />
+                <Upload size={14} />
               </button>
               <button
                 onClick={handleImportClick}
@@ -269,7 +269,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                 aria-label={t('import')}
                 className="p-1 rounded text-content-tertiary hover:text-brand hover:bg-brand/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                <Upload size={14} />
+                <Download size={14} />
               </button>
               <input
                 ref={fileInputRef}
