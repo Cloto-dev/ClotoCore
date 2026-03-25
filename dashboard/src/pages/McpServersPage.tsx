@@ -48,6 +48,7 @@ export function McpServersPage() {
     'tool.': 2,
     'voice.': 3,
     'vision.': 4,
+    'io.': 5,
   };
   const getOrder = (id: string) => {
     for (const [prefix, order] of Object.entries(categoryOrder)) {

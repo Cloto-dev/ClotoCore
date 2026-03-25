@@ -51,13 +51,14 @@ export function McpServerList({ servers, selectedId, onSelect, onAdd, onRefresh,
     }
   }, [isFiltering]);
 
-  // Category sort: mind > memory > tool > voice > vision > other
+  // Category sort: mind > memory > tool > voice > vision > io > other
   const categoryOrder: Record<string, number> = {
     'mind.': 0,
     'memory.': 1,
     'tool.': 2,
     'voice.': 3,
     'vision.': 4,
+    'io.': 5,
   };
   const getOrder = (id: string) => {
     for (const [prefix, order] of Object.entries(categoryOrder)) {

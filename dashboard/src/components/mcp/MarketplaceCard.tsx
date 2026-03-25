@@ -8,6 +8,7 @@ import {
   Image,
   Layers,
   type LucideIcon,
+  MessageCircle,
   Mic,
   Monitor,
   Package,
@@ -36,6 +37,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   monitor: Monitor,
   eye: Eye,
   mic: Mic,
+  'message-circle': MessageCircle,
 };
 
 interface MarketplaceCardProps {

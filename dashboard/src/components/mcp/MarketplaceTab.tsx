@@ -19,6 +19,7 @@ const CATEGORIES: Array<{ key: string; label: string }> = [
   { key: 'vision', label: 'vision' },
   { key: 'voice', label: 'voice' },
   { key: 'output', label: 'output' },
+  { key: 'io', label: 'io' },
 ];
 
 interface MarketplaceTabProps {
