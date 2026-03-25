@@ -37,7 +37,7 @@ pub async fn verify_agent_password(
 pub const AGENT_NAME_MIN: usize = 1;
 pub const AGENT_NAME_MAX: usize = 200;
 pub const AGENT_DESC_MIN: usize = 1;
-pub const AGENT_DESC_MAX: usize = 1000;
+pub const AGENT_DESC_MAX: usize = 5000;
 pub const AGENT_METADATA_MAX_PAIRS: usize = 50;
 pub const AGENT_METADATA_KEY_MAX: usize = 200;
 pub const AGENT_METADATA_VALUE_MAX: usize = 5000;
