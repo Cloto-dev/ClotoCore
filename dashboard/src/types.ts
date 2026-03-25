@@ -168,7 +168,7 @@ export interface McpServerSettings {
 }
 
 // Marketplace types
-export type ServerCategory = 'mind' | 'memory' | 'tool' | 'vision' | 'voice' | 'output';
+export type ServerCategory = 'mind' | 'memory' | 'tool' | 'vision' | 'voice' | 'output' | 'io';
 
 export interface EnvVarDef {
   key: string;
