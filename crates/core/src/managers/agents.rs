@@ -240,13 +240,15 @@ impl AgentManager {
         avatar_description: Option<&str>,
     ) -> anyhow::Result<()> {
         let desc_val = avatar_description.unwrap_or("");
+        let updated_at = chrono::Utc::now().timestamp_millis().to_string();
         sqlx::query(
             "UPDATE agents SET metadata = json_set(\
-             COALESCE(metadata, '{}'), '$.avatar_path', ?, '$.avatar_description', ?) \
+             COALESCE(metadata, '{}'), '$.avatar_path', ?, '$.avatar_description', ?, '$.avatar_updated_at', ?) \
              WHERE id = ?",
         )
         .bind(avatar_path)
         .bind(desc_val)
+        .bind(&updated_at)
         .bind(agent_id)
         .execute(&self.pool)
         .await?;
