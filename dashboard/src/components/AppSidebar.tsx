@@ -23,7 +23,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation('nav');
-  const { agents, selectedAgentId, setSelectedAgentId, systemActive, setSystemActive } = useAgentContext();
+  const { agents, selectedAgentId, setSelectedAgentId, systemActive, setSystemActive, processingAgentIds } =
+    useAgentContext();
 
   const handleSelectSystem = () => {
     if (systemActive && isAgentPageActive) {
@@ -95,7 +96,9 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
               {!collapsed && isActive && (
                 <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-brand rounded-r-full" />
               )}
-              <div className="relative flex-shrink-0 w-7 h-7 overflow-hidden rounded-md flex items-center justify-center">
+              <div
+                className={`relative flex-shrink-0 w-7 h-7 overflow-hidden rounded-md flex items-center justify-center ${processingAgentIds.has(agent.id) ? 'agent-processing-glow' : ''}`}
+              >
                 <AgentIcon agent={agent} size={28} />
                 <div
                   role="img"
