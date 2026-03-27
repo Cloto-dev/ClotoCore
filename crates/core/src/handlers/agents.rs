@@ -456,16 +456,33 @@ pub async fn upload_avatar(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to write avatar file: {}", e)))?;
 
-    // Attempt vision analysis (graceful degradation, 30s timeout for Ollama model load + inference)
-    let avatar_description = if let Ok(result) = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        analyze_avatar(&state, &avatar_path_str),
-    )
-    .await
+    // Attempt vision analysis only if the agent has access to a Vision server
+    let has_vision_access = if let Some(vision_server_id) = state
+        .mcp_manager
+        .resolve_capability_server(crate::managers::CapabilityType::Vision)
+        .await
     {
-        result
+        crate::db::mcp::resolve_tool_access(&state.pool, &id, &vision_server_id, "analyze_image")
+            .await
+            .is_ok_and(|p| p == crate::db::mcp::PermissionLevel::Allow)
     } else {
-        tracing::warn!("Avatar vision analysis timed out after 30s, storing without description");
+        false
+    };
+
+    let avatar_description = if has_vision_access {
+        // Graceful degradation, 30s timeout for Ollama model load + inference
+        if let Ok(result) = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            analyze_avatar(&state, &avatar_path_str),
+        )
+        .await
+        {
+            result
+        } else {
+            tracing::warn!("Avatar vision analysis timed out after 30s, storing without description");
+            None
+        }
+    } else {
         None
     };
 
