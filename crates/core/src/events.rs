@@ -443,6 +443,153 @@ impl EventProcessor {
                         "🗣️ Agent dialogue"
                     );
                 }
+                // ── External Action: I/O bridge callback → agentic loop ──
+                cloto_shared::ClotoEventData::McpCallbackRequested {
+                    ref callback_id,
+                    ref server_id,
+                    ref callback_type,
+                    ref message,
+                    ref metadata,
+                    ..
+                } if callback_type == "external_message" => {
+                    info!(
+                        trace_id = %trace_id,
+                        callback_id = %callback_id,
+                        server_id = %server_id,
+                        "📥 External message callback received"
+                    );
+
+                    // 1. Resolve target agent from mcp_access_control
+                    let pool_opt = self.registry.mcp_manager.as_ref().map(|m| m.pool().clone());
+                    let target_agent_id = if let Some(ref pool) = pool_opt {
+                        crate::db::mcp::get_agents_for_server(pool, server_id)
+                            .await
+                            .ok()
+                            .and_then(|agents| agents.into_iter().next())
+                    } else {
+                        None
+                    }
+                    .unwrap_or_else(|| self.system_handler.default_agent_id().to_string());
+
+                    // 2. Extract sender info from metadata
+                    let meta = metadata.as_ref();
+                    let sender_name = meta
+                        .and_then(|m| m.get("author_name"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown")
+                        .to_string();
+                    let source = meta
+                        .and_then(|m| m.get("source"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("external")
+                        .to_string();
+                    let author_id = meta
+                        .and_then(|m| m.get("author_id"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("0")
+                        .to_string();
+
+                    // 3. Build ClotoMessage with external metadata
+                    let action_id = format!("ext-{}", callback_id);
+                    let mut msg_metadata = std::collections::HashMap::new();
+                    msg_metadata.insert("target_agent_id".into(), target_agent_id.clone());
+                    msg_metadata.insert("external_action_id".into(), action_id.clone());
+                    msg_metadata.insert("external_callback_id".into(), callback_id.clone());
+                    msg_metadata.insert("external_source".into(), source.clone());
+                    msg_metadata.insert("external_sender_name".into(), sender_name.clone());
+                    msg_metadata.insert("external_server_id".into(), server_id.clone());
+                    msg_metadata.insert("skip_user_persist".into(), "true".into());
+
+                    // Forward I/O bridge metadata so the LLM can use origin-specific tools
+                    // (e.g. add_reaction needs channel_id + message_id)
+                    if let Some(meta) = meta {
+                        for key in ["channel_id", "message_id", "guild_id"] {
+                            if let Some(val) = meta.get(key).and_then(|v| v.as_str()) {
+                                msg_metadata
+                                    .insert(format!("external_{}", key), val.to_string());
+                            }
+                        }
+                        // Forward reply reference so the LLM knows the replied-to message
+                        if let Some(reference) = meta.get("reference") {
+                            if let Ok(ref_str) = serde_json::to_string(reference) {
+                                msg_metadata
+                                    .insert("external_reference".into(), ref_str);
+                            }
+                        }
+                    }
+
+                    let cloto_msg = cloto_shared::ClotoMessage {
+                        id: cloto_shared::ClotoId::new().to_string(),
+                        source: cloto_shared::MessageSource::User {
+                            id: format!("{}:{}", source, author_id),
+                            name: sender_name.clone(),
+                        },
+                        target_agent: Some(target_agent_id.clone()),
+                        content: message.clone(),
+                        timestamp: chrono::Utc::now(),
+                        metadata: msg_metadata,
+                    };
+
+                    // 4. Resolve agent name and engine for the ExternalAction pending event
+                    let (agent_name, engine_id) = self
+                        .agent_manager
+                        .get_agent_config(&target_agent_id)
+                        .await
+                        .map_or_else(
+                            |_| (target_agent_id.clone(), String::new()),
+                            |(meta, eng)| (meta.name, eng),
+                        );
+
+                    // 5. Emit ExternalAction "pending"
+                    let pending_data = cloto_shared::ClotoEventData::ExternalAction {
+                        action_id: action_id.clone(),
+                        source: source.clone(),
+                        source_label: source.clone(),
+                        target_agent_id: target_agent_id.clone(),
+                        target_agent_name: agent_name,
+                        prompt: message.clone(),
+                        sender_name,
+                        engine_id,
+                        response: None,
+                        status: "pending".into(),
+                        callback_id: callback_id.clone(),
+                    };
+                    let pending_event = Arc::new(ClotoEvent::with_trace(trace_id, pending_data));
+                    let pending_seq = SequencedEvent::new(pending_event.clone());
+                    self.record_event(pending_seq.clone()).await;
+                    let _ = self.tx_internal.send(pending_seq);
+
+                    // 6. Inject MessageReceived into event bus → triggers SystemHandler.handle_message()
+                    let msg_event = Arc::new(ClotoEvent::with_trace(
+                        trace_id,
+                        cloto_shared::ClotoEventData::MessageReceived(cloto_msg),
+                    ));
+                    let msg_envelope = crate::EnvelopedEvent {
+                        event: msg_event,
+                        issuer: None,
+                        correlation_id: Some(trace_id),
+                        depth: envelope.depth + 1,
+                    };
+                    if let Err(e) = event_tx.send(msg_envelope).await {
+                        error!("Failed to inject external message into event bus: {}", e);
+                    }
+                }
+                cloto_shared::ClotoEventData::ExternalAction {
+                    ref action_id,
+                    ref source,
+                    ref target_agent_id,
+                    ref status,
+                    ..
+                } => {
+                    info!(
+                        trace_id = %trace_id,
+                        action_id = %action_id,
+                        source = %source,
+                        target = %target_agent_id,
+                        status = %status,
+                        "📥 External action"
+                    );
+                }
                 _ => {}
             }
         }
