@@ -20,6 +20,35 @@ function agentDisplayName(agentId: string, agentMap: Map<string, string>): strin
   return parts[0] || stripped;
 }
 
+/** Extract the speaker name from a memory's source field.
+ *  Handles both internally-tagged {"type":"User","name":"...","id":"..."} and
+ *  legacy externally-tagged {"User":{"name":"..."}} formats. */
+function memorySpeakerName(source: Record<string, unknown>, agentId: string, agentMap: Map<string, string>): string {
+  if (!source || typeof source !== 'object') return agentDisplayName(agentId, agentMap);
+  // Internally-tagged: { type: "User", name: "cycia2", id: "discord:123" }
+  if (source.type === 'User') {
+    const name = source.name as string | undefined;
+    if (name && name !== 'User') return name;
+    // Fallback: extract name from id (e.g. "discord:username" → "username")
+    const id = source.id as string | undefined;
+    if (id?.includes(':')) return id.split(':').slice(1).join(':');
+    return 'User';
+  }
+  if (source.type === 'Agent') return agentDisplayName(agentId, agentMap);
+  // Externally-tagged: { User: { name: "cycia2" } }
+  const userObj = source.User ?? source.user;
+  if (userObj && typeof userObj === 'object') {
+    const name = (userObj as Record<string, string>).name;
+    if (name && name !== 'User') return name;
+    return 'User';
+  }
+  if (source.Agent || source.agent) return agentDisplayName(agentId, agentMap);
+  // System/profile sources
+  if (source.type === 'System' || source.System) return 'System';
+  // Default to agent name
+  return agentDisplayName(agentId, agentMap);
+}
+
 export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { isWindowMode?: boolean }) {
   const { t } = useTranslation('memory');
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -331,7 +360,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                         <User size={12} className="text-content-tertiary group-hover:text-brand" />
                       </div>
                       <span className="text-[10px] font-mono text-content-tertiary">
-                        {agentDisplayName(mem.agent_id, agentMap)}
+                        {memorySpeakerName(mem.source as Record<string, unknown>, mem.agent_id, agentMap)}
                       </span>
                     </div>
                     <div className="flex-1 min-h-0 text-xs font-medium leading-relaxed text-content-secondary whitespace-pre-wrap line-clamp-6 font-mono">
