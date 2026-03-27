@@ -359,7 +359,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                       <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-brand/10 transition-colors">
                         <User size={12} className="text-content-tertiary group-hover:text-brand" />
                       </div>
-                      <span className="text-[10px] font-mono text-content-tertiary">
+                      <span className="text-[11px] font-mono text-content-tertiary">
                         {memorySpeakerName(mem.source as Record<string, unknown>, mem.agent_id, agentMap)}
                       </span>
                     </div>
