@@ -16,11 +16,13 @@ export function agentColor(_agent: AgentMetadata): string {
 /** Render the appropriate icon for an agent (avatar image or fallback icon) */
 export function AgentIcon({ agent, size = 20 }: { agent: AgentMetadata; size?: number }) {
   const [imgError, setImgError] = useState(false);
+  // Cache-bust using avatar_updated_at — set by backend on every upload
+  const avatarVersion = agent.metadata?.avatar_updated_at ?? '0';
 
   if (agent.metadata?.has_avatar === 'true' && !imgError) {
     return (
       <img
-        src={api.getAvatarUrl(agent.id)}
+        src={`${api.getAvatarUrl(agent.id)}?v=${avatarVersion}`}
         alt={agent.name}
         className="rounded-md object-cover"
         style={{ width: size, height: size }}
