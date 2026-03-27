@@ -1,5 +1,6 @@
 import { createContext, type ReactNode, useCallback, useContext, useState } from 'react';
 import { useAgents } from '../hooks/useAgents';
+import { useProcessingAgents } from '../hooks/useProcessingAgents';
 import type { AgentMetadata } from '../types';
 
 interface AgentContextValue {
@@ -10,6 +11,7 @@ interface AgentContextValue {
   setSelectedAgentId: (id: string | null) => void;
   systemActive: boolean;
   setSystemActive: (active: boolean) => void;
+  processingAgentIds: Set<string>;
 }
 
 const AgentContext = createContext<AgentContextValue | null>(null);
@@ -18,6 +20,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   const { agents, isLoading, refetch } = useAgents();
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [systemActive, setSystemActive] = useState(false);
+  const processingAgentIds = useProcessingAgents();
 
   const refetchAgents = useCallback(async () => {
     await refetch();
@@ -33,6 +36,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
         setSelectedAgentId,
         systemActive,
         setSystemActive,
+        processingAgentIds,
       }}
     >
       {children}
