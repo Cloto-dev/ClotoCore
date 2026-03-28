@@ -972,7 +972,7 @@ that don't map to ClotoCore's agent_id model. Manual migration may be performed 
 - [ ] Claude Code `recall` tool verification
 - [ ] Embedding server port conflict resolution (multiple Claude Code sessions share port 8401 — second instance fails to bind, blocking cpersona startup)
 
-### CPersona 2.3.2: Memory Confidence Score — **Planned**
+### CPersona 2.3.2: Memory Confidence Score — **Complete**
 
 Enrich recall output with machine-computed confidence metadata so that consuming
 agents can modulate their response certainty without hardcoded behavioral rules.
@@ -1042,13 +1042,14 @@ score = math.sqrt(norm_cos * time_decay)
 
 **Scope:**
 
-- [ ] Extend `_search_vector()` to compute and attach `confidence` dict to each result
-- [ ] Extend `do_recall()` to include `confidence` in output messages (opt-in via `CPERSONA_CONFIDENCE_ENABLED`)
-- [ ] Timestamp selection: prefer `memories.timestamp`, fall back to `memories.created_at`
-- [ ] Non-vector results (FTS5, keyword, profile): `confidence.cosine` omitted, `confidence.score` based on `age_hours` only (`score = sqrt(time_decay)`)
-- [ ] Environment variables: `CPERSONA_CONFIDENCE_ENABLED`, `CPERSONA_COSINE_FLOOR`, `CPERSONA_COSINE_CEIL`, `CPERSONA_DECAY_RATE`
-- [ ] Unit tests: score computation, edge cases (NULL timestamp, zero age, cosine outside floor/ceil range)
-- [ ] `DECAY_RATE` default (0.005) requires empirical validation — test with real memory corpus
+- [x] Extend `_search_vector()` to compute and attach `confidence` dict to each result
+- [x] Extend `do_recall()` to include `confidence` in output messages (opt-in via `CPERSONA_CONFIDENCE_ENABLED`)
+- [x] Timestamp selection: prefer `memories.timestamp`, fall back to `memories.created_at`
+- [x] Non-vector results (FTS5, keyword, profile): `confidence.cosine` omitted, `confidence.score` based on `age_hours` only (`score = sqrt(time_decay)`)
+- [x] Environment variables: `CPERSONA_CONFIDENCE_ENABLED`, `CPERSONA_COSINE_FLOOR`, `CPERSONA_COSINE_CEIL`, `CPERSONA_DECAY_RATE`
+- [x] Unit tests: score computation, edge cases (NULL timestamp, zero age, cosine outside floor/ceil range) — 14 tests
+- [x] `DECAY_RATE` default (0.005) — implemented, empirical validation ongoing
+- [x] Confidence-based re-ranking: results re-sorted by unified score before truncation
 
 **Implementation scope:** `cloto-mcp-servers` repo only (`servers/cpersona/server.py`).
 No ClotoCore kernel changes required. No schema changes.
@@ -1088,6 +1089,21 @@ Manual tuning per model is fragile and error-prone.
 is ephemeral, computed per startup from existing data).
 
 ### CPersona 2.4+ Roadmap
+
+#### Design Philosophy: 3-Layer Hybrid Evolution
+
+CPersona v2.3.x established a **3-layer hybrid architecture** (Agent Tools / RAG System / Filter).
+The v2.4+ roadmap is positioned as progressive deepening and expansion of these 3 layers.
+
+- **v2.4**: Deepening the 3 layers — Internalizes temporal awareness into the RAG layer (Layer 2).
+  By making search time-aware, the system can prioritize "slightly less similar but recent" memories
+  over "semantically similar but stale" ones. The dual structure of v2.3.2 Confidence Score
+  (post-recall output metadata) and v2.4 Recency Boost (search-time ranking) ensures that
+  temporal relevance is firmly embedded in the RAG layer.
+- **v2.5**: Refining the 3 layers — Improves inter-stage fusion within the Filter layer (Layer 3)
+  via RRF reranking. Contextual profile enrichment. Benchmark verification framework.
+- **v3.0**: 3-layer → 4-layer expansion — Graph Memory (entities/edges) is added as Layer 4.
+  Bi-Temporal Model adds multi-dimensional time (valid time + record time).
 
 #### Recency-Weighted Vector Search (Planned — v2.4 scope)
 
