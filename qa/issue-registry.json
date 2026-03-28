@@ -2293,6 +2293,18 @@
       "pattern": "let _ = window.show()",
       "expected": "present",
       "status": "open"
+    },
+    {
+      "id": "bug-343",
+      "summary": "MCP server toggle (stop/start) does not reliably restart child process — race condition in async Drop chain causes old process to persist, preventing DB migrations from running",
+      "severity": "HIGH",
+      "discovered": "2026-03-28T00:00:00Z",
+      "version": "0.6.3-alpha.11",
+      "commit": "68fd17f",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "state.servers.remove(id)",
+      "expected": "present",
+      "status": "open"
     }
   ]
 }
