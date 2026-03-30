@@ -1,6 +1,6 @@
 # CPersona Memory System — MCP Server Design
 
-> **Status:** Implemented (Phase 1-5 complete, v2.3.1 in progress)
+> **Status:** Implemented (v2.4 RRF complete, v2.5 Recency Boost planned)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
 > **MCP Server ID:** `memory.cpersona`
 > **Companion Server:** `tool.embedding` (pluggable vector embedding)
@@ -15,12 +15,13 @@
 |---------|---------|---------|--------|-------------------|--------|
 | CPersona 2.0/2.1 | ai_karin | SQLite (WAL, FTS5, vector) | FTS5 + cosine similarity + semantic cache | LLM-powered (DeepSeek Reasoner): profile extraction, episode archival | Reference implementation |
 | CPersona 2.2 | ClotoCore | plugin_data (key-value via SAL) | `LIKE '%keyword%'` | None | Deprecated (Rust plugin) |
-| CPersona 2.3 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) + background task queue (Phase 5) | **Current** |
-| CPersona 2.3.1 | ClotoCore | Same as 2.3 | Same as 2.3 | 2.3 + JSONL export/import, pre-computed summary/keywords in archive_episode, Claude Code integration | **In Progress** |
-| CPersona 2.3.2 | ClotoCore | Same as 2.3 | Same as 2.3 | 2.3.1 + Memory Confidence Score (recall output enriched with confidence metadata: cosine, age, geometric mean score) | Planned |
-| CPersona 2.3.3 | ClotoCore | Same as 2.3 | Same as 2.3 | 2.3.2 + Embedding model auto-calibration (statistical COSINE_FLOOR/CEIL per model) | Planned |
-| CPersona 2.4 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | LLM-powered + anti-contamination + gated recency boost (reuses v2.3.2 normalization) | Planned |
-| CPersona 2.5 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency + RRF reranking | LLM-powered + anti-contamination + profile enrichment | Planned |
+| CPersona 2.3 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector (pluggable) | LLM-powered (Phase 3) + anti-contamination (Phase 4) + background task queue (Phase 5) | Complete |
+| CPersona 2.3.1 | ClotoCore | Same as 2.3 | Same as 2.3 | 2.3 + JSONL export/import, pre-computed summary/keywords in archive_episode, Claude Code integration | Complete |
+| CPersona 2.3.2 | ClotoCore | Same as 2.3 | Same as 2.3 | 2.3.1 + Memory Confidence Score (recall output enriched with confidence metadata: cosine, age, geometric mean score) | Complete |
+| CPersona 2.3.3–2.3.6 | ClotoCore | Same as 2.3 | Same as 2.3 | Task decay, deep recall, FTS5 trigram, adaptive scan, remote vector search | Complete |
+| CPersona 2.3.7 | ClotoCore | Same as 2.3 | Same as 2.3 | Auto-calibration of VECTOR_MIN_SIMILARITY (z-score of null cosine distribution, label-free) | **Complete** |
+| CPersona 2.4 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + RRF reranking | Reciprocal Rank Fusion as alternative recall mode (RECALL_MODE=rrf). Vector and FTS5 run independently, merged by RRF score | **Complete** |
+| CPersona 2.5 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | LLM-powered + anti-contamination + gated recency boost (reuses v2.3.2 normalization) | Planned |
 | CPersona 3.0 | Standalone | SQLite + graph tables (nodes/edges) | Cascade + graph traversal (BFS) + bi-temporal | MIT license, PyPI packaging, memory evolution (full) | Planned |
 
 ### 1.2 Capabilities Lost in 2.2 (restored in 2.3)
@@ -72,17 +73,20 @@ The following capabilities were dropped and subsequently restored in 2.3:
 │  memory.cpersona           │  │  tool.embedding                      │
 │  (~40MB)             │  │  (~40-490MB depending on provider) │
 │                      │  │                                    │
-│  Tools:              │  │  Tools:                            │
+│  Tools (13):         │  │  Tools (5):                        │
 │  - store             │  │  - embed (batch, max 100)          │
-│  - recall            │  │                                    │
-│  - update_profile    │  │  Providers:                        │
-│  - archive_episode   │  │  - onnx_miniml (local, ~490MB)     │
-│  - list_memories     │  │  - api_openai  (remote, ~40MB)    │
-│  - list_episodes     │  │  - api_deepseek (remote, ~40MB)   │
-│  - delete_memory     │  │                                    │
-│  - delete_episode    │  │  HTTP: localhost:PORT/embed        │
-│  - delete_agent_data │  │  (lightweight internal endpoint)   │
-│  - get_queue_status  │  │                                    │
+│  - recall            │  │  - index (namespace + vectors)     │
+│  - update_profile    │  │  - search (similarity query)       │
+│  - archive_episode   │  │  - remove (by ID)                  │
+│  - list_memories     │  │  - purge (by namespace)            │
+│  - list_episodes     │  │                                    │
+│  - delete_memory     │  │  Providers:                        │
+│  - delete_episode    │  │  - onnx_miniml (local, ~490MB)     │
+│  - delete_agent_data │  │  - api_openai  (remote, ~40MB)    │
+│  - calibrate_threshold│ │                                    │
+│  - get_queue_status  │  │  HTTP: localhost:PORT              │
+│  - export_memories   │  │  /embed /index /search /remove     │
+│  - import_memories   │  │  /purge                            │
 │                      │  │  Embedding Cache:                  │
 │  DB: cpersona.db     │  │  LRU (256 entries) + TTL (300s)   │
 │  (SQLite, FTS5)      │  │                                    │
@@ -106,8 +110,7 @@ server exposes a **lightweight HTTP endpoint** alongside MCP stdio for internal 
 | CPersona Embedding Mode | How it works | CPersona Memory | Embedding Server |
 |---------------------|-------------|-------------|-----------------|
 | `http` | CPersona calls embedding server's HTTP endpoint | ~40MB | Required (~40-490MB) |
-| `api` | CPersona calls external API directly (OpenAI/DeepSeek) | ~40MB | Not required |
-| `local` | CPersona loads ONNX model in-process | ~490MB | Not required |
+| `api` | CPersona calls external API directly (OpenAI-compatible) | ~40MB | Not required |
 | `none` | Vector search disabled (FTS5 + keyword only) | ~40MB | Not required |
 
 ### 2.3 Embedding Cache
@@ -267,9 +270,9 @@ recall(agent_id, query, limit)
   │     → Fetch profiles for this agent_id
   │     → Include as [Profile] prefixed contextual information
   │
-  └─ 4. Keyword Fallback (2.2-compatible)
+  └─ 4. Keyword Fallback (v2.3.4+: FTS5 on memories_fts)
         Condition: remaining slots available after strategies 1-3
-        → Keyword match on memories.content (LIKE)
+        → FTS5 match on memories_fts (primary); LIKE fallback when FTS disabled
         → Chronological ordering (newest first)
         → Max rows scanned: CPERSONA_MAX_MEMORIES (OOM guard)
 
@@ -277,6 +280,25 @@ recall(agent_id, query, limit)
   → Truncate to limit, reverse to chronological order for LLM context
   → Apply Phase 4 timestamp annotations: [Memory from YYYY-MM-DD HH:MM TZ]
 ```
+
+**Alternative: RRF mode (v2.4)**
+
+When `CPERSONA_RECALL_MODE=rrf`, the cascade is replaced by Reciprocal Rank Fusion:
+
+```
+recall(agent_id, query, limit)  [RRF mode]
+  │
+  ├─ 1. Vector Search (independent, threshold relaxed by RRF_THRESHOLD_FACTOR)
+  ├─ 2. FTS5 Episode Search (independent)
+  ├─ 3. FTS5 Memory Search (independent)
+  │
+  ├─ Merge: RRF score = Σ 1/(k + rank) for each retriever that found the doc
+  ├─ Profile Injection (unchanged, always executed)
+  ├─ Confidence Re-rank (if CPERSONA_CONFIDENCE_ENABLED=true)
+  └─ Autocut (if CPERSONA_AUTOCUT_ENABLED=true, largest score gap detection)
+```
+
+RRF avoids cascade's positional bias where later stages are disadvantaged by earlier stages filling slots. Each retriever runs independently and contributes equally to the final ranking.
 
 **FTS5 Injection Prevention:**
 - Input sanitized with `re.sub(r'[^\w\s]', "", query, flags=re.UNICODE)` — strips all FTS5 operators (`AND`, `OR`, `NOT`, `NEAR`, `*`, `^`, `-`)
@@ -613,6 +635,7 @@ CREATE TABLE episodes (
     embedding  BLOB,
     start_time TEXT,
     end_time   TEXT,
+    resolved   INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -624,7 +647,16 @@ CREATE VIRTUAL TABLE episodes_fts USING fts5(
     summary,
     keywords,
     content=episodes,
-    content_rowid=id
+    content_rowid=id,
+    tokenize='trigram'
+);
+
+-- FTS5 full-text search index for memories (v2.3.4+)
+CREATE VIRTUAL TABLE memories_fts USING fts5(
+    content,
+    content=memories,
+    content_rowid=id,
+    tokenize='trigram'
 );
 
 -- Triggers to keep FTS5 in sync
@@ -785,7 +817,7 @@ CPERSONA_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CPERSONA_DB_PATH` | `data/cpersona.db` | Path to CPersona's dedicated SQLite database |
-| `CPERSONA_EMBEDDING_MODE` | `none` | Embedding strategy: `http`, `api`, `local`, `none` |
+| `CPERSONA_EMBEDDING_MODE` | `none` | Embedding strategy: `http`, `api`, `none` |
 | `CPERSONA_EMBEDDING_URL` | — | URL for `http` mode (embedding server endpoint) |
 | `CPERSONA_EMBEDDING_API_KEY` | — | API key for `api` mode |
 | `CPERSONA_EMBEDDING_API_URL` | `https://api.openai.com/v1/embeddings` | API endpoint for `api` mode |
@@ -805,6 +837,21 @@ CPERSONA_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
 | `CPERSONA_COSINE_FLOOR` | `0.20` | Cosine normalization lower bound (model-dependent; v2.3.2) |
 | `CPERSONA_COSINE_CEIL` | `0.75` | Cosine normalization upper bound (model-dependent; v2.3.2) |
 | `CPERSONA_DECAY_RATE` | `0.005` | Time decay rate per hour for confidence score (v2.3.2) |
+| `CPERSONA_RESOLVED_DECAY_FACTOR` | `0.3` | Additional decay factor for resolved episodes (v2.3.2) |
+| `CPERSONA_VECTOR_SEARCH_MODE` | `local` | `local` (BLOB+NumPy) / `remote` (embedding server delegation) |
+| `CPERSONA_STORE_BLOB` | `true` | Store embedding BLOBs even in remote mode (fallback) |
+| `CPERSONA_AUTO_CALIBRATE` | `false` | Auto-calibrate VECTOR_MIN_SIMILARITY on startup (v2.3.7) |
+| `CPERSONA_CALIBRATE_SAMPLE_SIZE` | `200` | Number of embeddings to sample for calibration |
+| `CPERSONA_CALIBRATE_Z_FACTOR` | `1.0` | Z-score multiplier (higher = more permissive) |
+| `CPERSONA_CALIBRATE_FLOOR` | `0.05` | Minimum threshold floor for calibration |
+| `CPERSONA_RECALL_MODE` | `cascade` | `cascade` (sequential 4-stage) / `rrf` (Reciprocal Rank Fusion) |
+| `CPERSONA_RRF_K` | `60` | RRF smoothing parameter K |
+| `CPERSONA_RRF_THRESHOLD_FACTOR` | `0.5` | RRF mode vector similarity threshold multiplier |
+| `CPERSONA_AUTOCUT_ENABLED` | `false` | Enable score-gap detection noise cutoff (v2.4) |
+| `CPERSONA_TRANSPORT` | `stdio` | `stdio` / `streamable-http` |
+| `CPERSONA_AUTH_TOKEN` | (empty) | Bearer token for HTTP transport authentication |
+| `CPERSONA_HTTP_HOST` | `0.0.0.0` | HTTP server bind address |
+| `CPERSONA_HTTP_PORT` | `8402` | HTTP server port |
 
 ---
 
@@ -961,7 +1008,7 @@ that don't map to ClotoCore's agent_id model. Manual migration may be performed 
 - [x] New tool: `get_queue_status` for monitoring
 - [x] Disable via `CPERSONA_TASK_QUEUE_ENABLED=false` (falls back to synchronous execution)
 
-### CPersona 2.3.1: Memory Portability & Claude Code Integration — **In Progress**
+### CPersona 2.3.1: Memory Portability & Claude Code Integration — **Complete**
 
 - [x] `export_memories` tool: JSONL output (header/memory/episode/profile records, optional base64 embeddings)
 - [x] `import_memories` tool: JSONL input with msg_id deduplication (idempotent), agent_id remapping, dry_run preview, profile UPSERT
@@ -1054,39 +1101,88 @@ score = math.sqrt(norm_cos * time_decay)
 **Implementation scope:** `cloto-mcp-servers` repo only (`servers/cpersona/server.py`).
 No ClotoCore kernel changes required. No schema changes.
 
-### CPersona 2.3.3: Embedding Model Auto-Calibration — **Planned**
+### CPersona 2.3.7: Auto-Calibration — **Complete**
 
-`COSINE_FLOOR` / `COSINE_CEIL` in v2.3.2 are embedding-model-dependent constants.
-Different models produce different cosine similarity distributions — MiniLM clusters
-around 0.2–0.7, while OpenAI text-embedding-3-small may cluster around 0.3–0.8.
-Manual tuning per model is fragile and error-prone.
+`VECTOR_MIN_SIMILARITY` is embedding-model-dependent. Different models produce
+different cosine similarity distributions — MiniLM clusters around 0.2–0.7, while
+OpenAI text-embedding-3-small may cluster around 0.3–0.8. Manual tuning per model
+is fragile and error-prone.
 
-**Solution: Statistical auto-calibration on startup**
+**Solution: z-score based null distribution calibration**
+
+Implemented as `calibrate_threshold` MCP tool and optional startup auto-calibration.
+Samples random embedding pairs to build a null distribution (mostly unrelated pairs),
+then sets the threshold at `mean - z × std` to filter the noise floor.
 
 ```python
-# On CPersona startup (after embedding client is initialized):
-# 1. Sample N random memories with embeddings
-# 2. Compute pairwise cosine similarities (or sample-vs-sample)
-# 3. Set COSINE_FLOOR = percentile(similarities, 5)   # bottom 5%
-# 4. Set COSINE_CEIL  = percentile(similarities, 95)   # top 95%
-# 5. Log calibrated values for transparency
-# 6. Skip if < MIN_CALIBRATION_SAMPLES memories exist (fall back to env defaults)
+# Actual implementation (do_calibrate_threshold in server.py)
+rows = await db.execute_fetchall(
+    "SELECT embedding FROM memories WHERE agent_id = ? AND embedding IS NOT NULL "
+    "ORDER BY RANDOM() LIMIT ?", (agent_id, sample_n))
+vecs = np.array([np.frombuffer(blob, dtype=np.float32) for blob in rows])
+sim_matrix = vecs @ vecs.T
+pairwise_sims = sim_matrix[np.triu_indices(len(vecs), k=1)]
+
+# z-score threshold: mean - z * std (lower tail filtering)
+threshold = max(mean - z_factor * std, CALIBRATE_FLOOR)
+VECTOR_MIN_SIMILARITY = threshold
 ```
+
+Initially designed with percentile (p5) approach, but this produced destructively
+high thresholds on homogeneous corpora. z-score adapts to corpus diversity:
+- Diverse corpus (mean=0.15, std=0.10): threshold ≈ 0.05
+- Homogeneous corpus (mean=0.55, std=0.10): threshold ≈ 0.45
 
 **Scope:**
 
-- [ ] Startup calibration routine in `server.py` (runs once after DB + embedding init)
-- [ ] `CPERSONA_AUTO_CALIBRATE` env var (`true`/`false`, default `false`)
-- [ ] `CPERSONA_CALIBRATION_SAMPLES` env var (default `100`)
-- [ ] `CPERSONA_CALIBRATION_PERCENTILE_LOW` / `_HIGH` (default `5` / `95`)
-- [ ] Manual overrides (`COSINE_FLOOR`/`CEIL`) take precedence when explicitly set
-- [ ] Log calibrated values at INFO level for debugging
-- [ ] Re-calibration on embedding model change (detect via stored model name in DB metadata?)
+- [x] `calibrate_threshold` MCP tool (manual invocation)
+- [x] `CPERSONA_AUTO_CALIBRATE` env var (`true`/`false`, default `false`)
+- [x] `CPERSONA_CALIBRATE_SAMPLE_SIZE` env var (default `200`)
+- [x] `CPERSONA_CALIBRATE_Z_FACTOR` env var (default `1.0`)
+- [x] `CPERSONA_CALIBRATE_FLOOR` env var (default `0.05`)
+- [x] Log calibrated values at INFO level
+- [ ] Persistent model-specific calibration (detect embedding dimension change → re-calibrate → store in DB) — deferred to future version
 
-**Dependency:** Requires v2.3.2 (confidence score uses the calibrated COSINE_FLOOR/CEIL).
+**Implementation scope:** `cloto-mcp-servers` repo only. No schema changes.
 
-**Implementation scope:** `cloto-mcp-servers` repo only. No schema changes (calibration
-is ephemeral, computed per startup from existing data).
+#### Cross-Agent Memory Merge (Planned — v2.3.8 scope)
+
+When the same user interacts with cpersona from multiple clients (e.g., Claude Code as
+`claude-code` and Claude web as `claude-web`), identical memories must be stored under
+each agent_id separately. This creates duplication and maintenance burden.
+
+**Solution: `merge_memories` tool**
+
+```python
+merge_memories(
+    source_agent_id: str,   # Agent to merge FROM
+    target_agent_id: str,   # Agent to merge INTO
+    mode: str = "copy",     # "copy" (preserve source) or "move" (delete source after merge)
+    dry_run: bool = False,  # Preview without writing
+)
+```
+
+**Merge behavior by record type:**
+
+| Record Type | Merge Strategy | Dedup |
+|-------------|---------------|-------|
+| memories | Copy to target | msg_id dedup (skip duplicates) |
+| episodes | Copy to target | summary hash dedup |
+| profiles | LLM merge | Reuse existing `_run_update_profile()` logic |
+
+**Anti-Contamination compatibility:** Merge is an explicit, user-initiated operation
+(like export/import). It does not weaken agent_id isolation — the user consciously
+decides to merge agent A's memories into agent B. Implicit cross-agent access remains
+prohibited.
+
+**Relationship with export/import:** `merge_memories` is conceptually equivalent to
+`export_memories(source) → import_memories(target)`, but executed as a single atomic
+operation without intermediate files. It reuses the same dedup and UPSERT logic.
+
+**Environment variables:** None. Merge is a tool invocation, not a background behavior.
+
+**Implementation scope:** `cloto-mcp-servers` repo only (`servers/cpersona/server.py`).
+No schema changes. New MCP tool registration only.
 
 ### CPersona 2.4+ Roadmap
 
@@ -1095,17 +1191,33 @@ is ephemeral, computed per startup from existing data).
 CPersona v2.3.x established a **3-layer hybrid architecture** (Agent Tools / RAG System / Filter).
 The v2.4+ roadmap is positioned as progressive deepening and expansion of these 3 layers.
 
-- **v2.4**: Deepening the 3 layers — Internalizes temporal awareness into the RAG layer (Layer 2).
+- **v2.4 (Complete)**: Refining the 3 layers — Reciprocal Rank Fusion (RRF) as alternative recall mode.
+  Vector and FTS5 run independently and merge by RRF score, eliminating cascade's positional bias.
+  Autocut (Weaviate-style score gap detection) for noise filtering. RRF threshold relaxation for broader coverage.
+- **v2.5 (Planned)**: Deepening the 3 layers — Internalizes temporal awareness into the RAG layer (Layer 2).
   By making search time-aware, the system can prioritize "slightly less similar but recent" memories
   over "semantically similar but stale" ones. The dual structure of v2.3.2 Confidence Score
-  (post-recall output metadata) and v2.4 Recency Boost (search-time ranking) ensures that
+  (post-recall output metadata) and v2.5 Recency Boost (search-time ranking) ensures that
   temporal relevance is firmly embedded in the RAG layer.
-- **v2.5**: Refining the 3 layers — Improves inter-stage fusion within the Filter layer (Layer 3)
-  via RRF reranking. Contextual profile enrichment. Benchmark verification framework.
 - **v3.0**: 3-layer → 4-layer expansion — Graph Memory (entities/edges) is added as Layer 4.
   Bi-Temporal Model adds multi-dimensional time (valid time + record time).
 
-#### Recency-Weighted Vector Search (Planned — v2.4 scope)
+#### RRF (Reciprocal Rank Fusion) — **Complete** (v2.4)
+
+Implemented as `CPERSONA_RECALL_MODE=rrf`. Three retrievers (vector, FTS5 episodes, FTS5 memories) run independently and merge by RRF score `1/(k + rank)`. Profile is injected outside RRF. Autocut (`CPERSONA_AUTOCUT_ENABLED`) detects the largest score gap and cuts noise results.
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CPERSONA_RECALL_MODE` | `cascade` | `cascade` / `rrf` |
+| `CPERSONA_RRF_K` | `60` | RRF smoothing constant |
+| `CPERSONA_RRF_THRESHOLD_FACTOR` | `0.5` | Vector threshold multiplier in RRF mode |
+| `CPERSONA_AUTOCUT_ENABLED` | `false` | Score gap noise cutoff |
+
+**Implementation scope:** `cloto-mcp-servers` repo (`servers/cpersona/server.py`, `_recall_rrf()` and `_autocut()` functions). No schema changes.
+
+#### Recency-Weighted Vector Search (Planned — v2.5 scope)
 
 Current vector search treats all memories equally regardless of age. A fixed cosine
 similarity threshold (`CPERSONA_VECTOR_MIN_SIMILARITY = 0.3`) means a relevant
@@ -1188,49 +1300,10 @@ enhancements are planned for CPersona 2.4+:
 
 **Theme:** Sharpen existing strengths without architectural changes.
 
-##### 1. Reciprocal Rank Fusion (RRF) Reranking
+**Note:** RRF was originally planned as v2.5 but was implemented ahead of schedule as v2.4.
+The remaining v2.5 items are Profile Enrichment and Benchmark Framework.
 
-Current recall merges results from 4 strategies by deduplication + relevance sort.
-RRF provides a principled fusion method that is backend-agnostic and parameter-free
-(no training required).
-
-```python
-# Applied after all 4 cascade strategies produce their ranked lists
-RRF_K = 60  # Standard constant (Cormack et al., 2009)
-
-def rrf_score(rank: int) -> float:
-    return 1.0 / (RRF_K + rank)
-
-# Each strategy produces a ranked list; RRF merges them:
-# final_score(doc) = Σ rrf_score(rank_in_strategy_i) for each strategy that returned doc
-```
-
-**Why RRF over alternatives:**
-- Cross-encoder reranking requires an additional model (latency + memory cost)
-- MMR requires tuning λ diversity parameter per domain
-- RRF is zero-parameter, works across heterogeneous score scales (cosine vs BM25 vs recency)
-- Proven effective: used by Zep/Graphiti as one of their 5 reranking options
-
-**Environment variables:**
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CPERSONA_RRF_ENABLED` | `false` | Enable RRF reranking (opt-in) |
-| `CPERSONA_RRF_K` | `60` | RRF constant (higher = more weight to lower-ranked results) |
-
-**v2.4 recency boost interaction:** RRF is rank-based, not score-based — it ignores
-absolute score values. To preserve v2.4's recency boost effect, each strategy's rank
-list must be sorted by its **adjusted score** (i.e., `cosine + recency_boost` for
-vector strategy) before being fed to RRF. This ensures that a recent memory boosted
-from rank #8 to rank #3 within the vector strategy contributes a higher RRF score
-(`1/(60+3)` vs `1/(60+8)`) to the final fusion. Without this, recency boost would
-be partially negated by RRF's rank-only view.
-
-**Implementation scope:** `cloto-mcp-servers` repo (`servers/cpersona/server.py`,
-`recall()` function). Insert RRF merge step between strategy collection and final
-truncation. No schema changes.
-
-##### 2. Profile Enrichment (Limited Memory Evolution)
+##### 1. Profile Enrichment (Limited Memory Evolution)
 
 Current `update_profile` only updates on contradiction ("keep all existing information
 unless explicitly contradicted"). v2.5 extends this to **contextual enrichment** —
@@ -1453,4 +1526,3 @@ Cancelled because: (1) `tool.embedding` LRU cache already eliminates the main bo
 | `http` + ONNX MiniLM | ~40MB | ~490MB | **~530MB** | Excellent (vector + FTS5) |
 | `http` + API provider | ~40MB | ~40MB | **~80MB** | Excellent (vector + FTS5) |
 | `api` (no embedding server) | ~40MB | — | **~40MB** | Excellent (vector + FTS5) |
-| `local` ONNX (no server) | ~490MB | — | **~490MB** | Excellent (vector + FTS5) |
