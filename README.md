@@ -7,7 +7,7 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-104%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-248%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
@@ -121,6 +121,7 @@ All plugin functionality is delivered via **MCP (Model Context Protocol)** serve
 | `vision.capture` | Vision | Screen/image analysis via Ollama (hybrid OCR) |
 | `voice.stt` | Voice | Speech-to-text via Whisper |
 | `output.avatar` | Output | VRM expression, idle behavior, and VOICEVOX TTS (Rust) |
+| `io.discord` | I/O | Bidirectional Discord communication via MGP events (Rust) |
 
 MCP servers live in the [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers) repository
 and are configured via `mcp.toml`. See [MCP Plugin Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) for details.
@@ -276,7 +277,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 
 ## Testing
 
-104 tests (Rust 90 + Dashboard 14). MCP server tests (Python 65) are in [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers).
+248 tests (Rust 234 + Dashboard 14). MCP server tests (Python 102) are in [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers).
 
 ```bash
 cargo test                              # all Rust tests
