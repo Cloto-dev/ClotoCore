@@ -511,9 +511,11 @@ impl EventProcessor {
                         }
                         // Forward reply reference so the LLM knows the replied-to message
                         if let Some(reference) = meta.get("reference") {
-                            if let Ok(ref_str) = serde_json::to_string(reference) {
-                                msg_metadata
-                                    .insert("external_reference".into(), ref_str);
+                            if !reference.is_null() {
+                                if let Ok(ref_str) = serde_json::to_string(reference) {
+                                    msg_metadata
+                                        .insert("external_reference".into(), ref_str);
+                                }
                             }
                         }
                     }
