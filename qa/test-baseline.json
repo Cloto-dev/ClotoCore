@@ -1,6 +1,6 @@
 {
-  "rust_test_count": 90,
+  "rust_test_count": 234,
   "dashboard_test_count": 14,
-  "updated_at": "2026-03-15",
-  "updated_by": "fc3995d"
+  "updated_at": "2026-03-31",
+  "updated_by": "doc-consistency-audit"
 }

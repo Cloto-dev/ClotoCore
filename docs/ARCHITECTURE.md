@@ -113,7 +113,7 @@ ClotoCore/
 │   │       │   ├── mcp_protocol.rs # MCP JSON-RPC message types
 │   │       │   ├── mcp_transport.rs # stdio transport layer
 │   │       │   ├── mcp_mgp.rs  #   MGP capability negotiation & types
-│   │       │   ├── mcp_kernel_tool.rs # MGP kernel tool registry (mgp.* namespace, 21 tools)
+│   │       │   ├── mcp_kernel_tool.rs # MGP kernel tool registry (mgp.* namespace, 23 tools)
 │   │       │   ├── mcp_tool_validator.rs # Code security validation
 │   │       │   ├── mcp_lifecycle.rs # Server lifecycle state machine
 │   │       │   ├── mcp_streaming.rs # Streaming & flow control
@@ -135,8 +135,7 @@ ClotoCore/
 │   │       ├── middleware.rs    # Rate limiter, request tracking
 │   │       ├── consensus.rs    # Multi-engine consensus orchestrator
 │   │       ├── capabilities.rs # Capability types and permission model
-│   │       ├── validation.rs   # Input validation rules
-│   │       └── lib.rs           # AppState, router setup, server bootstrap
+│   │       │   │       └── lib.rs           # AppState, router setup, server bootstrap
 │   └── shared/        # Shared trait definitions
 │       └── src/lib.rs           # Plugin, ReasoningEngine, Tool traits
 │

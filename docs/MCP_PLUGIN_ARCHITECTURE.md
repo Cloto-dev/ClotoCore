@@ -537,7 +537,7 @@ Components removed or archived as part of the MCP migration:
 As of v0.5.4, all MCP/MGP server implementations are maintained in a separate repository:
 
 - **Repository:** [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers)
-- **Contents:** 16 Python MCP servers + common library + tests + MGP documentation
+- **Contents:** 15 Python + 2 Rust MCP servers (17 total) + common library + tests + MGP documentation
 - **Integration:** `mcp.toml` `[paths].servers` points to the local clone
 - **License:** BSL 1.1 (CPersona and MGP Protocol individually MIT-licensed)
 
