@@ -1145,7 +1145,7 @@ high thresholds on homogeneous corpora. z-score adapts to corpus diversity:
 
 **Implementation scope:** `cloto-mcp-servers` repo only. No schema changes.
 
-#### Cross-Agent Memory Merge (Implemented — v2.4.1)
+#### Cross-Agent Memory Merge (Implemented — v2.3.8)
 
 When the same user interacts with cpersona from multiple clients (e.g., Claude Code as
 `claude-code` and Claude web as `claude-web`), identical memories must be stored under
@@ -1171,7 +1171,7 @@ merge_memories(
 | episodes | Copy to target | summary text dedup |
 | profiles | Copy if target has no profile for user_id | Skip if exists (agent handles reconciliation via `update_profile`) |
 
-**Strategy parameter:** Inspired by Git merge strategies. v2.4.1 implements `"skip"`
+**Strategy parameter:** Inspired by Git merge strategies. v2.3.8 implements `"skip"`
 (equivalent to `git merge -s ours`). The parameter exists for future extensibility
 (e.g., `"overwrite"`, `"keep_both"`) without API changes.
 
