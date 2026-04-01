@@ -74,6 +74,12 @@ impl SystemHandler {
         }
     }
 
+    /// Get the default agent ID for message routing.
+    #[must_use]
+    pub fn default_agent_id(&self) -> &str {
+        &self.default_agent_id
+    }
+
     /// Extract user_id from a ClotoMessage's source.
     fn extract_user_id(msg: &ClotoMessage) -> &str {
         match &msg.source {
@@ -243,10 +249,16 @@ impl SystemHandler {
             }
         } else if let Some((ref mcp, ref server_id)) = mcp_memory {
             // MCP Memory Resolver: recall via MCP server
+            let memory_channel = msg
+                .metadata
+                .get("external_source")
+                .cloned()
+                .unwrap_or_else(|| "chat".into());
             let recall_args = serde_json::json!({
                 "agent_id": agent.id,
                 "query": msg.content,
                 "limit": self.memory_context_limit,
+                "channel": memory_channel,
             });
             match tokio::time::timeout(
                 Duration::from_secs(self.memory_timeout_secs),
@@ -508,6 +520,11 @@ impl SystemHandler {
                         let mcp_clone = mcp.clone();
                         let server_id_clone = server_id.clone();
                         let agent_id_clone = agent.id.clone();
+                        let resp_channel = msg
+                            .metadata
+                            .get("external_source")
+                            .cloned()
+                            .unwrap_or_else(|| "chat".into());
                         let resp_msg_json = serde_json::json!({
                             "id": format!("{}-resp", msg.id),
                             "content": content.clone(),
@@ -519,6 +536,7 @@ impl SystemHandler {
                             let store_args = serde_json::json!({
                                 "agent_id": agent_id_clone,
                                 "message": resp_msg_json,
+                                "channel": resp_channel,
                             });
                             let _ = tokio::time::timeout(
                                 mem_timeout2,
@@ -528,36 +546,42 @@ impl SystemHandler {
                         });
                     }
 
+                    // External actions: skip chat persistence and ThoughtResponse
+                    // (ExternalAction events handle display in the Actions panel)
+                    let is_external = msg.metadata.contains_key("external_callback_id");
+
                     // Persist agent response to chat history (backend-side)
-                    let resp_id = format!("{}-resp", msg.id);
-                    // For retry: metadata["parent_id"] overrides default parent (the user msg ID)
-                    let response_parent = msg
-                        .metadata
-                        .get("parent_id")
-                        .cloned()
-                        .unwrap_or_else(|| msg.id.clone());
-                    let resp_branch =
-                        crate::db::get_next_branch_index(&self.pool, &response_parent)
-                            .await
-                            .unwrap_or(0);
-                    let agent_chat_msg = crate::db::ChatMessageRow {
-                        id: resp_id,
-                        agent_id: agent.id.clone(),
-                        user_id: Self::extract_user_id(&msg).to_string(),
-                        source: "agent".to_string(),
-                        content: serde_json::to_string(
-                            &serde_json::json!([{"type": "text", "text": &content}]),
-                        )
-                        .unwrap_or_default(),
-                        metadata: None,
-                        created_at: chrono::Utc::now().timestamp_millis(),
-                        parent_id: Some(response_parent),
-                        branch_index: resp_branch,
-                    };
-                    if let Err(e) =
-                        crate::db::save_chat_message_reliable(&self.pool, &agent_chat_msg).await
-                    {
-                        error!("Chat persist DROPPED agent response: {}", e);
+                    if !is_external {
+                        let resp_id = format!("{}-resp", msg.id);
+                        // For retry: metadata["parent_id"] overrides default parent (the user msg ID)
+                        let response_parent = msg
+                            .metadata
+                            .get("parent_id")
+                            .cloned()
+                            .unwrap_or_else(|| msg.id.clone());
+                        let resp_branch =
+                            crate::db::get_next_branch_index(&self.pool, &response_parent)
+                                .await
+                                .unwrap_or(0);
+                        let agent_chat_msg = crate::db::ChatMessageRow {
+                            id: resp_id,
+                            agent_id: agent.id.clone(),
+                            user_id: Self::extract_user_id(&msg).to_string(),
+                            source: "agent".to_string(),
+                            content: serde_json::to_string(
+                                &serde_json::json!([{"type": "text", "text": &content}]),
+                            )
+                            .unwrap_or_default(),
+                            metadata: None,
+                            created_at: chrono::Utc::now().timestamp_millis(),
+                            parent_id: Some(response_parent),
+                            branch_index: resp_branch,
+                        };
+                        if let Err(e) =
+                            crate::db::save_chat_message_reliable(&self.pool, &agent_chat_msg).await
+                        {
+                            error!("Chat persist DROPPED agent response: {}", e);
+                        }
                     }
 
                     // Auto-speak: if a Speech-capable server is connected and the agent
@@ -602,25 +626,63 @@ impl SystemHandler {
                         }
                     }
 
-                    let thought_response = ClotoEventData::ThoughtResponse {
-                        agent_id: agent.id.clone(),
-                        engine_id: engine_id.clone(),
-                        content,
-                        source_message_id: msg.id.clone(),
-                        auto_spoken: will_auto_speak,
-                    };
-                    let envelope = crate::EnvelopedEvent {
-                        event: Arc::new(ClotoEvent::with_trace(trace_id, thought_response)),
-                        issuer: None,
-                        correlation_id: None,
-                        depth: 0,
-                    };
-                    if let Err(e) = self.sender.send(envelope).await {
-                        error!(
-                            target_agent_id = %target_agent_id,
-                            error = %e,
-                            "❌ Failed to send ThoughtResponse"
-                        );
+                    // External Action completion: respond to I/O bridge callback
+                    if let Some(callback_id) = msg.metadata.get("external_callback_id") {
+                        let action_id = msg.metadata.get("external_action_id").cloned().unwrap_or_default();
+                        let source = msg.metadata.get("external_source").cloned().unwrap_or_else(|| "external".into());
+                        let sender_name = msg.metadata.get("external_sender_name").cloned().unwrap_or_else(|| "Unknown".into());
+
+                        // Emit ExternalAction "success"
+                        let data = ClotoEventData::ExternalAction {
+                            action_id,
+                            source: source.clone(),
+                            source_label: source,
+                            target_agent_id: agent.id.clone(),
+                            target_agent_name: agent.name.clone(),
+                            prompt: msg.content.clone(),
+                            sender_name,
+                            engine_id: engine_id.clone(),
+                            response: Some(content.clone()),
+                            status: "success".to_string(),
+                            callback_id: callback_id.clone(),
+                        };
+                        if let Err(e) = self.sender.send(crate::EnvelopedEvent::system(data)).await {
+                            error!("Failed to emit ExternalAction completion: {}", e);
+                        }
+
+                        // Respond to callback (sends response back to I/O bridge)
+                        if let Some(ref mcp) = self.registry.mcp_manager {
+                            let respond_args = serde_json::json!({
+                                "callback_id": callback_id,
+                                "response": content,
+                            });
+                            if let Err(e) = mcp.respond_to_callback(respond_args).await {
+                                error!(callback_id = %callback_id, error = %e, "Failed to respond to external callback");
+                            }
+                        }
+                    }
+
+                    if !is_external {
+                        let thought_response = ClotoEventData::ThoughtResponse {
+                            agent_id: agent.id.clone(),
+                            engine_id: engine_id.clone(),
+                            content,
+                            source_message_id: msg.id.clone(),
+                            auto_spoken: will_auto_speak,
+                        };
+                        let envelope = crate::EnvelopedEvent {
+                            event: Arc::new(ClotoEvent::with_trace(trace_id, thought_response)),
+                            issuer: None,
+                            correlation_id: None,
+                            depth: 0,
+                        };
+                        if let Err(e) = self.sender.send(envelope).await {
+                            error!(
+                                target_agent_id = %target_agent_id,
+                                error = %e,
+                                "❌ Failed to send ThoughtResponse"
+                            );
+                        }
                     }
 
                     // Fire-and-forget auto-speak with the final response text
@@ -673,6 +735,37 @@ impl SystemHandler {
                     );
                     // H-04: Send error response so the user's message doesn't vanish
                     let error_content = format!("[Error] {}", e);
+
+                    // External Action error: notify I/O bridge of failure
+                    if let Some(callback_id) = msg.metadata.get("external_callback_id") {
+                        let action_id = msg.metadata.get("external_action_id").cloned().unwrap_or_default();
+                        let source = msg.metadata.get("external_source").cloned().unwrap_or_else(|| "external".into());
+                        let sender_name = msg.metadata.get("external_sender_name").cloned().unwrap_or_else(|| "Unknown".into());
+
+                        let data = ClotoEventData::ExternalAction {
+                            action_id,
+                            source: source.clone(),
+                            source_label: source,
+                            target_agent_id: agent.id.clone(),
+                            target_agent_name: agent.name.clone(),
+                            prompt: msg.content.clone(),
+                            sender_name,
+                            engine_id: engine_id.clone(),
+                            response: Some(error_content.clone()),
+                            status: "error".to_string(),
+                            callback_id: callback_id.clone(),
+                        };
+                        let _ = self.sender.send(crate::EnvelopedEvent::system(data)).await;
+
+                        // Respond to callback with error message
+                        if let Some(ref mcp) = self.registry.mcp_manager {
+                            let respond_args = serde_json::json!({
+                                "callback_id": callback_id,
+                                "response": error_content,
+                            });
+                            let _ = mcp.respond_to_callback(respond_args).await;
+                        }
+                    }
 
                     // Persist error response to chat history
                     let err_resp_id = format!("{}-resp", msg.id);
@@ -775,6 +868,11 @@ impl SystemHandler {
             // MCP Memory Store: store user message via MCP server
             let agent_id = agent.id.clone();
             let metrics = self.metrics.clone();
+            let store_channel = msg
+                .metadata
+                .get("external_source")
+                .cloned()
+                .unwrap_or_else(|| "chat".into());
             let msg_json = serde_json::json!({
                 "id": msg.id,
                 "content": msg.content,
@@ -792,6 +890,7 @@ impl SystemHandler {
                 let store_args = serde_json::json!({
                     "agent_id": agent_id,
                     "message": msg_json,
+                    "channel": store_channel,
                 });
                 match tokio::time::timeout(
                     memory_timeout,
