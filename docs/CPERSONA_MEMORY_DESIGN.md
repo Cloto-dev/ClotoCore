@@ -1145,7 +1145,7 @@ high thresholds on homogeneous corpora. z-score adapts to corpus diversity:
 
 **Implementation scope:** `cloto-mcp-servers` repo only. No schema changes.
 
-#### Cross-Agent Memory Merge (Planned — v2.3.8 scope)
+#### Cross-Agent Memory Merge (Implemented — v2.4.1)
 
 When the same user interacts with cpersona from multiple clients (e.g., Claude Code as
 `claude-code` and Claude web as `claude-web`), identical memories must be stored under
@@ -1157,6 +1157,7 @@ each agent_id separately. This creates duplication and maintenance burden.
 merge_memories(
     source_agent_id: str,   # Agent to merge FROM
     target_agent_id: str,   # Agent to merge INTO
+    strategy: str = "skip", # "skip" (keep target's version on conflict)
     mode: str = "copy",     # "copy" (preserve source) or "move" (delete source after merge)
     dry_run: bool = False,  # Preview without writing
 )
@@ -1167,8 +1168,15 @@ merge_memories(
 | Record Type | Merge Strategy | Dedup |
 |-------------|---------------|-------|
 | memories | Copy to target | msg_id dedup (skip duplicates) |
-| episodes | Copy to target | summary hash dedup |
-| profiles | LLM merge | Reuse existing `_run_update_profile()` logic |
+| episodes | Copy to target | summary text dedup |
+| profiles | Copy if target has no profile for user_id | Skip if exists (agent handles reconciliation via `update_profile`) |
+
+**Strategy parameter:** Inspired by Git merge strategies. v2.4.1 implements `"skip"`
+(equivalent to `git merge -s ours`). The parameter exists for future extensibility
+(e.g., `"overwrite"`, `"keep_both"`) without API changes.
+
+**Embedding handling:** Embeddings are NOT copied (set to NULL), consistent with
+`import_memories`. They are re-computed on the next `recall` or `store` operation.
 
 **Anti-Contamination compatibility:** Merge is an explicit, user-initiated operation
 (like export/import). It does not weaken agent_id isolation — the user consciously
@@ -1177,7 +1185,7 @@ prohibited.
 
 **Relationship with export/import:** `merge_memories` is conceptually equivalent to
 `export_memories(source) → import_memories(target)`, but executed as a single atomic
-operation without intermediate files. It reuses the same dedup and UPSERT logic.
+operation without intermediate files. It reuses the same dedup logic.
 
 **Environment variables:** None. Merge is a tool invocation, not a background behavior.
 
