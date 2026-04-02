@@ -194,6 +194,7 @@ impl McpClientManager {
     }
 
     /// Parse mcp.toml and resolve paths, returning server configs without connecting.
+    #[allow(clippy::too_many_lines)]
     pub fn parse_config_file(&self, config_path: &str) -> Result<Vec<McpServerConfig>> {
         let path = std::path::Path::new(config_path);
         if !path.exists() {
@@ -260,6 +261,20 @@ impl McpClientManager {
             .servers
             .into_iter()
             .map(|mut server_config| {
+                // HTTP transport: skip path resolution (no local command/args)
+                if server_config.transport == "streamable-http" {
+                    // Resolve ${VAR} references in auth_token
+                    if let Some(ref token) = server_config.auth_token {
+                        if let Some(var_name) =
+                            token.strip_prefix("${").and_then(|s| s.strip_suffix('}'))
+                        {
+                            server_config.auth_token =
+                                Some(std::env::var(var_name).unwrap_or_default());
+                        }
+                    }
+                    return server_config;
+                }
+
                 // Expand ${var} references from [paths] in command
                 server_config.command = expand_path_vars(&server_config.command, &path_vars);
 
@@ -425,6 +440,8 @@ impl McpClientManager {
                 args,
                 env: db_env,
                 transport: "stdio".to_string(),
+                url: None,
+                auth_token: None,
                 auto_restart: Some(true),
                 required_permissions: Vec::new(),
                 tool_validators: HashMap::new(),
@@ -495,8 +512,12 @@ impl McpClientManager {
     ) -> Result<Vec<String>> {
         let id = config.id.clone();
 
-        // Validate command against whitelist
-        mcp_transport::validate_command(&config.command)?;
+        let is_http_transport = config.transport == "streamable-http";
+
+        // Validate command against whitelist (skip for HTTP transport)
+        if !is_http_transport {
+            mcp_transport::validate_command(&config.command)?;
+        }
 
         // Check for duplicate — allow retry if server is in Error/Disconnected state
         {
@@ -627,7 +648,10 @@ impl McpClientManager {
             .unwrap_or(None)
             .unwrap_or(super::mcp_mgp::TrustLevel::Standard);
 
-        if let Some(ref seal_value) = config.seal {
+        if is_http_transport {
+            // HTTP transport: skip seal verification and isolation (external server)
+            debug!(id = %id, "HTTP transport — skipping seal and isolation checks");
+        } else if let Some(ref seal_value) = config.seal {
             // Seal is present in config — verify the entry point binary.
             let entry_point = std::path::Path::new(&config.command);
             if entry_point.exists() {
@@ -666,7 +690,9 @@ impl McpClientManager {
         }
 
         // ──── Isolation Profile Derivation (MGP §8-10) ────
-        let isolation_profile = if self.isolation_enabled {
+        let isolation_profile = if is_http_transport {
+            None // HTTP transport: no subprocess to isolate
+        } else if self.isolation_enabled {
             let approved_perms = config.required_permissions.clone();
             match super::mcp_isolation::derive_isolation_profile(
                 trust_level,
@@ -694,10 +720,18 @@ impl McpClientManager {
             None
         };
 
-        info!(
-            "Connecting to MCP server [{}]: {} {:?}",
-            id, config.command, config.args
-        );
+        if is_http_transport {
+            info!(
+                "Connecting to MCP server [{}] via HTTP: {}",
+                id,
+                config.url.as_deref().unwrap_or("(no url)")
+            );
+        } else {
+            info!(
+                "Connecting to MCP server [{}]: {} {:?}",
+                id, config.command, config.args
+            );
+        }
 
         // Set Connecting status
         {
@@ -713,19 +747,40 @@ impl McpClientManager {
                 None;
             let mut last_err = None;
             for attempt in 1..=3u32 {
-                match McpClient::connect(
-                    &id,
-                    &config.command,
-                    &config.args,
-                    &config.env,
-                    self.notification_tx.clone(),
-                    self.mcp_request_timeout_secs,
-                    isolation_profile.as_ref(),
-                    self.llm_proxy_port,
-                    &self.sensitive_env_keys,
-                )
-                .await
-                {
+                let connect_future = if is_http_transport {
+                    let url = config.url.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "MCP server '{}': transport is 'streamable-http' but no url configured",
+                            id
+                        )
+                    })?;
+                    let auth = config
+                        .auth_token
+                        .as_deref()
+                        .or_else(|| config.env.get("BRIDGE_AUTH_TOKEN").map(String::as_str));
+                    McpClient::connect_http(
+                        &id,
+                        url,
+                        auth,
+                        self.notification_tx.clone(),
+                        self.mcp_request_timeout_secs,
+                    )
+                    .await
+                } else {
+                    McpClient::connect(
+                        &id,
+                        &config.command,
+                        &config.args,
+                        &config.env,
+                        self.notification_tx.clone(),
+                        self.mcp_request_timeout_secs,
+                        isolation_profile.as_ref(),
+                        self.llm_proxy_port,
+                        &self.sensitive_env_keys,
+                    )
+                    .await
+                };
+                match connect_future {
                     Ok((c, caps)) => {
                         result = Some((c, caps));
                         break;
@@ -1136,6 +1191,8 @@ impl McpClientManager {
                     .mgp_negotiated
                     .as_ref()
                     .map(|m| format!("{:?}", m.trust_level).to_lowercase()),
+                transport: (h.config.transport != "stdio").then(|| h.config.transport.clone()),
+                url: h.config.url.clone(),
             })
             .collect();
 
@@ -1154,6 +1211,8 @@ impl McpClientManager {
                     display_name: config.display_name.clone(),
                     mgp_supported: false,
                     trust_level: None,
+                    transport: (config.transport != "stdio").then(|| config.transport.clone()),
+                    url: config.url.clone(),
                 });
             }
         }
@@ -1892,6 +1951,8 @@ impl McpClientManager {
             args: args.clone(),
             env: env.clone(),
             transport: "stdio".to_string(),
+            url: None,
+            auth_token: None,
             auto_restart: Some(true),
             required_permissions: Vec::new(),
             tool_validators: HashMap::new(),
@@ -2102,6 +2163,8 @@ impl McpClientManager {
             args,
             env: serde_json::from_str(&record.env).unwrap_or_default(),
             transport: "stdio".to_string(),
+            url: None,
+            auth_token: None,
             auto_restart: Some(true),
             required_permissions: Vec::new(),
             tool_validators: HashMap::new(),
@@ -2191,6 +2254,14 @@ impl McpClientManager {
     /// Get a reference to the database pool (for access control queries).
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    /// Respond to a pending MGP callback (§13). Public wrapper for external callers.
+    pub async fn respond_to_callback(
+        &self,
+        args: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        super::mcp_events::respond_to_callback(self, args).await
     }
 
     /// Resolve a relative path against the project root.

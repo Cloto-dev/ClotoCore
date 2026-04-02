@@ -1,12 +1,46 @@
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use super::mcp_isolation::{FilesystemScope, IsolationProfile, NetworkScope};
+
+// ── McpTransport Enum ──
+
+/// Unified transport abstraction for MCP client connections.
+pub enum McpTransport {
+    Stdio(Box<StdioTransport>),
+    Http(Box<HttpTransport>),
+}
+
+impl McpTransport {
+    #[must_use]
+    pub fn sender(&self) -> mpsc::Sender<String> {
+        match self {
+            Self::Stdio(t) => t.sender(),
+            Self::Http(t) => t.sender(),
+        }
+    }
+
+    pub async fn recv(&mut self) -> Option<String> {
+        match self {
+            Self::Stdio(t) => t.recv().await,
+            Self::Http(t) => t.recv().await,
+        }
+    }
+
+    pub fn is_alive(&mut self) -> bool {
+        match self {
+            Self::Stdio(t) => t.is_alive(),
+            Self::Http(t) => t.is_alive(),
+        }
+    }
+}
 
 /// Allowed commands for MCP server execution (security whitelist)
 const ALLOWED_COMMANDS: &[&str] = &["npx", "node", "python", "python3", "deno", "bun"];
@@ -264,6 +298,225 @@ impl StdioTransport {
     pub fn is_alive(&mut self) -> bool {
         matches!(self.child.try_wait(), Ok(None))
     }
+}
+
+// ── HttpTransport ──
+
+/// HTTP-based MCP transport using Streamable HTTP (MCP 2025-03-26 spec).
+///
+/// Connects to a remote MCP server via HTTP POST requests and SSE responses.
+/// Presents the same channel-based interface as StdioTransport.
+pub struct HttpTransport {
+    #[allow(dead_code)]
+    url: String,
+    request_tx: mpsc::Sender<String>,
+    response_rx: mpsc::Receiver<String>,
+    alive: Arc<AtomicBool>,
+    request_task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for HttpTransport {
+    fn drop(&mut self) {
+        self.request_task.abort();
+        self.alive.store(false, Ordering::Relaxed);
+        debug!("HttpTransport dropped — request task aborted");
+    }
+}
+
+impl HttpTransport {
+    /// Get a clone of the request sender for lock-free sending.
+    #[must_use]
+    pub fn sender(&self) -> mpsc::Sender<String> {
+        self.request_tx.clone()
+    }
+
+    /// Receive the next response or notification from the remote server.
+    pub async fn recv(&mut self) -> Option<String> {
+        self.response_rx.recv().await
+    }
+
+    /// Check if the HTTP connection is alive.
+    #[must_use]
+    pub fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::Relaxed)
+    }
+
+    /// Start an HTTP transport connection to a remote MCP server.
+    pub async fn start(url: &str, auth_token: Option<&str>) -> Result<Self> {
+        // URL validation: HTTPS required for non-localhost
+        validate_http_url(url)?;
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .context("Failed to create HTTP client")?;
+
+        let (req_tx, mut req_rx) = mpsc::channel::<String>(MCP_CHANNEL_BUFFER_SIZE);
+        let (res_tx, res_rx) = mpsc::channel::<String>(MCP_CHANNEL_BUFFER_SIZE);
+
+        let alive = Arc::new(AtomicBool::new(true));
+        let alive_clone = alive.clone();
+        let url_owned = url.to_string();
+        let auth = auth_token.map(std::string::ToString::to_string);
+        let session_id: Arc<std::sync::Mutex<Option<String>>> =
+            Arc::new(std::sync::Mutex::new(None));
+
+        let request_task = tokio::spawn(async move {
+            info!(url = %url_owned, "HttpTransport request handler started");
+
+            while let Some(msg) = req_rx.recv().await {
+                let mut request = client
+                    .post(&url_owned)
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json, text/event-stream");
+
+                if let Some(ref token) = auth {
+                    request = request.header("Authorization", format!("Bearer {token}"));
+                }
+                if let Some(ref sid) = *session_id
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                {
+                    request = request.header("Mcp-Session-Id", sid.clone());
+                }
+
+                let response = match request.body(msg).send().await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        error!(url = %url_owned, error = %e, "HTTP request failed");
+                        // Send JSON-RPC error so pending requests don't hang
+                        let err_msg = serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "error": {"code": -32000, "message": format!("HTTP transport error: {e}")},
+                            "id": null
+                        });
+                        let _ = res_tx.send(err_msg.to_string()).await;
+                        continue;
+                    }
+                };
+
+                let status = response.status();
+                if !status.is_success() {
+                    let body = response.text().await.unwrap_or_default();
+                    error!(url = %url_owned, status = %status, "HTTP error response: {body}");
+                    let err_msg = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "error": {"code": -32000, "message": format!("HTTP {status}: {body}")},
+                        "id": null
+                    });
+                    let _ = res_tx.send(err_msg.to_string()).await;
+                    continue;
+                }
+
+                // Track session ID from response header
+                if let Some(sid) = response.headers().get("mcp-session-id") {
+                    if let Ok(sid_str) = sid.to_str() {
+                        let mut guard = session_id
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        *guard = Some(sid_str.to_string());
+                    }
+                }
+
+                let content_type = response
+                    .headers()
+                    .get("content-type")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_string();
+
+                if content_type.contains("text/event-stream") {
+                    // SSE response: parse event stream
+                    if let Err(e) = parse_sse_stream(response, &res_tx).await {
+                        warn!(url = %url_owned, error = %e, "SSE stream error");
+                    }
+                } else {
+                    // JSON response: send body directly
+                    match response.text().await {
+                        Ok(body) if !body.trim().is_empty() => {
+                            let _ = res_tx.send(body).await;
+                        }
+                        Ok(_) => {} // Empty response (e.g., notification acknowledgement)
+                        Err(e) => {
+                            warn!(url = %url_owned, error = %e, "Failed to read response body");
+                        }
+                    }
+                }
+            }
+
+            alive_clone.store(false, Ordering::Relaxed);
+            info!("HttpTransport request handler stopped");
+        });
+
+        Ok(Self {
+            url: url.to_string(),
+            request_tx: req_tx,
+            response_rx: res_rx,
+            alive,
+            request_task,
+        })
+    }
+}
+
+/// Parse an SSE (Server-Sent Events) stream, forwarding `data:` lines to the channel.
+async fn parse_sse_stream(
+    response: reqwest::Response,
+    res_tx: &mpsc::Sender<String>,
+) -> Result<()> {
+    use futures::StreamExt;
+    let mut stream = response.bytes_stream();
+    let mut buffer = Vec::<u8>::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context("SSE stream chunk error")?;
+        buffer.extend_from_slice(&chunk);
+
+        // Process complete lines from the buffer
+        while let Some(newline_pos) = buffer.iter().position(|&b| b == b'\n') {
+            let line_bytes = buffer[..newline_pos].to_vec();
+            buffer = buffer[newline_pos + 1..].to_vec();
+
+            let line = String::from_utf8_lossy(&line_bytes);
+            let line = line.trim_end_matches('\r');
+
+            if let Some(data) = line.strip_prefix("data: ") {
+                if !data.is_empty() {
+                    let _ = res_tx.send(data.to_string()).await;
+                }
+            }
+            // Skip event:, id:, retry:, and comment (:) lines
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate that an HTTP URL meets security requirements.
+/// Non-localhost URLs must use HTTPS.
+fn validate_http_url(url: &str) -> Result<()> {
+    let is_https = url.starts_with("https://");
+    let is_http = url.starts_with("http://");
+
+    if !is_https && !is_http {
+        bail!("MCP server URL must start with http:// or https://: {url}");
+    }
+
+    if is_http {
+        // HTTP only allowed for localhost
+        let after_scheme = &url[7..]; // skip "http://"
+        let host = after_scheme.split('/').next().unwrap_or("");
+        let host = host.split(':').next().unwrap_or(host); // strip port
+        let is_localhost =
+            host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]";
+        if !is_localhost {
+            bail!(
+                "Remote MCP server URL must use HTTPS. \
+                 HTTP is only allowed for localhost. Got: {url}"
+            );
+        }
+    }
+
+    Ok(())
 }
 
 /// Resolve `${ENV_VAR}` references in a value string to actual environment variables.

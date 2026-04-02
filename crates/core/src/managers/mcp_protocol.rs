@@ -245,6 +245,12 @@ pub struct McpServerConfig {
     pub env: std::collections::HashMap<String, String>,
     #[serde(default = "default_transport")]
     pub transport: String,
+    /// URL for HTTP-based transports (required when transport = "streamable-http").
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Authentication token for HTTP transport (Bearer token).
+    #[serde(default)]
+    pub auth_token: Option<String>,
     /// Legacy field — prefer `restart_policy`. When restart_policy is None,
     /// auto_restart controls fallback: Some(true) → OnFailure, Some(false)/None → Never.
     #[serde(default)]
