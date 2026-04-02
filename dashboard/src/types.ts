@@ -134,6 +134,10 @@ export interface McpServerInfo {
   is_cloto_sdk: boolean;
   source: ServerSource;
   display_name?: string;
+  mgp_supported?: boolean;
+  trust_level?: string;
+  transport?: string;
+  url?: string;
 }
 
 export interface AccessControlEntry {

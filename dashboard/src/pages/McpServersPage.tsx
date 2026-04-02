@@ -218,37 +218,67 @@ export function McpServersPage() {
             )}
 
             <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-              {sortedServers.map((server) => (
-                <button
-                  key={server.id}
-                  onClick={() => setSelectedId(server.id)}
-                  aria-label={displayServerId(server.id)}
-                  className="text-left p-4 rounded-xl border border-edge bg-surface-primary/50 hover:bg-surface-secondary/80 hover:border-brand transition-all duration-200 group"
-                >
-                  <div className="flex items-center gap-2.5 mb-2">
-                    <Server
-                      size={14}
-                      className="text-content-tertiary group-hover:text-brand transition-colors shrink-0"
-                    />
-                    <span className="text-xs font-mono font-bold text-content-primary truncate">
-                      {displayServerId(server.id)}
-                    </span>
-                    {server.source === 'config' && (
-                      <span className="text-[9px] font-mono text-amber-500/70 shrink-0" title="Config-loaded">
-                        CONFIG
-                      </span>
+              {sortedServers.map((server) => {
+                const isMgp = server.mgp_supported && server.status === 'Connected';
+                return (
+                  <button
+                    key={server.id}
+                    onClick={() => setSelectedId(server.id)}
+                    aria-label={displayServerId(server.id)}
+                    className={`text-left p-4 rounded-xl border transition-all duration-200 group relative overflow-hidden ${
+                      isMgp
+                        ? 'border-purple-500/40 bg-purple-500/[0.03] hover:bg-purple-500/[0.08] hover:border-purple-400/60'
+                        : 'border-edge bg-surface-primary/50 hover:bg-surface-secondary/80 hover:border-brand'
+                    }`}
+                  >
+                    {isMgp && (
+                      <div
+                        className="absolute inset-0 rounded-xl bg-gradient-to-br from-purple-500/10 via-transparent to-blue-500/5 pointer-events-none animate-pulse"
+                        style={{ animationDuration: '3s' }}
+                      />
                     )}
-                  </div>
-                  <div className="flex items-center gap-3 text-[10px] font-mono text-content-tertiary">
-                    <span className="flex items-center gap-1.5">
-                      <StatusDot status={mcpStatusToDot(server.status)} />
-                      {statusLabel(server.status)}
-                    </span>
-                    <span>{t('tools_count', { count: server.tools.length })}</span>
-                    {server.is_cloto_sdk && <span className="text-brand">SDK</span>}
-                  </div>
-                </button>
-              ))}
+                    <div className="relative flex items-center gap-2.5 mb-2">
+                      <Server
+                        size={14}
+                        className={`shrink-0 transition-colors ${
+                          isMgp
+                            ? 'text-purple-400 group-hover:text-purple-300'
+                            : 'text-content-tertiary group-hover:text-brand'
+                        }`}
+                      />
+                      <span className="text-xs font-mono font-bold text-content-primary truncate">
+                        {displayServerId(server.id)}
+                      </span>
+                      {server.mgp_supported && (
+                        <span
+                          className="text-[9px] font-bold tracking-wider text-purple-400 shrink-0"
+                          title="MGP (bidirectional protocol)"
+                        >
+                          MGP
+                        </span>
+                      )}
+                      {server.transport === 'streamable-http' && (
+                        <span className="text-[9px] font-mono text-cyan-500/70 shrink-0" title="Remote HTTP transport">
+                          HTTP
+                        </span>
+                      )}
+                      {server.source === 'config' && (
+                        <span className="text-[9px] font-mono text-amber-500/70 shrink-0" title="Config-loaded">
+                          CONFIG
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative flex items-center gap-3 text-[10px] font-mono text-content-tertiary">
+                      <span className="flex items-center gap-1.5">
+                        <StatusDot status={mcpStatusToDot(server.status)} />
+                        {statusLabel(server.status)}
+                      </span>
+                      <span>{t('tools_count', { count: server.tools.length })}</span>
+                      {server.is_cloto_sdk && <span className="text-brand">SDK</span>}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </>
         )}
