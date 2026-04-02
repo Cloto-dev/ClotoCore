@@ -527,6 +527,13 @@ impl EventProcessor {
                                 }
                             }
                         }
+                        // Forward tool_hint and tool_args directly (no prefix)
+                        // for direct tool execution bypass in system handler
+                        for key in ["tool_hint", "tool_args"] {
+                            if let Some(val) = meta.get(key).and_then(|v| v.as_str()) {
+                                msg_metadata.insert(key.to_string(), val.to_string());
+                            }
+                        }
                     }
 
                     let cloto_msg = cloto_shared::ClotoMessage {
