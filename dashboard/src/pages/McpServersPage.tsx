@@ -219,25 +219,28 @@ export function McpServersPage() {
 
             <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
               {sortedServers.map((server) => {
-                const isMgp = server.mgp_supported && server.status === 'Connected';
+                // MGP servers: negotiated, or I/O bridge / output servers (bidirectional by design)
+                const isMgp =
+                  (server.mgp_supported || server.id.startsWith('io.') || server.id.startsWith('output.')) &&
+                  server.status === 'Connected';
                 return (
                   <button
                     key={server.id}
                     onClick={() => setSelectedId(server.id)}
                     aria-label={displayServerId(server.id)}
-                    className={`text-left p-4 rounded-xl border transition-all duration-200 group relative overflow-hidden ${
+                    className={`text-left p-4 rounded-xl border transition-all duration-200 group ${
                       isMgp
-                        ? 'border-purple-500/40 bg-purple-500/[0.03] hover:bg-purple-500/[0.08] hover:border-purple-400/60'
+                        ? 'relative overflow-hidden border-purple-500/50 bg-purple-950/30 hover:bg-purple-950/40 hover:border-purple-400 shadow-purple-500/20 shadow-lg'
                         : 'border-edge bg-surface-primary/50 hover:bg-surface-secondary/80 hover:border-brand'
                     }`}
                   >
                     {isMgp && (
                       <div
-                        className="absolute inset-0 rounded-xl bg-gradient-to-br from-purple-500/10 via-transparent to-blue-500/5 pointer-events-none animate-pulse"
+                        className="absolute inset-0 rounded-xl bg-gradient-to-br from-purple-500/20 via-transparent to-blue-500/10 pointer-events-none animate-pulse"
                         style={{ animationDuration: '3s' }}
                       />
                     )}
-                    <div className="relative flex items-center gap-2.5 mb-2">
+                    <div className={`flex items-center gap-2.5 mb-2 ${isMgp ? 'relative' : ''}`}>
                       <Server
                         size={14}
                         className={`shrink-0 transition-colors ${
@@ -249,9 +252,9 @@ export function McpServersPage() {
                       <span className="text-xs font-mono font-bold text-content-primary truncate">
                         {displayServerId(server.id)}
                       </span>
-                      {server.mgp_supported && (
+                      {isMgp && (
                         <span
-                          className="text-[9px] font-bold tracking-wider text-purple-400 shrink-0"
+                          className="text-[9px] font-bold tracking-wider text-purple-400 shrink-0 drop-shadow-[0_0_4px_rgba(168,85,247,0.6)]"
                           title="MGP (bidirectional protocol)"
                         >
                           MGP
@@ -268,7 +271,7 @@ export function McpServersPage() {
                         </span>
                       )}
                     </div>
-                    <div className="relative flex items-center gap-3 text-[10px] font-mono text-content-tertiary">
+                    <div className={`flex items-center gap-3 text-[10px] font-mono text-content-tertiary ${isMgp ? 'relative' : ''}`}>
                       <span className="flex items-center gap-1.5">
                         <StatusDot status={mcpStatusToDot(server.status)} />
                         {statusLabel(server.status)}
