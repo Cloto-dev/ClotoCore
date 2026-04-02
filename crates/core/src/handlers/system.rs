@@ -317,7 +317,11 @@ impl SystemHandler {
                         target_agent: None,
                         content,
                         timestamp: chrono::Utc::now(),
-                        metadata: std::collections::HashMap::new(),
+                        metadata: {
+                            let mut m = std::collections::HashMap::new();
+                            m.insert("context_type".into(), "conversation".into());
+                            m
+                        },
                     });
                 }
             }
@@ -1386,12 +1390,7 @@ impl SystemHandler {
             let args = serde_json::json!({
                 "agent": serde_json::to_value(agent)?,
                 "message": serde_json::to_value(message)?,
-                "context": context.iter().map(|m| {
-                    serde_json::json!({
-                        "source": m.source,
-                        "content": m.content,
-                    })
-                }).collect::<Vec<_>>(),
+                "context": Self::serialize_context(&context),
             });
             let result = mcp.call_server_tool(engine_id, "think", args).await?;
             return Self::extract_mcp_think_content(&result);
@@ -1425,12 +1424,7 @@ impl SystemHandler {
             let args = serde_json::json!({
                 "agent": serde_json::to_value(agent)?,
                 "message": serde_json::to_value(message)?,
-                "context": context.iter().map(|m| {
-                    serde_json::json!({
-                        "source": m.source,
-                        "content": m.content,
-                    })
-                }).collect::<Vec<_>>(),
+                "context": Self::serialize_context(&context),
                 "tools": tools,
                 "tool_history": tool_history,
             });
@@ -1725,6 +1719,25 @@ impl SystemHandler {
             _ => "",
         };
         format!("{error}{guidance}")
+    }
+
+    /// Serialize context messages for MCP engine calls.
+    /// Includes timestamp and context_type metadata alongside source/content.
+    fn serialize_context(context: &[ClotoMessage]) -> Vec<serde_json::Value> {
+        context
+            .iter()
+            .map(|m| {
+                let mut obj = serde_json::json!({
+                    "source": m.source,
+                    "content": m.content,
+                    "timestamp": m.timestamp.to_rfc3339(),
+                });
+                if let Some(ct) = m.metadata.get("context_type") {
+                    obj["context_type"] = serde_json::json!(ct);
+                }
+                obj
+            })
+            .collect()
     }
 
     fn extract_mcp_think_content(
