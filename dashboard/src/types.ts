@@ -195,6 +195,7 @@ export interface MarketplaceCatalogEntry {
   installed_version?: string;
   update_available: boolean;
   running: boolean;
+  changelog?: string;
 }
 
 // Bootstrap Setup types
@@ -245,5 +246,20 @@ export interface AgentDialogue {
   response: string | null;
   chain_depth: number;
   status: 'pending' | 'success' | 'error';
+  timestamp: number;
+}
+
+export interface ExternalAction {
+  action_id: string;
+  source: string;
+  source_label: string;
+  target_agent_id: string;
+  target_agent_name: string;
+  prompt: string;
+  sender_name: string;
+  engine_id: string;
+  response: string | null;
+  status: 'pending' | 'success' | 'error';
+  callback_id: string;
   timestamp: number;
 }
