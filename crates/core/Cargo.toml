@@ -44,7 +44,7 @@ base64 = "0.22"
 flate2 = "1"
 tar = "0.4"
 unicode-normalization = "0.1"
-lindera = { version = "2.2", features = ["embed-ipadic"] }
+lindera = { version = "2.3", features = ["embed-ipadic"] }
 
 [dev-dependencies]
 http = "1.0"
