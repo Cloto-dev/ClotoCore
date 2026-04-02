@@ -963,12 +963,14 @@ impl SystemHandler {
             });
 
             // Episode auto-archival check (background, non-blocking)
+            let ep_engine_id = default_engine_id.clone();
             let ep_memory_timeout = Duration::from_secs(self.memory_timeout_secs);
             tokio::spawn(async move {
                 Self::maybe_archive_episode(
                     &ep_mcp,
                     &ep_server_id,
                     &ep_agent_id,
+                    &ep_engine_id,
                     ep_memory_timeout,
                 )
                 .await;
@@ -1891,10 +1893,12 @@ impl SystemHandler {
     }
 
     /// Auto-archive episode when enough unarchived memories accumulate.
+    #[allow(clippy::too_many_lines)]
     async fn maybe_archive_episode(
         mcp: &Arc<McpClientManager>,
         server_id: &str,
         agent_id: &str,
+        engine_id: &str,
         memory_timeout: Duration,
     ) {
         // 1. Fetch recent memories
@@ -1970,12 +1974,85 @@ impl SystemHandler {
             })
             .collect();
 
-        match mcp
-            .call_server_tool(
-                server_id,
-                "archive_episode",
-                serde_json::json!({"agent_id": agent_id, "history": history}),
+        // Pre-compute summary, keywords, resolved via CFR engine (mind server)
+        let formatted = Self::format_history_for_llm(&history);
+        let think_timeout = Duration::from_secs(30);
+
+        let summary = tokio::time::timeout(
+            think_timeout,
+            Self::call_engine_think_simple(
+                mcp,
+                engine_id,
+                &format!(
+                    "Summarize the following conversation concisely (800-1200 characters).\n\
+                     Preserve proper nouns, dates, decisions, and key technical details.\n\n{}",
+                    formatted
+                ),
+                "You are a conversation summarizer.",
+            ),
+        )
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+        let keywords = if summary.is_empty() {
+            String::new()
+        } else {
+            tokio::time::timeout(
+                think_timeout,
+                Self::call_engine_think_simple(
+                    mcp,
+                    engine_id,
+                    &format!(
+                        "Extract 5-10 search keywords from this summary. \
+                         Output space-separated keywords only.\n\n{}",
+                        summary
+                    ),
+                    "You are a keyword extractor.",
+                ),
             )
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+        };
+
+        let resolved = if summary.is_empty() {
+            None
+        } else {
+            tokio::time::timeout(
+                think_timeout,
+                Self::call_engine_think_simple(
+                    mcp,
+                    engine_id,
+                    &format!(
+                        "Based on this conversation summary, was the main task completed? \
+                         Output ONLY 'true' or 'false'.\n\n{}",
+                        summary
+                    ),
+                    "You classify conversation completion status.",
+                ),
+            )
+            .await
+            .ok()
+            .flatten()
+            .map(|r| r.trim().to_lowercase() == "true")
+        };
+
+        // Archive episode with pre-computed values
+        let mut archive_args = serde_json::json!({
+            "agent_id": agent_id,
+            "history": history,
+            "summary": summary,
+            "keywords": keywords,
+        });
+        if let Some(r) = resolved {
+            archive_args["resolved"] = serde_json::json!(r);
+        }
+
+        match mcp
+            .call_server_tool(server_id, "archive_episode", archive_args)
             .await
         {
             Ok(_) => {
@@ -1985,21 +2062,63 @@ impl SystemHandler {
                     "📚 Auto-archived episode"
                 );
 
-                // Also update user profile after successful archival
-                match mcp
+                // Pre-compute profile update via CFR engine
+                let existing_profile = mcp
                     .call_server_tool(
                         server_id,
-                        "update_profile",
-                        serde_json::json!({"agent_id": agent_id, "history": history}),
+                        "get_profile",
+                        serde_json::json!({"agent_id": agent_id}),
                     )
                     .await
-                {
-                    Ok(_) => {
-                        info!(agent_id = %agent_id, "📝 Auto-updated user profile");
+                    .ok()
+                    .and_then(|r| Self::extract_tool_json(&r))
+                    .and_then(|j| j.get("profile")?.as_str().map(String::from))
+                    .unwrap_or_default();
+
+                let new_profile = tokio::time::timeout(
+                    think_timeout,
+                    Self::call_engine_think_simple(
+                        mcp,
+                        engine_id,
+                        &format!(
+                            "Extract facts about the user from the following conversation.\n\
+                             Output a concise profile in bullet-point format.\n\
+                             MERGE with existing facts — keep all existing information \
+                             unless explicitly contradicted.\n\n\
+                             Existing profile:\n{}\n\n\
+                             Conversation:\n{}",
+                            if existing_profile.is_empty() {
+                                "(none)".to_string()
+                            } else {
+                                existing_profile
+                            },
+                            formatted
+                        ),
+                        "You are a memory extraction assistant.",
+                    ),
+                )
+                .await
+                .ok()
+                .flatten();
+
+                if let Some(profile) = new_profile {
+                    match mcp
+                        .call_server_tool(
+                            server_id,
+                            "update_profile",
+                            serde_json::json!({"agent_id": agent_id, "profile": profile}),
+                        )
+                        .await
+                    {
+                        Ok(_) => {
+                            info!(agent_id = %agent_id, "📝 Auto-updated user profile");
+                        }
+                        Err(e) => {
+                            warn!(agent_id = %agent_id, error = %e, "⚠️ Profile update failed");
+                        }
                     }
-                    Err(e) => {
-                        warn!(agent_id = %agent_id, error = %e, "⚠️ Profile update failed");
-                    }
+                } else {
+                    warn!(agent_id = %agent_id, "⚠️ Profile extraction via engine failed — skipped");
                 }
             }
             Err(e) => {
@@ -2019,6 +2138,57 @@ impl SystemHandler {
             }
         }
         None
+    }
+
+    /// Call a mind engine's `think` tool with a simple prompt (no agent context).
+    /// Used for background tasks like profile extraction and episode summarization.
+    async fn call_engine_think_simple(
+        mcp: &Arc<McpClientManager>,
+        engine_id: &str,
+        prompt: &str,
+        system_desc: &str,
+    ) -> Option<String> {
+        let args = serde_json::json!({
+            "agent": {
+                "name": "system",
+                "description": system_desc,
+                "metadata": {},
+            },
+            "message": {
+                "content": prompt,
+                "source": {"type": "System"},
+                "metadata": {},
+            },
+            "context": [],
+        });
+        match mcp.call_server_tool(engine_id, "think", args).await {
+            Ok(result) => Self::extract_mcp_think_content(&result).ok(),
+            Err(e) => {
+                warn!(engine_id = %engine_id, error = %e, "Engine think_simple failed");
+                None
+            }
+        }
+    }
+
+    /// Format a history array into readable text for LLM prompts.
+    fn format_history_for_llm(history: &[serde_json::Value]) -> String {
+        history
+            .iter()
+            .filter_map(|m| {
+                let content = m.get("content")?.as_str()?;
+                if content.is_empty() {
+                    return None;
+                }
+                let source = m.get("source");
+                let is_user = source
+                    .and_then(|s| s.get("type"))
+                    .and_then(|t| t.as_str())
+                    .is_some_and(|t| t == "User");
+                let speaker = if is_user { "User" } else { "Agent" };
+                Some(format!("[{speaker}] {content}"))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     async fn emit_event(&self, trace_id: ClotoId, data: ClotoEventData) {
