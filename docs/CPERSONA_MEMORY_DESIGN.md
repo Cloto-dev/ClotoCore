@@ -1,6 +1,6 @@
 # CPersona Memory System — MCP Server Design
 
-> **Status:** Implemented (v2.4 RRF complete, v2.5 Recency Boost planned)
+> **Status:** Implemented (v2.4.4 current — dynamic time decay, recall boost, LLM dependency removed)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
 > **MCP Server ID:** `memory.cpersona`
 > **Companion Server:** `tool.embedding` (pluggable vector embedding)
@@ -21,7 +21,11 @@
 | CPersona 2.3.3–2.3.6 | ClotoCore | Same as 2.3 | Same as 2.3 | Task decay, deep recall, FTS5 trigram, adaptive scan, remote vector search | Complete |
 | CPersona 2.3.7 | ClotoCore | Same as 2.3 | Same as 2.3 | Auto-calibration of VECTOR_MIN_SIMILARITY (z-score of null cosine distribution, label-free) | **Complete** |
 | CPersona 2.4 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + RRF reranking | Reciprocal Rank Fusion as alternative recall mode (RECALL_MODE=rrf). Vector and FTS5 run independently, merged by RRF score | **Complete** |
-| CPersona 2.5 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | LLM-powered + anti-contamination + gated recency boost (reuses v2.3.2 normalization) | Planned |
+| CPersona 2.4.1 | ClotoCore | Schema v6: `channel` column | Same as 2.4 | Channel-based memory context separation (chat/discord). Memory annotation removal from content. | **Complete** |
+| CPersona 2.4.2 | ClotoCore | Same as 2.4.1 | Same as 2.4 | **LLM dependency completely removed** (-217 lines). `update_profile`/`archive_episode` accept pre-computed data only. `get_profile` tool added. CPersona is now a pure data server. | **Complete** |
+| CPersona 2.4.3 | ClotoCore | Same as 2.4.1 | Same as 2.4 | Store validation (`_sanitize_content`), content dedup, `MAX_CONTENT_LENGTH=2000`. `check_health` tool (7 issue types + auto-fix). | **Complete** |
+| CPersona 2.4.4 | ClotoCore | Schema v7: `recall_count`, `last_recalled_at` | Same as 2.4 | Dynamic time decay (rate adapts to memory time range). Recall boost (frequently recalled memories resist decay). Boost decay (protection fades if not re-recalled). | **Complete** |
+| CPersona 2.5 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | Anti-contamination + gated recency boost (reuses v2.3.2 normalization) | Planned |
 | CPersona 3.0 | Standalone | SQLite + graph tables (nodes/edges) | Cascade + graph traversal (BFS) + bi-temporal | MIT license, PyPI packaging, memory evolution (full) | Planned |
 
 ### 1.2 Capabilities Lost in 2.2 (restored in 2.3)
@@ -798,7 +802,7 @@ args = ["${servers}/embedding/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
-EMBEDDING_PROVIDER = "onnx_miniml"
+EMBEDDING_PROVIDER = "onnx_jina_v5_nano"
 EMBEDDING_HTTP_PORT = "8401"
 
 [[servers]]
@@ -810,6 +814,7 @@ auto_restart = true
 [servers.env]
 CPERSONA_EMBEDDING_MODE = "http"
 CPERSONA_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
+CPERSONA_CONFIDENCE_ENABLED = "true"
 ```
 
 ### 6.2 CPersona Environment Variables
@@ -827,24 +832,31 @@ CPERSONA_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
 | `CPERSONA_VECTOR_MIN_SIMILARITY` | `0.3` | Cosine similarity threshold for vector search (0.0–1.0) |
 | `CPERSONA_EMBEDDING_CACHE_SIZE` | `256` | LRU embedding cache capacity (entries) |
 | `CPERSONA_EMBEDDING_CACHE_TTL` | `300` | Embedding cache entry lifetime (seconds) |
-| `CPERSONA_LLM_PROXY_URL` | `http://127.0.0.1:8082/v1/chat/completions` | Kernel LLM proxy endpoint for memory extraction |
-| `CPERSONA_LLM_PROVIDER` | `cerebras` | LLM provider name (sent via `X-LLM-Provider` header) |
-| `CPERSONA_LLM_MODEL` | `gpt-oss-120b` | LLM model name for extraction tasks |
-| `CPERSONA_TASK_QUEUE_ENABLED` | `true` | Enable background task queue for `update_profile`/`archive_episode` |
+| ~~`CPERSONA_LLM_PROXY_URL`~~ | — | ~~Removed in v2.4.2. LLM calls delegated to kernel/caller.~~ |
+| ~~`CPERSONA_LLM_PROVIDER`~~ | — | ~~Removed in v2.4.2.~~ |
+| ~~`CPERSONA_LLM_MODEL`~~ | — | ~~Removed in v2.4.2.~~ |
+| `CPERSONA_TASK_QUEUE_ENABLED` | `true` | Enable background task queue for `archive_episode` (profile bypasses queue since v2.4.2) |
 | `CPERSONA_TASK_MAX_RETRIES` | `3` | Max retry attempts before discarding a failed task |
 | `CPERSONA_TASK_RETRY_DELAY` | `30` | Seconds to wait between retries |
 | `CPERSONA_CONFIDENCE_ENABLED` | `false` | Enable confidence metadata in recall output (v2.3.2) |
 | `CPERSONA_COSINE_FLOOR` | `0.20` | Cosine normalization lower bound (model-dependent; v2.3.2) |
 | `CPERSONA_COSINE_CEIL` | `0.75` | Cosine normalization upper bound (model-dependent; v2.3.2) |
-| `CPERSONA_DECAY_RATE` | `0.005` | Time decay rate per hour for confidence score (v2.3.2) |
+| `CPERSONA_DECAY_RATE` | `0.005` | Base time decay rate per hour for confidence score (v2.3.2) |
+| `CPERSONA_DECAY_FLOOR` | `0.3` | Minimum time decay score (v2.4.4) |
+| `CPERSONA_DECAY_CEIL` | `0.5` | Maximum time decay score for recall-boosted memories (v2.4.4) |
+| `CPERSONA_RECALL_BOOST` | `0.02` | Log-scaled recall frequency boost factor (v2.4.4) |
+| `CPERSONA_BOOST_DECAY_RATE` | `0.002` | Boost fade rate per hour since last recall (v2.4.4) |
+| `CPERSONA_MIN_TIME_RANGE_HOURS` | `24` | Minimum time range for dynamic decay (new agent protection; v2.4.4) |
+| `CPERSONA_REFERENCE_HOURS` | `168` | Reference time range (1 week) for decay rate scaling (v2.4.4) |
 | `CPERSONA_RESOLVED_DECAY_FACTOR` | `0.3` | Additional decay factor for resolved episodes (v2.3.2) |
+| `CPERSONA_MAX_CONTENT_LENGTH` | `2000` | Maximum content length before truncation (v2.4.3) |
 | `CPERSONA_VECTOR_SEARCH_MODE` | `local` | `local` (BLOB+NumPy) / `remote` (embedding server delegation) |
 | `CPERSONA_STORE_BLOB` | `true` | Store embedding BLOBs even in remote mode (fallback) |
 | `CPERSONA_AUTO_CALIBRATE` | `false` | Auto-calibrate VECTOR_MIN_SIMILARITY on startup (v2.3.7) |
 | `CPERSONA_CALIBRATE_SAMPLE_SIZE` | `200` | Number of embeddings to sample for calibration |
 | `CPERSONA_CALIBRATE_Z_FACTOR` | `1.0` | Z-score multiplier (higher = more permissive) |
 | `CPERSONA_CALIBRATE_FLOOR` | `0.05` | Minimum threshold floor for calibration |
-| `CPERSONA_RECALL_MODE` | `cascade` | `cascade` (sequential 4-stage) / `rrf` (Reciprocal Rank Fusion) |
+| `CPERSONA_RECALL_MODE` | `rrf` | `cascade` (sequential 4-stage) / `rrf` (Reciprocal Rank Fusion; default since v2.4) |
 | `CPERSONA_RRF_K` | `60` | RRF smoothing parameter K |
 | `CPERSONA_RRF_THRESHOLD_FACTOR` | `0.5` | RRF mode vector similarity threshold multiplier |
 | `CPERSONA_AUTOCUT_ENABLED` | `false` | Enable score-gap detection noise cutoff (v2.4) |
@@ -1045,14 +1057,25 @@ COSINE_FLOOR = 0.20   # Env: CPERSONA_COSINE_FLOOR
 COSINE_CEIL  = 0.75   # Env: CPERSONA_COSINE_CEIL
 norm_cos = clamp((raw_cosine - COSINE_FLOOR) / (COSINE_CEIL - COSINE_FLOOR), 0.0, 1.0)
 
-# Step 2: Time decay (hyperbolic, approaches 0 but never reaches it)
-DECAY_RATE = 0.005    # Env: CPERSONA_DECAY_RATE
+# Step 2: Dynamic time decay (v2.4.4)
+# Rate adapts to agent's memory time range — longer history = gentler decay
+time_range_hours = max(MIN_TIME_RANGE_HOURS, newest - oldest)  # from agent's memories
+effective_rate = DECAY_RATE / max(1.0, time_range_hours / REFERENCE_HOURS)
 age_hours = (now - timestamp).total_seconds() / 3600
-time_decay = 1.0 / (1.0 + age_hours * DECAY_RATE)
+
+# Recall boost: frequently recalled memories get higher floor (v2.4.4)
+boost_decay = 1.0 / (1.0 + hours_since_last_recall * BOOST_DECAY_RATE)
+effective_floor = min(DECAY_CEIL, DECAY_FLOOR + log(1 + recall_count) * RECALL_BOOST * boost_decay)
+
+time_decay = max(effective_floor, 1.0 / (1.0 + age_hours * effective_rate))
 
 # Step 3: Geometric mean (preserves 2D quadrant separation)
-score = math.sqrt(norm_cos * time_decay)
+score = math.sqrt(norm_cos * time_decay) * completion_factor
+# completion_factor = RESOLVED_DECAY_FACTOR (0.3) if resolved and not deep, else 1.0
 ```
+
+> **v2.3.2 original formula** (still used when `time_range_hours=0` fallback):
+> `time_decay = 1.0 / (1.0 + age_hours * DECAY_RATE)` with fixed rate, no floor.
 
 **Why geometric mean over alternatives:**
 
@@ -1191,6 +1214,50 @@ operation without intermediate files. It reuses the same dedup logic.
 
 **Implementation scope:** `cloto-mcp-servers` repo only (`servers/cpersona/server.py`).
 No schema changes. New MCP tool registration only.
+
+### CPersona 2.4.1: Channel Isolation — **Complete**
+
+Memory context separation for multi-source agents (chat vs Discord vs other I/O bridges).
+
+- [x] `channel` column added to memories table (schema v6)
+- [x] `store` and `recall` accept `channel` parameter
+- [x] Index: `idx_memories_agent_channel` (agent_id, channel, created_at DESC)
+- [x] Migration: backfill existing memories with channel=''
+- [x] Memory annotation (`[Memory from ...]`) removed from stored content — timestamps conveyed via separate metadata field
+
+### CPersona 2.4.2: LLM Dependency Removal — **Complete**
+
+CPersona is now a **pure data server** with zero internal LLM calls (-217 lines removed).
+
+- [x] Removed: `call_llm_proxy()`, `_format_history()`, `LLM_PROXY_URL`, `LLM_PROVIDER`, `LLM_MODEL` config vars
+- [x] `update_profile`: Accepts pre-computed profile text only. No internal LLM processing.
+- [x] `archive_episode`: Accepts pre-computed summary/keywords/resolved. No internal summarization.
+- [x] New tool: `get_profile` — retrieve current profile text for an agent
+- [x] Kernel integration: `maybe_archive_episode` in `system.rs` uses CFR engine (`call_engine_think_simple`) for pre-computation before calling CPersona
+
+**Design principle:** LLM processing responsibility belongs to the caller (kernel CFR engine or Claude Code), not the data server. This eliminates model coupling and simplifies CPersona's codebase.
+
+### CPersona 2.4.3: Store Validation & Health Check — **Complete**
+
+- [x] `_sanitize_content()`: Remove Discord mentions (`<@ID>`), memory annotations (`[Memory from ...]`), trim, truncate to `MAX_CONTENT_LENGTH`
+- [x] Content-based deduplication: reject exact content match per agent+channel
+- [x] New tool: `check_health` — detect and optionally auto-fix 7 issue types:
+  1. `memory_annotation` — annotations leaked into content
+  2. `discord_mention` — raw Discord mentions in content
+  3. `duplicate_content` — same content stored multiple times
+  4. `oversized_content` — exceeds MAX_CONTENT_LENGTH
+  5. `empty_channel` — channel='' (sets to 'chat' on fix)
+  6. `embedding_dimension_mismatch` — wrong vector dimensions (report only)
+  7. `null_embedding` — missing embeddings (report only)
+
+### CPersona 2.4.4: Dynamic Time Decay & Recall Boost — **Complete**
+
+- [x] Schema v7: `recall_count` and `last_recalled_at` columns
+- [x] Dynamic time decay: `effective_rate = DECAY_RATE / max(1.0, time_range / REFERENCE_HOURS)` — agents with longer history get gentler decay
+- [x] `MIN_TIME_RANGE_HOURS=24`: New agents (< 24h history) use fixed rate (protection)
+- [x] Recall boost: `effective_floor = min(DECAY_CEIL, DECAY_FLOOR + log(1+count) * RECALL_BOOST * boost_decay)` — frequently recalled memories resist decay
+- [x] Boost decay: `boost_decay = 1/(1 + hours_since * BOOST_DECAY_RATE)` — protection fades if not re-recalled (~3 months to base floor)
+- [x] Side effect: recall increments `recall_count` and updates `last_recalled_at` (except deep=True)
 
 ### CPersona 2.4+ Roadmap
 
