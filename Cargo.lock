@@ -9592,13 +9592,12 @@ dependencies = [
 
 [[package]]
 name = "xcap"
-version = "0.9.1"
+version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e68ffe10c83f18354f0bcf6d9038d5e133c7d91af57baca50d1b90bea83257c"
+checksum = "669eca0840c322f46ab68505a7e4328421b86127eeead1faed6bfc827dc77713"
 dependencies = [
  "dispatch2",
  "image",
- "lazy_static",
  "libwayshot-xcap",
  "log",
  "objc2",
