@@ -10,7 +10,7 @@ use super::mcp_protocol::{
     CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, ClotoHandshakeParams,
     ClotoHandshakeResult, InitializeParams, JsonRpcRequest, ListToolsResult,
 };
-use super::mcp_transport::StdioTransport;
+use super::mcp_transport::{HttpTransport, McpTransport, StdioTransport};
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -28,7 +28,7 @@ pub struct McpNotification {
 }
 
 pub struct McpClient {
-    transport: Arc<Mutex<StdioTransport>>,
+    transport: Arc<Mutex<McpTransport>>,
     /// Cloned sender for lock-free request dispatch.
     /// The response loop holds `transport` Mutex during recv(); sending through
     /// this channel avoids the deadlock where call() would block on the same Mutex.
@@ -64,7 +64,7 @@ impl McpClient {
         llm_proxy_port: u16,
         sensitive_env_keys: &[String],
     ) -> Result<(Self, Option<MgpServerCapabilities>)> {
-        let transport = StdioTransport::start(
+        let stdio = StdioTransport::start(
             command,
             args,
             env,
@@ -73,7 +73,36 @@ impl McpClient {
             sensitive_env_keys,
         )
         .await?;
-        let sender = transport.sender();
+        let sender = stdio.sender();
+        let transport = McpTransport::Stdio(Box::new(stdio));
+        let mut client = Self {
+            transport: Arc::new(Mutex::new(transport)),
+            sender,
+            pending_requests: Arc::new(Mutex::new(HashMap::new())),
+            next_id: Arc::new(AtomicI64::new(1)),
+            response_task: None,
+            notification_tx,
+            request_timeout_secs,
+            stream_collectors: Arc::new(Mutex::new(HashMap::new())),
+        };
+
+        client.start_response_loop(server_id);
+        let mgp_caps = client.initialize().await?;
+
+        Ok((client, mgp_caps))
+    }
+
+    /// Connect to a remote MCP server via Streamable HTTP transport.
+    pub async fn connect_http(
+        server_id: &str,
+        url: &str,
+        auth_token: Option<&str>,
+        notification_tx: mpsc::Sender<McpNotification>,
+        request_timeout_secs: u64,
+    ) -> Result<(Self, Option<MgpServerCapabilities>)> {
+        let http = HttpTransport::start(url, auth_token).await?;
+        let sender = http.sender();
+        let transport = McpTransport::Http(Box::new(http));
         let mut client = Self {
             transport: Arc::new(Mutex::new(transport)),
             sender,
