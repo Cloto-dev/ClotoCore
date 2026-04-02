@@ -101,8 +101,7 @@ auto_restart = true
 [servers.env]
 CPERSONA_EMBEDDING_MODE = "http"
 CPERSONA_EMBEDDING_URL = "http://127.0.0.1:8401/embed"
-CPERSONA_LLM_PROVIDER = "cerebras"
-CPERSONA_LLM_MODEL = "gpt-oss-120b"
+CPERSONA_CONFIDENCE_ENABLED = "true"
 
 [[servers]]
 id = "tool.embedding"
@@ -111,8 +110,9 @@ args = ["${servers}/embedding/server.py"]
 transport = "stdio"
 auto_restart = true
 [servers.env]
-EMBEDDING_PROVIDER = "onnx_miniml"
+EMBEDDING_PROVIDER = "onnx_jina_v5_nano"
 EMBEDDING_HTTP_PORT = "8401"
+ONNX_MODEL_DIR = "C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/embedding/data/models/jina-embeddings-v5-text-nano"
 
 [[servers]]
 id = "tool.websearch"
@@ -178,6 +178,17 @@ auto_restart = false
 STT_MODEL = "base"
 STT_LANGUAGE = "ja"
 
+# ── Output Servers ──
+
+[[servers]]
+id = "output.avatar"
+display_name = "Avatar"
+command = "${servers}/avatar/target/debug/mgp-avatar"
+transport = "stdio"
+auto_restart = true
+[servers.mgp]
+trust_level = "standard"
+
 # ── I/O Bridge Servers (1 bot = 1 agent) ──
 # Each Discord bot is a separate mgp-discord instance with its own token.
 
@@ -187,6 +198,10 @@ display_name = "Discord"
 command = "${servers}/discord/target/debug/mgp-discord"
 transport = "stdio"
 auto_restart = true
+[servers.mgp]
+trust_level = "core"
+[servers.isolation]
+network_scope = "unrestricted"
 [servers.env]
 DISCORD_BOT_TOKEN = "${DISCORD_BOT_TOKEN}"
 ALLOWED_CHANNEL_IDS = ""
