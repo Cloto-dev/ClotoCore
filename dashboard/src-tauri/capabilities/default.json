@@ -30,6 +30,7 @@
     "notification:default",
     "updater:default",
     "dialog:default",
+    "process:allow-restart",
     "global-shortcut:allow-register"
   ]
 }
