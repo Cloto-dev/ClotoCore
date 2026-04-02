@@ -104,6 +104,11 @@ export function MarketplaceCard({ entry, onInstall, onUninstall, actionsDisabled
               {t('marketplace.update_available')}
             </span>
           )}
+          {isUpdate && entry.changelog && (
+            <p className="text-[10px] font-sans text-amber-500/70 line-clamp-2 leading-relaxed w-full">
+              {entry.changelog}
+            </p>
+          )}
           {!alreadyPresent && (
             <span className="flex items-center gap-1 text-[10px] font-sans text-content-tertiary">
               <span className="w-1.5 h-1.5 rounded-full bg-content-tertiary/40" />

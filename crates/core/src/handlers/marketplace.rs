@@ -51,6 +51,8 @@ pub struct RegistryEntry {
     pub runtime: String,
     #[serde(default)]
     pub bin_name: Option<String>,
+    #[serde(default)]
+    pub changelog: Option<String>,
 }
 
 fn default_trust_level() -> String {
@@ -100,6 +102,7 @@ pub struct CatalogEntry {
     pub auto_restart: bool,
     pub icon: Option<String>,
     pub runtime: String,
+    pub changelog: Option<String>,
     // Merged local state
     pub installed: bool,
     pub installed_version: Option<String>,
@@ -186,6 +189,7 @@ pub async fn catalog_handler(
                 auto_restart: entry.auto_restart,
                 icon: entry.icon.clone(),
                 runtime: entry.runtime.clone(),
+                changelog: entry.changelog.clone(),
                 installed,
                 installed_version,
                 update_available,
