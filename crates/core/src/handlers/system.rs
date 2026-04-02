@@ -280,6 +280,52 @@ impl SystemHandler {
             vec![]
         };
 
+        // 2-B. Merge short-term conversation context from I/O bridge (e.g., Discord channel history)
+        let context = if let Some(raw) = msg.metadata.get("conversation_context") {
+            let mut merged = context;
+            if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(raw) {
+                for entry in entries {
+                    let role = entry.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                    let content = entry
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if content.is_empty() {
+                        continue;
+                    }
+                    let source = match role {
+                        "assistant" => cloto_shared::MessageSource::Agent {
+                            id: "self".into(),
+                        },
+                        "user" => {
+                            let name = entry
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("User")
+                                .to_string();
+                            cloto_shared::MessageSource::User {
+                                id: format!("discord:{name}"),
+                                name,
+                            }
+                        }
+                        _ => continue,
+                    };
+                    merged.push(ClotoMessage {
+                        id: cloto_shared::ClotoId::new().to_string(),
+                        source,
+                        target_agent: None,
+                        content,
+                        timestamp: chrono::Utc::now(),
+                        metadata: std::collections::HashMap::new(),
+                    });
+                }
+            }
+            merged
+        } else {
+            context
+        };
+
         // 3. 【核心】思考要求イベントを発行
         info!(
             target_agent_id = %target_agent_id,

@@ -518,6 +518,15 @@ impl EventProcessor {
                                 }
                             }
                         }
+                        // Forward conversation context (short-term channel history)
+                        if let Some(conv_ctx) = meta.get("conversation_context") {
+                            if conv_ctx.is_array() {
+                                if let Ok(ctx_str) = serde_json::to_string(conv_ctx) {
+                                    msg_metadata
+                                        .insert("conversation_context".into(), ctx_str);
+                                }
+                            }
+                        }
                     }
 
                     let cloto_msg = cloto_shared::ClotoMessage {
