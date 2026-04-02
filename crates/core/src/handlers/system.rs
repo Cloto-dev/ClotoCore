@@ -384,43 +384,110 @@ impl SystemHandler {
                     );
                 }
             }
-        } else if msg.metadata.get("tool_hint").is_some_and(|v| v == "speak") {
-            // ── Direct TTS: bypass agentic loop to avoid prompt/response confusion ──
-            let speak_text = msg.content.clone();
-            let speak_args = serde_json::json!({
-                "text": speak_text,
-                "agent_id": agent.id,
-            });
+        } else if let Some(tool_name) = msg.metadata.get("tool_hint").cloned() {
+            // ── Direct tool execution: bypass agentic loop ──
+            // Used by I/O bridges (Discord backtick commands) and internal hints (speak).
+            let tool_args: serde_json::Value = msg
+                .metadata
+                .get("tool_args")
+                .and_then(|a| serde_json::from_str(a).ok())
+                .unwrap_or(serde_json::json!({}));
+            let mut args_map = tool_args.as_object().cloned().unwrap_or_default();
+            args_map
+                .entry("agent_id".to_string())
+                .or_insert(serde_json::json!(agent.id));
+            // For backward compat: speak requires "text" from message content
+            if tool_name == "speak" {
+                args_map
+                    .entry("text".to_string())
+                    .or_insert(serde_json::json!(msg.content));
+            }
+            let final_args = serde_json::Value::Object(args_map);
 
             info!(
                 agent_id = %agent.id,
-                text_len = speak_text.len(),
-                "🔊 Direct speak (tool_hint bypass)"
+                tool = %tool_name,
+                "🔧 Direct tool execution (tool_hint bypass)"
             );
 
             if let Some(ref mcp) = self.registry.mcp_manager {
-                match tokio::time::timeout(
+                let result = match tokio::time::timeout(
                     Duration::from_secs(self.tool_execution_timeout_secs),
-                    mcp.execute_tool_internal("speak", speak_args),
+                    mcp.execute_tool_internal(&tool_name, final_args),
                 )
                 .await
                 {
-                    Ok(Ok(_)) => {
-                        info!(agent_id = %agent.id, "✅ Direct speak completed");
+                    Ok(Ok(val)) => {
+                        info!(agent_id = %agent.id, tool = %tool_name, "✅ Direct tool completed");
+                        match val {
+                            serde_json::Value::String(s) => s,
+                            other => serde_json::to_string_pretty(&other)
+                                .unwrap_or_default(),
+                        }
                     }
                     Ok(Err(e)) => {
-                        error!(agent_id = %agent.id, error = %e, "❌ Direct speak failed");
+                        error!(agent_id = %agent.id, tool = %tool_name, error = %e, "❌ Direct tool failed");
+                        format!("Error: {e}")
                     }
                     Err(_) => {
-                        error!(agent_id = %agent.id, "⏱️ Direct speak timed out");
+                        error!(agent_id = %agent.id, tool = %tool_name, "⏱️ Direct tool timed out");
+                        "Error: Tool execution timed out".into()
+                    }
+                };
+
+                // Route result back via callback if this is an external action
+                if let Some(callback_id) = msg.metadata.get("external_callback_id") {
+                    let action_id = msg
+                        .metadata
+                        .get("external_action_id")
+                        .cloned()
+                        .unwrap_or_default();
+                    let source = msg
+                        .metadata
+                        .get("external_source")
+                        .cloned()
+                        .unwrap_or_else(|| "external".into());
+                    let sender_name = msg
+                        .metadata
+                        .get("external_sender_name")
+                        .cloned()
+                        .unwrap_or_else(|| "Unknown".into());
+
+                    let data = ClotoEventData::ExternalAction {
+                        action_id,
+                        source: source.clone(),
+                        source_label: source,
+                        target_agent_id: agent.id.clone(),
+                        target_agent_name: agent.name.clone(),
+                        prompt: msg.content.clone(),
+                        sender_name,
+                        engine_id: String::new(),
+                        response: Some(result.clone()),
+                        status: "success".into(),
+                        callback_id: callback_id.clone(),
+                    };
+                    if let Err(e) =
+                        self.sender.send(crate::EnvelopedEvent::system(data)).await
+                    {
+                        error!("Failed to emit ExternalAction for direct tool: {}", e);
+                    }
+
+                    let respond_args = serde_json::json!({
+                        "callback_id": callback_id,
+                        "response": result,
+                    });
+                    if let Err(e) = mcp.respond_to_callback(respond_args).await {
+                        error!(
+                            callback_id = %callback_id,
+                            error = %e,
+                            "Failed to respond to direct tool callback"
+                        );
                     }
                 }
+                // No external_callback_id = fire-and-forget (e.g. speak)
             } else {
-                error!(agent_id = %agent.id, "❌ Direct speak: no MCP manager available");
+                error!(agent_id = %agent.id, "❌ Direct tool: no MCP manager available");
             }
-            // No ThoughtResponse event — TTS is a side-effect-only operation.
-            // The audio notification is already emitted by the MGP avatar server
-            // via notifications/mgp.event → kernel SSE → dashboard.
         } else {
             // 通常モード: エージェントループで処理
             // 3-layer engine selection: override > routing rules > default
