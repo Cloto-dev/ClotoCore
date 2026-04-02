@@ -84,6 +84,10 @@ pub struct McpServerInfo {
     pub mgp_supported: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trust_level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 #[must_use]

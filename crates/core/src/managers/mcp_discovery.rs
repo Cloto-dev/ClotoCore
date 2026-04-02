@@ -311,12 +311,23 @@ pub(super) async fn execute_discovery_register(
         .get("mgp")
         .and_then(|v| serde_json::from_value::<super::mcp_mgp::MgpServerConfig>(v.clone()).ok());
 
+    let url = args
+        .get("url")
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+    let auth_token = args
+        .get("auth_token")
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
     let config = super::mcp_protocol::McpServerConfig {
         id: id.to_string(),
         command: command.to_string(),
         args: cmd_args,
         env: std::collections::HashMap::new(),
         transport: transport.to_string(),
+        url,
+        auth_token,
         auto_restart: None,
         required_permissions: Vec::new(),
         tool_validators: std::collections::HashMap::new(),
