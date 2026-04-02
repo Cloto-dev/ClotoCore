@@ -60,8 +60,8 @@ System views (non-route):
 - `McpAccessControlTab.tsx` — Manage access control entries (server_grant, tool_grant, capability).
 - `McpAccessTree.tsx` — Tree visualization of access control hierarchy.
 - `McpAccessSummaryBar.tsx` — Summary bar showing access permission counts.
-- `MarketplaceTab.tsx` — Marketplace browser with search, category filter (incl. output), install/uninstall. Refresh delegated to page header button.
-- `MarketplaceCard.tsx` — Individual marketplace server card (name, description, tags, status, action buttons).
+- `MarketplaceTab.tsx` — Marketplace browser with search, category filter (incl. output), install/uninstall. DEV LOCKED toggle (dev mode defaults actions disabled, survives until process restart). Refresh delegated to page header button.
+- `MarketplaceCard.tsx` — Individual marketplace server card (name, description, tags, status, action buttons). Changelog display on update-available cards. `actionsDisabled` prop for dev lock.
 - `InstallDialog.tsx` — Server installation progress dialog.
 
 #### Settings (`components/settings/`)
@@ -81,6 +81,11 @@ System views (non-route):
 - `SecurityGuard.tsx` — Permission request UI, security context provider.
 - `CommandApprovalCard.tsx` — UI card for approving/denying agent command execution requests.
 
+#### Actions & External Events
+- `ActionsPanel.tsx` — Tabbed panel for code artifacts, dialogues, and external actions (Discord etc). Opened alongside agent conversation.
+- `DialogueCard.tsx` — Display card for CRON dialogue results (truncated with expand).
+- `ExternalActionCard.tsx` — Display card for external I/O bridge actions (Discord, Slack). Source badge, prompt/response display with truncation.
+
 #### Chat Content Rendering
 - `ContentBlockView.tsx` — Renders different message content types (text, images, code blocks, tool results).
 - `CodeBlock.tsx` — Syntax-highlighted code rendering with copy button.
@@ -97,7 +102,7 @@ System views (non-route):
 - `KernelMonitor.tsx` — System kernel monitoring view (CPU, memory, MCP server status).
 - `SystemAlertCard.tsx` — System alert notification cards.
 - `SkeletonThinking.tsx` — Loading/thinking animation placeholder.
-- `ErrorBoundary.tsx` — React error boundary wrapper.
+- `ErrorBoundary.tsx` — React error boundary wrapper. Release build: restarts process via `@tauri-apps/plugin-process` relaunch(). Dev build: detects Vite down state and shows guidance.
 
 #### Visual & Theme
 - `ThemeProvider.tsx` — Dark/light theme context provider.
@@ -106,7 +111,7 @@ System views (non-route):
 - `CustomCursor.tsx` — Custom animated cursor (toggleable in Display settings).
 - `Modal.tsx` — Generic modal dialog wrapper.
 - `HelpContent.tsx` — Help documentation modal content.
-- `ArtifactPanel.tsx` — File/artifact display panel.
+- ~~`ArtifactPanel.tsx`~~ — Removed. Replaced by `ActionsPanel.tsx` (see Actions & External Events section).
 
 ### `components/ui/` — Primitive UI components
 - `StatusDot.tsx` — Status indicator dot (connected/offline/error colors).
@@ -155,12 +160,14 @@ System views (non-route):
 - `useTheme.ts` — Theme switching (dark/light/system).
 - `useStorage.ts` — localStorage/sessionStorage utilities (`useLocalStorage`, `useSessionStorage`).
 - `useMetrics.ts` — System metrics polling.
-- `useArtifacts.ts` — Artifact management.
+- `useActions.ts` — Actions panel state management (code artifacts, dialogues, external actions). Replaces former `useArtifacts`. Categories: `code`, `dialogues`, `external`.
+- `useProcessingAgents.ts` — Tracks which agents are currently processing (SSE event timeout-based).
 - `useTypewriter.ts` — Typewriter animation effect.
 - `useLongPress.ts` — Long-press gesture detection.
 - `useUserIdentity.ts` — User identity management.
 
 ### `contexts/` — React context providers
+- `ActionsContext.tsx` — Actions panel context provider (wraps `useActions` hook).
 - `AgentContext.tsx` — Agent list, selected agent, system active state.
 - `ApiKeyContext.tsx` — API key storage and validation.
 - `ConnectionContext.tsx` — Backend connection status.
@@ -245,5 +252,5 @@ VrmViewerPage (separate Tauri window)
 ├── VrmViewer (three.js canvas)
 └── VRM Engine (procedural animation layers)
 
-Global Contexts: ThemeProvider > ApiKeyProvider > UserIdentityProvider > ConnectionProvider > AgentProvider
+Global Contexts: ThemeProvider > ApiKeyProvider > UserIdentityProvider > ConnectionProvider > AgentProvider > ActionsProvider
 ```
