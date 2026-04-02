@@ -1,4 +1,4 @@
-import { AlertTriangle, Search } from 'lucide-react';
+import { AlertTriangle, Lock, Search, Unlock } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../hooks/useApi';
@@ -8,6 +8,8 @@ import type { MarketplaceCatalogEntry } from '../../types';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { InstallDialog } from './InstallDialog';
 import { MarketplaceCard } from './MarketplaceCard';
+
+const IS_DEV = import.meta.env.DEV;
 
 const ERROR_DISPLAY_MS = 5000;
 
@@ -38,6 +40,7 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
     };
   }, [onRefetchRef, refetch]);
 
+  const [actionsEnabled, setActionsEnabled] = useState(!IS_DEV);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [installingServer, setInstallingServer] = useState<MarketplaceCatalogEntry | null>(null);
@@ -141,6 +144,22 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
             </button>
           ))}
         </div>
+
+        {/* Dev mode: marketplace actions toggle */}
+        {IS_DEV && (
+          <button
+            onClick={() => setActionsEnabled((v) => !v)}
+            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border transition-colors ${
+              actionsEnabled
+                ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
+                : 'bg-glass text-content-tertiary border-edge'
+            }`}
+            title={actionsEnabled ? 'Marketplace actions enabled' : 'Marketplace actions locked (dev mode)'}
+          >
+            {actionsEnabled ? <Unlock size={10} /> : <Lock size={10} />}
+            {actionsEnabled ? 'UNLOCKED' : 'DEV LOCKED'}
+          </button>
+        )}
       </div>
 
       {/* Grid */}
@@ -156,6 +175,7 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
               entry={entry}
               onInstall={setInstallingServer}
               onUninstall={setUninstallTarget}
+              actionsDisabled={!actionsEnabled}
             />
           ))}
         </div>
