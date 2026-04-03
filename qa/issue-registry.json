@@ -1931,8 +1931,8 @@
       "commit": "8c09a10",
       "file": "crates/core/src/handlers/system.rs",
       "pattern": "\"context\": context\\.iter",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-312",
@@ -1967,7 +1967,7 @@
       "commit": "ea8600b",
       "file": "crates/core/src/managers/mcp.rs",
       "pattern": "output\\.avatar.*tool\\.name == .speak",
-      "expected": "present",
+      "expected": "absent",
       "status": "fixed"
     },
     {
@@ -2303,8 +2303,8 @@
       "commit": "68fd17f",
       "file": "crates/core/src/managers/mcp.rs",
       "pattern": "state.servers.remove(id)",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }
