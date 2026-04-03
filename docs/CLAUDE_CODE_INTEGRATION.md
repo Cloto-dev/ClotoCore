@@ -73,7 +73,8 @@ Once configured, Claude Code gains access to:
 |------|-------------|
 | `store` | Store a message in agent memory |
 | `recall` | Search memories (vector + FTS5 + keyword) |
-| `update_profile` | Extract user facts from conversation |
+| `update_profile` | Update user/agent profile |
+| `get_profile` | Retrieve existing profile |
 | `archive_episode` | Summarize and archive a conversation |
 | `list_memories` | List recent memories |
 | `list_episodes` | List archived episodes |
@@ -82,6 +83,7 @@ Once configured, Claude Code gains access to:
 | `delete_agent_data` | Purge all data for an agent |
 | `export_memories` | Export to JSONL file |
 | `import_memories` | Import from JSONL file |
+| `check_health` | Database health check (15 checks) with optional auto-repair |
 | `get_queue_status` | Background task queue status |
 
 ## Environment Variables
