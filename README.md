@@ -7,7 +7,7 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-248%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-351%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
@@ -109,11 +109,11 @@ All plugin functionality is delivered via **MCP (Model Context Protocol)** serve
 | `mind.cerebras` | Reasoning | Ultra-high-speed reasoning via Cerebras API |
 | `mind.claude` | Reasoning | Anthropic Claude API (native Messages API) |
 | `mind.ollama` | Reasoning | Local model inference via Ollama |
-| `memory.cpersona` | Memory | [CPersona](https://github.com/Cloto-dev/cloto-mcp-servers) — persistent memory with cascading recall, FTS5, vector search, episodic/profile memory |
+| `memory.cpersona` | Memory | [CPersona](https://github.com/Cloto-dev/cloto-mcp-servers/tree/main/servers/cpersona) — persistent memory with RRF hybrid search (vector + FTS5 + keyword), confidence scoring, episodic/profile memory, 16 tools (MIT) |
 | `tool.terminal` | Tool | Sandboxed shell command execution |
 | `tool.agent_utils` | Tool | Deterministic utilities (time, math, UUID, hash, etc.) |
 | `tool.cron` | Tool | Stateless CRON job management via kernel REST API |
-| `tool.embedding` | Tool | Vector embedding generation (local ONNX MiniLM) |
+| `tool.embedding` | Tool | Vector embedding generation (ONNX: Jina-v5-nano / MiniLM) |
 | `tool.websearch` | Tool | Web search via Tavily or SearXNG |
 | `tool.research` | Tool | Multi-engine research synthesis pipeline |
 | `tool.imagegen` | Tool | Image generation via Stable Diffusion API |
@@ -130,7 +130,7 @@ and are configured via `mcp.toml`. See [MCP Plugin Architecture](docs/MCP_PLUGIN
 
 ```
 crates/core/        Kernel — event bus, MCP manager, HTTP API, rate limiter
-crates/shared/      Plugin SDK — traits, capability injection, event types, LLM utilities
+crates/shared/      Shared types — trait definitions, LLM utilities
 dashboard/          React/TypeScript web UI (Tauri desktop app)
 scripts/            Build tools, verification scripts
 qa/                 Issue registry and quality assurance data
@@ -277,7 +277,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 
 ## Testing
 
-248 tests (Rust 234 + Dashboard 14). MCP server tests (Python 102) are in [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers).
+234 Rust tests. MCP server tests (117 Python) are in [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers).
 
 ```bash
 cargo test                              # all Rust tests
