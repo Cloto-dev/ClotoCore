@@ -528,6 +528,8 @@ pub enum ClotoEventData {
         callback_type: String,
         message: String,
         options: Option<Vec<String>>,
+        /// Bridge-specific metadata (e.g., channel_id, author_name for Discord).
+        metadata: Option<serde_json::Value>,
     },
     /// Terminal commands require human approval before execution (batch).
     CommandApprovalRequested {
@@ -541,6 +543,28 @@ pub enum ClotoEventData {
         approval_id: String,
         /// "approved", "trusted", "denied", "timeout"
         decision: String,
+    },
+    /// External I/O action: an incoming message from an I/O bridge (Discord, Slack, etc.)
+    /// processed through the agentic loop with automatic response routing via MGP callback.
+    ExternalAction {
+        action_id: String,
+        /// Source bridge identifier (e.g., "discord").
+        source: String,
+        /// Human-readable label for the source (e.g., "Discord").
+        source_label: String,
+        target_agent_id: String,
+        target_agent_name: String,
+        /// The incoming message/prompt from the external user.
+        prompt: String,
+        /// Sender identity from the external platform.
+        sender_name: String,
+        engine_id: String,
+        /// None while pending, Some when completed or failed.
+        response: Option<String>,
+        /// "pending", "success", "error"
+        status: String,
+        /// The callback_id used for response routing back to the I/O bridge.
+        callback_id: String,
     },
     /// Inter-agent dialogue: one agent delegated a question to another via ask_agent.
     /// Emitted at request time (response = None) and at completion (response = Some).

@@ -218,6 +218,22 @@ pub async fn get_access_entries_for_server(
     .await
 }
 
+/// Get all agent IDs that have access to a specific MCP server (reverse lookup).
+/// Returns only agents with ServerGrant + Allow permission.
+pub async fn get_agents_for_server(
+    pool: &SqlitePool,
+    server_id: &str,
+) -> anyhow::Result<Vec<String>> {
+    let entries = get_access_entries_for_server(pool, server_id).await?;
+    Ok(entries
+        .into_iter()
+        .filter(|e| {
+            e.entry_type == EntryType::ServerGrant && e.permission == PermissionLevel::Allow
+        })
+        .map(|e| e.agent_id)
+        .collect())
+}
+
 /// Get all access control entries for a specific agent (by-agent view).
 pub async fn get_access_entries_for_agent(
     pool: &SqlitePool,

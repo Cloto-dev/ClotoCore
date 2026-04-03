@@ -295,9 +295,7 @@ impl SystemHandler {
                         continue;
                     }
                     let source = match role {
-                        "assistant" => cloto_shared::MessageSource::Agent {
-                            id: "self".into(),
-                        },
+                        "assistant" => cloto_shared::MessageSource::Agent { id: "self".into() },
                         "user" => {
                             let name = entry
                                 .get("name")
@@ -421,8 +419,7 @@ impl SystemHandler {
                         info!(agent_id = %agent.id, tool = %tool_name, "✅ Direct tool completed");
                         match val {
                             serde_json::Value::String(s) => s,
-                            other => serde_json::to_string_pretty(&other)
-                                .unwrap_or_default(),
+                            other => serde_json::to_string_pretty(&other).unwrap_or_default(),
                         }
                     }
                     Ok(Err(e)) => {
@@ -466,9 +463,7 @@ impl SystemHandler {
                         status: "success".into(),
                         callback_id: callback_id.clone(),
                     };
-                    if let Err(e) =
-                        self.sender.send(crate::EnvelopedEvent::system(data)).await
-                    {
+                    if let Err(e) = self.sender.send(crate::EnvelopedEvent::system(data)).await {
                         error!("Failed to emit ExternalAction for direct tool: {}", e);
                     }
 
@@ -745,9 +740,21 @@ impl SystemHandler {
 
                     // External Action completion: respond to I/O bridge callback
                     if let Some(callback_id) = msg.metadata.get("external_callback_id") {
-                        let action_id = msg.metadata.get("external_action_id").cloned().unwrap_or_default();
-                        let source = msg.metadata.get("external_source").cloned().unwrap_or_else(|| "external".into());
-                        let sender_name = msg.metadata.get("external_sender_name").cloned().unwrap_or_else(|| "Unknown".into());
+                        let action_id = msg
+                            .metadata
+                            .get("external_action_id")
+                            .cloned()
+                            .unwrap_or_default();
+                        let source = msg
+                            .metadata
+                            .get("external_source")
+                            .cloned()
+                            .unwrap_or_else(|| "external".into());
+                        let sender_name = msg
+                            .metadata
+                            .get("external_sender_name")
+                            .cloned()
+                            .unwrap_or_else(|| "Unknown".into());
 
                         // Emit ExternalAction "success"
                         let data = ClotoEventData::ExternalAction {
@@ -763,7 +770,8 @@ impl SystemHandler {
                             status: "success".to_string(),
                             callback_id: callback_id.clone(),
                         };
-                        if let Err(e) = self.sender.send(crate::EnvelopedEvent::system(data)).await {
+                        if let Err(e) = self.sender.send(crate::EnvelopedEvent::system(data)).await
+                        {
                             error!("Failed to emit ExternalAction completion: {}", e);
                         }
 
@@ -855,9 +863,21 @@ impl SystemHandler {
 
                     // External Action error: notify I/O bridge of failure
                     if let Some(callback_id) = msg.metadata.get("external_callback_id") {
-                        let action_id = msg.metadata.get("external_action_id").cloned().unwrap_or_default();
-                        let source = msg.metadata.get("external_source").cloned().unwrap_or_else(|| "external".into());
-                        let sender_name = msg.metadata.get("external_sender_name").cloned().unwrap_or_else(|| "Unknown".into());
+                        let action_id = msg
+                            .metadata
+                            .get("external_action_id")
+                            .cloned()
+                            .unwrap_or_default();
+                        let source = msg
+                            .metadata
+                            .get("external_source")
+                            .cloned()
+                            .unwrap_or_else(|| "external".into());
+                        let sender_name = msg
+                            .metadata
+                            .get("external_sender_name")
+                            .cloned()
+                            .unwrap_or_else(|| "Unknown".into());
 
                         let data = ClotoEventData::ExternalAction {
                             action_id,

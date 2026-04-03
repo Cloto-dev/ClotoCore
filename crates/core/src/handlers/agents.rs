@@ -479,7 +479,9 @@ pub async fn upload_avatar(
         {
             result
         } else {
-            tracing::warn!("Avatar vision analysis timed out after 30s, storing without description");
+            tracing::warn!(
+                "Avatar vision analysis timed out after 30s, storing without description"
+            );
             None
         }
     } else {
