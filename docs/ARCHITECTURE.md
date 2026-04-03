@@ -113,7 +113,7 @@ ClotoCore/
 │   │       │   ├── mcp_protocol.rs # MCP JSON-RPC message types
 │   │       │   ├── mcp_transport.rs # stdio transport layer
 │   │       │   ├── mcp_mgp.rs  #   MGP capability negotiation & types
-│   │       │   ├── mcp_kernel_tool.rs # MGP kernel tool registry (mgp.* namespace, 23 tools)
+│   │       │   ├── mcp_kernel_tool.rs # MGP kernel tool registry (mgp.* namespace, 18 tools)
 │   │       │   ├── mcp_tool_validator.rs # Code security validation
 │   │       │   ├── mcp_lifecycle.rs # Server lifecycle state machine
 │   │       │   ├── mcp_streaming.rs # Streaming & flow control

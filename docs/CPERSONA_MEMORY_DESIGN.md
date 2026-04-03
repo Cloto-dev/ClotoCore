@@ -1,6 +1,6 @@
 # CPersona Memory System — MCP Server Design
 
-> **Status:** Implemented (v2.4.5 current — extended health checks, dynamic time decay, recall boost, LLM dependency removed)
+> **Status:** Implemented (v2.4.6 current — adaptive quality gate, extended health checks, dynamic time decay, recall boost, LLM dependency removed)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
 > **MCP Server ID:** `memory.cpersona`
 > **Companion Server:** `tool.embedding` (pluggable vector embedding)
@@ -26,6 +26,7 @@
 | CPersona 2.4.3 | ClotoCore | Same as 2.4.1 | Same as 2.4 | Store validation (`_sanitize_content`), content dedup, `MAX_CONTENT_LENGTH=2000`. `check_health` tool (7 issue types + auto-fix). | **Complete** |
 | CPersona 2.4.4 | ClotoCore | Schema v7: `recall_count`, `last_recalled_at` | Same as 2.4 | Dynamic time decay (rate adapts to memory time range). Recall boost (frequently recalled memories resist decay). Boost decay (protection fades if not re-recalled). | **Complete** |
 | CPersona 2.4.5 | ClotoCore | Same as 2.4.4 | Same as 2.4 | Extended `check_health` to 15 checks: FTS5 sync, schema version, JSON validity, timestamp consistency, stale tasks, null embedding auto-repair (batch 50), storage stats, missing profiles. | **Complete** |
+| CPersona 2.4.6 | ClotoCore | Same as 2.4.4 | Same as 2.4 | Adaptive quality gate: dynamic recall threshold based on memory pool size (logarithmic scaling). Profile injection gated (≥50 memories). Unscored results gated (≥100 memories). Deep recall halves threshold. | **Complete** |
 | CPersona 2.5 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | Anti-contamination + gated recency boost (reuses v2.3.2 normalization) | Planned |
 | CPersona 3.0 | Standalone | SQLite + graph tables (nodes/edges) | Cascade + graph traversal (BFS) + bi-temporal | MIT license, PyPI packaging, memory evolution (full) | Planned |
 
@@ -78,7 +79,7 @@ The following capabilities were dropped and subsequently restored in 2.3:
 │  memory.cpersona           │  │  tool.embedding                      │
 │  (~40MB)             │  │  (~40-490MB depending on provider) │
 │                      │  │                                    │
-│  Tools (13):         │  │  Tools (5):                        │
+│  Tools (16):         │  │  Tools (5):                        │
 │  - store             │  │  - embed (batch, max 100)          │
 │  - recall            │  │  - index (namespace + vectors)     │
 │  - update_profile    │  │  - search (similarity query)       │
@@ -86,14 +87,17 @@ The following capabilities were dropped and subsequently restored in 2.3:
 │  - list_memories     │  │  - purge (by namespace)            │
 │  - list_episodes     │  │                                    │
 │  - delete_memory     │  │  Providers:                        │
-│  - delete_episode    │  │  - onnx_miniml (local, ~490MB)     │
+│  - delete_episode    │  │  - onnx_jina_v5_nano (768d, ~150MB)│
 │  - delete_agent_data │  │  - api_openai  (remote, ~40MB)    │
 │  - calibrate_threshold│ │                                    │
 │  - get_queue_status  │  │  HTTP: localhost:PORT              │
 │  - export_memories   │  │  /embed /index /search /remove     │
 │  - import_memories   │  │  /purge                            │
-│                      │  │  Embedding Cache:                  │
-│  DB: cpersona.db     │  │  LRU (256 entries) + TTL (300s)   │
+│  - merge_memories    │  │                                    │
+│  - get_profile       │  │  Embedding Cache:                  │
+│  - check_health      │  │  LRU (256 entries) + TTL (300s)   │
+│                      │  │                                    │
+│  DB: cpersona.db     │  │                                    │
 │  (SQLite, FTS5)      │  │                                    │
 │                      │  │                                    │
 │  Task Queue ─────────┤  │                                    │
@@ -102,8 +106,8 @@ The following capabilities were dropped and subsequently restored in 2.3:
 │  Embedding Client ───┼──┤                                    │
 │  (http/api/none)     │  │                                    │
 │                      │  │                                    │
-│  LLM Proxy ──────────┼──→  Kernel LLM Proxy (port 8082)     │
-│  (profile/episode)   │  │                                    │
+│  Quality Gate ───────┤  │                                    │
+│  (adaptive threshold)│  │                                    │
 └──────────────────────┘  └────────────────────────────────────┘
 ```
 
@@ -1613,6 +1617,7 @@ Cancelled because: (1) `tool.embedding` LRU cache already eliminates the main bo
 | Configuration | CPersona | Embedding | Total | Search Quality |
 |--------------|------|-----------|-------|---------------|
 | `none` (FTS5 only) | ~40MB | — | **~40MB** | Good (FTS5 + keyword) |
-| `http` + ONNX MiniLM | ~40MB | ~490MB | **~530MB** | Excellent (vector + FTS5) |
+| `http` + ONNX jina-v5-nano | ~40MB | ~150MB | **~190MB** | Excellent (vector + FTS5) |
+| `http` + ONNX MiniLM (legacy) | ~40MB | ~490MB | **~530MB** | Good (vector + FTS5) |
 | `http` + API provider | ~40MB | ~40MB | **~80MB** | Excellent (vector + FTS5) |
 | `api` (no embedding server) | ~40MB | — | **~40MB** | Excellent (vector + FTS5) |

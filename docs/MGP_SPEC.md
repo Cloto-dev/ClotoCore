@@ -97,16 +97,21 @@ other functionality is provided as standard MCP tools exposed by the kernel.
 │  ├─ mgp/callback/respond                                 │
 │  └─ mgp/stream/cancel                                    │
 ├──────────────────────────────────────────────────────────┤
-│  Layer 4: Kernel Tools (17 — standard tools/call)        │
+│  Layer 4: Kernel Tools (25 — standard tools/call)        │
 │  ├─ mgp.access.*    (query, grant, revoke)       — §5   │
 │  ├─ mgp.audit.*     (replay)                    — §6   │
 │  ├─ mgp.health.*    (ping, status)               — §11  │
 │  ├─ mgp.lifecycle.* (shutdown)                   — §11  │
+│  ├─ mgp.stream.*    (cancel, pace)               — §12  │
 │  ├─ mgp.events.*    (subscribe, unsubscribe,     — §13  │
-│  │                    replay)                            │
+│  │                    replay, pending_callbacks)          │
+│  ├─ mgp.callback.*  (respond)                    — §13  │
 │  ├─ mgp.discovery.* (list, register, deregister) — §15  │
-│  └─ mgp.tools.*     (discover, request,          — §16  │
-│                       session, session.evict)            │
+│  ├─ mgp.tools.*     (discover, request,          — §16  │
+│  │                    session, session.evict)             │
+│  ├─ create_mcp_server                            — §15  │
+│  ├─ ask_agent                                    — §16  │
+│  └─ gui.*           (map, read)                  — §17  │
 └──────────────────────────────────────────────────────────┘
 ```
 
