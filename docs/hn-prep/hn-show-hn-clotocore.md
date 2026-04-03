@@ -109,6 +109,13 @@ A few notes on the development process:
    single SQLite file, 16 tools, zero LLM dependency. That's the fastest
    way to try the most useful piece.
 
+6. Benchmarks: We tested cpersona against a vector-only baseline on LMEB
+   (22 memory retrieval tasks). The hybrid approach (RRF fusion of vector +
+   FTS5 + keyword) matches or beats vector-only on 16/22 tasks — with
+   QASPER showing +25 NDCG@10 improvement, where FTS5 catches exact names
+   and IDs that vector search misses. All without any LLM calls. The delta
+   is architecture, not model quality.
+
 Architecture doc: https://github.com/Cloto-dev/ClotoCore/blob/main/docs/ARCHITECTURE.md
 ```
 
