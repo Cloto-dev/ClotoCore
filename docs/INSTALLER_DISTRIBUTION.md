@@ -145,13 +145,13 @@ Include a manifest for the Tauri updater endpoint in the GitHub Release.
 
 ```json
 {
-  "version": "0.5.3",
-  "notes": "ClotoCore v0.5.3",
-  "pub_date": "2026-03-04T00:00:00Z",
+  "version": "0.6.3",
+  "notes": "ClotoCore v0.6.3",
+  "pub_date": "2026-04-03T00:00:00Z",
   "platforms": {
     "windows-x86_64": {
       "signature": "<Ed25519 signature>",
-      "url": "https://github.com/Cloto-dev/ClotoCore/releases/download/v0.5.3/cloto-system_0.5.3_x64-setup.nsis.zip"
+      "url": "https://github.com/Cloto-dev/ClotoCore/releases/download/v0.6.3/cloto-system_0.6.3_x64-setup.nsis.zip"
     }
   }
 }
