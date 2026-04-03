@@ -104,6 +104,11 @@ A few notes on the development process:
    to inject external messages into the agent loop without the agent knowing
    it's talking to Discord.
 
+5. cpersona works standalone: You don't need ClotoCore to use the memory
+   server. Point Claude Desktop or Claude Code at it, done. MIT license,
+   single SQLite file, 16 tools, zero LLM dependency. That's the fastest
+   way to try the most useful piece.
+
 Architecture doc: https://github.com/Cloto-dev/ClotoCore/blob/main/docs/ARCHITECTURE.md
 ```
 
