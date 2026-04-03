@@ -70,15 +70,16 @@ cpersonaはClotoCoreの一部として言及。単体投稿ではない。
 
 ## 投稿前チェックリスト
 
-- [ ] ClotoCore/README.md が最新かつ正確
-- [ ] cloto-mcp-servers/README.md がv2.4.4と整合
-- [ ] cpersona/README.md が存在しHN経由の流入に対応
-- [ ] GitHub Sponsors設置済み
-- [ ] ライセンスファイル確認（ClotoCore=BSL 1.1, cpersona=MIT）
-- [ ] テスト全通過確認（cargo test + pytest）
-- [ ] ダッシュボードスクリーンショットが最新
-- [ ] HN投稿文の最終レビュー完了
-- [ ] self-commentの準備完了
+- [x] ClotoCore/README.md が最新かつ正確（ドキュメント監査完了 4/3）
+- [x] cloto-mcp-servers/README.md がv2.4.6と整合（監査完了 4/3）
+- [x] cpersona/README.md が存在しHN経由の流入に対応
+- [x] FUNDING.yml 設置済み（Sponsorsプロフィール申請は手動で必要）
+- [x] ライセンスファイル確認（ClotoCore=BSL 1.1, cpersona=MIT）
+- [x] テスト全通過確認（351: 234 Rust + 117 Python, 4/3確認）
+- [x] v0.6.3-beta.1 リリースビルド完了（24MB .exe, GitHub Release添付済み）
+- [ ] ダッシュボードGIF + スクリーンショット最新化（DaVinci Resolve編集予定）
+- [x] HN投稿文の最終レビュー完了（4/4）
+- [x] self-commentの準備完了
 - [ ] Q&A回答の暗記完了
 
 ---
