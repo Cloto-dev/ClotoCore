@@ -7,6 +7,293 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.3-beta.1] — 2026-04-03
+
+### Added
+- **Streamable HTTP** transport for remote MCP server connections
+- Agentic loop for `ask_agent` tool execution chains
+- Discord conversation context injection into LLM calls
+- Discord callback metadata forwarding to agent messages
+- CPersona **memory channel** support for channel-based context separation
+- Actions panel with inter-agent dialogue visibility
+- CRON job execution display in Actions Dialogues
+- Engine selector on CRON job creation form
+- Memory **export/import** UI in MemoryCore
+- Marketplace changelog display on update-available cards
+- MGP badge and glow effect on MCP server cards
+- Agent processing glow indicator in sidebar
+- Speaker name display on memory cards
+- **IO category** for bidirectional MCP servers in dashboard
+- Process relaunch on error boundary restart
+- Marketplace actions locked in dev mode by default
+- Pre-compute archive/profile via CFR engine in background
+- Generalized `tool_hint` for direct tool execution bypass
+- `CapabilityType::Speech` with capability-based **auto-speak**
+- Installer (Experimental) section in README with setup wizard fix
+
+### Changed
+- `io.discord.karin` renamed to `io.discord`
+- Per-agent Discord server entry template
+- Dialogues tab bar replaced with **vertical scroll list**
+- Agent description limit increased from 1000 to 5000 bytes
+
+### Fixed
+- MCP venv: parallel pip install replaced with **single invocation**
+- Stale Python venv detection and automatic recreation
+- pip install timeout and `--no-input` flags
+- Python venv and cargo build timeouts
+- Duplicate tool names in LLM tool schemas
+- Null reference in Discord callback metadata
+- Avatar **cache-bust** on re-upload
+- Avatar vision analysis skipped when agent lacks Vision access
+- CRON dialogue response pairing
+- Memory card text size and description textarea height
+- Export/import icon semantics corrected
+- Speech tool schema exclusion limited to "speak" tool only
+- Setup wizard download URL fixed (points to cloto-mcp-servers releases)
+- Setup wizard server/venv paths corrected for production layout
+- `detect_project_root()` recognizes `cloto-mcp-servers/` directory
+
+### Security
+- Authentication, cryptography, MCP server creation, and Tauri capabilities **hardened**
+- GitHub Actions pinned to commit SHAs
+- CVE-2026-33055, CVE-2026-33056 (tar crate update)
+- Access control magic strings replaced with typed enums
+- `aria-label` added to all interactive dashboard components
+
+### Documentation
+- Code quality audit report (65 findings — 2 critical, 19 high, all fixed)
+- Documentation-codebase **integrity audit** (3 critical, 7 high, 5 medium fixed)
+- CPersona design document updated to v2.4.6 (tool count, version table, architecture diagram)
+- MGP specification kernel tool count corrected (17→25)
+- HN **Show HN** preparation (post draft, Q&A 19 questions, launch plan)
+- GUI component map updated
+- Test count corrected: 351 (234 Rust + 117 Python)
+
+---
+
+## [0.6.3-alpha.11] — 2026-03-21
+
+### Changed
+- MGP renamed from "Model General Protocol" to "**Multi-Agent Gateway Protocol**"
+- Release assets consolidated from 34 to 22 (SHA256SUMS.txt replaces per-file checksums)
+
+### Fixed
+- Kernel startup failure no longer **silently ignored** — `start_kernel()` refactor with Tauri error dialog
+- LLM proxy bind failure reported in background — no longer blocks HTTP server startup
+- MCP deferred boot **race condition** resolved — `Arc<Notify>` replaces `yield_now()`
+- Tauri tray icon panic prevented
+- EventManager **mutex poisoning** cascade eliminated across 13 sites
+- McpAccessControlTab infinite re-render loop
+- Cross-platform MCP path normalization
+- MCP config parse error visibility improved
+- Faster **graceful shutdown** — concurrent drain with 10-second cap
+- pip install timeout and `--no-input` to prevent setup hangs
+- Stale venv auto-detection — compares Python major.minor, auto-recreates on mismatch
+- Text size and color rule violations in dashboard
+
+### Security
+- `aws-lc-sys` updated (RUSTSEC-2026-0044, RUSTSEC-2026-0048)
+- `rustls-webpki` updated (RUSTSEC-2026-0049)
+
+---
+
+## [0.6.3-alpha.10] — 2026-03-20
+
+### Fixed
+- **Empty MCP server list** after NSIS installation — `mcp.toml` now embedded in binary via `include_str!` and extracted to `data/mcp.toml` on first launch with snapshot pattern
+- Removed broken Tauri `resources` bundling (Tauri v2 transforms `../` into literal `_up_` directories)
+
+---
+
+## [0.6.3-alpha.9] — 2026-03-20
+
+### Fixed
+- **Empty MCP server list** after installation — `mcp.toml` bundled as Tauri resource for first-launch discovery
+- `exe_dir/mcp.toml` added as production fallback path
+- `CLOTO_MCP_SERVERS` fallback probes multiple candidate directories (bundled, sibling repo, legacy layout)
+- Always-true assertion removed from security forging test
+
+---
+
+## [0.6.3-alpha.8] — 2026-03-19
+
+### Changed
+- `.env.example` updated with Ollama config
+- Outdated `CODE_QUALITY_REPORT.md` removed
+
+### Fixed
+- Dashboard: gate **console statements** behind `import.meta.env.DEV`
+- Dashboard: improve catch block type safety, extract magic numbers, remove dead CSS
+- Rename legacy `karin` color to `cloto`
+- All **clippy warnings** resolved
+- Warn logging added to silent I/O errors in system handler
+- Benchmark helpers updated to match current `AppState` struct
+- `ask_agent` tool description improved
+- CI: cargo fmt violations and missing assertion fixed
+
+---
+
+## [0.6.3-alpha.7] — 2026-03-17
+
+### Added
+- **Rust MCP server** support in marketplace — servers with `runtime: "rust"` built with `cargo build --release`, with toolchain detection and build progress streaming
+- Startup timing log (`startup: X.Xs`)
+- Rust badge on marketplace cards
+- MCP startup performance analysis report
+
+### Changed
+- MCP server connections **parallelized** — `connect_server_configs()` uses `join_all` for concurrent connections
+- Parallel **venv dependency sync** — pip install runs concurrently for all servers
+- Background venv sync — `ensure_mcp_venv()` moved off critical startup path
+- **Startup time reduced from ~40s to ~7s**
+- `output.avatar` removed from `mcp.toml` (marketplace-only distribution)
+
+### Fixed
+- Sidebar "Agents" nav not returning to agent selection
+- Agent config screen highlighting wrong **sidebar** item
+- Sidebar agent click not working after returning from chat/config
+- Config screen persisting when navigating away
+- Marketplace install blocked for config-loaded servers
+- Cargo build failing in data dir due to parent **workspace detection**
+- CI: cargo fmt, flaky seal key test, issue registry
+
+---
+
+## [0.6.3-alpha.6] — 2026-03-16
+
+### Changed
+- `mcp.toml` **portability**: `${CLOTO_MCP_SERVERS}` env var with sibling-repo fallback
+- `resolve_servers_dir_from_config()` resolves relative paths against project root
+
+### Fixed
+- Update checker detects **pre-release** versions via `/releases` API
+- Pre-release segment version comparison (alpha.4 vs alpha.5)
+- Setup wizard Python pre-check with download link and **retry button**
+- Hardcoded developer-machine paths removed from history
+
+---
+
+## [0.6.3-alpha.5] — 2026-03-16
+
+### Added
+- **VRM thumbnail extraction** and avatar offer dialog
+- i18n: Japanese translations for VRM dialog and settings sections
+- CFR default enabled for new routing rules
+- Engine selection **persistence** per agent in localStorage
+
+### Changed
+- Deferred save pattern unified for all agent config
+- `output.avatar` migrated to `cloto-mcp-servers` repository
+
+### Fixed
+- VRM upload metadata **COALESCE** race condition
+- Null injection prevention in metadata
+- Marketplace refresh bypasses server cache
+- Duplicate refresh buttons unified
+
+---
+
+## [0.6.3-alpha.4] — 2026-03-16
+
+### Added
+- **Agent state persistence** across navigation (thinking steps, chat, SSE)
+- Code block header bar with language label, copy, and download
+- Artifact panel collapse/expand with **sessionStorage** persistence
+- MCP server lifecycle feedback (spinner + checkmark)
+
+### Fixed
+- CI: MSI target exclusion, clippy errors, biome lint, sentinel assertion
+- Workspace-wide **cargo fmt**
+
+---
+
+## [0.6.3-alpha.3] — 2026-03-16
+
+### Added
+- **Auto-update** check on startup (Tauri only, configurable)
+- Discord-style update indicator in header
+- Tool hint display shows actual command name
+
+### Changed
+- Unified **card styles** across all dashboard components
+
+### Fixed
+- Avatar upload/deletion **race condition**
+- Avatar upload spinner hang with 30-second timeout
+- Semver comparison for pre-release versions
+
+### Documentation
+- CPersona v2.5/v3.0 roadmap added
+
+---
+
+## [0.6.3-alpha.2] — 2026-03-16
+
+### Added
+- **MCP Server Marketplace** (Phase 1 & 2) — catalog, install, batch install with SSE progress
+- **Setup flow unification** with SSE progress streaming
+- Tier-1 rate limiting and startup dependency sync
+- Biome formatter, lefthook pre-commit hooks, sentinel script
+- 14 unit tests for marketplace and setup
+
+### Fixed
+- `resolve_servers_dir_from_config` **TOML parsing** failure (critical)
+- Avatar deletion and AgentConsole TDZ crash
+- Install path resolution fixes
+
+---
+
+## [0.6.3-alpha.1] — 2026-03-13
+
+### Added
+- **CPersona background task queue** (Phase 5) ported from predecessor
+- SSE **SequencedEvent** with `Last-Event-ID` replay for reliable event streaming
+- Cron `source_type` field to distinguish user vs system messages
+- VRM thinking pose auto-application on agent thinking state
+- `AgentThinking` event emission before all LLM calls
+- Host OS info injected into agent system prompt
+
+### Fixed
+- **WebView2** startup crash (`ERR_CONNECTION_REFUSED`) on release builds
+- `useLongPress` stale closure in long-press handler
+- Chat message deletion not including system rows
+- Web search false-positive health check
+
+### Documentation
+- VOICEVOX credit added to README
+- CPersona **2.x versioning** adopted (inheriting KS2.x lineage)
+- 8 internal audit docs moved to `.dev-notes/`
+- Comprehensive `CPERSONA_MEMORY_DESIGN.md` update (20 fixes)
+
+---
+
+## [0.6.2] — 2026-03-11
+
+### Added
+- **VRM Avatar System** (Layer 1) — full procedural animation pipeline (breathing, blinking, micro-sway, gaze drift, agent state transitions, default pose with smooth transitions)
+- **VRMA pose system** with direct quaternion application, smooth slerp-based transitions, drag-and-drop loading
+- VRM **expression mapper** — cross-avatar compatibility layer with fallback chains
+- **mgp-avatar MCP server** — VOICEVOX TTS with automatic viseme extraction for real-time lip sync
+- MGP `set_pose` tool for avatar pose control (relaxed, attentive, thinking, arms_crossed)
+- Auto-speak final LLM response with configurable bypass
+- VRMA thinking pose preset (Blender-authored)
+- Eye narrowing during thinking state
+- Middle-click orbit rotation in VRM viewer
+- Extended **bone controls** (neck, spine, head, hand)
+- Core architecture refactor (Phase 1–8): **CapabilityDispatcher**, metadata JSON migration, unified state consolidation, process lifecycle safety, permission events, config-driven capabilities, agent type filtering
+- **OS-level isolation** (MGP §8-10) for MCP server sandboxing
+- MGP tool discovery **latency tier** scoring (Tier C/B/A/S)
+
+### Fixed
+- VOICEVOX `accent_phrases` field name for viseme extraction
+- Pre-phoneme compensation for accurate **lip sync** timing
+- Audio cutoff prevention and viseme desynchronization
+- Bypass agentic loop for TTS (prevent prompt readback)
+- VOICEVOX pipeline and sandbox path resolution
+
+---
+
 ## [0.6.1] — 2026-03-09
 
 ### Added

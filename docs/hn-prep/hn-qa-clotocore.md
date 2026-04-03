@@ -86,6 +86,10 @@ This isn't meant as a flex about being frugal — it's a data point on what AI-a
 
 ## 批判・懐疑系
 
+### Q: Can I install it without building from source?
+
+**A:** Pre-built installers exist (Windows .exe, Linux .deb/.AppImage, macOS .dmg) but they're experimental. The setup wizard handles Python venv creation and MCP server download automatically, but environment differences may cause issues. Building from source is more reliable for now. You need Python 3.10+ in PATH for the MCP servers regardless of install method.
+
 ### Q: This looks like a lot of half-built features. Is any of it production-ready?
 
 **A:** Fair concern. The core loop (kernel + reasoning + memory + dashboard) is stable and I use it daily. The avatar/voice/vision plugins are functional but less polished — they're proof-of-concept for the platform's extensibility. The 351 tests cover the kernel and memory system thoroughly. I'd call the kernel and cpersona production-ready; the peripheral plugins are working prototypes.

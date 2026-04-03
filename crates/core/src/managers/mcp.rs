@@ -2316,7 +2316,7 @@ impl McpClientManager {
                 exe_parent.to_path_buf()
             }
         };
-        if exe_dir.join("mcp-servers").exists() {
+        if exe_dir.join("cloto-mcp-servers").exists() || exe_dir.join("mcp-servers").exists() {
             return Some(exe_dir);
         }
         None
