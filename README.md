@@ -159,7 +159,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `8081` | HTTP server port |
-| `DATABASE_URL` | `sqlite:{exe_dir}/data/cloto_memories.db` | SQLite database path |
+| `DATABASE_URL` | `sqlite:{exe_dir}/data/cloto_memories.db` | SQLite database path (`{exe_dir}` = directory of the executable) |
 | `CLOTO_API_KEY` | (none) | Admin API key (required in release builds) |
 | `DEEPSEEK_API_KEY` | (none) | DeepSeek API key |
 | `CEREBRAS_API_KEY` | (none) | Cerebras API key |
