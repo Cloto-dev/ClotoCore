@@ -48,6 +48,9 @@ struct PendingCallback {
     responded: bool,
     /// Stored response for §13.4 dedup re-send
     recorded_response: Option<String>,
+    /// Full original metadata from the callback request (used by external_message callbacks).
+    #[allow(dead_code)]
+    raw_metadata: Option<serde_json::Value>,
 }
 
 // ============================================================
@@ -173,6 +176,7 @@ impl EventManager {
         callback_type: &str,
         message: &str,
         options: Option<Vec<String>>,
+        raw_metadata: Option<serde_json::Value>,
     ) -> bool {
         let mut cbs = self.callbacks.lock().unwrap_or_else(|e| {
             warn!("EventManager mutex was poisoned, recovering");
@@ -191,6 +195,7 @@ impl EventManager {
                 created_at: Instant::now(),
                 responded: false,
                 recorded_response: None,
+                raw_metadata,
             },
         );
         true
@@ -483,12 +488,15 @@ pub fn handle_callback_request(
             .collect()
     });
 
+    let raw_metadata = params.get("metadata").cloned();
+
     let is_new = manager.events.register_callback(
         callback_id,
         server_id,
         callback_type,
         message,
         options.clone(),
+        raw_metadata,
     );
 
     if !is_new {
@@ -510,6 +518,8 @@ pub fn handle_callback_request(
         "Callback request received"
     );
 
+    let raw_metadata = params.get("metadata").cloned();
+
     CallbackHandleResult::NewCallback(Box::new(
         cloto_shared::ClotoEventData::McpCallbackRequested {
             callback_id: callback_id.to_string(),
@@ -517,6 +527,7 @@ pub fn handle_callback_request(
             callback_type: callback_type.to_string(),
             message: message.to_string(),
             options,
+            metadata: raw_metadata,
         },
     ))
 }
@@ -680,14 +691,14 @@ mod tests {
     #[test]
     fn callback_deduplication() {
         let em = EventManager::new();
-        assert!(em.register_callback("cb-1", "s1", "confirm", "Are you sure?", None));
-        assert!(!em.register_callback("cb-1", "s1", "confirm", "Are you sure?", None));
+        assert!(em.register_callback("cb-1", "s1", "confirm", "Are you sure?", None, None));
+        assert!(!em.register_callback("cb-1", "s1", "confirm", "Are you sure?", None, None));
     }
 
     #[test]
     fn callback_resolve() {
         let em = EventManager::new();
-        em.register_callback("cb-1", "s1", "confirm", "msg", None);
+        em.register_callback("cb-1", "s1", "confirm", "msg", None, None);
 
         let server_id = em.resolve_callback("cb-1", "confirmed");
         assert_eq!(server_id, Some("s1".to_string()));
@@ -706,9 +717,9 @@ mod tests {
     #[test]
     fn llm_completion_detection() {
         let em = EventManager::new();
-        em.register_callback("llm-1", "s1", "llm_completion", "generate", None);
+        em.register_callback("llm-1", "s1", "llm_completion", "generate", None, None);
         assert!(em.is_llm_completion("llm-1"));
-        em.register_callback("cb-2", "s1", "confirm", "msg", None);
+        em.register_callback("cb-2", "s1", "confirm", "msg", None, None);
         assert!(!em.is_llm_completion("cb-2"));
     }
 }

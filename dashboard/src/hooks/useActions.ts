@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react';
-import type { AgentDialogue } from '../types';
+import type { AgentDialogue, ExternalAction } from '../types';
 
 // ── Storage Keys ──
 
 const ARTIFACTS_KEY = 'cloto-actions';
 const OPEN_KEY = 'cloto-actions-open';
 const DIALOGUES_KEY = 'cloto-dialogues';
+const EXTERNAL_ACTIONS_KEY = 'cloto-external-actions';
 
 // Legacy migration
 const LEGACY_ARTIFACTS_KEY = 'cloto-artifacts';
@@ -13,7 +14,7 @@ const LEGACY_OPEN_KEY = 'cloto-artifacts-open';
 
 // ── Types ──
 
-export type ActionCategory = 'code' | 'dialogues';
+export type ActionCategory = 'code' | 'dialogues' | 'external';
 
 export interface Artifact {
   id: string;
@@ -27,6 +28,11 @@ export interface DialogueTab {
   unread: boolean;
 }
 
+export interface ExternalActionTab {
+  action: ExternalAction;
+  unread: boolean;
+}
+
 export interface UseActionsResult {
   // Panel state
   isOpen: boolean;
@@ -37,6 +43,7 @@ export interface UseActionsResult {
   activeCategory: ActionCategory;
   setActiveCategory: (cat: ActionCategory) => void;
   hasDialogues: boolean;
+  hasExternalActions: boolean;
 
   // Artifacts (code)
   artifacts: Artifact[];
@@ -54,9 +61,14 @@ export interface UseActionsResult {
   addOrUpdateDialogue: (dialogue: AgentDialogue) => void;
   markDialogueRead: (dialogueId: string) => void;
 
+  // External Actions
+  externalActions: ExternalActionTab[];
+  addOrUpdateExternalAction: (action: ExternalAction) => void;
+
   // Counts
   totalCount: number;
   unreadDialogueCount: number;
+  unreadExternalCount: number;
 }
 
 // ── Persistence Helpers ──
@@ -126,11 +138,41 @@ function saveDialogues(dialogues: DialogueTab[]) {
   }
 }
 
+// ── External Actions Persistence ──
+
+function loadExternalActions(): ExternalActionTab[] {
+  try {
+    const raw = localStorage.getItem(EXTERNAL_ACTIONS_KEY);
+    if (!raw) return [];
+    const parsed: ExternalActionTab[] = JSON.parse(raw);
+    const cutoff = Date.now() - MAX_DIALOGUE_AGE_MS;
+    const fresh = parsed.filter((e) => e.action.timestamp >= cutoff);
+    const pruned = fresh.length > MAX_DIALOGUES ? fresh.slice(-MAX_DIALOGUES) : fresh;
+    if (pruned.length !== parsed.length) saveExternalActions(pruned);
+    return pruned;
+  } catch {
+    return [];
+  }
+}
+
+function saveExternalActions(actions: ExternalActionTab[]) {
+  try {
+    if (actions.length === 0) {
+      localStorage.removeItem(EXTERNAL_ACTIONS_KEY);
+    } else {
+      localStorage.setItem(EXTERNAL_ACTIONS_KEY, JSON.stringify(actions));
+    }
+  } catch {
+    /* localStorage full — ignore */
+  }
+}
+
 // ── Hook ──
 
 export function useActions(): UseActionsResult {
   const [artifacts, setArtifacts] = useState<Artifact[]>(loadArtifacts);
   const [dialogues, setDialogues] = useState<DialogueTab[]>(loadDialogues);
+  const [externalActions, setExternalActions] = useState<ExternalActionTab[]>(loadExternalActions);
   const [isOpen, setIsOpen] = useState(() => {
     const saved = loadArtifacts();
     return saved.length > 0 && sessionStorage.getItem(OPEN_KEY) !== 'closed';
@@ -179,7 +221,7 @@ export function useActions(): UseActionsResult {
     saveArtifacts([]);
   }, []);
 
-  /** Clear all actions (artifacts + dialogues) and hide the panel. */
+  /** Clear all actions (artifacts + dialogues + external) and hide the panel. */
   const clearAll = useCallback(() => {
     setArtifacts([]);
     setActiveArtifactIndex(0);
@@ -187,6 +229,8 @@ export function useActions(): UseActionsResult {
     setDialogues([]);
     setActiveDialogueIndex(0);
     saveDialogues([]);
+    setExternalActions([]);
+    saveExternalActions([]);
     setActiveCategory('code');
     setIsOpen(false);
     sessionStorage.setItem(OPEN_KEY, 'closed');
@@ -226,6 +270,26 @@ export function useActions(): UseActionsResult {
     });
   }, []);
 
+  // ── External Actions ──
+
+  const addOrUpdateExternalAction = useCallback((action: ExternalAction) => {
+    setExternalActions((prev) => {
+      const existingIndex = prev.findIndex((e) => e.action.action_id === action.action_id);
+      if (existingIndex >= 0) {
+        const next = [...prev];
+        next[existingIndex] = { action, unread: true };
+        saveExternalActions(next);
+        return next;
+      }
+      if (prev.length === 0) setActiveCategory('external');
+      const next = [...prev, { action, unread: true }];
+      saveExternalActions(next);
+      return next;
+    });
+    setIsOpen(true);
+    sessionStorage.removeItem(OPEN_KEY);
+  }, []);
+
   const handleDialogueTabChange = useCallback(
     (index: number) => {
       setActiveDialogueIndex(index);
@@ -253,8 +317,10 @@ export function useActions(): UseActionsResult {
   // ── Derived ──
 
   const hasDialogues = dialogues.length > 0;
+  const hasExternalActions = externalActions.length > 0;
   const unreadDialogueCount = dialogues.filter((d) => d.unread).length;
-  const totalCount = artifacts.length + dialogues.length;
+  const unreadExternalCount = externalActions.filter((e) => e.unread).length;
+  const totalCount = artifacts.length + dialogues.length + externalActions.length;
 
   return {
     isOpen,
@@ -263,6 +329,7 @@ export function useActions(): UseActionsResult {
     activeCategory,
     setActiveCategory,
     hasDialogues,
+    hasExternalActions,
     artifacts,
     activeArtifactIndex,
     addArtifact,
@@ -274,7 +341,10 @@ export function useActions(): UseActionsResult {
     setActiveDialogueIndex: handleDialogueTabChange,
     addOrUpdateDialogue,
     markDialogueRead,
+    externalActions,
+    addOrUpdateExternalAction,
     totalCount,
     unreadDialogueCount,
+    unreadExternalCount,
   };
 }

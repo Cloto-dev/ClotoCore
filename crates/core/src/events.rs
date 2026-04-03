@@ -505,16 +505,14 @@ impl EventProcessor {
                     if let Some(meta) = meta {
                         for key in ["channel_id", "message_id", "guild_id"] {
                             if let Some(val) = meta.get(key).and_then(|v| v.as_str()) {
-                                msg_metadata
-                                    .insert(format!("external_{}", key), val.to_string());
+                                msg_metadata.insert(format!("external_{}", key), val.to_string());
                             }
                         }
                         // Forward reply reference so the LLM knows the replied-to message
                         if let Some(reference) = meta.get("reference") {
                             if !reference.is_null() {
                                 if let Ok(ref_str) = serde_json::to_string(reference) {
-                                    msg_metadata
-                                        .insert("external_reference".into(), ref_str);
+                                    msg_metadata.insert("external_reference".into(), ref_str);
                                 }
                             }
                         }
@@ -522,8 +520,7 @@ impl EventProcessor {
                         if let Some(conv_ctx) = meta.get("conversation_context") {
                             if conv_ctx.is_array() {
                                 if let Ok(ctx_str) = serde_json::to_string(conv_ctx) {
-                                    msg_metadata
-                                        .insert("conversation_context".into(), ctx_str);
+                                    msg_metadata.insert("conversation_context".into(), ctx_str);
                                 }
                             }
                         }

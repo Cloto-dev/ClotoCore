@@ -1,7 +1,8 @@
 import { ChevronLeft, PanelRightClose } from 'lucide-react';
-import type { ActionCategory, Artifact, DialogueTab } from '../hooks/useActions';
+import type { ActionCategory, Artifact, DialogueTab, ExternalActionTab } from '../hooks/useActions';
 import { CodeBlock } from './CodeBlock';
 import { DialogueCard } from './DialogueCard';
+import { ExternalActionCard } from './ExternalActionCard';
 
 interface ActionsPanelProps {
   isOpen: boolean;
@@ -10,11 +11,14 @@ interface ActionsPanelProps {
   activeCategory: ActionCategory;
   onCategoryChange: (cat: ActionCategory) => void;
   hasDialogues: boolean;
+  hasExternalActions: boolean;
   artifacts: Artifact[];
   activeArtifactIndex: number;
   onArtifactTabChange: (index: number) => void;
   dialogues: DialogueTab[];
+  externalActions: ExternalActionTab[];
   unreadDialogueCount: number;
+  unreadExternalCount: number;
   totalCount: number;
 }
 
@@ -33,16 +37,21 @@ export function ActionsPanel({
   activeCategory,
   onCategoryChange,
   hasDialogues,
+  hasExternalActions,
   artifacts,
   activeArtifactIndex,
   onArtifactTabChange,
   dialogues,
+  externalActions,
   unreadDialogueCount,
+  unreadExternalCount,
   totalCount,
 }: ActionsPanelProps) {
   if (totalCount === 0) return null;
 
   const active = artifacts[activeArtifactIndex] || artifacts[0];
+  const showCategoryBar = hasDialogues || hasExternalActions;
+  const totalUnread = unreadDialogueCount + unreadExternalCount;
 
   // Collapsed state
   if (!isOpen) {
@@ -58,7 +67,7 @@ export function ActionsPanel({
         </span>
         <div className="flex flex-col items-center gap-1">
           <span className="text-[9px] font-mono text-brand/70">{totalCount}</span>
-          {unreadDialogueCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />}
+          {totalUnread > 0 && <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />}
         </div>
       </button>
     );
@@ -84,8 +93,8 @@ export function ActionsPanel({
         </button>
       </div>
 
-      {/* Category bar — only show when dialogues exist */}
-      {hasDialogues && (
+      {/* Category bar — show when dialogues or external actions exist */}
+      {showCategoryBar && (
         <div className="flex border-b border-edge/50 shrink-0">
           <button
             onClick={() => onCategoryChange('code')}
@@ -98,20 +107,38 @@ export function ActionsPanel({
             Code
             {artifacts.length > 0 && <span className="ml-1.5 text-[9px] font-mono opacity-60">{artifacts.length}</span>}
           </button>
-          <button
-            onClick={() => onCategoryChange('dialogues')}
-            className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2 relative ${
-              activeCategory === 'dialogues'
-                ? 'border-brand text-content-primary'
-                : 'border-transparent text-content-tertiary hover:text-content-secondary'
-            }`}
-          >
-            Dialogues
-            <span className="ml-1.5 text-[9px] font-mono opacity-60">{dialogues.length}</span>
-            {unreadDialogueCount > 0 && activeCategory !== 'dialogues' && (
-              <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
-            )}
-          </button>
+          {hasDialogues && (
+            <button
+              onClick={() => onCategoryChange('dialogues')}
+              className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2 relative ${
+                activeCategory === 'dialogues'
+                  ? 'border-brand text-content-primary'
+                  : 'border-transparent text-content-tertiary hover:text-content-secondary'
+              }`}
+            >
+              Dialogues
+              <span className="ml-1.5 text-[9px] font-mono opacity-60">{dialogues.length}</span>
+              {unreadDialogueCount > 0 && activeCategory !== 'dialogues' && (
+                <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
+              )}
+            </button>
+          )}
+          {hasExternalActions && (
+            <button
+              onClick={() => onCategoryChange('external')}
+              className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2 relative ${
+                activeCategory === 'external'
+                  ? 'border-brand text-content-primary'
+                  : 'border-transparent text-content-tertiary hover:text-content-secondary'
+              }`}
+            >
+              External
+              <span className="ml-1.5 text-[9px] font-mono opacity-60">{externalActions.length}</span>
+              {unreadExternalCount > 0 && activeCategory !== 'external' && (
+                <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
+              )}
+            </button>
+          )}
         </div>
       )}
 
@@ -159,6 +186,15 @@ export function ActionsPanel({
         <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-3">
           {[...dialogues].reverse().map((tab) => (
             <DialogueCard key={tab.dialogue.dialogue_id} dialogue={tab.dialogue} />
+          ))}
+        </div>
+      )}
+
+      {/* Content: External Actions — vertical scroll list, newest first */}
+      {activeCategory === 'external' && externalActions.length > 0 && (
+        <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-3">
+          {[...externalActions].reverse().map((tab) => (
+            <ExternalActionCard key={tab.action.action_id} action={tab.action} />
           ))}
         </div>
       )}
