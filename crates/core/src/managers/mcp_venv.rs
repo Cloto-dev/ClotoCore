@@ -176,75 +176,71 @@ fn venv_pip(venv_dir: &Path) -> PathBuf {
 }
 
 /// Install (or re-sync) each MCP server's pyproject.toml dependencies into
-/// the shared venv. Uses `pip install --quiet` which is a no-op for already
-/// satisfied packages, so this is safe to run on every startup.
+/// the shared venv. Uses a single `pip install` invocation with all server
+/// paths to avoid lock contention from parallel pip processes.
 pub(crate) async fn install_server_deps(pip_str: &str, mcp_servers_dir: &Path) -> u32 {
     let Ok(entries) = std::fs::read_dir(mcp_servers_dir) else {
         return 0;
     };
 
     // Collect valid server directories (with pyproject.toml)
-    let mut server_dirs: Vec<(String, String)> = Vec::new();
+    let mut server_paths: Vec<String> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_dir() {
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_string();
-        // Skip .venv and common (not a standalone server)
-        if name.starts_with('.') || name == "common" {
+        // Skip .venv, common, tests, and non-Python servers (Rust: discord, avatar)
+        if name.starts_with('.')
+            || name == "common"
+            || name == "tests"
+            || !path.join("pyproject.toml").exists()
+        {
             continue;
         }
-        if path.join("pyproject.toml").exists() {
-            server_dirs.push((name, path.to_string_lossy().to_string()));
+        // Skip Rust servers (they have Cargo.toml, not pip-installable)
+        if path.join("Cargo.toml").exists() {
+            continue;
         }
+        server_paths.push(path.to_string_lossy().to_string());
     }
 
-    if server_dirs.is_empty() {
+    if server_paths.is_empty() {
         return 0;
     }
 
-    info!(
-        "  Installing MCP deps for {} server(s) in parallel",
-        server_dirs.len()
-    );
+    let count = server_paths.len() as u32;
+    info!("  Installing MCP deps for {} server(s)", count);
 
-    // Install all servers concurrently
-    let pip = pip_str.to_string();
-    let futures: Vec<_> = server_dirs
-        .into_iter()
-        .map(|(name, server_path)| {
-            let pip = pip.clone();
-            async move {
-                let result = tokio::process::Command::new(&pip)
-                    .args(["install", &server_path, "--quiet"])
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped())
-                    .output()
-                    .await;
-                match result {
-                    Ok(output) if output.status.success() => true,
-                    Ok(output) => {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        warn!(
-                            "  Failed to install {} (exit code {:?}): {}",
-                            name,
-                            output.status.code(),
-                            stderr.lines().last().unwrap_or("unknown error")
-                        );
-                        false
-                    }
-                    Err(e) => {
-                        warn!("  Failed to run pip for {}: {}", name, e);
-                        false
-                    }
-                }
-            }
-        })
-        .collect();
+    // Single pip invocation with all server paths — avoids parallel lock contention
+    let mut args = vec!["install".to_string(), "--quiet".to_string()];
+    args.extend(server_paths);
 
-    let results = futures::future::join_all(futures).await;
-    results.iter().filter(|&&ok| ok).count() as u32
+    let result = tokio::process::Command::new(pip_str)
+        .args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await;
+
+    match result {
+        Ok(output) if output.status.success() => count,
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let last_line = stderr.lines().last().unwrap_or("unknown error");
+            warn!(
+                "  pip install failed (exit code {:?}): {}",
+                output.status.code(),
+                last_line
+            );
+            0
+        }
+        Err(e) => {
+            warn!("  Failed to run pip: {}", e);
+            0
+        }
+    }
 }
 
 /// Ensure the MCP Python venv exists and has dependencies installed.
