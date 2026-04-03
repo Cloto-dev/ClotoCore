@@ -80,7 +80,7 @@ This isn't meant as a flex about being frugal — it's a data point on what AI-a
 
 ### Q: What's the roadmap?
 
-**A:** Near term: Graph memory for cpersona (entity relationship extraction), marketplace for community MCP servers, and installer/distribution for non-developers. Medium term: multi-agent orchestration (agents delegating to other agents), and mobile companion app. The vision doc has the full picture: https://github.com/Cloto-dev/ClotoCore/blob/main/docs/PROJECT_VISION.md
+**A:** Near term: Graph memory for cpersona (entity relationship extraction), expanding the MCP marketplace with community contributions, and improving installer stability for non-developers. Medium term: multi-agent orchestration (agents delegating to other agents), and mobile companion app. The vision doc has the full picture: https://github.com/Cloto-dev/ClotoCore/blob/main/docs/PROJECT_VISION.md
 
 ---
 
