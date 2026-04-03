@@ -99,6 +99,18 @@ cargo run --package cloto_core
 
 The dashboard opens at **http://localhost:8081**.
 
+## Installer (Experimental)
+
+Pre-built installers are available on [GitHub Releases](https://github.com/Cloto-dev/ClotoCore/releases).
+The installer includes a setup wizard that downloads MCP servers and configures Python on first launch.
+
+> **Note:** The installer has been tested on the developer's environment. Due to differences in
+> Python versions, PATH configuration, and system permissions, you may encounter issues.
+> If the installer fails, building from source (see Quick Start above) is recommended.
+> Please report any issues at [GitHub Issues](https://github.com/Cloto-dev/ClotoCore/issues).
+
+**Requirements:** Python 3.10+ must be installed and available in PATH.
+
 ## MCP Servers
 
 All plugin functionality is delivered via **MCP (Model Context Protocol)** servers:

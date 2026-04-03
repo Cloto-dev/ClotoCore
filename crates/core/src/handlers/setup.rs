@@ -322,12 +322,9 @@ async fn run_bootstrap_inner(
     );
 
     let version = env!("CARGO_PKG_VERSION");
-    let archive_name = format!("cloto-mcp-servers-{version}.tar.gz");
-    // TODO: Update download URL to cloto-mcp-servers repo releases after
-    // the repo has its own release workflow.
-    let download_url = format!(
-        "https://github.com/Cloto-dev/ClotoCore/releases/download/v{version}/{archive_name}"
-    );
+    let archive_name = "cloto-mcp-servers.tar.gz";
+    let download_url =
+        "https://github.com/Cloto-dev/cloto-mcp-servers/releases/latest/download/cloto-mcp-servers.tar.gz";
 
     let tmp_dir = state.data_dir.join("tmp");
     if let Err(e) = tokio::fs::create_dir_all(&tmp_dir).await {
@@ -341,9 +338,9 @@ async fn run_bootstrap_inner(
         );
         return Ok(());
     }
-    let archive_path = tmp_dir.join(&archive_name);
+    let archive_path = tmp_dir.join(archive_name);
 
-    match download_with_progress(tx, &download_url, &archive_path).await {
+    match download_with_progress(tx, download_url, &archive_path).await {
         Ok(()) => {
             emit(
                 tx,
@@ -374,10 +371,9 @@ async fn run_bootstrap_inner(
         },
     );
 
-    let sums_url = format!(
-        "https://github.com/Cloto-dev/ClotoCore/releases/download/v{version}/SHA256SUMS.txt"
-    );
-    match verify_checksum(&archive_path, &archive_name, &sums_url).await {
+    let sums_url =
+        "https://github.com/Cloto-dev/cloto-mcp-servers/releases/latest/download/SHA256SUMS.txt";
+    match verify_checksum(&archive_path, archive_name, sums_url).await {
         Ok(()) => {
             emit(
                 tx,
@@ -446,8 +442,7 @@ async fn run_bootstrap_inner(
         },
     );
 
-    // TODO: Update to use [paths].servers from mcp.toml for venv location.
-    let venv_dir = root.join("mcp-servers").join(".venv");
+    let venv_dir = root.join("cloto-mcp-servers").join("servers").join(".venv");
     let venv_stale = crate::managers::mcp_venv::is_venv_stale(&venv_dir);
     if venv_stale && venv_dir.exists() {
         info!("Setup: Removing stale venv (Python version mismatch)");
@@ -531,8 +526,7 @@ async fn run_bootstrap_inner(
         },
     );
 
-    // TODO: Update to use [paths].servers from mcp.toml for servers directory.
-    let mcp_servers_dir = root.join("mcp-servers");
+    let mcp_servers_dir = root.join("cloto-mcp-servers").join("servers");
     let pip = venv_pip(&venv_dir);
     let pip_str = pip.to_string_lossy().to_string();
     let server_count = install_server_deps_with_progress(tx, &pip_str, &mcp_servers_dir).await;
