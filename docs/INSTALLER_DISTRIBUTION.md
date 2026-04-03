@@ -35,7 +35,7 @@ to enable casual users to easily install ClotoCore.
 ### 2.1 Distribution Channels
 
 ```
-Developer (tag push: v0.5.3)
+Developer (tag push: v0.6.3)
   │
   ├── GitHub Actions (CI/CD)
   │     ├── cargo tauri build (Windows, macOS, Linux)
@@ -45,15 +45,15 @@ Developer (tag push: v0.5.3)
   │     └── Upload to GitHub Releases
   │
   └── GitHub Releases (distribution point)
-        ├── cloto-system_0.5.3_x64-setup.exe       (Windows NSIS)
-        ├── cloto-system_0.5.3_x64-setup.nsis.zip  (for Tauri updater)
-        ├── cloto-system_0.5.3_x64-setup.nsis.zip.sig (Ed25519 signature)
-        ├── cloto-system_0.5.3_amd64.deb            (Linux DEB)
-        ├── cloto-system_0.5.3_amd64.AppImage        (Linux AppImage)
-        ├── cloto-system_0.5.3_aarch64.dmg           (macOS arm64 DMG)
-        ├── cloto-system_0.5.3_x64.dmg               (macOS x64 DMG)
-        ├── cloto-0.5.3-linux-x64.tar.gz             (CLI: Linux x64)
-        ├── cloto-0.5.3-macos-arm64.tar.gz           (CLI: macOS arm64)
+        ├── cloto-system_0.6.3_x64-setup.exe       (Windows NSIS)
+        ├── cloto-system_0.6.3_x64-setup.nsis.zip  (for Tauri updater)
+        ├── cloto-system_0.6.3_x64-setup.nsis.zip.sig (Ed25519 signature)
+        ├── cloto-system_0.6.3_amd64.deb            (Linux DEB)
+        ├── cloto-system_0.6.3_amd64.AppImage        (Linux AppImage)
+        ├── cloto-system_0.6.3_aarch64.dmg           (macOS arm64 DMG)
+        ├── cloto-system_0.6.3_x64.dmg               (macOS x64 DMG)
+        ├── cloto-0.6.3-linux-x64.tar.gz             (CLI: Linux x64)
+        ├── cloto-0.6.3-macos-arm64.tar.gz           (CLI: macOS arm64)
         ├── latest.json                              (auto-update: all desktop platforms)
         ├── SHA256SUMS.txt                           (checksums)
         └── SHA256SUMS.txt.sig                       (cosign signature)
@@ -378,7 +378,7 @@ if (update?.available) {
 
 ```
 Developer
-  │  git tag v0.5.3 && git push --tags
+  │  git tag v0.6.3 && git push --tags
   │
 GitHub Actions
   │  ├── Binary build
