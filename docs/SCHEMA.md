@@ -3,7 +3,7 @@
 ClotoCore uses SQLite for persistent storage. Schema is managed via sequential migrations
 in `crates/core/migrations/`.
 
-**Database path:** Configured via `DATABASE_URL` (default: `sqlite:{exe_dir}/data/cloto_memories.db`)
+**Database path:** Configured via `DATABASE_URL` (default: `sqlite:{exe_dir}/data/cloto_memories.db`, where `{exe_dir}` is the directory containing the executable)
 
 ---
 

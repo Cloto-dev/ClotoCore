@@ -27,12 +27,13 @@ cargo test
 npm --prefix dashboard ci
 npm --prefix dashboard run build
 
-# Python MCP servers
-cd mcp-servers
+# Python MCP servers (separate repository)
+git clone https://github.com/Cloto-dev/cloto-mcp-servers.git ../cloto-mcp-servers
+cd ../cloto-mcp-servers/servers
 python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt   # Windows
-# .venv/bin/pip install -r requirements.txt      # Linux/macOS
-cd ..
+.venv/Scripts/pip install -e cpersona -e embedding   # Windows
+# .venv/bin/pip install -e cpersona -e embedding      # Linux/macOS
+cd -
 ```
 
 For faster development builds (skips icon embedding):
@@ -47,16 +48,19 @@ cargo build
 All tests must pass before submitting a pull request:
 
 ```bash
-# Rust (90 tests)
-cargo test --workspace
-cargo clippy --workspace -- -D warnings
+# Rust (234 tests)
+cargo test --workspace --exclude app
+cargo clippy --workspace --exclude app --all-targets -- -D warnings
 
-# Python MCP (45 tests)
-cd mcp-servers && .venv/Scripts/python -m pytest tests/ -v
+# Python MCP (117 tests) — in cloto-mcp-servers repository
+cd ../cloto-mcp-servers/servers && python -m pytest tests/ -v
 
 # Dashboard
 cd dashboard && npm run build
 ```
+
+> **Note:** `npx tauri dev` starts both the Vite dev server (port 1420) and the
+> Tauri application window. Port 8081 is the Rust backend HTTP server.
 
 ## Code Style
 
@@ -66,7 +70,7 @@ cd dashboard && npm run build
 - Function length limit: 100 lines (enforced by clippy `too_many_lines`)
 
 ### Python
-- Follow existing patterns in `mcp-servers/`
+- Follow existing patterns in [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers)
 - Use `ToolRegistry` and `auto_tool()` from `common/mcp_utils.py` for new MCP servers
 - Use validators from `common/validation.py` for argument extraction
 
@@ -81,11 +85,13 @@ cd dashboard && npm run build
 
 ## Adding an MCP Server
 
-1. Create `mcp-servers/<name>/server.py`
+MCP servers are maintained in [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers). See that repository's `CLAUDE.md` for setup instructions.
+
+1. Create `servers/<name>/server.py` (in cloto-mcp-servers)
 2. Use `ToolRegistry` from `common/mcp_utils.py` for tool registration
-3. Add the server to `mcp.toml`
-4. Add tests to `mcp-servers/tests/`
-5. Document in the MCP Servers table in `README.md`
+3. Add the server entry to ClotoCore's `mcp.toml`
+4. Add tests to `servers/tests/` (in cloto-mcp-servers)
+5. Register in `registry.json` and document in `README.md`
 
 See existing servers (e.g., `terminal/server.py`) for reference.
 
