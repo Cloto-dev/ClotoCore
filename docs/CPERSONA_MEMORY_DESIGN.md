@@ -1,6 +1,6 @@
 # CPersona Memory System — MCP Server Design
 
-> **Status:** Implemented (v2.4.4 current — dynamic time decay, recall boost, LLM dependency removed)
+> **Status:** Implemented (v2.4.5 current — extended health checks, dynamic time decay, recall boost, LLM dependency removed)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
 > **MCP Server ID:** `memory.cpersona`
 > **Companion Server:** `tool.embedding` (pluggable vector embedding)
@@ -25,6 +25,7 @@
 | CPersona 2.4.2 | ClotoCore | Same as 2.4.1 | Same as 2.4 | **LLM dependency completely removed** (-217 lines). `update_profile`/`archive_episode` accept pre-computed data only. `get_profile` tool added. CPersona is now a pure data server. | **Complete** |
 | CPersona 2.4.3 | ClotoCore | Same as 2.4.1 | Same as 2.4 | Store validation (`_sanitize_content`), content dedup, `MAX_CONTENT_LENGTH=2000`. `check_health` tool (7 issue types + auto-fix). | **Complete** |
 | CPersona 2.4.4 | ClotoCore | Schema v7: `recall_count`, `last_recalled_at` | Same as 2.4 | Dynamic time decay (rate adapts to memory time range). Recall boost (frequently recalled memories resist decay). Boost decay (protection fades if not re-recalled). | **Complete** |
+| CPersona 2.4.5 | ClotoCore | Same as 2.4.4 | Same as 2.4 | Extended `check_health` to 15 checks: FTS5 sync, schema version, JSON validity, timestamp consistency, stale tasks, null embedding auto-repair (batch 50), storage stats, missing profiles. | **Complete** |
 | CPersona 2.5 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | Anti-contamination + gated recency boost (reuses v2.3.2 normalization) | Planned |
 | CPersona 3.0 | Standalone | SQLite + graph tables (nodes/edges) | Cascade + graph traversal (BFS) + bi-temporal | MIT license, PyPI packaging, memory evolution (full) | Planned |
 
@@ -1258,6 +1259,20 @@ CPersona is now a **pure data server** with zero internal LLM calls (-217 lines 
 - [x] Recall boost: `effective_floor = min(DECAY_CEIL, DECAY_FLOOR + log(1+count) * RECALL_BOOST * boost_decay)` — frequently recalled memories resist decay
 - [x] Boost decay: `boost_decay = 1/(1 + hours_since * BOOST_DECAY_RATE)` — protection fades if not re-recalled (~3 months to base floor)
 - [x] Side effect: recall increments `recall_count` and updates `last_recalled_at` (except deep=True)
+
+### CPersona 2.4.5: Extended Health Checks — **Complete**
+
+- [x] Extended `check_health` from 7 to 15 issue types:
+  8. `fts_memories_desync` — memories_fts row count mismatch (fix: rebuild)
+  9. `fts_episodes_desync` — episodes_fts row count mismatch (fix: rebuild)
+  10. `schema_version_mismatch` — DB schema != SCHEMA_VERSION (report only)
+  11. `invalid_json` — malformed JSON in source/metadata fields (fix: replace with `{}`)
+  12. `invalid_timestamp` — unparseable timestamps (fix: fallback to created_at)
+  13. `stale_pending_tasks` — tasks older than 1 hour (fix: delete)
+  14. `null_embedding` auto-repair — batch re-embedding up to 50/call when embedding client available
+  15. `missing_profile` — agents with memories but no profile (report only)
+- [x] New `stats` field in return: db_size_bytes, table row counts, agent-scoped breakdowns
+- [x] Confidence test thresholds updated for v2.4.4 DECAY_FLOOR=0.3
 
 ### CPersona 2.4+ Roadmap
 
