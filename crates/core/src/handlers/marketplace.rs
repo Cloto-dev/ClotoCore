@@ -876,7 +876,10 @@ async fn run_install(
         // Ensure the package is not absorbed by a parent workspace.
         // Append [workspace] to Cargo.toml so Cargo treats it as standalone.
         {
-            let content = std::fs::read_to_string(&cargo_toml).unwrap_or_default();
+            let content = std::fs::read_to_string(&cargo_toml).unwrap_or_else(|e| {
+                tracing::warn!(path = %cargo_toml.display(), "Failed to read Cargo.toml: {e}");
+                String::new()
+            });
             if !content.contains("[workspace]") {
                 std::fs::write(&cargo_toml, format!("{content}\n[workspace]\n"))
                     .unwrap_or_else(|e| warn!("Failed to patch Cargo.toml: {e}"));
