@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use super::db_timeout;
@@ -24,15 +25,49 @@ pub struct AuditLogEntry {
     pub trace_id: Option<String>,
 }
 
-/// Write an audit log entry to the database
+/// Compute the canonical data string for chain hashing.
+fn canonical_data(timestamp: &str, entry: &AuditLogEntry) -> String {
+    format!(
+        "{}|{}|{}|{}|{}",
+        timestamp,
+        entry.event_type,
+        entry.actor_id.as_deref().unwrap_or(""),
+        entry.target_id.as_deref().unwrap_or(""),
+        entry.result,
+    )
+}
+
+/// Compute a Merkle chain hash: SHA-256(previous_hash | canonical_data).
+fn compute_chain_hash(previous: Option<&str>, data: &str) -> String {
+    let mut hasher = Sha256::new();
+    if let Some(prev) = previous {
+        hasher.update(prev.as_bytes());
+        hasher.update(b"|");
+    }
+    hasher.update(data.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// Write an audit log entry to the database with Merkle chain hash.
 pub async fn write_audit_log(pool: &SqlitePool, entry: AuditLogEntry) -> anyhow::Result<()> {
     let timestamp = entry.timestamp.to_rfc3339();
-    let metadata_str = entry.metadata.map(|v| v.to_string());
+    let metadata_str = entry.metadata.as_ref().map(ToString::to_string);
+    let data = canonical_data(&timestamp, &entry);
 
-    // Bug #7: Add timeout to prevent indefinite hangs on database locks
-    let query_future = sqlx::query(
-        "INSERT INTO audit_logs (timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    // Single transaction: fetch previous hash + insert with new hash
+    let mut tx = pool.begin().await?;
+
+    let prev_hash: Option<String> =
+        sqlx::query_scalar("SELECT chain_hash FROM audit_logs ORDER BY id DESC LIMIT 1")
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
+
+    let chain_hash = compute_chain_hash(prev_hash.as_deref(), &data);
+
+    sqlx::query(
+        "INSERT INTO audit_logs (timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id, chain_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&timestamp)
     .bind(&entry.event_type)
@@ -43,9 +78,11 @@ pub async fn write_audit_log(pool: &SqlitePool, entry: AuditLogEntry) -> anyhow:
     .bind(&entry.reason)
     .bind(&metadata_str)
     .bind(&entry.trace_id)
-    .execute(pool);
+    .bind(&chain_hash)
+    .execute(&mut *tx)
+    .await?;
 
-    db_timeout(query_future).await?;
+    tx.commit().await?;
 
     Ok(())
 }
@@ -83,10 +120,25 @@ pub async fn query_audit_logs_since(
     since_timestamp: Option<&str>,
     limit: i64,
 ) -> anyhow::Result<Vec<(i64, AuditLogEntry)>> {
-    let rows = if let Some(sid) = since_id {
+    #[allow(clippy::type_complexity)]
+    type Row = (
+        i64,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+
+    let rows: Vec<Row> = if let Some(sid) = since_id {
         db_timeout(
-            sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, Option<String>, String, String, Option<String>, Option<String>)>(
-                "SELECT id, timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id \
+            sqlx::query_as::<_, Row>(
+                "SELECT id, timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id, chain_hash \
                  FROM audit_logs WHERE id > ? ORDER BY id ASC LIMIT ?"
             )
             .bind(sid)
@@ -96,8 +148,8 @@ pub async fn query_audit_logs_since(
         .await?
     } else if let Some(ts) = since_timestamp {
         db_timeout(
-            sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, Option<String>, String, String, Option<String>, Option<String>)>(
-                "SELECT id, timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id \
+            sqlx::query_as::<_, Row>(
+                "SELECT id, timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id, chain_hash \
                  FROM audit_logs WHERE timestamp > ? ORDER BY timestamp ASC LIMIT ?"
             )
             .bind(ts)
@@ -107,8 +159,8 @@ pub async fn query_audit_logs_since(
         .await?
     } else {
         db_timeout(
-            sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, Option<String>, String, String, Option<String>, Option<String>)>(
-                "SELECT id, timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id \
+            sqlx::query_as::<_, Row>(
+                "SELECT id, timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id, chain_hash \
                  FROM audit_logs ORDER BY id ASC LIMIT ?"
             )
             .bind(limit)
@@ -118,7 +170,20 @@ pub async fn query_audit_logs_since(
     };
 
     let mut logs = Vec::new();
-    for (id, timestamp, event_type, actor, target, perm, result, reason, metadata, trace) in rows {
+    for (
+        id,
+        timestamp,
+        event_type,
+        actor,
+        target,
+        perm,
+        result,
+        reason,
+        metadata,
+        trace,
+        _chain_hash,
+    ) in rows
+    {
         logs.push((
             id,
             AuditLogEntry {
