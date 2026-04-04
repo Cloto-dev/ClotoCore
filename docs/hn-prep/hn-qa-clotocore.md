@@ -102,7 +102,7 @@ This isn't about being frugal — it's evidence that the barrier to building non
 
 - **MGP protocol** — ClotoCore extends MCP with event-driven communication. Plugins can emit events, subscribe to streams, and participate in callbacks. OpenFang and OpenPawz use standard MCP (request-response only). The Discord bridge is built entirely on MGP events — the agent doesn't know it's talking to Discord.
 - **cpersona is standalone** — Our memory server works outside ClotoCore. Point Claude Desktop at it, done. MIT license. Neither OpenFang nor OpenPawz offer a standalone component usable in the broader MCP ecosystem.
-- **Security approach** — OpenFang uses WASM sandboxing (16 claimed security layers). ClotoCore uses OS-level process isolation with capability injection — plugins literally cannot open sockets. Different trade-offs: WASM is tighter but limits what plugins can do; process isolation is more flexible but coarser-grained.
+- **Security approach** — OpenFang uses WASM sandboxing (16 claimed security layers). ClotoCore has 15 security layers across kernel and protocol — capability injection, 3-level RBAC, HITL, process isolation, audit log, DNS rebinding protection, host whitelisting, rate limiting, code validation on the kernel side; permission declarations, tool security metadata, Magic Seal binary verification, trust levels, network scope on the MGP spec side. Both sides interlock. Different trade-offs: WASM is tighter per-call; MGP is a bidirectional security contract.
 - **Benchmarks** — cpersona publishes LMEB benchmark results (22 tasks, hybrid beats vector-only on 16/22). I haven't seen published retrieval benchmarks from either competitor.
 
 All three projects are early-stage. I think the ecosystem benefits from multiple approaches.
@@ -112,10 +112,10 @@ All three projects are early-stage. I think the ecosystem benefits from multiple
 **A:** Different design philosophy. OpenClaw optimizes for rapid deployment and ecosystem size — 325K+ stars, 13K+ skills. ClotoCore optimizes for security boundaries and controlled execution.
 
 Concrete differences:
-- OpenClaw plugins run in-process with the gateway (no sandbox). In ClotoCore, plugins are isolated processes with capability injection — they literally cannot open sockets unless the kernel provides a pre-authorized client.
+- OpenClaw plugins run in-process with the gateway (no sandbox). ClotoCore has 15 security layers across kernel and MGP protocol — plugins are isolated processes with capability injection, 3-level RBAC, and human-in-the-loop approval. The kernel and the protocol spec both enforce their side of the security contract.
 - OpenClaw's single JSON config means one bad edit breaks all agents. ClotoCore uses per-agent database persistence with typed RBAC.
 - OpenClaw's marketplace had 1,184+ malicious skills identified. ClotoCore's marketplace uses Magic Seal binary verification and trust levels.
-- OpenClaw defaults to binding on all interfaces. ClotoCore defaults to 127.0.0.1 with DNS rebinding protection.
+- OpenClaw defaults to binding on all interfaces. ClotoCore defaults to 127.0.0.1 with DNS rebinding protection and host whitelisting.
 
 I respect what OpenClaw has achieved in adoption. The security issues aren't surprising given the scale — they're inherent to the "run everything in-process with host permissions" architecture. ClotoCore chose a different trade-off: slower to adopt, harder to break.
 
