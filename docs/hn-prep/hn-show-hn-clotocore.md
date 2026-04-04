@@ -69,8 +69,8 @@ Some things it can do:
   runs scheduled tasks, and speaks through a VRM avatar
 - A research assistant with persistent memory, web search, and terminal
   access — all with human-in-the-loop approval
-- A multi-engine consensus mode where DeepSeek and Cerebras each generate
-  independent responses, then a synthesizer merges them into a unified answer
+- Scheduled tasks via cron — an agent that checks your infrastructure,
+  summarizes findings, and posts to Discord on a schedule
 
 Quickest way to try it: cpersona (the memory server) works standalone
 in Claude Desktop or Claude Code — pip install, single SQLite file, MIT.
