@@ -1418,7 +1418,7 @@ pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -
     );
 
     // Emit AgentDialogue "pending" event
-    let chain_depth = (delegation_chain.len() + 1) as u8;
+    let chain_depth = u8::try_from(delegation_chain.len() + 1).unwrap_or(u8::MAX);
     manager
         .emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
             dialogue_id: dialogue_id.clone(),
