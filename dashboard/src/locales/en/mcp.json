@@ -99,7 +99,7 @@
   "logs": {
     "event_log": "Event Log",
     "clear": "Clear",
-    "waiting": "Waiting for events..."
+    "waiting": "Coming soon — per-server log streaming is planned for a future release."
   },
   "marketplace": {
     "tab_servers": "Servers",
