@@ -317,9 +317,19 @@ impl PluginRegistry {
 
         // 2. MCP servers: check access via resolve_tool_access, then execute
         if let Some(ref mcp) = self.mcp_manager {
-            // Kernel-native tools are not in tool_index,
-            // so bypass access check and let execute_tool() handle them directly.
+            // Kernel-native tools use server_id="kernel" for RBAC.
+            // Default policy is Allow (no entries = permitted).
+            // Administrators can add Deny entries to restrict specific agents.
             if Self::is_kernel_native_tool(tool_name) {
+                if let Ok(crate::db::mcp::PermissionLevel::Deny) =
+                    crate::db::resolve_tool_access(mcp.pool(), agent_id, "kernel", tool_name).await
+                {
+                    return Err(anyhow::anyhow!(
+                        "Access denied: agent '{}' cannot use kernel tool '{}'",
+                        agent_id,
+                        tool_name
+                    ));
+                }
                 return mcp.execute_tool_internal(tool_name, args).await;
             }
 
