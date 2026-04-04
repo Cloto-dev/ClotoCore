@@ -60,8 +60,9 @@ Some numbers:
 - ~51K total LOC (34K Rust kernel + 17K TypeScript dashboard)
 - 17 MCP servers, 100+ tools
 - 351 tests (Rust + Python)
-- $230 total development cost (API credits for LLMs used during coding)
-- Built almost entirely with Claude Code
+- $232 total cost — $230 in Claude subscriptions (Pro + Max, for Claude Code)
+  and $2 in DeepSeek API for runtime testing (Cerebras free tier also used)
+- Architecture and code review are mine; implementation is mostly Claude Code
 
 The original motivation was building something like Neuro-Sama — an AI
 VTuber with real personality, memory, and agency. That's still the vision,
@@ -74,9 +75,9 @@ Memory system (cpersona) is MIT.
 GitHub: https://github.com/Cloto-dev/ClotoCore
 MCP servers: https://github.com/Cloto-dev/cloto-mcp-servers
 
-Solo developer from Japan. Happy to answer questions about the architecture,
-security model, or the experience of building a 50K LOC project with AI
-coding assistance.
+Happy to answer questions about the architecture, security model, or what
+building a 50K LOC system with AI coding assistance actually looks like
+in practice.
 ```
 
 ---
@@ -86,11 +87,13 @@ coding assistance.
 ```
 A few notes on the development process:
 
-1. The $230 figure: This is the total spend on API credits (Claude, DeepSeek,
-   Cerebras) used during development. Claude Code did the vast majority of
-   implementation work — I focus on architecture decisions and code review.
-   This isn't a brag about being cheap; it's a data point on what AI-assisted
-   development looks like in 2026.
+1. The $230 figure: $230 in Claude subscriptions (Pro → Max) for Claude Code,
+   plus $2 in DeepSeek API for runtime testing. Cerebras free tier for
+   additional testing. The coding itself was done by Claude Code under the
+   subscription — not API calls. This isn't about being frugal — it's evidence
+   that the barrier to building non-trivial systems has shifted. Architecture
+   decisions, code review, and direction still require a human. But the
+   implementation bottleneck is largely gone.
 
 2. Why Rust for the kernel: Memory safety matters when you're running
    arbitrary plugin code. The event bus, capability injection, and sandbox
