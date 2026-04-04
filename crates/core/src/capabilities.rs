@@ -74,7 +74,11 @@ impl SafeHttpClient {
             .allowed_hosts
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        hosts.insert(normalized)
+        let inserted = hosts.insert(normalized.clone());
+        if inserted {
+            tracing::warn!(host = %normalized, "Host added to whitelist at runtime");
+        }
+        inserted
     }
 }
 
