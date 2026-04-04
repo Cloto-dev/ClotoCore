@@ -65,6 +65,8 @@ pub struct McpClientManager {
     sensitive_env_keys: Vec<String>,
     /// Master switch for OS-level isolation (MGP §8-10).
     isolation_enabled: bool,
+    /// Permissions that still require approval even in YOLO mode.
+    yolo_exceptions: Vec<String>,
     /// Whether to allow unsigned MCP servers (no Magic Seal check).
     allow_unsigned: bool,
     /// Base directory for per-server sandboxes.
@@ -95,6 +97,7 @@ impl McpClientManager {
             kernel_event_tx: Mutex::new(None),
             llm_proxy_port: 8082,
             sensitive_env_keys: Vec::new(),
+            yolo_exceptions: Vec::new(),
             isolation_enabled: true,
             allow_unsigned: false,
             sandbox_base_dir: std::path::PathBuf::from("data/mcp-sandbox"),
@@ -107,6 +110,7 @@ impl McpClientManager {
         self.isolation_enabled = config.isolation_enabled;
         self.allow_unsigned = config.allow_unsigned;
         self.sandbox_base_dir = config.sandbox_base_dir.clone();
+        self.yolo_exceptions = config.yolo_exceptions.clone();
         // Derive sensitive env keys from LLM provider env mappings.
         self.sensitive_env_keys = config
             .llm_provider_env_mappings
@@ -532,105 +536,110 @@ impl McpClientManager {
 
         // ──── Permission Gate (D): Check required_permissions ────
         if !config.required_permissions.is_empty() {
-            if self.yolo_mode.load(Ordering::Relaxed) {
-                // YOLO mode: auto-approve all permissions
-                for perm in &config.required_permissions {
-                    let already_approved = crate::db::is_permission_approved(&self.pool, &id, perm)
-                        .await
-                        .unwrap_or(false);
-                    if !already_approved {
-                        let request = crate::db::PermissionRequest {
-                            request_id: format!("mcp-{}-{}", id, perm),
-                            created_at: chrono::Utc::now(),
-                            plugin_id: id.clone(),
-                            permission_type: perm.clone(),
-                            target_resource: None,
-                            justification: format!(
-                                "MCP server '{}' requires '{}' (auto-approved: YOLO mode)",
-                                id, perm
-                            ),
-                            status: "auto-approved".to_string(),
-                            approved_by: Some(YOLO_APPROVER_ID.to_string()),
-                            approved_at: Some(chrono::Utc::now()),
-                            expires_at: None,
-                            metadata: None,
-                        };
-                        if let Err(e) =
-                            crate::db::create_permission_request(&self.pool, request).await
-                        {
-                            // Ignore duplicate key errors (permission already exists)
-                            debug!("Permission auto-approve note for [MCP] {}: {}", id, e);
-                        }
+            let is_yolo = self.yolo_mode.load(Ordering::Relaxed);
+
+            // Split permissions: YOLO-eligible vs excepted (require approval even in YOLO)
+            let (yolo_perms, manual_perms): (Vec<&String>, Vec<&String>) = if is_yolo {
+                config
+                    .required_permissions
+                    .iter()
+                    .partition(|p| !self.yolo_exceptions.iter().any(|ex| ex == *p))
+            } else {
+                (vec![], config.required_permissions.iter().collect())
+            };
+
+            // YOLO auto-approve eligible permissions
+            for perm in &yolo_perms {
+                let already_approved = crate::db::is_permission_approved(&self.pool, &id, perm)
+                    .await
+                    .unwrap_or(false);
+                if !already_approved {
+                    let request = crate::db::PermissionRequest {
+                        request_id: format!("mcp-{}-{}", id, perm),
+                        created_at: chrono::Utc::now(),
+                        plugin_id: id.clone(),
+                        permission_type: (*perm).clone(),
+                        target_resource: None,
+                        justification: format!(
+                            "MCP server '{}' requires '{}' (auto-approved: YOLO mode)",
+                            id, perm
+                        ),
+                        status: "auto-approved".to_string(),
+                        approved_by: Some(YOLO_APPROVER_ID.to_string()),
+                        approved_at: Some(chrono::Utc::now()),
+                        expires_at: None,
+                        metadata: None,
+                    };
+                    if let Err(e) = crate::db::create_permission_request(&self.pool, request).await
+                    {
+                        debug!("Permission auto-approve note for [MCP] {}: {}", id, e);
                     }
                 }
+            }
+            if !yolo_perms.is_empty() {
                 warn!(
                     "YOLO mode: auto-approved {} permission(s) for MCP server '{}'",
-                    config.required_permissions.len(),
+                    yolo_perms.len(),
                     id
                 );
-            } else {
-                // Non-YOLO: check each permission, create pending requests for missing ones
-                let mut pending_perms = Vec::new();
-                for perm in &config.required_permissions {
-                    let approved = crate::db::is_permission_approved(&self.pool, &id, perm)
-                        .await
-                        .unwrap_or(false);
-                    if !approved {
-                        pending_perms.push(perm.clone());
-                        // Create a pending permission request for admin to approve
-                        let request = crate::db::PermissionRequest {
-                            request_id: format!("mcp-{}-{}", id, perm),
-                            created_at: chrono::Utc::now(),
-                            plugin_id: id.clone(),
-                            permission_type: perm.clone(),
-                            target_resource: None,
-                            justification: format!(
-                                "MCP server '{}' requires '{}' permission to operate",
-                                id, perm
-                            ),
-                            status: "pending".to_string(),
-                            approved_by: None,
-                            approved_at: None,
-                            expires_at: None,
-                            metadata: Some(serde_json::json!({
-                                "source": "mcp_permission_gate",
-                                "server_command": config.command,
-                            })),
-                        };
-                        if let Err(e) =
-                            crate::db::create_permission_request(&self.pool, request).await
-                        {
-                            debug!("Permission request note for [MCP] {}: {}", id, e);
-                        }
-                    }
-                }
+            }
 
-                if !pending_perms.is_empty() {
-                    // P8: Emit PermissionRequested events so SecurityGuard UI can display them
-                    if let Some(tx) = self.kernel_event_tx.lock().await.as_ref() {
-                        for perm in &pending_perms {
-                            let data = cloto_shared::ClotoEventData::PermissionRequested {
-                                plugin_id: id.clone(),
-                                permission: perm.clone(),
-                                reason: format!(
-                                    "MCP server '{}' requires '{}' permission",
-                                    id, perm
-                                ),
-                            };
-                            let envelope = crate::EnvelopedEvent::system(data);
-                            if let Err(e) = tx.send(envelope).await {
-                                debug!("Failed to emit PermissionRequested event: {}", e);
-                            }
+            // Check manual permissions (non-YOLO, or YOLO-excepted)
+            let mut pending_perms = Vec::new();
+            for perm in &manual_perms {
+                let approved = crate::db::is_permission_approved(&self.pool, &id, perm)
+                    .await
+                    .unwrap_or(false);
+                if !approved {
+                    pending_perms.push((*perm).clone());
+                    let request = crate::db::PermissionRequest {
+                        request_id: format!("mcp-{}-{}", id, perm),
+                        created_at: chrono::Utc::now(),
+                        plugin_id: id.clone(),
+                        permission_type: (*perm).clone(),
+                        target_resource: None,
+                        justification: format!(
+                            "MCP server '{}' requires '{}' permission to operate",
+                            id, perm
+                        ),
+                        status: "pending".to_string(),
+                        approved_by: None,
+                        approved_at: None,
+                        expires_at: None,
+                        metadata: Some(serde_json::json!({
+                            "source": "mcp_permission_gate",
+                            "server_command": config.command,
+                        })),
+                    };
+                    if let Err(e) = crate::db::create_permission_request(&self.pool, request).await
+                    {
+                        debug!("Permission request note for [MCP] {}: {}", id, e);
+                    }
+                }
+            }
+
+            if !pending_perms.is_empty() {
+                // P8: Emit PermissionRequested events so SecurityGuard UI can display them
+                if let Some(tx) = self.kernel_event_tx.lock().await.as_ref() {
+                    for perm in &pending_perms {
+                        let data = cloto_shared::ClotoEventData::PermissionRequested {
+                            plugin_id: id.clone(),
+                            permission: perm.clone(),
+                            reason: format!("MCP server '{}' requires '{}' permission", id, perm),
+                        };
+                        let envelope = crate::EnvelopedEvent::system(data);
+                        if let Err(e) = tx.send(envelope).await {
+                            debug!("Failed to emit PermissionRequested event: {}", e);
                         }
                     }
-                    return Err(anyhow::anyhow!(
-                        "MCP server '{}' blocked: {} permission(s) pending approval: [{}]. \
-                         Approve via dashboard or API, then retry.",
-                        id,
-                        pending_perms.len(),
-                        pending_perms.join(", ")
-                    ));
                 }
+                return Err(anyhow::anyhow!(
+                    "MCP server '{}' blocked: {} permission(s) pending approval: [{}]. \
+                     Approve via dashboard or API, then retry.",
+                    id,
+                    pending_perms.len(),
+                    pending_perms.join(", ")
+                ));
             }
         }
 
@@ -833,52 +842,47 @@ impl McpClientManager {
                     }
                 }
 
-                if self.yolo_mode.load(Ordering::Relaxed) {
-                    // YOLO: auto-approve all server-declared permissions
-                    for perm in &all_perms {
-                        let already_approved =
-                            crate::db::is_permission_approved(&self.pool, &id, perm)
-                                .await
-                                .unwrap_or(false);
-                        if !already_approved {
-                            let request = crate::db::PermissionRequest {
-                                request_id: format!("mgp-{}-{}", id, perm),
-                                created_at: chrono::Utc::now(),
-                                plugin_id: id.clone(),
-                                permission_type: perm.clone(),
-                                target_resource: None,
-                                justification: format!(
-                                    "MGP server '{}' declares '{}' (auto-approved: YOLO mode)",
-                                    id, perm
-                                ),
-                                status: "auto-approved".to_string(),
-                                approved_by: Some(YOLO_APPROVER_ID.to_string()),
-                                approved_at: Some(chrono::Utc::now()),
-                                expires_at: None,
-                                metadata: None,
-                            };
-                            if let Err(e) =
-                                crate::db::create_permission_request(&self.pool, request).await
-                            {
-                                debug!("MGP permission auto-approve note for [{}]: {}", id, e);
-                            }
+                let is_yolo = self.yolo_mode.load(Ordering::Relaxed);
+
+                // Split: YOLO-eligible vs excepted (require approval even in YOLO)
+                let (yolo_perms, manual_perms): (Vec<&String>, Vec<&String>) = if is_yolo {
+                    all_perms
+                        .iter()
+                        .partition(|p| !self.yolo_exceptions.iter().any(|ex| ex == *p))
+                } else {
+                    (vec![], all_perms.iter().collect())
+                };
+
+                // YOLO auto-approve eligible permissions
+                for perm in &yolo_perms {
+                    let already_approved = crate::db::is_permission_approved(&self.pool, &id, perm)
+                        .await
+                        .unwrap_or(false);
+                    if !already_approved {
+                        let request = crate::db::PermissionRequest {
+                            request_id: format!("mgp-{}-{}", id, perm),
+                            created_at: chrono::Utc::now(),
+                            plugin_id: id.clone(),
+                            permission_type: (*perm).clone(),
+                            target_resource: None,
+                            justification: format!(
+                                "MGP server '{}' declares '{}' (auto-approved: YOLO mode)",
+                                id, perm
+                            ),
+                            status: "auto-approved".to_string(),
+                            approved_by: Some(YOLO_APPROVER_ID.to_string()),
+                            approved_at: Some(chrono::Utc::now()),
+                            expires_at: None,
+                            metadata: None,
+                        };
+                        if let Err(e) =
+                            crate::db::create_permission_request(&self.pool, request).await
+                        {
+                            debug!("MGP permission auto-approve note for [{}]: {}", id, e);
                         }
                     }
-                    // Send mgp/permission/grant RPC (§3.6)
-                    let grant_params = serde_json::json!({
-                        "request_id": format!("perm-{}", id),
-                        "grants": all_perms.iter().map(|p| (p.clone(), serde_json::json!({
-                            "decision": "approved",
-                        }))).collect::<serde_json::Map<String, serde_json::Value>>(),
-                        "approved_by": YOLO_APPROVER_ID,
-                    });
-                    if let Err(e) = client
-                        .call("mgp/permission/grant", Some(grant_params))
-                        .await
-                    {
-                        debug!("Failed to send mgp/permission/grant to [{}]: {}", id, e);
-                    }
-
+                }
+                if !yolo_perms.is_empty() {
                     crate::db::spawn_audit_log(
                         self.pool.clone(),
                         crate::db::AuditLogEntry {
@@ -886,102 +890,113 @@ impl McpClientManager {
                             event_type: "PERMISSION_GRANTED".to_string(),
                             actor_id: Some(YOLO_APPROVER_ID.to_string()),
                             target_id: Some(id.clone()),
-                            permission: Some(all_perms.join(",")),
+                            permission: Some(
+                                yolo_perms
+                                    .iter()
+                                    .map(|p| p.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(","),
+                            ),
                             result: "approved".to_string(),
                             reason: "MGP Permission Flow (YOLO auto-approve)".to_string(),
                             metadata: None,
                             trace_id: None,
                         },
                     );
-                } else {
-                    // Non-YOLO: check each permission
-                    let mut pending_perms = Vec::new();
-                    for perm in &all_perms {
-                        let approved = crate::db::is_permission_approved(&self.pool, &id, perm)
-                            .await
-                            .unwrap_or(false);
-                        if !approved {
-                            pending_perms.push(perm.clone());
-                            let request = crate::db::PermissionRequest {
-                                request_id: format!("mgp-{}-{}", id, perm),
-                                created_at: chrono::Utc::now(),
-                                plugin_id: id.clone(),
-                                permission_type: perm.clone(),
-                                target_resource: None,
-                                justification: format!(
-                                    "MGP server '{}' declares '{}' permission",
-                                    id, perm
-                                ),
-                                status: "pending".to_string(),
-                                approved_by: None,
-                                approved_at: None,
-                                expires_at: None,
-                                metadata: Some(serde_json::json!({
-                                    "source": "mgp_permission_flow",
-                                    "server_command": config.command,
-                                })),
-                            };
-                            if let Err(e) =
-                                crate::db::create_permission_request(&self.pool, request).await
-                            {
-                                debug!("MGP permission request note for [{}]: {}", id, e);
-                            }
-                        }
-                    }
+                }
 
-                    if !pending_perms.is_empty() {
-                        // Send mgp/permission/await RPC (§3.5)
-                        let await_params = serde_json::json!({
-                            "request_id": format!("perm-{}", id),
-                            "permissions": pending_perms,
-                            "policy": "interactive",
-                            "message": "Waiting for operator approval",
-                        });
-                        if let Err(e) = client
-                            .call("mgp/permission/await", Some(await_params))
-                            .await
+                // Check manual permissions (non-YOLO, or YOLO-excepted)
+                let mut pending_perms = Vec::new();
+                for perm in &manual_perms {
+                    let approved = crate::db::is_permission_approved(&self.pool, &id, perm)
+                        .await
+                        .unwrap_or(false);
+                    if !approved {
+                        pending_perms.push((*perm).clone());
+                        let request = crate::db::PermissionRequest {
+                            request_id: format!("mgp-{}-{}", id, perm),
+                            created_at: chrono::Utc::now(),
+                            plugin_id: id.clone(),
+                            permission_type: (*perm).clone(),
+                            target_resource: None,
+                            justification: format!(
+                                "MGP server '{}' declares '{}' permission",
+                                id, perm
+                            ),
+                            status: "pending".to_string(),
+                            approved_by: None,
+                            approved_at: None,
+                            expires_at: None,
+                            metadata: Some(serde_json::json!({
+                                "source": "mgp_permission_flow",
+                                "server_command": config.command,
+                            })),
+                        };
+                        if let Err(e) =
+                            crate::db::create_permission_request(&self.pool, request).await
                         {
-                            debug!("Failed to send mgp/permission/await to [{}]: {}", id, e);
+                            debug!("MGP permission request note for [{}]: {}", id, e);
                         }
-
-                        crate::db::spawn_audit_log(
-                            self.pool.clone(),
-                            crate::db::AuditLogEntry {
-                                timestamp: chrono::Utc::now(),
-                                event_type: "PERMISSION_DENIED".to_string(),
-                                actor_id: None,
-                                target_id: Some(id.clone()),
-                                permission: Some(pending_perms.join(",")),
-                                result: "pending".to_string(),
-                                reason: "MGP Permission Flow (pending approval)".to_string(),
-                                metadata: None,
-                                trace_id: None,
-                            },
-                        );
-
-                        return Err(anyhow::anyhow!(
-                            "MGP server '{}' blocked: {} permission(s) pending approval: [{}]. \
-                             Approve via dashboard or API, then retry.",
-                            id,
-                            pending_perms.len(),
-                            pending_perms.join(", ")
-                        ));
                     }
+                }
 
-                    // All approved → send grant RPC (§3.6)
-                    let grant_params = serde_json::json!({
+                if !pending_perms.is_empty() {
+                    // Send mgp/permission/await RPC (§3.5)
+                    let await_params = serde_json::json!({
                         "request_id": format!("perm-{}", id),
-                        "grants": all_perms.iter().map(|p| (p.clone(), serde_json::json!({
-                            "decision": "approved",
-                        }))).collect::<serde_json::Map<String, serde_json::Value>>(),
-                        "approved_by": "operator",
+                        "permissions": pending_perms,
+                        "policy": "interactive",
+                        "message": "Waiting for operator approval",
                     });
                     if let Err(e) = client
-                        .call("mgp/permission/grant", Some(grant_params))
+                        .call("mgp/permission/await", Some(await_params))
                         .await
                     {
-                        debug!("Failed to send mgp/permission/grant to [{}]: {}", id, e);
+                        debug!("Failed to send mgp/permission/await to [{}]: {}", id, e);
                     }
+
+                    crate::db::spawn_audit_log(
+                        self.pool.clone(),
+                        crate::db::AuditLogEntry {
+                            timestamp: chrono::Utc::now(),
+                            event_type: "PERMISSION_DENIED".to_string(),
+                            actor_id: None,
+                            target_id: Some(id.clone()),
+                            permission: Some(pending_perms.join(",")),
+                            result: "pending".to_string(),
+                            reason: "MGP Permission Flow (pending approval)".to_string(),
+                            metadata: None,
+                            trace_id: None,
+                        },
+                    );
+
+                    return Err(anyhow::anyhow!(
+                        "MGP server '{}' blocked: {} permission(s) pending approval: [{}]. \
+                         Approve via dashboard or API, then retry.",
+                        id,
+                        pending_perms.len(),
+                        pending_perms.join(", ")
+                    ));
+                }
+
+                // All approved → send grant RPC (§3.6)
+                let approver = if is_yolo {
+                    YOLO_APPROVER_ID
+                } else {
+                    "operator"
+                };
+                let grant_params = serde_json::json!({
+                    "request_id": format!("perm-{}", id),
+                    "grants": all_perms.iter().map(|p| (p.clone(), serde_json::json!({
+                        "decision": "approved",
+                    }))).collect::<serde_json::Map<String, serde_json::Value>>(),
+                    "approved_by": approver,
+                });
+                if let Err(e) = client
+                    .call("mgp/permission/grant", Some(grant_params))
+                    .await
+                {
+                    debug!("Failed to send mgp/permission/grant to [{}]: {}", id, e);
                 }
             }
         }
