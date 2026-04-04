@@ -86,6 +86,17 @@ This isn't about being frugal — it's evidence that the barrier to building non
 
 ## 批判・懐疑系
 
+### Q: How does this compare to OpenFang or OpenPawz?
+
+**A:** We're all building Rust + Tauri AI agent desktops with security focus — the design space is converging, which validates the approach. Key differences:
+
+- **MGP protocol** — ClotoCore extends MCP with event-driven communication. Plugins can emit events, subscribe to streams, and participate in callbacks. OpenFang and OpenPawz use standard MCP (request-response only). The Discord bridge is built entirely on MGP events — the agent doesn't know it's talking to Discord.
+- **cpersona is standalone** — Our memory server works outside ClotoCore. Point Claude Desktop at it, done. MIT license. Neither OpenFang nor OpenPawz offer a standalone component usable in the broader MCP ecosystem.
+- **Security approach** — OpenFang uses WASM sandboxing (16 claimed security layers). ClotoCore uses OS-level process isolation with capability injection — plugins literally cannot open sockets. Different trade-offs: WASM is tighter but limits what plugins can do; process isolation is more flexible but coarser-grained.
+- **Benchmarks** — cpersona publishes LMEB benchmark results (22 tasks, hybrid beats vector-only on 16/22). I haven't seen published retrieval benchmarks from either competitor.
+
+All three projects are early-stage. I think the ecosystem benefits from multiple approaches.
+
 ### Q: How does this compare to OpenClaw?
 
 **A:** Different design philosophy. OpenClaw optimizes for rapid deployment and ecosystem size — 325K+ stars, 13K+ skills. ClotoCore optimizes for security boundaries and controlled execution.
