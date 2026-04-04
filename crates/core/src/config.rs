@@ -36,6 +36,9 @@ pub struct AppConfig {
     /// YOLO mode: auto-approve all permission requests (ARCHITECTURE.md §5.7).
     /// SafetyGate remains active even in YOLO mode.
     pub yolo_mode: bool,
+    /// Permissions that still require approval even in YOLO mode.
+    /// Default: `["filesystem.write", "network.outbound"]`.
+    pub yolo_exceptions: Vec<String>,
     /// Enable cron job scheduler (Layer 2: Autonomous Trigger).
     pub cron_enabled: bool,
     /// How often (seconds) the scheduler checks for due jobs.
@@ -120,9 +123,9 @@ impl AppConfig {
             .parse::<u8>()
             .context("Failed to parse MAX_EVENT_DEPTH")?;
 
-        if max_event_depth == 0 || max_event_depth > 50 {
+        if max_event_depth == 0 || max_event_depth > 25 {
             anyhow::bail!(
-                "MAX_EVENT_DEPTH must be between 1 and 50 (got {})",
+                "MAX_EVENT_DEPTH must be between 1 and 25 (got {})",
                 max_event_depth
             );
         }
@@ -248,8 +251,21 @@ impl AppConfig {
             .parse::<bool>()
             .unwrap_or(false);
 
+        let yolo_exceptions: Vec<String> = env::var("CLOTO_YOLO_EXCEPTIONS")
+            .unwrap_or_else(|_| "filesystem.write,network.outbound".to_string())
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
         if yolo_mode {
             tracing::warn!("YOLO mode enabled: MCP server permissions will be auto-approved");
+            if !yolo_exceptions.is_empty() {
+                tracing::info!(
+                    exceptions = ?yolo_exceptions,
+                    "YOLO exceptions: these permissions still require approval"
+                );
+            }
         }
 
         let cron_enabled = env::var("CLOTO_CRON_ENABLED")
@@ -458,6 +474,7 @@ impl AppConfig {
             mcp_config_path,
             mcp_sdk_secret,
             yolo_mode,
+            yolo_exceptions,
             cron_enabled,
             cron_check_interval_secs,
             llm_proxy_port,

@@ -360,6 +360,16 @@ impl PluginRegistry {
         let event = envelope.event.clone();
         let current_depth = envelope.depth;
 
+        // Warn on deep cascades before they hit the hard limit
+        if current_depth > 5 {
+            tracing::warn!(
+                event_type = ?event,
+                depth = current_depth,
+                max = self.max_event_depth,
+                "Event cascade depth exceeds warning threshold (>5)"
+            );
+        }
+
         // 🚨 連鎖爆発の防止 (Guardrail #2)
         if current_depth >= self.max_event_depth {
             error!(
