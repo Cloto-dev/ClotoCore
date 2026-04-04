@@ -69,8 +69,14 @@ VTuber with real personality, memory, and agency. That's still the vision,
 but the platform turned out to be useful for research assistants, automated
 workflows, and anything that needs a persistent AI agent with real capabilities.
 
-BSL 1.1 license (free for most use cases, converts to MIT in 2028).
-Memory system (cpersona) is MIT.
+BSL 1.1 license — but read the actual terms: plugin development, commercial
+apps, internal use, consulting, education, and personal projects are all
+permitted without restriction. The only gate is large-scale commercial
+deployment (>$100K revenue, >1,000 users, >50 employees, or SaaS). I chose
+BSL to protect ClotoCore as a shared asset for all developers — not to
+restrict use, but to ensure no single entity can capture the platform before
+the community has a chance to grow around it. Converts to MIT automatically
+on 2028-02-14. Memory system (cpersona) is MIT today.
 
 GitHub: https://github.com/Cloto-dev/ClotoCore
 MCP servers: https://github.com/Cloto-dev/cloto-mcp-servers

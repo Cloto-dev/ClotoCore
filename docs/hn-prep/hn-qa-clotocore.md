@@ -72,7 +72,7 @@ This isn't about being frugal — it's evidence that the barrier to building non
 
 ### Q: BSL 1.1 — why not just MIT/Apache?
 
-**A:** The kernel is BSL 1.1 to prevent large companies from commercializing the platform without contributing back, while remaining free for individuals, small teams, consultants, educators, and internal tools. It converts to MIT automatically on 2028-02-14. cpersona (the memory server) and MGP (the protocol spec) are MIT today — no restrictions for adoption.
+**A:** I chose BSL to protect ClotoCore as a shared asset for all developers. The restriction exists not to limit adoption, but to ensure no single company can take the platform, close it off, and extract value from the ecosystem before the community has time to grow. For 99% of developers, the license is functionally MIT — plugin development, commercial apps, internal use, consulting, education are all permitted without restriction. The only gate is large-scale commercial deployment (>$100K revenue, >1,000 users, >50 employees, or SaaS). And on 2028-02-14, it becomes MIT for everyone — unconditionally and irrevocably. cpersona and MGP are MIT today.
 
 ### Q: How do you plan to make money?
 
