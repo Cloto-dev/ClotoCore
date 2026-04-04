@@ -323,5 +323,27 @@ The model file is a paid asset and is not included in the repository:
 
 ---
 
+## 10. Planned Breaking Changes
+
+Changes listed here will break backward compatibility with existing MGP servers
+or MCP integrations. They are deferred until the benefits outweigh the migration
+cost, but should be anticipated by anyone building on ClotoCore.
+
+| Target | Change | Reason | Migration Impact |
+|--------|--------|--------|------------------|
+| **Magic Seal** | HMAC-SHA256 → Ed25519 asymmetric signatures | HMAC shared-key model conflates signer and verifier. Community server distribution requires each author to sign independently without sharing the kernel's secret. | MGP breaking: signature format changes, all sealed servers must be re-signed, key management shifts from shared secret to public/private key pairs. |
+| **Magic Seal** | Mandatory signatures for all trust levels | Currently Core/Standard servers can be unsigned. Requiring signatures at all levels closes the gap where a compromised unsigned server inherits elevated trust. | MGP breaking: existing unsigned servers will be rejected until signed. |
+| **Code Safety** | Pattern-based validation → AST analysis (tree-sitter) | Pattern matching misses obfuscated dangerous patterns and produces false positives on safe code. AST analysis provides structural understanding. | MCP potentially breaking: stricter validation may reject servers that pass current pattern checks. |
+| **MCP Server Invocation** | File-path resolution (Method D) → Python package invocation (Method C: `python -m cloto_mcp_servers.<name>`) | Eliminates path configuration in `mcp.toml`, simplifies installation, enables proper versioned distribution via PyPI. | Non-breaking for users (paths still work as fallback), but server developers should prepare for package-based distribution. |
+
+### Timeline Guidance
+
+- **Pre-1.0**: Breaking changes may land in any minor version with migration notes in CHANGELOG
+- **Post-1.0**: Breaking changes require a major version bump (SemVer)
+- **Magic Seal Ed25519**: Planned for the community marketplace launch (Phase B)
+- **AST analysis**: Planned when third-party server submissions begin
+
+---
+
 *Document created: 2026-02-16*
-*Last updated: 2026-03-01*
+*Last updated: 2026-04-04*
