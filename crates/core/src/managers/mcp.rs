@@ -2079,13 +2079,30 @@ impl McpClientManager {
     // ============================================================
 
     /// Stop a server (disconnect but preserve config for restart).
+    /// Kills the child process and waits for exit before returning,
+    /// ensuring file locks and ports are released (fixes Issue #65).
     pub async fn stop_server(&self, id: &str) -> Result<()> {
         {
             let mut state = self.state.write().await;
+
+            // Kill child process and wait for exit BEFORE removing handle.
+            // This prevents race conditions where start_server() spawns a new
+            // process while the old one still holds DB locks.
+            if let Some(handle) = state.servers.get(id) {
+                if let Some(client) = &handle.client {
+                    client.shutdown().await;
+                }
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Server '{}' not found or already stopped",
+                    id
+                ));
+            }
+
             let handle = state
                 .servers
                 .remove(id)
-                .ok_or_else(|| anyhow::anyhow!("Server '{}' not found or already stopped", id))?;
+                .expect("server was just verified to exist");
             state.tool_index.retain(|_, server_id| server_id != id);
 
             // Preserve config for restart capability (works for both config and dynamic)
