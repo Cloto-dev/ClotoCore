@@ -50,9 +50,9 @@ Spec: https://modelcontextprotocol.io/
 
 ### Q: "$230 total dev cost" — what does that actually mean?
 
-**A:** That's the total spend on API credits (Claude, DeepSeek, Cerebras) used during development. Claude Code handled the vast majority of implementation. I design the architecture, review the code, make design decisions, and direct the work. Claude Code writes and tests the code. The $230 covers ~3 months of active development.
+**A:** $230 in Claude subscriptions (Pro → Max) for Claude Code, plus $2 in DeepSeek API for runtime testing. Cerebras free tier for additional testing. The coding itself was done entirely through Claude Code under the subscription — not per-call API credits. That covers ~3 months of active development.
 
-This isn't meant as a flex about being frugal — it's a data point on what AI-assisted development looks like for a non-trivial system. 51K LOC across Rust and TypeScript, 351 tests, 17 MCP servers, full GUI dashboard.
+This isn't about being frugal — it's evidence that the barrier to building non-trivial systems has shifted. I design the architecture, review every change, and make all design decisions. Claude Code handles implementation. 51K LOC across Rust and TypeScript, 351 tests, 17 MCP servers, full GUI dashboard.
 
 ### Q: "Built with Claude Code" — how much was AI-written?
 
