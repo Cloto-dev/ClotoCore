@@ -7,6 +7,39 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.3-beta.2] — 2026-04-04
+
+### Security Hardening (8 layers)
+- **L2**: Kernel tool RBAC — `mgp.*`/`gui.*` tools now checked via `resolve_tool_access(server_id="kernel")`; default Allow, explicit Deny entries restrict specific agents
+- **L3**: YOLO mode exceptions — `CLOTO_YOLO_EXCEPTIONS` env var (default: `filesystem.write,network.outbound`); excepted permissions require approval even in YOLO mode
+- **L5**: Merkle chain audit log — `chain_hash` column on `audit_logs` table; each entry hashed with SHA-256(previous_hash | canonical_data) for tamper detection
+- **L8**: Runtime host whitelist audit — `add_host()` logs a warning when a new host is added
+- **L9**: Event depth hardening — `MAX_EVENT_DEPTH` cap lowered from 50 to 25; warning logged at depth > 5
+- **L11**: MGP permission declarations — avatar and discord servers declare `permissions_required: ["network.outbound"]` in initialize response (cloto-mcp-servers)
+- **L12**: destructiveHint HITL gate — parse MCP `annotations.destructiveHint`, require approval for destructive tools via existing command approval flow
+- **L14**: Trust level mismatch warning — kernel logs when server self-declares higher trust than config allows
+
+### Added
+- `McpTool.annotations` field for MCP tool annotation parsing
+- `McpClientManager::is_tool_destructive()` helper
+- `CLOTO_YOLO_EXCEPTIONS` environment variable
+- Planned breaking changes section in PROJECT_VISION (§10)
+- DB migration: `audit_logs.chain_hash` column
+
+### Changed
+- YOLO permission flow refactored to partition-based logic (auto-approvable vs excepted)
+- `write_audit_log()` now uses single SQLite transaction for chain hash consistency
+
+### Fixed
+- 3 stale issue-registry bugs marked as fixed (bug-311, bug-314, bug-343)
+
+### Documentation
+- Security layer audit report (15 layers verified against code)
+- HN Show post, self-comment, Q&A (24 questions)
+- GitHub Sponsors FUNDING.yml
+
+---
+
 ## [0.6.3-beta.1] — 2026-04-03
 
 ### Added
