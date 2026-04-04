@@ -138,6 +138,8 @@ All plugin functionality is delivered via **MCP (Model Context Protocol)** serve
 MCP servers live in the [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers) repository
 and are configured via `mcp.toml`. See [MCP Plugin Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) for details.
 
+**Build your own server:** [Quickstart Guide](docs/QUICKSTART_MCP_SERVER.md) — create a working MCP/MGP server in 5 minutes.
+
 ## Project Structure
 
 ```
