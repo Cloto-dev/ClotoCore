@@ -5,9 +5,12 @@ Source of truth: `docs/SECURITY_LAYER_AUDIT_20260404.md`
 
 ## Current State: 15 layers, 11 fully enforced, 2 soft, 2 Phase 1
 
+All non-breaking hardening items completed (2026-04-04).
+Remaining items require OS-level infrastructure (Phase 2) or protocol-breaking changes.
+
 ---
 
-## CRITICAL (Security model fundamentals)
+## CRITICAL (Security model fundamentals) — Phase 2
 
 | # | Layer | Current | Hardening | MCP/MGP Compat | Effort |
 |---|-------|---------|-----------|----------------|--------|
@@ -15,28 +18,19 @@ Source of truth: `docs/SECURITY_LAYER_AUDIT_20260404.md`
 | 15 | Network scope | ProxyOnly=env vars; None=nothing | Block sockets via seccomp/iptables for None | ✅ Non-breaking | Large |
 | 1 | Capability injection | Plugins can ignore env vars | OS-level network restriction (Phase 2 dep) | ✅ Non-breaking | Large (Phase 2) |
 
-## HIGH (Practical gaps)
+## HIGH (Protocol-breaking changes) — Post-1.0
 
 | # | Layer | Current | Hardening | MCP/MGP Compat | Effort |
 |---|-------|---------|-----------|----------------|--------|
-| ~~11~~ | ~~Permission declarations~~ | ~~avatar/discord don't declare permissions_required~~ | ~~Add to Rust MGP server initialize response~~ | ~~✅ Non-breaking~~ | ~~Small~~ |
 | 13 | Magic Seal | HMAC-SHA256 (shared key) | Ed25519 asymmetric signatures | ❌ MGP breaking (migration) | Medium |
 | 10 | Code safety validation | Pattern-based | AST analysis (tree-sitter) or runtime sandbox | ⚠️ MCP potentially breaking | Large |
 | 13 | Magic Seal | Core/Standard can be unsigned | Require signatures for all trust levels | ❌ MGP breaking (existing unsigned blocked) | Small |
 
-## MEDIUM (Robustness improvements)
+## MEDIUM — Deferred
 
-| # | Layer | Current | Hardening | MCP/MGP Compat | Effort |
-|---|-------|---------|-----------|----------------|--------|
-| 7 | API key auth | SHA-256 fingerprint | Argon2id (brute-force resistance) | ✅ Non-breaking | Small |
-| ~~3~~ | ~~HITL~~ | ~~YOLO auto-approves everything~~ | ~~Force approval for filesystem.write, network.outbound even in YOLO~~ | ~~✅ Non-breaking~~ | ~~Small~~ |
-| 2 | RBAC | Kernel-native tools bypass RBAC | Apply RBAC to mgp.*/gui.* tools | ✅ Non-breaking | Medium |
-| ~~14~~ | ~~Trust levels~~ | ~~No warning on server self-declaration mismatch~~ | ~~Log warning when server declares higher trust than config allows~~ | ~~✅ Non-breaking~~ | ~~Small~~ |
-| 5 | Audit log | SQLite file editable by root | Merkle chain checksums (OpenFang-style) | ✅ Non-breaking | Medium |
-| ~~8~~ | ~~Host whitelist~~ | ~~Runtime add_host() unaudited~~ | ~~Audit log + HITL approval on host addition~~ | ~~✅ Non-breaking~~ | ~~Small~~ |
-| ~~9~~ | ~~Event depth~~ | ~~Max configurable to 50~~ | ~~Lower cap to 25, warn at depth > 5~~ | ~~✅ Non-breaking~~ | ~~Trivial~~ |
-| 12 | Tool security metadata | readOnlyHint is advisory only | HITL enforcement for destructiveHint=true tools (as MGP extension) | ⚠️ MGP extension needed | Small |
-| ~~6~~ | ~~DNS rebinding~~ | ~~Private/loopback blocked~~ | ~~Add cloud metadata endpoints (169.254.169.254)~~ | ~~✅ Non-breaking~~ | ~~Trivial~~ |
+| # | Layer | Current | Hardening | MCP/MGP Compat | Effort | Status |
+|---|-------|---------|-----------|----------------|--------|--------|
+| 7 | API key auth | SHA-256 fingerprint | Argon2id (brute-force resistance) | ✅ Non-breaking | Small | Deferred — 256-bit key entropy makes brute-force infeasible |
 
 ## LOW (Future improvements)
 
@@ -60,15 +54,19 @@ Source of truth: `docs/SECURITY_LAYER_AUDIT_20260404.md`
 | Layer | Change | Commit |
 |-------|--------|--------|
 | L6 | Cloud metadata (169.254.169.254) already blocked by `is_link_local()` — no code change needed | N/A |
-| L7 | Deferred — API keys use 256-bit entropy (OsRng), making SHA-256 brute-force infeasible. Argon2id adds dependency + DB migration for marginal benefit. | N/A |
-| L9 | MAX_EVENT_DEPTH cap lowered from 50 to 25; warning log added at depth > 5 | pending |
-| L11 | `permissions_required: ["network.outbound"]` added to avatar and discord initialize responses | pending |
-| L14 | Warning log when server self-declares higher trust level than config allows | pending |
-| L8 | `tracing::warn!` added to `add_host()` for runtime whitelist additions | pending |
-| L3 | YOLO exceptions: `filesystem.write` and `network.outbound` require approval even in YOLO mode (`CLOTO_YOLO_EXCEPTIONS` env var) | pending |
+| L7 | Deferred — API keys use 256-bit entropy (OsRng), making SHA-256 brute-force infeasible | N/A |
+| L9 | MAX_EVENT_DEPTH cap lowered from 50 to 25; warning log added at depth > 5 | `45982e7` |
+| L14 | Warning log when server self-declares higher trust level than config allows | `00f224c` |
+| L8 | `tracing::warn!` added to `add_host()` for runtime whitelist additions | `00bca4a` |
+| L3 | YOLO exceptions: `filesystem.write` and `network.outbound` require approval even in YOLO mode (`CLOTO_YOLO_EXCEPTIONS` env var) | `e2d1c94` |
+| L11 | `permissions_required: ["network.outbound"]` added to avatar and discord initialize responses | `3624990` (cloto-mcp-servers) |
+| L13 | Documentation already correct (HMAC-SHA256). Ed25519 migration documented in PROJECT_VISION §10. | `288bede` |
+| L5 | Merkle chain hash on audit log entries (SHA-256 chain, tamper detection) | `e7f974d` |
+| L12 | destructiveHint HITL gate — parse MCP annotations, require approval for destructive tools | `1a28bb7` |
+| L2 | Kernel tool RBAC — `mgp.*`/`gui.*` tools now checked via `resolve_tool_access(server_id="kernel")` | `17ff35b` |
 
-## Pre-HN Quick Wins (non-breaking, high impact)
+## Pre-HN Quick Wins
 
-1. ~~**Layer 11**: Add `permissions_required` to avatar/discord initialize — 30min~~ ✅
+1. ~~**Layer 11**: Add `permissions_required` to avatar/discord initialize~~ ✅
 2. ~~**Layer 6**: Block 169.254.169.254 (cloud metadata SSRF) — already covered~~ ✅
-3. **Layer 13**: Fix documentation: HMAC-SHA256, not Ed25519 — 5min
+3. ~~**Layer 13**: Fix documentation — already correct, Ed25519 migration planned~~ ✅
