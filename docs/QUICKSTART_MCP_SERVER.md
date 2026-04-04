@@ -176,7 +176,28 @@ Trust level determines the default isolation profile:
 | `experimental` | Sandbox | ProxyOnly | 256MB | 2 |
 | `untrusted` | Sandbox | None | 128MB | 0 |
 
-### 5. Using ClotoCore's ToolRegistry (optional)
+### 5. Using MgpCapabilities helper (optional)
+
+The `cloto-mcp-servers` repository provides a lightweight `MgpCapabilities` builder
+for declaring MGP capabilities without manually constructing JSON:
+
+```python
+from common.mgp_utils import MgpCapabilities
+
+mgp = MgpCapabilities()
+mgp.require_permission("network.outbound")
+mgp.set_trust_level("standard")
+
+# In your initialize handler, merge into capabilities:
+capabilities = {"tools": {}, **mgp.as_dict()}
+```
+
+> **Note:** A full MGP SDK is not yet available. For advanced MGP features
+> (events, streaming, callbacks), implement the JSON-RPC methods directly.
+> See [MGP Guide](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_GUIDE.md)
+> for the staged adoption path.
+
+### 6. Using ClotoCore's ToolRegistry (optional)
 
 The `cloto-mcp-servers` repository provides a `ToolRegistry` helper that
 eliminates boilerplate:
