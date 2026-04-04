@@ -86,6 +86,6 @@
   },
   "log": {
     "title": "Event Log",
-    "awaiting_signal": "AWAITING_SIGNAL..."
+    "awaiting_signal": "Coming soon — structured event log viewer is planned for a future release."
   }
 }
