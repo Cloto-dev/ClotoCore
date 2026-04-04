@@ -24,7 +24,12 @@ If a proposed change conflicts with any of these, flag it before proceeding.
 - Bug verify: `bash scripts/verify-issues.sh`
 - Test ratchet: `bash scripts/check-test-count.sh`
 
-## Bug Verification
+## Bug Verification (Anti-Hallucination)
+
+The issue registry is a **hallucination prevention tool**, not a comprehensive bug tracker.
+It verifies that reported bugs actually exist in the codebase via grep patterns.
+Not every bug fix requires an issue-registry entry — only bugs where code-level
+evidence is needed to confirm existence (e.g., AI-discovered bugs that could be false positives).
 
 - Source of truth: `qa/issue-registry.json`
 - Discovery: add entry → `bash scripts/verify-issues.sh` → must return `[VERIFIED]`
