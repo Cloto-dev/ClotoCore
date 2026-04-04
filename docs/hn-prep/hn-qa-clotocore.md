@@ -40,6 +40,16 @@ Spec: https://modelcontextprotocol.io/
 
 **A:** cpersona is purpose-built for AI agent memory, not generic RAG. Key differences: (1) 3-layer hybrid search (vector + FTS5 + keyword) with RRF merge — catches things pure vector search misses (exact names, IDs, code snippets). (2) Confidence scoring with dynamic time decay that adapts to your corpus time range. (3) Three memory types (declarative, episodic, profile) with different lifecycle semantics. (4) Zero LLM dependency — it's a pure data server. (5) Single SQLite file, MIT license, works standalone outside ClotoCore.
 
+### Q: Why not use WASM sandboxing like OpenFang? It seems more secure.
+
+**A:** WASM gives you tight runtime isolation — but at a high ecosystem cost. Every plugin language needs its own WASM compilation SDK that correctly handles host API bindings, memory layout, and data marshaling across the sandbox boundary. For each language (Rust, Python, TypeScript, Go), that's a separate SDK to build and maintain. For a solo developer, the maintenance burden would consume more time than building the platform.
+
+ClotoCore takes a different approach: plain MCP servers (JSON-RPC over stdio) work as plugins with zero SDK — any language works immediately. For advanced features (events, callbacks, agent-to-agent messaging), MGP requires an SDK, but it's one protocol-level SDK, not per-language compilation toolchains.
+
+The security model is also architecturally different. WASM relies on one-directional enforcement: the runtime constrains the plugin. MGP is bidirectional — the kernel enforces capability injection, RBAC, and human-in-the-loop on the client side, while the MGP specification defines permission declarations, tool security metadata, and access control on the server side. Both sides interlock: the kernel won't grant access the server didn't declare, and the server can't bypass controls the kernel enforces. Defense in depth at the protocol level, not just the runtime.
+
+Different trade-off: WASM is tighter per-call isolation. MGP is a security contract between two parties that both enforce their side.
+
 ### Q: Why 17 servers? That seems like a lot of surface area.
 
 **A:** Each server is independently optional. The kernel is a stage — you compose only what you need. A research assistant might use 4 servers (reasoning + memory + websearch + terminal). A VTuber AI might use 8 (reasoning + memory + voice + avatar + vision + discord + cron + embedding). The variety exists because the platform is designed for very different agent architectures.
