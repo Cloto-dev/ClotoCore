@@ -499,7 +499,20 @@ pub fn negotiate(
 
     // Trust level: mcp.toml config > server self-declaration > default Untrusted
     let trust_level = if let Some(cfg) = config_trust {
-        TrustLevel::from_str_lossy(cfg)
+        let config_level = TrustLevel::from_str_lossy(cfg);
+        // Warn if server self-declares higher trust than config allows
+        if let Some(ref srv) = server.trust_level {
+            let server_level = TrustLevel::from_str_lossy(srv);
+            if server_level > config_level {
+                tracing::warn!(
+                    server_id = server.server_id.as_deref().unwrap_or("unknown"),
+                    server_declared = %srv,
+                    config_level = %cfg,
+                    "MGP server declared higher trust level than config allows — downgrading"
+                );
+            }
+        }
+        config_level
     } else if let Some(ref srv) = server.trust_level {
         TrustLevel::from_str_lossy(srv)
     } else {
