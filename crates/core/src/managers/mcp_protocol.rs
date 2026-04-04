@@ -105,6 +105,9 @@ pub struct McpTool {
     pub name: String,
     pub description: Option<String>,
     pub input_schema: Value,
+    /// MCP tool annotations (destructiveHint, readOnlyHint, etc.)
+    #[serde(default)]
+    pub annotations: Option<Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
