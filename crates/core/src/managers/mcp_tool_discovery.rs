@@ -948,6 +948,7 @@ mod tests {
             name: name.to_string(),
             description: Some(desc.to_string()),
             input_schema: serde_json::json!({"type": "object", "properties": {}}),
+            annotations: None,
         }
     }
 
@@ -1455,6 +1456,7 @@ mod tests {
                 "properties": properties,
                 "required": required,
             }),
+            annotations: None,
         }
     }
 

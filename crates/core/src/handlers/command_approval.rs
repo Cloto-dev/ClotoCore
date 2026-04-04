@@ -124,9 +124,30 @@ async fn collect_untrusted_commands(
         } else {
             false
         };
+
+        // L12: Check destructiveHint annotation for non-sandbox tools
         if !has_sandbox_validator {
+            let is_destructive = if let Some(mcp) = mcp_manager {
+                mcp.is_tool_destructive(&call.name).await
+            } else {
+                false
+            };
+            if is_destructive {
+                // Destructive tools use the tool name as the trust key
+                let session_is_trusted = session_trusted
+                    .get(agent_id)
+                    .is_some_and(|set| set.contains(call.name.as_str()));
+                if !session_is_trusted {
+                    untrusted_cmds.push(serde_json::json!({
+                        "call_id": call.id,
+                        "command": format!("[destructive] {}", call.name),
+                        "command_name": call.name,
+                    }));
+                }
+            }
             continue;
         }
+
         let Some(cmd_str) = call.arguments.get("command").and_then(|v| v.as_str()) else {
             continue;
         };

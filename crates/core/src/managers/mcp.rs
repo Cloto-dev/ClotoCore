@@ -1355,7 +1355,24 @@ impl McpClientManager {
     pub async fn collect_tool_schemas_for_agent(&self, agent_id: &str) -> Vec<Value> {
         let state = self.state.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
-            super::mcp_kernel_tool::kernel_tool_schemas()
+            // L2: Filter kernel tools by per-agent RBAC (server_id="kernel").
+            // Default is Allow; only explicit Deny entries block a tool.
+            let mut filtered = Vec::new();
+            for schema in super::mcp_kernel_tool::kernel_tool_schemas() {
+                let name = schema
+                    .get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("");
+                let denied = matches!(
+                    crate::db::resolve_tool_access(&self.pool, agent_id, "kernel", name).await,
+                    Ok(crate::db::mcp::PermissionLevel::Deny)
+                );
+                if !denied {
+                    filtered.push(schema);
+                }
+            }
+            filtered
         } else {
             vec![]
         };
@@ -2264,6 +2281,25 @@ impl McpClientManager {
         let server_id = state.tool_index.get(tool_name)?;
         let handle = state.servers.get(server_id)?;
         handle.config.tool_validators.get(tool_name).cloned()
+    }
+
+    /// Check if a tool has `annotations.destructiveHint == true` in its MCP schema.
+    pub async fn is_tool_destructive(&self, tool_name: &str) -> bool {
+        let state = self.state.read().await;
+        let Some(server_id) = state.tool_index.get(tool_name) else {
+            return false;
+        };
+        let Some(handle) = state.servers.get(server_id) else {
+            return false;
+        };
+        handle
+            .tools
+            .iter()
+            .find(|t| t.name == tool_name)
+            .and_then(|t| t.annotations.as_ref())
+            .and_then(|ann| ann.get("destructiveHint"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
     }
 
     /// Get a reference to the database pool (for access control queries).
