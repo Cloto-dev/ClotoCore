@@ -7,7 +7,7 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-351%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-234%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
@@ -98,6 +98,8 @@ cargo run --package cloto_core
 ```
 
 The dashboard opens at **http://localhost:8081**.
+
+> For the desktop app (Tauri), use `cd dashboard && npx tauri dev` instead.
 
 ## Installer (Experimental)
 
@@ -196,6 +198,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `HEARTBEAT_INTERVAL_SECS` | `30` | Agent heartbeat ping interval |
 | `CLOTO_SDK_SECRET` | (none) | MCP SDK authentication secret |
 | `CLOTO_YOLO` | `false` | Skip permission confirmations (dev/testing) |
+| `CLOTO_YOLO_EXCEPTIONS` | `filesystem.write,network.outbound` | Permissions requiring approval even in YOLO mode |
 | `CLOTO_CRON_ENABLED` | `true` | Enable cron job scheduler |
 | `CLOTO_CRON_INTERVAL` | `60` | Cron check interval in seconds |
 | `CLOTO_LLM_PROXY_PORT` | `8082` | LLM API proxy port |
@@ -306,11 +309,15 @@ cargo test --test '*'                   # integration tests only
 - **Minimal default permissions** — elevated permissions require human approval
 - **Network host whitelisting** with DNS rebinding protection
 - **MCP access control** with 3-level RBAC (capability → server → tool)
+- **Kernel tool RBAC** — `mgp.*`/`gui.*` tools checked via per-agent access control
+- **Merkle chain audit log** — tamper-detectable hash chain on all audit entries
+- **Destructive tool gate** — tools with `destructiveHint` require HITL approval
 
 See [Architecture](docs/ARCHITECTURE.md) for the full security model.
 
 ## Documentation
 
+- [MCP/MGP Server Quickstart](docs/QUICKSTART_MCP_SERVER.md) — Build your first server in 5 minutes
 - [Architecture](docs/ARCHITECTURE.md) — Design principles, event flow, security model
 - [Project Vision](docs/PROJECT_VISION.md) — Strategic direction and roadmap
 - [Development](docs/DEVELOPMENT.md) — Coding standards, guardrails, PR process
