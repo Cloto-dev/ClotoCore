@@ -27,6 +27,15 @@ impl McpTransport {
         }
     }
 
+    /// Kill the child process and wait for it to exit (up to 5 seconds).
+    /// Prevents race conditions where a new server starts before the old one releases resources.
+    pub async fn kill_and_wait(&mut self) {
+        match self {
+            Self::Stdio(t) => t.kill_and_wait().await,
+            Self::Http(_) => {} // No child process to kill
+        }
+    }
+
     pub async fn recv(&mut self) -> Option<String> {
         match self {
             Self::Stdio(t) => t.recv().await,
@@ -127,6 +136,23 @@ impl Drop for StdioTransport {
 }
 
 impl StdioTransport {
+    /// Kill the child process and wait for it to actually exit.
+    /// Ensures file locks (DB, ports) are released before returning.
+    pub async fn kill_and_wait(&mut self) {
+        let _ = self.child.start_kill();
+        match tokio::time::timeout(std::time::Duration::from_secs(5), self.child.wait()).await {
+            Ok(Ok(status)) => {
+                debug!("Child process exited: {status}");
+            }
+            Ok(Err(e)) => {
+                debug!("Child process wait error: {e}");
+            }
+            Err(_) => {
+                tracing::warn!("Child process did not exit within 5s after kill signal");
+            }
+        }
+    }
+
     /// Get a clone of the request sender for lock-free sending.
     #[must_use]
     pub fn sender(&self) -> mpsc::Sender<String> {

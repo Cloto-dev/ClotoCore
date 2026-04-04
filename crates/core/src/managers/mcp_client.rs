@@ -53,6 +53,14 @@ impl Drop for McpClient {
 impl McpClient {
     const MAX_PENDING_REQUESTS: usize = 100;
 
+    /// Kill the underlying child process and wait for it to exit.
+    /// Must be called before dropping the handle to avoid race conditions
+    /// where the old process still holds file locks (Issue #65).
+    pub async fn shutdown(&self) {
+        let mut transport = self.transport.lock().await;
+        transport.kill_and_wait().await;
+    }
+
     pub async fn connect(
         server_id: &str,
         command: &str,
