@@ -778,7 +778,7 @@ Batch size limit: 100 texts (same as MCP tool).
 |----------|-------|-----------|--------|---------|------|
 | `onnx_miniml` | all-MiniLM-L6-v2 (ONNX) | 384 | ~490MB | <10ms/text | Free |
 | `api_openai` | text-embedding-3-small | 1536 | ~40MB | ~100ms/text | $0.02/1M tokens |
-| `api_deepseek` | (if available) | TBD | ~40MB | ~100ms/text | TBD |
+| `api_deepseek` | (if available) | — | ~40MB | ~100ms/text | — (planned) |
 
 Configured via environment variable:
 

@@ -95,6 +95,9 @@ Always review this list before making code changes and adhere to the constraints
 
 ### Phase 5: Post-Audit Security & Performance Hardening (2026-02-13)
 
+> **Note:** Phases 5–6 are historical records. Struck-through items refer to the Python Bridge,
+> which was removed during the MCP migration (v0.4.x). They are retained for audit traceability.
+
 **Trigger:** CODE_QUALITY_AUDIT.md (Score: 65/100)
 
 | Category | Item | Status |
