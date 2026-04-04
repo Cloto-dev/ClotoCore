@@ -27,6 +27,12 @@ Hi HN,
 I've been building ClotoCore for the past 3 months — an open-source platform
 for constructing AI agents with pluggable capabilities, written in Rust.
 
+AI agents that can execute code, access files, and make network requests are
+powerful — and dangerous when poorly contained. Recent incidents with popular
+agent frameworks have shown what happens when security is an afterthought:
+exposed instances, malicious plugins, no sandboxing. I wanted a platform where
+security is the architecture, not a patch.
+
 The idea: instead of monolithic chatbot scripts, you compose an AI agent from
 independent plugins — reasoning (DeepSeek, Claude, Ollama), memory (persistent
 hybrid search), vision (screen capture, gaze tracking), voice (Whisper STT,

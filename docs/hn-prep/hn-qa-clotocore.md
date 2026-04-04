@@ -86,6 +86,18 @@ This isn't meant as a flex about being frugal — it's a data point on what AI-a
 
 ## 批判・懐疑系
 
+### Q: How does this compare to OpenClaw?
+
+**A:** Different design philosophy. OpenClaw optimizes for rapid deployment and ecosystem size — 325K+ stars, 13K+ skills. ClotoCore optimizes for security boundaries and controlled execution.
+
+Concrete differences:
+- OpenClaw plugins run in-process with the gateway (no sandbox). In ClotoCore, plugins are isolated processes with capability injection — they literally cannot open sockets unless the kernel provides a pre-authorized client.
+- OpenClaw's single JSON config means one bad edit breaks all agents. ClotoCore uses per-agent database persistence with typed RBAC.
+- OpenClaw's marketplace had 1,184+ malicious skills identified. ClotoCore's marketplace uses Magic Seal binary verification and trust levels.
+- OpenClaw defaults to binding on all interfaces. ClotoCore defaults to 127.0.0.1 with DNS rebinding protection.
+
+I respect what OpenClaw has achieved in adoption. The security issues aren't surprising given the scale — they're inherent to the "run everything in-process with host permissions" architecture. ClotoCore chose a different trade-off: slower to adopt, harder to break.
+
 ### Q: Can I install it without building from source?
 
 **A:** Pre-built installers exist (Windows .exe, Linux .deb/.AppImage, macOS .dmg) but they're experimental. The setup wizard handles Python venv creation and MCP server download automatically, but environment differences may cause issues. Building from source is more reliable for now. You need Python 3.10+ in PATH for the MCP servers regardless of install method.
