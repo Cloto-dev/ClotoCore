@@ -64,13 +64,12 @@ Some numbers:
   and $2 in DeepSeek API for runtime testing (Cerebras free tier also used)
 - Architecture and code review are mine; implementation is mostly Claude Code
 
-Some things it can do:
-- A Discord-connected AI that remembers conversations across sessions,
-  runs scheduled tasks, and speaks through a VRM avatar
-- A research assistant with persistent memory, web search, and terminal
-  access — all with human-in-the-loop approval
-- Scheduled tasks via cron — an agent that checks your infrastructure,
-  summarizes findings, and posts to Discord on a schedule
+What makes it different: you build autonomous AI agents through a GUI
+dashboard — no code required. Pick your reasoning engine, attach memory,
+grant tool access with per-tool RBAC, set up scheduled tasks, and deploy.
+Every plugin runs in a sandbox with capability injection. Every sensitive
+operation requires human approval. The security model isn't bolted on —
+it's the foundation everything else is built on.
 
 Quickest way to try it: cpersona (the memory server) works standalone
 in Claude Desktop or Claude Code — pip install, single SQLite file, MIT.
