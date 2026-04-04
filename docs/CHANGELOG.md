@@ -7,6 +7,29 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.3-beta.3] — 2026-04-04
+
+### Fixed
+- **MCP server toggle race condition** (Issue #65) — `stop_server()` now waits for child process exit before returning, preventing DB lock conflicts on restart
+- **Safe integer casts** — `i64→i32` (cron), `usize→u8` (delegation chain), `u64→u8` (cron generation) now use `try_from` instead of `as` casts
+- **Error logging** — Cargo.toml read errors in marketplace and RwLock poison recovery now logged instead of silenced
+- **CVE-2026-33672** — picomatch 2.3.1→2.3.2, 4.0.3→4.0.4 (glob matching method injection)
+
+### Added
+- [MCP/MGP Server Quickstart](docs/QUICKSTART_MCP_SERVER.md) — two-path guide for new server developers
+- `CLOTO_YOLO_EXCEPTIONS` documented in README configuration table
+- Tauri dev note in Quick Start section
+
+### Changed
+- README: test badge 351→234, security section +3 items, documentation links updated
+- CHANGELOG: removed internal marketing references from beta.1 and beta.2 entries
+- CLAUDE.md: clarified issue registry as anti-hallucination tool
+
+### Dependencies
+- jsdom 28.1.0→29.0.1 (dev)
+
+---
+
 ## [0.6.3-beta.2] — 2026-04-04
 
 ### Security Hardening (8 layers)
