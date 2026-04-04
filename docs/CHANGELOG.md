@@ -35,7 +35,6 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Documentation
 - Security layer audit report (15 layers verified against code)
-- HN Show post, self-comment, Q&A (24 questions)
 - GitHub Sponsors FUNDING.yml
 
 ---
@@ -99,7 +98,6 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 - Documentation-codebase **integrity audit** (3 critical, 7 high, 5 medium fixed)
 - CPersona design document updated to v2.4.6 (tool count, version table, architecture diagram)
 - MGP specification kernel tool count corrected (17→25)
-- HN **Show HN** preparation (post draft, Q&A 19 questions, launch plan)
 - GUI component map updated
 - Test count corrected: 351 (234 Rust + 117 Python)
 
