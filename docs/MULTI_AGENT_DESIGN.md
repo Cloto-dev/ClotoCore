@@ -202,7 +202,7 @@ User: "Look up the latest Rust security advisories and check if our Cargo.toml i
         │     patch versions")
         │     │
         │     └── Agent B (Researcher — websearch MCP granted):
-        │           [web_search tool] → "RustSec Advisory: CVE-2026-XXXX..."
+        │           [web_search tool] → "RustSec Advisory: RUSTSEC-2026-0001..."
         │
         ├── ask_agent("developer", "Check whether the following security
         │     advisories affect our Cargo.toml.
