@@ -64,19 +64,28 @@ Some numbers:
   and $2 in DeepSeek API for runtime testing (Cerebras free tier also used)
 - Architecture and code review are mine; implementation is mostly Claude Code
 
+Some things it can do:
+- A Discord-connected AI that remembers conversations across sessions,
+  runs scheduled tasks, and speaks through a VRM avatar
+- A research assistant with persistent memory, web search, and terminal
+  access — all with human-in-the-loop approval
+- A multi-engine consensus mode where DeepSeek and Cerebras each generate
+  independent responses, then a synthesizer merges them into a unified answer
+
+Quickest way to try it: cpersona (the memory server) works standalone
+in Claude Desktop or Claude Code — pip install, single SQLite file, MIT.
+
 The original motivation was building something like Neuro-Sama — an AI
 VTuber with real personality, memory, and agency. That's still the vision,
 but the platform turned out to be useful for research assistants, automated
 workflows, and anything that needs a persistent AI agent with real capabilities.
 
-BSL 1.1 license — but read the actual terms: plugin development, commercial
-apps, internal use, consulting, education, and personal projects are all
-permitted without restriction. The only gate is large-scale commercial
-deployment (>$100K revenue, >1,000 users, >50 employees, or SaaS). I chose
-BSL to protect ClotoCore as a shared asset for all developers — not to
-restrict use, but to ensure no single entity can capture the platform before
-the community has a chance to grow around it. Converts to MIT automatically
-on 2028-02-14. Memory system (cpersona) is MIT today.
+BSL 1.1 — functionally MIT for individual developers, small teams, and most
+commercial use. Only large-scale deployment (>$100K revenue, >1,000 users,
+or SaaS) needs approval. I chose BSL to protect ClotoCore as a shared asset
+for all developers — not to restrict use, but to ensure no single entity can
+capture the platform before the community grows around it. Converts to MIT
+on 2028-02-14. cpersona is MIT today.
 
 GitHub: https://github.com/Cloto-dev/ClotoCore
 MCP servers: https://github.com/Cloto-dev/cloto-mcp-servers
