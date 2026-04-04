@@ -74,7 +74,9 @@ pub async fn create_cron_job(
 
     let job_id = format!("cron.{}.{}", agent_id, cloto_shared::ClotoId::new());
     let engine_id = payload["engine_id"].as_str().map(String::from);
-    let max_iterations = payload["max_iterations"].as_i64().map(|v| v as i32);
+    let max_iterations = payload["max_iterations"]
+        .as_i64()
+        .and_then(|v| i32::try_from(v).ok());
     let hide_prompt = payload["hide_prompt"].as_bool().unwrap_or(false);
 
     // MessageSource selection: 'system' (default) or 'user'

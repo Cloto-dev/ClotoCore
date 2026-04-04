@@ -58,10 +58,10 @@ impl SafeHttpClient {
 
     /// ホスト名ベースでのホワイトリストチェック (O(1) HashSet lookup)
     fn is_whitelisted_host(&self, host: &str) -> bool {
-        let hosts = self
-            .allowed_hosts
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let hosts = self.allowed_hosts.read().unwrap_or_else(|e| {
+            tracing::warn!("RwLock poisoned on allowed_hosts read — recovering");
+            e.into_inner()
+        });
         hosts.contains(&host.to_lowercase())
     }
 
@@ -70,10 +70,10 @@ impl SafeHttpClient {
     #[must_use]
     pub fn add_host(&self, host: &str) -> bool {
         let normalized = host.to_lowercase();
-        let mut hosts = self
-            .allowed_hosts
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut hosts = self.allowed_hosts.write().unwrap_or_else(|e| {
+            tracing::warn!("RwLock poisoned on allowed_hosts write — recovering");
+            e.into_inner()
+        });
         let inserted = hosts.insert(normalized.clone());
         if inserted {
             tracing::warn!(host = %normalized, "Host added to whitelist at runtime");
