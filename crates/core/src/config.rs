@@ -137,8 +137,7 @@ impl AppConfig {
             .parse::<usize>()
             .context("Failed to parse MEMORY_CONTEXT_LIMIT")?;
 
-        let default_port = if cfg!(debug_assertions) { "8091" } else { "8081" };
-        let port_str = env::var("PORT").unwrap_or_else(|_| default_port.to_string());
+        let port_str = env::var("PORT").unwrap_or_else(|_| "8081".to_string());
         let port = port_str.parse::<u16>().map_err(|_| {
             anyhow::anyhow!(
                 "Invalid PORT value '{}': must be an integer between 1 and 65535",
@@ -281,11 +280,10 @@ impl AppConfig {
             .unwrap_or(60)
             .max(10); // minimum 10 seconds
 
-        let default_llm_port = if cfg!(debug_assertions) { 8092 } else { 8082 };
         let llm_proxy_port = env::var("CLOTO_LLM_PROXY_PORT")
-            .unwrap_or_else(|_| default_llm_port.to_string())
+            .unwrap_or_else(|_| "8082".to_string())
             .parse::<u16>()
-            .unwrap_or(default_llm_port);
+            .unwrap_or(8082);
 
         let db_timeout_secs = env::var("CLOTO_DB_TIMEOUT_SECS")
             .unwrap_or_else(|_| "10".to_string())
