@@ -103,12 +103,19 @@ pub(crate) fn check_auth_with_query(
         }
         if let Some(p) = provided {
             let hash = crate::db::hash_api_key(p);
-            if let Ok(revoked) = state.revoked_keys.try_read() {
-                if revoked.contains(&hash) {
-                    tracing::warn!("🚫 Rejected revoked API key");
-                    return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
-                        cloto_shared::Permission::AdminAccess,
-                    )));
+            match state.revoked_keys.try_read() {
+                Ok(revoked) => {
+                    if revoked.contains(&hash) {
+                        tracing::warn!("🚫 Rejected revoked API key");
+                        return Err(AppError::Cloto(
+                            cloto_shared::ClotoError::PermissionDenied(
+                                cloto_shared::Permission::AdminAccess,
+                            ),
+                        ));
+                    }
+                }
+                Err(_) => {
+                    tracing::warn!("Failed to acquire revoked_keys lock — skipping revocation check");
                 }
             }
         }
