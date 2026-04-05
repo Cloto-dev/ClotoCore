@@ -569,7 +569,7 @@ export const api = {
   scanHealth: (apiKey: string, fresh?: boolean) =>
     fetchJson<HealthReport>(`/health/scan${fresh ? '?fresh=true' : ''}`, 'scan health', apiKey),
   repairHealth: (apiKey: string) =>
-    authFetch('/health/repair', 'repair health', apiKey, { method: 'POST' })
+    mutate('/health/repair', 'POST', 'repair health', undefined, { 'X-API-Key': apiKey })
       .then((r) => r.json())
       .then((b) => b.data as RepairReport),
 
