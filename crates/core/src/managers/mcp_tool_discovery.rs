@@ -231,10 +231,13 @@ impl ToolIndex {
 
     /// Total number of indexed tools.
     pub fn total_count(&self) -> usize {
-        self.entries.lock().unwrap_or_else(|e| {
-            warn!("ToolIndex mutex poisoned — recovering");
-            e.into_inner()
-        }).len()
+        self.entries
+            .lock()
+            .unwrap_or_else(|e| {
+                warn!("ToolIndex mutex poisoned — recovering");
+                e.into_inner()
+            })
+            .len()
     }
 
     fn matches_filter(entry: &ToolIndexEntry, filter: &ToolSearchFilter) -> bool {

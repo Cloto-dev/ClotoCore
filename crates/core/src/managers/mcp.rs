@@ -420,8 +420,8 @@ impl McpClientManager {
 
             // Regenerate script file if needed
             if let Some(ref content) = record.script_content {
-                let script_path =
-                    std::path::Path::new("data/mcp_scripts").join(format!("mcp_{}.py", record.name));
+                let script_path = std::path::Path::new("data/mcp_scripts")
+                    .join(format!("mcp_{}.py", record.name));
                 if !script_path.exists() {
                     let _ = std::fs::create_dir_all("data/mcp_scripts");
                     if let Err(e) = std::fs::write(&script_path, content) {
