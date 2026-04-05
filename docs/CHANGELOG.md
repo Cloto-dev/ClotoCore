@@ -7,6 +7,19 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.3-beta.5] — 2026-04-05
+
+### Added
+- **Kernel Health Check System** — self-diagnostic scan with auto-repair for database integrity issues
+  - Quick Scan: 5 checks (DB connection, orphaned chat messages, orphaned trusted commands, orphaned permission requests, audit chain integrity)
+  - Standard Repair: automatic cleanup of orphaned records
+  - Startup scan: runs automatically on boot (configurable via `CLOTO_HEALTH_SCAN_ON_STARTUP`, default: on)
+  - API: `GET /api/health/scan`, `POST /api/health/repair`
+- **Settings > Health tab** — dashboard UI for scan results, manual scan/repair buttons
+- Japanese translation for Health tab
+
+---
+
 ## [0.6.3-beta.4] — 2026-04-05
 
 ### Security
