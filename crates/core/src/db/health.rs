@@ -1,4 +1,6 @@
-//! Kernel health check — database integrity and consistency scanning.
+//! Kernel health check — database integrity, consistency scanning, and venv recovery.
+
+use std::path::Path;
 
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -84,6 +86,94 @@ pub async fn run_quick_scan(pool: &SqlitePool) -> anyhow::Result<HealthReport> {
         checks,
         timestamp,
         db_size_bytes,
+    })
+}
+
+// ── Full Quick Scan (DB + venv) ──
+
+pub async fn run_full_quick_scan(
+    pool: &SqlitePool,
+    servers_dir: Option<&Path>,
+) -> anyhow::Result<HealthReport> {
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let mut checks = Vec::new();
+
+    // DB checks
+    checks.push(check_db_connection(pool).await);
+    checks.push(check_orphaned_chat_messages(pool).await);
+    checks.push(check_orphaned_trusted_commands(pool).await);
+    checks.push(check_orphaned_permission_requests(pool).await);
+    checks.push(check_audit_chain_tail(pool).await);
+
+    // venv checks (if servers_dir available)
+    if let Some(dir) = servers_dir {
+        checks.push(check_venv_exists(dir));
+        checks.push(check_venv_python_version(dir));
+    }
+
+    let status = if checks.iter().any(|c| c.status == HealthStatus::Error) {
+        HealthStatus::Error
+    } else if checks.iter().any(|c| c.status == HealthStatus::Degraded) {
+        HealthStatus::Degraded
+    } else {
+        HealthStatus::Healthy
+    };
+
+    let db_size_bytes = get_db_size(pool).await.unwrap_or(0);
+
+    Ok(HealthReport {
+        status,
+        checks,
+        timestamp,
+        db_size_bytes,
+    })
+}
+
+// ── Full Repair (DB + venv) ──
+
+pub async fn run_full_repair(
+    pool: &SqlitePool,
+    servers_dir: Option<&Path>,
+) -> anyhow::Result<RepairReport> {
+    let mut actions = Vec::new();
+
+    // DB repairs
+    let count = repair_orphaned_chat_messages(pool).await?;
+    if count > 0 {
+        actions.push(RepairAction {
+            name: "orphaned_chat_messages".into(),
+            fixed_count: count,
+            message: format!("Deleted {count} orphaned chat message(s)"),
+        });
+    }
+    let count = repair_orphaned_trusted_commands(pool).await?;
+    if count > 0 {
+        actions.push(RepairAction {
+            name: "orphaned_trusted_commands".into(),
+            fixed_count: count,
+            message: format!("Deleted {count} orphaned trusted command(s)"),
+        });
+    }
+    let count = repair_orphaned_permission_requests(pool).await?;
+    if count > 0 {
+        actions.push(RepairAction {
+            name: "orphaned_permission_requests".into(),
+            fixed_count: count,
+            message: format!("Deleted {count} orphaned permission request(s)"),
+        });
+    }
+
+    // venv repair (if servers_dir available and venv is broken)
+    if let Some(dir) = servers_dir {
+        if let Some(action) = repair_venv(dir).await {
+            actions.push(action);
+        }
+    }
+
+    let total_fixed = actions.iter().map(|a| a.fixed_count).sum();
+    Ok(RepairReport {
+        actions,
+        total_fixed,
     })
 }
 
@@ -325,6 +415,136 @@ async fn repair_orphaned_permission_requests(pool: &SqlitePool) -> anyhow::Resul
     )
     .await?;
     Ok(result.rows_affected() as usize)
+}
+
+// ── venv Checks ──
+
+fn check_venv_exists(servers_dir: &Path) -> HealthCheck {
+    let venv_dir = servers_dir.join(".venv");
+    let pyvenv_cfg = venv_dir.join("pyvenv.cfg");
+    if pyvenv_cfg.exists() {
+        HealthCheck {
+            name: "venv_exists".into(),
+            status: HealthStatus::Healthy,
+            message: "Python venv exists".into(),
+            repairable: false,
+            detail: None,
+        }
+    } else {
+        HealthCheck {
+            name: "venv_exists".into(),
+            status: HealthStatus::Degraded,
+            message: "Python venv not found — MCP servers may not work".into(),
+            repairable: true,
+            detail: None,
+        }
+    }
+}
+
+fn check_venv_python_version(servers_dir: &Path) -> HealthCheck {
+    let venv_dir = servers_dir.join(".venv");
+    if !venv_dir.join("pyvenv.cfg").exists() {
+        // Already reported by check_venv_exists
+        return HealthCheck {
+            name: "venv_python_version".into(),
+            status: HealthStatus::Degraded,
+            message: "Cannot check Python version — venv missing".into(),
+            repairable: true,
+            detail: None,
+        };
+    }
+
+    if crate::managers::mcp_venv::is_venv_stale(&venv_dir) {
+        HealthCheck {
+            name: "venv_python_version".into(),
+            status: HealthStatus::Degraded,
+            message: "venv Python version does not match system Python — rebuild recommended"
+                .into(),
+            repairable: true,
+            detail: None,
+        }
+    } else {
+        HealthCheck {
+            name: "venv_python_version".into(),
+            status: HealthStatus::Healthy,
+            message: "venv Python version matches system".into(),
+            repairable: false,
+            detail: None,
+        }
+    }
+}
+
+// ── venv Repair ──
+
+async fn repair_venv(servers_dir: &Path) -> Option<RepairAction> {
+    let venv_dir = servers_dir.join(".venv");
+    let needs_repair = !venv_dir.join("pyvenv.cfg").exists()
+        || crate::managers::mcp_venv::is_venv_stale(&venv_dir);
+
+    if !needs_repair {
+        return None;
+    }
+
+    let Some(python_cmd) = crate::managers::mcp_venv::find_python() else {
+        tracing::warn!("Cannot repair venv: Python not found in PATH");
+        return Some(RepairAction {
+            name: "venv_repair".into(),
+            fixed_count: 0,
+            message: "Failed: Python not found in PATH".into(),
+        });
+    };
+
+    // Recreate venv
+    tracing::info!("Repairing venv at {}", venv_dir.display());
+    let result = tokio::process::Command::new(&python_cmd)
+        .args(["-m", "venv", "--clear", &venv_dir.to_string_lossy()])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await;
+
+    match result {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::warn!(
+                "venv creation failed: {}",
+                stderr.lines().last().unwrap_or("")
+            );
+            return Some(RepairAction {
+                name: "venv_repair".into(),
+                fixed_count: 0,
+                message: "Failed to create venv".into(),
+            });
+        }
+        Err(e) => {
+            tracing::warn!("Failed to run python: {e}");
+            return Some(RepairAction {
+                name: "venv_repair".into(),
+                fixed_count: 0,
+                message: format!("Failed to run python: {e}"),
+            });
+        }
+    }
+
+    // Upgrade pip
+    let pip_path = crate::managers::mcp_venv::venv_pip(&venv_dir);
+    let pip_str = pip_path.to_string_lossy().to_string();
+    let _ = tokio::process::Command::new(&pip_str)
+        .args(["install", "--upgrade", "pip", "--quiet"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await;
+
+    // Reinstall all server dependencies
+    let installed = crate::managers::mcp_venv::install_server_deps(&pip_str, servers_dir).await;
+
+    Some(RepairAction {
+        name: "venv_repair".into(),
+        fixed_count: 1,
+        message: format!("Rebuilt venv and installed {installed} server(s)"),
+    })
 }
 
 #[cfg(test)]
