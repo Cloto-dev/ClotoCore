@@ -42,10 +42,13 @@ pub async fn set_llm_provider_key(
     id: &str,
     api_key: &str,
 ) -> anyhow::Result<()> {
-    let result = db_timeout(sqlx::query("UPDATE llm_providers SET api_key = ? WHERE id = ?")
-        .bind(api_key)
-        .bind(id)
-        .execute(pool)).await?;
+    let result = db_timeout(
+        sqlx::query("UPDATE llm_providers SET api_key = ? WHERE id = ?")
+            .bind(api_key)
+            .bind(id)
+            .execute(pool),
+    )
+    .await?;
     if result.rows_affected() == 0 {
         return Err(anyhow::anyhow!("LLM provider '{}' not found", id));
     }
@@ -53,9 +56,12 @@ pub async fn set_llm_provider_key(
 }
 
 pub async fn delete_llm_provider_key(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
-    db_timeout(sqlx::query("UPDATE llm_providers SET api_key = '' WHERE id = ?")
-        .bind(id)
-        .execute(pool)).await?;
+    db_timeout(
+        sqlx::query("UPDATE llm_providers SET api_key = '' WHERE id = ?")
+            .bind(id)
+            .execute(pool),
+    )
+    .await?;
     Ok(())
 }
 
@@ -77,11 +83,13 @@ pub async fn sync_env_api_keys(pool: &SqlitePool, mappings: &[(String, String)])
             if key.is_empty() {
                 continue;
             }
-            let result =
-                db_timeout(sqlx::query("UPDATE llm_providers SET api_key = ? WHERE id = ? AND api_key = ''")
+            let result = db_timeout(
+                sqlx::query("UPDATE llm_providers SET api_key = ? WHERE id = ? AND api_key = ''")
                     .bind(&key)
                     .bind(provider_id)
-                    .execute(pool)).await;
+                    .execute(pool),
+            )
+            .await;
 
             match result {
                 Ok(r) if r.rows_affected() > 0 => {

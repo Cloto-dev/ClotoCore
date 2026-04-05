@@ -107,15 +107,15 @@ pub(crate) fn check_auth_with_query(
                 Ok(revoked) => {
                     if revoked.contains(&hash) {
                         tracing::warn!("🚫 Rejected revoked API key");
-                        return Err(AppError::Cloto(
-                            cloto_shared::ClotoError::PermissionDenied(
-                                cloto_shared::Permission::AdminAccess,
-                            ),
-                        ));
+                        return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                            cloto_shared::Permission::AdminAccess,
+                        )));
                     }
                 }
                 Err(_) => {
-                    tracing::warn!("Failed to acquire revoked_keys lock — skipping revocation check");
+                    tracing::warn!(
+                        "Failed to acquire revoked_keys lock — skipping revocation check"
+                    );
                 }
             }
         }

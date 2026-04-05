@@ -1146,10 +1146,7 @@ fn resolve_servers_dir(state: &AppState) -> PathBuf {
 }
 
 /// Validate that a destination path stays within the target directory (zip-slip prevention).
-fn validate_dest_path(
-    target_dir: &std::path::Path,
-    dest: &std::path::Path,
-) -> anyhow::Result<()> {
+fn validate_dest_path(target_dir: &std::path::Path, dest: &std::path::Path) -> anyhow::Result<()> {
     // Normalize both paths to catch ".." traversal
     let normalized = dest
         .components()

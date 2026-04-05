@@ -97,9 +97,12 @@ pub async fn update_cron_job_run(
 }
 
 pub async fn delete_cron_job(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
-    let result = db_timeout(sqlx::query("DELETE FROM cron_jobs WHERE id = ?")
-        .bind(id)
-        .execute(pool)).await?;
+    let result = db_timeout(
+        sqlx::query("DELETE FROM cron_jobs WHERE id = ?")
+            .bind(id)
+            .execute(pool),
+    )
+    .await?;
     if result.rows_affected() == 0 {
         return Err(anyhow::anyhow!("Cron job '{}' not found", id));
     }
@@ -111,10 +114,13 @@ pub async fn set_cron_job_enabled(
     id: &str,
     enabled: bool,
 ) -> anyhow::Result<()> {
-    let result = db_timeout(sqlx::query("UPDATE cron_jobs SET enabled = ? WHERE id = ?")
-        .bind(enabled)
-        .bind(id)
-        .execute(pool)).await?;
+    let result = db_timeout(
+        sqlx::query("UPDATE cron_jobs SET enabled = ? WHERE id = ?")
+            .bind(enabled)
+            .bind(id)
+            .execute(pool),
+    )
+    .await?;
     if result.rows_affected() == 0 {
         return Err(anyhow::anyhow!("Cron job '{}' not found", id));
     }
@@ -122,8 +128,11 @@ pub async fn set_cron_job_enabled(
 }
 
 pub async fn get_cron_job_generation(pool: &SqlitePool, job_id: &str) -> anyhow::Result<i32> {
-    let row: (i32,) = db_timeout(sqlx::query_as("SELECT cron_generation FROM cron_jobs WHERE id = ?")
-        .bind(job_id)
-        .fetch_one(pool)).await?;
+    let row: (i32,) = db_timeout(
+        sqlx::query_as("SELECT cron_generation FROM cron_jobs WHERE id = ?")
+            .bind(job_id)
+            .fetch_one(pool),
+    )
+    .await?;
     Ok(row.0)
 }

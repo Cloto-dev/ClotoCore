@@ -7,6 +7,31 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.3-beta.4] — 2026-04-05
+
+### Security
+- **Tar path traversal prevention** — marketplace install now validates extracted paths stay within target directory (zip-slip mitigation)
+- **Missing authentication** — `get_agent_access` endpoint now requires API key (was unauthenticated unlike all other endpoints)
+- **Code validator bypass** — blocked pattern matching now uses case-insensitive comparison, preventing `Eval()`/`EXEC()` bypass
+- **Revoked key check logging** — lock acquisition failure during revoked key check is now logged instead of silently skipped
+
+### Fixed
+- **UTF-8 panic** — tool hint truncation now uses char-based indexing instead of byte slicing, preventing panic on multi-byte characters
+- **Negative chat limit** — `limit` parameter now clamped to minimum 1, preventing `usize` wrapping on negative input
+- **Iteration overflow** — agentic loop counter uses `saturating_add` to prevent theoretical u8 overflow
+- **Script path inconsistency** — dynamic MCP server script restoration now uses same path (`data/mcp_scripts/`) as creation
+- **Attachment storage path** — uses `state.data_dir` instead of relative path, consistent with VRM/avatar storage
+- **Non-transactional agent deletion** — `delete_agent` now wraps all DB operations in a transaction for consistency
+- **DB timeout gaps** — added `db_timeout` to all cron (8 functions) and LLM (5 functions) DB operations
+- **Audit log timeout** — `write_audit_log` transaction now wrapped with configurable timeout
+- **Mutex poison recovery** — `StreamAssembler` and `ToolIndex`/`SessionToolCache` now recover from poisoned mutexes instead of panicking
+
+### Added
+- `MgpCapabilities` helper usage documented in quickstart guide
+- Coming Soon placeholders for non-functional log UI elements
+
+---
+
 ## [0.6.3-beta.3] — 2026-04-04
 
 ### Fixed
