@@ -84,6 +84,8 @@ pub struct AppConfig {
     pub isolation_enabled: bool,
     /// Base directory for MCP server sandboxes. Default: "data/mcp-sandbox".
     pub sandbox_base_dir: PathBuf,
+    /// Run a quick health scan on startup. Default: true.
+    pub health_scan_on_startup: bool,
 }
 
 impl AppConfig {
@@ -504,6 +506,9 @@ impl AppConfig {
                 .unwrap_or(true), // Default: true
             sandbox_base_dir: env::var("CLOTO_SANDBOX_DIR")
                 .map_or_else(|_| PathBuf::from("data/mcp-sandbox"), PathBuf::from),
+            health_scan_on_startup: env::var("CLOTO_HEALTH_SCAN_ON_STARTUP")
+                .map(|v| v != "false" && v != "0")
+                .unwrap_or(true),
         })
     }
 }
