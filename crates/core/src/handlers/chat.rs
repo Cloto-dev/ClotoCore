@@ -38,6 +38,7 @@ pub async fn get_messages(
     let limit = params
         .limit
         .unwrap_or(50)
+        .max(1)
         .min(state.config.max_chat_query_limit);
 
     let messages = db::get_chat_messages(
@@ -193,8 +194,8 @@ pub async fn post_message(
                                         ("inline".to_string(), Some(decoded), None)
                                     } else {
                                         // >64KB: store on disk
-                                        let dir = format!("data/attachments/{}", &msg.id);
-                                        let path = format!("{}/{}", dir, filename);
+                                        let dir = state.data_dir.join("attachments").join(&msg.id);
+                                        let path = dir.join(&filename);
                                         if let Err(e) = tokio::fs::create_dir_all(&dir).await {
                                             error!("Failed to create attachment dir: {}", e);
                                             continue;
@@ -203,7 +204,7 @@ pub async fn post_message(
                                             error!("Failed to write attachment file: {}", e);
                                             continue;
                                         }
-                                        ("disk".to_string(), None, Some(path))
+                                        ("disk".to_string(), None, Some(path.to_string_lossy().to_string()))
                                     };
 
                                 let att = AttachmentRow {

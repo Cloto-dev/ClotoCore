@@ -1208,7 +1208,7 @@ impl SystemHandler {
         let mut total_tool_calls: u32 = 0;
 
         loop {
-            iteration += 1;
+            iteration = iteration.saturating_add(1);
             if iteration > self.max_agentic_iterations {
                 warn!(
                     agent_id = %agent.id,
@@ -1415,8 +1415,10 @@ impl SystemHandler {
                                 .map(|cmd| {
                                     // Show first token (program name) + truncate
                                     let first_line = cmd.lines().next().unwrap_or(cmd);
-                                    if first_line.len() > 60 {
-                                        format!("{}…", &first_line[..57])
+                                    if first_line.chars().count() > 60 {
+                                        let truncated: String =
+                                            first_line.chars().take(57).collect();
+                                        format!("{truncated}…")
                                     } else {
                                         first_line.to_string()
                                     }
