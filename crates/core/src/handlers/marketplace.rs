@@ -1565,9 +1565,10 @@ async fn run_batch_install(
     // Install each server
     let running_servers = state.mcp_manager.list_servers().await;
 
+    // Partition entries: skip already-running, separate Python vs Rust
+    let mut python_entries: Vec<&RegistryEntry> = Vec::new();
+    let mut rust_entries: Vec<&RegistryEntry> = Vec::new();
     for entry in entries {
-        // Skip already-installed marketplace servers (Dynamic source).
-        // Config-loaded servers are allowed to be re-installed via marketplace.
         if running_servers.iter().any(|s| {
             s.id == entry.id && s.source == crate::managers::mcp_types::ServerSource::Dynamic
         }) {
@@ -1581,10 +1582,105 @@ async fn run_batch_install(
             info!("Batch install: {} already running, skipped", entry.id);
             continue;
         }
+        if entry.runtime == "rust" {
+            rust_entries.push(entry);
+        } else {
+            python_entries.push(entry);
+        }
+    }
 
+    // ── Phase 1: Unified pip install for all Python servers ──
+    // Single invocation avoids lock contention (see commit 5ce29ce).
+    if !python_entries.is_empty() {
+        let python_count = python_entries.len();
+        for entry in &python_entries {
+            emit(
+                tx,
+                SetupProgressEvent::ServerInstall {
+                    server_name: entry.name.clone(),
+                    status: "installing".into(),
+                },
+            );
+        }
+        emit(
+            tx,
+            SetupProgressEvent::StepProgress {
+                step: "install_deps".into(),
+                progress: 0.3,
+                detail: format!("Installing {python_count} Python server(s)..."),
+            },
+        );
+
+        let mut pip_args: Vec<String> =
+            vec!["install".into(), "--quiet".into(), "--no-input".into()];
+        for entry in &python_entries {
+            pip_args.push(
+                servers_dir
+                    .join(&entry.directory)
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
+
+        let timeout_secs = (python_count as u64) * 60 + 120;
+        let result = tokio::time::timeout(
+            Duration::from_secs(timeout_secs),
+            tokio::process::Command::new(&pip_str)
+                .args(&pip_args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .output(),
+        )
+        .await;
+
+        let pip_ok = match result {
+            Ok(Ok(output)) if output.status.success() => {
+                info!("Batch pip install succeeded for {} server(s)", python_count);
+                true
+            }
+            Ok(Ok(output)) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                warn!(
+                    "Batch pip install failed: {}",
+                    stderr.lines().last().unwrap_or("unknown error")
+                );
+                false
+            }
+            Ok(Err(e)) => {
+                warn!("Failed to run pip: {e}");
+                false
+            }
+            Err(_) => {
+                warn!("Batch pip install timed out ({timeout_secs}s)");
+                false
+            }
+        };
+
+        if !pip_ok {
+            for entry in &python_entries {
+                emit(
+                    tx,
+                    SetupProgressEvent::ServerInstall {
+                        server_name: entry.name.clone(),
+                        status: "failed".into(),
+                    },
+                );
+            }
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "install_deps".into(),
+                    error: "Python dependency installation failed".into(),
+                    recoverable: true,
+                },
+            );
+        }
+    }
+
+    // ── Phase 2: Build Rust servers individually ──
+    for entry in &rust_entries {
         let server_path = servers_dir.join(&entry.directory);
-        let is_rust = entry.runtime == "rust";
-
         emit(
             tx,
             SetupProgressEvent::ServerInstall {
@@ -1593,110 +1689,50 @@ async fn run_batch_install(
             },
         );
 
-        // Build or install depending on runtime
-        let (command, args) = if is_rust {
-            // Ensure standalone workspace for Cargo
-            let cargo_toml = server_path.join("Cargo.toml");
-            if cargo_toml.exists() {
-                let content = std::fs::read_to_string(&cargo_toml).unwrap_or_default();
-                if !content.contains("[workspace]") {
-                    std::fs::write(&cargo_toml, format!("{content}\n[workspace]\n"))
-                        .unwrap_or_else(|e| warn!("Failed to patch Cargo.toml: {e}"));
-                }
+        let cargo_toml = server_path.join("Cargo.toml");
+        if cargo_toml.exists() {
+            let content = std::fs::read_to_string(&cargo_toml).unwrap_or_default();
+            if !content.contains("[workspace]") {
+                std::fs::write(&cargo_toml, format!("{content}\n[workspace]\n"))
+                    .unwrap_or_else(|e| warn!("Failed to patch Cargo.toml: {e}"));
             }
+        }
 
-            // Rust server: cargo build --release
-            match cargo_build_server(tx, &server_path, &entry.name).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    emit(
-                        tx,
-                        SetupProgressEvent::ServerInstall {
-                            server_name: entry.name.clone(),
-                            status: "failed".into(),
-                        },
-                    );
-                    continue;
-                }
-                Err(e) => {
-                    warn!("cargo build failed for {}: {e}", entry.id);
-                    emit(
-                        tx,
-                        SetupProgressEvent::ServerInstall {
-                            server_name: entry.name.clone(),
-                            status: "failed".into(),
-                        },
-                    );
-                    continue;
-                }
-            }
+        if !matches!(
+            cargo_build_server(tx, &server_path, &entry.name).await,
+            Ok(true)
+        ) {
+            emit(
+                tx,
+                SetupProgressEvent::ServerInstall {
+                    server_name: entry.name.clone(),
+                    status: "failed".into(),
+                },
+            );
+        }
+    }
+
+    // ── Phase 3: Register all servers with MCP manager ──
+    let venv_python = if cfg!(windows) {
+        venv_dir.join("Scripts").join("python.exe")
+    } else {
+        venv_dir.join("bin").join("python")
+    };
+
+    let all_entries: Vec<&RegistryEntry> = python_entries
+        .iter()
+        .chain(rust_entries.iter())
+        .copied()
+        .collect();
+
+    for entry in &all_entries {
+        let server_path = servers_dir.join(&entry.directory);
+        let is_rust = entry.runtime == "rust";
+
+        let (command, args) = if is_rust {
             let bin_path = rust_binary_path(&server_path, entry);
             (bin_path.to_string_lossy().to_string(), vec![])
         } else {
-            // Python server: pip install (120s timeout, no interactive prompts)
-            let result = tokio::time::timeout(
-                Duration::from_secs(120),
-                tokio::process::Command::new(&pip_str)
-                    .args([
-                        "install",
-                        &server_path.to_string_lossy(),
-                        "--quiet",
-                        "--no-input",
-                    ])
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped())
-                    .output(),
-            )
-            .await;
-
-            match result {
-                Ok(Ok(output)) if output.status.success() => {}
-                Ok(Ok(output)) => {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    warn!(
-                        "pip install failed for {}: {}",
-                        entry.id,
-                        stderr.lines().last().unwrap_or("")
-                    );
-                    emit(
-                        tx,
-                        SetupProgressEvent::ServerInstall {
-                            server_name: entry.name.clone(),
-                            status: "failed".into(),
-                        },
-                    );
-                    continue;
-                }
-                Ok(Err(e)) => {
-                    warn!("Failed to run pip for {}: {}", entry.id, e);
-                    emit(
-                        tx,
-                        SetupProgressEvent::ServerInstall {
-                            server_name: entry.name.clone(),
-                            status: "failed".into(),
-                        },
-                    );
-                    continue;
-                }
-                Err(_) => {
-                    warn!("pip install timed out for {} (120s)", entry.id);
-                    emit(
-                        tx,
-                        SetupProgressEvent::ServerInstall {
-                            server_name: entry.name.clone(),
-                            status: "failed".into(),
-                        },
-                    );
-                    continue;
-                }
-            }
-
-            let venv_python = if cfg!(windows) {
-                venv_dir.join("Scripts").join("python.exe")
-            } else {
-                venv_dir.join("bin").join("python")
-            };
             let server_script = server_path.join("server.py").to_string_lossy().to_string();
             (
                 venv_python.to_string_lossy().to_string(),
@@ -1704,7 +1740,6 @@ async fn run_batch_install(
             )
         };
 
-        // Register via add_dynamic_server
         let mut env_map: HashMap<String, String> = HashMap::new();
         for var in &entry.env_vars {
             if let Some(default) = &var.default {
