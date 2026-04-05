@@ -302,10 +302,11 @@ impl SystemHandler {
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("User")
                                 .to_string();
-                            cloto_shared::MessageSource::User {
-                                id: format!("discord:{name}"),
-                                name,
-                            }
+                            let id = entry
+                                .get("user_id")
+                                .and_then(|v| v.as_str())
+                                .map_or_else(|| format!("discord:{name}"), |uid| format!("discord:{uid}"));
+                            cloto_shared::MessageSource::User { id, name }
                         }
                         _ => continue,
                     };
@@ -1013,7 +1014,7 @@ impl SystemHandler {
             let msg_json = serde_json::json!({
                 "id": msg.id,
                 "content": msg.content,
-                "source": { "type": "User", "id": "", "name": "" },
+                "source": serde_json::to_value(&msg.source).unwrap_or_else(|_| serde_json::json!({"type":"User","id":"","name":""})),
                 "timestamp": msg.timestamp.to_rfc3339(),
             });
 

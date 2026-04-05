@@ -2305,6 +2305,30 @@
       "pattern": "state.servers.remove(id)",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-344",
+      "summary": "CPersona recall passes only agent_id — no user scoping causes cross-user memory contamination in Discord multi-user sessions",
+      "severity": "HIGH",
+      "discovered": "2026-04-06T00:00:00Z",
+      "version": "0.6.3-beta.5",
+      "commit": "e976b54",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "\"agent_id\": agent\\.id",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-345",
+      "summary": "conversation_context entries lack Discord user_id — name-only ID causes user collisions and misidentification",
+      "severity": "MEDIUM",
+      "discovered": "2026-04-06T00:00:00Z",
+      "version": "0.6.3-beta.5",
+      "commit": "e976b54",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "id: format!\\(\"discord:\\{name\\}\"\\)",
+      "expected": "absent",
+      "status": "fixed"
     }
   ]
 }

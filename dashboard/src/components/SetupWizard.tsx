@@ -329,9 +329,14 @@ export function SetupWizard({ onComplete }: Props) {
     }
   }, [api, installComplete, getActiveServers, next]);
 
+  // Guard ref to prevent concurrent startInstallation() calls from React
+  // batched state updates (useEffect can fire before setPythonChecking commits).
+  const checkingRef = useRef(false);
+
   // Step 5: Check Python then start installation
   const startInstallation = useCallback(async () => {
-    if (installStarted) return;
+    if (installStarted || checkingRef.current) return;
+    checkingRef.current = true;
     setPythonChecking(true);
     setPythonMissing(false);
     try {
@@ -339,17 +344,21 @@ export function SetupWizard({ onComplete }: Props) {
       if (!result.available) {
         setPythonMissing(true);
         setPythonChecking(false);
+        checkingRef.current = false;
         return;
       }
     } catch {
       // If check itself fails, proceed and let backend handle it
     }
     setPythonChecking(false);
+    checkingRef.current = false;
     doInstall();
   }, [installStarted, api, doInstall]);
 
   // Retry after user installs Python
   const handlePythonRetry = useCallback(async () => {
+    if (checkingRef.current) return;
+    checkingRef.current = true;
     setPythonChecking(true);
     setPythonMissing(false);
     try {
@@ -357,12 +366,14 @@ export function SetupWizard({ onComplete }: Props) {
       if (!result.available) {
         setPythonMissing(true);
         setPythonChecking(false);
+        checkingRef.current = false;
         return;
       }
     } catch {
       // Proceed on check failure
     }
     setPythonChecking(false);
+    checkingRef.current = false;
     doInstall();
   }, [api, doInstall]);
 

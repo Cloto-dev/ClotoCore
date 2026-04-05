@@ -89,28 +89,29 @@ fn resolve_root() -> Option<std::path::PathBuf> {
 
 // ── Helper: Python detection ─────────────────────────────────────────
 
-/// Find Python and return (command, version_string).
+/// Minimum Python version required by MCP servers.
+const MIN_PYTHON: (u32, u32) = (3, 10);
+
+/// Find Python and return (available, version_string).
 pub(crate) fn detect_python() -> (bool, Option<String>) {
-    if let Some(cmd) = crate::managers::mcp_venv::find_python() {
-        let version = std::process::Command::new(&cmd)
-            .arg("--version")
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .ok()
-            .and_then(|o| {
-                let out = String::from_utf8_lossy(&o.stdout).to_string();
-                let err = String::from_utf8_lossy(&o.stderr).to_string();
-                let combined = if out.contains("Python") { out } else { err };
-                combined
-                    .trim()
-                    .strip_prefix("Python ")
-                    .map(std::string::ToString::to_string)
-            });
-        (true, version)
+    if let Some((_, version)) = crate::managers::mcp_venv::find_python_with_version() {
+        (true, Some(version))
     } else {
         (false, None)
     }
+}
+
+/// Parse a version string like "3.13.3" into (major, minor).
+fn parse_major_minor(version: &str) -> Option<(u32, u32)> {
+    let mut parts = version.splitn(3, '.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    Some((major, minor))
+}
+
+/// Check whether the detected Python version meets the minimum requirement.
+pub(crate) fn python_version_sufficient(version: &str) -> bool {
+    parse_major_minor(version).is_some_and(|(maj, min)| (maj, min) >= MIN_PYTHON)
 }
 
 // ── Endpoints ────────────────────────────────────────────────────────
@@ -145,6 +146,10 @@ pub async fn status_handler(State(state): State<Arc<AppState>>) -> Json<serde_js
     });
 
     let (python_available, python_version) = detect_python();
+    let python_available = python_available
+        && python_version
+            .as_deref()
+            .is_some_and(python_version_sufficient);
 
     // Check setup-complete.json
     let setup_json = state.data_dir.join("setup-complete.json");
@@ -243,9 +248,13 @@ pub async fn progress_handler(
 /// POST /api/setup/check-python — re-check Python availability (no auth).
 pub async fn check_python_handler() -> Json<serde_json::Value> {
     let (available, version) = detect_python();
+    let version_ok = version
+        .as_deref()
+        .is_some_and(python_version_sufficient);
     super::json_data(serde_json::json!({
-        "available": available,
+        "available": available && version_ok,
         "version": version,
+        "version_sufficient": version_ok,
     }))
 }
 
@@ -281,7 +290,10 @@ async fn run_bootstrap_inner(
     );
 
     let (python_available, python_version) = detect_python();
-    if !python_available {
+    let version_ok = python_version
+        .as_deref()
+        .is_some_and(python_version_sufficient);
+    if !python_available || !version_ok {
         let os_name = if cfg!(target_os = "windows") {
             "windows"
         } else if cfg!(target_os = "macos") {
@@ -805,4 +817,31 @@ async fn install_server_deps_with_progress(
     }
 
     installed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_python_version_sufficient() {
+        assert!(python_version_sufficient("3.13.3"));
+        assert!(python_version_sufficient("3.10.0"));
+        assert!(python_version_sufficient("3.10.15"));
+        assert!(python_version_sufficient("3.12.1"));
+        assert!(!python_version_sufficient("3.9.7"));
+        assert!(!python_version_sufficient("3.8.0"));
+        assert!(!python_version_sufficient("2.7.18"));
+        assert!(!python_version_sufficient(""));
+        assert!(!python_version_sufficient("not_a_version"));
+    }
+
+    #[test]
+    fn test_parse_major_minor() {
+        assert_eq!(parse_major_minor("3.13.3"), Some((3, 13)));
+        assert_eq!(parse_major_minor("3.10.0"), Some((3, 10)));
+        assert_eq!(parse_major_minor("2.7.18"), Some((2, 7)));
+        assert_eq!(parse_major_minor("3"), None);
+        assert_eq!(parse_major_minor(""), None);
+    }
 }

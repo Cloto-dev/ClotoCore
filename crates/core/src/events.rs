@@ -498,6 +498,7 @@ impl EventProcessor {
                     msg_metadata.insert("external_source".into(), source.clone());
                     msg_metadata.insert("external_sender_name".into(), sender_name.clone());
                     msg_metadata.insert("external_server_id".into(), server_id.clone());
+                    msg_metadata.insert("external_author_id".into(), author_id.clone());
                     msg_metadata.insert("skip_user_persist".into(), "true".into());
 
                     // Forward I/O bridge metadata so the LLM can use origin-specific tools

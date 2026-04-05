@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::Infallible, path::PathBuf, sync::Arc, time::Duration};
 use tracing::{error, info, warn};
 
-use super::setup::{detect_python, emit, venv_pip, SetupProgressEvent};
+use super::setup::{detect_python, emit, python_version_sufficient, venv_pip, SetupProgressEvent};
 use crate::{AppError, AppResult, AppState};
 
 // ── Registry types ──────────────────────────────────────────────────
@@ -718,13 +718,16 @@ async fn run_install(
                 description: "Checking Python installation".into(),
             },
         );
-        let (python_available, _) = detect_python();
-        if !python_available {
+        let (python_available, python_version) = detect_python();
+        let version_ok = python_version
+            .as_deref()
+            .is_some_and(python_version_sufficient);
+        if !python_available || !version_ok {
             emit(
                 tx,
                 SetupProgressEvent::StepError {
                     step: "check_python".into(),
-                    error: "Python 3 is required but not found".into(),
+                    error: "Python 3.10+ is required but not found. Install from https://www.python.org/downloads/".into(),
                     recoverable: false,
                 },
             );
@@ -1300,13 +1303,16 @@ async fn run_batch_install(
                 description: "Checking Python installation".into(),
             },
         );
-        let (python_available, _) = detect_python();
-        if !python_available {
+        let (python_available, python_version) = detect_python();
+        let version_ok = python_version
+            .as_deref()
+            .is_some_and(python_version_sufficient);
+        if !python_available || !version_ok {
             emit(
                 tx,
                 SetupProgressEvent::StepError {
                     step: "check_python".into(),
-                    error: "Python 3 is required but not found".into(),
+                    error: "Python 3.10+ is required but not found. Install from https://www.python.org/downloads/".into(),
                     recoverable: false,
                 },
             );
