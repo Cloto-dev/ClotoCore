@@ -12,6 +12,7 @@ pub mod commands;
 pub mod cron;
 pub(crate) mod engine_routing;
 pub mod events;
+pub mod health;
 pub mod llm;
 pub mod marketplace;
 pub mod mcp;

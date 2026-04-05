@@ -106,6 +106,8 @@ pub struct AppState {
     /// Stricter rate limiter for heavy operations (install, setup).
     /// 5 req/min per IP to prevent GitHub API abuse and disk exhaustion.
     pub install_limiter: Arc<middleware::RateLimiter>,
+    /// Cached result from the last health scan (populated at startup and on-demand).
+    pub last_health_report: Arc<tokio::sync::RwLock<Option<db::health::HealthReport>>>,
 }
 
 pub enum AppError {
@@ -557,6 +559,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             handlers::marketplace::CatalogCache::default(),
         )),
         install_limiter: install_limiter.clone(),
+        last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
     });
 
     // Wire up kernel event bus to MCP manager (for PermissionRequested emission)
@@ -763,7 +766,32 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         );
     }
 
-    // 6d. Internal LLM Proxy (MGP §13.4 — centralized API key management)
+    // 6d. Startup health scan (optional, default: on)
+    if config.health_scan_on_startup {
+        let scan_pool = pool.clone();
+        let scan_report = app_state.last_health_report.clone();
+        tokio::spawn(async move {
+            match db::health::run_quick_scan(&scan_pool).await {
+                Ok(report) => {
+                    let issue_count = report
+                        .checks
+                        .iter()
+                        .filter(|c| c.status != db::health::HealthStatus::Healthy)
+                        .count();
+                    if issue_count > 0 {
+                        tracing::warn!("⚠️ Startup health scan: {issue_count} issue(s) detected");
+                    } else {
+                        tracing::info!("✓ Startup health scan: all clear");
+                    }
+                    let mut cached = scan_report.write().await;
+                    *cached = Some(report);
+                }
+                Err(e) => tracing::warn!("Startup health scan failed: {e}"),
+            }
+        });
+    }
+
+    // 6e. Internal LLM Proxy (MGP §13.4 — centralized API key management)
     //     Check result in background to avoid blocking HTTP server startup.
     let llm_proxy_rx = managers::llm_proxy::spawn_llm_proxy(
         pool.clone(),
@@ -867,6 +895,8 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
 
     // Admin endpoints: rate-limited (10 req/s, burst 20)
     let admin_routes = Router::new()
+        .route("/health/scan", get(handlers::health::scan_handler))
+        .route("/health/repair", post(handlers::health::repair_handler))
         .route("/system/shutdown", post(handlers::shutdown_handler))
         .route("/plugins/apply", post(handlers::apply_plugin_settings))
         .route("/plugins/:id/config", post(handlers::update_plugin_config))
