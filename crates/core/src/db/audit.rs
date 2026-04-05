@@ -50,6 +50,16 @@ fn compute_chain_hash(previous: Option<&str>, data: &str) -> String {
 
 /// Write an audit log entry to the database with Merkle chain hash.
 pub async fn write_audit_log(pool: &SqlitePool, entry: AuditLogEntry) -> anyhow::Result<()> {
+    let timeout_secs = super::db_timeout_secs();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs),
+        write_audit_log_inner(pool, entry),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("Audit log write timed out after {}s", timeout_secs))?
+}
+
+async fn write_audit_log_inner(pool: &SqlitePool, entry: AuditLogEntry) -> anyhow::Result<()> {
     let timestamp = entry.timestamp.to_rfc3339();
     let metadata_str = entry.metadata.as_ref().map(ToString::to_string);
     let data = canonical_data(&timestamp, &entry);

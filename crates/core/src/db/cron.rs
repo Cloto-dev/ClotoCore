@@ -1,5 +1,7 @@
 use sqlx::SqlitePool;
 
+use super::db_timeout;
+
 // ── Cron Job Scheduler ──
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
@@ -26,9 +28,9 @@ pub struct CronJobRow {
 }
 
 pub async fn list_cron_jobs(pool: &SqlitePool) -> anyhow::Result<Vec<CronJobRow>> {
-    let rows = sqlx::query_as::<_, CronJobRow>(
+    let rows = db_timeout(sqlx::query_as::<_, CronJobRow>(
         "SELECT id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, last_run_at, last_status, last_error, max_iterations, created_at, hide_prompt, cron_generation, source_type, creator_user_id, creator_user_name FROM cron_jobs ORDER BY created_at DESC"
-    ).fetch_all(pool).await?;
+    ).fetch_all(pool)).await?;
     Ok(rows)
 }
 
@@ -36,21 +38,21 @@ pub async fn list_cron_jobs_for_agent(
     pool: &SqlitePool,
     agent_id: &str,
 ) -> anyhow::Result<Vec<CronJobRow>> {
-    let rows = sqlx::query_as::<_, CronJobRow>(
+    let rows = db_timeout(sqlx::query_as::<_, CronJobRow>(
         "SELECT id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, last_run_at, last_status, last_error, max_iterations, created_at, hide_prompt, cron_generation, source_type, creator_user_id, creator_user_name FROM cron_jobs WHERE agent_id = ? ORDER BY created_at DESC"
-    ).bind(agent_id).fetch_all(pool).await?;
+    ).bind(agent_id).fetch_all(pool)).await?;
     Ok(rows)
 }
 
 pub async fn get_due_cron_jobs(pool: &SqlitePool, now_ms: i64) -> anyhow::Result<Vec<CronJobRow>> {
-    let rows = sqlx::query_as::<_, CronJobRow>(
+    let rows = db_timeout(sqlx::query_as::<_, CronJobRow>(
         "SELECT id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, last_run_at, last_status, last_error, max_iterations, created_at, hide_prompt, cron_generation, source_type, creator_user_id, creator_user_name FROM cron_jobs WHERE enabled = 1 AND next_run_at <= ? ORDER BY next_run_at ASC"
-    ).bind(now_ms).fetch_all(pool).await?;
+    ).bind(now_ms).fetch_all(pool)).await?;
     Ok(rows)
 }
 
 pub async fn create_cron_job(pool: &SqlitePool, job: &CronJobRow) -> anyhow::Result<()> {
-    sqlx::query(
+    db_timeout(sqlx::query(
         "INSERT INTO cron_jobs (id, agent_id, name, enabled, schedule_type, schedule_value, engine_id, message, next_run_at, max_iterations, hide_prompt, cron_generation, source_type, creator_user_id, creator_user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&job.id)
@@ -68,8 +70,7 @@ pub async fn create_cron_job(pool: &SqlitePool, job: &CronJobRow) -> anyhow::Res
     .bind(&job.source_type)
     .bind(&job.creator_user_id)
     .bind(&job.creator_user_name)
-    .execute(pool)
-    .await?;
+    .execute(pool)).await?;
     Ok(())
 }
 
@@ -82,7 +83,7 @@ pub async fn update_cron_job_run(
     next_run_at: i64,
     enabled: bool,
 ) -> anyhow::Result<()> {
-    sqlx::query(
+    db_timeout(sqlx::query(
         "UPDATE cron_jobs SET last_run_at = ?, last_status = ?, last_error = ?, next_run_at = ?, enabled = ? WHERE id = ?"
     )
     .bind(last_run_at)
@@ -91,16 +92,14 @@ pub async fn update_cron_job_run(
     .bind(next_run_at)
     .bind(enabled)
     .bind(id)
-    .execute(pool)
-    .await?;
+    .execute(pool)).await?;
     Ok(())
 }
 
 pub async fn delete_cron_job(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
-    let result = sqlx::query("DELETE FROM cron_jobs WHERE id = ?")
+    let result = db_timeout(sqlx::query("DELETE FROM cron_jobs WHERE id = ?")
         .bind(id)
-        .execute(pool)
-        .await?;
+        .execute(pool)).await?;
     if result.rows_affected() == 0 {
         return Err(anyhow::anyhow!("Cron job '{}' not found", id));
     }
@@ -112,11 +111,10 @@ pub async fn set_cron_job_enabled(
     id: &str,
     enabled: bool,
 ) -> anyhow::Result<()> {
-    let result = sqlx::query("UPDATE cron_jobs SET enabled = ? WHERE id = ?")
+    let result = db_timeout(sqlx::query("UPDATE cron_jobs SET enabled = ? WHERE id = ?")
         .bind(enabled)
         .bind(id)
-        .execute(pool)
-        .await?;
+        .execute(pool)).await?;
     if result.rows_affected() == 0 {
         return Err(anyhow::anyhow!("Cron job '{}' not found", id));
     }
@@ -124,9 +122,8 @@ pub async fn set_cron_job_enabled(
 }
 
 pub async fn get_cron_job_generation(pool: &SqlitePool, job_id: &str) -> anyhow::Result<i32> {
-    let row: (i32,) = sqlx::query_as("SELECT cron_generation FROM cron_jobs WHERE id = ?")
+    let row: (i32,) = db_timeout(sqlx::query_as("SELECT cron_generation FROM cron_jobs WHERE id = ?")
         .bind(job_id)
-        .fetch_one(pool)
-        .await?;
+        .fetch_one(pool)).await?;
     Ok(row.0)
 }

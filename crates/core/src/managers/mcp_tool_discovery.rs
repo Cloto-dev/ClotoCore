@@ -12,7 +12,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
-use tracing::debug;
+use tracing::{debug, warn};
 
 // ============================================================
 // Latency Tier (§16 — Tool Cost Awareness)
@@ -124,7 +124,10 @@ impl ToolIndex {
         tools: &[McpTool],
         security_fn: impl Fn(&str) -> Option<ToolSecurityMetadata>,
     ) {
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = self.entries.lock().unwrap_or_else(|e| {
+            warn!("ToolIndex mutex poisoned — recovering");
+            e.into_inner()
+        });
         for tool in tools {
             // Skip mgp.* namespace (reserved for kernel tools)
             if tool.name.starts_with("mgp.") {
@@ -156,7 +159,10 @@ impl ToolIndex {
 
     /// Remove all tools for a disconnected server.
     pub fn remove_server_tools(&self, server_id: &str) {
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = self.entries.lock().unwrap_or_else(|e| {
+            warn!("ToolIndex mutex poisoned — recovering");
+            e.into_inner()
+        });
         entries.retain(|e| e.server_id != server_id);
         debug!(server = %server_id, "Tool index entries removed");
     }
@@ -168,7 +174,10 @@ impl ToolIndex {
         max_results: usize,
         filter: &ToolSearchFilter,
     ) -> Vec<(ToolIndexEntry, f64)> {
-        let entries = self.entries.lock().unwrap();
+        let entries = self.entries.lock().unwrap_or_else(|e| {
+            warn!("ToolIndex mutex poisoned — recovering");
+            e.into_inner()
+        });
         let query_lower = query.to_lowercase();
         let query_tokens: Vec<&str> = query_lower.split_whitespace().collect();
 
@@ -200,7 +209,10 @@ impl ToolIndex {
         categories: &[String],
         max_results: usize,
     ) -> Vec<(ToolIndexEntry, f64)> {
-        let entries = self.entries.lock().unwrap();
+        let entries = self.entries.lock().unwrap_or_else(|e| {
+            warn!("ToolIndex mutex poisoned — recovering");
+            e.into_inner()
+        });
         let cats_lower: Vec<String> = categories.iter().map(|c| c.to_lowercase()).collect();
 
         let mut results: Vec<(ToolIndexEntry, f64)> = entries
@@ -219,7 +231,10 @@ impl ToolIndex {
 
     /// Total number of indexed tools.
     pub fn total_count(&self) -> usize {
-        self.entries.lock().unwrap().len()
+        self.entries.lock().unwrap_or_else(|e| {
+            warn!("ToolIndex mutex poisoned — recovering");
+            e.into_inner()
+        }).len()
     }
 
     fn matches_filter(entry: &ToolIndexEntry, filter: &ToolSearchFilter) -> bool {
@@ -382,7 +397,10 @@ impl SessionToolCache {
 
     /// Add tools to the session cache. Returns (tools_added, tokens_added).
     pub fn cache_tools(&self, agent_id: &str, tools: &[(String, usize)]) -> (usize, usize) {
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| {
+            warn!("SessionToolCache mutex poisoned — recovering");
+            e.into_inner()
+        });
         let session = sessions
             .entry(agent_id.to_string())
             .or_insert_with(|| AgentSession {
@@ -420,7 +438,10 @@ impl SessionToolCache {
 
     /// Evict specified tools from cache. Returns count evicted.
     pub fn evict(&self, agent_id: &str, tool_ids: &[String]) -> usize {
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| {
+            warn!("SessionToolCache mutex poisoned — recovering");
+            e.into_inner()
+        });
         let Some(session) = sessions.get_mut(agent_id) else {
             return 0;
         };
@@ -440,7 +461,10 @@ impl SessionToolCache {
 
     /// Get session state for query.
     pub fn get_session_state(&self, agent_id: &str) -> Option<SessionState> {
-        let sessions = self.sessions.lock().unwrap();
+        let sessions = self.sessions.lock().unwrap_or_else(|e| {
+            warn!("SessionToolCache mutex poisoned — recovering");
+            e.into_inner()
+        });
         sessions.get(agent_id).map(|session| {
             let total_tokens: usize = session.cached.values().map(|c| c.estimated_tokens).sum();
             SessionState {
@@ -454,7 +478,10 @@ impl SessionToolCache {
 
     /// Set pinned tools for an agent.
     pub fn set_pinned(&self, agent_id: &str, tool_ids: Vec<String>) {
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| {
+            warn!("SessionToolCache mutex poisoned — recovering");
+            e.into_inner()
+        });
         let session = sessions
             .entry(agent_id.to_string())
             .or_insert_with(|| AgentSession {
@@ -467,7 +494,10 @@ impl SessionToolCache {
 
     /// Touch a tool (update last_used for LRU).
     pub fn touch(&self, agent_id: &str, tool_id: &str) {
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| {
+            warn!("SessionToolCache mutex poisoned — recovering");
+            e.into_inner()
+        });
         if let Some(session) = sessions.get_mut(agent_id) {
             if let Some(entry) = session.cached.get_mut(tool_id) {
                 entry.last_used = Instant::now();
