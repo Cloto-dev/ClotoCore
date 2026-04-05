@@ -28,6 +28,33 @@ export const EVENTS_URL = `${API_BASE}/events`;
 
 const HEALTH_CHECK_TIMEOUT_MS = 3000;
 
+// Health check types
+export interface HealthCheck {
+  name: string;
+  status: 'healthy' | 'degraded' | 'error';
+  message: string;
+  repairable: boolean;
+  detail?: Record<string, unknown>;
+}
+
+export interface HealthReport {
+  status: 'healthy' | 'degraded' | 'error';
+  checks: HealthCheck[];
+  timestamp: string;
+  db_size_bytes: number;
+}
+
+export interface RepairAction {
+  name: string;
+  fixed_count: number;
+  message: string;
+}
+
+export interface RepairReport {
+  actions: RepairAction[];
+  total_fixed: number;
+}
+
 /** Throw with detailed error message from JSON body if available */
 async function throwIfNotOk(res: Response, ctx: string): Promise<void> {
   if (res.ok) return;
@@ -538,6 +565,14 @@ export const api = {
 
   getMarketplaceProgressUrl: (): string => `${API_BASE}/marketplace/progress`,
 
+  // Health check
+  scanHealth: (apiKey: string, fresh?: boolean) =>
+    fetchJson<HealthReport>(`/health/scan${fresh ? '?fresh=true' : ''}`, 'scan health', apiKey),
+  repairHealth: (apiKey: string) =>
+    authFetch('/health/repair', 'repair health', apiKey, { method: 'POST' })
+      .then((r) => r.json())
+      .then((b) => b.data as RepairReport),
+
   batchInstallMarketplaceServers: (payload: { server_ids: string[]; auto_start?: boolean }, apiKey: string) =>
     mutate('/marketplace/batch-install', 'POST', 'batch install marketplace servers', payload, { 'X-API-Key': apiKey })
       .then((r) => r.json())
@@ -684,6 +719,8 @@ export function createAuthenticatedApi(apiKey: string) {
       api.batchInstallMarketplaceServers(payload, k),
     uninstallMarketplaceServer: (serverId: string) => api.uninstallMarketplaceServer(serverId, k),
     getMarketplaceProgressUrl: () => api.getMarketplaceProgressUrl(),
+    scanHealth: (fresh?: boolean) => api.scanHealth(k, fresh),
+    repairHealth: () => api.repairHealth(k),
   };
 }
 
