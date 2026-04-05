@@ -8,6 +8,7 @@ pub mod api_keys;
 pub mod audit;
 pub mod chat;
 pub mod cron;
+pub mod health;
 pub mod llm;
 pub mod mcp;
 pub mod permissions;
