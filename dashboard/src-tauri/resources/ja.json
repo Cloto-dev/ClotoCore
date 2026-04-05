@@ -152,7 +152,16 @@
       "display": "表示",
       "advanced": "詳細",
       "log": "ログ",
+      "health": "ヘルス",
       "about": "情報"
+    },
+    "health": {
+      "title": "システムヘルス",
+      "last_scan": "最終スキャン",
+      "scan": "スキャン",
+      "repair": "修復",
+      "repaired": "{{count}} 件の問題を修復しました",
+      "db_size": "データベースサイズ"
     },
     "general": {
       "theme": "テーマ",
