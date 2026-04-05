@@ -387,297 +387,311 @@ export function SetupWizard({ onComplete }: Props) {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-surface-base flex items-center justify-center">
-      <div className="bg-surface-primary border border-edge rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col">
-        {/* Content */}
-        <div className="p-8 min-h-[340px] flex flex-col items-center justify-center">
-          {step === 0 && (
-            <div className="text-center space-y-6">
-              <h1 className="text-3xl font-black tracking-[0.15em] text-content-primary">CLOTO SYSTEM</h1>
-              <p className="text-sm text-content-secondary max-w-sm">{t('welcome_desc')}</p>
-              <button
-                onClick={next}
-                aria-label={t('get_started')}
-                className="px-8 py-3 bg-brand text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity"
-              >
-                {t('get_started')}
-              </button>
-            </div>
-          )}
+    <div className="fixed inset-0 z-50 bg-surface-base flex flex-col">
+      {/* Title bar */}
+      <header
+        className="flex items-center gap-3 px-4 py-2 border-b border-edge bg-surface-primary select-none shrink-0"
+        data-tauri-drag-region=""
+      >
+        <Settings size={14} className="text-brand" />
+        <span className="text-xs font-black tracking-[0.15em] uppercase text-content-primary">Cloto System</span>
+      </header>
 
-          {step === 1 && (
-            <div className="text-center space-y-6 w-full max-w-xs">
-              <h2 className="text-xl font-bold text-content-primary">{t('select_language')}</h2>
-              <select
-                value={i18n.language.split('-')[0]}
-                onChange={(e) => i18n.changeLanguage(e.target.value)}
-                className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-brand focus:outline-none transition-colors"
-              >
-                {allLanguages.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
-                    {lang.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="text-center space-y-6">
-              <h2 className="text-xl font-bold text-content-primary">{t('select_theme')}</h2>
-              <div className="flex gap-3">
-                {themes.map(({ value, icon: Icon, label }) => (
-                  <button
-                    key={value}
-                    onClick={() => setPreference(value)}
-                    aria-label={label}
-                    className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all ${
-                      preference === value
-                        ? 'bg-brand text-white shadow-md'
-                        : 'bg-surface-secondary text-content-secondary hover:text-content-primary border border-edge hover:border-brand'
-                    }`}
-                  >
-                    <Icon size={16} />
-                    {label}
-                  </button>
-                ))}
+      <div className="flex-1 flex items-center justify-center">
+        <div className="bg-surface-primary border border-edge rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col">
+          {/* Content */}
+          <div className="p-8 min-h-[340px] flex flex-col items-center justify-center">
+            {step === 0 && (
+              <div className="text-center space-y-6">
+                <h1 className="text-3xl font-black tracking-[0.15em] text-content-primary">CLOTO SYSTEM</h1>
+                <p className="text-sm text-content-secondary max-w-sm">{t('welcome_desc')}</p>
+                <button
+                  onClick={next}
+                  aria-label={t('get_started')}
+                  className="px-8 py-3 bg-brand text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity"
+                >
+                  {t('get_started')}
+                </button>
               </div>
-            </div>
-          )}
+            )}
 
-          {step === 3 && (
-            <div className="text-center space-y-6 w-full max-w-xs">
-              <h2 className="text-xl font-bold text-content-primary">{t('enter_name')}</h2>
-              <input
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                onBlur={handleNameBlur}
-                placeholder={t('name_placeholder')}
-                className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-brand focus:outline-none transition-colors text-center"
-              />
-              <p className="text-[11px] text-content-tertiary">{t('name_hint')}</p>
-            </div>
-          )}
+            {step === 1 && (
+              <div className="text-center space-y-6 w-full max-w-xs">
+                <h2 className="text-xl font-bold text-content-primary">{t('select_language')}</h2>
+                <select
+                  value={i18n.language.split('-')[0]}
+                  onChange={(e) => i18n.changeLanguage(e.target.value)}
+                  className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-brand focus:outline-none transition-colors"
+                >
+                  {allLanguages.map((lang) => (
+                    <option key={lang.code} value={lang.code}>
+                      {lang.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-          {step === 4 && (
-            <PresetStep
-              t={t}
-              selectedPreset={selectedPreset}
-              selectedEngine={selectedEngine}
-              customServers={customServers}
-              onSelectPreset={handlePresetSelect}
-              onSelectEngine={setSelectedEngine}
-              onToggleServer={toggleCustomServer}
-            />
-          )}
-
-          {step === 5 && (
-            <div className="space-y-4 w-full">
-              <h2 className="text-xl font-bold text-content-primary text-center">
-                {t('step_install', { defaultValue: 'Installing Servers' })}
-              </h2>
-
-              {/* Python checking */}
-              {pythonChecking && (
-                <div className="flex items-center justify-center gap-2 text-[11px] text-content-tertiary">
-                  <Loader2 size={14} className="text-brand animate-spin" />
-                  {t('python_checking', { defaultValue: 'Checking Python installation...' })}
+            {step === 2 && (
+              <div className="text-center space-y-6">
+                <h2 className="text-xl font-bold text-content-primary">{t('select_theme')}</h2>
+                <div className="flex gap-3">
+                  {themes.map(({ value, icon: Icon, label }) => (
+                    <button
+                      key={value}
+                      onClick={() => setPreference(value)}
+                      aria-label={label}
+                      className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all ${
+                        preference === value
+                          ? 'bg-brand text-white shadow-md'
+                          : 'bg-surface-secondary text-content-secondary hover:text-content-primary border border-edge hover:border-brand'
+                      }`}
+                    >
+                      <Icon size={16} />
+                      {label}
+                    </button>
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* Python missing error */}
-              {pythonMissing && !pythonChecking && (
+            {step === 3 && (
+              <div className="text-center space-y-6 w-full max-w-xs">
+                <h2 className="text-xl font-bold text-content-primary">{t('enter_name')}</h2>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  onBlur={handleNameBlur}
+                  placeholder={t('name_placeholder')}
+                  className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-brand focus:outline-none transition-colors text-center"
+                />
+                <p className="text-[11px] text-content-tertiary">{t('name_hint')}</p>
+              </div>
+            )}
+
+            {step === 4 && (
+              <PresetStep
+                t={t}
+                selectedPreset={selectedPreset}
+                selectedEngine={selectedEngine}
+                customServers={customServers}
+                onSelectPreset={handlePresetSelect}
+                onSelectEngine={setSelectedEngine}
+                onToggleServer={toggleCustomServer}
+              />
+            )}
+
+            {step === 5 && (
+              <div className="space-y-4 w-full">
+                <h2 className="text-xl font-bold text-content-primary text-center">
+                  {t('step_install', { defaultValue: 'Installing Servers' })}
+                </h2>
+
+                {/* Python checking */}
+                {pythonChecking && (
+                  <div className="flex items-center justify-center gap-2 text-[11px] text-content-tertiary">
+                    <Loader2 size={14} className="text-brand animate-spin" />
+                    {t('python_checking', { defaultValue: 'Checking Python installation...' })}
+                  </div>
+                )}
+
+                {/* Python missing error */}
+                {pythonMissing && !pythonChecking && (
+                  <div className="space-y-3">
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 space-y-3">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-red-400">
+                            {t('python_missing_title', { defaultValue: 'Python 3.10+ is required but not found' })}
+                          </p>
+                          <p className="text-[11px] text-content-secondary">
+                            {t('python_missing_desc', {
+                              defaultValue:
+                                'ClotoCore requires Python to run MCP servers. Please install Python and ensure it is added to your system PATH.',
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                      <a
+                        href="https://www.python.org/downloads/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block text-[11px] text-brand hover:underline font-bold"
+                      >
+                        python.org/downloads
+                      </a>
+                      <p className="text-[10px] text-content-tertiary">
+                        {t('python_path_hint', {
+                          defaultValue:
+                            'After installing, make sure "Add Python to PATH" is checked, then click Retry.',
+                        })}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handlePythonRetry}
+                      aria-label={t('python_retry', { defaultValue: 'Retry' })}
+                      className="w-full px-4 py-2.5 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
+                    >
+                      {t('python_retry', { defaultValue: 'Retry' })}
+                    </button>
+                  </div>
+                )}
+
+                {/* Progress steps (only when not blocked by Python check) */}
+                {!pythonMissing && !pythonChecking && installSteps.length > 0 && (
+                  <div className="space-y-2">
+                    {installSteps.map((s) => (
+                      <div key={s.step} className="flex items-center gap-2 text-[11px] font-mono">
+                        {s.status === 'running' && <Loader2 size={12} className="text-brand animate-spin shrink-0" />}
+                        {s.status === 'complete' && <Check size={12} className="text-emerald-500 shrink-0" />}
+                        {s.status === 'error' && <AlertTriangle size={12} className="text-red-500 shrink-0" />}
+                        <span className="text-content-secondary">{s.description}</span>
+                        {s.detail && <span className="text-content-tertiary ml-auto">{s.detail}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Server statuses */}
+                {serverStatuses.length > 0 && (
+                  <div className="max-h-[140px] overflow-y-auto space-y-1 border border-edge rounded-lg p-2">
+                    {serverStatuses.map((s) => (
+                      <div key={s.name} className="flex items-center gap-2 text-[11px]">
+                        {s.status === 'installing' && (
+                          <Loader2 size={10} className="text-brand animate-spin shrink-0" />
+                        )}
+                        {s.status === 'installed' && <Check size={10} className="text-emerald-500 shrink-0" />}
+                        {s.status === 'failed' && <AlertTriangle size={10} className="text-red-500 shrink-0" />}
+                        {s.status === 'skipped' && <Circle size={10} className="text-content-tertiary shrink-0" />}
+                        <span
+                          className={`font-sans ${s.status === 'failed' ? 'text-red-400' : s.status === 'skipped' ? 'text-content-tertiary' : 'text-content-secondary'}`}
+                        >
+                          {s.name}
+                        </span>
+                        {s.status === 'skipped' && (
+                          <span className="text-[9px] text-content-tertiary ml-auto">
+                            {t('step_install_skipped', { defaultValue: 'already installed' })}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Error */}
+                {installError && (
+                  <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-[11px] text-red-400">
+                    {installError}
+                  </div>
+                )}
+
+                {/* Completion */}
+                {installComplete && !installError && (
+                  <div className="text-center text-[11px] text-emerald-500 font-sans">
+                    {t('step_install_complete', { defaultValue: 'All servers installed' })}
+                  </div>
+                )}
+
+                {/* Waiting state */}
+                {!installStarted && !installComplete && !pythonMissing && !pythonChecking && (
+                  <div className="text-center text-[11px] text-content-tertiary">
+                    {t('step_install_preparing', { defaultValue: 'Preparing installation...' })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {step === 6 && (
+              <div className="space-y-5 w-full">
+                <h2 className="text-xl font-bold text-content-primary text-center">{t('quick_guide')}</h2>
                 <div className="space-y-3">
-                  <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 space-y-3">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <p className="text-xs font-bold text-red-400">
-                          {t('python_missing_title', { defaultValue: 'Python 3.10+ is required but not found' })}
-                        </p>
-                        <p className="text-[11px] text-content-secondary">
-                          {t('python_missing_desc', {
-                            defaultValue:
-                              'ClotoCore requires Python to run MCP servers. Please install Python and ensure it is added to your system PATH.',
-                          })}
-                        </p>
+                  {guideItems.map(({ icon: Icon, label, desc }) => (
+                    <div
+                      key={label}
+                      className="flex items-start gap-3 px-4 py-3 bg-surface-secondary rounded-xl border border-edge"
+                    >
+                      <Icon size={18} className="text-brand shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-xs font-bold text-content-primary">{label}</span>
+                        <p className="text-[11px] text-content-secondary mt-0.5">{desc}</p>
                       </div>
                     </div>
-                    <a
-                      href="https://www.python.org/downloads/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-block text-[11px] text-brand hover:underline font-bold"
-                    >
-                      python.org/downloads
-                    </a>
-                    <p className="text-[10px] text-content-tertiary">
-                      {t('python_path_hint', {
-                        defaultValue: 'After installing, make sure "Add Python to PATH" is checked, then click Retry.',
-                      })}
-                    </p>
-                  </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Footer: dots + nav buttons */}
+          <div className="px-8 pb-6 flex items-center justify-between">
+            {/* Back button (hidden during installation step) */}
+            <div className="w-20">
+              {step > 0 && step < TOTAL_STEPS && step !== 5 && (
+                <button
+                  onClick={back}
+                  aria-label={t('back')}
+                  className="text-xs font-bold text-content-tertiary hover:text-content-primary transition-colors"
+                >
+                  {t('back')}
+                </button>
+              )}
+            </div>
+
+            {/* Step dots */}
+            <div className="flex gap-2">
+              {Array.from({ length: TOTAL_STEPS }, (_, i) => (
+                <div
+                  key={i}
+                  className={`w-2 h-2 rounded-full transition-colors ${i === step ? 'bg-brand' : 'bg-edge'}`}
+                />
+              ))}
+            </div>
+
+            {/* Next / Skip / Finish button */}
+            <div className="w-20 flex justify-end">
+              {step === 0 ? (
+                <div /> // Welcome has its own CTA
+              ) : step === 4 ? (
+                <div className="flex items-center gap-2">
                   <button
-                    type="button"
-                    onClick={handlePythonRetry}
-                    aria-label={t('python_retry', { defaultValue: 'Retry' })}
-                    className="w-full px-4 py-2.5 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
+                    onClick={handlePresetSkip}
+                    aria-label={t('preset_skip')}
+                    className="text-[11px] text-content-tertiary hover:text-content-primary transition-colors"
                   >
-                    {t('python_retry', { defaultValue: 'Retry' })}
+                    {t('preset_skip')}
+                  </button>
+                  <button
+                    onClick={handlePresetNext}
+                    disabled={applying}
+                    aria-label={t('next')}
+                    className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+                  >
+                    {applying ? '...' : t('next')}
                   </button>
                 </div>
-              )}
-
-              {/* Progress steps (only when not blocked by Python check) */}
-              {!pythonMissing && !pythonChecking && installSteps.length > 0 && (
-                <div className="space-y-2">
-                  {installSteps.map((s) => (
-                    <div key={s.step} className="flex items-center gap-2 text-[11px] font-mono">
-                      {s.status === 'running' && <Loader2 size={12} className="text-brand animate-spin shrink-0" />}
-                      {s.status === 'complete' && <Check size={12} className="text-emerald-500 shrink-0" />}
-                      {s.status === 'error' && <AlertTriangle size={12} className="text-red-500 shrink-0" />}
-                      <span className="text-content-secondary">{s.description}</span>
-                      {s.detail && <span className="text-content-tertiary ml-auto">{s.detail}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Server statuses */}
-              {serverStatuses.length > 0 && (
-                <div className="max-h-[140px] overflow-y-auto space-y-1 border border-edge rounded-lg p-2">
-                  {serverStatuses.map((s) => (
-                    <div key={s.name} className="flex items-center gap-2 text-[11px]">
-                      {s.status === 'installing' && <Loader2 size={10} className="text-brand animate-spin shrink-0" />}
-                      {s.status === 'installed' && <Check size={10} className="text-emerald-500 shrink-0" />}
-                      {s.status === 'failed' && <AlertTriangle size={10} className="text-red-500 shrink-0" />}
-                      {s.status === 'skipped' && <Circle size={10} className="text-content-tertiary shrink-0" />}
-                      <span
-                        className={`font-sans ${s.status === 'failed' ? 'text-red-400' : s.status === 'skipped' ? 'text-content-tertiary' : 'text-content-secondary'}`}
-                      >
-                        {s.name}
-                      </span>
-                      {s.status === 'skipped' && (
-                        <span className="text-[9px] text-content-tertiary ml-auto">
-                          {t('step_install_skipped', { defaultValue: 'already installed' })}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Error */}
-              {installError && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-[11px] text-red-400">
-                  {installError}
-                </div>
-              )}
-
-              {/* Completion */}
-              {installComplete && !installError && (
-                <div className="text-center text-[11px] text-emerald-500 font-sans">
-                  {t('step_install_complete', { defaultValue: 'All servers installed' })}
-                </div>
-              )}
-
-              {/* Waiting state */}
-              {!installStarted && !installComplete && !pythonMissing && !pythonChecking && (
-                <div className="text-center text-[11px] text-content-tertiary">
-                  {t('step_install_preparing', { defaultValue: 'Preparing installation...' })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {step === 6 && (
-            <div className="space-y-5 w-full">
-              <h2 className="text-xl font-bold text-content-primary text-center">{t('quick_guide')}</h2>
-              <div className="space-y-3">
-                {guideItems.map(({ icon: Icon, label, desc }) => (
-                  <div
-                    key={label}
-                    className="flex items-start gap-3 px-4 py-3 bg-surface-secondary rounded-xl border border-edge"
-                  >
-                    <Icon size={18} className="text-brand shrink-0 mt-0.5" />
-                    <div>
-                      <span className="text-xs font-bold text-content-primary">{label}</span>
-                      <p className="text-[11px] text-content-secondary mt-0.5">{desc}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer: dots + nav buttons */}
-        <div className="px-8 pb-6 flex items-center justify-between">
-          {/* Back button (hidden during installation step) */}
-          <div className="w-20">
-            {step > 0 && step < TOTAL_STEPS && step !== 5 && (
-              <button
-                onClick={back}
-                aria-label={t('back')}
-                className="text-xs font-bold text-content-tertiary hover:text-content-primary transition-colors"
-              >
-                {t('back')}
-              </button>
-            )}
-          </div>
-
-          {/* Step dots */}
-          <div className="flex gap-2">
-            {Array.from({ length: TOTAL_STEPS }, (_, i) => (
-              <div
-                key={i}
-                className={`w-2 h-2 rounded-full transition-colors ${i === step ? 'bg-brand' : 'bg-edge'}`}
-              />
-            ))}
-          </div>
-
-          {/* Next / Skip / Finish button */}
-          <div className="w-20 flex justify-end">
-            {step === 0 ? (
-              <div /> // Welcome has its own CTA
-            ) : step === 4 ? (
-              <div className="flex items-center gap-2">
+              ) : step === 5 ? (
+                <div /> // Installation auto-advances
+              ) : step < TOTAL_STEPS - 1 ? (
                 <button
-                  onClick={handlePresetSkip}
-                  aria-label={t('preset_skip')}
-                  className="text-[11px] text-content-tertiary hover:text-content-primary transition-colors"
-                >
-                  {t('preset_skip')}
-                </button>
-                <button
-                  onClick={handlePresetNext}
-                  disabled={applying}
+                  onClick={next}
                   aria-label={t('next')}
-                  className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+                  className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
                 >
-                  {applying ? '...' : t('next')}
+                  {t('next')}
                 </button>
-              </div>
-            ) : step === 5 ? (
-              <div /> // Installation auto-advances
-            ) : step < TOTAL_STEPS - 1 ? (
-              <button
-                onClick={next}
-                aria-label={t('next')}
-                className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
-              >
-                {t('next')}
-              </button>
-            ) : (
-              <button
-                onClick={handleFinish}
-                aria-label={t('finish')}
-                className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity whitespace-nowrap"
-              >
-                {t('finish')}
-              </button>
-            )}
+              ) : (
+                <button
+                  onClick={handleFinish}
+                  aria-label={t('finish')}
+                  className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity whitespace-nowrap"
+                >
+                  {t('finish')}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
