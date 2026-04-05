@@ -1,5 +1,7 @@
 use sqlx::SqlitePool;
 
+use super::db_timeout;
+
 // ── LLM Provider Registry (MGP §13.4 llm_completion) ──
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
@@ -22,16 +24,16 @@ fn default_auth_type() -> String {
 }
 
 pub async fn list_llm_providers(pool: &SqlitePool) -> anyhow::Result<Vec<LlmProviderRow>> {
-    let rows = sqlx::query_as::<_, LlmProviderRow>(
+    let rows = db_timeout(sqlx::query_as::<_, LlmProviderRow>(
         "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type FROM llm_providers ORDER BY id"
-    ).fetch_all(pool).await?;
+    ).fetch_all(pool)).await?;
     Ok(rows)
 }
 
 pub async fn get_llm_provider(pool: &SqlitePool, id: &str) -> anyhow::Result<LlmProviderRow> {
-    let row = sqlx::query_as::<_, LlmProviderRow>(
+    let row = db_timeout(sqlx::query_as::<_, LlmProviderRow>(
         "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type FROM llm_providers WHERE id = ?"
-    ).bind(id).fetch_optional(pool).await?;
+    ).bind(id).fetch_optional(pool)).await?;
     row.ok_or_else(|| anyhow::anyhow!("LLM provider '{}' not found", id))
 }
 
@@ -40,11 +42,10 @@ pub async fn set_llm_provider_key(
     id: &str,
     api_key: &str,
 ) -> anyhow::Result<()> {
-    let result = sqlx::query("UPDATE llm_providers SET api_key = ? WHERE id = ?")
+    let result = db_timeout(sqlx::query("UPDATE llm_providers SET api_key = ? WHERE id = ?")
         .bind(api_key)
         .bind(id)
-        .execute(pool)
-        .await?;
+        .execute(pool)).await?;
     if result.rows_affected() == 0 {
         return Err(anyhow::anyhow!("LLM provider '{}' not found", id));
     }
@@ -52,10 +53,9 @@ pub async fn set_llm_provider_key(
 }
 
 pub async fn delete_llm_provider_key(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
-    sqlx::query("UPDATE llm_providers SET api_key = '' WHERE id = ?")
+    db_timeout(sqlx::query("UPDATE llm_providers SET api_key = '' WHERE id = ?")
         .bind(id)
-        .execute(pool)
-        .await?;
+        .execute(pool)).await?;
     Ok(())
 }
 
@@ -78,11 +78,10 @@ pub async fn sync_env_api_keys(pool: &SqlitePool, mappings: &[(String, String)])
                 continue;
             }
             let result =
-                sqlx::query("UPDATE llm_providers SET api_key = ? WHERE id = ? AND api_key = ''")
+                db_timeout(sqlx::query("UPDATE llm_providers SET api_key = ? WHERE id = ? AND api_key = ''")
                     .bind(&key)
                     .bind(provider_id)
-                    .execute(pool)
-                    .await;
+                    .execute(pool)).await;
 
             match result {
                 Ok(r) if r.rows_affected() > 0 => {

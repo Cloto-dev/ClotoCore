@@ -7,7 +7,7 @@ use super::mcp::McpClientManager;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Tracks per-request stream state for gap detection.
 pub(super) struct StreamAssembler {
@@ -30,7 +30,10 @@ impl StreamAssembler {
     /// Record a received chunk and check for gaps.
     /// Returns `Some(gap_indices)` if gaps were detected, `None` if in order.
     pub fn record_chunk(&self, server_id: &str, request_id: i64, index: u32) -> Option<Vec<u32>> {
-        let mut trackers = self.trackers.lock().unwrap();
+        let mut trackers = self.trackers.lock().unwrap_or_else(|e| {
+            warn!("StreamAssembler mutex poisoned — recovering");
+            e.into_inner()
+        });
         let key = (server_id.to_string(), request_id);
         let tracker = trackers.entry(key).or_insert(StreamTracker {
             expected_index: 0,
@@ -61,7 +64,10 @@ impl StreamAssembler {
 
     /// Check if a chunk is a duplicate (index already received).
     pub fn is_duplicate(&self, server_id: &str, request_id: i64, index: u32) -> bool {
-        let trackers = self.trackers.lock().unwrap();
+        let trackers = self.trackers.lock().unwrap_or_else(|e| {
+            warn!("StreamAssembler mutex poisoned — recovering");
+            e.into_inner()
+        });
         let key = (server_id.to_string(), request_id);
         trackers
             .get(&key)
@@ -70,7 +76,10 @@ impl StreamAssembler {
 
     /// Remove tracking state for a completed or cancelled stream.
     pub fn remove(&self, server_id: &str, request_id: i64) {
-        let mut trackers = self.trackers.lock().unwrap();
+        let mut trackers = self.trackers.lock().unwrap_or_else(|e| {
+            warn!("StreamAssembler mutex poisoned — recovering");
+            e.into_inner()
+        });
         trackers.remove(&(server_id.to_string(), request_id));
     }
 }

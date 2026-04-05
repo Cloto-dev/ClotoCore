@@ -331,30 +331,37 @@ impl AgentManager {
             let _ = tokio::fs::remove_file(&path).await;
         }
 
+        // Wrap all DB deletions in a transaction for consistency
+        let mut tx = self.pool.begin().await?;
+
         // chat_attachments cascade from chat_messages (ON DELETE CASCADE in schema)
         sqlx::query("DELETE FROM chat_messages WHERE agent_id = ?")
             .bind(agent_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
 
         // Clean up MCP access control entries (no FK to agents table)
         sqlx::query("DELETE FROM mcp_access_control WHERE agent_id = ?")
             .bind(agent_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
 
         // Clean up trusted commands (no FK to agents table)
-        crate::db::trusted_commands::delete_trusted_commands_for_agent(&self.pool, agent_id)
+        sqlx::query("DELETE FROM trusted_commands WHERE agent_id = ?")
+            .bind(agent_id)
+            .execute(&mut *tx)
             .await?;
 
         let result = sqlx::query("DELETE FROM agents WHERE id = ?")
             .bind(agent_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
 
         if result.rows_affected() == 0 {
             return Err(cloto_shared::ClotoError::AgentNotFound(agent_id.to_string()).into());
         }
+
+        tx.commit().await?;
         Ok(())
     }
 
