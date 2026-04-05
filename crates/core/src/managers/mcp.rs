@@ -95,7 +95,7 @@ impl McpClientManager {
             stream_assembler: super::mcp_streaming::StreamAssembler::new(),
             dispatcher: super::capability_dispatcher::CapabilityDispatcher::new(),
             kernel_event_tx: Mutex::new(None),
-            llm_proxy_port: 8082,
+            llm_proxy_port: if cfg!(debug_assertions) { 8092 } else { 8082 },
             sensitive_env_keys: Vec::new(),
             yolo_exceptions: Vec::new(),
             isolation_enabled: true,
