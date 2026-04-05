@@ -20,8 +20,7 @@ import type {
 
 // In Tauri mode, window.location.origin returns "tauri://localhost" which cannot reach
 // the HTTP kernel. We must use the actual loopback address with the kernel port.
-// Dev builds use 8091, release builds use 8081 (avoids port conflicts when both run).
-const KERNEL_PORT = import.meta.env.DEV ? 8091 : 8081;
+const KERNEL_PORT = 8081;
 const API_URL =
   import.meta.env.VITE_API_URL || (isTauri ? `http://127.0.0.1:${KERNEL_PORT}/api` : `${window.location.origin}/api`);
 export const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
