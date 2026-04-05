@@ -113,6 +113,8 @@ The installer includes a setup wizard that downloads MCP servers and configures 
 
 **Requirements:** Python 3.10+ must be installed and available in PATH.
 
+**Uninstalling:** The uninstaller removes the application but preserves user data (database, MCP servers, attachments). To fully remove all data, delete the `data/` folder in the installation directory after uninstalling.
+
 ## MCP Servers
 
 All plugin functionality is delivered via **MCP (Model Context Protocol)** servers:
