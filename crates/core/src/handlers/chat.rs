@@ -204,7 +204,11 @@ pub async fn post_message(
                                             error!("Failed to write attachment file: {}", e);
                                             continue;
                                         }
-                                        ("disk".to_string(), None, Some(path.to_string_lossy().to_string()))
+                                        (
+                                            "disk".to_string(),
+                                            None,
+                                            Some(path.to_string_lossy().to_string()),
+                                        )
                                     };
 
                                 let att = AttachmentRow {
