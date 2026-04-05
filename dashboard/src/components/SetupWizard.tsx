@@ -22,6 +22,7 @@ import { useTheme } from '../hooks/useTheme';
 import { getCustomLanguages } from '../i18n';
 import { getAutoApiKey } from '../lib/tauri';
 import { createAuthenticatedApi } from '../services/api';
+import { ViewHeader } from './ViewHeader';
 
 const BUILTIN_LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -388,14 +389,7 @@ export function SetupWizard({ onComplete }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 bg-surface-base flex flex-col">
-      {/* Title bar */}
-      <header
-        className="flex items-center gap-3 px-4 py-2 border-b border-edge bg-surface-primary select-none shrink-0"
-        data-tauri-drag-region=""
-      >
-        <Settings size={14} className="text-brand" />
-        <span className="text-xs font-black tracking-[0.15em] uppercase text-content-primary">Cloto System</span>
-      </header>
+      <ViewHeader icon={Settings} title="Cloto System" />
 
       <div className="flex-1 flex items-center justify-center">
         <div className="bg-surface-primary border border-edge rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col">
