@@ -803,8 +803,10 @@ pub async fn put_mcp_server_access(
 /// GET /api/mcp/access/by-agent/:agent_id
 pub async fn get_agent_access(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(agent_id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
     let entries = crate::db::get_access_entries_for_agent(&state.pool, &agent_id)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;

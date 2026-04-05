@@ -1145,6 +1145,40 @@ fn resolve_servers_dir(state: &AppState) -> PathBuf {
     state.data_dir.join("mcp-servers")
 }
 
+/// Validate that a destination path stays within the target directory (zip-slip prevention).
+fn validate_dest_path(
+    target_dir: &std::path::Path,
+    dest: &std::path::Path,
+) -> anyhow::Result<()> {
+    // Normalize both paths to catch ".." traversal
+    let normalized = dest
+        .components()
+        .fold(std::path::PathBuf::new(), |mut acc, c| {
+            match c {
+                std::path::Component::ParentDir => {
+                    acc.pop();
+                }
+                std::path::Component::Normal(s) => acc.push(s),
+                std::path::Component::RootDir => acc.push("/"),
+                std::path::Component::Prefix(p) => acc.push(p.as_os_str()),
+                std::path::Component::CurDir => {}
+            }
+            acc
+        });
+    let full = if dest.is_absolute() {
+        normalized
+    } else {
+        target_dir.join(&normalized)
+    };
+    if !full.starts_with(target_dir) {
+        anyhow::bail!(
+            "Path traversal detected: '{}' escapes target directory",
+            dest.display()
+        );
+    }
+    Ok(())
+}
+
 /// Extract specific directories from a GitHub tarball.
 /// GitHub tarballs have a prefix like `Cloto-dev-cloto-mcp-servers-{sha}/`.
 fn extract_selective(
@@ -1178,6 +1212,7 @@ fn extract_selective(
         if let Some(relative) = relative {
             // Strip "servers/" prefix to get "{directory}/..."
             let dest = target_dir.join(relative.strip_prefix("servers/").unwrap_or(relative));
+            validate_dest_path(target_dir, &dest)?;
 
             if entry.header().entry_type().is_dir() {
                 std::fs::create_dir_all(&dest)?;
@@ -1230,6 +1265,7 @@ fn extract_batch(
 
         if let Some(relative) = relative {
             let dest = target_dir.join(relative.strip_prefix("servers/").unwrap_or(relative));
+            validate_dest_path(target_dir, &dest)?;
 
             if entry.header().entry_type().is_dir() {
                 std::fs::create_dir_all(&dest)?;

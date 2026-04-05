@@ -242,7 +242,7 @@ pub(crate) fn validate_mcp_code(
 
     // L3: Blocked function/attribute patterns (Standard, Strict, Readonly)
     for &pattern in BLOCKED_PATTERNS {
-        if code.contains(pattern) {
+        if code_lower.contains(pattern) {
             errors.push(format!("Blocked pattern: '{pattern}'"));
         }
     }
