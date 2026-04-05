@@ -37,8 +37,12 @@ pub async fn scan_handler(
         }
     }
 
-    // Run fresh scan
-    let report = db::health::run_quick_scan(&state.pool)
+    // Resolve MCP servers directory for venv checks
+    let servers_dir = crate::managers::mcp_venv::resolve_venv_dir()
+        .and_then(|v| v.parent().map(std::path::Path::to_path_buf));
+
+    // Run fresh scan (DB + venv)
+    let report = db::health::run_full_quick_scan(&state.pool, servers_dir.as_deref())
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Health scan failed: {e}")))?;
 
@@ -60,7 +64,10 @@ pub async fn repair_handler(
 ) -> AppResult<Json<serde_json::Value>> {
     super::check_auth(&state, &headers)?;
 
-    let report = db::health::run_standard_repair(&state.pool)
+    let servers_dir = crate::managers::mcp_venv::resolve_venv_dir()
+        .and_then(|v| v.parent().map(std::path::Path::to_path_buf));
+
+    let report = db::health::run_full_repair(&state.pool, servers_dir.as_deref())
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Health repair failed: {e}")))?;
 

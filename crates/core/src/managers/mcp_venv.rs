@@ -167,7 +167,7 @@ pub(crate) fn is_venv_stale(venv_dir: &Path) -> bool {
 }
 
 /// Get the pip executable path inside the venv.
-fn venv_pip(venv_dir: &Path) -> PathBuf {
+pub(crate) fn venv_pip(venv_dir: &Path) -> PathBuf {
     if cfg!(windows) {
         venv_dir.join("Scripts").join("pip.exe")
     } else {
