@@ -7,6 +7,21 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.3-beta.6] — 2026-04-05
+
+### Added
+- **Health Check: venv detection and repair** — scan now checks Python venv existence and version mismatch; repair rebuilds venv and reinstalls all server dependencies
+- Uninstall data cleanup documentation in README
+
+### Changed
+- **Batch install optimization** — replaced per-server sequential `pip install` (N × 120s) with single unified `pip install` for all Python servers, matching the pattern from `mcp_venv.rs`
+- **SetupWizard title bar** — now uses shared `ViewHeader` component instead of custom header
+
+### Fixed
+- TypeScript type check failure in `repairHealth` API call (`authFetch` → `mutate`)
+
+---
+
 ## [0.6.3-beta.5] — 2026-04-05
 
 ### Added
