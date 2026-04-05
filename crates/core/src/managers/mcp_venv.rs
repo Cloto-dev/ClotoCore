@@ -81,24 +81,165 @@ pub fn resolve_venv_python() -> Option<PathBuf> {
     }
 }
 
-/// Find a system Python command (python3 or python).
-pub(crate) fn find_python() -> Option<String> {
-    for cmd in &["python3", "python"] {
-        let result = std::process::Command::new(cmd)
-            .arg("--version")
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn();
+/// Find a system Python command and its version string.
+///
+/// Search order:
+/// 1. PATH-based candidates: `python3`, `python`, and on Windows `py`
+///    (the Python Launcher installed into `C:\Windows\` by python.org — available
+///    even when the user did not check "Add Python to PATH").
+/// 2. On Windows only: well-known installation directories as a last resort
+///    (covers Tauri desktop apps that may not inherit the user's full PATH).
+///
+/// Each candidate is given a 5-second timeout so a hanging binary does not
+/// block the caller indefinitely.
+pub(crate) fn find_python_with_version() -> Option<(String, String)> {
+    #[cfg(windows)]
+    const CANDIDATES: &[&str] = &["python3", "python", "py"];
+    #[cfg(not(windows))]
+    const CANDIDATES: &[&str] = &["python3", "python"];
 
-        if let Ok(mut child) = result {
-            if let Ok(status) = child.wait() {
-                if status.success() {
-                    return Some((*cmd).to_string());
+    // Try PATH-based candidates first.
+    if let Some(result) = try_python_candidates(CANDIDATES) {
+        return Some(result);
+    }
+
+    // Windows fallback: probe common installation directories.
+    #[cfg(windows)]
+    if let Some(result) = find_python_in_known_paths() {
+        return Some(result);
+    }
+
+    None
+}
+
+/// Try each command name from `candidates` by spawning `<cmd> --version`.
+fn try_python_candidates(candidates: &[&str]) -> Option<(String, String)> {
+    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+    for cmd in candidates {
+        if let Some(result) = probe_python(cmd, TIMEOUT) {
+            return Some(result);
+        }
+    }
+    None
+}
+
+/// Spawn `<cmd> --version` and return `(command, version_string)` on success.
+fn probe_python(cmd: &str, timeout: std::time::Duration) -> Option<(String, String)> {
+    let child = std::process::Command::new(cmd)
+        .arg("--version")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn();
+
+    let Ok(mut child) = child else { return None };
+
+    // Poll with timeout to avoid blocking indefinitely.
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break Some(s),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait(); // reap
+                    break None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(_) => break None,
+        }
+    };
+
+    let status = status?;
+    if !status.success() {
+        return None;
+    }
+
+    // Read version from stdout/stderr.
+    let stdout = child.stdout.take().and_then(|mut s| {
+        let mut buf = String::new();
+        std::io::Read::read_to_string(&mut s, &mut buf).ok()?;
+        Some(buf)
+    }).unwrap_or_default();
+    let stderr = child.stderr.take().and_then(|mut s| {
+        let mut buf = String::new();
+        std::io::Read::read_to_string(&mut s, &mut buf).ok()?;
+        Some(buf)
+    }).unwrap_or_default();
+
+    let combined = if stdout.contains("Python") { stdout } else { stderr };
+    let version = combined.trim().strip_prefix("Python ")?;
+    Some((cmd.to_string(), version.to_string()))
+}
+
+/// Windows-only: scan well-known Python installation directories.
+///
+/// Covers the case where a Tauri desktop app does not inherit the user's PATH
+/// and neither `python`, `python3`, nor `py` are discoverable via PATH alone.
+#[cfg(windows)]
+fn find_python_in_known_paths() -> Option<(String, String)> {
+    use std::path::PathBuf;
+
+    let candidates: Vec<PathBuf> = [
+        // python.org default install locations
+        std::env::var("LOCALAPPDATA").ok().map(|p| PathBuf::from(p).join("Programs").join("Python")),
+        // System-wide install
+        Some(PathBuf::from(r"C:\Python")),
+        // Windows Store location
+        std::env::var("LOCALAPPDATA")
+            .ok()
+            .map(|p| PathBuf::from(p).join("Microsoft").join("WindowsApps")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+    for base in &candidates {
+        if !base.is_dir() {
+            continue;
+        }
+        // Scan for python.exe directly or inside versioned subdirectories
+        // (e.g., C:\Users\X\AppData\Local\Programs\Python\Python313\python.exe)
+        let dirs_to_check: Vec<PathBuf> = std::fs::read_dir(base)
+            .ok()
+            .map(|entries| {
+                let mut dirs: Vec<PathBuf> = entries
+                    .filter_map(std::result::Result::ok)
+                    .map(|e| e.path())
+                    .filter(|p| p.is_dir())
+                    .collect();
+                // Prefer higher version numbers (reverse sort)
+                dirs.sort_unstable_by(|a, b| b.cmp(a));
+                dirs
+            })
+            .unwrap_or_default();
+
+        // Also check the base directory itself (e.g., C:\Python\python.exe)
+        let mut search_dirs = vec![base.clone()];
+        search_dirs.extend(dirs_to_check);
+
+        for dir in &search_dirs {
+            let exe = dir.join("python.exe");
+            if exe.is_file() {
+                let exe_str = exe.to_string_lossy().to_string();
+                if let Some(result) = probe_python(&exe_str, TIMEOUT) {
+                    return Some(result);
                 }
             }
         }
     }
     None
+}
+
+/// Find a system Python command (python3, python, or py on Windows).
+///
+/// Thin wrapper around [`find_python_with_version`] for call sites that only
+/// need the command name.
+pub(crate) fn find_python() -> Option<String> {
+    find_python_with_version().map(|(cmd, _)| cmd)
 }
 
 /// Extract the Python version from a venv's `pyvenv.cfg` (e.g., "3.13.3").
@@ -120,17 +261,7 @@ fn read_venv_python_version(venv_dir: &Path) -> Option<String> {
 
 /// Get the system Python major.minor version string (e.g., "3.13").
 fn system_python_major_minor() -> Option<String> {
-    let cmd = find_python()?;
-    let output = std::process::Command::new(&cmd)
-        .arg("--version")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .ok()?;
-    let out = String::from_utf8_lossy(&output.stdout);
-    let err = String::from_utf8_lossy(&output.stderr);
-    let combined = if out.contains("Python") { out } else { err };
-    let version = combined.trim().strip_prefix("Python ")?;
+    let (_, version) = find_python_with_version()?;
     // Extract major.minor only (e.g., "3.13.3" → "3.13")
     let mut parts = version.splitn(3, '.');
     let major = parts.next()?;
