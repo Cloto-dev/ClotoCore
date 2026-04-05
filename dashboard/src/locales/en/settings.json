@@ -6,7 +6,16 @@
     "display": "DISPLAY",
     "advanced": "ADVANCED",
     "log": "LOG",
+    "health": "HEALTH",
     "about": "ABOUT"
+  },
+  "health": {
+    "title": "System Health",
+    "last_scan": "Last scan",
+    "scan": "Scan",
+    "repair": "Repair",
+    "repaired": "{{count}} issue(s) repaired",
+    "db_size": "Database size"
   },
   "general": {
     "theme": "Theme",
