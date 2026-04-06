@@ -248,39 +248,30 @@ impl SystemHandler {
                 vec![]
             }
         } else if let Some((ref mcp, ref server_id)) = mcp_memory {
-            // MCP Memory Resolver: recall via MCP server
+            // MCP Memory Resolver: recall_with_context merges long-term recall
+            // with short-term conversation context (dedup + chronological sort).
             let memory_channel = msg
                 .metadata
                 .get("external_source")
                 .cloned()
                 .unwrap_or_else(|| "chat".into());
 
-            // Collect conversation_context content for CPersona exclude_contents
-            // (prevents recall from returning memories already in the short-term context)
-            let exclude_contents: Vec<String> = msg
+            let external_context: serde_json::Value = msg
                 .metadata
                 .get("conversation_context")
-                .and_then(|raw| serde_json::from_str::<Vec<serde_json::Value>>(raw).ok())
-                .map(|entries| {
-                    entries
-                        .iter()
-                        .filter_map(|e| e.get("content").and_then(|v| v.as_str()))
-                        .map(|s| s.trim().to_lowercase())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                })
-                .unwrap_or_default();
+                .and_then(|raw| serde_json::from_str(raw).ok())
+                .unwrap_or(serde_json::json!([]));
 
             let recall_args = serde_json::json!({
                 "agent_id": agent.id,
                 "query": msg.content,
                 "limit": self.memory_context_limit,
                 "channel": memory_channel,
-                "exclude_contents": exclude_contents,
+                "external_context": external_context,
             });
             match tokio::time::timeout(
                 Duration::from_secs(self.memory_timeout_secs),
-                mcp.call_server_tool(server_id, "recall", recall_args),
+                mcp.call_server_tool(server_id, "recall_with_context", recall_args),
             )
             .await
             {
@@ -296,69 +287,6 @@ impl SystemHandler {
             }
         } else {
             vec![]
-        };
-
-        // 2-B. Merge short-term conversation context from I/O bridge (e.g., Discord channel history)
-        let context = if let Some(raw) = msg.metadata.get("conversation_context") {
-            let mut merged = context;
-            if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(raw) {
-                for entry in entries {
-                    let role = entry.get("role").and_then(|v| v.as_str()).unwrap_or("");
-                    let content = entry
-                        .get("content")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if content.is_empty() {
-                        continue;
-                    }
-                    let source = match role {
-                        "assistant" => cloto_shared::MessageSource::Agent { id: "self".into() },
-                        "user" => {
-                            let name = entry
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("User")
-                                .to_string();
-                            let id = entry
-                                .get("user_id")
-                                .and_then(|v| v.as_str())
-                                .map_or_else(|| format!("discord:{name}"), |uid| format!("discord:{uid}"));
-                            cloto_shared::MessageSource::User { id, name }
-                        }
-                        _ => continue,
-                    };
-                    let timestamp = entry
-                        .get("timestamp")
-                        .and_then(|v| v.as_str())
-                        .and_then(|t| {
-                            chrono::DateTime::parse_from_rfc3339(t)
-                                .ok()
-                                .map(|dt| dt.with_timezone(&chrono::Utc))
-                        })
-                        .unwrap_or_else(chrono::Utc::now);
-                    merged.push(ClotoMessage {
-                        id: cloto_shared::ClotoId::new().to_string(),
-                        source,
-                        target_agent: None,
-                        content,
-                        timestamp,
-                        metadata: {
-                            let mut m = std::collections::HashMap::new();
-                            m.insert("context_type".into(), "conversation".into());
-                            m
-                        },
-                    });
-                }
-            }
-
-            // Dedup is handled by CPersona's exclude_contents parameter.
-            // Sort chronologically (recalled memories + conversation context).
-            merged.sort_by_key(|m| m.timestamp);
-
-            merged
-        } else {
-            context
         };
 
         // 3. 【核心】思考要求イベントを発行
@@ -2012,7 +1940,18 @@ impl SystemHandler {
                                     target_agent: None,
                                     content,
                                     timestamp,
-                                    metadata: std::collections::HashMap::new(),
+                                    metadata: {
+                                        let mut meta = std::collections::HashMap::new();
+                                        if let Some(ct) =
+                                            m.get("context_type").and_then(|v| v.as_str())
+                                        {
+                                            meta.insert(
+                                                "context_type".into(),
+                                                ct.to_string(),
+                                            );
+                                        }
+                                        meta
+                                    },
                                 })
                             })
                             .collect();
