@@ -1,11 +1,11 @@
-import { Brain, Download, History, Trash2, Upload, User } from 'lucide-react';
+import { Brain, Check, Download, History, Lock, Pencil, Trash2, Unlock, Upload, User, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../hooks/useApi';
 import { useEventStream } from '../hooks/useEventStream';
 import { type Metrics, useMetrics } from '../hooks/useMetrics';
 import { EVENTS_URL } from '../services/api';
-import type { AgentMetadata, Episode, Memory } from '../types';
+import type { AgentMetadata, Episode, Memory, MemoryCapabilities } from '../types';
 import { SectionHeader } from './ui/SectionHeader';
 
 const DEBOUNCE_DELAY_MS = 300;
@@ -55,6 +55,13 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [agents, setAgents] = useState<AgentMetadata[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null); // null = All
+  const [capabilities, setCapabilities] = useState<MemoryCapabilities>({
+    update_memory: false,
+    lock_memory: false,
+    unlock_memory: false,
+  });
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState('');
   const api = useApi();
   const { metrics: hookMetrics } = useMetrics();
   const metrics: Metrics = hookMetrics ?? { ram_usage: 'N/A', total_memories: 0, total_requests: 0, total_episodes: 0 };
@@ -86,8 +93,9 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
 
   const fetchData = useCallback(async () => {
     try {
-      const [memories, episodes, agents] = await Promise.all([api.getMemories(), api.getEpisodes(), api.getAgents()]);
-      setMemories(memories);
+      const [memResult, episodes, agents] = await Promise.all([api.getMemories(), api.getEpisodes(), api.getAgents()]);
+      setMemories(memResult.memories);
+      setCapabilities(memResult.capabilities);
       setEpisodes(episodes);
       setAgents(agents);
     } catch (error) {
@@ -133,6 +141,43 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
       setEpisodes((prev) => prev.filter((e) => e.id !== id));
     } catch (e) {
       if (import.meta.env.DEV) console.error('Failed to delete episode:', e);
+    }
+  };
+
+  const handleStartEdit = (mem: Memory) => {
+    setEditingId(mem.id);
+    setEditContent(mem.content);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditContent('');
+  };
+
+  const handleSaveEdit = async (id: number) => {
+    try {
+      await api.updateMemory(id, editContent);
+      setMemories((prev) => prev.map((m) => (m.id === id ? { ...m, content: editContent } : m)));
+      setEditingId(null);
+      setEditContent('');
+    } catch (e) {
+      if (import.meta.env.DEV) console.error('Failed to update memory:', e);
+    }
+  };
+
+  const handleToggleLock = async (id: number, currentlyLocked: boolean) => {
+    try {
+      if (currentlyLocked) {
+        const result = await api.unlockMemory(id);
+        setMemories((prev) => prev.map((m) => (m.id === id ? { ...m, locked: false, lock_level: undefined } : m)));
+        if (import.meta.env.DEV) console.log('Unlocked memory:', id, result);
+      } else {
+        const result = await api.lockMemory(id);
+        const lockLevel = (result.lock_level as 'server' | 'kernel') || 'kernel';
+        setMemories((prev) => prev.map((m) => (m.id === id ? { ...m, locked: true, lock_level: lockLevel } : m)));
+      }
+    } catch (e) {
+      if (import.meta.env.DEV) console.error('Failed to toggle lock:', e);
     }
   };
 
@@ -350,40 +395,126 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
 
             <div className={`grid ${isWindowMode ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'} gap-4`}>
               {filteredMemories.length > 0 ? (
-                filteredMemories.map((mem) => (
-                  <div
-                    key={mem.id}
-                    className="bg-surface-primary/50 p-4 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group flex flex-col max-h-48"
-                  >
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-brand/10 transition-colors">
-                        <User size={12} className="text-content-tertiary group-hover:text-brand" />
+                filteredMemories.map((mem) => {
+                  const isEditing = editingId === mem.id;
+                  const isLocked = !!mem.locked;
+                  return (
+                    <div
+                      key={mem.id}
+                      className={`bg-surface-primary/50 p-4 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group flex flex-col ${isEditing ? '' : 'max-h-48'}`}
+                    >
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-brand/10 transition-colors">
+                          <User size={12} className="text-content-tertiary group-hover:text-brand" />
+                        </div>
+                        <span className="text-[11px] font-mono text-content-tertiary">
+                          {memorySpeakerName(mem.source as Record<string, unknown>, mem.agent_id, agentMap)}
+                        </span>
+                        {isLocked && (
+                          <Lock
+                            size={11}
+                            className={
+                              mem.lock_level === 'server'
+                                ? 'memory-lock-glow text-brand shrink-0'
+                                : 'text-brand shrink-0'
+                            }
+                            title={t('memory_locked')}
+                          />
+                        )}
                       </div>
-                      <span className="text-[11px] font-mono text-content-tertiary">
-                        {memorySpeakerName(mem.source as Record<string, unknown>, mem.agent_id, agentMap)}
-                      </span>
+                      {isEditing ? (
+                        <div className="flex-1 min-h-0 flex flex-col gap-2">
+                          <textarea
+                            className="w-full flex-1 min-h-[6rem] text-xs font-mono leading-relaxed bg-surface-secondary/50 text-content-primary rounded-lg p-2 border border-edge focus:border-brand focus:outline-none resize-y"
+                            value={editContent}
+                            onChange={(e) => setEditContent(e.target.value)}
+                          />
+                          <div className="flex gap-1 justify-end">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveEdit(mem.id)}
+                              className="p-1 rounded text-green-500 hover:bg-green-500/10 transition-all"
+                              title={t('save')}
+                            >
+                              <Check size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCancelEdit}
+                              className="p-1 rounded text-content-muted hover:text-content-secondary hover:bg-surface-secondary transition-all"
+                              title={t('cancel')}
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex-1 min-h-0 text-xs font-medium leading-relaxed text-content-secondary whitespace-pre-wrap line-clamp-6 font-mono">
+                          {mem.content}
+                        </div>
+                      )}
+                      <div className="mt-2 pt-2 border-t border-edge-subtle flex justify-between items-center">
+                        <span className="text-[9px] text-content-tertiary font-bold uppercase tracking-widest">
+                          {mem.created_at}
+                        </span>
+                        <div className="flex items-center gap-0.5">
+                          {/* Edit button: only if server supports it and memory is unlocked */}
+                          {capabilities.update_memory && !isLocked && !isEditing && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartEdit(mem);
+                              }}
+                              className="p-1 rounded text-content-muted hover:text-brand hover:bg-brand/10 transition-all opacity-0 group-hover:opacity-100"
+                              title={t('edit_memory')}
+                              aria-label={t('edit_memory')}
+                            >
+                              <Pencil size={13} />
+                            </button>
+                          )}
+                          {/* Lock toggle */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleLock(mem.id, isLocked);
+                            }}
+                            className={`p-1 rounded transition-all ${
+                              isLocked
+                                ? mem.lock_level === 'server'
+                                  ? 'memory-lock-glow text-brand'
+                                  : 'text-brand'
+                                : 'text-content-muted hover:text-brand hover:bg-brand/10 opacity-0 group-hover:opacity-100'
+                            }`}
+                            title={isLocked ? t('unlock_memory') : t('lock_memory')}
+                            aria-label={isLocked ? t('unlock_memory') : t('lock_memory')}
+                          >
+                            {isLocked ? <Lock size={13} /> : <Unlock size={13} />}
+                          </button>
+                          {/* Delete button: disabled when locked */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!isLocked) handleDeleteMemory(mem.id);
+                            }}
+                            className={`p-1 rounded transition-all ${
+                              isLocked
+                                ? 'text-content-muted/30 cursor-not-allowed'
+                                : 'text-content-muted hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100'
+                            }`}
+                            title={isLocked ? t('memory_locked') : t('delete_memory')}
+                            aria-label={t('delete_memory')}
+                            disabled={isLocked}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex-1 min-h-0 text-xs font-medium leading-relaxed text-content-secondary whitespace-pre-wrap line-clamp-6 font-mono">
-                      {mem.content}
-                    </div>
-                    <div className="mt-2 pt-2 border-t border-edge-subtle flex justify-between items-center">
-                      <span className="text-[9px] text-content-tertiary font-bold uppercase tracking-widest">
-                        {mem.created_at}
-                      </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteMemory(mem.id);
-                        }}
-                        className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                        title={t('delete_memory')}
-                        aria-label={t('delete_memory')}
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="col-span-full py-8 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
                   {t('no_memories')}
