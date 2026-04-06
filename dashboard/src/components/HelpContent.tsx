@@ -1,4 +1,4 @@
-import { Activity, Clock, Database, ExternalLink, MessageCircle, MessageSquare, Puzzle, Settings } from 'lucide-react';
+import { Brain, Clock, ExternalLink, MessageCircle, Server, Settings, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 declare const __APP_VERSION__: string;
@@ -8,11 +8,10 @@ interface HelpContentProps {
 }
 
 const menuGuide = [
-  { icon: Activity, labelKey: 'nav:system', descKey: 'help.status_desc' },
-  { icon: Database, labelKey: 'nav:memory', descKey: 'help.memory_desc' },
-  { icon: MessageSquare, label: 'CLOTO', descKey: 'help.cloto_desc' },
-  { icon: Puzzle, labelKey: 'nav:mcp', descKey: 'help.mcp_desc' },
+  { icon: Users, labelKey: 'nav:agent', descKey: 'help.agent_desc' },
+  { icon: Server, labelKey: 'nav:mcp', descKey: 'help.mcp_desc' },
   { icon: Clock, labelKey: 'nav:cron', descKey: 'help.cron_desc' },
+  { icon: Brain, labelKey: 'nav:memory', descKey: 'help.memory_desc' },
   { icon: Settings, labelKey: 'nav:settings', descKey: 'help.settings_desc' },
 ];
 

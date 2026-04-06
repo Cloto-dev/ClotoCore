@@ -3344,6 +3344,10 @@ body.neural-cursor-active * {
   background-color: rgb(34 197 94 / 0.2);
 }
 
+.hover\:bg-purple-500\/10:hover {
+  background-color: rgb(168 85 247 / 0.1);
+}
+
 .hover\:bg-purple-950\/40:hover {
   background-color: rgb(59 7 100 / 0.4);
 }
@@ -3420,6 +3424,11 @@ body.neural-cursor-active * {
 .hover\:text-green-500:hover {
   --tw-text-opacity: 1;
   color: rgb(34 197 94 / var(--tw-text-opacity, 1));
+}
+
+.hover\:text-purple-400:hover {
+  --tw-text-opacity: 1;
+  color: rgb(192 132 252 / var(--tw-text-opacity, 1));
 }
 
 .hover\:text-red-300:hover {

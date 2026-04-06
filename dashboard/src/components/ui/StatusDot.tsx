@@ -29,7 +29,7 @@ export function StatusDot({ status, size = 'md', pulse, className }: StatusDotPr
 
   return (
     <span
-      className={`${sizeClass} rounded-full inline-block ${colorMap[status]} ${shouldPulse ? 'animate-pulse' : ''} ${className ?? ''}`}
+      className={`${sizeClass} rounded-full block shrink-0 ${colorMap[status]} ${shouldPulse ? 'animate-pulse' : ''} ${className ?? ''}`}
     />
   );
 }
