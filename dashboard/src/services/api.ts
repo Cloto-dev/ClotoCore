@@ -12,6 +12,7 @@ import type {
   McpServerInfo,
   McpServerSettings,
   Memory,
+  MemoryCapabilities,
   Metrics,
   PermissionRequest,
   SetupStatus,
@@ -101,9 +102,16 @@ export const api = {
     fetchJson<PermissionRequest[]>('/permissions/pending', 'fetch pending permissions', apiKey),
   getVersion: () => fetchJson<{ version: string; build_target: string }>('/system/version', 'fetch version'),
   getMetrics: (apiKey?: string) => fetchJson<Metrics>('/metrics', 'fetch metrics', apiKey),
-  getMemories: async (apiKey?: string): Promise<Memory[]> => {
-    const data = await fetchJson<{ memories: Memory[]; count: number }>('/memories', 'fetch memories', apiKey);
-    return data.memories ?? [];
+  getMemories: async (apiKey?: string): Promise<{ memories: Memory[]; capabilities: MemoryCapabilities }> => {
+    const data = await fetchJson<{ memories: Memory[]; count: number; capabilities?: MemoryCapabilities }>(
+      '/memories',
+      'fetch memories',
+      apiKey,
+    );
+    return {
+      memories: data.memories ?? [],
+      capabilities: data.capabilities ?? { update_memory: false, lock_memory: false, unlock_memory: false },
+    };
   },
   getEpisodes: async (apiKey?: string): Promise<Episode[]> => {
     const data = await fetchJson<{ episodes: Episode[]; count: number }>('/episodes', 'fetch episodes', apiKey);
@@ -593,6 +601,25 @@ export const api = {
   deleteMemory: (memoryId: number, apiKey: string) =>
     mutate(`/memories/${memoryId}`, 'DELETE', 'delete memory', undefined, { 'X-API-Key': apiKey }).then(() => {}),
 
+  updateMemory: (memoryId: number, content: string, apiKey: string) =>
+    mutate(`/memories/${memoryId}`, 'PUT', 'update memory', { content }, { 'X-API-Key': apiKey }).then(() => {}),
+
+  lockMemory: async (memoryId: number, apiKey: string): Promise<{ lock_level: string }> => {
+    const res = await mutate(`/memories/${memoryId}/lock`, 'POST', 'lock memory', undefined, {
+      'X-API-Key': apiKey,
+    });
+    const body = await res.json();
+    return body.data as { lock_level: string };
+  },
+
+  unlockMemory: async (memoryId: number, apiKey: string): Promise<{ lock_level: string }> => {
+    const res = await mutate(`/memories/${memoryId}/unlock`, 'POST', 'unlock memory', undefined, {
+      'X-API-Key': apiKey,
+    });
+    const body = await res.json();
+    return body.data as { lock_level: string };
+  },
+
   deleteEpisode: (episodeId: number, apiKey: string) =>
     mutate(`/episodes/${episodeId}`, 'DELETE', 'delete episode', undefined, { 'X-API-Key': apiKey }).then(() => {}),
 
@@ -704,6 +731,9 @@ export function createAuthenticatedApi(apiKey: string) {
     getVrmUrl: (agentId: string) => api.getVrmUrl(agentId),
     // Memory
     deleteMemory: (memoryId: number) => api.deleteMemory(memoryId, k),
+    updateMemory: (memoryId: number, content: string) => api.updateMemory(memoryId, content, k),
+    lockMemory: (memoryId: number) => api.lockMemory(memoryId, k),
+    unlockMemory: (memoryId: number) => api.unlockMemory(memoryId, k),
     deleteEpisode: (episodeId: number) => api.deleteEpisode(episodeId, k),
     importMemories: (data: string, agentId: string) => api.importMemories(data, agentId, k),
     // Setup
