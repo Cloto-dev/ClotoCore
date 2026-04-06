@@ -379,7 +379,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                         title={t('delete_memory')}
                         aria-label={t('delete_memory')}
                       >
-                        <Trash2 size={12} />
+                        <Trash2 size={13} />
                       </button>
                     </div>
                   </div>
@@ -417,7 +417,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                           title={t('delete_episode')}
                           aria-label={t('delete_episode')}
                         >
-                          <Trash2 size={10} />
+                          <Trash2 size={11} />
                         </button>
                       </div>
                     </div>
