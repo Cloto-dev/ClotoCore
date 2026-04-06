@@ -254,11 +254,29 @@ impl SystemHandler {
                 .get("external_source")
                 .cloned()
                 .unwrap_or_else(|| "chat".into());
+
+            // Collect conversation_context content for CPersona exclude_contents
+            // (prevents recall from returning memories already in the short-term context)
+            let exclude_contents: Vec<String> = msg
+                .metadata
+                .get("conversation_context")
+                .and_then(|raw| serde_json::from_str::<Vec<serde_json::Value>>(raw).ok())
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(|e| e.get("content").and_then(|v| v.as_str()))
+                        .map(|s| s.trim().to_lowercase())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+
             let recall_args = serde_json::json!({
                 "agent_id": agent.id,
                 "query": msg.content,
                 "limit": self.memory_context_limit,
                 "channel": memory_channel,
+                "exclude_contents": exclude_contents,
             });
             match tokio::time::timeout(
                 Duration::from_secs(self.memory_timeout_secs),
@@ -310,12 +328,21 @@ impl SystemHandler {
                         }
                         _ => continue,
                     };
+                    let timestamp = entry
+                        .get("timestamp")
+                        .and_then(|v| v.as_str())
+                        .and_then(|t| {
+                            chrono::DateTime::parse_from_rfc3339(t)
+                                .ok()
+                                .map(|dt| dt.with_timezone(&chrono::Utc))
+                        })
+                        .unwrap_or_else(chrono::Utc::now);
                     merged.push(ClotoMessage {
                         id: cloto_shared::ClotoId::new().to_string(),
                         source,
                         target_agent: None,
                         content,
-                        timestamp: chrono::Utc::now(),
+                        timestamp,
                         metadata: {
                             let mut m = std::collections::HashMap::new();
                             m.insert("context_type".into(), "conversation".into());
@@ -324,6 +351,11 @@ impl SystemHandler {
                     });
                 }
             }
+
+            // Dedup is handled by CPersona's exclude_contents parameter.
+            // Sort chronologically (recalled memories + conversation context).
+            merged.sort_by_key(|m| m.timestamp);
+
             merged
         } else {
             context
@@ -638,11 +670,17 @@ impl SystemHandler {
                             .get("external_source")
                             .cloned()
                             .unwrap_or_else(|| "chat".into());
+                        let resp_session_id = msg
+                            .metadata
+                            .get("external_session_id")
+                            .cloned()
+                            .unwrap_or_default();
                         let resp_msg_json = serde_json::json!({
                             "id": format!("{}-resp", msg.id),
                             "content": content.clone(),
                             "source": { "type": "Agent", "id": agent.id },
                             "timestamp": Utc::now().to_rfc3339(),
+                            "metadata": { "session_id": resp_session_id },
                         });
                         let mem_timeout2 = Duration::from_secs(self.memory_timeout_secs);
                         tokio::spawn(async move {
@@ -1011,11 +1049,17 @@ impl SystemHandler {
                 .get("external_source")
                 .cloned()
                 .unwrap_or_else(|| "chat".into());
+            let store_session_id = msg
+                .metadata
+                .get("external_session_id")
+                .cloned()
+                .unwrap_or_default();
             let msg_json = serde_json::json!({
                 "id": msg.id,
                 "content": msg.content,
                 "source": serde_json::to_value(&msg.source).unwrap_or_else(|_| serde_json::json!({"type":"User","id":"","name":""})),
                 "timestamp": msg.timestamp.to_rfc3339(),
+                "metadata": { "session_id": store_session_id },
             });
 
             // Clone for episode archival (before mcp/server_id are moved)

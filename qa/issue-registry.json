@@ -2329,6 +2329,30 @@
       "pattern": "id: format!\\(\"discord:\\{name\\}\"\\)",
       "expected": "absent",
       "status": "fixed"
+    },
+    {
+      "id": "bug-346",
+      "summary": "Memory recall + conversation_context merged without deduplication — same message appears twice in LLM context causing repeated responses",
+      "severity": "HIGH",
+      "discovered": "2026-04-06T00:00:00Z",
+      "version": "0.6.3-beta.7",
+      "commit": "1421a53",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "conversation_contents\\.insert",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-347",
+      "summary": "conversation_context entries use Utc::now() instead of original Discord message timestamp — breaks chronological ordering",
+      "severity": "HIGH",
+      "discovered": "2026-04-06T00:00:00Z",
+      "version": "0.6.3-beta.7",
+      "commit": "1421a53",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "get\\(\"timestamp\"\\)",
+      "expected": "present",
+      "status": "fixed"
     }
   ]
 }
