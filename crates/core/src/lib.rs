@@ -646,7 +646,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     }
 
     // 6b2. MCP health monitor — auto-restart dead servers (bug-142)
-    Arc::clone(&mcp_manager).spawn_health_monitor(app_state.shutdown.clone());
+    Arc::clone(&mcp_manager).spawn_health_monitor(
+        app_state.shutdown.clone(),
+        app_state.config.mcp_health_interval_secs,
+    );
 
     // 6b2. MCP notification listener — forward Server→Kernel notifications to event bus
     if let Some(mut notif_rx) = mcp_manager.take_notification_receiver().await {

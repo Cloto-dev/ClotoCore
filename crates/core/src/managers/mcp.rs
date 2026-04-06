@@ -2083,6 +2083,15 @@ impl McpClientManager {
         self.dispatcher.resolve(capability, tool_name).await.is_some()
     }
 
+    /// Check if a server is connected and its transport is alive.
+    pub async fn is_server_alive(&self, server_id: &str) -> bool {
+        let state = self.state.read().await;
+        state
+            .servers
+            .get(server_id)
+            .is_some_and(|h| h.client.as_ref().is_some_and(|c| c.is_alive()))
+    }
+
     // ============================================================
     // Server Lifecycle (MCP_SERVER_UI_DESIGN.md §4.3)
     // ============================================================
@@ -2405,8 +2414,12 @@ impl McpClientManager {
 
     /// Spawn a background task that periodically checks for dead MCP servers
     /// and auto-restarts them based on their restart policy.
-    pub fn spawn_health_monitor(self: Arc<Self>, shutdown: Arc<tokio::sync::Notify>) {
-        super::mcp_health::spawn_health_monitor(self, shutdown);
+    pub fn spawn_health_monitor(
+        self: Arc<Self>,
+        shutdown: Arc<tokio::sync::Notify>,
+        interval_secs: u64,
+    ) {
+        super::mcp_health::spawn_health_monitor(self, shutdown, interval_secs);
     }
 }
 

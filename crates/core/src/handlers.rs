@@ -482,17 +482,18 @@ pub async fn get_memories(
         .collect();
 
         for mem in memories.iter_mut() {
-            let mem_id = mem.get("id").and_then(|v| v.as_i64()).unwrap_or(-1);
-            if mem.get("locked").and_then(|v| v.as_bool()).unwrap_or(false) {
+            let mem_id = mem.get("id").and_then(serde_json::Value::as_i64).unwrap_or(-1);
+            if mem.get("locked").and_then(serde_json::Value::as_bool).unwrap_or(false) {
                 // Server-level lock
-                mem.as_object_mut()
-                    .map(|o| o.insert("lock_level".into(), "server".into()));
+                if let Some(o) = mem.as_object_mut() {
+                    o.insert("lock_level".into(), "server".into());
+                }
             } else if kernel_locks.contains(&mem_id) {
                 // Kernel fallback lock
-                mem.as_object_mut().map(|o| {
+                if let Some(o) = mem.as_object_mut() {
                     o.insert("locked".into(), true.into());
                     o.insert("lock_level".into(), "kernel".into());
-                });
+                }
             }
         }
     }

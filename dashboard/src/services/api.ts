@@ -28,6 +28,7 @@ export const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
 export const EVENTS_URL = `${API_BASE}/events`;
 
 const HEALTH_CHECK_TIMEOUT_MS = 3000;
+const API_TIMEOUT_MS = 15_000;
 
 // Health check types
 export interface HealthCheck {
@@ -66,7 +67,7 @@ async function throwIfNotOk(res: Response, ctx: string): Promise<void> {
 async function fetchJson<T>(path: string, ctx: string, apiKey?: string, signal?: AbortSignal): Promise<T> {
   const headers: Record<string, string> = {};
   if (apiKey) headers['X-API-Key'] = apiKey;
-  const res = await fetch(`${API_BASE}${path}`, { headers, signal });
+  const res = await fetch(`${API_BASE}${path}`, { headers, signal: signal ?? AbortSignal.timeout(API_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`Failed to ${ctx}: ${res.statusText}`);
   const body = await res.json();
   return body.data as T;
@@ -83,7 +84,7 @@ async function mutate(
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: { 'Content-Type': 'application/json', ...extraHeaders },
-    signal,
+    signal: signal ?? AbortSignal.timeout(API_TIMEOUT_MS),
     ...(body !== undefined && { body: JSON.stringify(body) }),
   });
   if (!res.ok) throw new Error(`Failed to ${ctx}: ${res.statusText}`);

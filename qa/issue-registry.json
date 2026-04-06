@@ -2353,6 +2353,138 @@
       "pattern": "get\\(\"timestamp\"\\)",
       "expected": "present",
       "status": "fixed"
+    },
+    {
+      "id": "bug-348",
+      "summary": "Dashboard API calls have no default timeout — frontend hangs indefinitely when MCP server freezes",
+      "severity": "CRITICAL",
+      "discovered": "2026-04-06T18:00:00Z",
+      "version": "0.6.3-beta.8",
+      "commit": "ccfbc25",
+      "file": "dashboard/src/services/api.ts",
+      "pattern": "async function fetchJson",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-349",
+      "summary": "Stdio transport reader blocks forever on next_line() with no timeout — frozen Python process kills response loop",
+      "severity": "CRITICAL",
+      "discovered": "2026-04-06T18:00:00Z",
+      "version": "0.6.3-beta.8",
+      "commit": "ccfbc25",
+      "file": "crates/core/src/managers/mcp_transport.rs",
+      "pattern": "stdout silent for 120s",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-350",
+      "summary": "MCP response loop holds transport Mutex during unbounded recv() — deadlocks all requests when reader hangs",
+      "severity": "CRITICAL",
+      "discovered": "2026-04-06T18:00:00Z",
+      "version": "0.6.3-beta.8",
+      "commit": "ccfbc25",
+      "file": "crates/core/src/managers/mcp_client.rs",
+      "pattern": "Release Mutex after 5s to prevent deadlock",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-351",
+      "summary": "Streaming tool calls (call_tool_streaming) have no timeout on chunk receiver — hangs forever if server stops sending",
+      "severity": "HIGH",
+      "discovered": "2026-04-06T18:00:00Z",
+      "version": "0.6.3-beta.8",
+      "commit": "ccfbc25",
+      "file": "crates/core/src/managers/mcp_client.rs",
+      "pattern": "Streaming request timed out",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-352",
+      "summary": "Frontend silently swallows API errors — no user-facing feedback on timeout/failure",
+      "severity": "HIGH",
+      "discovered": "2026-04-06T18:00:00Z",
+      "version": "0.6.3-beta.8",
+      "commit": "ccfbc25",
+      "file": "dashboard/src/components/MemoryCore.tsx",
+      "pattern": "setErrorMsg\\(t\\('operation_failed'\\)\\)",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-353",
+      "summary": "MCP health monitor runs at 30-second interval — frozen server undetected for up to 30s",
+      "severity": "HIGH",
+      "discovered": "2026-04-06T18:00:00Z",
+      "version": "0.6.3-beta.8",
+      "commit": "ccfbc25",
+      "file": "crates/core/src/managers/mcp_health.rs",
+      "pattern": "from_secs\\(30\\)",
+      "expected": "absent",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-354",
+      "summary": "call_mcp_tool handler has no pre-flight server alive check — waits full timeout before failing",
+      "severity": "HIGH",
+      "discovered": "2026-04-06T18:00:00Z",
+      "version": "0.6.3-beta.8",
+      "commit": "ccfbc25",
+      "file": "crates/core/src/handlers/mcp.rs",
+      "pattern": "is_server_alive",
+      "expected": "present",
+      "status": "fixed"
+    },
+    {
+      "id": "bug-355",
+      "summary": "Stdio transport writer has no timeout on write_all/flush — blocks if child stdin pipe is full",
+      "severity": "MEDIUM",
+      "discovered": "2026-04-06T18:00:00Z",
+      "version": "0.6.3-beta.8",
+      "commit": "ccfbc25",
+      "file": "crates/core/src/managers/mcp_transport.rs",
+      "pattern": "writer\\.write_all\\(",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-356",
+      "summary": "HTTP transport has only global 60s timeout, no per-message timeout — one slow request blocks queue",
+      "severity": "MEDIUM",
+      "discovered": "2026-04-06T18:00:00Z",
+      "version": "0.6.3-beta.8",
+      "commit": "ccfbc25",
+      "file": "crates/core/src/managers/mcp_transport.rs",
+      "pattern": "timeout\\(std::time::Duration::from_secs\\(60\\)\\)",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-357",
+      "summary": "McpClient::call() send can block on full channel — timeout only protects rx, not send path",
+      "severity": "MEDIUM",
+      "discovered": "2026-04-06T18:00:00Z",
+      "version": "0.6.3-beta.8",
+      "commit": "ccfbc25",
+      "file": "crates/core/src/managers/mcp_client.rs",
+      "pattern": "self\\.sender",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-358",
+      "summary": "MCP process shutdown uses SIGTERM only — no SIGKILL fallback if process refuses to exit",
+      "severity": "MEDIUM",
+      "discovered": "2026-04-06T18:00:00Z",
+      "version": "0.6.3-beta.8",
+      "commit": "ccfbc25",
+      "file": "crates/core/src/managers/mcp_transport.rs",
+      "pattern": "start_kill\\(\\)",
+      "expected": "present",
+      "status": "open"
     }
   ]
 }

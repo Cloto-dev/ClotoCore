@@ -142,7 +142,16 @@ impl McpClient {
             loop {
                 let msg_opt = {
                     let mut tp = transport.lock().await;
-                    tp.recv().await
+                    // Release Mutex after 5s to prevent deadlock when reader hangs
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        tp.recv(),
+                    )
+                    .await
+                    {
+                        Ok(msg) => msg,
+                        Err(_) => continue, // Timeout — release lock, retry
+                    }
                 };
 
                 if let Some(line) = msg_opt {
@@ -373,6 +382,7 @@ impl McpClient {
         let (result_tx, result_rx) = oneshot::channel();
         let stream_collectors = self.stream_collectors.clone();
         let final_id = id;
+        let timeout_secs = self.request_timeout_secs;
         {
             let mut map = self.pending_requests.lock().await;
             let (inner_tx, inner_rx) = oneshot::channel();
@@ -380,11 +390,17 @@ impl McpClient {
 
             // Spawn a task to convert the raw response to CallToolResult and clean up
             tokio::spawn(async move {
-                let result = match inner_rx.await {
-                    Ok(Ok(val)) => serde_json::from_value::<CallToolResult>(val)
+                let result = match tokio::time::timeout(
+                    std::time::Duration::from_secs(timeout_secs),
+                    inner_rx,
+                )
+                .await
+                {
+                    Ok(Ok(Ok(val))) => serde_json::from_value::<CallToolResult>(val)
                         .map_err(|e| anyhow::anyhow!("Failed to parse streaming result: {}", e)),
-                    Ok(Err(e)) => Err(e),
-                    Err(_) => Err(anyhow::anyhow!("Response channel closed")),
+                    Ok(Ok(Err(e))) => Err(e),
+                    Ok(Err(_)) => Err(anyhow::anyhow!("Response channel closed")),
+                    Err(_) => Err(anyhow::anyhow!("Streaming request timed out")),
                 };
                 // Clean up stream collector
                 {

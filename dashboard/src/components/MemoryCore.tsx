@@ -62,6 +62,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
   });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const api = useApi();
   const { metrics: hookMetrics } = useMetrics();
   const metrics: Metrics = hookMetrics ?? { ram_usage: 'N/A', total_memories: 0, total_requests: 0, total_episodes: 0 };
@@ -126,11 +127,20 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
     fetchData();
   }, [fetchData]);
 
+  // Auto-clear error toast after 3 seconds
+  useEffect(() => {
+    if (errorMsg) {
+      const timer = setTimeout(() => setErrorMsg(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMsg]);
+
   const handleDeleteMemory = async (id: number) => {
     try {
       await api.deleteMemory(id);
       setMemories((prev) => prev.filter((m) => m.id !== id));
     } catch (e) {
+      setErrorMsg(t('operation_failed'));
       if (import.meta.env.DEV) console.error('Failed to delete memory:', e);
     }
   };
@@ -140,6 +150,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
       await api.deleteEpisode(id);
       setEpisodes((prev) => prev.filter((e) => e.id !== id));
     } catch (e) {
+      setErrorMsg(t('operation_failed'));
       if (import.meta.env.DEV) console.error('Failed to delete episode:', e);
     }
   };
@@ -161,6 +172,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
       setEditingId(null);
       setEditContent('');
     } catch (e) {
+      setErrorMsg(t('operation_failed'));
       if (import.meta.env.DEV) console.error('Failed to update memory:', e);
     }
   };
@@ -177,6 +189,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
         setMemories((prev) => prev.map((m) => (m.id === id ? { ...m, locked: true, lock_level: lockLevel } : m)));
       }
     } catch (e) {
+      setErrorMsg(t('operation_failed'));
       if (import.meta.env.DEV) console.error('Failed to toggle lock:', e);
     }
   };
@@ -389,6 +402,11 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
       )}
 
       <div className={`relative z-10 ${isWindowMode ? '' : 'p-6 md:px-12'}`}>
+        {errorMsg && (
+          <div className="mb-4 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 font-mono">
+            {errorMsg}
+          </div>
+        )}
         <main className={`grid grid-cols-1 ${isWindowMode ? 'gap-4' : 'lg:grid-cols-3 gap-8'}`}>
           <section className={`${isWindowMode ? '' : 'lg:col-span-2'} space-y-4`}>
             <SectionHeader icon={User} title={t('long_term')} className="mb-2" />

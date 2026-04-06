@@ -897,6 +897,18 @@ pub async fn call_mcp_tool(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
 
+    // Pre-flight: reject immediately if server is known-dead (bug-354)
+    if !state
+        .mcp_manager
+        .is_server_alive(&body.server_id)
+        .await
+    {
+        return Err(AppError::Validation(format!(
+            "MCP server '{}' is not connected",
+            body.server_id
+        )));
+    }
+
     let result = state
         .mcp_manager
         .call_server_tool(&body.server_id, &body.tool_name, body.arguments)
