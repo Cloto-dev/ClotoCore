@@ -407,20 +407,30 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                         <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-brand/10 transition-colors">
                           <User size={12} className="text-content-tertiary group-hover:text-brand" />
                         </div>
-                        <span className="text-[11px] font-mono text-content-tertiary">
+                        <span className="text-[11px] font-mono text-content-tertiary flex-1 min-w-0 truncate">
                           {memorySpeakerName(mem.source as Record<string, unknown>, mem.agent_id, agentMap)}
                         </span>
-                        {isLocked && (
-                          <Lock
-                            size={11}
-                            className={
-                              mem.lock_level === 'server'
-                                ? 'memory-lock-glow text-brand shrink-0'
-                                : 'text-brand shrink-0'
-                            }
-                            title={t('memory_locked')}
-                          />
-                        )}
+                        {/* Lock toggle — top-right corner */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleLock(mem.id, isLocked);
+                          }}
+                          className={`p-1 rounded shrink-0 transition-all ${
+                            isLocked
+                              ? mem.lock_level === 'server'
+                                ? 'memory-lock-glow text-purple-400'
+                                : 'text-brand'
+                              : capabilities.lock_memory
+                                ? 'text-content-muted hover:text-purple-400 hover:bg-purple-500/10 opacity-0 group-hover:opacity-100'
+                                : 'text-content-muted hover:text-brand hover:bg-brand/10 opacity-0 group-hover:opacity-100'
+                          }`}
+                          title={isLocked ? t('unlock_memory') : t('lock_memory')}
+                          aria-label={isLocked ? t('unlock_memory') : t('lock_memory')}
+                        >
+                          {isLocked ? <Lock size={16} /> : <Unlock size={16} />}
+                        </button>
                       </div>
                       {isEditing ? (
                         <div className="flex-1 min-h-0 flex flex-col gap-2">
@@ -436,7 +446,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                               className="p-1 rounded text-green-500 hover:bg-green-500/10 transition-all"
                               title={t('save')}
                             >
-                              <Check size={13} />
+                              <Check size={16} />
                             </button>
                             <button
                               type="button"
@@ -444,7 +454,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                               className="p-1 rounded text-content-muted hover:text-content-secondary hover:bg-surface-secondary transition-all"
                               title={t('cancel')}
                             >
-                              <X size={13} />
+                              <X size={16} />
                             </button>
                           </div>
                         </div>
@@ -457,7 +467,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                         <span className="text-[9px] text-content-tertiary font-bold uppercase tracking-widest">
                           {mem.created_at}
                         </span>
-                        <div className="flex items-center gap-0.5">
+                        <div className="flex items-center gap-2">
                           {/* Edit button: only if server supports it and memory is unlocked */}
                           {capabilities.update_memory && !isLocked && !isEditing && (
                             <button
@@ -470,28 +480,9 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                               title={t('edit_memory')}
                               aria-label={t('edit_memory')}
                             >
-                              <Pencil size={13} />
+                              <Pencil size={16} />
                             </button>
                           )}
-                          {/* Lock toggle */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleLock(mem.id, isLocked);
-                            }}
-                            className={`p-1 rounded transition-all ${
-                              isLocked
-                                ? mem.lock_level === 'server'
-                                  ? 'memory-lock-glow text-brand'
-                                  : 'text-brand'
-                                : 'text-content-muted hover:text-brand hover:bg-brand/10 opacity-0 group-hover:opacity-100'
-                            }`}
-                            title={isLocked ? t('unlock_memory') : t('lock_memory')}
-                            aria-label={isLocked ? t('unlock_memory') : t('lock_memory')}
-                          >
-                            {isLocked ? <Lock size={13} /> : <Unlock size={13} />}
-                          </button>
                           {/* Delete button: disabled when locked */}
                           <button
                             type="button"
@@ -508,7 +499,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                             aria-label={t('delete_memory')}
                             disabled={isLocked}
                           >
-                            <Trash2 size={13} />
+                            <Trash2 size={16} />
                           </button>
                         </div>
                       </div>
