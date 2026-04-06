@@ -1,5 +1,6 @@
 import { Cpu, HelpCircle, Settings } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ActionsProvider } from '../contexts/ActionsContext';
 import { useAgentContext } from '../contexts/AgentContext';
@@ -19,6 +20,7 @@ export interface AppOutletContext {
 }
 
 export function AppLayout() {
+  const { t } = useTranslation('common');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<'general' | 'about'>('general');
   const [helpOpen, setHelpOpen] = useState(false);
@@ -153,7 +155,7 @@ export function AppLayout() {
 
         {/* Help modal */}
         {helpOpen && (
-          <Modal title="Help" icon={HelpCircle} size="sm" onClose={() => setHelpOpen(false)}>
+          <Modal title={t('help.title')} icon={HelpCircle} size="sm" onClose={() => setHelpOpen(false)}>
             <HelpContent onAskAgent={handleAskAgent} />
           </Modal>
         )}
