@@ -53,6 +53,8 @@ pub struct AppConfig {
     pub heartbeat_threshold_ms: i64,
     /// MCP request timeout in seconds.
     pub mcp_request_timeout_secs: u64,
+    /// MCP health check interval in seconds.
+    pub mcp_health_interval_secs: u64,
     /// LLM proxy HTTP client timeout in seconds.
     pub llm_proxy_timeout_secs: u64,
     /// Rate limiter: requests per second.
@@ -329,6 +331,17 @@ impl AppConfig {
             );
         }
 
+        let mcp_health_interval_secs = env::var("CLOTO_MCP_HEALTH_INTERVAL_SECS")
+            .unwrap_or_else(|_| "10".to_string())
+            .parse::<u64>()
+            .context("Failed to parse CLOTO_MCP_HEALTH_INTERVAL_SECS")?;
+        if !(5..=60).contains(&mcp_health_interval_secs) {
+            anyhow::bail!(
+                "CLOTO_MCP_HEALTH_INTERVAL_SECS must be between 5 and 60 (got {})",
+                mcp_health_interval_secs
+            );
+        }
+
         let llm_proxy_timeout_secs = env::var("CLOTO_LLM_PROXY_TIMEOUT_SECS")
             .unwrap_or_else(|_| "180".to_string())
             .parse::<u64>()
@@ -484,6 +497,7 @@ impl AppConfig {
             memory_timeout_secs,
             heartbeat_threshold_ms,
             mcp_request_timeout_secs,
+            mcp_health_interval_secs,
             llm_proxy_timeout_secs,
             rate_limit_per_sec,
             rate_limit_burst,

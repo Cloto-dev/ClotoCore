@@ -20,6 +20,7 @@
   "import_tooltip": "Import memories from JSONL",
   "import_confirm": "Import {{memories}} memories and {{episodes}} episodes?",
   "import_success": "Imported {{memories}} memories, {{episodes}} episodes ({{skipped}} skipped)",
+  "operation_failed": "Operation failed",
   "import_error": "Import failed",
   "importing": "Importing..."
 }
