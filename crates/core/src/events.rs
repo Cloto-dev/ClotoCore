@@ -504,7 +504,7 @@ impl EventProcessor {
                     // Forward I/O bridge metadata so the LLM can use origin-specific tools
                     // (e.g. add_reaction needs channel_id + message_id)
                     if let Some(meta) = meta {
-                        for key in ["channel_id", "message_id", "guild_id"] {
+                        for key in ["channel_id", "message_id", "guild_id", "session_id"] {
                             if let Some(val) = meta.get(key).and_then(|v| v.as_str()) {
                                 msg_metadata.insert(format!("external_{}", key), val.to_string());
                             }
