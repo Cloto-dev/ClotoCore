@@ -282,12 +282,30 @@ impl StdioTransport {
             }
         });
 
-        // Reader Task (Stdout)
+        // Reader Task (Stdout) — with 120s silence timeout to detect frozen servers
         tokio::spawn(async move {
             let mut reader = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                if !line.trim().is_empty() && res_tx.send(line).await.is_err() {
-                    break;
+            loop {
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(120),
+                    reader.next_line(),
+                )
+                .await
+                {
+                    Ok(Ok(Some(line))) => {
+                        if !line.trim().is_empty() && res_tx.send(line).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(Ok(None)) => break, // EOF
+                    Ok(Err(e)) => {
+                        warn!("MCP stdout read error: {}", e);
+                        break;
+                    }
+                    Err(_) => {
+                        warn!("MCP server stdout silent for 120s, closing reader");
+                        break;
+                    }
                 }
             }
             warn!("MCP Server stdout closed.");

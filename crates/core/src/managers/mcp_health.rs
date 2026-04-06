@@ -15,9 +15,10 @@ use tracing::{debug, error, info, warn};
 pub(super) fn spawn_health_monitor(
     manager: Arc<McpClientManager>,
     shutdown: Arc<tokio::sync::Notify>,
+    interval_secs: u64,
 ) {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
         loop {
             tokio::select! {
                 () = shutdown.notified() => {
