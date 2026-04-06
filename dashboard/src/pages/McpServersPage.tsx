@@ -271,10 +271,10 @@ export function McpServersPage() {
                         </span>
                       )}
                     </div>
-                    <div className={`flex items-center gap-3 text-[10px] font-mono text-content-tertiary ${isMgp ? 'relative' : ''}`}>
-                      <span className="flex items-center gap-1.5">
+                    <div className={`flex items-center gap-3 text-[10px] font-mono text-content-tertiary leading-none ${isMgp ? 'relative' : ''}`}>
+                      <span className="inline-flex items-center gap-1.5">
                         <StatusDot status={mcpStatusToDot(server.status)} />
-                        {statusLabel(server.status)}
+                        <span>{statusLabel(server.status)}</span>
                       </span>
                       <span>{t('tools_count', { count: server.tools.length })}</span>
                       {server.is_cloto_sdk && <span className="text-brand">SDK</span>}

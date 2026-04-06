@@ -49,6 +49,7 @@ evidence is needed to confirm existence (e.g., AI-discovered bugs that could be 
 - **Min text size**: `text-[9px]`. Never `text-[8px]` or smaller.
 - **Min text color**: `text-content-tertiary`. Never `text-content-muted` for readable text.
 - **Hover borders**: `hover:border-brand` (interactive), `hover:border-red-500` (destructive). Full opacity.
+- **Tailwind CSS**: The dashboard uses pre-compiled CSS (`src/compiled-tailwind.css`), NOT JIT. When adding or changing Tailwind utility classes in JSX, you MUST regenerate: `cd dashboard && npx tailwindcss -i src/index.css -o src/compiled-tailwind.css`. New classes will not take effect without this step.
 
 ## Git Rules
 
