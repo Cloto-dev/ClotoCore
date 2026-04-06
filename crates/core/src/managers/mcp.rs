@@ -2074,6 +2074,15 @@ impl McpClientManager {
         self.call_server_tool(&server_id, tool_name, args).await
     }
 
+    /// Check whether any connected memory server provides the named tool.
+    pub async fn has_capability_tool(
+        &self,
+        capability: super::capability_dispatcher::CapabilityType,
+        tool_name: &str,
+    ) -> bool {
+        self.dispatcher.resolve(capability, tool_name).await.is_some()
+    }
+
     // ============================================================
     // Server Lifecycle (MCP_SERVER_UI_DESIGN.md §4.3)
     // ============================================================

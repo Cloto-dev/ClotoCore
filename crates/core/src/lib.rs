@@ -1041,7 +1041,12 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .route("/history", get(handlers::get_history))
         .route("/metrics", get(handlers::get_metrics))
         .route("/memories", get(handlers::get_memories))
-        .route("/memories/:id", delete(handlers::delete_memory))
+        .route(
+            "/memories/:id",
+            delete(handlers::delete_memory).put(handlers::update_memory),
+        )
+        .route("/memories/:id/lock", post(handlers::lock_memory))
+        .route("/memories/:id/unlock", post(handlers::unlock_memory))
         .route("/episodes", get(handlers::get_episodes))
         .route("/episodes/:id", delete(handlers::delete_episode))
         .route("/memories/import", post(handlers::import_memories))

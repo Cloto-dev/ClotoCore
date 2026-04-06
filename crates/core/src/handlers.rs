@@ -440,21 +440,74 @@ async fn call_memory_tool_with_fallback(
 
 /// **Route:** `GET /api/memories`
 ///
-/// # Response
-/// Returns recent memories from CPersona memory server.
+/// Returns recent memories enriched with lock status and server capabilities.
 pub async fn get_memories(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
     let args = serde_json::json!({ "agent_id": "", "limit": 100 });
-    call_memory_tool_with_fallback(
-        &state,
-        "list_memories",
-        args,
-        serde_json::json!({ "memories": [], "count": 0 }),
-    )
-    .await
+
+    // Fetch memories from MCP server
+    let mut data = match state
+        .mcp_manager
+        .call_capability_tool(crate::managers::CapabilityType::Memory, "list_memories", args, None)
+        .await
+    {
+        Ok(result) => parse_mcp_tool_result(&result)
+            .unwrap_or(serde_json::json!({ "memories": [], "count": 0 })),
+        Err(e) => {
+            tracing::warn!("Memory tool list_memories failed: {}", e);
+            serde_json::json!({ "memories": [], "count": 0 })
+        }
+    };
+
+    // Enrich with kernel-level lock status for servers without native lock support
+    if let Some(memories) = data.get_mut("memories").and_then(|m| m.as_array_mut()) {
+        // Resolve memory server ID for kernel lock table queries
+        let server_id = state
+            .mcp_manager
+            .resolve_capability_server(crate::managers::CapabilityType::Memory)
+            .await
+            .unwrap_or_default();
+
+        let kernel_locks: std::collections::HashSet<i64> = sqlx::query_scalar(
+            "SELECT memory_id FROM memory_locks WHERE server_id = ?",
+        )
+        .bind(&server_id)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+
+        for mem in memories.iter_mut() {
+            let mem_id = mem.get("id").and_then(|v| v.as_i64()).unwrap_or(-1);
+            if mem.get("locked").and_then(|v| v.as_bool()).unwrap_or(false) {
+                // Server-level lock
+                mem.as_object_mut()
+                    .map(|o| o.insert("lock_level".into(), "server".into()));
+            } else if kernel_locks.contains(&mem_id) {
+                // Kernel fallback lock
+                mem.as_object_mut().map(|o| {
+                    o.insert("locked".into(), true.into());
+                    o.insert("lock_level".into(), "kernel".into());
+                });
+            }
+        }
+    }
+
+    // Add capability detection for the dashboard
+    let cap = crate::managers::CapabilityType::Memory;
+    let capabilities = serde_json::json!({
+        "update_memory": state.mcp_manager.has_capability_tool(cap, "update_memory").await,
+        "lock_memory": state.mcp_manager.has_capability_tool(cap, "lock_memory").await,
+        "unlock_memory": state.mcp_manager.has_capability_tool(cap, "unlock_memory").await,
+    });
+    data.as_object_mut()
+        .map(|o| o.insert("capabilities".into(), capabilities));
+
+    ok_data(data)
 }
 
 /// **Route:** `GET /api/episodes`
@@ -483,6 +536,12 @@ pub async fn delete_memory(
     Path(id): Path<i64>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
+
+    // Check kernel-level lock before forwarding to server
+    if is_kernel_locked(&state, id).await {
+        return Err(AppError::Validation("Memory is locked and cannot be deleted".into()));
+    }
+
     let args = serde_json::json!({ "memory_id": id });
     let result = state
         .mcp_manager
@@ -566,6 +625,150 @@ pub async fn import_memories(
 
     let result = result.map_err(AppError::Internal)?;
     ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({"ok": false})))
+}
+
+/// Check if a memory is locked in the kernel fallback table.
+async fn is_kernel_locked(state: &AppState, memory_id: i64) -> bool {
+    sqlx::query_scalar::<_, i32>(
+        "SELECT 1 FROM memory_locks WHERE memory_id = ? LIMIT 1",
+    )
+    .bind(memory_id)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()
+    .flatten()
+    .is_some()
+}
+
+/// **Route:** `PUT /api/memories/:id`
+///
+/// Update memory content. Requires the MCP server to support `update_memory`.
+pub async fn update_memory(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    if is_kernel_locked(&state, id).await {
+        return Err(AppError::Validation("Memory is locked and cannot be edited".into()));
+    }
+
+    let content = body
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Validation("missing 'content' field".into()))?;
+
+    if !state
+        .mcp_manager
+        .has_capability_tool(crate::managers::CapabilityType::Memory, "update_memory")
+        .await
+    {
+        return Err(AppError::Validation(
+            "Memory server does not support editing".into(),
+        ));
+    }
+
+    let args = serde_json::json!({ "memory_id": id, "content": content });
+    let result = state
+        .mcp_manager
+        .call_capability_tool(
+            crate::managers::CapabilityType::Memory,
+            "update_memory",
+            args,
+            None,
+        )
+        .await
+        .map_err(AppError::Internal)?;
+    ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({})))
+}
+
+/// **Route:** `POST /api/memories/:id/lock`
+///
+/// Lock a memory. Delegates to MCP server if supported, otherwise uses kernel fallback.
+pub async fn lock_memory(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let cap = crate::managers::CapabilityType::Memory;
+    if state
+        .mcp_manager
+        .has_capability_tool(cap, "lock_memory")
+        .await
+    {
+        // Server-level lock
+        let args = serde_json::json!({ "memory_id": id });
+        let result = state
+            .mcp_manager
+            .call_capability_tool(cap, "lock_memory", args, None)
+            .await
+            .map_err(AppError::Internal)?;
+        let mut data = parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({}));
+        data.as_object_mut()
+            .map(|o| o.insert("lock_level".into(), "server".into()));
+        ok_data(data)
+    } else {
+        // Kernel fallback lock
+        let server_id = state
+            .mcp_manager
+            .resolve_capability_server(cap)
+            .await
+            .unwrap_or_default();
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO memory_locks (server_id, memory_id) VALUES (?, ?)",
+        )
+        .bind(&server_id)
+        .bind(id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to lock memory: {}", e)))?;
+
+        ok_data(serde_json::json!({ "ok": true, "locked_id": id, "lock_level": "kernel" }))
+    }
+}
+
+/// **Route:** `POST /api/memories/:id/unlock`
+///
+/// Unlock a memory. Delegates to MCP server if supported, otherwise removes kernel fallback.
+pub async fn unlock_memory(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let cap = crate::managers::CapabilityType::Memory;
+    if state
+        .mcp_manager
+        .has_capability_tool(cap, "unlock_memory")
+        .await
+    {
+        // Server-level unlock
+        let args = serde_json::json!({ "memory_id": id });
+        let result = state
+            .mcp_manager
+            .call_capability_tool(cap, "unlock_memory", args, None)
+            .await
+            .map_err(AppError::Internal)?;
+        let mut data = parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({}));
+        data.as_object_mut()
+            .map(|o| o.insert("lock_level".into(), "server".into()));
+        ok_data(data)
+    } else {
+        // Remove kernel fallback lock
+        sqlx::query("DELETE FROM memory_locks WHERE memory_id = ?")
+            .bind(id)
+            .execute(&state.pool)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to unlock memory: {}", e)))?;
+
+        ok_data(serde_json::json!({ "ok": true, "unlocked_id": id, "lock_level": "kernel" }))
+    }
 }
 
 // ============================================================
