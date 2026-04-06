@@ -407,7 +407,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                         <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-brand/10 transition-colors">
                           <User size={12} className="text-content-tertiary group-hover:text-brand" />
                         </div>
-                        <span className="text-[11px] font-mono text-content-tertiary flex-1 min-w-0 truncate">
+                        <span className="text-[13px] font-mono text-content-tertiary flex-1 min-w-0 truncate">
                           {memorySpeakerName(mem.source as Record<string, unknown>, mem.agent_id, agentMap)}
                         </span>
                         {/* Lock toggle — top-right corner */}
@@ -464,7 +464,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                         </div>
                       )}
                       <div className="mt-2 pt-2 border-t border-edge-subtle flex justify-between items-center">
-                        <span className="text-[9px] text-content-tertiary font-bold uppercase tracking-widest">
+                        <span className="text-[11px] text-content-tertiary font-bold uppercase tracking-widest">
                           {mem.created_at}
                         </span>
                         <div className="flex items-center gap-2">
@@ -525,7 +525,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                     className="bg-surface-primary/50 p-3 rounded-xl border-l-2 border-brand shadow-sm hover:translate-x-1 transition-transform group"
                   >
                     <div className="text-[10px] font-black text-brand mb-1 uppercase tracking-wider flex justify-between items-center">
-                      <span>{epi.created_at || 'LOG: RECENT'}</span>
+                      <span className="text-[12px]">{epi.created_at || 'LOG: RECENT'}</span>
                       <div className="flex items-center gap-1.5">
                         <span className="text-content-tertiary font-mono">
                           {agentDisplayName(epi.agent_id, agentMap)}
@@ -539,12 +539,12 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                           title={t('delete_episode')}
                           aria-label={t('delete_episode')}
                         >
-                          <Trash2 size={11} />
+                          <Trash2 size={12} />
                         </button>
                       </div>
                     </div>
                     {epi.keywords && (
-                      <div className="text-[9px] font-mono text-content-tertiary mb-1">{epi.keywords}</div>
+                      <div className="text-[10px] font-mono text-content-tertiary mb-1">{epi.keywords}</div>
                     )}
                     <p className="text-xs text-content-secondary line-clamp-3 font-mono leading-relaxed group-hover:text-content-primary">
                       {epi.summary}
