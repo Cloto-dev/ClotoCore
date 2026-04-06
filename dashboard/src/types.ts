@@ -99,6 +99,14 @@ export interface Memory {
   source: Record<string, string>;
   timestamp: string;
   created_at: string;
+  locked?: boolean;
+  lock_level?: 'server' | 'kernel';
+}
+
+export interface MemoryCapabilities {
+  update_memory: boolean;
+  lock_memory: boolean;
+  unlock_memory: boolean;
 }
 
 export interface Episode {

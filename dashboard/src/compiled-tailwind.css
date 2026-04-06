@@ -1137,6 +1137,10 @@ video {
   min-height: 340px;
 }
 
+.min-h-\[6rem\] {
+  min-height: 6rem;
+}
+
 .min-h-screen {
   min-height: 100vh;
 }
@@ -2053,6 +2057,10 @@ video {
   background-color: rgb(var(--surface-secondary) / var(--tw-bg-opacity, 1));
 }
 
+.bg-surface-secondary\/50 {
+  background-color: rgb(var(--surface-secondary) / 0.5);
+}
+
 .bg-surface-secondary\/60 {
   background-color: rgb(var(--surface-secondary) / 0.6);
 }
@@ -2527,6 +2535,10 @@ video {
   color: rgb(var(--text-muted) / var(--tw-text-opacity, 1));
 }
 
+.text-content-muted\/30 {
+  color: rgb(var(--text-muted) / 0.3);
+}
+
 .text-content-primary {
   --tw-text-opacity: 1;
   color: rgb(var(--text-primary) / var(--tw-text-opacity, 1));
@@ -2925,6 +2937,22 @@ body.neural-cursor-active * {
   animation: agent-processing-glow 1.5s ease-in-out infinite;
 }
 
+/* Memory lock glow — pulsing brand-colored drop-shadow on lock icon (DB-level lock) */
+
+@keyframes memory-lock-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 3px rgb(var(--brand-primary)));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 8px rgb(var(--brand-primary)));
+  }
+}
+
+.memory-lock-glow {
+  animation: memory-lock-glow 2s ease-in-out infinite;
+}
+
 /* Boot line: glitch-in → glow pulse → glitch-out */
 
 @keyframes boot-line {
@@ -3306,6 +3334,10 @@ body.neural-cursor-active * {
 
 .hover\:bg-glass-strong:hover {
   background-color: var(--surface-glass-strong);
+}
+
+.hover\:bg-green-500\/10:hover {
+  background-color: rgb(34 197 94 / 0.1);
 }
 
 .hover\:bg-green-500\/20:hover {

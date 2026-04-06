@@ -94,6 +94,15 @@ body.neural-cursor-active * {
   animation: agent-processing-glow 1.5s ease-in-out infinite;
 }
 
+/* Memory lock glow — pulsing brand-colored drop-shadow on lock icon (DB-level lock) */
+@keyframes memory-lock-glow {
+  0%, 100% { filter: drop-shadow(0 0 3px rgb(var(--brand-primary))); }
+  50% { filter: drop-shadow(0 0 8px rgb(var(--brand-primary))); }
+}
+.memory-lock-glow {
+  animation: memory-lock-glow 2s ease-in-out infinite;
+}
+
 /* Boot line: glitch-in → glow pulse → glitch-out */
 @keyframes boot-line {
   0%   { opacity: 0; text-shadow: none; transform: translateX(-2px); }
