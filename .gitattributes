@@ -1,0 +1,5 @@
+# Ensure consistent line endings for SQL migrations.
+# sqlx::migrate!() embeds checksums at compile time — LF/CRLF mismatch
+# between builds causes "migration was previously applied but has been
+# modified" errors on existing databases.
+crates/core/migrations/*.sql text eol=crlf

@@ -286,11 +286,8 @@ impl StdioTransport {
         tokio::spawn(async move {
             let mut reader = BufReader::new(stdout).lines();
             loop {
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(120),
-                    reader.next_line(),
-                )
-                .await
+                match tokio::time::timeout(std::time::Duration::from_secs(120), reader.next_line())
+                    .await
                 {
                     Ok(Ok(Some(line))) => {
                         if !line.trim().is_empty() && res_tx.send(line).await.is_err() {

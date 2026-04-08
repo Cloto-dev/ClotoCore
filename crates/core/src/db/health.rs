@@ -134,6 +134,7 @@ pub async fn run_full_quick_scan(
 pub async fn run_full_repair(
     pool: &SqlitePool,
     servers_dir: Option<&Path>,
+    data_dir: &Path,
 ) -> anyhow::Result<RepairReport> {
     let mut actions = Vec::new();
 
@@ -165,7 +166,7 @@ pub async fn run_full_repair(
 
     // venv repair (if servers_dir available and venv is broken)
     if let Some(dir) = servers_dir {
-        if let Some(action) = repair_venv(dir).await {
+        if let Some(action) = repair_venv(dir, data_dir).await {
             actions.push(action);
         }
     }
@@ -458,8 +459,10 @@ fn check_venv_python_version(servers_dir: &Path) -> HealthCheck {
         HealthCheck {
             name: "venv_python_version".into(),
             status: HealthStatus::Degraded,
-            message: "venv Python version does not match system Python — rebuild recommended"
-                .into(),
+            message: format!(
+                "venv Python version does not match expected {} — rebuild recommended",
+                crate::managers::mcp_venv::TARGET_PYTHON
+            ),
             repairable: true,
             detail: None,
         }
@@ -467,7 +470,10 @@ fn check_venv_python_version(servers_dir: &Path) -> HealthCheck {
         HealthCheck {
             name: "venv_python_version".into(),
             status: HealthStatus::Healthy,
-            message: "venv Python version matches system".into(),
+            message: format!(
+                "venv Python version matches expected {}",
+                crate::managers::mcp_venv::TARGET_PYTHON
+            ),
             repairable: false,
             detail: None,
         }
@@ -476,7 +482,7 @@ fn check_venv_python_version(servers_dir: &Path) -> HealthCheck {
 
 // ── venv Repair ──
 
-async fn repair_venv(servers_dir: &Path) -> Option<RepairAction> {
+async fn repair_venv(servers_dir: &Path, data_dir: &Path) -> Option<RepairAction> {
     let venv_dir = servers_dir.join(".venv");
     let needs_repair = !venv_dir.join("pyvenv.cfg").exists()
         || crate::managers::mcp_venv::is_venv_stale(&venv_dir);
@@ -485,27 +491,47 @@ async fn repair_venv(servers_dir: &Path) -> Option<RepairAction> {
         return None;
     }
 
-    let Some(python_cmd) = crate::managers::mcp_venv::find_python() else {
-        tracing::warn!("Cannot repair venv: Python not found in PATH");
+    let uv = crate::managers::mcp_venv::uv_bin(data_dir);
+    if !uv.exists() {
+        tracing::warn!("Cannot repair venv: uv not found at {}", uv.display());
         return Some(RepairAction {
             name: "venv_repair".into(),
             fixed_count: 0,
-            message: "Failed: Python not found in PATH".into(),
+            message: "Failed: uv not found. Run initial setup first.".into(),
         });
-    };
+    }
+    let uv_str = uv.to_string_lossy().to_string();
 
-    // Recreate venv
-    tracing::info!("Repairing venv at {}", venv_dir.display());
-    let result = tokio::process::Command::new(&python_cmd)
-        .args(["-m", "venv", "--clear", &venv_dir.to_string_lossy()])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .await;
+    // Remove stale venv before recreating
+    if venv_dir.exists() {
+        let _ = tokio::fs::remove_dir_all(&venv_dir).await;
+    }
+
+    // Recreate venv via uv
+    let target_python = crate::managers::mcp_venv::TARGET_PYTHON;
+    tracing::info!(
+        "Repairing venv at {} (Python {})",
+        venv_dir.display(),
+        target_python
+    );
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        tokio::process::Command::new(&uv_str)
+            .args([
+                "venv",
+                "--python",
+                target_python,
+                &venv_dir.to_string_lossy(),
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output(),
+    )
+    .await;
 
     match result {
-        Ok(output) if output.status.success() => {}
-        Ok(output) => {
+        Ok(Ok(output)) if output.status.success() => {}
+        Ok(Ok(output)) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             tracing::warn!(
                 "venv creation failed: {}",
@@ -514,31 +540,32 @@ async fn repair_venv(servers_dir: &Path) -> Option<RepairAction> {
             return Some(RepairAction {
                 name: "venv_repair".into(),
                 fixed_count: 0,
-                message: "Failed to create venv".into(),
+                message: "Failed to create venv via uv".into(),
             });
         }
-        Err(e) => {
-            tracing::warn!("Failed to run python: {e}");
+        Ok(Err(e)) => {
+            tracing::warn!("Failed to run uv: {e}");
             return Some(RepairAction {
                 name: "venv_repair".into(),
                 fixed_count: 0,
-                message: format!("Failed to run python: {e}"),
+                message: format!("Failed to run uv: {e}"),
+            });
+        }
+        Err(_) => {
+            tracing::warn!("uv venv creation timed out (120s)");
+            return Some(RepairAction {
+                name: "venv_repair".into(),
+                fixed_count: 0,
+                message: "uv venv creation timed out (120s)".into(),
             });
         }
     }
 
-    // Upgrade pip
-    let pip_path = crate::managers::mcp_venv::venv_pip(&venv_dir);
-    let pip_str = pip_path.to_string_lossy().to_string();
-    let _ = tokio::process::Command::new(&pip_str)
-        .args(["install", "--upgrade", "pip", "--quiet"])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .await;
-
-    // Reinstall all server dependencies
-    let installed = crate::managers::mcp_venv::install_server_deps(&pip_str, servers_dir).await;
+    // Reinstall all server dependencies via uv
+    let venv_py = crate::managers::mcp_venv::venv_python(&venv_dir);
+    let venv_py_str = venv_py.to_string_lossy().to_string();
+    let installed =
+        crate::managers::mcp_venv::install_server_deps(&uv_str, &venv_py_str, servers_dir).await;
 
     Some(RepairAction {
         name: "venv_repair".into(),

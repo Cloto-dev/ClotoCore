@@ -314,7 +314,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         // are already available; pip install only adds/updates packages.
         let data_dir_bg = data_dir.clone();
         tokio::spawn(async move {
-            managers::mcp_venv::ensure_mcp_venv(Some(&data_dir_bg)).await;
+            managers::mcp_venv::ensure_mcp_venv(&data_dir_bg).await;
         });
     } else {
         tracing::info!("Setup not complete — skipping MCP venv sync");
@@ -1010,8 +1010,6 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         )
         // API key invalidation
         .route("/system/invalidate-key", post(handlers::invalidate_api_key))
-        // Bootstrap setup (auth required to start)
-        .route("/setup/start", post(handlers::setup::start_handler))
         // Marketplace (auth required)
         .route("/marketplace/catalog", get(handlers::catalog_handler))
         .route("/marketplace/install", post(handlers::install_handler))
@@ -1031,10 +1029,6 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         // Bootstrap setup (no auth — like health_handler)
         .route("/setup/status", get(handlers::setup::status_handler))
         .route("/setup/progress", get(handlers::setup::progress_handler))
-        .route(
-            "/setup/check-python",
-            post(handlers::setup::check_python_handler),
-        )
         // Marketplace progress (no auth — SSE stream)
         .route(
             "/marketplace/progress",

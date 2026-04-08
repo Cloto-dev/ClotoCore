@@ -12,6 +12,7 @@ import { ApiKeyProvider } from './contexts/ApiKeyContext';
 import { ConnectionProvider, useConnection } from './contexts/ConnectionContext';
 import { UserIdentityProvider } from './contexts/UserIdentityContext';
 import { checkForUpdates, isTauri } from './lib/tauri';
+import { api } from './services/api';
 
 import './i18n';
 import { loadExternalLanguages } from './i18n';
@@ -46,6 +47,22 @@ function App() {
 
   const { connected } = useConnection();
   const { t } = useTranslation();
+
+  // Re-trigger setup wizard if backend reports setup incomplete (e.g. version upgrade)
+  useEffect(() => {
+    if (!connected || !setupDone) return;
+    api
+      .getSetupStatus()
+      .then((status) => {
+        if (!status.setup_complete && !status.setup_in_progress) {
+          localStorage.removeItem('cloto-setup-completed');
+          setSetupDone(false);
+        }
+      })
+      .catch(() => {
+        /* ignore — backend not ready yet */
+      });
+  }, [connected, setupDone]);
 
   // Auto-update check on startup (Tauri only, user-configurable)
   useEffect(() => {

@@ -2,19 +2,13 @@
   "title": "CLOTO SYSTEM",
   "subtitle": "First-time setup",
   "checking": "Checking system requirements...",
-  "step_check_python": "Check Python",
+  "step_download_uv": "Download uv",
   "step_download": "Download MCP Servers",
   "step_verify": "Verify Archive",
   "step_extract": "Extract Files",
   "step_create_venv": "Create Virtual Environment",
   "step_install_deps": "Install Dependencies",
   "step_finalize": "Finalize",
-  "python_missing_title": "Python Required",
-  "python_missing_description": "Python 3.10 or later is required to run MCP servers.",
-  "python_install_windows": "Install Python from python.org or run: winget install Python.Python.3",
-  "python_install_macos": "Install Python via Homebrew: brew install python3",
-  "python_install_linux": "Install Python via your package manager: sudo apt install python3 python3-venv",
-  "python_recheck": "Re-check",
   "start_setup": "Start Setup",
   "start_description": "MCP servers need to be downloaded and configured. This is a one-time process.",
   "retry": "Retry",
@@ -28,5 +22,6 @@
   "continue": "Continue",
   "show_log": "Show log",
   "hide_log": "Hide log",
-  "server_count": "{{count}} servers"
+  "server_count": "{{count}} servers",
+  "marketplace_hint": "Some servers can be installed later from the Marketplace."
 }

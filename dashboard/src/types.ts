@@ -214,8 +214,7 @@ export interface MarketplaceCatalogEntry {
 export interface SetupStatus {
   setup_complete: boolean;
   mcp_servers_present: boolean;
-  python_available: boolean;
-  python_version: string | null;
+  uv_available: boolean;
   venv_exists: boolean;
   setup_in_progress: boolean;
 }

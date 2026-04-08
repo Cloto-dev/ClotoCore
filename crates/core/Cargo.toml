@@ -38,11 +38,12 @@ clap = { version = "4", features = ["derive"] }
 rand = "0.8"
 subtle = "2"
 toml = "1.0"
-cron = "0.15"
+cron = "0.16"
 uuid.workspace = true
 base64 = "0.22"
 flate2 = "1"
 tar = "0.4"
+zip = "2"
 unicode-normalization = "0.1"
 lindera = { version = "2.3", features = ["embed-ipadic"] }
 
