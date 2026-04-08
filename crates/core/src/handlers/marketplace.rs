@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::Infallible, path::PathBuf, sync::Arc, time::Duration};
 use tracing::{error, info, warn};
 
-use super::setup::{detect_python, emit, python_version_sufficient, venv_pip, SetupProgressEvent};
+use super::setup::{emit, SetupProgressEvent};
 use crate::{AppError, AppResult, AppState};
 
 // ── Registry types ──────────────────────────────────────────────────
@@ -53,6 +53,14 @@ pub struct RegistryEntry {
     pub bin_name: Option<String>,
     #[serde(default)]
     pub changelog: Option<String>,
+    /// Whether this server is included in the initial setup.
+    /// Defaults to true. Heavy servers (capture, gaze, stt) are excluded.
+    #[serde(default = "default_setup_default")]
+    pub setup_default: bool,
+}
+
+fn default_setup_default() -> bool {
+    true
 }
 
 fn default_trust_level() -> String {
@@ -433,15 +441,13 @@ pub async fn batch_install_handler(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Registry not available: {e}")))?;
 
     let mut entries = Vec::new();
+    let mut skipped_ids = Vec::new();
     for id in &request.server_ids {
-        match registry.servers.iter().find(|s| &s.id == id) {
-            Some(entry) => entries.push(entry.clone()),
-            None => {
-                return Err(AppError::Validation(format!(
-                    "Server '{}' not found in registry",
-                    id
-                )));
-            }
+        if let Some(entry) = registry.servers.iter().find(|s| &s.id == id) {
+            entries.push(entry.clone());
+        } else {
+            warn!("Server '{}' not found in registry, skipping", id);
+            skipped_ids.push(id.clone());
         }
     }
 
@@ -459,6 +465,16 @@ pub async fn batch_install_handler(
     let auto_start = request.auto_start.unwrap_or(true);
 
     tokio::spawn(async move {
+        // Notify skipped servers not found in registry (bug-381)
+        for id in &skipped_ids {
+            emit(
+                &state_clone.setup_progress_tx,
+                SetupProgressEvent::ServerInstall {
+                    server_name: id.clone(),
+                    status: "skipped".into(),
+                },
+            );
+        }
         let result = run_batch_install(&state_clone, &entries, auto_start).await;
         state_clone
             .setup_in_progress
@@ -714,29 +730,29 @@ async fn run_install(
         emit(
             tx,
             SetupProgressEvent::StepStart {
-                step: "check_python".into(),
-                description: "Checking Python installation".into(),
+                step: "check_uv".into(),
+                description: "Setting up uv package manager".into(),
             },
         );
-        let (python_available, python_version) = detect_python();
-        let version_ok = python_version
-            .as_deref()
-            .is_some_and(python_version_sufficient);
-        if !python_available || !version_ok {
-            emit(
-                tx,
-                SetupProgressEvent::StepError {
-                    step: "check_python".into(),
-                    error: "Python 3.10+ is required but not found. Install from https://www.python.org/downloads/".into(),
-                    recoverable: false,
-                },
-            );
-            return Ok(());
+        let uv = crate::managers::mcp_venv::uv_bin(&state.data_dir);
+        if !uv.exists() {
+            info!("Single install: uv not found, downloading...");
+            if let Err(e) = super::setup::download_uv(tx, &state.data_dir).await {
+                emit(
+                    tx,
+                    SetupProgressEvent::StepError {
+                        step: "check_uv".into(),
+                        error: format!("Failed to download uv: {e}"),
+                        recoverable: true,
+                    },
+                );
+                return Ok(());
+            }
         }
         emit(
             tx,
             SetupProgressEvent::StepComplete {
-                step: "check_python".into(),
+                step: "check_uv".into(),
             },
         );
     }
@@ -937,24 +953,25 @@ async fn run_install(
             .unwrap_or_else(|| servers_dir.join(".venv"));
 
         // Ensure venv exists (with timeout to avoid hanging)
+        let uv = crate::managers::mcp_venv::uv_bin(&state.data_dir);
+        let uv_str = uv.to_string_lossy().to_string();
+        let target_python = crate::managers::mcp_venv::TARGET_PYTHON;
         if !venv_dir.join("pyvenv.cfg").exists() {
-            if let Some(python_cmd) = crate::managers::mcp_venv::find_python() {
-                let venv_path_str = venv_dir.to_string_lossy().to_string();
-                let _ = tokio::time::timeout(
-                    Duration::from_secs(60),
-                    tokio::process::Command::new(&python_cmd)
-                        .args(["-m", "venv", &venv_path_str])
-                        .stdin(std::process::Stdio::null())
-                        .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::piped())
-                        .status(),
-                )
-                .await;
-            }
+            let venv_path_str = venv_dir.to_string_lossy().to_string();
+            let _ = tokio::time::timeout(
+                Duration::from_secs(120),
+                tokio::process::Command::new(&uv_str)
+                    .args(["venv", "--python", target_python, &venv_path_str])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .status(),
+            )
+            .await;
         }
 
-        let pip = venv_pip(&venv_dir);
-        let pip_str = pip.to_string_lossy().to_string();
+        let venv_python = crate::managers::mcp_venv::venv_python(&venv_dir);
+        let venv_python_str = venv_python.to_string_lossy().to_string();
 
         // Install common first if needed
         if needs_common {
@@ -967,14 +984,24 @@ async fn run_install(
                         status: "installing".into(),
                     },
                 );
-                let result = tokio::process::Command::new(&pip_str)
-                    .args(["install", &common_path.to_string_lossy(), "--quiet"])
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped())
-                    .output()
-                    .await;
+                let result = tokio::time::timeout(
+                    Duration::from_secs(120),
+                    tokio::process::Command::new(&uv_str)
+                        .args([
+                            "pip",
+                            "install",
+                            "--no-progress",
+                            "--python",
+                            &venv_python_str,
+                            &common_path.to_string_lossy(),
+                        ])
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped())
+                        .output(),
+                )
+                .await;
                 match result {
-                    Ok(output) if output.status.success() => {
+                    Ok(Ok(output)) if output.status.success() => {
                         emit(
                             tx,
                             SetupProgressEvent::ServerInstall {
@@ -983,9 +1010,8 @@ async fn run_install(
                             },
                         );
                     }
-                    _ => {
-                        warn!("Failed to install common dependency");
-                    }
+                    Err(_) => warn!("Common module install timed out (120s)"),
+                    _ => warn!("Failed to install common dependency"),
                 }
             }
         }
@@ -999,8 +1025,15 @@ async fn run_install(
             },
         );
 
-        let result = tokio::process::Command::new(&pip_str)
-            .args(["install", &server_path.to_string_lossy(), "--quiet"])
+        let result = tokio::process::Command::new(&uv_str)
+            .args([
+                "pip",
+                "install",
+                "--no-progress",
+                "--python",
+                &venv_python_str,
+                &server_path.to_string_lossy(),
+            ])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .output()
@@ -1023,7 +1056,7 @@ async fn run_install(
                     tx,
                     SetupProgressEvent::StepError {
                         step: "install_deps".into(),
-                        error: format!("pip install failed: {last_line}"),
+                        error: format!("uv pip install failed: {last_line}"),
                         recoverable: true,
                     },
                 );
@@ -1132,7 +1165,9 @@ async fn run_install(
     );
 
     // Cleanup tarball
-    let _ = tokio::fs::remove_file(&archive_path).await;
+    if let Err(e) = tokio::fs::remove_file(&archive_path).await {
+        warn!("Failed to cleanup archive {}: {e}", archive_path.display());
+    }
 
     emit(tx, SetupProgressEvent::Complete);
     info!("Marketplace install complete: {}", entry.id);
@@ -1294,34 +1329,34 @@ async fn run_batch_install(
     let has_python_servers = entries.iter().any(|e| e.runtime != "rust");
     let has_rust_servers = entries.iter().any(|e| e.runtime == "rust");
 
-    // Step 1: Check toolchains
+    // Step 1: Ensure uv is available (auto-download if missing)
     if has_python_servers {
         emit(
             tx,
             SetupProgressEvent::StepStart {
-                step: "check_python".into(),
-                description: "Checking Python installation".into(),
+                step: "check_uv".into(),
+                description: "Setting up uv package manager".into(),
             },
         );
-        let (python_available, python_version) = detect_python();
-        let version_ok = python_version
-            .as_deref()
-            .is_some_and(python_version_sufficient);
-        if !python_available || !version_ok {
-            emit(
-                tx,
-                SetupProgressEvent::StepError {
-                    step: "check_python".into(),
-                    error: "Python 3.10+ is required but not found. Install from https://www.python.org/downloads/".into(),
-                    recoverable: false,
-                },
-            );
-            return Ok(());
+        let uv = crate::managers::mcp_venv::uv_bin(&state.data_dir);
+        if !uv.exists() {
+            info!("Batch install: uv not found, downloading...");
+            if let Err(e) = super::setup::download_uv(tx, &state.data_dir).await {
+                emit(
+                    tx,
+                    SetupProgressEvent::StepError {
+                        step: "check_uv".into(),
+                        error: format!("Failed to download uv: {e}"),
+                        recoverable: true,
+                    },
+                );
+                return Ok(());
+            }
         }
         emit(
             tx,
             SetupProgressEvent::StepComplete {
-                step: "check_python".into(),
+                step: "check_uv".into(),
             },
         );
     }
@@ -1349,6 +1384,70 @@ async fn run_batch_install(
             tx,
             SetupProgressEvent::StepComplete {
                 step: "check_cargo".into(),
+            },
+        );
+    }
+
+    // ── Step 0: Clean stale state from previous installations ──
+    let servers_dir = state.data_dir.join("mcp-servers");
+    let tmp_dir = state.data_dir.join("tmp");
+
+    // Clean stale tarball
+    if tmp_dir.join("cloto-mcp-servers-latest.tar.gz").exists() {
+        info!("Cleaning stale tarball from previous install");
+        let _ = tokio::fs::remove_file(tmp_dir.join("cloto-mcp-servers-latest.tar.gz")).await;
+    }
+
+    // Check if installed servers are outdated (version mismatch with current binary)
+    let setup_json = state.data_dir.join("setup-complete.json");
+    let needs_clean = if setup_json.exists() {
+        if let Ok(content) = tokio::fs::read_to_string(&setup_json).await {
+            serde_json::from_str::<serde_json::Value>(&content)
+                .ok()
+                .and_then(|v| v.get("version")?.as_str().map(String::from))
+                .is_some_and(|v| v != env!("CARGO_PKG_VERSION"))
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if needs_clean {
+        emit(
+            tx,
+            SetupProgressEvent::StepStart {
+                step: "cleanup".into(),
+                description: "Cleaning previous installation".into(),
+            },
+        );
+
+        // Remove old venv entirely
+        let venv_dir = servers_dir.join(".venv");
+        if venv_dir.exists() {
+            info!("Removing stale venv (version mismatch)");
+            let _ = tokio::fs::remove_dir_all(&venv_dir).await;
+        }
+
+        // Remove old server directories (keep mcp-servers/ itself)
+        if servers_dir.exists() {
+            if let Ok(mut dir_entries) = tokio::fs::read_dir(&servers_dir).await {
+                while let Ok(Some(entry)) = dir_entries.next_entry().await {
+                    let path = entry.path();
+                    if path.is_dir() && path.file_name().is_some_and(|n| n != ".venv") {
+                        let _ = tokio::fs::remove_dir_all(&path).await;
+                    }
+                }
+            }
+        }
+
+        // Remove stale setup-complete.json
+        let _ = tokio::fs::remove_file(&setup_json).await;
+
+        emit(
+            tx,
+            SetupProgressEvent::StepComplete {
+                step: "cleanup".into(),
             },
         );
     }
@@ -1458,7 +1557,7 @@ async fn run_batch_install(
         },
     );
 
-    // Step 4: Ensure venv + install dependencies
+    // Step 4: Ensure venv + install dependencies via status-file script
     emit(
         tx,
         SetupProgressEvent::StepStart {
@@ -1469,109 +1568,9 @@ async fn run_batch_install(
 
     let venv_dir =
         crate::managers::mcp_venv::resolve_venv_dir().unwrap_or_else(|| servers_dir.join(".venv"));
-    info!(
-        "Batch install: venv_dir={}, exists={}, has_python={}, has_rust={}",
-        venv_dir.display(),
-        venv_dir.join("pyvenv.cfg").exists(),
-        has_python_servers,
-        has_rust_servers,
-    );
 
-    let pip_str = if has_python_servers {
-        // Remove stale venv (Python version mismatch) before creating a new one
-        if crate::managers::mcp_venv::is_venv_stale(&venv_dir) && venv_dir.exists() {
-            info!("Marketplace: Removing stale venv (Python version mismatch)");
-            let _ = tokio::fs::remove_dir_all(&venv_dir).await;
-        }
-        if !venv_dir.join("pyvenv.cfg").exists() {
-            if let Some(python_cmd) = crate::managers::mcp_venv::find_python() {
-                let venv_path_str = venv_dir.to_string_lossy().to_string();
-                match tokio::time::timeout(
-                    Duration::from_secs(60),
-                    tokio::process::Command::new(&python_cmd)
-                        .args(["-m", "venv", &venv_path_str])
-                        .stdin(std::process::Stdio::null())
-                        .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::piped())
-                        .status(),
-                )
-                .await
-                {
-                    Ok(Ok(s)) if s.success() => {
-                        info!("Created venv at {}", venv_dir.display());
-                    }
-                    Ok(Ok(s)) => warn!("python -m venv failed (exit {:?})", s.code()),
-                    Ok(Err(e)) => warn!("Failed to run python -m venv: {e}"),
-                    Err(_) => warn!("python -m venv timed out (60s)"),
-                }
-            }
-        }
-        let pip = venv_pip(&venv_dir);
-        let pip_path = pip.to_string_lossy().to_string();
-        info!("Batch install: pip={}, exists={}", pip_path, pip.exists());
-        pip_path
-    } else {
-        String::new()
-    };
-
-    info!(
-        "Batch install: entering server loop ({} servers, needs_common={})",
-        entries.len(),
-        needs_common
-    );
-
-    // Install common once if needed
-    if needs_common {
-        let common_path = servers_dir.join("common");
-        if common_path.join("pyproject.toml").exists() {
-            emit(
-                tx,
-                SetupProgressEvent::ServerInstall {
-                    server_name: "common".into(),
-                    status: "installing".into(),
-                },
-            );
-            let result = tokio::time::timeout(
-                Duration::from_secs(120),
-                tokio::process::Command::new(&pip_str)
-                    .args([
-                        "install",
-                        &common_path.to_string_lossy(),
-                        "--quiet",
-                        "--no-input",
-                    ])
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped())
-                    .output(),
-            )
-            .await;
-            match result {
-                Ok(Ok(output)) if output.status.success() => {
-                    emit(
-                        tx,
-                        SetupProgressEvent::ServerInstall {
-                            server_name: "common".into(),
-                            status: "installed".into(),
-                        },
-                    );
-                }
-                Ok(Ok(output)) => {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    warn!(
-                        "Failed to install common: {}",
-                        stderr.lines().last().unwrap_or("")
-                    );
-                }
-                _ => warn!("Failed to install common dependency (timeout or process error)"),
-            }
-        }
-    }
-
-    // Install each server
+    // Install each server — partition entries first
     let running_servers = state.mcp_manager.list_servers().await;
-
-    // Partition entries: skip already-running, separate Python vs Rust
     let mut python_entries: Vec<&RegistryEntry> = Vec::new();
     let mut rust_entries: Vec<&RegistryEntry> = Vec::new();
     for entry in entries {
@@ -1585,7 +1584,6 @@ async fn run_batch_install(
                     status: "skipped".into(),
                 },
             );
-            info!("Batch install: {} already running, skipped", entry.id);
             continue;
         }
         if entry.runtime == "rust" {
@@ -1595,10 +1593,146 @@ async fn run_batch_install(
         }
     }
 
-    // ── Phase 1: Unified pip install for all Python servers ──
-    // Single invocation avoids lock contention (see commit 5ce29ce).
+    // ── Phase 1: Python servers via direct uv spawn ──
     if !python_entries.is_empty() {
-        let python_count = python_entries.len();
+        // Pre-cleanup: remove stale/corrupted venv
+        if crate::managers::mcp_venv::is_venv_stale(&venv_dir) && venv_dir.exists() {
+            info!("Removing stale venv (Python version mismatch)");
+            let _ = tokio::fs::remove_dir_all(&venv_dir).await;
+        }
+        if venv_dir.exists() && !venv_dir.join("pyvenv.cfg").exists() {
+            warn!("Removing corrupted venv directory (no pyvenv.cfg)");
+            let _ = tokio::fs::remove_dir_all(&venv_dir).await;
+        }
+
+        let uv = crate::managers::mcp_venv::uv_bin(&state.data_dir);
+        let uv_str = uv.to_string_lossy().to_string();
+        let target_python = crate::managers::mcp_venv::TARGET_PYTHON;
+        let venv_python = crate::managers::mcp_venv::venv_python(&venv_dir);
+        let venv_python_str = venv_python.to_string_lossy().to_string();
+        let need_venv = !venv_dir.join("pyvenv.cfg").exists();
+        let common_path = if needs_common {
+            let p = servers_dir.join("common");
+            if p.join("pyproject.toml").exists() {
+                Some(p)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Prepare log file
+        let logs_dir = state.data_dir.join("logs");
+        let _ = tokio::fs::create_dir_all(&logs_dir).await;
+        let log_file = logs_dir.join("install.log");
+
+        // Create venv if needed (direct uv spawn)
+        if need_venv {
+            emit(
+                tx,
+                SetupProgressEvent::StepProgress {
+                    step: "install_deps".into(),
+                    progress: 0.05,
+                    detail: "Creating Python virtual environment".into(),
+                },
+            );
+            let venv_path_str = venv_dir.to_string_lossy().to_string();
+            let mut cmd = tokio::process::Command::new(&uv_str);
+            cmd.args(["venv", "--python", target_python, &venv_path_str])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            #[cfg(windows)]
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            let result = tokio::time::timeout(Duration::from_secs(120), cmd.status()).await;
+            match result {
+                Ok(Ok(status)) if status.success() => {
+                    info!(
+                        "Created Python {} venv at {}",
+                        target_python,
+                        venv_dir.display()
+                    );
+                }
+                Ok(Ok(status)) => {
+                    emit(
+                        tx,
+                        SetupProgressEvent::StepError {
+                            step: "install_deps".into(),
+                            error: format!(
+                                "Failed to create venv (exit code: {:?})",
+                                status.code()
+                            ),
+                            recoverable: true,
+                        },
+                    );
+                    return Ok(());
+                }
+                Ok(Err(e)) => {
+                    emit(
+                        tx,
+                        SetupProgressEvent::StepError {
+                            step: "install_deps".into(),
+                            error: format!("Failed to run uv for venv creation: {e}"),
+                            recoverable: true,
+                        },
+                    );
+                    return Ok(());
+                }
+                Err(_) => {
+                    emit(
+                        tx,
+                        SetupProgressEvent::StepError {
+                            step: "install_deps".into(),
+                            error: "uv venv creation timed out (120s)".into(),
+                            recoverable: true,
+                        },
+                    );
+                    return Ok(());
+                }
+            }
+        }
+
+        // Install common if needed (direct uv spawn)
+        if let Some(ref cp) = common_path {
+            emit(
+                tx,
+                SetupProgressEvent::ServerInstall {
+                    server_name: "common".into(),
+                    status: "installing".into(),
+                },
+            );
+            let mut cmd = tokio::process::Command::new(&uv_str);
+            cmd.args([
+                "pip",
+                "install",
+                "--no-progress",
+                "--python",
+                &venv_python_str,
+                &cp.to_string_lossy(),
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+            #[cfg(windows)]
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            let result = tokio::time::timeout(Duration::from_secs(120), cmd.output()).await;
+            match result {
+                Ok(Ok(output)) if output.status.success() => {
+                    emit(
+                        tx,
+                        SetupProgressEvent::ServerInstall {
+                            server_name: "common".into(),
+                            status: "installed".into(),
+                        },
+                    );
+                }
+                Err(_) => warn!("Common module install timed out (120s)"),
+                _ => warn!("Failed to install common dependency"),
+            }
+        }
+
+        // Install each Python server individually via spawn_uv_streaming
         for entry in &python_entries {
             emit(
                 tx,
@@ -1607,80 +1741,42 @@ async fn run_batch_install(
                     status: "installing".into(),
                 },
             );
-        }
-        emit(
-            tx,
-            SetupProgressEvent::StepProgress {
-                step: "install_deps".into(),
-                progress: 0.3,
-                detail: format!("Installing {python_count} Python server(s)..."),
-            },
-        );
+            let server_path = servers_dir
+                .join(&entry.directory)
+                .to_string_lossy()
+                .to_string();
 
-        let mut pip_args: Vec<String> =
-            vec!["install".into(), "--quiet".into(), "--no-input".into()];
-        for entry in &python_entries {
-            pip_args.push(
-                servers_dir
-                    .join(&entry.directory)
-                    .to_string_lossy()
-                    .to_string(),
-            );
-        }
-
-        let timeout_secs = (python_count as u64) * 60 + 120;
-        let result = tokio::time::timeout(
-            Duration::from_secs(timeout_secs),
-            tokio::process::Command::new(&pip_str)
-                .args(&pip_args)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .output(),
-        )
-        .await;
-
-        let pip_ok = match result {
-            Ok(Ok(output)) if output.status.success() => {
-                info!("Batch pip install succeeded for {} server(s)", python_count);
-                true
-            }
-            Ok(Ok(output)) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                warn!(
-                    "Batch pip install failed: {}",
-                    stderr.lines().last().unwrap_or("unknown error")
-                );
-                false
-            }
-            Ok(Err(e)) => {
-                warn!("Failed to run pip: {e}");
-                false
-            }
-            Err(_) => {
-                warn!("Batch pip install timed out ({timeout_secs}s)");
-                false
-            }
-        };
-
-        if !pip_ok {
-            for entry in &python_entries {
-                emit(
-                    tx,
-                    SetupProgressEvent::ServerInstall {
-                        server_name: entry.name.clone(),
-                        status: "failed".into(),
-                    },
-                );
-            }
-            emit(
+            match super::setup::spawn_uv_streaming(
                 tx,
-                SetupProgressEvent::StepError {
-                    step: "install_deps".into(),
-                    error: "Python dependency installation failed".into(),
-                    recoverable: true,
-                },
-            );
+                &uv_str,
+                &venv_python_str,
+                &entry.name,
+                &server_path,
+                Some(&log_file),
+            )
+            .await
+            {
+                Ok(()) => {
+                    emit(
+                        tx,
+                        SetupProgressEvent::ServerInstall {
+                            server_name: entry.name.clone(),
+                            status: "installed".into(),
+                        },
+                    );
+                }
+                Err(detail) => {
+                    warn!("Failed to install {}: {}", entry.name, detail);
+                    emit(
+                        tx,
+                        SetupProgressEvent::ServerInstall {
+                            server_name: entry.name.clone(),
+                            status: "failed".into(),
+                        },
+                    );
+                    // Continue to next server — error isolation
+                }
+            }
         }
     }
 
@@ -1753,7 +1849,7 @@ async fn run_batch_install(
             }
         }
 
-        match state
+        let connected = match state
             .mcp_manager
             .add_dynamic_server(
                 entry.id.clone(),
@@ -1768,11 +1864,13 @@ async fn run_batch_install(
         {
             Ok(tools) => {
                 info!("Batch: {} connected ({} tools)", entry.id, tools.len());
+                true
             }
             Err(e) => {
                 warn!("Batch: {} registered but failed to connect: {e}", entry.id);
+                false
             }
-        }
+        };
 
         if let Err(e) = crate::db::mcp::set_marketplace_fields(
             &state.pool,
@@ -1793,7 +1891,7 @@ async fn run_batch_install(
             tx,
             SetupProgressEvent::ServerInstall {
                 server_name: entry.name.clone(),
-                status: "installed".into(),
+                status: if connected { "installed" } else { "registered" }.into(),
             },
         );
     }
@@ -1812,13 +1910,21 @@ async fn run_batch_install(
         "mcp_servers_version": env!("CARGO_PKG_VERSION"),
         "server_count": entries.len(),
     });
+    // Atomic write: temp file + rename to prevent corruption (bug-362)
     let setup_json = state.data_dir.join("setup-complete.json");
+    let setup_tmp = state.data_dir.join("setup-complete.json.tmp");
     if let Ok(json) = serde_json::to_string_pretty(&complete) {
-        let _ = tokio::fs::write(&setup_json, json).await;
+        if let Err(e) = tokio::fs::write(&setup_tmp, &json).await {
+            warn!("Failed to write setup-complete.json.tmp: {e}");
+        } else if let Err(e) = tokio::fs::rename(&setup_tmp, &setup_json).await {
+            warn!("Failed to rename setup-complete.json.tmp: {e}");
+        }
     }
 
     // Cleanup
-    let _ = tokio::fs::remove_file(&archive_path).await;
+    if let Err(e) = tokio::fs::remove_file(&archive_path).await {
+        warn!("Failed to cleanup archive {}: {e}", archive_path.display());
+    }
 
     emit(tx, SetupProgressEvent::Complete);
     info!("Batch install complete: {} server(s)", entries.len());

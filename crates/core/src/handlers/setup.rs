@@ -1,20 +1,18 @@
 //! Bootstrap setup endpoints.
 //!
-//! Provides status check, setup trigger, SSE progress stream, and Python
-//! re-check for first-launch dependency installation.
+//! Provides status check, setup trigger, and SSE progress stream
+//! for first-launch dependency installation.
+//! Uses `uv` for Python venv creation and dependency management.
 
+use crate::AppState;
 use axum::{
     extract::State,
-    http::HeaderMap,
     response::sse::{Event, Sse},
     Json,
 };
 use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, sync::Arc, time::Duration};
-use tracing::{error, info, warn};
-
-use crate::{AppError, AppResult, AppState};
 
 // ── Data structures ──────────────────────────────────────────────────
 
@@ -23,8 +21,7 @@ use crate::{AppError, AppResult, AppState};
 pub struct SetupStatus {
     pub setup_complete: bool,
     pub mcp_servers_present: bool,
-    pub python_available: bool,
-    pub python_version: Option<String>,
+    pub uv_available: bool,
     pub venv_exists: bool,
     pub setup_in_progress: bool,
 }
@@ -34,8 +31,12 @@ pub struct SetupCompleteFile {
     pub completed_at: String,
     pub version: String,
     pub mcp_servers_version: String,
-    pub python_version: Option<String>,
+    #[serde(default)]
+    pub uv_version: Option<String>,
     pub server_count: u32,
+    // Legacy field for backward compatibility (ignored on read)
+    #[serde(default, skip_serializing)]
+    pub python_version: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -62,10 +63,6 @@ pub enum SetupProgressEvent {
         server_name: String,
         status: String,
     },
-    PythonMissing {
-        os: String,
-        guidance: String,
-    },
     Complete,
 }
 
@@ -87,33 +84,6 @@ fn resolve_root() -> Option<std::path::PathBuf> {
     crate::managers::McpClientManager::detect_project_root(&exe)
 }
 
-// ── Helper: Python detection ─────────────────────────────────────────
-
-/// Minimum Python version required by MCP servers.
-const MIN_PYTHON: (u32, u32) = (3, 10);
-
-/// Find Python and return (available, version_string).
-pub(crate) fn detect_python() -> (bool, Option<String>) {
-    if let Some((_, version)) = crate::managers::mcp_venv::find_python_with_version() {
-        (true, Some(version))
-    } else {
-        (false, None)
-    }
-}
-
-/// Parse a version string like "3.13.3" into (major, minor).
-fn parse_major_minor(version: &str) -> Option<(u32, u32)> {
-    let mut parts = version.splitn(3, '.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next()?.parse().ok()?;
-    Some((major, minor))
-}
-
-/// Check whether the detected Python version meets the minimum requirement.
-pub(crate) fn python_version_sufficient(version: &str) -> bool {
-    parse_major_minor(version).is_some_and(|(maj, min)| (maj, min) >= MIN_PYTHON)
-}
-
 // ── Endpoints ────────────────────────────────────────────────────────
 
 /// GET /api/setup/status — lightweight check (no auth required, like health_handler).
@@ -123,21 +93,17 @@ pub async fn status_handler(State(state): State<Arc<AppState>>) -> Json<serde_js
         return super::json_data(serde_json::json!(SetupStatus {
             setup_complete: true,
             mcp_servers_present: true,
-            python_available: true,
-            python_version: None,
+            uv_available: true,
             venv_exists: true,
             setup_in_progress: false,
         }));
     }
 
     let root = resolve_root();
-    // TODO: Update to use [paths].servers from mcp.toml after cloto-mcp-servers
-    // repo separation is complete for production deployments.
     let mcp_servers_present = root
         .as_ref()
         .is_some_and(|r| r.join("mcp-servers").exists());
 
-    // TODO: Update to use mcp_venv::resolve_venv_dir() instead of hardcoded path.
     let venv_exists = root.as_ref().is_some_and(|r| {
         r.join("mcp-servers")
             .join(".venv")
@@ -145,11 +111,7 @@ pub async fn status_handler(State(state): State<Arc<AppState>>) -> Json<serde_js
             .exists()
     });
 
-    let (python_available, python_version) = detect_python();
-    let python_available = python_available
-        && python_version
-            .as_deref()
-            .is_some_and(python_version_sufficient);
+    let uv_available = crate::managers::mcp_venv::uv_bin(&state.data_dir).exists();
 
     // Check setup-complete.json
     let setup_json = state.data_dir.join("setup-complete.json");
@@ -157,15 +119,23 @@ pub async fn status_handler(State(state): State<Arc<AppState>>) -> Json<serde_js
     if setup_json.exists() {
         if let Ok(content) = std::fs::read_to_string(&setup_json) {
             if let Ok(info) = serde_json::from_str::<SetupCompleteFile>(&content) {
-                // Version mismatch check: if major.minor differs, treat as incomplete
+                // Exact version match: any version change triggers re-setup
                 let current = env!("CARGO_PKG_VERSION");
-                let saved = &info.version;
-                let current_mm = major_minor(current);
-                let saved_mm = major_minor(saved);
-                if current_mm == saved_mm && mcp_servers_present {
+                if current == info.version && mcp_servers_present && venv_exists {
                     setup_complete = true;
                 }
             }
+        }
+    }
+
+    // Fallback: if JSON missing but servers + DB agents exist, treat as complete (bug-378)
+    if !setup_complete && mcp_servers_present && venv_exists {
+        let agent_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agents")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or(0);
+        if agent_count > 0 {
+            setup_complete = true;
         }
     }
 
@@ -176,36 +146,10 @@ pub async fn status_handler(State(state): State<Arc<AppState>>) -> Json<serde_js
     super::json_data(serde_json::json!(SetupStatus {
         setup_complete,
         mcp_servers_present,
-        python_available,
-        python_version,
+        uv_available,
         venv_exists,
         setup_in_progress: in_progress,
     }))
-}
-
-/// POST /api/setup/start — trigger bootstrap (auth required, 409 if already running).
-pub async fn start_handler(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> AppResult<Json<serde_json::Value>> {
-    super::check_auth(&state, &headers)?;
-
-    // Prevent concurrent runs
-    let was_running = state
-        .setup_in_progress
-        .swap(true, std::sync::atomic::Ordering::SeqCst);
-    if was_running {
-        return Err(AppError::Validation(
-            "Setup is already in progress".to_string(),
-        ));
-    }
-
-    let state_clone = state.clone();
-    tokio::spawn(async move {
-        run_bootstrap(state_clone).await;
-    });
-
-    super::ok_data(serde_json::json!({ "started": true }))
 }
 
 /// GET /api/setup/progress — SSE stream of SetupProgressEvent (no auth, like SSE handler).
@@ -245,355 +189,6 @@ pub async fn progress_handler(
     )
 }
 
-/// POST /api/setup/check-python — re-check Python availability (no auth).
-pub async fn check_python_handler() -> Json<serde_json::Value> {
-    let (available, version) = detect_python();
-    let version_ok = version
-        .as_deref()
-        .is_some_and(python_version_sufficient);
-    super::json_data(serde_json::json!({
-        "available": available && version_ok,
-        "version": version,
-        "version_sufficient": version_ok,
-    }))
-}
-
-// ── Bootstrap Orchestration ──────────────────────────────────────────
-
-async fn run_bootstrap(state: Arc<AppState>) {
-    let tx = &state.setup_progress_tx;
-
-    // Always reset flag on exit via inner function + unconditional reset
-    let result = run_bootstrap_inner(&state, tx).await;
-    state
-        .setup_in_progress
-        .store(false, std::sync::atomic::Ordering::SeqCst);
-
-    if let Err(e) = result {
-        error!("Bootstrap setup failed: {e}");
-    }
-}
-
-/// Inner bootstrap logic, returns Err on failure so the outer function can reset the flag.
-#[allow(clippy::too_many_lines)]
-async fn run_bootstrap_inner(
-    state: &Arc<AppState>,
-    tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>,
-) -> anyhow::Result<()> {
-    // Step 1: Check Python
-    emit(
-        tx,
-        SetupProgressEvent::StepStart {
-            step: "check_python".into(),
-            description: "Checking Python installation".into(),
-        },
-    );
-
-    let (python_available, python_version) = detect_python();
-    let version_ok = python_version
-        .as_deref()
-        .is_some_and(python_version_sufficient);
-    if !python_available || !version_ok {
-        let os_name = if cfg!(target_os = "windows") {
-            "windows"
-        } else if cfg!(target_os = "macos") {
-            "macos"
-        } else {
-            "linux"
-        };
-        let guidance = match os_name {
-            "windows" => "Install Python from https://www.python.org/downloads/ or run: winget install Python.Python.3",
-            "macos" => "Install Python via Homebrew: brew install python3",
-            _ => "Install Python via your package manager: sudo apt install python3 python3-venv",
-        };
-        emit(
-            tx,
-            SetupProgressEvent::PythonMissing {
-                os: os_name.into(),
-                guidance: guidance.into(),
-            },
-        );
-        return Ok(());
-    }
-    let python_cmd = crate::managers::mcp_venv::find_python().unwrap();
-    info!("Setup: Python found: {} ({:?})", python_cmd, python_version);
-    emit(
-        tx,
-        SetupProgressEvent::StepComplete {
-            step: "check_python".into(),
-        },
-    );
-
-    // Step 2: Download MCP server archive
-    emit(
-        tx,
-        SetupProgressEvent::StepStart {
-            step: "download".into(),
-            description: "Downloading MCP server archive".into(),
-        },
-    );
-
-    let version = env!("CARGO_PKG_VERSION");
-    let archive_name = "cloto-mcp-servers.tar.gz";
-    let download_url =
-        "https://github.com/Cloto-dev/cloto-mcp-servers/releases/latest/download/cloto-mcp-servers.tar.gz";
-
-    let tmp_dir = state.data_dir.join("tmp");
-    if let Err(e) = tokio::fs::create_dir_all(&tmp_dir).await {
-        emit(
-            tx,
-            SetupProgressEvent::StepError {
-                step: "download".into(),
-                error: format!("Failed to create temp directory: {e}"),
-                recoverable: true,
-            },
-        );
-        return Ok(());
-    }
-    let archive_path = tmp_dir.join(archive_name);
-
-    match download_with_progress(tx, download_url, &archive_path).await {
-        Ok(()) => {
-            emit(
-                tx,
-                SetupProgressEvent::StepComplete {
-                    step: "download".into(),
-                },
-            );
-        }
-        Err(e) => {
-            emit(
-                tx,
-                SetupProgressEvent::StepError {
-                    step: "download".into(),
-                    error: format!("Download failed: {e}"),
-                    recoverable: true,
-                },
-            );
-            return Ok(());
-        }
-    }
-
-    // Step 3: Verify checksum
-    emit(
-        tx,
-        SetupProgressEvent::StepStart {
-            step: "verify".into(),
-            description: "Verifying archive integrity".into(),
-        },
-    );
-
-    let sums_url =
-        "https://github.com/Cloto-dev/cloto-mcp-servers/releases/latest/download/SHA256SUMS.txt";
-    match verify_checksum(&archive_path, archive_name, sums_url).await {
-        Ok(()) => {
-            emit(
-                tx,
-                SetupProgressEvent::StepComplete {
-                    step: "verify".into(),
-                },
-            );
-        }
-        Err(e) => {
-            warn!("Checksum verification skipped or failed: {e}");
-            // Non-fatal: continue even if checksum file is unavailable
-            emit(
-                tx,
-                SetupProgressEvent::StepComplete {
-                    step: "verify".into(),
-                },
-            );
-        }
-    }
-
-    // Step 4: Extract archive
-    emit(
-        tx,
-        SetupProgressEvent::StepStart {
-            step: "extract".into(),
-            description: "Extracting MCP servers".into(),
-        },
-    );
-
-    let root = if let Some(r) = resolve_root() {
-        r
-    } else {
-        // Fallback: use exe parent dir
-        let exe = std::env::current_exe().unwrap();
-        exe.parent().unwrap().to_path_buf()
-    };
-
-    match extract_archive(&archive_path, &root).await {
-        Ok(()) => {
-            emit(
-                tx,
-                SetupProgressEvent::StepComplete {
-                    step: "extract".into(),
-                },
-            );
-        }
-        Err(e) => {
-            emit(
-                tx,
-                SetupProgressEvent::StepError {
-                    step: "extract".into(),
-                    error: format!("Extraction failed: {e}"),
-                    recoverable: true,
-                },
-            );
-            return Ok(());
-        }
-    }
-
-    // Step 5: Create venv
-    emit(
-        tx,
-        SetupProgressEvent::StepStart {
-            step: "create_venv".into(),
-            description: "Creating Python virtual environment".into(),
-        },
-    );
-
-    let venv_dir = root.join("cloto-mcp-servers").join("servers").join(".venv");
-    let venv_stale = crate::managers::mcp_venv::is_venv_stale(&venv_dir);
-    if venv_stale && venv_dir.exists() {
-        info!("Setup: Removing stale venv (Python version mismatch)");
-        let _ = tokio::fs::remove_dir_all(&venv_dir).await;
-    }
-    if !venv_dir.join("pyvenv.cfg").exists() {
-        let venv_path_str = venv_dir.to_string_lossy().to_string();
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(60),
-            tokio::process::Command::new(&python_cmd)
-                .args(["-m", "venv", &venv_path_str])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .status(),
-        )
-        .await;
-
-        match result {
-            Ok(Ok(status)) if status.success() => {
-                info!("Setup: Created Python venv at {}", venv_dir.display());
-            }
-            Ok(Ok(status)) => {
-                emit(
-                    tx,
-                    SetupProgressEvent::StepError {
-                        step: "create_venv".into(),
-                        error: format!("Failed to create venv (exit code: {:?})", status.code()),
-                        recoverable: true,
-                    },
-                );
-                return Ok(());
-            }
-            Ok(Err(e)) => {
-                emit(
-                    tx,
-                    SetupProgressEvent::StepError {
-                        step: "create_venv".into(),
-                        error: format!("Failed to run Python for venv creation: {e}"),
-                        recoverable: true,
-                    },
-                );
-                return Ok(());
-            }
-            Err(_) => {
-                emit(
-                    tx,
-                    SetupProgressEvent::StepError {
-                        step: "create_venv".into(),
-                        error: "Python venv creation timed out (60s)".into(),
-                        recoverable: true,
-                    },
-                );
-                return Ok(());
-            }
-        }
-
-        // Upgrade pip
-        let pip = venv_pip(&venv_dir);
-        let pip_str = pip.to_string_lossy().to_string();
-        let _ = tokio::process::Command::new(&pip_str)
-            .args(["install", "--upgrade", "pip", "--quiet"])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .status()
-            .await;
-    }
-    emit(
-        tx,
-        SetupProgressEvent::StepComplete {
-            step: "create_venv".into(),
-        },
-    );
-
-    // Step 6: Install dependencies per server
-    emit(
-        tx,
-        SetupProgressEvent::StepStart {
-            step: "install_deps".into(),
-            description: "Installing MCP server dependencies".into(),
-        },
-    );
-
-    let mcp_servers_dir = root.join("cloto-mcp-servers").join("servers");
-    let pip = venv_pip(&venv_dir);
-    let pip_str = pip.to_string_lossy().to_string();
-    let server_count = install_server_deps_with_progress(tx, &pip_str, &mcp_servers_dir).await;
-    emit(
-        tx,
-        SetupProgressEvent::StepComplete {
-            step: "install_deps".into(),
-        },
-    );
-
-    // Step 7: Finalize — write setup-complete.json
-    emit(
-        tx,
-        SetupProgressEvent::StepStart {
-            step: "finalize".into(),
-            description: "Finalizing setup".into(),
-        },
-    );
-
-    let complete = SetupCompleteFile {
-        completed_at: chrono::Utc::now().to_rfc3339(),
-        version: version.to_string(),
-        mcp_servers_version: version.to_string(),
-        python_version: python_version.clone(),
-        server_count,
-    };
-
-    let setup_json = state.data_dir.join("setup-complete.json");
-    match serde_json::to_string_pretty(&complete) {
-        Ok(json) => {
-            if let Err(e) = tokio::fs::write(&setup_json, json).await {
-                error!("Failed to write setup-complete.json: {e}");
-            }
-        }
-        Err(e) => {
-            error!("Failed to serialize setup-complete.json: {e}");
-        }
-    }
-
-    emit(
-        tx,
-        SetupProgressEvent::StepComplete {
-            step: "finalize".into(),
-        },
-    );
-
-    // Cleanup temp archive
-    let _ = tokio::fs::remove_file(&archive_path).await;
-
-    info!("Setup complete: {} server(s) installed", server_count);
-    emit(tx, SetupProgressEvent::Complete);
-
-    Ok(())
-}
-
 // ── Internal helpers ─────────────────────────────────────────────────
 
 pub(crate) fn emit(
@@ -604,19 +199,124 @@ pub(crate) fn emit(
     let _ = tx.send(event);
 }
 
-pub(crate) fn venv_pip(venv_dir: &std::path::Path) -> std::path::PathBuf {
-    if cfg!(windows) {
-        venv_dir.join("Scripts").join("pip.exe")
-    } else {
-        venv_dir.join("bin").join("pip")
+/// Pinned uv version. Update intentionally after testing.
+const UV_VERSION: &str = "0.11.3";
+
+/// Get the platform-specific uv download URL and archive extension.
+fn uv_download_target() -> (&'static str, &'static str) {
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        ("uv-x86_64-pc-windows-msvc", "zip")
+    }
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        ("uv-x86_64-unknown-linux-gnu", "tar.gz")
+    }
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    {
+        ("uv-aarch64-unknown-linux-gnu", "tar.gz")
+    }
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    {
+        ("uv-x86_64-apple-darwin", "tar.gz")
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        ("uv-aarch64-apple-darwin", "tar.gz")
     }
 }
 
-fn major_minor(version: &str) -> (u32, u32) {
-    let parts: Vec<&str> = version.split('.').collect();
-    let major = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let minor = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-    (major, minor)
+/// Download and extract the uv binary to `{data_dir}/bin/`.
+pub(crate) async fn download_uv(
+    tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>,
+    data_dir: &std::path::Path,
+) -> anyhow::Result<()> {
+    let (target, ext) = uv_download_target();
+    let url =
+        format!("https://github.com/astral-sh/uv/releases/download/{UV_VERSION}/{target}.{ext}");
+
+    let bin_dir = data_dir.join("bin");
+    tokio::fs::create_dir_all(&bin_dir).await?;
+
+    let tmp_dir = data_dir.join("tmp");
+    tokio::fs::create_dir_all(&tmp_dir).await?;
+    let archive_path = tmp_dir.join(format!("{target}.{ext}"));
+
+    // Download
+    emit(
+        tx,
+        SetupProgressEvent::StepProgress {
+            step: "download_uv".into(),
+            progress: -1.0,
+            detail: "Downloading uv...".into(),
+        },
+    );
+    download_with_progress(tx, &url, &archive_path).await?;
+
+    // Extract uv binary
+    emit(
+        tx,
+        SetupProgressEvent::StepProgress {
+            step: "download_uv".into(),
+            progress: -1.0,
+            detail: "Extracting uv...".into(),
+        },
+    );
+
+    let archive_clone = archive_path.clone();
+    let bin_dir_clone = bin_dir.clone();
+    let target_str = target.to_string();
+
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        if target_str.contains("windows") {
+            // ZIP archive
+            let file = std::fs::File::open(&archive_clone)?;
+            let mut archive = zip::ZipArchive::new(file)?;
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i)?;
+                let name = entry.name().to_string();
+                if name.ends_with("uv.exe") {
+                    let dest = bin_dir_clone.join("uv.exe");
+                    let mut out = std::fs::File::create(&dest)?;
+                    std::io::copy(&mut entry, &mut out)?;
+                    break;
+                }
+            }
+        } else {
+            // tar.gz archive
+            let file = std::fs::File::open(&archive_clone)?;
+            let decoder = flate2::read::GzDecoder::new(file);
+            let mut archive = tar::Archive::new(decoder);
+            for entry in archive.entries()? {
+                let mut entry = entry?;
+                let path = entry.path()?.to_path_buf();
+                if path.file_name().is_some_and(|n| n == "uv") {
+                    let dest = bin_dir_clone.join("uv");
+                    let mut out = std::fs::File::create(&dest)?;
+                    std::io::copy(&mut entry, &mut out)?;
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
+                    }
+                    break;
+                }
+            }
+        }
+        Ok(())
+    })
+    .await??;
+
+    // Cleanup archive
+    let _ = tokio::fs::remove_file(&archive_path).await;
+
+    // Verify extraction
+    let uv = crate::managers::mcp_venv::uv_bin(data_dir);
+    if !uv.exists() {
+        anyhow::bail!("uv binary not found after extraction at {}", uv.display());
+    }
+
+    Ok(())
 }
 
 /// Download a file with progress reporting via SSE.
@@ -664,159 +364,116 @@ pub(crate) async fn download_with_progress(
     Ok(())
 }
 
-/// Verify SHA256 checksum against a remote SHA256SUMS.txt manifest.
-async fn verify_checksum(
-    archive_path: &std::path::Path,
-    filename: &str,
-    sums_url: &str,
-) -> anyhow::Result<()> {
-    let client = reqwest::Client::new();
-    let resp = client.get(sums_url).send().await?;
-    if !resp.status().is_success() {
-        anyhow::bail!("SHA256SUMS.txt not available (HTTP {})", resp.status());
-    }
-
-    let sums_text = resp.text().await?;
-    let expected_hash = sums_text
-        .lines()
-        .find(|line| line.ends_with(filename))
-        .and_then(|line| line.split_whitespace().next())
-        .ok_or_else(|| anyhow::anyhow!("No checksum for '{}' in SHA256SUMS.txt", filename))?
-        .to_lowercase();
-
-    // Compute local hash
-    use sha2::Digest;
-    let data = tokio::fs::read(archive_path).await?;
-    let hash = sha2::Sha256::digest(&data);
-    let actual_hash = hex::encode(hash);
-
-    if actual_hash != expected_hash {
-        anyhow::bail!("Checksum mismatch: expected {expected_hash}, got {actual_hash}");
-    }
-
-    info!("Checksum verified: {actual_hash}");
-    Ok(())
-}
-
-/// Extract tar.gz archive to the target directory.
-async fn extract_archive(
-    archive_path: &std::path::Path,
-    target_dir: &std::path::Path,
-) -> anyhow::Result<()> {
-    let archive_path = archive_path.to_path_buf();
-    let target_dir = target_dir.to_path_buf();
-
-    // Run in blocking task since tar/flate2 are synchronous
-    tokio::task::spawn_blocking(move || {
-        let file = std::fs::File::open(&archive_path)?;
-        let decoder = flate2::read::GzDecoder::new(file);
-        let mut archive = tar::Archive::new(decoder);
-        archive.unpack(&target_dir)?;
-        Ok::<(), anyhow::Error>(())
-    })
-    .await??;
-
-    Ok(())
-}
-
-/// Install dependencies per server with SSE progress events.
-async fn install_server_deps_with_progress(
+/// Spawn a single `uv pip install` with live stderr streaming and optional log file.
+/// uv outputs progress to stderr (Resolved, Prepared, Installed, Downloading, etc.)
+pub(crate) async fn spawn_uv_streaming(
     tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>,
-    pip_str: &str,
-    mcp_servers_dir: &std::path::Path,
-) -> u32 {
-    let mut installed = 0u32;
-    let Ok(entries) = std::fs::read_dir(mcp_servers_dir) else {
-        return 0;
-    };
+    uv_str: &str,
+    venv_python_str: &str,
+    server_name: &str,
+    server_path: &str,
+    log_file: Option<&std::path::Path>,
+) -> Result<(), String> {
+    let mut cmd = tokio::process::Command::new(uv_str);
+    cmd.args([
+        "pip",
+        "install",
+        "--no-progress",
+        "--python",
+        venv_python_str,
+        server_path,
+    ])
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped());
 
-    let mut servers: Vec<_> = entries
-        .flatten()
-        .filter(|e| {
-            let path = e.path();
-            let name = e.file_name().to_string_lossy().to_string();
-            path.is_dir()
-                && !name.starts_with('.')
-                && name != "common"
-                && path.join("pyproject.toml").exists()
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+
+    let mut child = cmd.spawn().map_err(|e| format!("failed to run uv: {e}"))?;
+
+    // uv outputs progress to stderr
+    let tx_clone = tx.clone();
+    let srv_name = server_name.to_owned();
+    let log_path = log_file.map(std::path::Path::to_path_buf);
+    let stderr_stream = child.stderr.take().map(|stderr| {
+        tokio::spawn(async move {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let mut lines = BufReader::new(stderr).lines();
+            let mut last: Vec<String> = Vec::new();
+
+            // Open log file in append mode if requested
+            let mut log_writer = if let Some(ref lp) = log_path {
+                tokio::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(lp)
+                    .await
+                    .ok()
+            } else {
+                None
+            };
+
+            while let Ok(Some(line)) = lines.next_line().await {
+                if !line.trim().is_empty() {
+                    emit(
+                        &tx_clone,
+                        SetupProgressEvent::StepProgress {
+                            step: "install_deps".into(),
+                            progress: -1.0,
+                            detail: format!("[{}] {}", srv_name, line),
+                        },
+                    );
+                    // Append to log file
+                    if let Some(ref mut writer) = log_writer {
+                        use tokio::io::AsyncWriteExt;
+                        let ts = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S");
+                        let _ = writer
+                            .write_all(format!("[{ts}] [{srv_name}] {line}\n").as_bytes())
+                            .await;
+                    }
+                }
+                last.push(line);
+                if last.len() > 5 {
+                    last.remove(0);
+                }
+            }
+            last
         })
-        .collect();
+    });
+    // stdout: capture but don't stream (uv puts little on stdout)
+    let stdout_handle = child.stdout.take().map(|stdout| {
+        tokio::spawn(async move {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let mut lines = BufReader::new(stdout).lines();
+            while let Ok(Some(_)) = lines.next_line().await {}
+        })
+    });
 
-    servers.sort_by_key(std::fs::DirEntry::file_name);
-
-    for entry in &servers {
-        let name = entry.file_name().to_string_lossy().to_string();
-        let server_path = entry.path().to_string_lossy().to_string();
-
-        emit(
-            tx,
-            SetupProgressEvent::ServerInstall {
-                server_name: name.clone(),
-                status: "installing".into(),
-            },
-        );
-
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(120),
-            tokio::process::Command::new(pip_str)
-                .args(["install", &server_path, "--quiet", "--no-input"])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .output(),
-        )
-        .await;
-
-        match result {
-            Ok(Ok(output)) if output.status.success() => {
-                installed += 1;
-                emit(
-                    tx,
-                    SetupProgressEvent::ServerInstall {
-                        server_name: name,
-                        status: "installed".into(),
-                    },
-                );
+    match tokio::time::timeout(std::time::Duration::from_secs(120), child.wait()).await {
+        Ok(Ok(exit)) if exit.success() => {
+            if let Some(h) = stderr_stream {
+                let _ = h.await;
             }
-            Ok(Ok(output)) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                warn!(
-                    "Failed to install {}: {}",
-                    name,
-                    stderr.lines().last().unwrap_or("unknown")
-                );
-                emit(
-                    tx,
-                    SetupProgressEvent::ServerInstall {
-                        server_name: name,
-                        status: "failed".into(),
-                    },
-                );
+            if let Some(h) = stdout_handle {
+                let _ = h.await;
             }
-            Ok(Err(e)) => {
-                warn!("Failed to run pip for {}: {}", name, e);
-                emit(
-                    tx,
-                    SetupProgressEvent::ServerInstall {
-                        server_name: name,
-                        status: "failed".into(),
-                    },
-                );
-            }
-            Err(_) => {
-                warn!("pip install timed out for {} (120s)", name);
-                emit(
-                    tx,
-                    SetupProgressEvent::ServerInstall {
-                        server_name: name,
-                        status: "failed".into(),
-                    },
-                );
-            }
+            Ok(())
+        }
+        Ok(Ok(_)) => {
+            let tail = if let Some(h) = stderr_stream {
+                h.await.unwrap_or_default()
+            } else {
+                vec![]
+            };
+            Err(format!("uv pip install failed: {}", tail.join(" | ")))
+        }
+        Ok(Err(e)) => Err(format!("failed to wait for uv: {e}")),
+        Err(_) => {
+            let _ = child.kill().await;
+            Err("timed out (120s)".into())
         }
     }
-
-    installed
 }
 
 #[cfg(test)]
@@ -824,24 +481,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_python_version_sufficient() {
-        assert!(python_version_sufficient("3.13.3"));
-        assert!(python_version_sufficient("3.10.0"));
-        assert!(python_version_sufficient("3.10.15"));
-        assert!(python_version_sufficient("3.12.1"));
-        assert!(!python_version_sufficient("3.9.7"));
-        assert!(!python_version_sufficient("3.8.0"));
-        assert!(!python_version_sufficient("2.7.18"));
-        assert!(!python_version_sufficient(""));
-        assert!(!python_version_sufficient("not_a_version"));
+    fn test_uv_download_target() {
+        let (target, ext) = uv_download_target();
+        assert!(!target.is_empty());
+        assert!(ext == "zip" || ext == "tar.gz");
     }
 
     #[test]
-    fn test_parse_major_minor() {
-        assert_eq!(parse_major_minor("3.13.3"), Some((3, 13)));
-        assert_eq!(parse_major_minor("3.10.0"), Some((3, 10)));
-        assert_eq!(parse_major_minor("2.7.18"), Some((2, 7)));
-        assert_eq!(parse_major_minor("3"), None);
-        assert_eq!(parse_major_minor(""), None);
+    fn test_setup_complete_file_backward_compat() {
+        // Old format with python_version should deserialize without error
+        let json = r#"{
+            "completed_at": "2026-04-07T00:00:00Z",
+            "version": "0.6.3",
+            "mcp_servers_version": "0.1.2",
+            "python_version": "3.13.3",
+            "server_count": 10
+        }"#;
+        let file: SetupCompleteFile = serde_json::from_str(json).unwrap();
+        assert_eq!(file.server_count, 10);
+        assert!(file.uv_version.is_none());
     }
 }

@@ -67,7 +67,7 @@ pub async fn repair_handler(
     let servers_dir = crate::managers::mcp_venv::resolve_venv_dir()
         .and_then(|v| v.parent().map(std::path::Path::to_path_buf));
 
-    let report = db::health::run_full_repair(&state.pool, servers_dir.as_deref())
+    let report = db::health::run_full_repair(&state.pool, servers_dir.as_deref(), &state.data_dir)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Health repair failed: {e}")))?;
 

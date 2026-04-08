@@ -212,6 +212,7 @@ pub async fn shutdown_handler(
     // P9: Drain all MCP servers before shutting down
     let mcp = state.mcp_manager.clone();
     let shutdown = state.shutdown.clone();
+    let setup_flag = state.setup_in_progress.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -255,6 +256,9 @@ pub async fn shutdown_handler(
             Ok(()) => info!("🚧 Maintenance mode engaged."),
             Err(e) => error!("❌ Failed to create .maintenance file: {}", e),
         }
+
+        // Reset setup_in_progress flag to prevent stale lock on restart (bug-366)
+        setup_flag.store(false, std::sync::atomic::Ordering::SeqCst);
 
         info!("👋 Kernel shutting down gracefully.");
         shutdown.notify_waiters();
@@ -451,7 +455,12 @@ pub async fn get_memories(
     // Fetch memories from MCP server
     let mut data = match state
         .mcp_manager
-        .call_capability_tool(crate::managers::CapabilityType::Memory, "list_memories", args, None)
+        .call_capability_tool(
+            crate::managers::CapabilityType::Memory,
+            "list_memories",
+            args,
+            None,
+        )
         .await
     {
         Ok(result) => parse_mcp_tool_result(&result)
@@ -471,19 +480,25 @@ pub async fn get_memories(
             .await
             .unwrap_or_default();
 
-        let kernel_locks: std::collections::HashSet<i64> = sqlx::query_scalar(
-            "SELECT memory_id FROM memory_locks WHERE server_id = ?",
-        )
-        .bind(&server_id)
-        .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
+        let kernel_locks: std::collections::HashSet<i64> =
+            sqlx::query_scalar("SELECT memory_id FROM memory_locks WHERE server_id = ?")
+                .bind(&server_id)
+                .fetch_all(&state.pool)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
 
         for mem in memories.iter_mut() {
-            let mem_id = mem.get("id").and_then(serde_json::Value::as_i64).unwrap_or(-1);
-            if mem.get("locked").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+            let mem_id = mem
+                .get("id")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(-1);
+            if mem
+                .get("locked")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+            {
                 // Server-level lock
                 if let Some(o) = mem.as_object_mut() {
                     o.insert("lock_level".into(), "server".into());
@@ -540,7 +555,9 @@ pub async fn delete_memory(
 
     // Check kernel-level lock before forwarding to server
     if is_kernel_locked(&state, id).await {
-        return Err(AppError::Validation("Memory is locked and cannot be deleted".into()));
+        return Err(AppError::Validation(
+            "Memory is locked and cannot be deleted".into(),
+        ));
     }
 
     let args = serde_json::json!({ "memory_id": id });
@@ -630,15 +647,13 @@ pub async fn import_memories(
 
 /// Check if a memory is locked in the kernel fallback table.
 async fn is_kernel_locked(state: &AppState, memory_id: i64) -> bool {
-    sqlx::query_scalar::<_, i32>(
-        "SELECT 1 FROM memory_locks WHERE memory_id = ? LIMIT 1",
-    )
-    .bind(memory_id)
-    .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten()
-    .is_some()
+    sqlx::query_scalar::<_, i32>("SELECT 1 FROM memory_locks WHERE memory_id = ? LIMIT 1")
+        .bind(memory_id)
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
 }
 
 /// **Route:** `PUT /api/memories/:id`
@@ -653,7 +668,9 @@ pub async fn update_memory(
     check_auth(&state, &headers)?;
 
     if is_kernel_locked(&state, id).await {
-        return Err(AppError::Validation("Memory is locked and cannot be edited".into()));
+        return Err(AppError::Validation(
+            "Memory is locked and cannot be edited".into(),
+        ));
     }
 
     let content = body
@@ -720,14 +737,12 @@ pub async fn lock_memory(
             .await
             .unwrap_or_default();
 
-        sqlx::query(
-            "INSERT OR IGNORE INTO memory_locks (server_id, memory_id) VALUES (?, ?)",
-        )
-        .bind(&server_id)
-        .bind(id)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to lock memory: {}", e)))?;
+        sqlx::query("INSERT OR IGNORE INTO memory_locks (server_id, memory_id) VALUES (?, ?)")
+            .bind(&server_id)
+            .bind(id)
+            .execute(&state.pool)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to lock memory: {}", e)))?;
 
         ok_data(serde_json::json!({ "ok": true, "locked_id": id, "lock_level": "kernel" }))
     }

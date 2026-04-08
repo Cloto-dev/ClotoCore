@@ -74,6 +74,12 @@ const MANUAL_START_SERVERS = new Set([
 
 const DEFAULT_AGENT_ID = 'agent.cloto_default';
 
+function formatElapsed(secs: number): string {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return m > 0 ? `${m}m ${s.toString().padStart(2, '0')}s` : `${s}s`;
+}
+
 // ============================================================
 // Component
 // ============================================================
@@ -96,11 +102,9 @@ export function SetupWizard({ onComplete }: Props) {
   const [selectedEngine, setSelectedEngine] = useState('mind.deepseek');
   const [customServers, setCustomServers] = useState<Set<string>>(new Set(STANDARD_SERVERS));
   const [applying, setApplying] = useState(false);
-
+  const [presetError, setPresetError] = useState(false);
   // Installation state (Step 5)
   const api = useApi();
-  const [pythonChecking, setPythonChecking] = useState(false);
-  const [pythonMissing, setPythonMissing] = useState(false);
   const [installStarted, setInstallStarted] = useState(false);
   const [installComplete, setInstallComplete] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
@@ -109,12 +113,23 @@ export function SetupWizard({ onComplete }: Props) {
     Array<{ step: string; description: string; status: string; detail?: string; progress?: number }>
   >([]);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const [installStartTime, setInstallStartTime] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     return () => {
       eventSourceRef.current?.close();
     };
   }, []);
+
+  // Elapsed time counter during installation
+  useEffect(() => {
+    if (!installStartTime || installComplete) return;
+    const timer = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - installStartTime) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [installStartTime, installComplete]);
 
   useEffect(() => {
     getCustomLanguages().then(setCustomLangs);
@@ -125,11 +140,24 @@ export function SetupWizard({ onComplete }: Props) {
 
   const next = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1));
   // Skip step 5 (installation) when going back — it's a one-way step
-  const back = () =>
+  const back = () => {
+    if (step === 5) {
+      // Clear installation state when leaving step 5 (bug-361)
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
+      setInstallStarted(false);
+      setInstallComplete(false);
+      setInstallError(null);
+      setInstallSteps([]);
+      setServerStatuses([]);
+      setInstallStartTime(null);
+      setElapsed(0);
+    }
     setStep((s) => {
       const prev = Math.max(s - 1, 0);
       return prev === 5 ? 4 : prev;
     });
+  };
 
   // When preset changes, sync engine and custom servers
   const handlePresetSelect = (presetId: string) => {
@@ -165,7 +193,7 @@ export function SetupWizard({ onComplete }: Props) {
   };
 
   // Apply preset to backend
-  const applyPreset = async () => {
+  const applyPreset = async (): Promise<boolean> => {
     // Resolve API key: context → sessionStorage → direct Tauri invoke
     let key = apiKey || sessionStorage.getItem('cloto-api-key') || '';
     if (!key) {
@@ -177,7 +205,7 @@ export function SetupWizard({ onComplete }: Props) {
     }
     if (!key) {
       if (import.meta.env.DEV) console.warn('[SetupWizard] API key not available, skipping preset apply');
-      return;
+      return false;
     }
     setApplying(true);
     try {
@@ -221,8 +249,10 @@ export function SetupWizard({ onComplete }: Props) {
           await authedApi.putMcpServerAccess(serverId, []);
         }
       }
+      return true;
     } catch (e) {
       if (import.meta.env.DEV) console.error('Failed to apply preset:', e);
+      return false;
     } finally {
       setApplying(false);
     }
@@ -242,9 +272,21 @@ export function SetupWizard({ onComplete }: Props) {
   };
 
   // Step 4: apply preset then advance
+  const applyingRef = useRef(false);
   const handlePresetNext = async () => {
-    await applyPreset();
-    next();
+    if (applyingRef.current) return;
+    applyingRef.current = true;
+    setPresetError(false);
+    try {
+      const ok = await applyPreset();
+      if (ok) {
+        next();
+      } else {
+        setPresetError(true);
+      }
+    } finally {
+      applyingRef.current = false;
+    }
   };
 
   // Step 4: skip — jump directly to Quick Guide (step 6), skipping installation
@@ -255,6 +297,7 @@ export function SetupWizard({ onComplete }: Props) {
   // Step 5: Core batch installation (after Python check passes)
   const doInstall = useCallback(async () => {
     setInstallStarted(true);
+    setInstallStartTime(Date.now());
     setInstallError(null);
     setServerStatuses([]);
     setInstallSteps([]);
@@ -263,7 +306,8 @@ export function SetupWizard({ onComplete }: Props) {
       const servers = getActiveServers();
       await api.batchInstallMarketplaceServers({ server_ids: servers, auto_start: true });
 
-      // Connect SSE for progress
+      // Connect SSE for progress — close any existing connection first (bug-359)
+      eventSourceRef.current?.close();
       const progressUrl = api.getMarketplaceProgressUrl();
       const sseUrl = `${progressUrl}?api_key=${encodeURIComponent(api.apiKey || '')}`;
       const es = new EventSource(sseUrl);
@@ -289,8 +333,8 @@ export function SetupWizard({ onComplete }: Props) {
               break;
             case 'StepError':
               setInstallSteps((prev) => prev.map((s) => (s.step === data.step ? { ...s, status: 'error' } : s)));
+              setInstallError(data.error);
               if (!data.recoverable) {
-                setInstallError(data.error);
                 es.close();
               }
               break;
@@ -330,59 +374,12 @@ export function SetupWizard({ onComplete }: Props) {
   }, [api, installComplete, getActiveServers, next]);
 
   // Guard ref to prevent concurrent startInstallation() calls from React
-  // batched state updates (useEffect can fire before setPythonChecking commits).
-  const checkingRef = useRef(false);
-
-  // Step 5: Check Python then start installation
-  const startInstallation = useCallback(async () => {
-    if (installStarted || checkingRef.current) return;
-    checkingRef.current = true;
-    setPythonChecking(true);
-    setPythonMissing(false);
-    try {
-      const result = await api.checkPython();
-      if (!result.available) {
-        setPythonMissing(true);
-        setPythonChecking(false);
-        checkingRef.current = false;
-        return;
-      }
-    } catch {
-      // If check itself fails, proceed and let backend handle it
-    }
-    setPythonChecking(false);
-    checkingRef.current = false;
-    doInstall();
-  }, [installStarted, api, doInstall]);
-
-  // Retry after user installs Python
-  const handlePythonRetry = useCallback(async () => {
-    if (checkingRef.current) return;
-    checkingRef.current = true;
-    setPythonChecking(true);
-    setPythonMissing(false);
-    try {
-      const result = await api.checkPython();
-      if (!result.available) {
-        setPythonMissing(true);
-        setPythonChecking(false);
-        checkingRef.current = false;
-        return;
-      }
-    } catch {
-      // Proceed on check failure
-    }
-    setPythonChecking(false);
-    checkingRef.current = false;
-    doInstall();
-  }, [api, doInstall]);
-
   // Auto-start installation when entering step 5
   useEffect(() => {
-    if (step === 5 && !installStarted && !pythonMissing && !pythonChecking) {
-      startInstallation();
+    if (step === 5 && !installStarted) {
+      doInstall();
     }
-  }, [step, installStarted, pythonMissing, pythonChecking, startInstallation]);
+  }, [step, installStarted, doInstall]);
 
   const themes = [
     { value: 'light' as const, icon: Sun, label: t('theme_light') },
@@ -493,60 +490,8 @@ export function SetupWizard({ onComplete }: Props) {
                   {t('step_install', { defaultValue: 'Installing Servers' })}
                 </h2>
 
-                {/* Python checking */}
-                {pythonChecking && (
-                  <div className="flex items-center justify-center gap-2 text-[11px] text-content-tertiary">
-                    <Loader2 size={14} className="text-brand animate-spin" />
-                    {t('python_checking', { defaultValue: 'Checking Python installation...' })}
-                  </div>
-                )}
-
-                {/* Python missing error */}
-                {pythonMissing && !pythonChecking && (
-                  <div className="space-y-3">
-                    <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 space-y-3">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
-                        <div className="space-y-1">
-                          <p className="text-xs font-bold text-red-400">
-                            {t('python_missing_title', { defaultValue: 'Python 3.10+ is required but not found' })}
-                          </p>
-                          <p className="text-[11px] text-content-secondary">
-                            {t('python_missing_desc', {
-                              defaultValue:
-                                'ClotoCore requires Python to run MCP servers. Please install Python and ensure it is added to your system PATH.',
-                            })}
-                          </p>
-                        </div>
-                      </div>
-                      <a
-                        href="https://www.python.org/downloads/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-block text-[11px] text-brand hover:underline font-bold"
-                      >
-                        python.org/downloads
-                      </a>
-                      <p className="text-[10px] text-content-tertiary">
-                        {t('python_path_hint', {
-                          defaultValue:
-                            'After installing, make sure "Add Python to PATH" is checked, then click Retry.',
-                        })}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handlePythonRetry}
-                      aria-label={t('python_retry', { defaultValue: 'Retry' })}
-                      className="w-full px-4 py-2.5 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
-                    >
-                      {t('python_retry', { defaultValue: 'Retry' })}
-                    </button>
-                  </div>
-                )}
-
-                {/* Progress steps (only when not blocked by Python check) */}
-                {!pythonMissing && !pythonChecking && installSteps.length > 0 && (
+                {/* Progress steps */}
+                {installSteps.length > 0 && (
                   <div className="space-y-2">
                     {installSteps.map((s) => (
                       <div key={s.step} className="flex items-center gap-2 text-[11px] font-mono">
@@ -554,9 +499,29 @@ export function SetupWizard({ onComplete }: Props) {
                         {s.status === 'complete' && <Check size={12} className="text-emerald-500 shrink-0" />}
                         {s.status === 'error' && <AlertTriangle size={12} className="text-red-500 shrink-0" />}
                         <span className="text-content-secondary">{s.description}</span>
-                        {s.detail && <span className="text-content-tertiary ml-auto">{s.detail}</span>}
+                        {s.detail && (
+                          <span className="text-content-tertiary ml-auto truncate max-w-[220px]" title={s.detail}>
+                            {s.detail}
+                          </span>
+                        )}
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* Elapsed time + estimate during dependency installation */}
+                {installSteps.some((s) => s.step === 'install_deps' && s.status === 'running') && (
+                  <div className="text-[10px] text-content-tertiary font-mono text-center space-y-0.5">
+                    <div>
+                      {t('install_elapsed', { defaultValue: 'Elapsed: {{time}}', time: formatElapsed(elapsed) })}
+                    </div>
+                    <div>
+                      {t('install_estimate', {
+                        defaultValue: 'Estimated: {{min}}–{{max}} min',
+                        min: Math.max(3, Math.floor(serverStatuses.length * 1.5)),
+                        max: Math.max(3, Math.floor(serverStatuses.length * 1.5)) + 5,
+                      })}
+                    </div>
                   </div>
                 )}
 
@@ -569,10 +534,11 @@ export function SetupWizard({ onComplete }: Props) {
                           <Loader2 size={10} className="text-brand animate-spin shrink-0" />
                         )}
                         {s.status === 'installed' && <Check size={10} className="text-emerald-500 shrink-0" />}
+                        {s.status === 'registered' && <AlertTriangle size={10} className="text-amber-500 shrink-0" />}
                         {s.status === 'failed' && <AlertTriangle size={10} className="text-red-500 shrink-0" />}
                         {s.status === 'skipped' && <Circle size={10} className="text-content-tertiary shrink-0" />}
                         <span
-                          className={`font-sans ${s.status === 'failed' ? 'text-red-400' : s.status === 'skipped' ? 'text-content-tertiary' : 'text-content-secondary'}`}
+                          className={`font-sans ${s.status === 'failed' ? 'text-red-400' : s.status === 'skipped' ? 'text-content-tertiary' : s.status === 'registered' ? 'text-amber-400' : 'text-content-secondary'}`}
                         >
                           {s.name}
                         </span>
@@ -586,22 +552,41 @@ export function SetupWizard({ onComplete }: Props) {
                   </div>
                 )}
 
-                {/* Error */}
+                {/* Error with retry */}
                 {installError && (
-                  <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-[11px] text-red-400">
-                    {installError}
+                  <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-[11px] text-red-400 space-y-2">
+                    <div>{installError}</div>
+                    {!installComplete && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInstallError(null);
+                          doInstall();
+                        }}
+                        className="px-3 py-1.5 bg-brand text-white rounded text-[10px] font-bold hover:opacity-90 transition-opacity"
+                      >
+                        {t('retry', { defaultValue: 'Retry' })}
+                      </button>
+                    )}
                   </div>
                 )}
 
                 {/* Completion */}
                 {installComplete && !installError && (
-                  <div className="text-center text-[11px] text-emerald-500 font-sans">
-                    {t('step_install_complete', { defaultValue: 'All servers installed' })}
+                  <div className="text-center space-y-1">
+                    <div className="text-[11px] text-emerald-500 font-sans">
+                      {t('step_install_complete', { defaultValue: 'All servers installed' })}
+                    </div>
+                    <div className="text-[10px] text-content-tertiary">
+                      {t('marketplace_hint', {
+                        defaultValue: 'Some servers can be installed later from the Marketplace.',
+                      })}
+                    </div>
                   </div>
                 )}
 
                 {/* Waiting state */}
-                {!installStarted && !installComplete && !pythonMissing && !pythonChecking && (
+                {!installStarted && !installComplete && (
                   <div className="text-center text-[11px] text-content-tertiary">
                     {t('step_install_preparing', { defaultValue: 'Preparing installation...' })}
                   </div>
@@ -660,22 +645,29 @@ export function SetupWizard({ onComplete }: Props) {
               {step === 0 ? (
                 <div /> // Welcome has its own CTA
               ) : step === 4 ? (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handlePresetSkip}
-                    aria-label={t('preset_skip')}
-                    className="text-[11px] text-content-tertiary hover:text-content-primary transition-colors"
-                  >
-                    {t('preset_skip')}
-                  </button>
-                  <button
-                    onClick={handlePresetNext}
-                    disabled={applying}
-                    aria-label={t('next')}
-                    className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
-                  >
-                    {applying ? '...' : t('next')}
-                  </button>
+                <div className="flex flex-col items-end gap-1">
+                  {presetError && (
+                    <div className="text-[10px] text-red-400">
+                      {t('preset_error', { defaultValue: 'Failed to apply preset. Please retry or skip.' })}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handlePresetSkip}
+                      aria-label={t('preset_skip')}
+                      className="text-[11px] text-content-tertiary hover:text-content-primary transition-colors"
+                    >
+                      {t('preset_skip')}
+                    </button>
+                    <button
+                      onClick={handlePresetNext}
+                      disabled={applying || getActiveServers().length === 0}
+                      aria-label={t('next')}
+                      className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+                    >
+                      {applying ? '...' : t('next')}
+                    </button>
+                  </div>
                 </div>
               ) : step === 5 ? (
                 <div /> // Installation auto-advances
@@ -848,6 +840,8 @@ function PresetStep({
         )}
         {hasManualStart && <p className="text-[9px] text-amber-500">* {t('preset_manual_note')}</p>}
       </div>
+
+      {/* Console toggle */}
     </div>
   );
 }
