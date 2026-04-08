@@ -898,11 +898,7 @@ pub async fn call_mcp_tool(
     check_auth(&state, &headers)?;
 
     // Pre-flight: reject immediately if server is known-dead (bug-354)
-    if !state
-        .mcp_manager
-        .is_server_alive(&body.server_id)
-        .await
-    {
+    if !state.mcp_manager.is_server_alive(&body.server_id).await {
         return Err(AppError::Validation(format!(
             "MCP server '{}' is not connected",
             body.server_id

@@ -2080,7 +2080,10 @@ impl McpClientManager {
         capability: super::capability_dispatcher::CapabilityType,
         tool_name: &str,
     ) -> bool {
-        self.dispatcher.resolve(capability, tool_name).await.is_some()
+        self.dispatcher
+            .resolve(capability, tool_name)
+            .await
+            .is_some()
     }
 
     /// Check if a server is connected and its transport is alive.

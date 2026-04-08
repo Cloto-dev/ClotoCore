@@ -7,7 +7,12 @@ interface HelpContentProps {
   onAskAgent: () => void;
 }
 
-const menuGuide = [
+const menuGuide: Array<{
+  icon: typeof Users;
+  labelKey: string;
+  descKey: string;
+  label?: string;
+}> = [
   { icon: Users, labelKey: 'nav:agent', descKey: 'help.agent_desc' },
   { icon: Server, labelKey: 'nav:mcp', descKey: 'help.mcp_desc' },
   { icon: Clock, labelKey: 'nav:cron', descKey: 'help.cron_desc' },

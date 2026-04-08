@@ -4,9 +4,16 @@
 //! falling back to `mcp-servers/` in the project root.
 //! If missing, creates a venv and installs dependencies from each server's `pyproject.toml`.
 //! This is non-fatal — the kernel starts normally even if setup fails.
+//!
+//! Uses `uv` (Rust-based Python package manager) for all venv and dependency
+//! operations. Python 3.12 is the pinned target version, provisioned automatically
+//! by uv if not present on the system.
 
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
+
+/// Target Python version for venv creation.
+pub const TARGET_PYTHON: &str = "3.12";
 
 /// Resolve the project root using McpClientManager's existing detection logic.
 fn resolve_project_root() -> Option<PathBuf> {
@@ -81,165 +88,25 @@ pub fn resolve_venv_python() -> Option<PathBuf> {
     }
 }
 
-/// Find a system Python command and its version string.
-///
-/// Search order:
-/// 1. PATH-based candidates: `python3`, `python`, and on Windows `py`
-///    (the Python Launcher installed into `C:\Windows\` by python.org — available
-///    even when the user did not check "Add Python to PATH").
-/// 2. On Windows only: well-known installation directories as a last resort
-///    (covers Tauri desktop apps that may not inherit the user's full PATH).
-///
-/// Each candidate is given a 5-second timeout so a hanging binary does not
-/// block the caller indefinitely.
-pub(crate) fn find_python_with_version() -> Option<(String, String)> {
-    #[cfg(windows)]
-    const CANDIDATES: &[&str] = &["python3", "python", "py"];
-    #[cfg(not(windows))]
-    const CANDIDATES: &[&str] = &["python3", "python"];
-
-    // Try PATH-based candidates first.
-    if let Some(result) = try_python_candidates(CANDIDATES) {
-        return Some(result);
+/// Get the path to the uv binary in the data directory.
+#[must_use]
+pub fn uv_bin(data_dir: &Path) -> PathBuf {
+    let bin_dir = data_dir.join("bin");
+    if cfg!(windows) {
+        bin_dir.join("uv.exe")
+    } else {
+        bin_dir.join("uv")
     }
-
-    // Windows fallback: probe common installation directories.
-    #[cfg(windows)]
-    if let Some(result) = find_python_in_known_paths() {
-        return Some(result);
-    }
-
-    None
 }
 
-/// Try each command name from `candidates` by spawning `<cmd> --version`.
-fn try_python_candidates(candidates: &[&str]) -> Option<(String, String)> {
-    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-
-    for cmd in candidates {
-        if let Some(result) = probe_python(cmd, TIMEOUT) {
-            return Some(result);
-        }
+/// Get the Python executable path inside a given venv directory.
+#[must_use]
+pub fn venv_python(venv_dir: &Path) -> PathBuf {
+    if cfg!(windows) {
+        venv_dir.join("Scripts").join("python.exe")
+    } else {
+        venv_dir.join("bin").join("python")
     }
-    None
-}
-
-/// Spawn `<cmd> --version` and return `(command, version_string)` on success.
-fn probe_python(cmd: &str, timeout: std::time::Duration) -> Option<(String, String)> {
-    let child = std::process::Command::new(cmd)
-        .arg("--version")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn();
-
-    let Ok(mut child) = child else { return None };
-
-    // Poll with timeout to avoid blocking indefinitely.
-    let deadline = std::time::Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(s)) => break Some(s),
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait(); // reap
-                    break None;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Err(_) => break None,
-        }
-    };
-
-    let status = status?;
-    if !status.success() {
-        return None;
-    }
-
-    // Read version from stdout/stderr.
-    let stdout = child.stdout.take().and_then(|mut s| {
-        let mut buf = String::new();
-        std::io::Read::read_to_string(&mut s, &mut buf).ok()?;
-        Some(buf)
-    }).unwrap_or_default();
-    let stderr = child.stderr.take().and_then(|mut s| {
-        let mut buf = String::new();
-        std::io::Read::read_to_string(&mut s, &mut buf).ok()?;
-        Some(buf)
-    }).unwrap_or_default();
-
-    let combined = if stdout.contains("Python") { stdout } else { stderr };
-    let version = combined.trim().strip_prefix("Python ")?;
-    Some((cmd.to_string(), version.to_string()))
-}
-
-/// Windows-only: scan well-known Python installation directories.
-///
-/// Covers the case where a Tauri desktop app does not inherit the user's PATH
-/// and neither `python`, `python3`, nor `py` are discoverable via PATH alone.
-#[cfg(windows)]
-fn find_python_in_known_paths() -> Option<(String, String)> {
-    use std::path::PathBuf;
-
-    let candidates: Vec<PathBuf> = [
-        // python.org default install locations
-        std::env::var("LOCALAPPDATA").ok().map(|p| PathBuf::from(p).join("Programs").join("Python")),
-        // System-wide install
-        Some(PathBuf::from(r"C:\Python")),
-        // Windows Store location
-        std::env::var("LOCALAPPDATA")
-            .ok()
-            .map(|p| PathBuf::from(p).join("Microsoft").join("WindowsApps")),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-
-    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-
-    for base in &candidates {
-        if !base.is_dir() {
-            continue;
-        }
-        // Scan for python.exe directly or inside versioned subdirectories
-        // (e.g., C:\Users\X\AppData\Local\Programs\Python\Python313\python.exe)
-        let dirs_to_check: Vec<PathBuf> = std::fs::read_dir(base)
-            .ok()
-            .map(|entries| {
-                let mut dirs: Vec<PathBuf> = entries
-                    .filter_map(std::result::Result::ok)
-                    .map(|e| e.path())
-                    .filter(|p| p.is_dir())
-                    .collect();
-                // Prefer higher version numbers (reverse sort)
-                dirs.sort_unstable_by(|a, b| b.cmp(a));
-                dirs
-            })
-            .unwrap_or_default();
-
-        // Also check the base directory itself (e.g., C:\Python\python.exe)
-        let mut search_dirs = vec![base.clone()];
-        search_dirs.extend(dirs_to_check);
-
-        for dir in &search_dirs {
-            let exe = dir.join("python.exe");
-            if exe.is_file() {
-                let exe_str = exe.to_string_lossy().to_string();
-                if let Some(result) = probe_python(&exe_str, TIMEOUT) {
-                    return Some(result);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Find a system Python command (python3, python, or py on Windows).
-///
-/// Thin wrapper around [`find_python_with_version`] for call sites that only
-/// need the command name.
-pub(crate) fn find_python() -> Option<String> {
-    find_python_with_version().map(|(cmd, _)| cmd)
 }
 
 /// Extract the Python version from a venv's `pyvenv.cfg` (e.g., "3.13.3").
@@ -259,37 +126,18 @@ fn read_venv_python_version(venv_dir: &Path) -> Option<String> {
     None
 }
 
-/// Get the system Python major.minor version string (e.g., "3.13").
-fn system_python_major_minor() -> Option<String> {
-    let (_, version) = find_python_with_version()?;
-    // Extract major.minor only (e.g., "3.13.3" → "3.13")
-    let mut parts = version.splitn(3, '.');
-    let major = parts.next()?;
-    let minor = parts.next()?;
-    Some(format!("{major}.{minor}"))
-}
-
-/// Check if an existing venv's Python version mismatches the system Python.
+/// Check if an existing venv's Python version mismatches the target (3.12).
 /// Returns `true` if the venv is stale and should be recreated.
-/// Returns `false` if the venv is OK, or if versions cannot be determined.
+/// Returns `false` if the venv is OK, or if the version cannot be determined.
 pub(crate) fn is_venv_stale(venv_dir: &Path) -> bool {
     let Some(venv_version) = read_venv_python_version(venv_dir) else {
         return false; // Can't read venv version — assume OK
     };
-    let Some(system_mm) = system_python_major_minor() else {
-        return false; // Can't detect system Python — assume OK
-    };
-    // Extract major.minor from venv version (e.g., "3.13.3" → "3.13")
-    let venv_mm: String = venv_version
-        .splitn(3, '.')
-        .take(2)
-        .collect::<Vec<_>>()
-        .join(".");
-
-    if venv_mm != system_mm {
+    // With uv-managed Python, stale means anything other than TARGET_PYTHON (3.12.x)
+    if !venv_version.starts_with(TARGET_PYTHON) {
         tracing::info!(
-            venv_python = %venv_mm,
-            system_python = %system_mm,
+            venv_python = %venv_version,
+            target = TARGET_PYTHON,
             "Venv Python version mismatch detected"
         );
         return true;
@@ -297,19 +145,14 @@ pub(crate) fn is_venv_stale(venv_dir: &Path) -> bool {
     false
 }
 
-/// Get the pip executable path inside the venv.
-pub(crate) fn venv_pip(venv_dir: &Path) -> PathBuf {
-    if cfg!(windows) {
-        venv_dir.join("Scripts").join("pip.exe")
-    } else {
-        venv_dir.join("bin").join("pip")
-    }
-}
-
 /// Install (or re-sync) each MCP server's pyproject.toml dependencies into
-/// the shared venv. Uses a single `pip install` invocation with all server
-/// paths to avoid lock contention from parallel pip processes.
-pub(crate) async fn install_server_deps(pip_str: &str, mcp_servers_dir: &Path) -> u32 {
+/// the shared venv. Uses a single `uv pip install` invocation with all server
+/// paths to avoid lock contention from parallel processes.
+pub(crate) async fn install_server_deps(
+    uv_str: &str,
+    venv_python_str: &str,
+    mcp_servers_dir: &Path,
+) -> u32 {
     let Ok(entries) = std::fs::read_dir(mcp_servers_dir) else {
         return 0;
     };
@@ -342,13 +185,19 @@ pub(crate) async fn install_server_deps(pip_str: &str, mcp_servers_dir: &Path) -
     }
 
     let count = server_paths.len() as u32;
-    info!("  Installing MCP deps for {} server(s)", count);
+    info!("  Installing MCP deps for {} server(s) via uv", count);
 
-    // Single pip invocation with all server paths — avoids parallel lock contention
-    let mut args = vec!["install".to_string(), "--quiet".to_string()];
+    // Single uv invocation with all server paths
+    let mut args = vec![
+        "pip".to_string(),
+        "install".to_string(),
+        "--no-progress".to_string(),
+        "--python".to_string(),
+        venv_python_str.to_string(),
+    ];
     args.extend(server_paths);
 
-    let result = tokio::process::Command::new(pip_str)
+    let result = tokio::process::Command::new(uv_str)
         .args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -361,14 +210,14 @@ pub(crate) async fn install_server_deps(pip_str: &str, mcp_servers_dir: &Path) -
             let stderr = String::from_utf8_lossy(&output.stderr);
             let last_line = stderr.lines().last().unwrap_or("unknown error");
             warn!(
-                "  pip install failed (exit code {:?}): {}",
+                "  uv pip install failed (exit code {:?}): {}",
                 output.status.code(),
                 last_line
             );
             0
         }
         Err(e) => {
-            warn!("  Failed to run pip: {}", e);
+            warn!("  Failed to run uv: {}", e);
             0
         }
     }
@@ -378,13 +227,25 @@ pub(crate) async fn install_server_deps(pip_str: &str, mcp_servers_dir: &Path) -
 /// Non-fatal: logs warnings on failure but does not prevent kernel startup.
 /// Re-syncs dependencies on every startup so late-added servers are picked up.
 ///
-/// If `data_dir` is provided, also syncs marketplace-installed servers from
-/// `data_dir/mcp-servers/` so they survive venv recreation.
-pub async fn ensure_mcp_venv(data_dir: Option<&Path>) {
+/// Also syncs marketplace-installed servers from `data_dir/mcp-servers/`
+/// so they survive venv recreation.
+pub async fn ensure_mcp_venv(data_dir: &Path) {
     let Some(project_root) = resolve_project_root() else {
         warn!("Could not detect project root — skipping MCP venv setup");
         return;
     };
+
+    // Check uv binary availability
+    let uv = uv_bin(data_dir);
+    if !uv.exists() {
+        warn!(
+            "uv binary not found at {} — skipping MCP venv setup. \
+             Run initial setup first.",
+            uv.display()
+        );
+        return;
+    }
+    let uv_str = uv.to_string_lossy().to_string();
 
     // Use [paths].servers from mcp.toml if available, otherwise legacy path
     let (venv_dir, mcp_servers_dir) = if let Some(servers_dir) = resolve_servers_dir_from_config() {
@@ -397,10 +258,11 @@ pub async fn ensure_mcp_venv(data_dir: Option<&Path>) {
     };
     let mut venv_exists = venv_dir.join("pyvenv.cfg").exists();
 
-    // Detect stale venv (Python major.minor mismatch) and recreate
+    // Detect stale venv (Python version mismatch with target 3.12) and recreate
     if venv_exists && is_venv_stale(&venv_dir) {
         warn!(
-            "Python version mismatch — recreating venv at {}",
+            "Python version mismatch (expected {}) — recreating venv at {}",
+            TARGET_PYTHON,
             venv_dir.display()
         );
         let _ = std::fs::remove_dir_all(&venv_dir);
@@ -410,73 +272,59 @@ pub async fn ensure_mcp_venv(data_dir: Option<&Path>) {
     if venv_exists {
         info!("MCP Python venv found at {}", venv_dir.display());
     } else {
-        info!("MCP Python venv not found — setting up automatically...");
+        info!("MCP Python venv not found — creating via uv...");
 
-        // Find system Python
-        let Some(python) = find_python() else {
-            warn!(
-                "Python 3.10+ not found in PATH. MCP servers requiring Python will not start. \
-                 Install Python and restart, or run: bash scripts/setup-mcp-deps.sh"
-            );
-            return;
-        };
-
-        info!("Using system Python: {}", python);
-
-        // Create venv
         let venv_path_str = venv_dir.to_string_lossy().to_string();
-        let create_result = tokio::process::Command::new(&python)
-            .args(["-m", "venv", &venv_path_str])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .status()
-            .await;
+        let create_result = tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            tokio::process::Command::new(&uv_str)
+                .args(["venv", "--python", TARGET_PYTHON, &venv_path_str])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .status(),
+        )
+        .await;
 
         match create_result {
-            Ok(status) if status.success() => {
-                info!("Created Python venv at {}", venv_dir.display());
+            Ok(Ok(status)) if status.success() => {
+                info!(
+                    "Created Python {} venv at {}",
+                    TARGET_PYTHON,
+                    venv_dir.display()
+                );
             }
-            Ok(status) => {
+            Ok(Ok(status)) => {
                 warn!(
-                    "Failed to create Python venv (exit code: {:?}). \
-                     Run manually: bash scripts/setup-mcp-deps.sh",
+                    "Failed to create venv via uv (exit code: {:?})",
                     status.code()
                 );
                 return;
             }
-            Err(e) => {
-                warn!("Failed to run Python for venv creation: {}", e);
+            Ok(Err(e)) => {
+                warn!("Failed to run uv for venv creation: {}", e);
+                return;
+            }
+            Err(_) => {
+                warn!("uv venv creation timed out (120s)");
                 return;
             }
         }
-
-        // Upgrade pip (only on fresh venv creation)
-        let pip = venv_pip(&venv_dir);
-        let pip_str = pip.to_string_lossy().to_string();
-        let _ = tokio::process::Command::new(&pip_str)
-            .args(["install", "--upgrade", "pip", "--quiet"])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .status()
-            .await;
     }
 
     // Always sync dependencies — handles late-added servers and new packages.
-    let pip = venv_pip(&venv_dir);
-    let pip_str = pip.to_string_lossy().to_string();
-    let mut installed = install_server_deps(&pip_str, &mcp_servers_dir).await;
+    let venv_py = venv_python(&venv_dir);
+    let venv_py_str = venv_py.to_string_lossy().to_string();
+    let mut installed = install_server_deps(&uv_str, &venv_py_str, &mcp_servers_dir).await;
 
     // Also sync marketplace-installed servers from data_dir/mcp-servers/.
-    // pip install is idempotent (no-op for satisfied packages), so double-scanning is safe.
-    if let Some(data_dir) = data_dir {
-        let marketplace_dir = data_dir.join("mcp-servers");
-        if marketplace_dir.is_dir() && marketplace_dir != mcp_servers_dir {
-            let mp_count = install_server_deps(&pip_str, &marketplace_dir).await;
-            if mp_count > 0 {
-                info!("Marketplace dep sync: {} server(s) processed", mp_count);
-            }
-            installed += mp_count;
+    // uv install is idempotent (no-op for satisfied packages), so double-scanning is safe.
+    let marketplace_dir = data_dir.join("mcp-servers");
+    if marketplace_dir.is_dir() && marketplace_dir != mcp_servers_dir {
+        let mp_count = install_server_deps(&uv_str, &venv_py_str, &marketplace_dir).await;
+        if mp_count > 0 {
+            info!("Marketplace dep sync: {} server(s) processed", mp_count);
         }
+        installed += mp_count;
     }
 
     info!(

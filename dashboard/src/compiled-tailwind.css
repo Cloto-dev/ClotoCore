@@ -1269,6 +1269,10 @@ video {
   min-width: 200px;
 }
 
+.max-w-\[220px\] {
+  max-width: 220px;
+}
+
 .max-w-\[80\%\] {
   max-width: 80%;
 }
@@ -1467,6 +1471,10 @@ video {
 
 .items-start {
   align-items: flex-start;
+}
+
+.items-end {
+  align-items: flex-end;
 }
 
 .items-center {

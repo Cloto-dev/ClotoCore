@@ -1945,10 +1945,7 @@ impl SystemHandler {
                                         if let Some(ct) =
                                             m.get("context_type").and_then(|v| v.as_str())
                                         {
-                                            meta.insert(
-                                                "context_type".into(),
-                                                ct.to_string(),
-                                            );
+                                            meta.insert("context_type".into(), ct.to_string());
                                         }
                                         meta
                                     },

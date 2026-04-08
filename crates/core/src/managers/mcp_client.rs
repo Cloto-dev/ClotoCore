@@ -143,12 +143,7 @@ impl McpClient {
                 let msg_opt = {
                     let mut tp = transport.lock().await;
                     // Release Mutex after 5s to prevent deadlock when reader hangs
-                    match tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
-                        tp.recv(),
-                    )
-                    .await
-                    {
+                    match tokio::time::timeout(std::time::Duration::from_secs(5), tp.recv()).await {
                         Ok(msg) => msg,
                         Err(_) => continue, // Timeout — release lock, retry
                     }

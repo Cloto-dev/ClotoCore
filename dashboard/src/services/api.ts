@@ -546,11 +546,6 @@ export const api = {
   startSetup: (apiKey: string): Promise<void> =>
     mutate('/setup/start', 'POST', 'start setup', undefined, { 'X-API-Key': apiKey }).then(() => {}),
 
-  checkPython: (): Promise<{ available: boolean; version: string | null }> =>
-    mutate('/setup/check-python', 'POST', 'check python', undefined)
-      .then((r) => r.json())
-      .then((b) => b.data),
-
   getSetupProgressUrl: (): string => `${API_BASE}/setup/progress`,
 
   // Marketplace
@@ -740,7 +735,6 @@ export function createAuthenticatedApi(apiKey: string) {
     // Setup
     getSetupStatus: () => api.getSetupStatus(),
     startSetup: () => api.startSetup(k),
-    checkPython: () => api.checkPython(),
     getSetupProgressUrl: () => api.getSetupProgressUrl(),
     // Marketplace
     getMarketplaceCatalog: (forceRefresh?: boolean) => api.getMarketplaceCatalog(k, forceRefresh),

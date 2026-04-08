@@ -148,9 +148,7 @@ fn classify_tool(server_id: &str, tool_name: &str) -> Option<CapabilityType> {
     match tool_name {
         "store" | "recall" | "list_memories" | "delete_memory" | "list_episodes"
         | "delete_episode" | "archive_episode" | "delete_agent_data" | "update_profile"
-        | "update_memory" | "lock_memory" | "unlock_memory" => {
-            Some(CapabilityType::Memory)
-        }
+        | "update_memory" | "lock_memory" | "unlock_memory" => Some(CapabilityType::Memory),
         "think" | "think_with_tools" => Some(CapabilityType::Reasoning),
         "analyze_image" | "capture_screenshot" => Some(CapabilityType::Vision),
         "transcribe" => Some(CapabilityType::Stt),
