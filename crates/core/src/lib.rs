@@ -1025,7 +1025,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             post(handlers::batch_install_handler),
         )
         .route(
-            "/marketplace/servers/{id}",
+            "/marketplace/servers/:id",
             delete(handlers::uninstall_handler),
         );
 

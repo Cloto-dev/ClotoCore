@@ -46,7 +46,7 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
   const [installingServer, setInstallingServer] = useState<MarketplaceCatalogEntry | null>(null);
   const [uninstallTarget, setUninstallTarget] = useState<MarketplaceCatalogEntry | null>(null);
   const [uninstalling, setUninstalling] = useState(false);
-  const [uninstallError, setUninstallError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const api = useApi();
 
   // Filter servers
@@ -65,23 +65,30 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
     return true;
   });
 
+  function showToast(type: 'success' | 'error', message: string) {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), ERROR_DISPLAY_MS);
+  }
+
   function handleInstalled() {
+    const name = installingServer?.name ?? '';
     setInstallingServer(null);
     refetch();
+    showToast('success', t('marketplace.install_success', { name }));
   }
 
   async function handleUninstall() {
     if (!uninstallTarget) return;
+    const name = uninstallTarget.name;
     setUninstalling(true);
-    setUninstallError(null);
     try {
       await api.uninstallMarketplaceServer(uninstallTarget.id);
       setUninstallTarget(null);
       refetch();
+      showToast('success', t('marketplace.uninstall_success', { name }));
     } catch (err) {
       setUninstallTarget(null);
-      setUninstallError(extractError(err, t('marketplace.uninstall_error')));
-      setTimeout(() => setUninstallError(null), ERROR_DISPLAY_MS);
+      showToast('error', extractError(err, t('marketplace.uninstall_error')));
     } finally {
       setUninstalling(false);
     }
@@ -204,10 +211,16 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
         }}
       />
 
-      {/* Uninstall error */}
-      {uninstallError && (
-        <div className="fixed bottom-4 right-4 z-[60] bg-red-500/10 border border-red-500/30 text-red-500 text-[11px] font-sans px-3 py-2 rounded-lg backdrop-blur-sm">
-          {uninstallError}
+      {/* Toast notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-4 right-4 z-[60] text-[11px] font-sans px-3 py-2 rounded-lg backdrop-blur-sm border ${
+            toast.type === 'success'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+              : 'bg-red-500/10 border-red-500/30 text-red-500'
+          }`}
+        >
+          {toast.message}
         </div>
       )}
     </div>
