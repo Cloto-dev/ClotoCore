@@ -13,9 +13,10 @@ import { extractError } from '../lib/errors';
 import { displayServerId } from '../lib/format';
 import type { McpServerInfo } from '../types';
 
-function mcpStatusToDot(status: McpServerInfo['status']): StatusDotStatus {
-  if (status === 'Connected') return 'connected';
-  if (status === 'Error') return 'error';
+function mcpStatusToDot(server: McpServerInfo): StatusDotStatus {
+  if (server.status === 'Connected') return 'connected';
+  if (server.status === 'Error' && server.has_unresolved_env) return 'degraded';
+  if (server.status === 'Error') return 'error';
   return 'offline';
 }
 
@@ -64,9 +65,10 @@ export function McpServersPage() {
 
   const running = servers.filter((s) => s.status === 'Connected').length;
 
-  function statusLabel(status: McpServerInfo['status']) {
-    if (status === 'Connected') return t('status_running');
-    if (status === 'Error') return t('status_error');
+  function statusLabel(server: McpServerInfo) {
+    if (server.status === 'Connected') return t('status_running');
+    if (server.status === 'Error' && server.has_unresolved_env) return t('status_warning');
+    if (server.status === 'Error') return t('status_error');
     return t('status_stopped');
   }
 
@@ -275,8 +277,8 @@ export function McpServersPage() {
                       className={`flex items-center gap-3 text-[10px] font-mono text-content-tertiary leading-none ${isMgp ? 'relative' : ''}`}
                     >
                       <span className="inline-flex items-center gap-1.5">
-                        <StatusDot status={mcpStatusToDot(server.status)} />
-                        <span>{statusLabel(server.status)}</span>
+                        <StatusDot status={mcpStatusToDot(server)} />
+                        <span>{statusLabel(server)}</span>
                       </span>
                       <span>{t('tools_count', { count: server.tools.length })}</span>
                       {server.is_cloto_sdk && <span className="text-brand">SDK</span>}

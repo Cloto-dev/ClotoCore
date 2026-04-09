@@ -29,10 +29,11 @@ const YOLO_APPROVER_ID: &str = "YOLO";
 // ============================================================
 
 /// G1.3: Unified MCP state — single RwLock avoids fragmented locking.
+/// All servers remain in `servers` for their entire lifecycle; only explicit
+/// deletion via `disconnect_server()` removes an entry.
 pub(crate) struct McpState {
     pub servers: HashMap<String, McpServerHandle>,
     pub tool_index: HashMap<String, String>,
-    pub stopped_configs: HashMap<String, (McpServerConfig, ServerSource)>,
 }
 
 pub struct McpClientManager {
@@ -81,7 +82,6 @@ impl McpClientManager {
             state: RwLock::new(McpState {
                 servers: HashMap::new(),
                 tool_index: HashMap::new(),
-                stopped_configs: HashMap::new(),
             }),
             pool,
             yolo_mode: Arc::new(AtomicBool::new(yolo_mode)),
@@ -354,7 +354,10 @@ impl McpClientManager {
 
         let results = futures::future::join_all(futures).await;
 
-        // Register failures
+        // Register failures with Error status so they appear in list_servers().
+        // Even servers that can't connect yet (e.g. before setup wizard installs
+        // dependencies) are registered — this ensures they remain visible in the
+        // dashboard for manual start/restart once setup completes.
         let mut failed = 0usize;
         for (server_config, result) in results {
             if let Err(e) = result {
@@ -364,7 +367,6 @@ impl McpClientManager {
                     error = %e,
                     "Failed to connect MCP server from config"
                 );
-                // Register with Error status so it appears in list_servers()
                 let mut state = self.state.write().await;
                 state
                     .servers
@@ -681,10 +683,12 @@ impl McpClientManager {
                         info!(id = %id, "Magic Seal verified for MCP server");
                     }
                     super::mcp_seal::SealStatus::Failed => {
-                        return Err(anyhow::anyhow!(
+                        let msg = format!(
                             "MCP server '{}': Magic Seal verification failed — binary may be tampered",
                             id
-                        ));
+                        );
+                        self.set_server_error(&id, &msg).await;
+                        return Err(anyhow::anyhow!("{}", msg));
                     }
                     _ => {}
                 }
@@ -692,10 +696,12 @@ impl McpClientManager {
                 debug!(id = %id, "Seal configured but entry point is not a file path — skipping seal check");
             }
         } else if trust_level == super::mcp_mgp::TrustLevel::Untrusted && !self.allow_unsigned {
-            return Err(anyhow::anyhow!(
+            let msg = format!(
                 "MCP server '{}': Untrusted servers require a Magic Seal in production mode",
                 id
-            ));
+            );
+            self.set_server_error(&id, &msg).await;
+            return Err(anyhow::anyhow!("{}", msg));
         }
 
         // ──── Isolation Profile Derivation (MGP §8-10) ────
@@ -742,7 +748,8 @@ impl McpClientManager {
             );
         }
 
-        // Set Connecting status
+        // Set Connecting status (after permission/seal checks to avoid stale Connecting
+        // on policy-denied paths that return Err without updating status).
         {
             let mut state = self.state.write().await;
             if let Some(handle) = state.servers.get_mut(&id) {
@@ -807,15 +814,18 @@ impl McpClientManager {
                     }
                 }
             }
-            match result {
-                Some((c, caps)) => (c, caps),
-                None => {
-                    return Err(anyhow::anyhow!(
-                        "Failed to connect to MCP server '{}' after 3 attempts: {}",
-                        id,
-                        last_err.unwrap_or_else(|| anyhow::anyhow!("unknown error"))
-                    ));
-                }
+            if let Some((c, caps)) = result {
+                (c, caps)
+            } else {
+                let msg = format!(
+                    "Failed to connect to MCP server '{}' after 3 attempts: {}",
+                    id,
+                    last_err
+                        .as_ref()
+                        .map_or_else(|| "unknown error".to_string(), ToString::to_string)
+                );
+                self.set_server_error(&id, &msg).await;
+                return Err(anyhow::anyhow!("{}", msg));
             }
         };
 
@@ -1003,11 +1013,12 @@ impl McpClientManager {
 
         // Send initialized notification (after Permission Flow completes)
         if let Err(e) = client.send_initialized_notification().await {
-            return Err(anyhow::anyhow!(
+            let msg = format!(
                 "Failed to send initialized notification to [{}]: {}",
-                id,
-                e
-            ));
+                id, e
+            );
+            self.set_server_error(&id, &msg).await;
+            return Err(anyhow::anyhow!("{}", msg));
         }
 
         // Discover tools
@@ -1163,7 +1174,17 @@ impl McpClientManager {
         Ok(tool_names)
     }
 
-    /// Disconnect and permanently remove an MCP server (also clears stopped_configs).
+    /// Set Error status on an existing server entry (if present).
+    /// Used by `connect_server` error paths to avoid leaving stale Connecting status.
+    async fn set_server_error(&self, id: &str, msg: &str) {
+        let mut state = self.state.write().await;
+        if let Some(handle) = state.servers.get_mut(id) {
+            handle.status = ServerStatus::Error(msg.to_string());
+            handle.client = None;
+        }
+    }
+
+    /// Disconnect and permanently remove an MCP server.
     pub async fn disconnect_server(&self, id: &str) -> Result<()> {
         let mut state = self.state.write().await;
         let handle = state
@@ -1175,25 +1196,42 @@ impl McpClientManager {
         }
         // Clean up rich tool index (§16)
         self.rich_tool_index.remove_server_tools(id);
-        // Clean up stopped_configs too (permanent removal)
-        state.stopped_configs.remove(id);
         info!("MCP server '{}' disconnected", id);
         Ok(())
     }
 
     /// List all registered MCP servers with status.
+    ///
+    /// Config-loaded servers whose entry point (script or binary) does not exist
+    /// on disk are excluded. This hides mcp.toml entries for servers that haven't
+    /// been installed yet (checked at response time, not boot time, so it reflects
+    /// post-setup state correctly).
     pub async fn list_servers(&self) -> Vec<McpServerInfo> {
         let state = self.state.read().await;
 
-        let mut result: Vec<McpServerInfo> = state
+        state
             .servers
             .values()
+            .filter(|h| {
+                // Always show Dynamic, Connected, or operational servers
+                if h.source == ServerSource::Dynamic || h.status.is_operational() {
+                    return true;
+                }
+                // For non-operational Config servers, check entry point existence
+                let entry_exists = if let Some(script) = h.config.args.first() {
+                    std::path::Path::new(script).exists()
+                } else {
+                    std::path::Path::new(&h.config.command).exists()
+                };
+                entry_exists
+            })
             .map(|h| McpServerInfo {
                 id: h.id.clone(),
                 command: h.config.command.clone(),
                 args: h.config.args.clone(),
                 status_message: match &h.status {
                     ServerStatus::Error(msg) => Some(msg.clone()),
+                    ServerStatus::Disconnected => Some("Stopped".to_string()),
                     _ => None,
                 },
                 status: h.status.clone(),
@@ -1208,31 +1246,9 @@ impl McpClientManager {
                     .map(|m| format!("{:?}", m.trust_level).to_lowercase()),
                 transport: (h.config.transport != "stdio").then(|| h.config.transport.clone()),
                 url: h.config.url.clone(),
+                has_unresolved_env: has_unresolved_env_vars(&h.config.env),
             })
-            .collect();
-
-        // Include stopped servers as Disconnected
-        for (id, (config, source)) in &state.stopped_configs {
-            if !state.servers.contains_key(id) {
-                result.push(McpServerInfo {
-                    id: id.clone(),
-                    command: config.command.clone(),
-                    args: config.args.clone(),
-                    status_message: Some("Stopped".to_string()),
-                    status: ServerStatus::Disconnected,
-                    tools: Vec::new(),
-                    is_cloto_sdk: false,
-                    source: *source,
-                    display_name: config.display_name.clone(),
-                    mgp_supported: false,
-                    trust_level: None,
-                    transport: (config.transport != "stdio").then(|| config.transport.clone()),
-                    url: config.url.clone(),
-                });
-            }
-        }
-
-        result
+            .collect()
     }
 
     /// Return IDs of connected mind.* servers (reasoning engines).
@@ -2099,39 +2115,38 @@ impl McpClientManager {
     // Server Lifecycle (MCP_SERVER_UI_DESIGN.md §4.3)
     // ============================================================
 
-    /// Stop a server (disconnect but preserve config for restart).
+    /// Stop a server (disconnect but preserve config in-place for restart).
     /// Kills the child process and waits for exit before returning,
     /// ensuring file locks and ports are released (fixes Issue #65).
     pub async fn stop_server(&self, id: &str) -> Result<()> {
         {
             let mut state = self.state.write().await;
 
-            // Kill child process and wait for exit BEFORE removing handle.
-            // This prevents race conditions where start_server() spawns a new
-            // process while the old one still holds DB locks.
-            if let Some(handle) = state.servers.get(id) {
-                if let Some(client) = &handle.client {
-                    client.shutdown().await;
-                }
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Server '{}' not found or already stopped",
-                    id
-                ));
+            let handle = state.servers.get_mut(id).ok_or_else(|| {
+                anyhow::anyhow!("Server '{}' not found or already stopped", id)
+            })?;
+
+            if handle.status == ServerStatus::Disconnected {
+                return Err(anyhow::anyhow!("Server '{}' is already stopped", id));
             }
 
-            let handle = state
-                .servers
-                .remove(id)
-                .expect("server was just verified to exist");
+            // Kill child process and wait for exit.
+            if let Some(client) = handle.client.take() {
+                client.shutdown().await;
+            }
+
+            // Clear runtime state, preserve config in-place.
+            handle.status = ServerStatus::Disconnected;
+            handle.tools.clear();
+            handle.handshake = None;
+            handle.mgp_negotiated = None;
+            handle.connected_at = None;
+            handle.isolation_profile = None;
+            let source = handle.source;
+
             state.tool_index.retain(|_, server_id| server_id != id);
 
-            // Preserve config for restart capability (works for both config and dynamic)
-            state
-                .stopped_configs
-                .insert(id.to_string(), (handle.config.clone(), handle.source));
-
-            info!(server = %id, source = ?handle.source, "MCP server stopped (config preserved for restart)");
+            info!(server = %id, source = ?source, "MCP server stopped");
         }
 
         // Clean up rich tool index (§16)
@@ -2203,26 +2218,34 @@ impl McpClientManager {
         Ok(())
     }
 
-    /// Start a server from stopped_configs or DB.
+    /// Start a stopped or errored server by re-connecting with its preserved config.
     pub async fn start_server(&self, id: &str) -> Result<Vec<String>> {
-        // Check if already running + check stopped_configs under single lock
-        {
-            let mut state = self.state.write().await;
-            if state.servers.contains_key(id) {
-                return Err(anyhow::anyhow!("Server '{}' is already running", id));
+        // 1. Read config from existing entry (clone, don't move)
+        let config_source = {
+            let state = self.state.read().await;
+            if let Some(handle) = state.servers.get(id) {
+                match &handle.status {
+                    ServerStatus::Connected => {
+                        return Err(anyhow::anyhow!("Server '{}' is already running", id));
+                    }
+                    ServerStatus::Connecting | ServerStatus::Restarting => {
+                        return Err(anyhow::anyhow!("Server '{}' is already starting", id));
+                    }
+                    _ => Some((handle.config.clone(), handle.source)),
+                }
+            } else {
+                None
             }
+        };
 
-            // 1. Check stopped_configs first (works for both config-loaded and dynamic)
-            if let Some((config, source)) = state.stopped_configs.remove(id) {
-                drop(state);
-                return self.connect_server(config, source).await;
-            }
+        if let Some((config, source)) = config_source {
+            return self.connect_server(config, source).await;
         }
 
-        // 2. Fall back to DB (dynamic servers that were never stopped in this session)
+        // 2. Fall back to DB (dynamic servers not yet in memory this session)
         let records = crate::db::load_active_mcp_servers(&self.pool).await?;
         let record = records.into_iter().find(|r| r.name == id).ok_or_else(|| {
-            anyhow::anyhow!("Server '{}' not found in stopped configs or database", id)
+            anyhow::anyhow!("Server '{}' not found in servers map or database", id)
         })?;
 
         let args: Vec<String> = serde_json::from_str(&record.args).unwrap_or_default();
@@ -2421,34 +2444,63 @@ impl McpClientManager {
         self: Arc<Self>,
         shutdown: Arc<tokio::sync::Notify>,
         interval_secs: u64,
+        setup_in_progress: Arc<std::sync::atomic::AtomicBool>,
+        setup_done: Arc<std::sync::atomic::AtomicBool>,
     ) {
-        super::mcp_health::spawn_health_monitor(self, shutdown, interval_secs);
+        super::mcp_health::spawn_health_monitor(
+            self,
+            shutdown,
+            interval_secs,
+            setup_in_progress,
+            setup_done,
+        );
     }
 }
 
 /// Resolve `CLOTO_MCP_SERVERS` by probing multiple candidate directories.
 ///
-/// Search order:
-/// 1. `base_dir/cloto-mcp-servers/servers` — bundled alongside `mcp.toml` (production)
-/// 2. `base_dir/../cloto-mcp-servers/servers` — sibling repo (development)
-/// 3. `exe_dir/mcp-servers/servers` — legacy bundled layout
+/// Search order (first existing wins):
+/// 1. `base_dir/mcp-servers` — setup wizard install layout (production)
+/// 2. `base_dir/cloto-mcp-servers/servers` — bundled alongside `mcp.toml`
+/// 3. `base_dir/../cloto-mcp-servers/servers` — sibling repo (development)
+/// 4. `exe_dir/mcp-servers/servers` — legacy bundled layout
+///
+/// Fallback (none exist): `base_dir/mcp-servers` — the setup wizard will
+/// create this directory later, so CONFIG server paths resolve correctly
+/// even before setup runs.
 fn resolve_mcp_servers_dir(base_dir: &std::path::Path) -> String {
+    let production = base_dir.join("mcp-servers");
     let candidates = [
-        base_dir.join("cloto-mcp-servers/servers"),
-        base_dir.join("../cloto-mcp-servers/servers"),
-        crate::config::exe_dir().join("mcp-servers/servers"),
+        &production,
+        &base_dir.join("cloto-mcp-servers/servers"),
+        &base_dir.join("../cloto-mcp-servers/servers"),
+        &crate::config::exe_dir().join("mcp-servers/servers"),
     ];
-    candidates.iter().find(|p| p.exists()).map_or_else(
-        || {
-            let fb = base_dir.join("../cloto-mcp-servers/servers");
-            info!(
-                "CLOTO_MCP_SERVERS not set, no servers dir found; fallback: {}",
-                fb.display()
-            );
-            fb.to_string_lossy().to_string()
-        },
-        |p| p.to_string_lossy().to_string(),
-    )
+    candidates
+        .iter()
+        .find(|p| p.exists())
+        .map_or_else(
+            || {
+                info!(
+                    "CLOTO_MCP_SERVERS not set, no servers dir found; using production default: {}",
+                    production.display()
+                );
+                production.to_string_lossy().to_string()
+            },
+            |p| p.to_string_lossy().to_string(),
+        )
+}
+
+/// Check if a server's env config contains unresolved `${VAR}` references
+/// (i.e. the env var is not set in the process environment).
+fn has_unresolved_env_vars(env: &std::collections::HashMap<String, String>) -> bool {
+    env.values().any(|v| {
+        if let Some(var) = v.strip_prefix("${").and_then(|s| s.strip_suffix('}')) {
+            std::env::var(var).is_err()
+        } else {
+            false
+        }
+    })
 }
 
 /// Normalize path separators to forward slashes for cross-platform compatibility.

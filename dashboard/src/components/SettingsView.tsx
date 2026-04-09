@@ -1,24 +1,15 @@
-import { Activity, Info, MousePointer, ScrollText, Settings, Shield, Sun, Zap } from 'lucide-react';
+import { Activity, Info, ScrollText, Settings, Shield, Sun, Zap } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { InteractiveGrid } from './InteractiveGrid';
-import {
-  AboutSection,
-  AdvancedSection,
-  DisplaySection,
-  GeneralSection,
-  HealthSection,
-  LogSection,
-  SecuritySection,
-} from './settings';
+import { AboutSection, AdvancedSection, GeneralSection, HealthSection, LogSection, SecuritySection } from './settings';
 import { ViewHeader } from './ViewHeader';
 
-type Section = 'general' | 'security' | 'display' | 'advanced' | 'health' | 'log' | 'about';
+type Section = 'general' | 'security' | 'advanced' | 'health' | 'log' | 'about';
 
 const NAV_ITEMS: { id: Section; labelKey: string; icon: typeof Sun }[] = [
   { id: 'general', labelKey: 'sections.general', icon: Sun },
   { id: 'security', labelKey: 'sections.security', icon: Shield },
-  { id: 'display', labelKey: 'sections.display', icon: MousePointer },
   { id: 'advanced', labelKey: 'sections.advanced', icon: Zap },
   { id: 'health', labelKey: 'sections.health', icon: Activity },
   { id: 'log', labelKey: 'sections.log', icon: ScrollText },
@@ -62,7 +53,6 @@ export function SettingsView({ onBack, initialSection }: { onBack?: () => void; 
         <div className="flex-1 overflow-y-auto p-8">
           {activeSection === 'general' && <GeneralSection />}
           {activeSection === 'security' && <SecuritySection />}
-          {activeSection === 'display' && <DisplaySection />}
           {activeSection === 'advanced' && <AdvancedSection />}
           {activeSection === 'health' && <HealthSection />}
           {activeSection === 'log' && <LogSection />}

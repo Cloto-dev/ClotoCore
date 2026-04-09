@@ -63,6 +63,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         active_cron_contexts: Arc::new(dashmap::DashMap::new()),
         max_cron_generation: Arc::new(AtomicU8::new(2)),
         setup_in_progress: Arc::new(AtomicBool::new(false)),
+        setup_done: Arc::new(AtomicBool::new(true)),
         setup_progress_tx: broadcast::channel(100).0,
         marketplace_cache: Arc::new(tokio::sync::RwLock::new(
             cloto_core::handlers::marketplace::CatalogCache::default(),

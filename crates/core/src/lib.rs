@@ -99,6 +99,10 @@ pub struct AppState {
     pub max_cron_generation: Arc<AtomicU8>,
     /// Whether a bootstrap setup is currently running.
     pub setup_in_progress: Arc<AtomicBool>,
+    /// Whether initial setup (venv, servers) has been completed at least once.
+    /// Starts `false` on first run; set `true` when batch install finishes.
+    /// Used by health monitor to suppress auto-restart before setup.
+    pub setup_done: Arc<AtomicBool>,
     /// Broadcast channel for setup progress events (SSE).
     pub setup_progress_tx: broadcast::Sender<handlers::setup::SetupProgressEvent>,
     /// In-memory cache for marketplace catalog (registry.json).
@@ -551,6 +555,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         active_cron_contexts,
         max_cron_generation,
         setup_in_progress: Arc::new(AtomicBool::new(false)),
+        setup_done: Arc::new(AtomicBool::new(setup_json.exists() || is_dev)),
         setup_progress_tx: {
             let (tx, _) = broadcast::channel(64);
             tx
@@ -649,6 +654,8 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     Arc::clone(&mcp_manager).spawn_health_monitor(
         app_state.shutdown.clone(),
         app_state.config.mcp_health_interval_secs,
+        app_state.setup_in_progress.clone(),
+        app_state.setup_done.clone(),
     );
 
     // 6b2. MCP notification listener — forward Server→Kernel notifications to event bus
