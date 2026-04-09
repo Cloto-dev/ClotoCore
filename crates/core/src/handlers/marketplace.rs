@@ -161,7 +161,14 @@ pub async fn catalog_handler(
             let mp_record = marketplace_servers
                 .iter()
                 .find(|r| r.marketplace_id.as_deref() == Some(&entry.id));
-            let installed = mp_record.is_some_and(|r| r.is_active);
+            // Installed if: DB marketplace record is active, OR server files
+            // exist on disk (covers Config servers installed by batch setup).
+            let db_installed = mp_record.is_some_and(|r| r.is_active);
+            let files_installed = {
+                let server_dir = state.data_dir.join("mcp-servers").join(&entry.directory);
+                server_dir.is_dir()
+            };
+            let installed = db_installed || files_installed;
             let installed_version = mp_record.and_then(|r| r.installed_version.clone());
             let update_available = installed_version
                 .as_deref()
@@ -351,19 +358,20 @@ pub async fn uninstall_handler(
         ));
     }
 
-    // Disconnect from manager (stops process + removes from memory).
-    // remove_dynamic_server() rejects config-loaded servers but allows marketplace.
-    // It also calls deactivate_mcp_server() internally, which is fine —
-    // we'll hard-delete the DB record right after.
+    // Disconnect from manager.  For Dynamic servers, remove_dynamic_server()
+    // deletes the entry entirely.  For Config servers (loaded from mcp.toml),
+    // it will be rejected — in that case we just stop the server so the files
+    // can be safely deleted.  The Config entry stays in state.servers and will
+    // be re-evaluated on next restart.
     if let Err(e) = state.mcp_manager.remove_dynamic_server(&server_id).await {
         let msg = e.to_string();
         if msg.contains("config-loaded") {
-            return Err(AppError::Validation(
-                "Cannot uninstall a config-loaded server. Edit mcp.toml instead.".to_string(),
-            ));
+            // Config server: stop gracefully, keep entry (will reload from mcp.toml)
+            let _ = state.mcp_manager.stop_server(&server_id).await;
+        } else {
+            // Other errors (already stopped, not found) — log and continue
+            warn!("remove_dynamic_server warning for {}: {}", server_id, msg);
         }
-        // Server might already be stopped/disconnected — log and continue
-        warn!("remove_dynamic_server warning for {}: {}", server_id, msg);
     }
 
     // Hard-delete from DB (mcp_servers + mcp_access_control)
