@@ -55,7 +55,8 @@ pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
 
 /// Get the path to the shared venv directory.
 /// Checks `[paths].servers` in `mcp.toml` first, then falls back to
-/// `mcp-servers/.venv` in the project root.
+/// `mcp-servers/.venv` in the project root, then `{exe_dir}/data/mcp-servers/.venv`
+/// (production install layout).
 #[must_use]
 pub fn resolve_venv_dir() -> Option<PathBuf> {
     // Primary: [paths].servers from mcp.toml
@@ -65,8 +66,22 @@ pub fn resolve_venv_dir() -> Option<PathBuf> {
             return Some(venv);
         }
     }
-    // Fallback: legacy location
-    resolve_project_root().map(|root| root.join("mcp-servers").join(".venv"))
+    // Fallback: dev project root
+    if let Some(root) = resolve_project_root() {
+        let venv = root.join("mcp-servers").join(".venv");
+        if venv.join("pyvenv.cfg").exists() {
+            return Some(venv);
+        }
+    }
+    // Fallback: production install ({exe_dir}/data/mcp-servers/.venv)
+    let data_venv = crate::config::exe_dir()
+        .join("data")
+        .join("mcp-servers")
+        .join(".venv");
+    if data_venv.join("pyvenv.cfg").exists() {
+        return Some(data_venv);
+    }
+    None
 }
 
 /// Get the path to the Python executable inside the venv.

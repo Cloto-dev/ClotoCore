@@ -99,17 +99,19 @@ pub async fn status_handler(State(state): State<Arc<AppState>>) -> Json<serde_js
         }));
     }
 
+    // Check data_dir first (production install), then dev project root
+    let data_mcp = state.data_dir.join("mcp-servers");
     let root = resolve_root();
-    let mcp_servers_present = root
-        .as_ref()
-        .is_some_and(|r| r.join("mcp-servers").exists());
+    let mcp_servers_present =
+        data_mcp.exists() || root.as_ref().is_some_and(|r| r.join("mcp-servers").exists());
 
-    let venv_exists = root.as_ref().is_some_and(|r| {
-        r.join("mcp-servers")
-            .join(".venv")
-            .join("pyvenv.cfg")
-            .exists()
-    });
+    let venv_exists = data_mcp.join(".venv").join("pyvenv.cfg").exists()
+        || root.as_ref().is_some_and(|r| {
+            r.join("mcp-servers")
+                .join(".venv")
+                .join("pyvenv.cfg")
+                .exists()
+        });
 
     let uv_available = crate::managers::mcp_venv::uv_bin(&state.data_dir).exists();
 

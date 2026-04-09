@@ -14,6 +14,7 @@
   "no_servers_configured": "No MCP servers configured",
   "status_running": "Running",
   "status_error": "Error",
+  "status_warning": "API key missing",
   "status_stopped": "Stopped",
   "tools_count": "{{count}} tools",
   "add_modal": {

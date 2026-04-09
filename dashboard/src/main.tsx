@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client';
 import { useTranslation } from 'react-i18next';
 import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { AppLayout } from './components/AppLayout';
-import { CustomCursor } from './components/CustomCursor';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SetupWizard } from './components/SetupWizard';
 import { ThemeProvider } from './components/ThemeProvider';
@@ -28,13 +27,6 @@ const CronJobs = lazy(() => import('./components/CronJobs').then((m) => ({ defau
 const VrmViewerPage = lazy(() => import('./vrm/VrmViewerPage').then((m) => ({ default: m.VrmViewerPage })));
 function App() {
   const [setupDone, setSetupDone] = useState(() => localStorage.getItem('cloto-setup-completed') === '1');
-  const [cursorEnabled, setCursorEnabled] = useState(() => localStorage.getItem('cloto-cursor') !== 'off');
-
-  useEffect(() => {
-    const handler = () => setCursorEnabled(localStorage.getItem('cloto-cursor') !== 'off');
-    window.addEventListener('cloto-cursor-toggle', handler);
-    return () => window.removeEventListener('cloto-cursor-toggle', handler);
-  }, []);
 
   const [bannerDismissed, setBannerDismissed] = useState(
     () => sessionStorage.getItem('cloto-browser-banner-dismissed') === '1',
@@ -167,7 +159,6 @@ function App() {
             <Route path="/cron" element={<CronJobs />} />
           </Route>
         </Routes>
-        {cursorEnabled && <CustomCursor />}
       </Router>
     </AgentProvider>
   );

@@ -534,7 +534,7 @@ export function SetupWizard({ onComplete }: Props) {
                           <Loader2 size={10} className="text-brand animate-spin shrink-0" />
                         )}
                         {s.status === 'installed' && <Check size={10} className="text-emerald-500 shrink-0" />}
-                        {s.status === 'registered' && <AlertTriangle size={10} className="text-amber-500 shrink-0" />}
+                        {s.status === 'registered' && <Check size={10} className="text-amber-500 shrink-0" />}
                         {s.status === 'failed' && <AlertTriangle size={10} className="text-red-500 shrink-0" />}
                         {s.status === 'skipped' && <Circle size={10} className="text-content-tertiary shrink-0" />}
                         <span

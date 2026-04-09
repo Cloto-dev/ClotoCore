@@ -1,7 +1,6 @@
 export { AboutSection } from './AboutSection';
 export { AdvancedSection } from './AdvancedSection';
 export { SectionCard, Toggle } from './common';
-export { DisplaySection } from './DisplaySection';
 export { GeneralSection } from './GeneralSection';
 export { HealthSection } from './HealthSection';
 export { LlmProvidersSection } from './LlmProvidersSection';

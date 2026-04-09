@@ -229,26 +229,8 @@ pub(super) async fn execute_discovery_list(
             }));
         }
 
-        // Include stopped servers when filter is "all" or "disconnected"
-        if filter_status == "all" || filter_status == "disconnected" {
-            for (id, (config, _source)) in &state.stopped_configs {
-                // Check if already included from active servers
-                if servers_json
-                    .iter()
-                    .any(|s| s.get("id").and_then(|v| v.as_str()) == Some(id))
-                {
-                    continue;
-                }
-                servers_json.push(serde_json::json!({
-                    "id": id,
-                    "status": "Disconnected",
-                    "mgp_version": null,
-                    "extensions": [],
-                    "tools": [],
-                    "trust_level": config.mgp.as_ref().and_then(|m| m.trust_level.as_deref()),
-                }));
-            }
-        }
+        // Stopped servers are now in `state.servers` with Disconnected status,
+        // so they are already included by the main iterator above.
     }
 
     debug!(count = servers_json.len(), filter = %filter_status, "Discovery list completed");

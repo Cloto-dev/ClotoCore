@@ -2922,13 +2922,6 @@ video {
   writing-mode: vertical-rl;
 }
 
-/* Neural Cursor Active state to force hide native cursors on all interactive elements */
-
-body.neural-cursor-active,
-body.neural-cursor-active * {
-  cursor: none !important;
-}
-
 /* Agent processing glow — pulsing brand-colored box-shadow on avatar */
 
 @keyframes agent-processing-glow {

@@ -15,7 +15,7 @@ export const STANDARD_SERVERS = [
 
 export const ADVANCED_SERVERS = [...STANDARD_SERVERS, 'tool.imagegen', 'tool.embedding'];
 
-export const EXPERT_SERVERS = [...ADVANCED_SERVERS, 'voice.tts'];
+export const EXPERT_SERVERS = [...ADVANCED_SERVERS, 'voice.stt', 'vision.capture', 'vision.gaze_webcam'];
 
 export interface PresetInfo {
   id: string;

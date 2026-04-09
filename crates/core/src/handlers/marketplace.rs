@@ -53,14 +53,6 @@ pub struct RegistryEntry {
     pub bin_name: Option<String>,
     #[serde(default)]
     pub changelog: Option<String>,
-    /// Whether this server is included in the initial setup.
-    /// Defaults to true. Heavy servers (capture, gaze, stt) are excluded.
-    #[serde(default = "default_setup_default")]
-    pub setup_default: bool,
-}
-
-fn default_setup_default() -> bool {
-    true
 }
 
 fn default_trust_level() -> String {
@@ -296,6 +288,11 @@ pub async fn install_handler(
         if let Err(e) = result {
             error!("Marketplace install failed for {}: {e}", entry.id);
         }
+        // Always emit Complete so the frontend SSE listener can close.
+        emit(
+            &state_clone.setup_progress_tx,
+            SetupProgressEvent::Complete,
+        );
     });
 
     super::ok_data(serde_json::json!({ "started": true, "server_id": request.server_id }))
@@ -479,6 +476,12 @@ pub async fn batch_install_handler(
         state_clone
             .setup_in_progress
             .store(false, std::sync::atomic::Ordering::SeqCst);
+        if result.is_ok() {
+            // Signal health monitor that initial setup is done — auto-restart can begin.
+            state_clone
+                .setup_done
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         if let Err(e) = result {
             error!("Batch install failed: {e}");
         }
@@ -1169,7 +1172,6 @@ async fn run_install(
         warn!("Failed to cleanup archive {}: {e}", archive_path.display());
     }
 
-    emit(tx, SetupProgressEvent::Complete);
     info!("Marketplace install complete: {}", entry.id);
 
     Ok(())
@@ -1557,7 +1559,7 @@ async fn run_batch_install(
         },
     );
 
-    // Step 4: Ensure venv + install dependencies via status-file script
+    // Step 4: Ensure venv + install dependencies
     emit(
         tx,
         SetupProgressEvent::StepStart {
@@ -1566,26 +1568,28 @@ async fn run_batch_install(
         },
     );
 
+    // Debug log: write diagnostic info to a file at each step
+    let diag_log = state.data_dir.join("install-debug.log");
+    let diag = |msg: &str| {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&diag_log)
+        {
+            let _ = writeln!(f, "[{}] {msg}", chrono::Local::now().format("%H:%M:%S%.3f"));
+        }
+    };
+
+    diag("install_deps started");
+
     let venv_dir =
         crate::managers::mcp_venv::resolve_venv_dir().unwrap_or_else(|| servers_dir.join(".venv"));
+    diag(&format!("venv_dir={}", venv_dir.display()));
 
-    // Install each server — partition entries first
-    let running_servers = state.mcp_manager.list_servers().await;
     let mut python_entries: Vec<&RegistryEntry> = Vec::new();
     let mut rust_entries: Vec<&RegistryEntry> = Vec::new();
     for entry in entries {
-        if running_servers.iter().any(|s| {
-            s.id == entry.id && s.source == crate::managers::mcp_types::ServerSource::Dynamic
-        }) {
-            emit(
-                tx,
-                SetupProgressEvent::ServerInstall {
-                    server_name: entry.name.clone(),
-                    status: "skipped".into(),
-                },
-            );
-            continue;
-        }
         if entry.runtime == "rust" {
             rust_entries.push(entry);
         } else {
@@ -1593,14 +1597,24 @@ async fn run_batch_install(
         }
     }
 
-    // ── Phase 1: Python servers via direct uv spawn ──
+    diag(&format!(
+        "python_entries={}, rust_entries={}, servers_dir={}",
+        python_entries.len(),
+        rust_entries.len(),
+        servers_dir.display()
+    ));
+
     if !python_entries.is_empty() {
+        diag("Phase 1: Python servers — starting");
+
         // Pre-cleanup: remove stale/corrupted venv
         if crate::managers::mcp_venv::is_venv_stale(&venv_dir) && venv_dir.exists() {
+            diag("Removing stale venv");
             info!("Removing stale venv (Python version mismatch)");
             let _ = tokio::fs::remove_dir_all(&venv_dir).await;
         }
         if venv_dir.exists() && !venv_dir.join("pyvenv.cfg").exists() {
+            diag("Removing corrupted venv (no pyvenv.cfg)");
             warn!("Removing corrupted venv directory (no pyvenv.cfg)");
             let _ = tokio::fs::remove_dir_all(&venv_dir).await;
         }
@@ -1622,6 +1636,11 @@ async fn run_batch_install(
             None
         };
 
+        diag(&format!(
+            "uv={}, need_venv={}, needs_common={}, common_path={:?}",
+            uv_str, need_venv, needs_common, common_path
+        ));
+
         // Prepare log file
         let logs_dir = state.data_dir.join("logs");
         let _ = tokio::fs::create_dir_all(&logs_dir).await;
@@ -1629,6 +1648,7 @@ async fn run_batch_install(
 
         // Create venv if needed (direct uv spawn)
         if need_venv {
+            diag("Creating venv...");
             emit(
                 tx,
                 SetupProgressEvent::StepProgress {
@@ -1638,14 +1658,21 @@ async fn run_batch_install(
                 },
             );
             let venv_path_str = venv_dir.to_string_lossy().to_string();
+            diag(&format!("uv venv --python {} {}", target_python, venv_path_str));
             let mut cmd = tokio::process::Command::new(&uv_str);
             cmd.args(["venv", "--python", target_python, &venv_path_str])
                 .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped());
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
             #[cfg(windows)]
             cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
             let result = tokio::time::timeout(Duration::from_secs(120), cmd.status()).await;
+            match &result {
+                Ok(Ok(status)) if status.success() => diag("venv created OK"),
+                Ok(Ok(status)) => diag(&format!("venv FAILED exit={:?}", status.code())),
+                Ok(Err(e)) => diag(&format!("venv spawn ERROR: {e}")),
+                Err(_) => diag("venv TIMEOUT (120s)"),
+            }
             match result {
                 Ok(Ok(status)) if status.success() => {
                     info!(
@@ -1691,6 +1718,8 @@ async fn run_batch_install(
                     return Ok(());
                 }
             }
+        } else {
+            diag("venv already exists, skipping creation");
         }
 
         // Install common if needed (direct uv spawn)
@@ -1712,13 +1741,13 @@ async fn run_batch_install(
                 &cp.to_string_lossy(),
             ])
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
             #[cfg(windows)]
             cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-            let result = tokio::time::timeout(Duration::from_secs(120), cmd.output()).await;
+            let result = tokio::time::timeout(Duration::from_secs(120), cmd.status()).await;
             match result {
-                Ok(Ok(output)) if output.status.success() => {
+                Ok(Ok(status)) if status.success() => {
                     emit(
                         tx,
                         SetupProgressEvent::ServerInstall {
@@ -1732,6 +1761,7 @@ async fn run_batch_install(
             }
         }
 
+        diag("Starting per-server installs");
         // Install each Python server individually via spawn_uv_streaming
         for entry in &python_entries {
             emit(
@@ -1746,6 +1776,7 @@ async fn run_batch_install(
                 .to_string_lossy()
                 .to_string();
 
+            diag(&format!("Installing server: {} (path: {})", entry.name, server_path));
             match super::setup::spawn_uv_streaming(
                 tx,
                 &uv_str,
@@ -1757,6 +1788,7 @@ async fn run_batch_install(
             .await
             {
                 Ok(()) => {
+                    diag(&format!("  {} → OK", entry.name));
                     emit(
                         tx,
                         SetupProgressEvent::ServerInstall {
@@ -1766,6 +1798,7 @@ async fn run_batch_install(
                     );
                 }
                 Err(detail) => {
+                    diag(&format!("  {} → FAILED: {}", entry.name, detail));
                     warn!("Failed to install {}: {}", entry.name, detail);
                     emit(
                         tx,

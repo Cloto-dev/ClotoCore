@@ -6,6 +6,7 @@
 use super::mcp::McpClientManager;
 use super::mcp_protocol::RestartPolicy;
 use super::mcp_types::ServerStatus;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
@@ -16,6 +17,8 @@ pub(super) fn spawn_health_monitor(
     manager: Arc<McpClientManager>,
     shutdown: Arc<tokio::sync::Notify>,
     interval_secs: u64,
+    setup_in_progress: Arc<AtomicBool>,
+    setup_done: Arc<AtomicBool>,
 ) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
@@ -26,7 +29,17 @@ pub(super) fn spawn_health_monitor(
                     break;
                 }
                 _ = interval.tick() => {
-                    check_and_restart_dead_servers(&manager).await;
+                    // Skip auto-restart when setup hasn't completed or install is running.
+                    // On clean installs, servers lack Python/venv and die immediately,
+                    // causing restart_server() to hold a write lock that blocks
+                    // list_servers() in the batch install flow.
+                    if !setup_done.load(Ordering::Relaxed)
+                        || setup_in_progress.load(Ordering::Relaxed)
+                    {
+                        debug!("Skipping MCP health check — setup not done or install in progress");
+                        continue;
+                    }
+                    check_and_restart_dead_servers(&manager, &setup_in_progress).await;
                     // Clean up responded callbacks older than 5 minutes (§13.4)
                     let cleaned = manager.events.cleanup_stale_callbacks(
                         std::time::Duration::from_secs(300),
@@ -42,7 +55,11 @@ pub(super) fn spawn_health_monitor(
 
 /// Scan all registered MCP servers and restart any that have died
 /// (process exited / channel closed) if their restart policy allows it.
-async fn check_and_restart_dead_servers(manager: &McpClientManager) {
+#[allow(clippy::too_many_lines)]
+async fn check_and_restart_dead_servers(
+    manager: &McpClientManager,
+    setup_in_progress: &AtomicBool,
+) {
     let dead_servers: Vec<(String, ServerStatus, RestartPolicy)> = {
         let state = manager.state.read().await;
         state
@@ -64,6 +81,13 @@ async fn check_and_restart_dead_servers(manager: &McpClientManager) {
     };
 
     for (server_id, status, policy) in dead_servers {
+        // Re-check flag inside the loop: batch install may have started
+        // while we were processing earlier servers in this batch.
+        if setup_in_progress.load(Ordering::Relaxed) {
+            debug!("Aborting restart loop — setup started");
+            return;
+        }
+
         if !manager
             .lifecycle
             .should_restart(&server_id, &policy, &status)
@@ -120,9 +144,14 @@ async fn check_and_restart_dead_servers(manager: &McpClientManager) {
                     error = %e,
                     "MCP server auto-restart failed"
                 );
-                let mut state = manager.state.write().await;
-                if let Some(handle) = state.servers.get_mut(&server_id) {
-                    handle.status = ServerStatus::Error(format!("Auto-restart failed: {}", e));
+                // Scope the write lock — emit_lifecycle_notification acquires
+                // a read lock, so the write lock must be released first.
+                {
+                    let mut state = manager.state.write().await;
+                    if let Some(handle) = state.servers.get_mut(&server_id) {
+                        handle.status =
+                            ServerStatus::Error(format!("Auto-restart failed: {}", e));
+                    }
                 }
 
                 super::mcp_lifecycle::emit_lifecycle_notification(
