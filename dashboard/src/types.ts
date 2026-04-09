@@ -146,6 +146,7 @@ export interface McpServerInfo {
   trust_level?: string;
   transport?: string;
   url?: string;
+  has_unresolved_env?: boolean;
 }
 
 export interface AccessControlEntry {

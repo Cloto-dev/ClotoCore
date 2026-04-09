@@ -221,6 +221,7 @@
     "no_servers_configured": "MCP サーバーが設定されていません",
     "status_running": "稼働中",
     "status_error": "エラー",
+    "status_warning": "APIキー未設定",
     "status_stopped": "停止",
     "tools_count": "{{count}} ツール",
     "add_modal": {

@@ -88,6 +88,9 @@ pub struct McpServerInfo {
     pub transport: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// True when the server config contains env vars that reference unset variables.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub has_unresolved_env: bool,
 }
 
 #[must_use]
