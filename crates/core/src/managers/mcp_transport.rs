@@ -207,6 +207,12 @@ impl StdioTransport {
             cmd.env(key, resolved);
         }
 
+        // Force unbuffered stdout for Python MCP servers.
+        // Without this, piped stdout uses block buffering (4-8KB) on Windows,
+        // causing JSON-RPC responses to sit in the buffer and never reach
+        // the Rust reader — resulting in MCP Request timeouts.
+        cmd.env("PYTHONUNBUFFERED", "1");
+
         // Always inject the actual LLM proxy port so MCP servers can
         // discover it at runtime (supplements config-level env vars).
         cmd.env("CLOTO_LLM_PROXY_PORT", llm_proxy_port.to_string());
