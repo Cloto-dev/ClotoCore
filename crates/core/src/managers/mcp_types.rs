@@ -19,20 +19,12 @@ pub struct McpServerHandle {
     pub handshake: Option<ClotoHandshakeResult>,
     pub mgp_negotiated: Option<NegotiatedMgp>,
     pub status: ServerStatus,
-    pub source: ServerSource,
     /// Per-server audit sequence counter (in-memory, resets on reconnect).
     pub audit_seq: Arc<AtomicU64>,
     /// Timestamp when the server was connected (for uptime calculation).
     pub connected_at: Option<std::time::Instant>,
     /// OS-level isolation profile applied at spawn time (immutable after spawn).
     pub isolation_profile: Option<super::mcp_isolation::IsolationProfile>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ServerSource {
-    Config,
-    Dynamic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,7 +70,6 @@ pub struct McpServerInfo {
     pub status_message: Option<String>,
     pub tools: Vec<String>,
     pub is_cloto_sdk: bool,
-    pub source: ServerSource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     pub mgp_supported: bool,

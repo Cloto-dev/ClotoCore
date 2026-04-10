@@ -4,7 +4,6 @@
 //! `mgp.discovery.list`, `mgp.discovery.register`, `mgp.discovery.deregister`.
 
 use super::mcp::McpClientManager;
-use super::mcp_types::ServerSource;
 use anyhow::Result;
 use serde_json::Value;
 use std::sync::atomic::Ordering;
@@ -322,7 +321,7 @@ pub(super) async fn execute_discovery_register(
 
     info!(id = %id, command = %command, "Registering dynamic server via mgp.discovery.register");
 
-    match manager.connect_server(config, ServerSource::Dynamic).await {
+    match manager.connect_server(config).await {
         Ok(tools) => Ok(serde_json::json!({
             "id": id,
             "status": "connected",
@@ -346,18 +345,11 @@ pub(super) async fn execute_discovery_deregister(
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: id"))?;
 
-    // Check source — only allow deregistering dynamic servers
+    // Verify server exists before attempting deregistration
     {
         let state = manager.state.read().await;
-        if let Some(handle) = state.servers.get(id) {
-            if handle.source == ServerSource::Config {
-                return Err(anyhow::Error::new(
-                    super::mcp_mgp::MgpError::cannot_deregister_config(format!(
-                        "Cannot deregister config-loaded server '{}'. Use lifecycle.shutdown instead.",
-                        id
-                    )),
-                ));
-            }
+        if !state.servers.contains_key(id) {
+            return Err(anyhow::anyhow!("Server '{}' not found", id));
         }
     }
 
