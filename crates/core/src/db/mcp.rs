@@ -90,35 +90,83 @@ pub struct McpServerRecord {
     pub name: String,
     pub command: String,
     pub args: String,
+    pub env: String, // JSON-serialized HashMap<String, String>
+    pub transport: String,
+    pub directory: Option<String>,
+    pub display_name: Option<String>,
+    pub auto_restart: bool,
     pub script_content: Option<String>,
     pub description: Option<String>,
-    pub created_at: i64,
+    pub default_policy: String,
+    pub marketplace_id: Option<String>,
+    pub installed_version: Option<String>,
     pub is_active: bool,
-    pub env: String, // JSON-serialized HashMap<String, String>
+    pub created_at: i64,
+    pub updated_at: Option<i64>,
+}
+
+impl Default for McpServerRecord {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            command: String::new(),
+            args: "[]".to_string(),
+            env: "{}".to_string(),
+            transport: "stdio".to_string(),
+            directory: None,
+            display_name: None,
+            auto_restart: true,
+            script_content: None,
+            description: None,
+            default_policy: "opt-out".to_string(),
+            marketplace_id: None,
+            installed_version: None,
+            is_active: true,
+            created_at: 0,
+            updated_at: None,
+        }
+    }
 }
 
 pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> anyhow::Result<()> {
     db_timeout(
         sqlx::query(
             "INSERT INTO mcp_servers \
-             (name, command, args, script_content, description, created_at, is_active, env, default_policy) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'opt-out') \
+             (name, command, args, env, transport, directory, display_name, auto_restart, \
+              script_content, description, default_policy, marketplace_id, installed_version, \
+              is_active, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
              ON CONFLICT(name) DO UPDATE SET \
                command = excluded.command, \
                args = excluded.args, \
+               env = excluded.env, \
+               transport = excluded.transport, \
+               directory = COALESCE(excluded.directory, mcp_servers.directory), \
+               display_name = COALESCE(excluded.display_name, mcp_servers.display_name), \
+               auto_restart = excluded.auto_restart, \
                script_content = excluded.script_content, \
-               description = excluded.description, \
+               description = COALESCE(excluded.description, mcp_servers.description), \
+               marketplace_id = COALESCE(excluded.marketplace_id, mcp_servers.marketplace_id), \
+               installed_version = COALESCE(excluded.installed_version, mcp_servers.installed_version), \
                is_active = excluded.is_active, \
-               env = excluded.env",
+               updated_at = unixepoch()",
         )
         .bind(&record.name)
         .bind(&record.command)
         .bind(&record.args)
+        .bind(&record.env)
+        .bind(&record.transport)
+        .bind(&record.directory)
+        .bind(&record.display_name)
+        .bind(record.auto_restart)
         .bind(&record.script_content)
         .bind(&record.description)
-        .bind(record.created_at)
+        .bind(&record.default_policy)
+        .bind(&record.marketplace_id)
+        .bind(&record.installed_version)
         .bind(record.is_active)
-        .bind(&record.env)
+        .bind(record.created_at)
+        .bind(record.updated_at)
         .execute(pool),
     )
     .await?;
@@ -128,7 +176,9 @@ pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> any
 pub async fn load_active_mcp_servers(pool: &SqlitePool) -> anyhow::Result<Vec<McpServerRecord>> {
     db_timeout(
         sqlx::query_as::<_, McpServerRecord>(
-            "SELECT name, command, args, script_content, description, created_at, is_active, env \
+            "SELECT name, command, args, env, transport, directory, display_name, auto_restart, \
+             script_content, description, default_policy, marketplace_id, installed_version, \
+             is_active, created_at, updated_at \
              FROM mcp_servers WHERE is_active = 1 ORDER BY created_at ASC",
         )
         .fetch_all(pool),
@@ -136,14 +186,33 @@ pub async fn load_active_mcp_servers(pool: &SqlitePool) -> anyhow::Result<Vec<Mc
     .await
 }
 
-pub async fn deactivate_mcp_server(pool: &SqlitePool, name: &str) -> anyhow::Result<()> {
+/// Hard-delete an MCP server from the DB, including access control entries.
+pub async fn delete_mcp_server(pool: &SqlitePool, name: &str) -> anyhow::Result<()> {
+    // Clean up access control entries first (FK may not cascade in all schemas)
     db_timeout(
-        sqlx::query("UPDATE mcp_servers SET is_active = 0 WHERE name = ?")
+        sqlx::query("DELETE FROM mcp_access_control WHERE server_id = ?")
+            .bind(name)
+            .execute(pool),
+    )
+    .await?;
+    db_timeout(
+        sqlx::query("DELETE FROM mcp_servers WHERE name = ?")
             .bind(name)
             .execute(pool),
     )
     .await?;
     Ok(())
+}
+
+/// Check if a server exists in the DB.
+pub async fn server_exists_in_db(pool: &SqlitePool, name: &str) -> anyhow::Result<bool> {
+    let row: (i64,) = db_timeout(
+        sqlx::query_as("SELECT COUNT(*) FROM mcp_servers WHERE name = ?")
+            .bind(name)
+            .fetch_one(pool),
+    )
+    .await?;
+    Ok(row.0 > 0)
 }
 
 // ============================================================
@@ -456,48 +525,22 @@ pub async fn get_access_summary(
         .collect())
 }
 
-/// Get MCP server settings (including default_policy from the extended mcp_servers table).
+/// Get MCP server settings (full record from mcp_servers table).
 pub async fn get_mcp_server_settings(
     pool: &SqlitePool,
     name: &str,
-) -> anyhow::Result<Option<(McpServerRecord, String)>> {
-    let result = db_timeout(
-        sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, i64, bool, String, String)>(
-            "SELECT name, command, args, script_content, description, created_at, is_active, default_policy, env \
+) -> anyhow::Result<Option<McpServerRecord>> {
+    db_timeout(
+        sqlx::query_as::<_, McpServerRecord>(
+            "SELECT name, command, args, env, transport, directory, display_name, auto_restart, \
+             script_content, description, default_policy, marketplace_id, installed_version, \
+             is_active, created_at, updated_at \
              FROM mcp_servers WHERE name = ?",
         )
         .bind(name)
         .fetch_optional(pool),
     )
-    .await?;
-
-    Ok(result.map(
-        |(
-            name,
-            command,
-            args,
-            script_content,
-            description,
-            created_at,
-            is_active,
-            default_policy,
-            env,
-        )| {
-            (
-                McpServerRecord {
-                    name,
-                    command,
-                    args,
-                    script_content,
-                    description,
-                    created_at,
-                    is_active,
-                    env,
-                },
-                default_policy,
-            )
-        },
-    ))
+    .await
 }
 
 /// Update MCP server default_policy.
@@ -537,63 +580,23 @@ pub async fn update_mcp_server_env(
 // Marketplace Server Persistence
 // ============================================================
 
+/// Marketplace server record — lightweight projection for catalog queries.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct MarketplaceServerRecord {
     pub name: String,
-    pub source: String,
     pub installed_version: Option<String>,
     pub marketplace_id: Option<String>,
     pub is_active: bool,
 }
 
-/// Save a marketplace-installed server to the DB.
-pub async fn save_marketplace_server(
-    pool: &SqlitePool,
-    name: &str,
-    command: &str,
-    args: &str,
-    description: Option<&str>,
-    env_json: &str,
-    version: &str,
-    marketplace_id: &str,
-) -> anyhow::Result<()> {
-    db_timeout(
-        sqlx::query(
-            "INSERT INTO mcp_servers \
-             (name, command, args, description, created_at, is_active, env, default_policy, \
-              source, installed_version, marketplace_id) \
-             VALUES (?, ?, ?, ?, unixepoch(), 1, ?, 'opt-out', 'marketplace', ?, ?) \
-             ON CONFLICT(name) DO UPDATE SET \
-               command = excluded.command, \
-               args = excluded.args, \
-               description = excluded.description, \
-               env = excluded.env, \
-               is_active = 1, \
-               source = 'marketplace', \
-               installed_version = excluded.installed_version, \
-               marketplace_id = excluded.marketplace_id",
-        )
-        .bind(name)
-        .bind(command)
-        .bind(args)
-        .bind(description)
-        .bind(env_json)
-        .bind(version)
-        .bind(marketplace_id)
-        .execute(pool),
-    )
-    .await?;
-    Ok(())
-}
-
-/// Load all marketplace-installed servers.
+/// Load all servers that have marketplace metadata.
 pub async fn get_marketplace_servers(
     pool: &SqlitePool,
 ) -> anyhow::Result<Vec<MarketplaceServerRecord>> {
     db_timeout(
         sqlx::query_as::<_, MarketplaceServerRecord>(
-            "SELECT name, source, installed_version, marketplace_id, is_active \
-             FROM mcp_servers WHERE source = 'marketplace' ORDER BY name ASC",
+            "SELECT name, installed_version, marketplace_id, is_active \
+             FROM mcp_servers WHERE marketplace_id IS NOT NULL ORDER BY name ASC",
         )
         .fetch_all(pool),
     )
@@ -609,8 +612,7 @@ pub async fn set_marketplace_fields(
 ) -> anyhow::Result<()> {
     db_timeout(
         sqlx::query(
-            "UPDATE mcp_servers SET source = 'marketplace', \
-             installed_version = ?, marketplace_id = ? \
+            "UPDATE mcp_servers SET installed_version = ?, marketplace_id = ?, updated_at = unixepoch() \
              WHERE name = ?",
         )
         .bind(version)
@@ -630,7 +632,7 @@ pub async fn update_marketplace_server_version(
 ) -> anyhow::Result<u64> {
     Ok(db_timeout(
         sqlx::query(
-            "UPDATE mcp_servers SET installed_version = ? WHERE name = ? AND source = 'marketplace'",
+            "UPDATE mcp_servers SET installed_version = ?, updated_at = unixepoch() WHERE name = ?",
         )
         .bind(version)
         .bind(name)
@@ -640,49 +642,9 @@ pub async fn update_marketplace_server_version(
     .rows_affected())
 }
 
-/// Hard-delete a marketplace-installed server from the DB, including access control entries.
+/// Hard-delete a marketplace-installed server from the DB.
+/// Delegates to delete_mcp_server (which handles access control cleanup).
 pub async fn delete_marketplace_server(pool: &SqlitePool, name: &str) -> anyhow::Result<()> {
-    // Clean up orphaned access control entries first
-    db_timeout(
-        sqlx::query("DELETE FROM mcp_access_control WHERE server_id = ?")
-            .bind(name)
-            .execute(pool),
-    )
-    .await?;
-
-    let result = db_timeout(
-        sqlx::query("DELETE FROM mcp_servers WHERE name = ? AND source = 'marketplace'")
-            .bind(name)
-            .execute(pool),
-    )
-    .await?;
-
-    if result.rows_affected() == 0 {
-        anyhow::bail!("No marketplace server found with name '{}'", name);
-    }
-    Ok(())
+    delete_mcp_server(pool, name).await
 }
 
-/// Insert a config-loaded MCP server into the DB so its settings can be persisted.
-pub async fn ensure_mcp_server_in_db(
-    pool: &SqlitePool,
-    name: &str,
-    command: &str,
-    args: &str,
-    default_policy: &str,
-) -> anyhow::Result<()> {
-    db_timeout(
-        sqlx::query(
-            "INSERT INTO mcp_servers (name, command, args, created_at, is_active, default_policy) \
-             VALUES (?, ?, ?, unixepoch(), 1, ?) \
-             ON CONFLICT(name) DO UPDATE SET default_policy = excluded.default_policy",
-        )
-        .bind(name)
-        .bind(command)
-        .bind(args)
-        .bind(default_policy)
-        .execute(pool),
-    )
-    .await?;
-    Ok(())
-}
