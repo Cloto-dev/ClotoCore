@@ -7,8 +7,8 @@ import { useAgentContext } from '../contexts/AgentContext';
 import { useLocalStorage } from '../hooks/useStorage';
 import { AgentPage } from '../pages/AgentPage';
 import { AppSidebar } from './AppSidebar';
+import { FadingGrid } from './FadingGrid';
 import { HelpContent } from './HelpContent';
-import { InteractiveGrid } from './InteractiveGrid';
 import { Modal } from './Modal';
 import { SecurityGuard } from './SecurityGuard';
 import { ViewHeader } from './ViewHeader';
@@ -99,7 +99,7 @@ export function AppLayout() {
 
         {/* 2. Body — second child, sidebar + content */}
         <div className="flex flex-1 overflow-hidden relative">
-          <InteractiveGrid />
+          <FadingGrid />
           {!immersive && (
             <div className="relative z-10">
               <AppSidebar

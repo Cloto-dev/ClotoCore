@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useTheme } from '../hooks/useTheme';
 import { getDpr } from '../lib/canvasUtils';
 
-export function InteractiveGrid() {
+export function FadingGrid() {
   const gridCanvasRef = useRef<HTMLCanvasElement>(null);
   const { colors } = useTheme();
   const colorsRef = useRef(colors);

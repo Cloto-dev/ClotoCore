@@ -1,7 +1,7 @@
 import { Activity, Info, ScrollText, Settings, Shield, Sun, Zap } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { InteractiveGrid } from './InteractiveGrid';
+import { FadingGrid } from './FadingGrid';
 import { AboutSection, AdvancedSection, GeneralSection, HealthSection, LogSection, SecuritySection } from './settings';
 import { ViewHeader } from './ViewHeader';
 
@@ -22,7 +22,7 @@ export function SettingsView({ onBack, initialSection }: { onBack?: () => void; 
 
   return (
     <div className="flex flex-col h-full bg-surface-base text-content-primary relative">
-      <InteractiveGrid />
+      <FadingGrid />
 
       {onBack && (
         <div className="relative z-10">
