@@ -260,13 +260,11 @@ pub async fn install_handler(
             ))
         })?;
 
-    // Reject if server is already marketplace-installed (dynamic).
-    // Config-loaded servers (from mcp.toml) are allowed — marketplace install
-    // builds/registers independently and the config entry is effectively replaced.
-    let running_servers = state.mcp_manager.list_servers().await;
-    if running_servers.iter().any(|s| {
-        s.id == request.server_id && s.source == crate::managers::mcp_types::ServerSource::Dynamic
-    }) {
+    // Reject if server is already installed (exists in DB as active).
+    if crate::db::mcp::server_exists_in_db(&state.pool, &request.server_id)
+        .await
+        .unwrap_or(false)
+    {
         return Err(AppError::Validation(format!(
             "Server '{}' is already installed",
             request.server_id
@@ -358,26 +356,10 @@ pub async fn uninstall_handler(
         ));
     }
 
-    // Disconnect from manager.  For Dynamic servers, remove_dynamic_server()
-    // deletes the entry entirely.  For Config servers (loaded from mcp.toml),
-    // it will be rejected — in that case we just stop the server so the files
-    // can be safely deleted.  The Config entry stays in state.servers and will
-    // be re-evaluated on next restart.
-    if let Err(e) = state.mcp_manager.remove_dynamic_server(&server_id).await {
-        let msg = e.to_string();
-        if msg.contains("config-loaded") {
-            // Config server: stop gracefully, keep entry (will reload from mcp.toml)
-            let _ = state.mcp_manager.stop_server(&server_id).await;
-        } else {
-            // Other errors (already stopped, not found) — log and continue
-            warn!("remove_dynamic_server warning for {}: {}", server_id, msg);
-        }
-    }
-
-    // Hard-delete from DB (mcp_servers + mcp_access_control)
-    if let Err(e) = crate::db::mcp::delete_marketplace_server(&state.pool, &server_id).await {
-        warn!("DB cleanup for {}: {}", server_id, e);
-        // Don't fail — the server is already disconnected
+    // Disconnect and remove from manager + DB
+    if let Err(e) = state.mcp_manager.remove_server(&server_id).await {
+        warn!("remove_server warning for {}: {}", server_id, e);
+        // Still proceed with file cleanup even if server wasn't in memory
     }
 
     // Delete server files from disk.
@@ -1106,7 +1088,7 @@ async fn run_install(
         )
     };
 
-    // Step 5: Register and start via add_dynamic_server()
+    // Step 5: Register and start via add_server()
     emit(
         tx,
         SetupProgressEvent::StepStart {
@@ -1127,11 +1109,11 @@ async fn run_install(
     }
     let _ = &venv_dir; // suppress unused warning
 
-    // Use add_dynamic_server() for proper lifecycle integration:
+    // Use add_server() for proper lifecycle integration:
     // creates ServerConfig → connect_server() (spawn + register) → save to DB
     match state
         .mcp_manager
-        .add_dynamic_server(
+        .add_server(
             entry.id.clone(),
             command,
             args,
@@ -1892,7 +1874,7 @@ async fn run_batch_install(
 
         let connected = match state
             .mcp_manager
-            .add_dynamic_server(
+            .add_server(
                 entry.id.clone(),
                 command,
                 args,
