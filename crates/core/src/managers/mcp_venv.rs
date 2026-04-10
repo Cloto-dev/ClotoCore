@@ -1,7 +1,8 @@
 //! Auto-setup for Python MCP server virtual environment.
 //!
-//! Checks `[paths].servers` in `mcp.toml` for the servers directory,
-//! falling back to `mcp-servers/` in the project root.
+//! Server files live in `{data_dir}/mcp-servers/`, with a shared venv at
+//! `{data_dir}/mcp-servers/.venv`.  In dev mode, falls back to
+//! `mcp-servers/.venv` in the project root.
 //! If missing, creates a venv and installs dependencies from each server's `pyproject.toml`.
 //! This is non-fatal — the kernel starts normally even if setup fails.
 //!
@@ -22,44 +23,47 @@ fn resolve_project_root() -> Option<PathBuf> {
     Some(root)
 }
 
-/// Read `[paths].servers` from `mcp.toml` in the project root.
-/// Uses the same `McpConfigFile` typed deserialization as `load_config_file()`
-/// to avoid silent failures from generic `toml::Value` parsing.
+/// Resolve the MCP servers directory.
+/// Primary: `{data_dir}/mcp-servers` (production).
+/// Fallback: `CLOTO_MCP_SERVERS` env var, then `../cloto-mcp-servers/servers` relative to project root (dev).
 #[must_use]
 pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
-    let root = resolve_project_root()?;
-    let config_path = root.join("mcp.toml");
-    let content = std::fs::read_to_string(&config_path).ok()?;
-    let config: super::mcp_protocol::McpConfigFile = toml::from_str(&content).ok()?;
-    let raw = config.paths.get("servers")?;
-    // Support env var expansion in path values: ${VAR_NAME}
-    // CLOTO_MCP_SERVERS defaults to ../cloto-mcp-servers/servers when unset.
-    let resolved = if let Some(var_name) = raw.strip_prefix("${").and_then(|s| s.strip_suffix('}'))
-    {
-        match std::env::var(var_name) {
-            Ok(val) => val,
-            Err(_) if var_name == "CLOTO_MCP_SERVERS" => "../cloto-mcp-servers/servers".to_string(),
-            Err(_) => return None,
-        }
-    } else {
-        raw.clone()
-    };
-    let path = PathBuf::from(&resolved);
-    // Resolve relative paths against project root (not CWD)
-    if path.is_relative() {
-        Some(root.join(path))
-    } else {
-        Some(path)
+    // 1. Production: {data_dir}/mcp-servers
+    let data_servers = crate::config::exe_dir().join("data").join("mcp-servers");
+    if data_servers.is_dir() {
+        return Some(data_servers);
     }
+    // 2. CLOTO_MCP_SERVERS env var
+    if let Ok(val) = std::env::var("CLOTO_MCP_SERVERS") {
+        let p = PathBuf::from(&val);
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
+    // 3. Dev: ../cloto-mcp-servers/servers relative to project root
+    if let Some(root) = resolve_project_root() {
+        let dev_path = root.join("..").join("cloto-mcp-servers").join("servers");
+        if dev_path.is_dir() {
+            return Some(dev_path);
+        }
+    }
+    None
 }
 
 /// Get the path to the shared venv directory.
-/// Checks `[paths].servers` in `mcp.toml` first, then falls back to
-/// `mcp-servers/.venv` in the project root, then `{exe_dir}/data/mcp-servers/.venv`
-/// (production install layout).
+/// Primary: `{data_dir}/mcp-servers/.venv` (production).
+/// Fallback: dev project root, then `CLOTO_MCP_SERVERS`.
 #[must_use]
 pub fn resolve_venv_dir() -> Option<PathBuf> {
-    // Primary: [paths].servers from mcp.toml
+    // Primary: production data dir
+    let data_venv = crate::config::exe_dir()
+        .join("data")
+        .join("mcp-servers")
+        .join(".venv");
+    if data_venv.join("pyvenv.cfg").exists() {
+        return Some(data_venv);
+    }
+    // Fallback: resolved servers dir (includes dev and env var paths)
     if let Some(servers_dir) = resolve_servers_dir_from_config() {
         let venv = servers_dir.join(".venv");
         if venv.join("pyvenv.cfg").exists() {
@@ -72,14 +76,6 @@ pub fn resolve_venv_dir() -> Option<PathBuf> {
         if venv.join("pyvenv.cfg").exists() {
             return Some(venv);
         }
-    }
-    // Fallback: production install ({exe_dir}/data/mcp-servers/.venv)
-    let data_venv = crate::config::exe_dir()
-        .join("data")
-        .join("mcp-servers")
-        .join(".venv");
-    if data_venv.join("pyvenv.cfg").exists() {
-        return Some(data_venv);
     }
     None
 }

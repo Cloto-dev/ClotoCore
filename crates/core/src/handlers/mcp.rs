@@ -415,7 +415,7 @@ pub async fn create_mcp_server(
     // Add server via McpClientManager (handles connection + DB persistence)
     let tool_names = state
         .mcp_manager
-        .add_dynamic_server(
+        .add_server(
             name.to_string(),
             command.clone(),
             args.clone(),
@@ -458,20 +458,12 @@ pub async fn delete_mcp_server(
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
 
-    // Remove from McpClientManager (handles disconnect + DB deactivation)
-    // Config-loaded servers cannot be deleted — return 400 with guidance
+    // Remove from McpClientManager (handles disconnect + DB deletion)
     state
         .mcp_manager
-        .remove_dynamic_server(&name)
+        .remove_server(&name)
         .await
-        .map_err(|e| {
-            let msg = e.to_string();
-            if msg.contains("config-loaded") {
-                AppError::Validation(msg)
-            } else {
-                AppError::Internal(anyhow::anyhow!("{}", e))
-            }
-        })?;
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
 
     // Remove auto-generated script file if it exists
     let script_path = std::path::Path::new("scripts").join(format!("mcp_{}.py", name));
@@ -505,7 +497,7 @@ pub async fn get_mcp_server_settings(
     // Get in-memory config env (from mcp.toml or runtime) as defaults
     let config_env = state.mcp_manager.get_server_env(&name).await;
 
-    if let Some((record, default_policy)) = settings {
+    if let Some(record) = settings {
         // Merge: in-memory config env as base, DB env overrides
         let db_env: HashMap<String, String> = serde_json::from_str(&record.env).unwrap_or_default();
         let mut merged = config_env;
@@ -535,53 +527,19 @@ pub async fn get_mcp_server_settings(
 
         ok_data(serde_json::json!({
             "server_id": record.name,
-            "default_policy": default_policy,
+            "default_policy": record.default_policy,
             "config": {},
             "env": masked_env,
-            "auto_restart": false,
+            "auto_restart": record.auto_restart,
             "command": record.command,
             "args": serde_json::from_str::<Vec<String>>(&record.args).unwrap_or_default(),
             "description": record.description,
         }))
     } else {
-        // Fallback: config-loaded servers not yet in DB — use in-memory env
-        let servers = state.mcp_manager.list_servers().await;
-        if let Some(server) = servers.iter().find(|s| s.id == name) {
-            let masked_env: HashMap<String, String> = config_env
-                .iter()
-                .map(|(k, v)| {
-                    let upper = k.to_uppercase();
-                    let is_secret = upper.contains("KEY")
-                        || upper.contains("SECRET")
-                        || upper.contains("TOKEN")
-                        || upper.contains("PASSWORD")
-                        || upper.contains("CREDENTIAL");
-                    (
-                        k.clone(),
-                        if is_secret {
-                            "***".to_string()
-                        } else {
-                            v.clone()
-                        },
-                    )
-                })
-                .collect();
-            ok_data(serde_json::json!({
-                "server_id": server.id,
-                "default_policy": "opt-in",
-                "config": {},
-                "env": masked_env,
-                "auto_restart": false,
-                "command": server.command,
-                "args": server.args,
-                "description": null,
-            }))
-        } else {
-            Err(AppError::Validation(format!(
-                "MCP server '{}' not found",
-                name
-            )))
-        }
+        Err(AppError::Validation(format!(
+            "MCP server '{}' not found",
+            name
+        )))
     }
 }
 
@@ -606,34 +564,17 @@ pub async fn update_mcp_server_settings(
             .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
 
         if rows == 0 {
-            // Config-loaded server (from mcp.toml) — not yet in DB.
-            // Look up in-memory server info and persist it.
-            let servers = state.mcp_manager.list_servers().await;
-            if let Some(server) = servers.iter().find(|s| s.id == name) {
-                let args_json =
-                    serde_json::to_string(&server.args).unwrap_or_else(|_| "[]".to_string());
-                crate::db::ensure_mcp_server_in_db(
-                    &state.pool,
-                    &name,
-                    &server.command,
-                    &args_json,
-                    policy,
-                )
-                .await
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
-            } else {
-                return Err(AppError::Validation(format!(
-                    "MCP server '{}' not found",
-                    name
-                )));
-            }
+            return Err(AppError::Validation(format!(
+                "MCP server '{}' not found",
+                name
+            )));
         }
     }
 
     // Handle env updates
     if let Some(env_obj) = body.get("env").and_then(|v| v.as_object()) {
         // Load existing env from DB to preserve unchanged values (sent as "***")
-        let existing_env: HashMap<String, String> = if let Ok(Some((record, _))) =
+        let existing_env: HashMap<String, String> = if let Ok(Some(record)) =
             crate::db::get_mcp_server_settings(&state.pool, &name).await
         {
             serde_json::from_str(&record.env).unwrap_or_default()
@@ -667,29 +608,7 @@ pub async fn update_mcp_server_settings(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
 
         if rows == 0 {
-            // Config-loaded server not yet in DB — persist it first
-            let servers = state.mcp_manager.list_servers().await;
-            if let Some(server) = servers.iter().find(|s| s.id == name) {
-                let args_json =
-                    serde_json::to_string(&server.args).unwrap_or_else(|_| "[]".to_string());
-                crate::db::ensure_mcp_server_in_db(
-                    &state.pool,
-                    &name,
-                    &server.command,
-                    &args_json,
-                    "opt-in",
-                )
-                .await
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
-                // Retry env update
-                crate::db::update_mcp_server_env(
-                    &state.pool,
-                    &name,
-                    &serde_json::to_string(&merged_env).unwrap_or_else(|_| "{}".to_string()),
-                )
-                .await
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
-            }
+            tracing::warn!("env update found no DB row for server '{}'", name);
         }
 
         // Update in-memory config and restart server
@@ -728,7 +647,7 @@ pub async fn get_mcp_server_access(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
 
-    let default_policy = settings.as_ref().map_or("opt-in", |(_, dp)| dp.as_str());
+    let default_policy = settings.as_ref().map_or("opt-in", |r| r.default_policy.as_str());
 
     // Get tools from running server
     let tools: Vec<String> = {
