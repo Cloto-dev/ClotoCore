@@ -121,16 +121,28 @@ pub fn venv_python(venv_dir: &Path) -> PathBuf {
 }
 
 /// Extract the Python version from a venv's `pyvenv.cfg` (e.g., "3.13.3").
+///
+/// Handles both pip/native venv (`version = 3.12.5`) and uv (`version_info = 3.12.10`).
 fn read_venv_python_version(venv_dir: &Path) -> Option<String> {
     let cfg_path = venv_dir.join("pyvenv.cfg");
     let content = std::fs::read_to_string(cfg_path).ok()?;
     for line in content.lines() {
         let line = line.trim();
-        if let Some(version) = line.strip_prefix("version") {
-            let version = version.trim_start_matches([' ', '=']);
+        // Match "version_info = ..." (uv) first, then "version = ..." (pip).
+        // Must not match "version_info" when looking for "version".
+        if let Some(rest) = line.strip_prefix("version_info") {
+            let version = rest.trim_start_matches([' ', '=']);
             let version = version.trim();
             if !version.is_empty() {
                 return Some(version.to_string());
+            }
+        } else if let Some(rest) = line.strip_prefix("version") {
+            let rest = rest.trim_start();
+            if let Some(version) = rest.strip_prefix('=') {
+                let version = version.trim();
+                if !version.is_empty() {
+                    return Some(version.to_string());
+                }
             }
         }
     }
