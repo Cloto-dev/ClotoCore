@@ -1,4 +1,4 @@
-export type StatusDotStatus = 'online' | 'connected' | 'degraded' | 'error' | 'offline';
+export type StatusDotStatus = 'online' | 'connected' | 'connecting' | 'degraded' | 'error' | 'offline';
 
 interface StatusDotProps {
   status: StatusDotStatus;
@@ -10,6 +10,7 @@ interface StatusDotProps {
 const colorMap: Record<StatusDotStatus, string> = {
   online: 'bg-emerald-500',
   connected: 'bg-emerald-500',
+  connecting: 'bg-amber-500',
   degraded: 'bg-amber-500',
   error: 'bg-red-500',
   offline: 'bg-content-muted',
@@ -18,6 +19,7 @@ const colorMap: Record<StatusDotStatus, string> = {
 const defaultPulse: Record<StatusDotStatus, boolean> = {
   online: false,
   connected: false,
+  connecting: true,
   degraded: true,
   error: true,
   offline: false,

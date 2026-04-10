@@ -1075,17 +1075,9 @@ async fn run_install(
             },
         );
 
-        let venv_python = if cfg!(windows) {
-            venv_dir.join("Scripts").join("python.exe")
-        } else {
-            venv_dir.join("bin").join("python")
-        };
         let server_script = server_path.join("server.py").to_string_lossy().to_string();
-        (
-            venv_python.to_string_lossy().to_string(),
-            vec![server_script],
-            venv_dir,
-        )
+        // Use bare "python" — resolved to venv python at spawn time
+        ("python".to_string(), vec![server_script], venv_dir)
     };
 
     // Step 5: Register and start via add_server()
@@ -1838,12 +1830,6 @@ async fn run_batch_install(
     }
 
     // ── Phase 3: Register all servers with MCP manager ──
-    let venv_python = if cfg!(windows) {
-        venv_dir.join("Scripts").join("python.exe")
-    } else {
-        venv_dir.join("bin").join("python")
-    };
-
     let all_entries: Vec<&RegistryEntry> = python_entries
         .iter()
         .chain(rust_entries.iter())
@@ -1859,10 +1845,9 @@ async fn run_batch_install(
             (bin_path.to_string_lossy().to_string(), vec![])
         } else {
             let server_script = server_path.join("server.py").to_string_lossy().to_string();
-            (
-                venv_python.to_string_lossy().to_string(),
-                vec![server_script],
-            )
+            // Use bare "python" — resolved to venv python at spawn time
+            // by resolve_python_command() in mcp_transport.
+            ("python".to_string(), vec![server_script])
         };
 
         let mut env_map: HashMap<String, String> = HashMap::new();

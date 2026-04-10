@@ -13,6 +13,7 @@
   "backend_unreachable": "Backend unreachable",
   "no_servers_configured": "No MCP servers configured",
   "status_running": "Running",
+  "status_connecting": "Starting",
   "status_error": "Error",
   "status_warning": "API key missing",
   "status_stopped": "Stopped",

@@ -15,6 +15,8 @@ import type { McpServerInfo } from '../types';
 
 function mcpStatusToDot(server: McpServerInfo): StatusDotStatus {
   if (server.status === 'Connected') return 'connected';
+  if (server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered')
+    return 'connecting';
   if (server.status === 'Error' && server.has_unresolved_env) return 'degraded';
   if (server.status === 'Error') return 'error';
   return 'offline';
@@ -67,6 +69,8 @@ export function McpServersPage() {
 
   function statusLabel(server: McpServerInfo) {
     if (server.status === 'Connected') return t('status_running');
+    if (server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered')
+      return t('status_connecting');
     if (server.status === 'Error' && server.has_unresolved_env) return t('status_warning');
     if (server.status === 'Error') return t('status_error');
     return t('status_stopped');

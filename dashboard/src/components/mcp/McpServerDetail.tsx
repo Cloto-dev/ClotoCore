@@ -28,6 +28,8 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isRunning = server.status === 'Connected';
+  const isConnecting =
+    server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered';
   const isError = server.status === 'Error';
 
   async function handleAction(action: string, fn: () => Promise<void>) {
@@ -58,10 +60,32 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
             {t('detail.status')}
             <span
               role="status"
-              className={isRunning ? 'text-green-500' : isError ? 'text-red-500' : 'text-content-tertiary'}
-              aria-label={isRunning ? t('status_running') : isError ? t('status_error') : t('status_stopped')}
+              className={
+                isRunning
+                  ? 'text-green-500'
+                  : isConnecting
+                    ? 'text-amber-500'
+                    : isError
+                      ? 'text-red-500'
+                      : 'text-content-tertiary'
+              }
+              aria-label={
+                isRunning
+                  ? t('status_running')
+                  : isConnecting
+                    ? t('status_connecting')
+                    : isError
+                      ? t('status_error')
+                      : t('status_stopped')
+              }
             >
-              {isRunning ? `● ${t('status_running')}` : isError ? `◉ ${t('status_error')}` : `○ ${t('status_stopped')}`}
+              {isRunning
+                ? `● ${t('status_running')}`
+                : isConnecting
+                  ? `◌ ${t('status_connecting')}`
+                  : isError
+                    ? `◉ ${t('status_error')}`
+                    : `○ ${t('status_stopped')}`}
             </span>
           </span>
           <span>{t('detail.tools_registered', { count: server.tools.length })}</span>
