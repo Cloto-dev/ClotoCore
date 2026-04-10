@@ -66,9 +66,6 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
           </span>
           <span>{t('detail.tools_registered', { count: server.tools.length })}</span>
           {server.is_cloto_sdk && <span className="text-brand">{t('detail.cloto_sdk')}</span>}
-          <span className={server.source === 'config' ? 'text-amber-500' : 'text-blue-400'}>
-            {server.source === 'config' ? t('detail.source_config') : t('detail.source_dynamic')}
-          </span>
         </div>
 
         {/* Lifecycle buttons */}
@@ -134,31 +131,27 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
             )}
             {t('detail.restart')}
           </button>
-          {server.source === 'dynamic' && (
-            <>
-              <div className="w-px h-4 bg-edge self-center mx-0.5" />
-              <button
-                onClick={() => setConfirmDelete(true)}
-                disabled={actionLoading !== null}
-                aria-label={t('detail.delete')}
-                className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-red-500/10 text-content-secondary hover:text-red-500 transition-colors border border-edge"
-              >
-                <Trash2 size={10} /> {t('detail.delete')}
-              </button>
-              <ConfirmDialog
-                open={confirmDelete}
-                title={t('detail.delete')}
-                message={t('detail.delete_confirm', { id: server.id })}
-                confirmLabel={t('detail.delete')}
-                variant="danger"
-                onConfirm={() => {
-                  setConfirmDelete(false);
-                  handleAction('delete', () => onDelete(server.id));
-                }}
-                onCancel={() => setConfirmDelete(false)}
-              />
-            </>
-          )}
+          <div className="w-px h-4 bg-edge self-center mx-0.5" />
+          <button
+            onClick={() => setConfirmDelete(true)}
+            disabled={actionLoading !== null}
+            aria-label={t('detail.delete')}
+            className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-red-500/10 text-content-secondary hover:text-red-500 transition-colors border border-edge"
+          >
+            <Trash2 size={10} /> {t('detail.delete')}
+          </button>
+          <ConfirmDialog
+            open={confirmDelete}
+            title={t('detail.delete')}
+            message={t('detail.delete_confirm', { id: server.id })}
+            confirmLabel={t('detail.delete')}
+            variant="danger"
+            onConfirm={() => {
+              setConfirmDelete(false);
+              handleAction('delete', () => onDelete(server.id));
+            }}
+            onCancel={() => setConfirmDelete(false)}
+          />
         </div>
       </div>
 
