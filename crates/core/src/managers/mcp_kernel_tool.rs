@@ -477,7 +477,7 @@ if __name__ == "__main__":
         trust_level: Some("untrusted".to_string()),
     });
     let tool_names = manager
-        .add_dynamic_server(
+        .add_server(
             server_id.clone(),
             "python".to_string(),
             vec![script_path.to_string_lossy().to_string()],

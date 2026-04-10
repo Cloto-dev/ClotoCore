@@ -287,6 +287,28 @@ fn default_transport() -> String {
     "stdio".to_string()
 }
 
+impl Default for McpServerConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            command: String::new(),
+            args: Vec::new(),
+            env: std::collections::HashMap::new(),
+            transport: default_transport(),
+            url: None,
+            auth_token: None,
+            auto_restart: None,
+            required_permissions: Vec::new(),
+            tool_validators: std::collections::HashMap::new(),
+            display_name: None,
+            mgp: None,
+            restart_policy: None,
+            seal: None,
+            isolation: None,
+        }
+    }
+}
+
 impl McpServerConfig {
     /// Returns the effective restart policy, respecting legacy auto_restart fallback.
     #[must_use]

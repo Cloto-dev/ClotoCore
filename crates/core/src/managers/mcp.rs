@@ -187,10 +187,140 @@ impl McpClientManager {
     /// Load server configs from mcp.toml file (if exists) and connect.
     ///
     /// Relative paths in `args` are resolved against the project root directory
-    /// (detected by walking up from the config file to find `Cargo.toml`) or,
-    /// in production, against the config file's parent directory.
-    /// This allows `mcp.toml` to use portable paths like
-    /// `"mcp-servers/terminal/server.py"` instead of absolute ones.
+    /// One-time migration: import servers from mcp.toml into the DB.
+    /// After migration, renames mcp.toml → mcp.toml.migrated.
+    /// This is a no-op if mcp.toml does not exist or was already migrated.
+    pub async fn migrate_config_file_to_db(&self, data_dir: &std::path::Path) -> Result<()> {
+        // Find mcp.toml in known locations
+        let candidates = [
+            data_dir.join("mcp.toml"),
+            crate::config::exe_dir().join("mcp.toml"),
+        ];
+        let mcp_toml = candidates.iter().find(|p| p.exists());
+        let mcp_toml = if let Some(p) = mcp_toml {
+            p.clone()
+        } else {
+            // Also check project root (dev mode)
+            let fallback = std::path::Path::new("mcp.toml");
+            match Self::resolve_project_path(fallback) {
+                Some(p) if std::path::Path::new(&p).exists() => std::path::PathBuf::from(p),
+                _ => return Ok(()), // No mcp.toml found — nothing to migrate
+            }
+        };
+        let migrated = mcp_toml.with_extension("toml.migrated");
+        if migrated.exists() {
+            return Ok(()); // Already migrated
+        }
+
+        info!(path = %mcp_toml.display(), "Migrating mcp.toml to database");
+
+        let configs = self.parse_config_file(&mcp_toml.to_string_lossy())?;
+        let mut migrated_count = 0usize;
+
+        for config in &configs {
+            // Skip if already in DB (e.g. marketplace-installed)
+            if crate::db::server_exists_in_db(&self.pool, &config.id).await? {
+                continue;
+            }
+
+            // Extract directory name from args path (e.g. ".../terminal/server.py" → "terminal")
+            let directory = config.args.first().and_then(|arg| {
+                std::path::Path::new(arg)
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().to_string())
+            });
+
+            let record = crate::db::McpServerRecord {
+                name: config.id.clone(),
+                command: config.command.clone(),
+                args: serde_json::to_string(&config.args).unwrap_or_else(|_| "[]".to_string()),
+                env: serde_json::to_string(&config.env).unwrap_or_else(|_| "{}".to_string()),
+                transport: config.transport.clone(),
+                directory,
+                display_name: config.display_name.clone(),
+                auto_restart: config.auto_restart.unwrap_or(true),
+                is_active: true,
+                created_at: chrono::Utc::now().timestamp(),
+                updated_at: Some(chrono::Utc::now().timestamp()),
+                ..Default::default()
+            };
+            crate::db::save_mcp_server(&self.pool, &record).await?;
+            migrated_count += 1;
+        }
+
+        // Rename mcp.toml → mcp.toml.migrated
+        if let Err(e) = std::fs::rename(&mcp_toml, &migrated) {
+            warn!(error = %e, "Failed to rename mcp.toml — migration data is saved but file remains");
+        }
+
+        info!(
+            total = configs.len(),
+            migrated = migrated_count,
+            "mcp.toml migration complete"
+        );
+        Ok(())
+    }
+
+    /// Load all active servers from DB, connect priority servers, return deferred configs.
+    pub async fn load_and_connect_priority(
+        &self,
+        default_agent_id: &str,
+        agent_manager: &super::AgentManager,
+    ) -> Result<Vec<McpServerConfig>> {
+        let records = crate::db::load_active_mcp_servers(&self.pool).await?;
+
+        if records.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Convert DB records to McpServerConfig
+        let all_configs: Vec<McpServerConfig> = records
+            .iter()
+            .map(|r| McpServerConfig {
+                id: r.name.clone(),
+                command: r.command.clone(),
+                args: serde_json::from_str(&r.args).unwrap_or_default(),
+                env: serde_json::from_str(&r.env).unwrap_or_default(),
+                transport: r.transport.clone(),
+                display_name: r.display_name.clone(),
+                auto_restart: Some(r.auto_restart),
+                ..Default::default()
+            })
+            .collect();
+
+        // Partition into priority (granted to default agent) and deferred
+        let granted_ids = agent_manager
+            .get_granted_server_ids(default_agent_id)
+            .await
+            .unwrap_or_default();
+
+        let (priority, deferred): (Vec<_>, Vec<_>) = all_configs
+            .into_iter()
+            .partition(|c| granted_ids.contains(&c.id));
+
+        if !priority.is_empty() {
+            info!(
+                count = priority.len(),
+                agent = %default_agent_id,
+                "⚡ Priority boot: connecting granted MCP servers"
+            );
+            self.connect_server_configs(&priority).await;
+        }
+
+        if !deferred.is_empty() {
+            info!(
+                count = deferred.len(),
+                "⏳ Deferring {} non-priority MCP server(s) to background",
+                deferred.len()
+            );
+        }
+
+        Ok(deferred)
+    }
+
+    /// Load mcp.toml and connect all servers (legacy — used only during migration).
+    #[deprecated(note = "Use load_and_connect_priority() instead. This exists only for mcp.toml migration.")]
     pub async fn load_config_file(&self, config_path: &str) -> Result<()> {
         let configs = self.parse_config_file(config_path)?;
         self.connect_server_configs(&configs).await;
@@ -345,7 +475,7 @@ impl McpClientManager {
                 let config = cfg.clone();
                 async move {
                     let result = self
-                        .connect_server(config.clone(), ServerSource::Config)
+                        .connect_server(config.clone())
                         .await;
                     (config, result)
                 }
@@ -379,7 +509,6 @@ impl McpClientManager {
                         handshake: None,
                         mgp_negotiated: None,
                         status: ServerStatus::Error(e.to_string()),
-                        source: ServerSource::Config,
                         audit_seq: Arc::new(AtomicU64::new(0)),
                         connected_at: None,
                         isolation_profile: None,
@@ -391,7 +520,7 @@ impl McpClientManager {
             warn!(
                 total = total,
                 failed = failed,
-                "MCP config loaded with failures ({}/{} servers failed)",
+                "MCP servers loaded with failures ({}/{} servers failed)",
                 failed,
                 total
             );
@@ -470,7 +599,7 @@ impl McpClientManager {
                 let config = config.clone();
                 async move {
                     let result = self
-                        .connect_server(config.clone(), ServerSource::Dynamic)
+                        .connect_server(config.clone())
                         .await;
                     (config, result)
                 }
@@ -498,7 +627,6 @@ impl McpClientManager {
                         handshake: None,
                         mgp_negotiated: None,
                         status: ServerStatus::Error(e.to_string()),
-                        source: ServerSource::Dynamic,
                         audit_seq: Arc::new(AtomicU64::new(0)),
                         connected_at: None,
                         isolation_profile: None,
@@ -514,7 +642,6 @@ impl McpClientManager {
     pub async fn connect_server(
         &self,
         config: McpServerConfig,
-        source: ServerSource,
     ) -> Result<Vec<String>> {
         let id = config.id.clone();
 
@@ -1070,7 +1197,6 @@ impl McpClientManager {
             handshake,
             mgp_negotiated,
             status: ServerStatus::Connected,
-            source,
             audit_seq: Arc::new(AtomicU64::new(0)),
             connected_at: Some(std::time::Instant::now()),
             isolation_profile,
@@ -1213,11 +1339,11 @@ impl McpClientManager {
             .servers
             .values()
             .filter(|h| {
-                // Always show Dynamic, Connected, or operational servers
-                if h.source == ServerSource::Dynamic || h.status.is_operational() {
+                // Show operational servers unconditionally
+                if h.status.is_operational() {
                     return true;
                 }
-                // For non-operational Config servers, check entry point existence
+                // Non-operational: show if entry point exists on disk
                 let entry_exists = if let Some(script) = h.config.args.first() {
                     std::path::Path::new(script).exists()
                 } else {
@@ -1237,7 +1363,6 @@ impl McpClientManager {
                 status: h.status.clone(),
                 tools: h.tools.iter().map(|t| t.name.clone()).collect(),
                 is_cloto_sdk: h.handshake.is_some(),
-                source: h.source,
                 display_name: h.config.display_name.clone(),
                 mgp_supported: h.mgp_negotiated.is_some(),
                 trust_level: h
@@ -1983,7 +2108,7 @@ impl McpClientManager {
     // ============================================================
 
     /// Add a new dynamic MCP server, connect, and persist to DB.
-    pub async fn add_dynamic_server(
+    pub async fn add_server(
         &self,
         id: String,
         command: String,
@@ -2011,41 +2136,29 @@ impl McpClientManager {
             isolation: None,
         };
 
-        let tool_names = self.connect_server(config, ServerSource::Dynamic).await?;
+        let tool_names = self.connect_server(config).await?;
 
         // Persist to DB
         let record = crate::db::McpServerRecord {
             name: id,
             command,
             args: serde_json::to_string(&args)?,
+            env: serde_json::to_string(&env)?,
             script_content,
             description,
             created_at: chrono::Utc::now().timestamp(),
             is_active: true,
-            env: serde_json::to_string(&env)?,
+            ..Default::default()
         };
         crate::db::save_mcp_server(&self.pool, &record).await?;
 
         Ok(tool_names)
     }
 
-    /// Remove a dynamic MCP server and deactivate in DB.
-    /// Config-loaded servers cannot be deleted (must be removed from mcp.toml).
-    pub async fn remove_dynamic_server(&self, id: &str) -> Result<()> {
-        // Reject deletion of config-loaded servers
-        {
-            let state = self.state.read().await;
-            if let Some(handle) = state.servers.get(id) {
-                if handle.source == ServerSource::Config {
-                    return Err(anyhow::anyhow!(
-                        "Cannot delete config-loaded server '{}'. Remove it from mcp.toml instead.",
-                        id
-                    ));
-                }
-            }
-        }
+    /// Remove an MCP server: disconnect and delete from DB.
+    pub async fn remove_server(&self, id: &str) -> Result<()> {
         self.disconnect_server(id).await?;
-        crate::db::deactivate_mcp_server(&self.pool, id).await?;
+        crate::db::delete_mcp_server(&self.pool, id).await?;
         Ok(())
     }
 
@@ -2142,11 +2255,10 @@ impl McpClientManager {
             handle.mgp_negotiated = None;
             handle.connected_at = None;
             handle.isolation_profile = None;
-            let source = handle.source;
 
             state.tool_index.retain(|_, server_id| server_id != id);
 
-            info!(server = %id, source = ?source, "MCP server stopped");
+            info!(server = %id, "MCP server stopped");
         }
 
         // Clean up rich tool index (§16)
@@ -2231,15 +2343,15 @@ impl McpClientManager {
                     ServerStatus::Connecting | ServerStatus::Restarting => {
                         return Err(anyhow::anyhow!("Server '{}' is already starting", id));
                     }
-                    _ => Some((handle.config.clone(), handle.source)),
+                    _ => Some(handle.config.clone()),
                 }
             } else {
                 None
             }
         };
 
-        if let Some((config, source)) = config_source {
-            return self.connect_server(config, source).await;
+        if let Some(config) = config_source {
+            return self.connect_server(config).await;
         }
 
         // 2. Fall back to DB (dynamic servers not yet in memory this session)
@@ -2268,7 +2380,7 @@ impl McpClientManager {
             isolation: None,
         };
 
-        self.connect_server(config, ServerSource::Dynamic).await
+        self.connect_server(config).await
     }
 
     /// Restart a server (stop + start).
