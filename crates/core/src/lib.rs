@@ -427,88 +427,28 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     // pipeline to avoid blocking the event loop during agentic loops.
     // It is passed directly to EventProcessor instead.
 
-    // Load MCP servers from config file (mcp.toml)
+    // One-time migration: mcp.toml → DB (if mcp.toml exists)
+    if let Err(e) = mcp_manager.migrate_config_file_to_db(&data_dir).await {
+        tracing::warn!(error = %e, "mcp.toml migration failed — continuing with DB only");
+    }
+
+    // Load MCP servers from DB.
     // Priority boot: connect default agent's granted servers first, defer the rest.
     let deferred_mcp_configs = {
-        let config_path = config.mcp_config_path.clone().unwrap_or_else(|| {
-            config::exe_dir()
-                .join("data")
-                .join("mcp.toml")
-                .to_string_lossy()
-                .to_string()
-        });
-        // Resolve config path against the project root (handles
-        // cargo tauri dev where CWD differs from project root).
-        let config_path = {
-            let p = std::path::Path::new(&config_path);
-            if p.exists() {
-                config_path
-            } else {
-                // Walk up from exe_dir to find the workspace root (Cargo.toml)
-                // and resolve mcp.toml relative to it.
-                let fallback = std::path::Path::new("mcp.toml");
-                managers::McpClientManager::resolve_project_path(fallback).unwrap_or(config_path)
-            }
-        };
-        // Production fallback: Tauri NSIS bundles mcp.toml as a resource
-        // alongside the executable (not in data/).
-        let config_path = if std::path::Path::new(&config_path).exists() {
-            config_path
-        } else {
-            let alongside_exe = config::exe_dir().join("mcp.toml");
-            if alongside_exe.exists() {
-                alongside_exe.to_string_lossy().to_string()
-            } else {
-                config_path
-            }
-        };
-
-        match mcp_manager.parse_config_file(&config_path) {
-            Ok(all_configs) => {
-                // Get default agent's granted server IDs for priority boot
-                let granted_ids = agent_manager
-                    .get_granted_server_ids(&config.default_agent_id)
-                    .await
-                    .unwrap_or_default();
-
-                let (priority, deferred): (Vec<_>, Vec<_>) = all_configs
-                    .into_iter()
-                    .partition(|c| granted_ids.contains(&c.id));
-
-                if !priority.is_empty() {
-                    info!(
-                        count = priority.len(),
-                        agent = %config.default_agent_id,
-                        "⚡ Priority boot: connecting granted MCP servers"
-                    );
-                    mcp_manager.connect_server_configs(&priority).await;
-                }
-
-                if !deferred.is_empty() {
-                    info!(
-                        count = deferred.len(),
-                        "⏳ Deferring {} non-priority MCP server(s) to background",
-                        deferred.len()
-                    );
-                }
-
-                deferred
-            }
+        match mcp_manager
+            .load_and_connect_priority(&config.default_agent_id, &agent_manager)
+            .await
+        {
+            Ok(deferred) => deferred,
             Err(e) => {
                 tracing::error!(
                     error = %e,
-                    path = %config_path,
-                    "CRITICAL: Failed to parse MCP config file — all MCP servers disabled"
+                    "Failed to load MCP servers from database"
                 );
                 Vec::new()
             }
         }
     };
-
-    // Restore persisted dynamic MCP servers from database
-    if let Err(e) = mcp_manager.restore_from_db().await {
-        tracing::warn!(error = %e, "Failed to restore MCP servers from database");
-    }
 
     // 5. Rate Limiter & App State
     let rate_limiter = Arc::new(middleware::RateLimiter::new(
