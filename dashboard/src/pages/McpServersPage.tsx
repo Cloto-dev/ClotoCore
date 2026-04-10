@@ -267,11 +267,6 @@ export function McpServersPage() {
                           HTTP
                         </span>
                       )}
-                      {server.source === 'config' && (
-                        <span className="text-[9px] font-mono text-amber-500/70 shrink-0" title="Config-loaded">
-                          CONFIG
-                        </span>
-                      )}
                     </div>
                     <div
                       className={`flex items-center gap-3 text-[10px] font-mono text-content-tertiary leading-none ${isMgp ? 'relative' : ''}`}
