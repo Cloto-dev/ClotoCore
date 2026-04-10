@@ -189,8 +189,15 @@ impl McpClientManager {
     /// Relative paths in `args` are resolved against the project root directory
     /// One-time migration: import servers from mcp.toml into the DB.
     /// After migration, renames mcp.toml → mcp.toml.migrated.
+    /// Only runs on upgrade (setup-complete.json must exist), not on fresh install.
     /// This is a no-op if mcp.toml does not exist or was already migrated.
     pub async fn migrate_config_file_to_db(&self, data_dir: &std::path::Path) -> Result<()> {
+        // Only migrate on upgrade — fresh installs start with empty DB
+        // and let Setup Wizard handle server selection.
+        if !data_dir.join("setup-complete.json").exists() {
+            return Ok(());
+        }
+
         // Find mcp.toml in known locations
         let candidates = [
             data_dir.join("mcp.toml"),
@@ -1328,29 +1335,15 @@ impl McpClientManager {
 
     /// List all registered MCP servers with status.
     ///
-    /// Config-loaded servers whose entry point (script or binary) does not exist
-    /// on disk are excluded. This hides mcp.toml entries for servers that haven't
-    /// been installed yet (checked at response time, not boot time, so it reflects
-    /// post-setup state correctly).
+    /// All servers in state are shown — they were explicitly installed (DB-backed)
+    /// or added via API. Error/Disconnected servers remain visible so users can
+    /// diagnose issues and restart them.
     pub async fn list_servers(&self) -> Vec<McpServerInfo> {
         let state = self.state.read().await;
 
         state
             .servers
             .values()
-            .filter(|h| {
-                // Show operational servers unconditionally
-                if h.status.is_operational() {
-                    return true;
-                }
-                // Non-operational: show if entry point exists on disk
-                let entry_exists = if let Some(script) = h.config.args.first() {
-                    std::path::Path::new(script).exists()
-                } else {
-                    std::path::Path::new(&h.config.command).exists()
-                };
-                entry_exists
-            })
             .map(|h| McpServerInfo {
                 id: h.id.clone(),
                 command: h.config.command.clone(),
@@ -2136,12 +2129,10 @@ impl McpClientManager {
             isolation: None,
         };
 
-        let tool_names = self.connect_server(config).await?;
-
-        // Persist to DB
+        // Persist to DB first (so server is always tracked even if connect fails)
         let record = crate::db::McpServerRecord {
-            name: id,
-            command,
+            name: id.clone(),
+            command: command.clone(),
             args: serde_json::to_string(&args)?,
             env: serde_json::to_string(&env)?,
             script_content,
@@ -2152,7 +2143,30 @@ impl McpClientManager {
         };
         crate::db::save_mcp_server(&self.pool, &record).await?;
 
-        Ok(tool_names)
+        // Try to connect — register Error in state if it fails
+        match self.connect_server(config.clone()).await {
+            Ok(tool_names) => Ok(tool_names),
+            Err(e) => {
+                warn!(id = %id, error = %e, "Server saved to DB but failed to connect");
+                let mut state = self.state.write().await;
+                state
+                    .servers
+                    .entry(id.clone())
+                    .or_insert_with(|| McpServerHandle {
+                        id: id.clone(),
+                        config,
+                        client: None,
+                        tools: Vec::new(),
+                        handshake: None,
+                        mgp_negotiated: None,
+                        status: ServerStatus::Error(e.to_string()),
+                        audit_seq: Arc::new(AtomicU64::new(0)),
+                        connected_at: None,
+                        isolation_profile: None,
+                    });
+                Ok(Vec::new())
+            }
+        }
     }
 
     /// Remove an MCP server: disconnect and delete from DB.

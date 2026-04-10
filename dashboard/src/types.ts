@@ -126,7 +126,14 @@ export interface InstalledConfig {
 }
 
 // MCP Server Management types (MCP_SERVER_UI_DESIGN.md)
-export type McpServerStatus = 'Connected' | 'Disconnected' | 'Error';
+export type McpServerStatus =
+  | 'Connected'
+  | 'Connecting'
+  | 'Registered'
+  | 'Restarting'
+  | 'Draining'
+  | 'Disconnected'
+  | 'Error';
 export type DefaultPolicy = 'opt-in' | 'opt-out';
 export type EntryType = 'capability' | 'server_grant' | 'tool_grant';
 export type AccessPermission = 'allow' | 'deny';
