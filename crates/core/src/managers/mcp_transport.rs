@@ -288,25 +288,22 @@ impl StdioTransport {
             }
         });
 
-        // Reader Task (Stdout) — with 120s silence timeout to detect frozen servers
+        // Reader Task (Stdout) — runs until EOF or read error.
+        // No silence timeout: MCP servers are idle between tool calls and may
+        // produce no output for extended periods. The health check system
+        // (mcp_health.rs) handles frozen server detection separately.
         tokio::spawn(async move {
             let mut reader = BufReader::new(stdout).lines();
             loop {
-                match tokio::time::timeout(std::time::Duration::from_secs(120), reader.next_line())
-                    .await
-                {
-                    Ok(Ok(Some(line))) => {
+                match reader.next_line().await {
+                    Ok(Some(line)) => {
                         if !line.trim().is_empty() && res_tx.send(line).await.is_err() {
                             break;
                         }
                     }
-                    Ok(Ok(None)) => break, // EOF
-                    Ok(Err(e)) => {
+                    Ok(None) => break, // EOF
+                    Err(e) => {
                         warn!("MCP stdout read error: {}", e);
-                        break;
-                    }
-                    Err(_) => {
-                        warn!("MCP server stdout silent for 120s, closing reader");
                         break;
                     }
                 }
@@ -314,12 +311,12 @@ impl StdioTransport {
             warn!("MCP Server stdout closed.");
         });
 
-        // Logger Task (Stderr)
+        // Logger Task (Stderr) — warn level so it's visible in release builds
         let cmd_display = command.to_string();
         tokio::spawn(async move {
             let mut reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = reader.next_line().await {
-                debug!("[MCP:{}] {}", cmd_display, line);
+                warn!("[MCP:{}] {}", cmd_display, line);
             }
         });
 
