@@ -125,15 +125,29 @@ async fn collect_untrusted_commands(
             false
         };
 
-        // L12: Check destructiveHint annotation for non-sandbox tools
+        // L12: Check MGP risk level first, fall back to MCP annotations
         if !has_sandbox_validator {
-            let is_destructive = if let Some(mcp) = mcp_manager {
-                mcp.is_tool_destructive(&call.name).await
+            let risk_level = if let Some(mcp) = mcp_manager {
+                mcp.get_tool_risk_level(&call.name).await
             } else {
-                false
+                None
             };
-            if is_destructive {
-                // Destructive tools use the tool name as the trust key
+
+            let needs_approval = match risk_level {
+                // MGP negotiated: use kernel-derived risk level
+                Some(crate::managers::mcp_mgp::RiskLevel::Safe) => false,
+                Some(_) => true, // Moderate or Dangerous
+                // No MGP: fall back to MCP annotations (default destructive per spec)
+                None => {
+                    if let Some(mcp) = mcp_manager {
+                        mcp.is_tool_destructive(&call.name).await
+                    } else {
+                        false
+                    }
+                }
+            };
+
+            if needs_approval {
                 let session_is_trusted = session_trusted
                     .get(agent_id)
                     .is_some_and(|set| set.contains(call.name.as_str()));
