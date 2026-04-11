@@ -192,9 +192,17 @@ impl McpClientManager {
     /// Only runs on upgrade (setup-complete.json must exist), not on fresh install.
     /// This is a no-op if mcp.toml does not exist or was already migrated.
     pub async fn migrate_config_file_to_db(&self, data_dir: &std::path::Path) -> Result<()> {
-        // Only migrate on upgrade — fresh installs start with empty DB
-        // and let Setup Wizard handle server selection.
-        if !data_dir.join("setup-complete.json").exists() {
+        // Fresh installs start with empty DB — let Setup Wizard handle server selection.
+        // But if config-loaded placeholders exist (from SQL migrations), always try to
+        // repair them regardless of setup-complete.json.
+        let has_config_loaded: bool = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM mcp_servers WHERE command = 'config-loaded')",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(false);
+
+        if !has_config_loaded && !data_dir.join("setup-complete.json").exists() {
             return Ok(());
         }
 
@@ -211,7 +219,12 @@ impl McpClientManager {
             let fallback = std::path::Path::new("mcp.toml");
             match Self::resolve_project_path(fallback) {
                 Some(p) if std::path::Path::new(&p).exists() => std::path::PathBuf::from(p),
-                _ => return Ok(()), // No mcp.toml found — nothing to migrate
+                _ => {
+                    // No mcp.toml found — check if a prior migration left config-loaded
+                    // placeholders that need repair (e.g. .migrated file exists but
+                    // records were never updated because the old code skipped existing rows).
+                    return self.repair_config_loaded_servers(data_dir).await;
+                }
             }
         };
         let migrated = mcp_toml.with_extension("toml.migrated");
@@ -225,11 +238,6 @@ impl McpClientManager {
         let mut migrated_count = 0usize;
 
         for config in &configs {
-            // Skip if already in DB (e.g. marketplace-installed)
-            if crate::db::server_exists_in_db(&self.pool, &config.id).await? {
-                continue;
-            }
-
             // Extract directory name from args path (e.g. ".../terminal/server.py" → "terminal")
             let directory = config.args.first().and_then(|arg| {
                 std::path::Path::new(arg)
@@ -252,6 +260,7 @@ impl McpClientManager {
                 updated_at: Some(chrono::Utc::now().timestamp()),
                 ..Default::default()
             };
+            // UPSERT: updates config-loaded placeholders with real command/args
             crate::db::save_mcp_server(&self.pool, &record).await?;
             migrated_count += 1;
         }
@@ -269,6 +278,76 @@ impl McpClientManager {
         Ok(())
     }
 
+    /// Repair config-loaded placeholder records left by a prior migration
+    /// that skipped existing rows. Re-reads mcp.toml.migrated if available.
+    async fn repair_config_loaded_servers(&self, data_dir: &std::path::Path) -> Result<()> {
+        // Check if any config-loaded records exist
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM mcp_servers WHERE command = 'config-loaded'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(0);
+
+        if count == 0 {
+            return Ok(());
+        }
+
+        // Find .migrated file to re-read server configs
+        let candidates = [
+            data_dir.join("mcp.toml.migrated"),
+            crate::config::exe_dir().join("mcp.toml.migrated"),
+        ];
+        let migrated_file = candidates.iter().find(|p| p.exists());
+        let migrated_file = if let Some(p) = migrated_file {
+            p.clone()
+        } else {
+            let fallback = std::path::Path::new("mcp.toml.migrated");
+            match Self::resolve_project_path(fallback) {
+                Some(p) if std::path::Path::new(&p).exists() => std::path::PathBuf::from(p),
+                _ => return Ok(()), // No .migrated file — can't repair
+            }
+        };
+
+        info!(
+            count,
+            path = %migrated_file.display(),
+            "Repairing config-loaded placeholder records from prior migration"
+        );
+
+        let configs = self.parse_config_file(&migrated_file.to_string_lossy())?;
+        let mut repaired = 0usize;
+
+        for config in &configs {
+            let directory = config.args.first().and_then(|arg| {
+                std::path::Path::new(arg)
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().to_string())
+            });
+
+            let record = crate::db::McpServerRecord {
+                name: config.id.clone(),
+                command: config.command.clone(),
+                args: serde_json::to_string(&config.args).unwrap_or_else(|_| "[]".to_string()),
+                env: serde_json::to_string(&config.env).unwrap_or_else(|_| "{}".to_string()),
+                transport: config.transport.clone(),
+                directory,
+                display_name: config.display_name.clone(),
+                auto_restart: config.auto_restart.unwrap_or(true),
+                is_active: true,
+                created_at: chrono::Utc::now().timestamp(),
+                updated_at: Some(chrono::Utc::now().timestamp()),
+                ..Default::default()
+            };
+            crate::db::save_mcp_server(&self.pool, &record).await?;
+            repaired += 1;
+        }
+
+        info!(repaired, "Config-loaded repair complete");
+        Ok(())
+    }
+
     /// Load all active servers from DB, connect priority servers, return deferred configs.
     pub async fn load_and_connect_priority(
         &self,
@@ -281,9 +360,10 @@ impl McpClientManager {
             return Ok(Vec::new());
         }
 
-        // Convert DB records to McpServerConfig
+        // Convert DB records to McpServerConfig, filtering out placeholders
         let all_configs: Vec<McpServerConfig> = records
             .iter()
+            .filter(|r| r.command != "config-loaded")
             .map(|r| McpServerConfig {
                 id: r.name.clone(),
                 command: r.command.clone(),

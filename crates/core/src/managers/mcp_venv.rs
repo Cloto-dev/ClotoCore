@@ -7,14 +7,14 @@
 //! This is non-fatal — the kernel starts normally even if setup fails.
 //!
 //! Uses `uv` (Rust-based Python package manager) for all venv and dependency
-//! operations. Python 3.12 is the pinned target version, provisioned automatically
+//! operations. Python 3.13 is the pinned target version, provisioned automatically
 //! by uv if not present on the system.
 
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 /// Target Python version for venv creation.
-pub const TARGET_PYTHON: &str = "3.12";
+pub const TARGET_PYTHON: &str = "3.13";
 
 /// Resolve the project root using McpClientManager's existing detection logic.
 fn resolve_project_root() -> Option<PathBuf> {
@@ -122,7 +122,7 @@ pub fn venv_python(venv_dir: &Path) -> PathBuf {
 
 /// Extract the Python version from a venv's `pyvenv.cfg` (e.g., "3.13.3").
 ///
-/// Handles both pip/native venv (`version = 3.12.5`) and uv (`version_info = 3.12.10`).
+/// Handles both pip/native venv (`version = 3.13.3`) and uv (`version_info = 3.13.3`).
 fn read_venv_python_version(venv_dir: &Path) -> Option<String> {
     let cfg_path = venv_dir.join("pyvenv.cfg");
     let content = std::fs::read_to_string(cfg_path).ok()?;
@@ -149,14 +149,14 @@ fn read_venv_python_version(venv_dir: &Path) -> Option<String> {
     None
 }
 
-/// Check if an existing venv's Python version mismatches the target (3.12).
+/// Check if an existing venv's Python version mismatches the target (3.13).
 /// Returns `true` if the venv is stale and should be recreated.
 /// Returns `false` if the venv is OK, or if the version cannot be determined.
 pub(crate) fn is_venv_stale(venv_dir: &Path) -> bool {
     let Some(venv_version) = read_venv_python_version(venv_dir) else {
         return false; // Can't read venv version — assume OK
     };
-    // With uv-managed Python, stale means anything other than TARGET_PYTHON (3.12.x)
+    // With uv-managed Python, stale means anything other than TARGET_PYTHON (3.13.x)
     if !venv_version.starts_with(TARGET_PYTHON) {
         tracing::info!(
             venv_python = %venv_version,
@@ -281,7 +281,7 @@ pub async fn ensure_mcp_venv(data_dir: &Path) {
     };
     let mut venv_exists = venv_dir.join("pyvenv.cfg").exists();
 
-    // Detect stale venv (Python version mismatch with target 3.12) and recreate
+    // Detect stale venv (Python version mismatch with target 3.13) and recreate
     if venv_exists && is_venv_stale(&venv_dir) {
         warn!(
             "Python version mismatch (expected {}) — recreating venv at {}",
