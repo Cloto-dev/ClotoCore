@@ -55,3 +55,6 @@ dashboard/public/*
 
 # Development notes (internal, not version controlled)
 .dev-notes/
+
+# Ad-hoc test scripts
+scripts/test-mcp-server.ps1

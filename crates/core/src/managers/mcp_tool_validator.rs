@@ -37,6 +37,18 @@ const SANDBOX_BLOCKED_PATTERNS: &[&str] = &[
 /// Blocked shell metacharacters for the "sandbox" validator.
 const SANDBOX_BLOCKED_METACHAR: &[&str] = &["$(", "`", "|", ";", "&&", "||"];
 
+/// Kernel-side policy: static mapping of tool names to validator names.
+/// The kernel owns this decision — MCP servers cannot override it.
+const KERNEL_TOOL_VALIDATORS: &[(&str, &str)] = &[("execute_command", "sandbox")];
+
+/// Look up the kernel-side validator for a tool by name.
+pub(super) fn get_kernel_validator(tool_name: &str) -> Option<&'static str> {
+    KERNEL_TOOL_VALIDATORS
+        .iter()
+        .find(|(name, _)| *name == tool_name)
+        .map(|(_, validator)| *validator)
+}
+
 /// Validate tool arguments at the kernel level before forwarding to an MCP server.
 /// This provides defense-in-depth: even if the MCP server's own validation is
 /// bypassed (e.g., compromised server), the kernel still catches dangerous inputs.

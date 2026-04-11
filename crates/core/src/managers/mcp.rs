@@ -658,7 +658,7 @@ impl McpClientManager {
                 serde_json::from_str(&record.env).unwrap_or_default();
             configs.push(McpServerConfig {
                 id: record.name.clone(),
-                command: record.command,
+                command: record.command.clone(),
                 args,
                 env: db_env,
                 transport: "stdio".to_string(),
@@ -666,7 +666,6 @@ impl McpClientManager {
                 auth_token: None,
                 auto_restart: Some(true),
                 required_permissions: Vec::new(),
-                tool_validators: HashMap::new(),
                 display_name: None,
                 mgp: None,
                 restart_policy: None,
@@ -1494,11 +1493,7 @@ impl McpClientManager {
         if !mgp.active_extensions.iter().any(|e| e == "tool_security") {
             return None;
         }
-        let validator = handle
-            .config
-            .tool_validators
-            .get(tool_name)
-            .map(String::as_str);
+        let validator = super::mcp_tool_validator::get_kernel_validator(tool_name);
         let perm_class =
             mcp_mgp::PermissionRiskClass::from_permissions(&handle.config.required_permissions);
         let effective =
@@ -1777,7 +1772,7 @@ impl McpClientManager {
             _ => {}
         }
 
-        let (server_id, client, tool_validators) = {
+        let (server_id, client) = {
             let state = self.state.read().await;
             let server_id = state.tool_index.get(tool_name).cloned().ok_or_else(|| {
                 anyhow::Error::new(mcp_mgp::MgpError::tool_not_found(format!(
@@ -1797,11 +1792,11 @@ impl McpClientManager {
                     server_id
                 )))
             })?;
-            (server_id, client, handle.config.tool_validators.clone())
+            (server_id, client)
         };
 
         // ──── Kernel-side Validation (A): Validate tool arguments before forwarding ────
-        if let Some(validator_name) = tool_validators.get(tool_name) {
+        if let Some(validator_name) = super::mcp_tool_validator::get_kernel_validator(tool_name) {
             if let Err(e) = validate_tool_arguments(validator_name, tool_name, &args) {
                 self.broadcast_audit_event(&crate::db::AuditLogEntry {
                     timestamp: chrono::Utc::now(),
@@ -1999,7 +1994,7 @@ impl McpClientManager {
             }
         }
 
-        let (client, tool_validators) = {
+        let client = {
             let state = self.state.read().await;
             let handle = state.servers.get(server_id).ok_or_else(|| {
                 anyhow::Error::new(mcp_mgp::MgpError::tool_not_found(format!(
@@ -2007,17 +2002,16 @@ impl McpClientManager {
                     server_id
                 )))
             })?;
-            let client = handle.client.clone().ok_or_else(|| {
+            handle.client.clone().ok_or_else(|| {
                 anyhow::Error::new(mcp_mgp::MgpError::server_not_ready(format!(
                     "MCP server '{}' not connected",
                     server_id
                 )))
-            })?;
-            (client, handle.config.tool_validators.clone())
+            })?
         };
 
         // ──── Kernel-side Validation (A): Validate tool arguments before forwarding ────
-        if let Some(validator_name) = tool_validators.get(tool_name) {
+        if let Some(validator_name) = super::mcp_tool_validator::get_kernel_validator(tool_name) {
             validate_tool_arguments(validator_name, tool_name, &args)?;
         }
 
@@ -2201,7 +2195,6 @@ impl McpClientManager {
             auth_token: None,
             auto_restart: Some(true),
             required_permissions: Vec::new(),
-            tool_validators: HashMap::new(),
             display_name: None,
             mgp,
             restart_policy: None,
@@ -2466,7 +2459,6 @@ impl McpClientManager {
             auth_token: None,
             auto_restart: Some(true),
             required_permissions: Vec::new(),
-            tool_validators: HashMap::new(),
             display_name: None,
             mgp: None,
             restart_policy: None,
@@ -2544,10 +2536,7 @@ impl McpClientManager {
     /// Look up the kernel-side validator name for a given tool.
     /// Returns `Some("sandbox")` if the tool has a sandbox validator configured, etc.
     pub async fn get_tool_validator(&self, tool_name: &str) -> Option<String> {
-        let state = self.state.read().await;
-        let server_id = state.tool_index.get(tool_name)?;
-        let handle = state.servers.get(server_id)?;
-        handle.config.tool_validators.get(tool_name).cloned()
+        super::mcp_tool_validator::get_kernel_validator(tool_name).map(String::from)
     }
 
     /// Check if a tool has `annotations.destructiveHint == true` in its MCP schema.
