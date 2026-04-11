@@ -262,10 +262,6 @@ pub struct McpServerConfig {
     /// In non-YOLO mode, all permissions must be approved before the server starts.
     #[serde(default)]
     pub required_permissions: Vec<String>,
-    /// Tool-level validation rules applied by the kernel before forwarding calls.
-    /// Maps tool name → validator name (e.g., "execute_command" → "sandbox").
-    #[serde(default)]
-    pub tool_validators: std::collections::HashMap<String, String>,
     /// Human-readable display name for the UI (e.g., "DeepSeek", "Cerebras").
     #[serde(default)]
     pub display_name: Option<String>,
@@ -299,7 +295,6 @@ impl Default for McpServerConfig {
             auth_token: None,
             auto_restart: None,
             required_permissions: Vec::new(),
-            tool_validators: std::collections::HashMap::new(),
             display_name: None,
             mgp: None,
             restart_policy: None,
