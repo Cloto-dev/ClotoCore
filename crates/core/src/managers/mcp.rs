@@ -2539,7 +2539,11 @@ impl McpClientManager {
         super::mcp_tool_validator::get_kernel_validator(tool_name).map(String::from)
     }
 
-    /// Check if a tool has `annotations.destructiveHint == true` in its MCP schema.
+    /// Check if a tool should be treated as destructive per MCP spec.
+    ///
+    /// MCP defines `destructiveHint` default as `true` — tools without annotations
+    /// are assumed destructive. Tools that declare `readOnlyHint: true` or
+    /// `destructiveHint: false` are treated as safe.
     pub async fn is_tool_destructive(&self, tool_name: &str) -> bool {
         let state = self.state.read().await;
         let Some(server_id) = state.tool_index.get(tool_name) else {
@@ -2548,14 +2552,21 @@ impl McpClientManager {
         let Some(handle) = state.servers.get(server_id) else {
             return false;
         };
-        handle
-            .tools
-            .iter()
-            .find(|t| t.name == tool_name)
-            .and_then(|t| t.annotations.as_ref())
-            .and_then(|ann| ann.get("destructiveHint"))
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
+        let Some(tool) = handle.tools.iter().find(|t| t.name == tool_name) else {
+            return false;
+        };
+        let Some(ann) = tool.annotations.as_ref() else {
+            // No annotations → default destructiveHint is true (MCP spec)
+            return true;
+        };
+        // readOnlyHint: true → safe, skip HITL
+        if ann.get("readOnlyHint").and_then(Value::as_bool).unwrap_or(false) {
+            return false;
+        }
+        // destructiveHint defaults to true per MCP spec
+        ann.get("destructiveHint")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
     }
 
     /// Get a reference to the database pool (for access control queries).
