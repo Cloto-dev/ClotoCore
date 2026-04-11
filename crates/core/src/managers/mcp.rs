@@ -2539,6 +2539,16 @@ impl McpClientManager {
         super::mcp_tool_validator::get_kernel_validator(tool_name).map(String::from)
     }
 
+    /// Get the MGP-derived effective risk level for a tool.
+    /// Returns `None` if the server doesn't support MGP or the tool_security extension.
+    /// Used by the approval gate to skip MCP annotation checks for MGP-negotiated servers.
+    pub async fn get_tool_risk_level(&self, tool_name: &str) -> Option<mcp_mgp::RiskLevel> {
+        let state = self.state.read().await;
+        let server_id = state.tool_index.get(tool_name)?;
+        let handle = state.servers.get(server_id)?;
+        Self::compute_tool_security(handle, tool_name).map(|sec| sec.effective_risk_level)
+    }
+
     /// Check if a tool should be treated as destructive per MCP spec.
     ///
     /// MCP defines `destructiveHint` default as `true` — tools without annotations
