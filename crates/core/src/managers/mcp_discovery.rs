@@ -311,7 +311,6 @@ pub(super) async fn execute_discovery_register(
         auth_token,
         auto_restart: None,
         required_permissions: Vec::new(),
-        tool_validators: std::collections::HashMap::new(),
         display_name: None,
         mgp: mgp_config,
         restart_policy: None,
