@@ -1,11 +1,11 @@
 import { Activity, ArrowLeft, Save } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../hooks/useApi';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { extractVrmThumbnail } from '../lib/vrmThumbnail';
-import type { AccessControlEntry, AgentMetadata } from '../types';
+import type { AgentMetadata } from '../types';
 import { AvatarSection } from './AvatarSection';
 import { ProfileSection } from './ProfileSection';
 import { ServerAccessSection } from './ServerAccessSection';
@@ -27,7 +27,6 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const { servers } = useMcpServers();
 
   const [grantedIds, setGrantedIds] = useState<Set<string>>(new Set());
-  const initialGrantedRef = useRef<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [saveError, setSaveError] = useState('');
@@ -63,7 +62,6 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
             .map((e) => e.server_id),
         );
         setGrantedIds(granted);
-        initialGrantedRef.current = new Set(granted);
       })
       .catch((e) => {
         if (import.meta.env.DEV) console.error('Failed to load agent access:', e);
@@ -96,33 +94,11 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
     setSaveError('');
 
     try {
-      const initial = initialGrantedRef.current;
-      const added = [...grantedIds].filter((id) => !initial.has(id));
-      const removed = [...initial].filter((id) => !grantedIds.has(id));
-
-      const now = new Date().toISOString();
-
-      // Process added servers
-      for (const serverId of added) {
-        const tree = await api.getMcpServerAccess(serverId);
-        const existing = tree.entries.filter((e) => !(e.agent_id === agent.id && e.entry_type === 'server_grant'));
-        const newEntry: AccessControlEntry = {
-          entry_type: 'server_grant',
-          agent_id: agent.id,
-          server_id: serverId,
-          permission: 'allow',
-          granted_by: 'admin',
-          granted_at: now,
-        };
-        await api.putMcpServerAccess(serverId, [...existing, newEntry]);
-      }
-
-      // Process removed servers
-      for (const serverId of removed) {
-        const tree = await api.getMcpServerAccess(serverId);
-        const filtered = tree.entries.filter((e) => !(e.agent_id === agent.id && e.entry_type === 'server_grant'));
-        await api.putMcpServerAccess(serverId, filtered);
-      }
+      // Bulk replace this agent's server_grant entries in a single request.
+      // Avoids the 2N REST-call pattern that previously tripped the rate limiter
+      // when users toggled many servers at once. Backend preserves tool_grant
+      // and capability entries.
+      await api.putAgentMcpAccess(agent.id, [...grantedIds]);
 
       // Derive default_engine_id and preferred_memory from granted servers
       const grantedServers = servers.filter((s) => grantedIds.has(s.id));

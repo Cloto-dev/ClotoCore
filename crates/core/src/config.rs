@@ -363,7 +363,7 @@ impl AppConfig {
         }
 
         let rate_limit_burst = env::var("CLOTO_RATE_LIMIT_BURST")
-            .unwrap_or_else(|_| "20".to_string())
+            .unwrap_or_else(|_| "50".to_string())
             .parse::<u32>()
             .context("Failed to parse CLOTO_RATE_LIMIT_BURST")?;
         if rate_limit_burst == 0 || rate_limit_burst > 10_000 {

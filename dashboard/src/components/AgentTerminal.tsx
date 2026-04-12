@@ -139,27 +139,27 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
       const allAgents = await api.getAgents();
       const created = allAgents.find((a: AgentMetadata) => a.name === agentData.name);
 
-      // Restore MCP access
+      // Restore MCP access in a single batch request. Unknown servers in the
+      // imported payload are filtered out here with a warning so the backend
+      // only receives server_ids that currently exist.
       if (created && Array.isArray(data.mcp_access) && data.mcp_access.length > 0) {
-        const serverIds = new Set(mcpServers.map((s) => s.id));
+        const knownServerIds = new Set(mcpServers.map((s) => s.id));
+        const grantedServerIds: string[] = [];
         for (const access of data.mcp_access) {
-          if (!serverIds.has(access.server_id)) {
+          if (!knownServerIds.has(access.server_id)) {
             warnings.push(t('import_server_skipped', { server: access.server_id }));
             continue;
           }
+          grantedServerIds.push(access.server_id);
+        }
+        if (grantedServerIds.length > 0) {
           try {
-            const tree = await api.getMcpServerAccess(access.server_id);
-            const newEntry: AccessControlEntry = {
-              entry_type: 'server_grant',
-              agent_id: created.id,
-              server_id: access.server_id,
-              permission: access.permission || 'allow',
-              granted_by: 'import',
-              granted_at: new Date().toISOString(),
-            };
-            await api.putMcpServerAccess(access.server_id, [...tree.entries, newEntry]);
+            await api.putAgentMcpAccess(created.id, grantedServerIds);
           } catch {
-            warnings.push(t('import_server_skipped', { server: access.server_id }));
+            // Fall back to per-server warnings so the user sees which imports failed.
+            for (const serverId of grantedServerIds) {
+              warnings.push(t('import_server_skipped', { server: serverId }));
+            }
           }
         }
       }
