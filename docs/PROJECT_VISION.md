@@ -354,6 +354,7 @@ them when relevant pressure arises.
 | Target | Idea | Trigger |
 |--------|------|---------|
 | Frontend bulk operations | Parallelize independent API calls (e.g. agent update + batch MCP access) with `Promise.all` to reduce perceived save latency. The batch agent-access endpoint already collapses N grants into a single request, so parallelization is only worthwhile when multiple unrelated requests stack up during one save. | When user-visible save latency becomes a UX concern, or when new bulk patterns emerge that make rate-limit headroom thin again. |
+| Dynamic MCP server surface in Dashboard | Derive `ENGINE_IDS`, `ALL_SELECTABLE_SERVER_IDS`, `MANUAL_START_SERVERS`, and `SERVER_PRESETS` from `mcp_servers` / `llm_providers` tables (plus a new `presets` + `preset_servers` table) instead of hardcoded TypeScript arrays. Translation keys (`engine_*`, `server_*`) would fall back to the server's `display_name` / `description` when no locale entry exists, so new servers become visible in the SetupWizard without editing the dashboard. | When community-contributed MCP servers start arriving through the marketplace (Phase B), since requiring dashboard edits per server would block Tier 1 users from installing them. |
 
 ---
 
