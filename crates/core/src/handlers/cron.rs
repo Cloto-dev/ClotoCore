@@ -24,6 +24,7 @@ pub async fn list_cron_jobs(
 }
 
 /// POST /api/cron/jobs
+#[allow(clippy::too_many_lines)]
 pub async fn create_cron_job(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
@@ -34,6 +35,23 @@ pub async fn create_cron_job(
     let agent_id = payload["agent_id"]
         .as_str()
         .ok_or_else(|| AppError::Validation("agent_id is required".into()))?;
+
+    // Validate the target agent exists so a bogus agent_id surfaces as a 400
+    // with a helpful message instead of a 500 from the cron_jobs.agent_id
+    // foreign-key constraint. The message also nudges callers toward the
+    // canonical discovery path so LLM-driven agents don't keep guessing IDs.
+    if !state
+        .agent_manager
+        .agent_exists(agent_id)
+        .await
+        .map_err(AppError::Internal)?
+    {
+        return Err(AppError::Validation(format!(
+            "Unknown agent_id '{}'. Call mgp.discovery.list to enumerate valid agent IDs.",
+            agent_id
+        )));
+    }
+
     let name = payload["name"]
         .as_str()
         .ok_or_else(|| AppError::Validation("name is required".into()))?;
