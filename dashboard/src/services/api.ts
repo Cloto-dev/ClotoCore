@@ -354,6 +354,22 @@ export const api = {
       { 'X-API-Key': apiKey },
     ).then(() => {}),
 
+  /**
+   * Replace all `server_grant` entries for an agent in a single request.
+   * Used by bulk flows (AgentPluginWorkspace save, SetupWizard preset apply,
+   * AgentTerminal import) to avoid the 2N REST-call pattern that tripped the
+   * rate limiter on larger grant sets. Preserves tool_grant and capability
+   * entries on the backend.
+   */
+  putAgentMcpAccess: (agentId: string, grantedServerIds: string[], apiKey: string) =>
+    mutate(
+      `/agents/${encodeURIComponent(agentId)}/mcp-access`,
+      'PUT',
+      'update agent MCP access',
+      { granted_server_ids: grantedServerIds },
+      { 'X-API-Key': apiKey },
+    ).then(() => {}),
+
   getAgentAccess: (agentId: string, apiKey?: string) =>
     fetchJson<{ agent_id: string; entries: AccessControlEntry[] }>(
       `/mcp/access/by-agent/${encodeURIComponent(agentId)}`,
@@ -702,6 +718,8 @@ export function createAuthenticatedApi(apiKey: string) {
     getMcpServerAccess: (name: string) => api.getMcpServerAccess(name, k),
     putMcpServerAccess: (name: string, entries: Parameters<typeof api.putMcpServerAccess>[1]) =>
       api.putMcpServerAccess(name, entries, k),
+    putAgentMcpAccess: (agentId: string, grantedServerIds: string[]) =>
+      api.putAgentMcpAccess(agentId, grantedServerIds, k),
     startMcpServer: (name: string) => api.startMcpServer(name, k),
     stopMcpServer: (name: string) => api.stopMcpServer(name, k),
     restartMcpServer: (name: string) => api.restartMcpServer(name, k),

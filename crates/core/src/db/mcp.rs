@@ -380,6 +380,83 @@ pub async fn put_access_entries(
     .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", secs))?
 }
 
+/// Replace all `server_grant` entries for a specific agent in a single transaction.
+///
+/// Deletes every existing `server_grant` row for `agent_id` and inserts one
+/// `allow` grant for each entry in `granted_server_ids`. `tool_grant` and
+/// `capability` entries for the agent are preserved.
+///
+/// This is the agent-centric counterpart to [`put_access_entries`], designed
+/// for bulk UI flows (e.g. "set this agent's MCP access to exactly these
+/// servers") that previously issued 2N REST calls and tripped the rate
+/// limiter.
+pub async fn put_agent_server_grants(
+    pool: &SqlitePool,
+    agent_id: &str,
+    granted_server_ids: &[String],
+    granted_by: &str,
+) -> anyhow::Result<()> {
+    let secs = super::db_timeout_secs();
+    let now = chrono::Utc::now().to_rfc3339();
+    tokio::time::timeout(std::time::Duration::from_secs(secs), async {
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to begin transaction: {}", e))?;
+
+        // Delete existing server_grant entries for this agent
+        // (capability and tool_grant rows are preserved)
+        sqlx::query(
+            "DELETE FROM mcp_access_control \
+             WHERE agent_id = ? AND entry_type = 'server_grant'",
+        )
+        .bind(agent_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to delete old server grants: {}", e))?;
+
+        // Insert new server_grant entries
+        for server_id in granted_server_ids {
+            // Ensure the referenced server row exists so the foreign key on
+            // mcp_access_control.server_id holds. SetupWizard applies the preset
+            // before marketplace batch install runs, so the target server rows
+            // may not be in `mcp_servers` yet. A `config-loaded` placeholder is
+            // harmless: `load_and_connect_priority()` skips these rows on
+            // startup, and `save_mcp_server` upserts over them when the real
+            // install completes. Mirrors the existing `put_access_entries`
+            // behaviour in this module.
+            sqlx::query(
+                "INSERT OR IGNORE INTO mcp_servers (name, command, args, created_at) \
+                 VALUES (?, 'config-loaded', '[]', strftime('%s', 'now'))",
+            )
+            .bind(server_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to ensure server record: {}", e))?;
+
+            sqlx::query(
+                "INSERT INTO mcp_access_control \
+                 (entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at, expires_at, justification, metadata) \
+                 VALUES ('server_grant', ?, ?, NULL, 'allow', ?, ?, NULL, NULL, NULL)",
+            )
+            .bind(agent_id)
+            .bind(server_id)
+            .bind(granted_by)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to insert server grant: {}", e))?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to commit transaction: {}", e))?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", secs))?
+}
+
 /// Delete an access control entry for an agent/server/entry_type combination.
 /// If `tool_name` is Some, additionally filters by tool_name.
 pub async fn delete_access_entry(

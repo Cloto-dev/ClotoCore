@@ -217,38 +217,10 @@ export function SetupWizard({ onComplete }: Props) {
         default_engine_id: selectedEngine,
       });
 
-      // Update server grants: PUT each server with a server_grant entry
-      // First get current grants, then compute diff
-      const currentAccess = await authedApi.getAgentAccess(DEFAULT_AGENT_ID);
-      const currentGranted = new Set(
-        currentAccess.entries
-          .filter((e) => e.entry_type === 'server_grant' && e.permission === 'allow')
-          .map((e) => e.server_id),
-      );
-
-      const desired = new Set(servers);
-
-      // Add new grants
-      for (const serverId of desired) {
-        if (!currentGranted.has(serverId)) {
-          await authedApi.putMcpServerAccess(serverId, [
-            {
-              entry_type: 'server_grant',
-              agent_id: DEFAULT_AGENT_ID,
-              server_id: serverId,
-              permission: 'allow',
-              granted_at: new Date().toISOString(),
-            },
-          ]);
-        }
-      }
-
-      // Remove revoked grants
-      for (const serverId of currentGranted) {
-        if (!desired.has(serverId)) {
-          await authedApi.putMcpServerAccess(serverId, []);
-        }
-      }
+      // Replace the default agent's server_grant set in a single request.
+      // The batch endpoint keeps us well inside the rate-limit burst even when
+      // the preset enables every bundled server at once.
+      await authedApi.putAgentMcpAccess(DEFAULT_AGENT_ID, [...servers]);
       return true;
     } catch (e) {
       if (import.meta.env.DEV) console.error('Failed to apply preset:', e);

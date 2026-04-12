@@ -736,6 +736,48 @@ pub async fn get_agent_access(
     }))
 }
 
+/// PUT /api/agents/:agent_id/mcp-access
+///
+/// Replace all `server_grant` entries for the given agent in a single call.
+/// Preserves `tool_grant` and `capability` entries. Used by the dashboard's
+/// agent-centric flows (AgentPluginWorkspace, SetupWizard, AgentTerminal
+/// import) to avoid the 2N REST-call pattern that used to trip the rate
+/// limiter on bulk changes.
+///
+/// Body: `{ "granted_server_ids": ["terminal", "mind.cerebras", ...] }`
+pub async fn put_agent_mcp_access(
+    State(state): State<Arc<AppState>>,
+    Path(agent_id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let ids_val = body
+        .get("granted_server_ids")
+        .ok_or_else(|| AppError::Validation("Missing required field: granted_server_ids".into()))?;
+
+    let granted_server_ids: Vec<String> = serde_json::from_value(ids_val.clone())
+        .map_err(|e| AppError::Validation(format!("Invalid granted_server_ids format: {}", e)))?;
+
+    crate::db::put_agent_server_grants(&state.pool, &agent_id, &granted_server_ids, "admin")
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+
+    let count = granted_server_ids.len();
+    spawn_admin_audit(
+        state.pool.clone(),
+        "AGENT_MCP_ACCESS_UPDATED",
+        agent_id.clone(),
+        format!("Agent MCP access updated with {} server grants", count),
+        None,
+        Some(serde_json::json!({ "granted_server_ids": granted_server_ids })),
+        None,
+    );
+
+    ok_data(serde_json::json!({ "count": count }))
+}
+
 async fn server_lifecycle(
     state: &Arc<AppState>,
     name: &str,
