@@ -345,5 +345,17 @@ cost, but should be anticipated by anyone building on ClotoCore.
 
 ---
 
+## 11. Future Optimizations
+
+Potential improvements under consideration. These are idea-level sketches,
+not committed work -- listed here so that design discussions can reference
+them when relevant pressure arises.
+
+| Target | Idea | Trigger |
+|--------|------|---------|
+| Frontend bulk operations | Parallelize independent API calls (e.g. agent update + batch MCP access) with `Promise.all` to reduce perceived save latency. The batch agent-access endpoint already collapses N grants into a single request, so parallelization is only worthwhile when multiple unrelated requests stack up during one save. | When user-visible save latency becomes a UX concern, or when new bulk patterns emerge that make rate-limit headroom thin again. |
+
+---
+
 *Document created: 2026-02-16*
-*Last updated: 2026-04-04*
+*Last updated: 2026-04-12*

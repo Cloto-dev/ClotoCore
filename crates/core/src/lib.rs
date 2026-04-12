@@ -843,7 +843,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
 
     // 7. Web Server
 
-    // Admin endpoints: rate-limited (10 req/s, burst 20)
+    // Admin endpoints: rate-limited (10 req/s, burst 50)
     let admin_routes = Router::new()
         .route("/health/scan", get(handlers::health::scan_handler))
         .route("/health/repair", post(handlers::health::repair_handler))
@@ -877,6 +877,11 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
                 .delete(handlers::delete_vrm),
         )
         .route("/agents/:id/visemes", post(handlers::generate_visemes))
+        // Agent-centric bulk MCP access update (batch replacement of server_grant entries)
+        .route(
+            "/agents/:id/mcp-access",
+            axum::routing::put(handlers::put_agent_mcp_access),
+        )
         .route("/speech/:filename", get(handlers::serve_speech_file))
         .route("/events/publish", post(handlers::post_event_handler))
         // Cron job management (Layer 2: Autonomous Trigger)
