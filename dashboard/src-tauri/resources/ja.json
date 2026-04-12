@@ -415,6 +415,7 @@
     "show_console_label": "コンソールウィンドウを表示",
     "show_console_hint": "トラブルシューティング用にインストールコンソールを表示します。",
     "engine_cerebras": "Cerebras",
+    "engine_groq": "Groq",
     "engine_deepseek": "DeepSeek",
     "engine_claude": "Claude",
     "engine_ollama": "Ollama（ローカル）",
