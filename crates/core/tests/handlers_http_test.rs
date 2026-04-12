@@ -20,6 +20,10 @@ fn create_test_router(state: Arc<AppState>) -> axum::Router {
             "/agents/:id/mcp-access",
             put(handlers::put_agent_mcp_access),
         )
+        .route(
+            "/cron/jobs",
+            post(handlers::create_cron_job),
+        )
         .route("/plugins/:id/config", post(handlers::update_plugin_config))
         .route(
             "/permissions/:id/approve",
@@ -428,6 +432,53 @@ async fn test_put_agent_mcp_access_auto_creates_missing_server_row() {
     .await
     .expect("query grants");
     assert_eq!(grant_count.0, 2);
+}
+
+#[tokio::test]
+async fn test_create_cron_job_unknown_agent_returns_validation_error() {
+    // Regression: creating a CRON job for a non-existent agent_id used to
+    // hit the cron_jobs.agent_id foreign-key and bubble up as a 500, which
+    // LLM-driven agents interpreted as "CRON system is broken" and gave up.
+    // The handler now pre-checks existence and returns a 400 with a
+    // discovery hint.
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let app = create_test_router(state);
+
+    let payload = json!({
+        "agent_id": "agent.does_not_exist",
+        "name": "Test Job",
+        "schedule_type": "interval",
+        "schedule_value": "60",
+        "message": "hello"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/cron/jobs")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("X-API-Key", "test-key")
+                .body(Body::from(
+                    serde_json::to_string(&payload).expect("serialize JSON"),
+                ))
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+
+    // AppError::Validation surfaces as 400 Bad Request.
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body_bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .expect("read body");
+    let body_str = std::str::from_utf8(&body_bytes).expect("utf8");
+    assert!(
+        body_str.contains("Unknown agent_id") && body_str.contains("mgp.discovery.list"),
+        "expected validation message with discovery hint, got: {}",
+        body_str
+    );
 }
 
 #[tokio::test]

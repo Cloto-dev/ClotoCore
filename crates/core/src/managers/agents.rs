@@ -62,6 +62,19 @@ impl AgentManager {
         agent
     }
 
+    /// Returns `true` if a row with the given id exists in the `agents` table.
+    /// Lightweight existence probe used by handlers that need to reject
+    /// references to unknown agents with a clear validation error instead of
+    /// letting the downstream foreign-key constraint fail as a 500.
+    pub async fn agent_exists(&self, agent_id: &str) -> anyhow::Result<bool> {
+        let row: Option<(i64,)> =
+            sqlx::query_as("SELECT 1 FROM agents WHERE id = ? LIMIT 1")
+                .bind(agent_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.is_some())
+    }
+
     pub async fn get_agent_config(
         &self,
         agent_id: &str,
