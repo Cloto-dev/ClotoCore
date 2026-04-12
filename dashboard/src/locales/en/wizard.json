@@ -27,6 +27,7 @@
   "preset_servers": "Servers",
   "preset_manual_note": "Manual start required",
   "engine_cerebras": "Cerebras",
+  "engine_groq": "Groq",
   "engine_deepseek": "DeepSeek",
   "engine_claude": "Claude",
   "engine_ollama": "Ollama (Local)",
