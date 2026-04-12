@@ -31,6 +31,7 @@
   "engine_deepseek": "DeepSeek",
   "engine_claude": "Claude",
   "engine_ollama": "Ollama (Local)",
+  "engine_lmstudio": "LM Studio (Local)",
   "server_memory_cpersona": "CPersona Memory",
   "server_tool_terminal": "Terminal",
   "server_tool_cron": "Cron Scheduler",

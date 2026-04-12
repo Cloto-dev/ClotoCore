@@ -419,6 +419,7 @@
     "engine_deepseek": "DeepSeek",
     "engine_claude": "Claude",
     "engine_ollama": "Ollama（ローカル）",
+    "engine_lmstudio": "LM Studio（ローカル）",
     "server_memory_cpersona": "CPersona メモリ",
     "server_tool_terminal": "ターミナル",
     "server_tool_cron": "Cron スケジューラ",
