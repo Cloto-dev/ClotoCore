@@ -37,7 +37,7 @@ const TOTAL_STEPS = 7;
 
 import { SERVER_PRESETS, STANDARD_SERVERS } from '../lib/presets';
 
-const ENGINE_IDS = ['mind.cerebras', 'mind.groq', 'mind.deepseek', 'mind.claude', 'mind.ollama'] as const;
+const ENGINE_IDS = ['mind.cerebras', 'mind.groq', 'mind.deepseek', 'mind.claude', 'mind.local', 'mind.ollama'] as const;
 
 const ALL_SELECTABLE_SERVER_IDS = [
   'memory.cpersona',
