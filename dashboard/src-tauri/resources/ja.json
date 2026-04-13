@@ -203,6 +203,21 @@
       "setup": "クイックセットアップ",
       "setup_desc": "初期セットアップウィザードを再表示して、言語・テーマ・表示名を変更できます。",
       "rerun_setup": "クイックセットアップを再表示"
+    },
+    "llm_providers": {
+      "title": "LLM プロバイダー",
+      "desc": "API キーはカーネルが保持し、MCP サーバーには公開されません (MGP §13.4)。",
+      "placeholder_new": "API キーを入力",
+      "placeholder_saved": "••••••• (保存済み)",
+      "clear": "クリア",
+      "empty": "プロバイダーが設定されていません。",
+      "model_edit_hint": "クリックしてモデル ID を編集",
+      "model_placeholder": "例: qwen3.5:9b",
+      "model_save": "保存",
+      "model_cancel": "キャンセル",
+      "model_unset": "(未設定)",
+      "model_validation_empty": "モデル ID を入力してください",
+      "model_validation_too_long": "モデル ID は 200 文字以内で入力してください"
     }
   },
   "mcp": {
