@@ -492,6 +492,15 @@ export const api = {
       'X-API-Key': apiKey,
     }).then(() => {}),
 
+  setLlmProviderModel: (providerId: string, apiKey: string, modelId: string) =>
+    mutate(
+      `/llm/providers/${encodeURIComponent(providerId)}/model`,
+      'POST',
+      'set provider model',
+      { model_id: modelId },
+      { 'X-API-Key': apiKey },
+    ).then(() => {}),
+
   // Avatar Management
   async uploadAvatar(agentId: string, file: File, apiKey: string): Promise<{ avatar_description?: string }> {
     const res = await fetch(`${API_BASE}/agents/${encodeURIComponent(agentId)}/avatar`, {
@@ -736,6 +745,7 @@ export function createAuthenticatedApi(apiKey: string) {
     setLlmProviderKey: (providerId: string, providerApiKey: string) =>
       api.setLlmProviderKey(providerId, k, providerApiKey),
     deleteLlmProviderKey: (providerId: string) => api.deleteLlmProviderKey(providerId, k),
+    setLlmProviderModel: (providerId: string, modelId: string) => api.setLlmProviderModel(providerId, k, modelId),
     // Avatar
     uploadAvatar: (agentId: string, file: File) => api.uploadAvatar(agentId, file, k),
     deleteAvatar: (agentId: string) => api.deleteAvatar(agentId, k),
