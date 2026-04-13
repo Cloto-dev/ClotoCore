@@ -903,6 +903,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             post(handlers::set_llm_provider_model),
         )
         .route(
+            "/llm/providers/:id/models",
+            get(handlers::list_provider_models),
+        )
+        .route(
             "/permissions/:id/approve",
             post(handlers::approve_permission),
         )
