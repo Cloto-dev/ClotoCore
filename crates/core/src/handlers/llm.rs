@@ -1,5 +1,5 @@
 use axum::{extract::State, Json};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::{AppError, AppResult, AppState};
 
@@ -7,6 +7,9 @@ use super::{check_auth, ok_data, spawn_admin_audit};
 
 /// Maximum allowed length for `model_id` (characters after trimming).
 const MODEL_ID_MAX_LEN: usize = 200;
+
+/// HTTP timeout for calls from the admin API to upstream LLM providers' model-list endpoints.
+const MODELS_FETCH_TIMEOUT_SECS: u64 = 15;
 
 /// GET /api/llm/providers
 pub async fn list_llm_providers(
@@ -129,6 +132,207 @@ pub async fn set_llm_provider_model(
     ok_data(serde_json::json!({}))
 }
 
+/// Derive the model-list URL for a given provider.
+///
+/// Providers expose their model catalog at different paths:
+///   - OpenAI-compatible (DeepSeek, Cerebras, Groq, LM Studio/local): strip the trailing
+///     `/chat/completions` segment from the configured chat URL and append `/models`.
+///   - Anthropic (Claude): `/v1/messages` → `/v1/models` (same parent).
+///   - Ollama (native): `/api/chat` → `/api/tags`.
+///
+/// Rejects non-http(s) schemes so this function cannot be tricked into issuing
+/// file:// or other unexpected requests from an admin-set DB value.
+fn derive_models_url(api_url: &str, provider_id: &str) -> Result<String, String> {
+    let url = reqwest::Url::parse(api_url).map_err(|e| format!("invalid api_url: {}", e))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(format!("unsupported api_url scheme: {}", url.scheme()));
+    }
+    let mut out = url.clone();
+    out.set_query(None);
+    out.set_fragment(None);
+
+    // Ollama uses a native (non-OpenAI-compat) catalog endpoint.
+    if provider_id == "ollama" {
+        out.set_path("/api/tags");
+        return Ok(out.to_string());
+    }
+
+    // OpenAI-compat and Anthropic: derive the parent path, strip any trailing
+    // `/chat` segment (the leaf is `completions` or `messages`), then append `/models`.
+    let path = url.path();
+    let parent = path.rfind('/').map_or("", |i| &path[..i]);
+    let stripped = parent.strip_suffix("/chat").unwrap_or(parent);
+    // If the URL has no parent path (e.g. DeepSeek's `/chat/completions`), produce `/models`
+    // rather than forcing a `/v1/` prefix the admin didn't configure.
+    let new_path = if stripped.is_empty() {
+        "/models".to_string()
+    } else {
+        format!("{}/models", stripped)
+    };
+    out.set_path(&new_path);
+    Ok(out.to_string())
+}
+
+/// Static fallback model list for Claude when `/v1/models` is unavailable
+/// (e.g., no API key configured or Anthropic auth failure). Keeps the dashboard
+/// dropdown usable offline. Update when Anthropic releases a new family.
+fn claude_static_models() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({ "id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6" }),
+        serde_json::json!({ "id": "claude-opus-4-6", "name": "Claude Opus 4.6" }),
+        serde_json::json!({ "id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5" }),
+    ]
+}
+
+/// GET /api/llm/providers/:id/models
+///
+/// Fetches the provider's model catalog for the Dashboard dropdown.
+/// Always returns `{models: [...], error_code?: string, error?: string}` with HTTP 200
+/// so the frontend can gracefully fall back to manual entry on upstream failures
+/// (no-key, unreachable, auth_failed). Never surfaces the provider's API key in errors.
+#[allow(clippy::too_many_lines)]
+pub async fn list_provider_models(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(provider_id): axum::extract::Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let provider = crate::db::get_llm_provider(&state.pool, &provider_id)
+        .await
+        .map_err(|_| AppError::NotFound(format!("LLM provider '{}' not found", provider_id)))?;
+
+    let models_url =
+        derive_models_url(&provider.api_url, &provider.id).map_err(AppError::Validation)?;
+
+    // SaaS providers that require an API key will reject the call; surface a static
+    // fallback for Claude (curated list) and a clean error code otherwise.
+    let needs_key = provider.id != "ollama" && provider.id != "local";
+    if needs_key && provider.api_key.is_empty() {
+        if provider.id == "claude" {
+            return ok_data(serde_json::json!({
+                "models": claude_static_models(),
+                "error_code": "static_fallback",
+            }));
+        }
+        return ok_data(serde_json::json!({
+            "models": [],
+            "error_code": "no_api_key",
+        }));
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(MODELS_FETCH_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+    let mut req = client.get(&models_url);
+    if !provider.api_key.is_empty() {
+        if provider.auth_type == "x-api-key" {
+            req = req
+                .header("x-api-key", &provider.api_key)
+                .header("anthropic-version", "2023-06-01");
+        } else {
+            req = req.header("Authorization", format!("Bearer {}", provider.api_key));
+        }
+    }
+
+    let response = match req.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(
+                provider = %provider_id,
+                "list_provider_models: upstream connection failed: {}",
+                e
+            );
+            if provider.id == "claude" {
+                return ok_data(serde_json::json!({
+                    "models": claude_static_models(),
+                    "error_code": "static_fallback",
+                }));
+            }
+            return ok_data(serde_json::json!({
+                "models": [],
+                "error_code": "unreachable",
+            }));
+        }
+    };
+
+    let status = response.status();
+    if !status.is_success() {
+        let code = match status.as_u16() {
+            401 | 403 => "auth_failed",
+            404 => "model_list_unavailable",
+            _ => "provider_error",
+        };
+        tracing::warn!(
+            provider = %provider_id,
+            status = %status,
+            "list_provider_models: upstream returned non-success"
+        );
+        if provider.id == "claude" && matches!(status.as_u16(), 401 | 403 | 404) {
+            return ok_data(serde_json::json!({
+                "models": claude_static_models(),
+                "error_code": "static_fallback",
+            }));
+        }
+        return ok_data(serde_json::json!({
+            "models": [],
+            "error_code": code,
+        }));
+    }
+
+    let body: serde_json::Value = match response.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(
+                provider = %provider_id,
+                "list_provider_models: upstream returned unparseable body: {}",
+                e
+            );
+            return ok_data(serde_json::json!({
+                "models": [],
+                "error_code": "parse_error",
+            }));
+        }
+    };
+
+    let models: Vec<serde_json::Value> = if provider.id == "ollama" {
+        // Ollama: {"models":[{"name":"qwen3.5:9b", ...}]}
+        body.get("models")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| {
+                        m.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|name| serde_json::json!({ "id": name }))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        // OpenAI-compat: {"data":[{"id": "...", "display_name"?: "..."}]}
+        body.get("data")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| {
+                        let id = m.get("id").and_then(|v| v.as_str())?;
+                        let display_name = m.get("display_name").and_then(|v| v.as_str());
+                        Some(match display_name {
+                            Some(dn) => serde_json::json!({ "id": id, "name": dn }),
+                            None => serde_json::json!({ "id": id }),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    ok_data(serde_json::json!({ "models": models }))
+}
+
 /// DELETE /api/llm/providers/:id/key
 pub async fn delete_llm_provider_key(
     State(state): State<Arc<AppState>>,
@@ -141,4 +345,88 @@ pub async fn delete_llm_provider_key(
         .map_err(AppError::Internal)?;
     tracing::info!(provider = %provider_id, "LLM provider API key deleted");
     ok_data(serde_json::json!({}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derive_models_url;
+
+    #[test]
+    fn derives_openai_compat_v1_base() {
+        // local (LM Studio), cerebras, groq-adjacent all share the /v1/chat/completions form.
+        assert_eq!(
+            derive_models_url("http://localhost:1234/v1/chat/completions", "local").unwrap(),
+            "http://localhost:1234/v1/models"
+        );
+        assert_eq!(
+            derive_models_url("https://api.cerebras.ai/v1/chat/completions", "cerebras").unwrap(),
+            "https://api.cerebras.ai/v1/models"
+        );
+    }
+
+    #[test]
+    fn derives_groq_openai_prefixed_base() {
+        assert_eq!(
+            derive_models_url("https://api.groq.com/openai/v1/chat/completions", "groq").unwrap(),
+            "https://api.groq.com/openai/v1/models"
+        );
+    }
+
+    #[test]
+    fn derives_deepseek_non_v1_base() {
+        // DeepSeek's seed URL has no /v1 prefix: /chat/completions → /models.
+        assert_eq!(
+            derive_models_url("https://api.deepseek.com/chat/completions", "deepseek").unwrap(),
+            "https://api.deepseek.com/models"
+        );
+    }
+
+    #[test]
+    fn derives_anthropic_messages_base() {
+        assert_eq!(
+            derive_models_url("https://api.anthropic.com/v1/messages", "claude").unwrap(),
+            "https://api.anthropic.com/v1/models"
+        );
+    }
+
+    #[test]
+    fn derives_ollama_native_tags_endpoint() {
+        assert_eq!(
+            derive_models_url("http://localhost:11434/api/chat", "ollama").unwrap(),
+            "http://localhost:11434/api/tags"
+        );
+    }
+
+    #[test]
+    fn idempotent_on_v1_models() {
+        // If admin already set api_url to /v1/models (unusual but harmless), we still produce
+        // a valid /v1/models URL — parent of /v1/models is /v1, append /models back.
+        assert_eq!(
+            derive_models_url("http://localhost:1234/v1/models", "local").unwrap(),
+            "http://localhost:1234/v1/models"
+        );
+    }
+
+    #[test]
+    fn trims_query_and_fragment() {
+        assert_eq!(
+            derive_models_url(
+                "http://localhost:1234/v1/chat/completions?token=x#frag",
+                "local"
+            )
+            .unwrap(),
+            "http://localhost:1234/v1/models"
+        );
+    }
+
+    #[test]
+    fn rejects_non_http_schemes() {
+        assert!(derive_models_url("file:///etc/passwd", "local").is_err());
+        assert!(derive_models_url("ftp://example.com/chat", "local").is_err());
+    }
+
+    #[test]
+    fn rejects_malformed_url() {
+        assert!(derive_models_url("not-a-url", "local").is_err());
+    }
 }

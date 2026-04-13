@@ -501,6 +501,21 @@ export const api = {
       { 'X-API-Key': apiKey },
     ).then(() => {}),
 
+  listProviderModels: (
+    providerId: string,
+    apiKey: string,
+  ): Promise<{
+    models: Array<{ id: string; name?: string }>;
+    error_code?: string;
+    error?: string;
+  }> =>
+    fetch(`${API_BASE}/llm/providers/${encodeURIComponent(providerId)}/models`, {
+      headers: { 'X-API-Key': apiKey },
+    }).then((r) => {
+      if (!r.ok) throw new Error(r.statusText);
+      return r.json().then((b) => b.data);
+    }),
+
   // Avatar Management
   async uploadAvatar(agentId: string, file: File, apiKey: string): Promise<{ avatar_description?: string }> {
     const res = await fetch(`${API_BASE}/agents/${encodeURIComponent(agentId)}/avatar`, {
@@ -746,6 +761,7 @@ export function createAuthenticatedApi(apiKey: string) {
       api.setLlmProviderKey(providerId, k, providerApiKey),
     deleteLlmProviderKey: (providerId: string) => api.deleteLlmProviderKey(providerId, k),
     setLlmProviderModel: (providerId: string, modelId: string) => api.setLlmProviderModel(providerId, k, modelId),
+    listProviderModels: (providerId: string) => api.listProviderModels(providerId, k),
     // Avatar
     uploadAvatar: (agentId: string, file: File) => api.uploadAvatar(agentId, file, k),
     deleteAvatar: (agentId: string) => api.deleteAvatar(agentId, k),
