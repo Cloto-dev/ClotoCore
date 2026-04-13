@@ -505,7 +505,13 @@ export const api = {
     providerId: string,
     apiKey: string,
   ): Promise<{
-    models: Array<{ id: string; name?: string }>;
+    models: Array<{
+      id: string;
+      name?: string;
+      loaded?: boolean;
+      max_context_length?: number;
+      architecture?: string;
+    }>;
     error_code?: string;
     error?: string;
   }> =>
