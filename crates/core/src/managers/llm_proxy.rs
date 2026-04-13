@@ -193,10 +193,20 @@ async fn proxy_handler(
         );
     }
 
-    // Strip the 'provider' field from body before forwarding
+    // Strip the 'provider' field from body before forwarding.
+    // Also override `model` with the DB-configured `provider.model_id` — the
+    // DB is the authority for model selection (ADR 2026-04-13). Empty
+    // model_id means "not configured yet"; let the original body.model
+    // pass through so the upstream provider returns a meaningful error.
     let mut forward_body = body.clone();
     if let Some(obj) = forward_body.as_object_mut() {
         obj.remove("provider");
+        if !provider.model_id.is_empty() {
+            obj.insert(
+                "model".to_string(),
+                serde_json::Value::String(provider.model_id.clone()),
+            );
+        }
     }
 
     // Build the forwarded request

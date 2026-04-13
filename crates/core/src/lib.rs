@@ -899,6 +899,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             post(handlers::set_llm_provider_key).delete(handlers::delete_llm_provider_key),
         )
         .route(
+            "/llm/providers/:id/model",
+            post(handlers::set_llm_provider_model),
+        )
+        .route(
             "/permissions/:id/approve",
             post(handlers::approve_permission),
         )
