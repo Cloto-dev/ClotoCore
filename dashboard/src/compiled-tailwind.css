@@ -1644,6 +1644,10 @@ video {
   border-width: 1px;
 }
 
+.border-0 {
+  border-width: 0px;
+}
+
 .border-2 {
   border-width: 2px;
 }
@@ -1712,6 +1716,10 @@ video {
 
 .border-brand\/40 {
   border-color: rgb(var(--brand-primary) / 0.4);
+}
+
+.border-brand\/50 {
+  border-color: rgb(var(--brand-primary) / 0.5);
 }
 
 .border-content-muted {
@@ -2084,6 +2092,10 @@ video {
 .object-cover {
   -o-object-fit: cover;
      object-fit: cover;
+}
+
+.p-0 {
+  padding: 0px;
 }
 
 .p-0\.5 {
