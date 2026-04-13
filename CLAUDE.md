@@ -24,6 +24,36 @@ If a proposed change conflicts with any of these, flag it before proceeding.
 - Bug verify: `bash scripts/verify-issues.sh`
 - Test ratchet: `bash scripts/check-test-count.sh`
 
+## SQLx Migration Rules (CRITICAL)
+
+`.gitattributes` enforces **CRLF** line endings for `crates/core/migrations/*.sql`.
+sqlx hashes each migration file and stores the checksum in `_sqlx_migrations` on first
+apply, then rejects a modified file on the next startup with
+`migration ... was previously applied but has been modified` (FATAL — kernel won't boot).
+
+Claude's `Write` tool produces **LF** line endings. If a migration is written with LF,
+applied once by `cargo run`/`tauri dev`, then later normalized to CRLF (by git, an IDE
+save, or manual conversion), the checksum mismatches on the next build and the kernel
+refuses to start.
+
+**Always convert a new migration to CRLF before any `cargo build` / `tauri dev`:**
+
+```
+perl -i -pe 's/\r?\n/\r\n/' crates/core/migrations/YYYYMMDDHHMMSS_name.sql
+```
+
+If you already hit the FATAL (checksum mismatch) in a dev DB, recover with:
+
+```
+sqlite3 target/debug/data/cloto_memories.db \
+  "DELETE FROM _sqlx_migrations WHERE version=<version>; \
+   ALTER TABLE <table> DROP COLUMN <column_added_by_migration>;"
+```
+
+Then restart the kernel — sqlx will re-apply the migration and record the current
+checksum. Only needed in dev; users installing via release builds never hit this
+because the migration file is embedded once at package time.
+
 ## Bug Verification (Anti-Hallucination)
 
 The issue registry is a **hallucination prevention tool**, not a comprehensive bug tracker.
