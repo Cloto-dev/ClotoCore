@@ -55,6 +55,47 @@ pub async fn set_llm_provider_key(
     Ok(())
 }
 
+/// Update a provider's model_id, recording the old value in the history table.
+/// Returns the previous model_id so callers can include it in audit logs.
+pub async fn set_llm_provider_model(
+    pool: &SqlitePool,
+    id: &str,
+    model_id: &str,
+) -> anyhow::Result<String> {
+    let old_model: String = db_timeout(
+        sqlx::query_scalar("SELECT model_id FROM llm_providers WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool),
+    )
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("LLM provider '{}' not found", id))?;
+
+    let result = db_timeout(
+        sqlx::query("UPDATE llm_providers SET model_id = ? WHERE id = ?")
+            .bind(model_id)
+            .bind(id)
+            .execute(pool),
+    )
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(anyhow::anyhow!("LLM provider '{}' not found", id));
+    }
+
+    db_timeout(
+        sqlx::query(
+            "INSERT INTO llm_provider_model_history (provider_id, old_model_id, new_model_id) \
+             VALUES (?, ?, ?)",
+        )
+        .bind(id)
+        .bind(&old_model)
+        .bind(model_id)
+        .execute(pool),
+    )
+    .await?;
+
+    Ok(old_model)
+}
+
 pub async fn delete_llm_provider_key(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
     db_timeout(
         sqlx::query("UPDATE llm_providers SET api_key = '' WHERE id = ?")
