@@ -72,5 +72,6 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
         )),
         install_limiter: Arc::new(crate::middleware::RateLimiter::per_minute(5, 5)),
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
+        provider_probe_cache: crate::managers::provider_probe::ProbeCache::new(),
     })
 }

@@ -112,6 +112,9 @@ pub struct AppState {
     pub install_limiter: Arc<middleware::RateLimiter>,
     /// Cached result from the last health scan (populated at startup and on-demand).
     pub last_health_report: Arc<tokio::sync::RwLock<Option<db::health::HealthReport>>>,
+    /// 10-second TTL cache of LM Studio probe results (runtime metadata per provider).
+    /// Only populated when the dashboard requests the model dropdown for a local provider.
+    pub provider_probe_cache: managers::provider_probe::ProbeCache,
 }
 
 pub enum AppError {
@@ -505,6 +508,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         )),
         install_limiter: install_limiter.clone(),
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
+        provider_probe_cache: managers::provider_probe::ProbeCache::new(),
     });
 
     // Wire up kernel event bus to MCP manager (for PermissionRequested emission)

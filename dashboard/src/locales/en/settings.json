@@ -82,6 +82,8 @@
     "model_dropdown_loading": "Loading models…",
     "model_dropdown_error": "Could not load model list ({{code}}). Enter manually.",
     "model_refresh": "Refresh",
+    "model_ctx_suffix": "{{tokens}} tok",
+    "model_loaded": "loaded",
     "model_save": "Save",
     "model_cancel": "Cancel",
     "model_unset": "(not set)",

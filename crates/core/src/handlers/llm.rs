@@ -297,7 +297,7 @@ pub async fn list_provider_models(
         }
     };
 
-    let models: Vec<serde_json::Value> = if provider.id == "ollama" {
+    let mut models: Vec<serde_json::Value> = if provider.id == "ollama" {
         // Ollama: {"models":[{"name":"qwen3.5:9b", ...}]}
         body.get("models")
             .and_then(|v| v.as_array())
@@ -329,6 +329,35 @@ pub async fn list_provider_models(
             })
             .unwrap_or_default()
     };
+
+    // For local-ish providers, best-effort enrichment from LM Studio's `/api/v0/models`.
+    // Failures are silent; non-LM-Studio backends (llama.cpp, vLLM) simply skip this.
+    if crate::managers::provider_probe::should_probe(&provider.id, &provider.api_url) {
+        if let Some(info_map) = state
+            .provider_probe_cache
+            .get_or_probe(&provider.id, &provider.api_url, &client)
+            .await
+        {
+            for m in &mut models {
+                let Some(id) = m.get("id").and_then(|v| v.as_str()).map(String::from) else {
+                    continue;
+                };
+                let Some(info) = info_map.get(&id) else {
+                    continue;
+                };
+                let Some(obj) = m.as_object_mut() else {
+                    continue;
+                };
+                obj.insert("loaded".into(), serde_json::Value::Bool(info.loaded));
+                if let Some(ctx) = info.max_context_length {
+                    obj.insert("max_context_length".into(), serde_json::json!(ctx));
+                }
+                if let Some(arch) = &info.architecture {
+                    obj.insert("architecture".into(), serde_json::json!(arch));
+                }
+            }
+        }
+    }
 
     ok_data(serde_json::json!({ "models": models }))
 }

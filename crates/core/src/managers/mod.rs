@@ -24,6 +24,7 @@ pub mod mcp_transport;
 pub mod mcp_types;
 pub mod mcp_venv;
 mod plugin;
+pub mod provider_probe;
 mod registry;
 pub mod scheduler;
 

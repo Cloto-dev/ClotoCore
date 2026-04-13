@@ -26,7 +26,13 @@ type Provider = {
   model_id: string;
 };
 
-type ModelOption = { id: string; name?: string };
+type ModelOption = {
+  id: string;
+  name?: string;
+  loaded?: boolean;
+  max_context_length?: number;
+  architecture?: string;
+};
 type ModelListState = {
   status: 'loading' | 'ready' | 'fallback';
   models: ModelOption[];
@@ -182,11 +188,23 @@ export function LlmProvidersSection() {
                         {modelInput && !modelList.models.some((m) => m.id === modelInput) && (
                           <option value={modelInput}>{modelInput}</option>
                         )}
-                        {modelList.models.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.name ? `${m.id} — ${m.name}` : m.id}
-                          </option>
-                        ))}
+                        {modelList.models.map((m) => {
+                          const parts: string[] = [m.id];
+                          if (m.name) parts.push(`— ${m.name}`);
+                          if (m.max_context_length) {
+                            parts.push(
+                              `· ${t('llm_providers.model_ctx_suffix', {
+                                tokens: m.max_context_length.toLocaleString(),
+                              })}`,
+                            );
+                          }
+                          if (m.loaded) parts.push(`· ${t('llm_providers.model_loaded')}`);
+                          return (
+                            <option key={m.id} value={m.id}>
+                              {parts.join(' ')}
+                            </option>
+                          );
+                        })}
                       </select>
                     ) : (
                       <input
