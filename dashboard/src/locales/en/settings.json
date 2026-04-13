@@ -75,7 +75,14 @@
     "placeholder_new": "Enter API key",
     "placeholder_saved": "••••••• (saved)",
     "clear": "Clear",
-    "empty": "No providers configured."
+    "empty": "No providers configured.",
+    "model_edit_hint": "Click to edit model ID",
+    "model_placeholder": "e.g. qwen3.5:9b",
+    "model_save": "Save",
+    "model_cancel": "Cancel",
+    "model_unset": "(not set)",
+    "model_validation_empty": "Model ID must not be empty",
+    "model_validation_too_long": "Model ID must be 200 characters or fewer"
   },
   "security": {
     "api_key_title": "API Key",
