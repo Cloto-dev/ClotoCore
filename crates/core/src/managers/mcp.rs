@@ -1383,6 +1383,42 @@ impl McpClientManager {
         )
         .await;
 
+        // mind.ollama reads OLLAMA_MODEL only at startup. On connect, sync its
+        // active model from the DB so Dashboard model selections survive a
+        // kernel or mind.ollama restart. Failure is non-fatal — the user can
+        // still switch via the Dashboard or the switch_model tool.
+        if id == "mind.ollama" {
+            match crate::db::get_llm_provider(&self.pool, "ollama").await {
+                Ok(provider) if !provider.model_id.is_empty() => {
+                    let model = provider.model_id.clone();
+                    match self
+                        .call_server_tool(
+                            "mind.ollama",
+                            "switch_model",
+                            serde_json::json!({ "model": model }),
+                        )
+                        .await
+                    {
+                        Ok(_) => info!(
+                            model = %model,
+                            "mind.ollama active model synced from DB on connect"
+                        ),
+                        Err(e) => warn!(
+                            error = %e,
+                            "mind.ollama post-connect switch_model sync failed"
+                        ),
+                    }
+                }
+                Ok(_) => {
+                    // Empty model_id — no sync needed; user will select via Dashboard.
+                }
+                Err(e) => warn!(
+                    error = %e,
+                    "Failed to read ollama provider from DB for post-connect sync"
+                ),
+            }
+        }
+
         Ok(tool_names)
     }
 
