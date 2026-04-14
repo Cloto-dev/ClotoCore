@@ -200,7 +200,7 @@ export const CronJobs = memo(function CronJobs() {
                     form.schedule_type === 'interval'
                       ? '3600'
                       : form.schedule_type === 'cron'
-                        ? '0 9 * * *'
+                        ? '0 0 9 * * *'
                         : '2026-03-01T09:00:00+09:00'
                   }
                   className="w-full bg-surface-secondary border border-edge rounded px-3 py-2 text-xs font-mono text-content-primary"
@@ -341,7 +341,15 @@ export const CronJobs = memo(function CronJobs() {
                           <span className="text-content-secondary">{formatTimestamp(job.last_run_at)}</span>
                           {job.last_status && (
                             <span
-                              className={`ml-2 px-1 py-0.5 rounded text-[9px] ${job.last_status === 'success' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}
+                              className={`ml-2 px-1 py-0.5 rounded text-[9px] ${
+                                job.last_status === 'success'
+                                  ? 'bg-green-500/20 text-green-400'
+                                  : job.last_status === 'skipped'
+                                    ? 'bg-yellow-500/20 text-yellow-400'
+                                    : job.last_status === 'dispatched'
+                                      ? 'bg-blue-500/20 text-blue-400'
+                                      : 'bg-red-500/20 text-red-400'
+                              }`}
                             >
                               {job.last_status}
                             </span>

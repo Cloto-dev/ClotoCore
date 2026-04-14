@@ -171,13 +171,16 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
             );
         }
 
-        // Calculate next run and update job status
+        // Calculate next run and mark as dispatched.
+        // The final status ("success" / "error" / "skipped") is written by
+        // `handle_message` once the agentic loop resolves — "dispatched" here
+        // only records that the event was successfully placed on the bus.
         let (next_run, still_enabled) = calculate_next_run(job, now_ms);
         db::update_cron_job_run(
             pool,
             &job.id,
             now_ms,
-            "success",
+            "dispatched",
             None,
             next_run,
             still_enabled,
