@@ -115,6 +115,10 @@ pub struct AppState {
     /// 10-second TTL cache of LM Studio probe results (runtime metadata per provider).
     /// Only populated when the dashboard requests the model dropdown for a local provider.
     pub provider_probe_cache: managers::provider_probe::ProbeCache,
+    /// Ephemeral per-agent store of the most recent response's token usage.
+    /// Populated by the agentic loop on each completion; read by the dashboard
+    /// "context usage" badge.
+    pub last_usage: managers::usage_tracker::UsageStore,
 }
 
 pub enum AppError {
@@ -414,6 +418,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     // (populated by /api/llm/providers/:id/models requests).
     let probe_cache = managers::provider_probe::ProbeCache::new();
 
+    // Shared between SystemHandler (writer — records usage after each LLM call) and
+    // AppState (reader — exposes GET /api/agents/:id/last-usage to the dashboard).
+    let last_usage_store = managers::usage_tracker::UsageStore::new();
+
     let system_handler = {
         let mut h = SystemHandler::new(
             registry_arc.clone(),
@@ -432,6 +440,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             config.memory_timeout_secs,
         );
         h.set_probe_cache(probe_cache.clone());
+        h.set_usage_store(last_usage_store.clone());
         Arc::new(h)
     };
 
@@ -518,6 +527,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         install_limiter: install_limiter.clone(),
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
         provider_probe_cache: probe_cache,
+        last_usage: last_usage_store,
     });
 
     // Wire up kernel event bus to MCP manager (for PermissionRequested emission)
@@ -894,6 +904,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .route(
             "/agents/:id/mcp-access",
             axum::routing::put(handlers::put_agent_mcp_access),
+        )
+        .route(
+            "/agents/:id/last-usage",
+            get(handlers::get_agent_last_usage),
         )
         .route("/speech/:filename", get(handlers::serve_speech_file))
         .route("/events/publish", post(handlers::post_event_handler))

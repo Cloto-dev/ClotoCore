@@ -71,6 +71,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         install_limiter: Arc::new(cloto_core::middleware::RateLimiter::new(5, 60)),
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
         provider_probe_cache: cloto_core::managers::provider_probe::ProbeCache::new(),
+        last_usage: cloto_core::managers::usage_tracker::UsageStore::new(),
     })
 }
 

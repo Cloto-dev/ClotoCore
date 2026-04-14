@@ -13,6 +13,22 @@ use crate::{AppError, AppResult, AppState};
 
 use super::{check_auth, ok_data, spawn_admin_audit};
 
+/// GET /api/agents/:id/last-usage
+///
+/// Returns the token usage recorded from the most recent LLM response for an
+/// agent, or `{usage: null}` if nothing has been recorded yet in this process.
+/// The dashboard polls this after each chat turn completes so the
+/// "context usage" header badge updates without a persistent connection.
+pub async fn get_agent_last_usage(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(agent_id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    let usage = state.last_usage.get(&agent_id);
+    ok_data(serde_json::json!({ "usage": usage }))
+}
+
 #[derive(Deserialize)]
 pub struct CreateAgentRequest {
     pub name: String,

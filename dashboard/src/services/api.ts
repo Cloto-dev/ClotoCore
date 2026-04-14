@@ -502,6 +502,30 @@ export const api = {
       { 'X-API-Key': apiKey },
     ).then(() => {}),
 
+  getAgentLastUsage: (
+    agentId: string,
+    apiKey: string,
+  ): Promise<{
+    usage:
+      | {
+          prompt_tokens: number;
+          completion_tokens: number;
+          total_tokens: number;
+          context_length: number | null;
+          provider_id: string;
+          model_id: string;
+          is_estimate: boolean;
+          updated_at: string;
+        }
+      | null;
+  }> =>
+    fetch(`${API_BASE}/agents/${encodeURIComponent(agentId)}/last-usage`, {
+      headers: { 'X-API-Key': apiKey },
+    }).then((r) => {
+      if (!r.ok) throw new Error(r.statusText);
+      return r.json().then((b) => b.data);
+    }),
+
   testProviderConnection: (
     providerId: string,
     apiKey: string,
@@ -804,6 +828,7 @@ export function createAuthenticatedApi(apiKey: string) {
       api.setLlmProviderContextLength(providerId, k, contextLength),
     listProviderModels: (providerId: string) => api.listProviderModels(providerId, k),
     testProviderConnection: (providerId: string) => api.testProviderConnection(providerId, k),
+    getAgentLastUsage: (agentId: string) => api.getAgentLastUsage(agentId, k),
     // Avatar
     uploadAvatar: (agentId: string, file: File) => api.uploadAvatar(agentId, file, k),
     deleteAvatar: (agentId: string) => api.deleteAvatar(agentId, k),
