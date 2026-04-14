@@ -63,6 +63,18 @@ export function LlmProvidersSection() {
   const [ctxError, setCtxError] = useState<string | null>(null);
   const ctxInputRef = useRef<HTMLInputElement>(null);
 
+  // Per-provider connection test state — ephemeral UI feedback.
+  type TestState =
+    | { phase: 'idle' }
+    | { phase: 'running' }
+    | {
+        phase: 'done';
+        status: 'ok' | 'auth_failed' | 'unreachable' | 'model_list_unavailable';
+        latency_ms: number;
+        models_count: number | null;
+      };
+  const [testStates, setTestStates] = useState<Record<string, TestState>>({});
+
   useEffect(() => {
     api
       .listLlmProviders()
@@ -206,6 +218,44 @@ export function LlmProvidersSection() {
     } else if (e.key === 'Escape') {
       e.preventDefault();
       cancelCtxEdit();
+    }
+  };
+
+  const runConnectionTest = async (providerId: string) => {
+    setTestStates((s) => ({ ...s, [providerId]: { phase: 'running' } }));
+    try {
+      const res = await api.testProviderConnection(providerId);
+      setTestStates((s) => ({
+        ...s,
+        [providerId]: {
+          phase: 'done',
+          status: res.status,
+          latency_ms: res.latency_ms,
+          models_count: res.models_count,
+        },
+      }));
+      // Auto-clear the pill after 10s so the next interaction starts clean.
+      setTimeout(() => {
+        setTestStates((s) => {
+          const current = s[providerId];
+          if (current && current.phase === 'done') {
+            const { [providerId]: _, ...rest } = s;
+            return rest;
+          }
+          return s;
+        });
+      }, 10_000);
+    } catch (e) {
+      setTestStates((s) => ({
+        ...s,
+        [providerId]: {
+          phase: 'done',
+          status: 'unreachable',
+          latency_ms: 0,
+          models_count: null,
+        },
+      }));
+      if (import.meta.env.DEV) console.warn('test_provider_connection failed:', e);
     }
   };
 
@@ -425,6 +475,38 @@ export function LlmProvidersSection() {
                     {t('llm_providers.clear')}
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => runConnectionTest(p.id)}
+                  disabled={testStates[p.id]?.phase === 'running'}
+                  aria-label={`${t('llm_providers.test')} ${p.display_name}`}
+                  className="px-2 py-1 text-xs text-content-secondary border border-edge rounded hover:border-brand hover:text-brand disabled:opacity-40"
+                >
+                  {testStates[p.id]?.phase === 'running' ? '...' : t('llm_providers.test')}
+                </button>
+                {(() => {
+                  const ts = testStates[p.id];
+                  if (!ts || ts.phase !== 'done') return null;
+                  const color =
+                    ts.status === 'ok'
+                      ? 'bg-green-500/15 text-green-400 border-green-500/40'
+                      : ts.status === 'unreachable'
+                        ? 'bg-red-500/15 text-red-400 border-red-500/40'
+                        : 'bg-amber-500/15 text-amber-400 border-amber-500/40';
+                  const label =
+                    ts.status === 'ok'
+                      ? t('llm_providers.test_ok', { latency: ts.latency_ms })
+                      : ts.status === 'auth_failed'
+                        ? t('llm_providers.test_auth_failed')
+                        : ts.status === 'unreachable'
+                          ? t('llm_providers.test_unreachable')
+                          : t('llm_providers.test_model_list_unavailable');
+                  return (
+                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${color}`}>
+                      {label}
+                    </span>
+                  );
+                })()}
               </div>
             </div>
           </div>

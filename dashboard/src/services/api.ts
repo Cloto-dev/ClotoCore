@@ -502,6 +502,28 @@ export const api = {
       { 'X-API-Key': apiKey },
     ).then(() => {}),
 
+  testProviderConnection: (
+    providerId: string,
+    apiKey: string,
+  ): Promise<{
+    status: 'ok' | 'auth_failed' | 'unreachable' | 'model_list_unavailable';
+    latency_ms: number;
+    reachable: boolean;
+    auth_ok: boolean;
+    model_list: boolean;
+    models_count: number | null;
+    error: string | null;
+  }> =>
+    mutate(
+      `/llm/providers/${encodeURIComponent(providerId)}/test`,
+      'POST',
+      'test provider connection',
+      undefined,
+      { 'X-API-Key': apiKey },
+    )
+      .then((r) => r.json())
+      .then((b) => b.data),
+
   setLlmProviderContextLength: (providerId: string, apiKey: string, contextLength: number | null) =>
     mutate(
       `/llm/providers/${encodeURIComponent(providerId)}/context-length`,
@@ -780,6 +802,7 @@ export function createAuthenticatedApi(apiKey: string) {
     setLlmProviderContextLength: (providerId: string, contextLength: number | null) =>
       api.setLlmProviderContextLength(providerId, k, contextLength),
     listProviderModels: (providerId: string) => api.listProviderModels(providerId, k),
+    testProviderConnection: (providerId: string) => api.testProviderConnection(providerId, k),
     // Avatar
     uploadAvatar: (agentId: string, file: File) => api.uploadAvatar(agentId, file, k),
     deleteAvatar: (agentId: string) => api.deleteAvatar(agentId, k),

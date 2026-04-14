@@ -363,6 +363,130 @@ pub async fn list_provider_models(
     ok_data(serde_json::json!({ "models": models }))
 }
 
+/// Scrub sensitive substrings (api_key, URL userinfo) from any upstream-derived
+/// error message before returning it to the Dashboard. reqwest's Display impl
+/// on a `Url` intentionally masks basic-auth credentials already, but upstream
+/// error bodies sometimes echo the key back verbatim.
+fn redact_secrets(s: &str, api_key: &str) -> String {
+    if api_key.is_empty() {
+        s.to_string()
+    } else {
+        s.replace(api_key, "[REDACTED]")
+    }
+}
+
+/// POST /api/llm/providers/:id/test
+///
+/// End-to-end connectivity + auth check for a single provider. The Dashboard
+/// shows the result as a colored pill ("green/yellow/red") so users can
+/// diagnose "Local LLM → chat fails" in a single click rather than waiting
+/// until they send a message.
+///
+/// Returns `{ status, latency_ms, reachable, auth_ok, model_list, models_count, error? }`
+/// where `status` is one of:
+///   - `ok`                        — reachable + authenticated + returned a model list
+///   - `auth_failed`               — reached the endpoint, got 401/403
+///   - `model_list_unavailable`    — reached, authenticated, but no model catalog
+///   - `unreachable`               — connection / DNS / timeout failure
+pub async fn test_provider_connection(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(provider_id): axum::extract::Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let provider = crate::db::get_llm_provider(&state.pool, &provider_id)
+        .await
+        .map_err(|_| AppError::NotFound(format!("LLM provider '{}' not found", provider_id)))?;
+
+    let models_url = derive_models_url(&provider.api_url, &provider.id)
+        .map_err(AppError::Validation)?;
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(MODELS_FETCH_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+    let mut req = client.get(&models_url);
+    if !provider.api_key.is_empty() {
+        if provider.auth_type == "x-api-key" {
+            req = req
+                .header("x-api-key", &provider.api_key)
+                .header("anthropic-version", "2023-06-01");
+        } else {
+            req = req.header("Authorization", format!("Bearer {}", provider.api_key));
+        }
+    }
+
+    let start = std::time::Instant::now();
+    let response = req.send().await;
+    let latency_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+
+    let (status_label, reachable, auth_ok, model_list, models_count, error_msg): (
+        &str,
+        bool,
+        bool,
+        bool,
+        Option<usize>,
+        Option<String>,
+    ) = match response {
+        Err(e) => (
+            "unreachable",
+            false,
+            false,
+            false,
+            None,
+            Some(redact_secrets(&e.to_string(), &provider.api_key)),
+        ),
+        Ok(r) => {
+            let code = r.status().as_u16();
+            match code {
+                200..=299 => {
+                    // Count entries so the UI can show "4 models available" as a success signal.
+                    let count = match r.json::<serde_json::Value>().await {
+                        Ok(body) => {
+                            // Ollama: {"models":[...]}, OpenAI: {"data":[...]}
+                            let arr = body
+                                .get("models")
+                                .or_else(|| body.get("data"))
+                                .and_then(|v| v.as_array());
+                            arr.map(std::vec::Vec::len)
+                        }
+                        Err(_) => None,
+                    };
+                    ("ok", true, true, count.is_some(), count, None)
+                }
+                401 | 403 => (
+                    "auth_failed",
+                    true,
+                    false,
+                    false,
+                    None,
+                    Some(format!("HTTP {}", code)),
+                ),
+                _ => (
+                    "model_list_unavailable",
+                    true,
+                    true,
+                    false,
+                    None,
+                    Some(format!("HTTP {}", code)),
+                ),
+            }
+        }
+    };
+
+    ok_data(serde_json::json!({
+        "status": status_label,
+        "latency_ms": latency_ms,
+        "reachable": reachable,
+        "auth_ok": auth_ok,
+        "model_list": model_list,
+        "models_count": models_count,
+        "error": error_msg,
+    }))
+}
+
 /// POST /api/llm/providers/:id/context-length
 ///
 /// Sets or clears the provider's context window hint. Accepts
