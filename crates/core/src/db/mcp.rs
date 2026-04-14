@@ -100,6 +100,9 @@ pub struct McpServerRecord {
     pub default_policy: String,
     pub marketplace_id: Option<String>,
     pub installed_version: Option<String>,
+    /// MGP trust level ('core' | 'standard' | 'experimental' | 'untrusted').
+    /// NULL ⇒ isolation falls back to the Standard default at `mcp.rs:867`.
+    pub trust_level: Option<String>,
     pub is_active: bool,
     pub created_at: i64,
     pub updated_at: Option<i64>,
@@ -121,6 +124,7 @@ impl Default for McpServerRecord {
             default_policy: "opt-out".to_string(),
             marketplace_id: None,
             installed_version: None,
+            trust_level: None,
             is_active: true,
             created_at: 0,
             updated_at: None,
@@ -134,8 +138,8 @@ pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> any
             "INSERT INTO mcp_servers \
              (name, command, args, env, transport, directory, display_name, auto_restart, \
               script_content, description, default_policy, marketplace_id, installed_version, \
-              is_active, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+              trust_level, is_active, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
              ON CONFLICT(name) DO UPDATE SET \
                command = excluded.command, \
                args = excluded.args, \
@@ -148,6 +152,7 @@ pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> any
                description = COALESCE(excluded.description, mcp_servers.description), \
                marketplace_id = COALESCE(excluded.marketplace_id, mcp_servers.marketplace_id), \
                installed_version = COALESCE(excluded.installed_version, mcp_servers.installed_version), \
+               trust_level = COALESCE(excluded.trust_level, mcp_servers.trust_level), \
                is_active = excluded.is_active, \
                updated_at = unixepoch()",
         )
@@ -164,6 +169,7 @@ pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> any
         .bind(&record.default_policy)
         .bind(&record.marketplace_id)
         .bind(&record.installed_version)
+        .bind(&record.trust_level)
         .bind(record.is_active)
         .bind(record.created_at)
         .bind(record.updated_at)
@@ -178,7 +184,7 @@ pub async fn load_active_mcp_servers(pool: &SqlitePool) -> anyhow::Result<Vec<Mc
         sqlx::query_as::<_, McpServerRecord>(
             "SELECT name, command, args, env, transport, directory, display_name, auto_restart, \
              script_content, description, default_policy, marketplace_id, installed_version, \
-             is_active, created_at, updated_at \
+             trust_level, is_active, created_at, updated_at \
              FROM mcp_servers WHERE is_active = 1 ORDER BY created_at ASC",
         )
         .fetch_all(pool),
@@ -686,14 +692,16 @@ pub async fn set_marketplace_fields(
     name: &str,
     version: &str,
     marketplace_id: &str,
+    trust_level: Option<&str>,
 ) -> anyhow::Result<()> {
     db_timeout(
         sqlx::query(
-            "UPDATE mcp_servers SET installed_version = ?, marketplace_id = ?, updated_at = unixepoch() \
+            "UPDATE mcp_servers SET installed_version = ?, marketplace_id = ?, trust_level = ?, updated_at = unixepoch() \
              WHERE name = ?",
         )
         .bind(version)
         .bind(marketplace_id)
+        .bind(trust_level)
         .bind(name)
         .execute(pool),
     )
