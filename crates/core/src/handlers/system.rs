@@ -1451,10 +1451,22 @@ impl SystemHandler {
         }
 
         if let Some(mcp) = mcp_engine {
+            let agent_val = serde_json::to_value(agent)?;
+            let message_val = serde_json::to_value(message)?;
+            let context_val = serde_json::Value::Array(Self::serialize_context(&context));
+            let tools_val = serde_json::Value::Array(vec![]);
+            self.preflight_token_budget(
+                engine_id,
+                &agent_val,
+                &context_val,
+                &tools_val,
+                &message_val,
+            )
+            .await?;
             let args = serde_json::json!({
-                "agent": serde_json::to_value(agent)?,
-                "message": serde_json::to_value(message)?,
-                "context": Self::serialize_context(&context),
+                "agent": agent_val,
+                "message": message_val,
+                "context": context_val,
             });
             let result = mcp.call_server_tool(engine_id, "think", args).await?;
             return Self::extract_mcp_think_content(&result);
@@ -1485,10 +1497,22 @@ impl SystemHandler {
         }
 
         if let Some(mcp) = mcp_engine {
+            let agent_val = serde_json::to_value(agent)?;
+            let message_val = serde_json::to_value(message)?;
+            let context_val = serde_json::Value::Array(Self::serialize_context(&context));
+            let tools_val = serde_json::Value::Array(tools.to_vec());
+            self.preflight_token_budget(
+                engine_id,
+                &agent_val,
+                &context_val,
+                &tools_val,
+                &message_val,
+            )
+            .await?;
             let args = serde_json::json!({
-                "agent": serde_json::to_value(agent)?,
-                "message": serde_json::to_value(message)?,
-                "context": Self::serialize_context(&context),
+                "agent": agent_val,
+                "message": message_val,
+                "context": context_val,
                 "tools": tools,
                 "tool_history": tool_history,
             });
@@ -1780,9 +1804,89 @@ impl SystemHandler {
             "rate_limited" => " Please wait a moment and try again.",
             "provider_error" => " The LLM provider is experiencing issues. Try a different engine.",
             "connection_failed" | "timeout" => " Ensure the kernel and LLM services are running.",
-            _ => "",
+            "context_overflow" => {
+                " The request is larger than the model's context window. \
+                 Raise the provider's context_length in Settings → LLM Providers, \
+                 reduce the memory recall window, or remove unused tools."
+            }
+            _ => {
+                // Detect upstream "exceeds context" / n_ctx errors even when the MCP server
+                // didn't map them to a structured code — LM Studio / llama.cpp emit them
+                // as plain 400 body text.
+                if error.contains("exceeds the available context")
+                    || error.contains("context_length_exceeded")
+                    || error.contains("n_ctx:")
+                {
+                    " The request exceeds the model's loaded context window. \
+                     Raise the context length when loading the model, or reduce memory/tools \
+                     in Settings."
+                } else {
+                    ""
+                }
+            }
         };
         format!("{error}{guidance}")
+    }
+
+    /// Pre-flight token budget check against the provider's configured `context_length`.
+    ///
+    /// Returns `Ok(())` when the request fits, or when the provider has no
+    /// `context_length` configured (opt-in feature — NULL means "skip").
+    /// Returns a structured error mapped through `format_engine_error` with the
+    /// `context_overflow` code when the estimated input wouldn't leave room for
+    /// a response. Zero cost for non-MCP engines (engine_id must start with `mind.`).
+    async fn preflight_token_budget(
+        &self,
+        engine_id: &str,
+        agent: &serde_json::Value,
+        context: &serde_json::Value,
+        tools: &serde_json::Value,
+        message: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let Some(provider_id) = engine_id.strip_prefix("mind.") else {
+            return Ok(());
+        };
+        let Ok(provider) = crate::db::get_llm_provider(&self.pool, provider_id).await else {
+            return Ok(());
+        };
+        let Some(ctx_len) = provider.context_length else {
+            return Ok(());
+        };
+
+        // The MCP payload serializes `agent` verbatim — measure that blob rather than
+        // guessing at the system prompt the mind server will derive from it.
+        let agent_blob = serde_json::to_string(agent).unwrap_or_default();
+        let decision = crate::managers::token_budget::check_budget(
+            &agent_blob,
+            context,
+            tools,
+            message,
+            ctx_len,
+        );
+
+        if decision.exceeds {
+            let summary = crate::managers::token_budget::describe_overflow(&decision);
+            tracing::warn!(
+                provider = %provider_id,
+                engine = %engine_id,
+                "Pre-flight budget check rejected request: {}",
+                summary
+            );
+            return Err(anyhow::anyhow!(
+                "{}",
+                Self::format_engine_error(
+                    &format!(
+                        "Estimated {} input tokens exceeds the {}-token context window \
+                         ({} is the dominant contributor).",
+                        decision.estimated_input,
+                        decision.context_length,
+                        decision.dominant_component.as_str(),
+                    ),
+                    Some("context_overflow"),
+                )
+            ));
+        }
+        Ok(())
     }
 
     /// Serialize context messages for MCP engine calls.
