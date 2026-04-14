@@ -359,7 +359,11 @@ impl McpClientManager {
             return Ok(Vec::new());
         }
 
-        // Convert DB records to McpServerConfig, filtering out placeholders
+        // Convert DB records to McpServerConfig, filtering out placeholders.
+        // trust_level must flow through here — otherwise config.mgp stays None
+        // and the isolation derive at line 867 falls back to Standard,
+        // unconditionally injecting HTTPS_PROXY for every server regardless of
+        // registry / handshake declarations.
         let all_configs: Vec<McpServerConfig> = records
             .iter()
             .filter(|r| r.command != "config-loaded")
@@ -371,6 +375,12 @@ impl McpClientManager {
                 transport: r.transport.clone(),
                 display_name: r.display_name.clone(),
                 auto_restart: Some(r.auto_restart),
+                mgp: r
+                    .trust_level
+                    .clone()
+                    .map(|tl| super::mcp_mgp::MgpServerConfig {
+                        trust_level: Some(tl),
+                    }),
                 ..Default::default()
             })
             .collect();
@@ -2229,7 +2239,11 @@ impl McpClientManager {
             isolation: None,
         };
 
-        // Persist to DB first (so server is always tracked even if connect fails)
+        // Persist to DB first (so server is always tracked even if connect fails).
+        // trust_level flows from the MgpServerConfig the caller built (e.g., from
+        // registry.json during marketplace install) into the DB so subsequent
+        // boots can derive the correct isolation profile before handshake.
+        let trust_level = config.mgp.as_ref().and_then(|m| m.trust_level.clone());
         let record = crate::db::McpServerRecord {
             name: id.clone(),
             command: command.clone(),
@@ -2237,6 +2251,7 @@ impl McpClientManager {
             env: serde_json::to_string(&env)?,
             script_content,
             description,
+            trust_level,
             created_at: chrono::Utc::now().timestamp(),
             is_active: true,
             ..Default::default()
@@ -2476,6 +2491,12 @@ impl McpClientManager {
         })?;
 
         let args: Vec<String> = serde_json::from_str(&record.args).unwrap_or_default();
+        let mgp = record
+            .trust_level
+            .clone()
+            .map(|tl| super::mcp_mgp::MgpServerConfig {
+                trust_level: Some(tl),
+            });
 
         let config = McpServerConfig {
             id: id.to_string(),
@@ -2488,7 +2509,7 @@ impl McpClientManager {
             auto_restart: Some(true),
             required_permissions: Vec::new(),
             display_name: None,
-            mgp: None,
+            mgp,
             restart_policy: None,
             seal: None,
             isolation: None,

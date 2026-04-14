@@ -1099,7 +1099,12 @@ async fn run_install(
     let _ = &venv_dir; // suppress unused warning
 
     // Use add_server() for proper lifecycle integration:
-    // creates ServerConfig → connect_server() (spawn + register) → save to DB
+    // creates ServerConfig → connect_server() (spawn + register) → save to DB.
+    // The registry's trust_level is threaded through as MgpServerConfig so
+    // isolation derivation at next boot picks up the correct level.
+    let mgp = Some(crate::managers::mcp_mgp::MgpServerConfig {
+        trust_level: Some(entry.trust_level.clone()),
+    });
     match state
         .mcp_manager
         .add_server(
@@ -1108,7 +1113,7 @@ async fn run_install(
             args,
             None,
             Some(entry.description.clone()),
-            None,
+            mgp,
             env_map,
         )
         .await
@@ -1127,9 +1132,14 @@ async fn run_install(
     }
 
     // Set marketplace-specific fields (source, version, marketplace_id)
-    if let Err(e) =
-        crate::db::mcp::set_marketplace_fields(&state.pool, &entry.id, &entry.version, &entry.id)
-            .await
+    if let Err(e) = crate::db::mcp::set_marketplace_fields(
+        &state.pool,
+        &entry.id,
+        &entry.version,
+        &entry.id,
+        Some(&entry.trust_level),
+    )
+    .await
     {
         warn!("Failed to set marketplace fields: {e}");
     }
@@ -1860,6 +1870,9 @@ async fn run_batch_install(
             }
         }
 
+        let mgp = Some(crate::managers::mcp_mgp::MgpServerConfig {
+            trust_level: Some(entry.trust_level.clone()),
+        });
         let connected = match state
             .mcp_manager
             .add_server(
@@ -1868,7 +1881,7 @@ async fn run_batch_install(
                 args,
                 None,
                 Some(entry.description.clone()),
-                None,
+                mgp,
                 env_map,
             )
             .await
@@ -1888,6 +1901,7 @@ async fn run_batch_install(
             &entry.id,
             &entry.version,
             &entry.id,
+            Some(&entry.trust_level),
         )
         .await
         {
