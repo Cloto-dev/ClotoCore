@@ -218,6 +218,8 @@
       "model_dropdown_error": "モデル一覧を取得できませんでした ({{code}})。手動入力してください。",
       "model_refresh": "再取得",
       "model_ctx_suffix": "{{tokens}} tok",
+      "model_ctx_max_suffix": "{{tokens}} tok max",
+      "model_ctx_loaded_of_max": "{{loaded}} / {{max}} tok",
       "model_loaded": "ロード済み",
       "context_length_placeholder": "トークン数",
       "context_length_edit_hint": "クリックしてコンテキスト長を設定 (事前バリデーションが有効になります)",

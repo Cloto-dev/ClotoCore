@@ -27,10 +27,19 @@ use std::{
 use serde::Deserialize;
 
 /// Per-model runtime info returned by LM Studio's `/api/v0/models`.
+///
+/// `max_context_length` is the model's native maximum from its GGUF metadata;
+/// `loaded_context_length` is the **actual** `n_ctx` the running instance is
+/// configured for — LM Studio only populates it when `state == "loaded"`.
+/// They often differ: a model might advertise `max=262_144` but be loaded at
+/// `n_ctx=4096` (LM Studio's default). The loaded value is what constrains
+/// real requests, so pre-flight validation and the dashboard's "Detect" button
+/// must prefer it when available.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ModelInfo {
     pub loaded: bool,
     pub max_context_length: Option<i64>,
+    pub loaded_context_length: Option<i64>,
     pub architecture: Option<String>,
 }
 
@@ -47,6 +56,8 @@ struct LmStudioModel {
     state: Option<String>,
     #[serde(default)]
     max_context_length: Option<i64>,
+    #[serde(default)]
+    loaded_context_length: Option<i64>,
     #[serde(default)]
     arch: Option<String>,
 }
@@ -125,6 +136,7 @@ async fn probe_once(api_url: &str, client: &reqwest::Client) -> Option<HashMap<S
             ModelInfo {
                 loaded: m.state.as_deref() == Some("loaded"),
                 max_context_length: m.max_context_length,
+                loaded_context_length: m.loaded_context_length,
                 architecture: m.arch,
             },
         );
@@ -219,11 +231,15 @@ mod tests {
 
     #[test]
     fn parses_lmstudio_response() {
-        // Fixture of the shape LM Studio's /api/v0/models returns (trimmed).
+        // Fixture mirroring the real LM Studio /api/v0/models payload:
+        //   - loaded model: both max_context_length (GGUF native) and
+        //     loaded_context_length (actual n_ctx) set, often to different values.
+        //   - not-loaded model: max_context_length only; loaded_context_length absent.
+        //   - degraded shape: state=loaded but no ctx fields at all (resilient parse).
         let body = r#"{
             "object": "list",
             "data": [
-                {"id":"qwen/qwen3.5-9b","state":"loaded","max_context_length":4096,"arch":"qwen3"},
+                {"id":"qwen/qwen3.5-9b","state":"loaded","max_context_length":262144,"loaded_context_length":4096,"arch":"qwen3"},
                 {"id":"qwen/qwen3.5-27b","state":"not-loaded","max_context_length":32768,"arch":"qwen3"},
                 {"id":"no-ctx","state":"loaded"}
             ]
@@ -236,19 +252,23 @@ mod tests {
                 ModelInfo {
                     loaded: m.state.as_deref() == Some("loaded"),
                     max_context_length: m.max_context_length,
+                    loaded_context_length: m.loaded_context_length,
                     architecture: m.arch,
                 },
             );
         }
         assert!(map["qwen/qwen3.5-9b"].loaded);
-        assert_eq!(map["qwen/qwen3.5-9b"].max_context_length, Some(4096));
+        assert_eq!(map["qwen/qwen3.5-9b"].max_context_length, Some(262_144));
+        assert_eq!(map["qwen/qwen3.5-9b"].loaded_context_length, Some(4096));
         assert_eq!(
             map["qwen/qwen3.5-9b"].architecture.as_deref(),
             Some("qwen3")
         );
         assert!(!map["qwen/qwen3.5-27b"].loaded);
         assert_eq!(map["qwen/qwen3.5-27b"].max_context_length, Some(32768));
+        assert_eq!(map["qwen/qwen3.5-27b"].loaded_context_length, None);
         assert!(map["no-ctx"].loaded);
         assert_eq!(map["no-ctx"].max_context_length, None);
+        assert_eq!(map["no-ctx"].loaded_context_length, None);
     }
 }

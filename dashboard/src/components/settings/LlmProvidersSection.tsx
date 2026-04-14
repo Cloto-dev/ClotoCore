@@ -32,6 +32,7 @@ type ModelOption = {
   name?: string;
   loaded?: boolean;
   max_context_length?: number;
+  loaded_context_length?: number;
   architecture?: string;
 };
 type ModelListState = {
@@ -259,13 +260,17 @@ export function LlmProvidersSection() {
     }
   };
 
-  /// Auto-fill context_length from a probed LM Studio model, if its max_context_length is known.
+  /// Auto-fill context_length from probe data for the provider's currently-set model.
+  /// Prefers the actual `loaded_context_length` (what LM Studio will accept right now)
+  /// over `max_context_length` (the model's native maximum), because the former is
+  /// what pre-flight validation in the kernel actually cares about. Falls back to
+  /// the native max when the model isn't loaded.
   const detectCtxFromProbe = async (providerId: string) => {
     const list = await fetchModels(providerId);
     const currentProvider = providers.find((p) => p.id === providerId);
     const modelId = currentProvider?.model_id;
     const target = modelId ? list.models.find((m) => m.id === modelId) : undefined;
-    const detected = target?.max_context_length;
+    const detected = target?.loaded_context_length ?? target?.max_context_length;
     if (detected) {
       setCtxInput(String(detected));
     } else {
@@ -307,9 +312,26 @@ export function LlmProvidersSection() {
                         {modelList.models.map((m) => {
                           const parts: string[] = [m.id];
                           if (m.name) parts.push(`— ${m.name}`);
-                          if (m.max_context_length) {
+                          // Prefer showing the actually loaded n_ctx (what LM Studio will
+                          // accept right now) alongside the model's native maximum so the
+                          // user can see the gap at a glance.
+                          if (m.loaded && m.loaded_context_length && m.max_context_length &&
+                              m.loaded_context_length !== m.max_context_length) {
+                            parts.push(
+                              `· ${t('llm_providers.model_ctx_loaded_of_max', {
+                                loaded: m.loaded_context_length.toLocaleString(),
+                                max: m.max_context_length.toLocaleString(),
+                              })}`,
+                            );
+                          } else if (m.loaded && m.loaded_context_length) {
                             parts.push(
                               `· ${t('llm_providers.model_ctx_suffix', {
+                                tokens: m.loaded_context_length.toLocaleString(),
+                              })}`,
+                            );
+                          } else if (m.max_context_length) {
+                            parts.push(
+                              `· ${t('llm_providers.model_ctx_max_suffix', {
                                 tokens: m.max_context_length.toLocaleString(),
                               })}`,
                             );

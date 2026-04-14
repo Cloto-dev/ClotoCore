@@ -278,11 +278,17 @@ async fn proxy_handler(
                                 "unknown",
                             ),
                         };
-                        // Include upstream error detail so MCP servers can surface it
+                        // Include upstream error detail so MCP servers can surface it.
+                        // Providers use several shapes — try in order of specificity:
+                        //   OpenAI-style:   {error: {message: "..."}}
+                        //   LM Studio:      {error: "..."}          (plain string)
+                        //   Anthropic:      {error: {type, message}} (same as OpenAI)
+                        //   Fallback:       {message: "..."}
                         let upstream_detail = resp_body
                             .get("error")
-                            .and_then(|e| e.get("message"))
-                            .and_then(|m| m.as_str())
+                            .and_then(|e| e.get("message").and_then(|m| m.as_str()))
+                            .or_else(|| resp_body.get("error").and_then(|e| e.as_str()))
+                            .or_else(|| resp_body.get("message").and_then(|m| m.as_str()))
                             .unwrap_or("");
                         let full_msg = if upstream_detail.is_empty() {
                             msg

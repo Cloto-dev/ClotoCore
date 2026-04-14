@@ -36,6 +36,12 @@ pub struct SystemHandler {
     pool: SqlitePool,
     active_cron_contexts: crate::ActiveCronContexts,
     memory_timeout_secs: u64,
+    /// Shared with `AppState::provider_probe_cache`. Pre-flight consults this to
+    /// learn LM Studio's actual loaded n_ctx so the budget check can clamp the
+    /// DB-configured `context_length` down to reality. Defaults to a fresh
+    /// (orphan) cache for tests; production wires the AppState one via
+    /// [`Self::set_probe_cache`] right after construction.
+    probe_cache: crate::managers::provider_probe::ProbeCache,
 }
 
 impl SystemHandler {
@@ -71,6 +77,7 @@ impl SystemHandler {
             pool,
             active_cron_contexts,
             memory_timeout_secs,
+            probe_cache: crate::managers::provider_probe::ProbeCache::new(),
         }
     }
 
@@ -78,6 +85,13 @@ impl SystemHandler {
     #[must_use]
     pub fn default_agent_id(&self) -> &str {
         &self.default_agent_id
+    }
+
+    /// Wire the shared `AppState::provider_probe_cache` into this handler.
+    /// Production code calls this right after construction; tests leave it
+    /// defaulted to an orphan cache (pre-flight then falls back to DB-only).
+    pub fn set_probe_cache(&mut self, cache: crate::managers::provider_probe::ProbeCache) {
+        self.probe_cache = cache;
     }
 
     /// Extract user_id from a ClotoMessage's source.
@@ -1849,8 +1863,30 @@ impl SystemHandler {
         let Ok(provider) = crate::db::get_llm_provider(&self.pool, provider_id).await else {
             return Ok(());
         };
-        let Some(ctx_len) = provider.context_length else {
-            return Ok(());
+        // Reconcile DB-configured `context_length` with the provider's actual runtime
+        // state where possible. LM Studio can load a model with a smaller `n_ctx` than
+        // either its native max or what the admin configured in the Dashboard — in
+        // that case the DB value over-promises and pre-flight would let an
+        // un-executable request through. Use the tightest bound we know.
+        // Probe uses its own short per-request timeout; any client works.
+        let probe_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()
+            .unwrap_or_default();
+        let probed_loaded: Option<i64> = self
+            .probe_cache
+            .get_or_probe(&provider.id, &provider.api_url, &probe_client)
+            .await
+            .and_then(|map| {
+                map.get(&provider.model_id)
+                    .and_then(|m| m.loaded_context_length)
+            });
+
+        let ctx_len = match (provider.context_length, probed_loaded) {
+            (Some(db), Some(loaded)) => db.min(loaded),
+            (Some(db), None) => db,
+            (None, Some(loaded)) => loaded,
+            (None, None) => return Ok(()),
         };
 
         // The MCP payload serializes `agent` verbatim — measure that blob rather than

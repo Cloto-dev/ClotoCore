@@ -353,6 +353,11 @@ pub async fn list_provider_models(
                 if let Some(ctx) = info.max_context_length {
                     obj.insert("max_context_length".into(), serde_json::json!(ctx));
                 }
+                // LM Studio only reports loaded_context_length when state=loaded.
+                // This is the authoritative n_ctx for pre-flight and the Detect button.
+                if let Some(ctx) = info.loaded_context_length {
+                    obj.insert("loaded_context_length".into(), serde_json::json!(ctx));
+                }
                 if let Some(arch) = &info.architecture {
                     obj.insert("architecture".into(), serde_json::json!(arch));
                 }

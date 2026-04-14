@@ -542,6 +542,7 @@ export const api = {
       name?: string;
       loaded?: boolean;
       max_context_length?: number;
+      loaded_context_length?: number;
       architecture?: string;
     }>;
     error_code?: string;
