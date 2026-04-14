@@ -17,6 +17,10 @@ pub struct LlmProviderRow {
     /// Authentication type: "bearer" (default) or "x-api-key" (Anthropic-style).
     #[serde(default = "default_auth_type")]
     pub auth_type: String,
+    /// Provider's context window in tokens. `None` = unknown; pre-flight validation is skipped.
+    /// Populated manually via Dashboard or auto-detected from LM Studio probes.
+    #[serde(default)]
+    pub context_length: Option<i64>,
 }
 
 fn default_auth_type() -> String {
@@ -25,14 +29,14 @@ fn default_auth_type() -> String {
 
 pub async fn list_llm_providers(pool: &SqlitePool) -> anyhow::Result<Vec<LlmProviderRow>> {
     let rows = db_timeout(sqlx::query_as::<_, LlmProviderRow>(
-        "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type FROM llm_providers ORDER BY id"
+        "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type, context_length FROM llm_providers ORDER BY id"
     ).fetch_all(pool)).await?;
     Ok(rows)
 }
 
 pub async fn get_llm_provider(pool: &SqlitePool, id: &str) -> anyhow::Result<LlmProviderRow> {
     let row = db_timeout(sqlx::query_as::<_, LlmProviderRow>(
-        "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type FROM llm_providers WHERE id = ?"
+        "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type, context_length FROM llm_providers WHERE id = ?"
     ).bind(id).fetch_optional(pool)).await?;
     row.ok_or_else(|| anyhow::anyhow!("LLM provider '{}' not found", id))
 }
@@ -94,6 +98,56 @@ pub async fn set_llm_provider_model(
     .await?;
 
     Ok(old_model)
+}
+
+/// Update the provider's context_length. Pass `None` to clear a previously set value.
+/// Returns the previous value so callers can populate audit logs.
+pub async fn set_llm_provider_context_length(
+    pool: &SqlitePool,
+    id: &str,
+    context_length: Option<i64>,
+) -> anyhow::Result<Option<i64>> {
+    let old: Option<i64> = db_timeout(
+        sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT context_length FROM llm_providers WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(pool),
+    )
+    .await?
+    .flatten();
+
+    let result = db_timeout(
+        sqlx::query("UPDATE llm_providers SET context_length = ? WHERE id = ?")
+            .bind(context_length)
+            .bind(id)
+            .execute(pool),
+    )
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(anyhow::anyhow!("LLM provider '{}' not found", id));
+    }
+    Ok(old)
+}
+
+/// Fill in `context_length` from a detected value only when the user has not already
+/// set one. Returns `true` when the row was actually updated (so callers can log it).
+pub async fn maybe_autofill_context_length(
+    pool: &SqlitePool,
+    id: &str,
+    detected: i64,
+) -> anyhow::Result<bool> {
+    let result = db_timeout(
+        sqlx::query(
+            "UPDATE llm_providers SET context_length = ? \
+             WHERE id = ? AND context_length IS NULL",
+        )
+        .bind(detected)
+        .bind(id)
+        .execute(pool),
+    )
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn delete_llm_provider_key(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {

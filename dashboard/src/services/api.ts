@@ -471,6 +471,7 @@ export const api = {
       model_id: string;
       timeout_secs: number;
       enabled: boolean;
+      context_length: number | null;
     }>;
   }> =>
     fetch(`${API_BASE}/llm/providers`, { headers: { 'X-API-Key': apiKey } }).then((r) => {
@@ -498,6 +499,15 @@ export const api = {
       'POST',
       'set provider model',
       { model_id: modelId },
+      { 'X-API-Key': apiKey },
+    ).then(() => {}),
+
+  setLlmProviderContextLength: (providerId: string, apiKey: string, contextLength: number | null) =>
+    mutate(
+      `/llm/providers/${encodeURIComponent(providerId)}/context-length`,
+      'POST',
+      'set provider context length',
+      { context_length: contextLength },
       { 'X-API-Key': apiKey },
     ).then(() => {}),
 
@@ -767,6 +777,8 @@ export function createAuthenticatedApi(apiKey: string) {
       api.setLlmProviderKey(providerId, k, providerApiKey),
     deleteLlmProviderKey: (providerId: string) => api.deleteLlmProviderKey(providerId, k),
     setLlmProviderModel: (providerId: string, modelId: string) => api.setLlmProviderModel(providerId, k, modelId),
+    setLlmProviderContextLength: (providerId: string, contextLength: number | null) =>
+      api.setLlmProviderContextLength(providerId, k, contextLength),
     listProviderModels: (providerId: string) => api.listProviderModels(providerId, k),
     // Avatar
     uploadAvatar: (agentId: string, file: File) => api.uploadAvatar(agentId, file, k),

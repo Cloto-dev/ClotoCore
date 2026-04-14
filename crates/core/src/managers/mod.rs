@@ -27,6 +27,7 @@ mod plugin;
 pub mod provider_probe;
 mod registry;
 pub mod scheduler;
+pub mod token_budget;
 
 pub use agents::AgentManager;
 pub use capability_dispatcher::{CapabilityDispatcher, CapabilityType};

@@ -911,6 +911,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             get(handlers::list_provider_models),
         )
         .route(
+            "/llm/providers/:id/context-length",
+            post(handlers::set_llm_provider_context_length),
+        )
+        .route(
             "/permissions/:id/approve",
             post(handlers::approve_permission),
         )
