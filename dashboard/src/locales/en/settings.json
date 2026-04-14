@@ -83,6 +83,8 @@
     "model_dropdown_error": "Could not load model list ({{code}}). Enter manually.",
     "model_refresh": "Refresh",
     "model_ctx_suffix": "{{tokens}} tok",
+    "model_ctx_max_suffix": "{{tokens}} tok max",
+    "model_ctx_loaded_of_max": "{{loaded}} / {{max}} tok",
     "model_loaded": "loaded",
     "context_length_placeholder": "tokens",
     "context_length_edit_hint": "Click to set the provider's context window (enables pre-flight validation).",
