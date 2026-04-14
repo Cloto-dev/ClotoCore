@@ -724,4 +724,3 @@ pub async fn update_marketplace_server_version(
 pub async fn delete_marketplace_server(pool: &SqlitePool, name: &str) -> anyhow::Result<()> {
     delete_mcp_server(pool, name).await
 }
-
