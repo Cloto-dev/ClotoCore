@@ -404,8 +404,8 @@ pub async fn test_provider_connection(
         .await
         .map_err(|_| AppError::NotFound(format!("LLM provider '{}' not found", provider_id)))?;
 
-    let models_url = derive_models_url(&provider.api_url, &provider.id)
-        .map_err(AppError::Validation)?;
+    let models_url =
+        derive_models_url(&provider.api_url, &provider.id).map_err(AppError::Validation)?;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(MODELS_FETCH_TIMEOUT_SECS))
@@ -511,9 +511,9 @@ pub async fn set_llm_provider_context_length(
     let new_value: Option<i64> = match raw {
         None | Some(serde_json::Value::Null) => None,
         Some(v) => {
-            let n = v
-                .as_i64()
-                .ok_or_else(|| AppError::Validation("context_length must be a number or null".into()))?;
+            let n = v.as_i64().ok_or_else(|| {
+                AppError::Validation("context_length must be a number or null".into())
+            })?;
             if n <= 0 {
                 return Err(AppError::Validation(
                     "context_length must be positive".into(),
@@ -530,9 +530,10 @@ pub async fn set_llm_provider_context_length(
         }
     };
 
-    let old_value = crate::db::set_llm_provider_context_length(&state.pool, &provider_id, new_value)
-        .await
-        .map_err(|e| AppError::Validation(e.to_string()))?;
+    let old_value =
+        crate::db::set_llm_provider_context_length(&state.pool, &provider_id, new_value)
+            .await
+            .map_err(|e| AppError::Validation(e.to_string()))?;
 
     spawn_admin_audit(
         state.pool.clone(),

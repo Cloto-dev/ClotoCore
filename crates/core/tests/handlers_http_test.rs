@@ -20,10 +20,7 @@ fn create_test_router(state: Arc<AppState>) -> axum::Router {
             "/agents/:id/mcp-access",
             put(handlers::put_agent_mcp_access),
         )
-        .route(
-            "/cron/jobs",
-            post(handlers::create_cron_job),
-        )
+        .route("/cron/jobs", post(handlers::create_cron_job))
         .route("/plugins/:id/config", post(handlers::update_plugin_config))
         .route(
             "/permissions/:id/approve",

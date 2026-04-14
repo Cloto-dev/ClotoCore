@@ -67,11 +67,10 @@ impl AgentManager {
     /// references to unknown agents with a clear validation error instead of
     /// letting the downstream foreign-key constraint fail as a 500.
     pub async fn agent_exists(&self, agent_id: &str) -> anyhow::Result<bool> {
-        let row: Option<(i64,)> =
-            sqlx::query_as("SELECT 1 FROM agents WHERE id = ? LIMIT 1")
-                .bind(agent_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM agents WHERE id = ? LIMIT 1")
+            .bind(agent_id)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(row.is_some())
     }
 

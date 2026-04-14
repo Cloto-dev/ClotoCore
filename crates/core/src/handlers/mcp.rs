@@ -647,7 +647,9 @@ pub async fn get_mcp_server_access(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
 
-    let default_policy = settings.as_ref().map_or("opt-in", |r| r.default_policy.as_str());
+    let default_policy = settings
+        .as_ref()
+        .map_or("opt-in", |r| r.default_policy.as_str());
 
     // Get tools from running server
     let tools: Vec<String> = {

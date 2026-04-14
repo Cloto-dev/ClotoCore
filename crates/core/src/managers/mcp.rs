@@ -282,12 +282,11 @@ impl McpClientManager {
     /// that skipped existing rows. Re-reads mcp.toml.migrated if available.
     async fn repair_config_loaded_servers(&self, data_dir: &std::path::Path) -> Result<()> {
         // Check if any config-loaded records exist
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM mcp_servers WHERE command = 'config-loaded'",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .unwrap_or(0);
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM mcp_servers WHERE command = 'config-loaded'")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(0);
 
         if count == 0 {
             return Ok(());
@@ -407,7 +406,9 @@ impl McpClientManager {
     }
 
     /// Load mcp.toml and connect all servers (legacy — used only during migration).
-    #[deprecated(note = "Use load_and_connect_priority() instead. This exists only for mcp.toml migration.")]
+    #[deprecated(
+        note = "Use load_and_connect_priority() instead. This exists only for mcp.toml migration."
+    )]
     pub async fn load_config_file(&self, config_path: &str) -> Result<()> {
         let configs = self.parse_config_file(config_path)?;
         self.connect_server_configs(&configs).await;
@@ -561,9 +562,7 @@ impl McpClientManager {
             .map(|cfg| {
                 let config = cfg.clone();
                 async move {
-                    let result = self
-                        .connect_server(config.clone())
-                        .await;
+                    let result = self.connect_server(config.clone()).await;
                     (config, result)
                 }
             })
@@ -684,9 +683,7 @@ impl McpClientManager {
             .map(|config| {
                 let config = config.clone();
                 async move {
-                    let result = self
-                        .connect_server(config.clone())
-                        .await;
+                    let result = self.connect_server(config.clone()).await;
                     (config, result)
                 }
             })
@@ -725,10 +722,7 @@ impl McpClientManager {
 
     /// Connect to an MCP server with retry logic.
     #[allow(clippy::too_many_lines)]
-    pub async fn connect_server(
-        &self,
-        config: McpServerConfig,
-    ) -> Result<Vec<String>> {
+    pub async fn connect_server(&self, config: McpServerConfig) -> Result<Vec<String>> {
         let id = config.id.clone();
 
         let is_http_transport = config.transport == "streamable-http";
@@ -1226,10 +1220,7 @@ impl McpClientManager {
 
         // Send initialized notification (after Permission Flow completes)
         if let Err(e) = client.send_initialized_notification().await {
-            let msg = format!(
-                "Failed to send initialized notification to [{}]: {}",
-                id, e
-            );
+            let msg = format!("Failed to send initialized notification to [{}]: {}", id, e);
             self.set_server_error(&id, &msg).await;
             return Err(anyhow::anyhow!("{}", msg));
         }
@@ -2358,9 +2349,10 @@ impl McpClientManager {
         {
             let mut state = self.state.write().await;
 
-            let handle = state.servers.get_mut(id).ok_or_else(|| {
-                anyhow::anyhow!("Server '{}' not found or already stopped", id)
-            })?;
+            let handle = state
+                .servers
+                .get_mut(id)
+                .ok_or_else(|| anyhow::anyhow!("Server '{}' not found or already stopped", id))?;
 
             if handle.status == ServerStatus::Disconnected {
                 return Err(anyhow::anyhow!("Server '{}' is already stopped", id));
@@ -2606,7 +2598,11 @@ impl McpClientManager {
             return true;
         };
         // readOnlyHint: true → safe, skip HITL
-        if ann.get("readOnlyHint").and_then(Value::as_bool).unwrap_or(false) {
+        if ann
+            .get("readOnlyHint")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             return false;
         }
         // destructiveHint defaults to true per MCP spec
@@ -2728,19 +2724,16 @@ fn resolve_mcp_servers_dir(base_dir: &std::path::Path) -> String {
         &base_dir.join("../cloto-mcp-servers/servers"),
         &crate::config::exe_dir().join("mcp-servers/servers"),
     ];
-    candidates
-        .iter()
-        .find(|p| p.exists())
-        .map_or_else(
-            || {
-                info!(
-                    "CLOTO_MCP_SERVERS not set, no servers dir found; using production default: {}",
-                    production.display()
-                );
-                production.to_string_lossy().to_string()
-            },
-            |p| p.to_string_lossy().to_string(),
-        )
+    candidates.iter().find(|p| p.exists()).map_or_else(
+        || {
+            info!(
+                "CLOTO_MCP_SERVERS not set, no servers dir found; using production default: {}",
+                production.display()
+            );
+            production.to_string_lossy().to_string()
+        },
+        |p| p.to_string_lossy().to_string(),
+    )
 }
 
 /// Check if a server's env config contains unresolved `${VAR}` references

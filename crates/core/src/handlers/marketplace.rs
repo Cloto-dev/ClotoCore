@@ -294,10 +294,7 @@ pub async fn install_handler(
             error!("Marketplace install failed for {}: {e}", entry.id);
         }
         // Always emit Complete so the frontend SSE listener can close.
-        emit(
-            &state_clone.setup_progress_tx,
-            SetupProgressEvent::Complete,
-        );
+        emit(&state_clone.setup_progress_tx, SetupProgressEvent::Complete);
     });
 
     super::ok_data(serde_json::json!({ "started": true, "server_id": request.server_id }))
@@ -1640,7 +1637,10 @@ async fn run_batch_install(
                 },
             );
             let venv_path_str = venv_dir.to_string_lossy().to_string();
-            diag(&format!("uv venv --python {} {}", target_python, venv_path_str));
+            diag(&format!(
+                "uv venv --python {} {}",
+                target_python, venv_path_str
+            ));
             let mut cmd = tokio::process::Command::new(&uv_str);
             cmd.args(["venv", "--python", target_python, &venv_path_str])
                 .stdin(std::process::Stdio::null())
@@ -1758,7 +1758,10 @@ async fn run_batch_install(
                 .to_string_lossy()
                 .to_string();
 
-            diag(&format!("Installing server: {} (path: {})", entry.name, server_path));
+            diag(&format!(
+                "Installing server: {} (path: {})",
+                entry.name, server_path
+            ));
             match super::setup::spawn_uv_streaming(
                 tx,
                 &uv_str,

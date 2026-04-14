@@ -226,7 +226,10 @@ mod tests {
 
     #[test]
     fn should_not_probe_remote_host() {
-        assert!(!should_probe("claude", "https://api.anthropic.com/v1/messages"));
+        assert!(!should_probe(
+            "claude",
+            "https://api.anthropic.com/v1/messages"
+        ));
     }
 
     #[test]

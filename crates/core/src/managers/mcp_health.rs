@@ -149,8 +149,7 @@ async fn check_and_restart_dead_servers(
                 {
                     let mut state = manager.state.write().await;
                     if let Some(handle) = state.servers.get_mut(&server_id) {
-                        handle.status =
-                            ServerStatus::Error(format!("Auto-restart failed: {}", e));
+                        handle.status = ServerStatus::Error(format!("Auto-restart failed: {}", e));
                     }
                 }
 
