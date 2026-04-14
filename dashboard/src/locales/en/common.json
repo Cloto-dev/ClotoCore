@@ -8,6 +8,12 @@
   "confirm": "Confirm",
   "error": "Error",
   "loading": "Loading...",
+  "agent": {
+    "context_usage_aria": "Last response used {{used}} of {{max}} context tokens",
+    "context_usage_tooltip_prompt": "Prompt: {{tokens}} tok",
+    "context_usage_tooltip_completion": "Completion: {{tokens}} tok",
+    "context_usage_tooltip_estimate": "Estimated (provider didn't report usage)"
+  },
   "status": {
     "online": "Online",
     "offline": "Offline",

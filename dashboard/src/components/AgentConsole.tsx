@@ -21,6 +21,7 @@ import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { findBranchPoints, flattenConversation } from '../lib/conversationTree';
 import { sendNativeNotification } from '../lib/notifications';
 import { openVrmWindow } from '../lib/tauri';
+import { ContextUsageBadge } from './ContextUsageBadge';
 import { EVENTS_URL } from '../services/api';
 import type {
   AgentMetadata,
@@ -729,6 +730,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <ContextUsageBadge agentId={agent.id} refreshKey={messages.length} />
           {hasVrm && (
             <button
               onClick={() => openVrmWindow(agent.id, api.apiKey)}

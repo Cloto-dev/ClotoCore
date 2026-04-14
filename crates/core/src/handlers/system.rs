@@ -42,6 +42,10 @@ pub struct SystemHandler {
     /// (orphan) cache for tests; production wires the AppState one via
     /// [`Self::set_probe_cache`] right after construction.
     probe_cache: crate::managers::provider_probe::ProbeCache,
+    /// Shared with `AppState::last_usage`. Defaults to a fresh (orphan) store so
+    /// tests don't need to wire anything; production wires the `AppState` one
+    /// via [`Self::set_usage_store`] right after construction.
+    last_usage: crate::managers::usage_tracker::UsageStore,
 }
 
 impl SystemHandler {
@@ -74,6 +78,7 @@ impl SystemHandler {
             tool_execution_timeout_secs,
             pending_approvals,
             session_trusted_commands,
+            last_usage: crate::managers::usage_tracker::UsageStore::new(),
             pool,
             active_cron_contexts,
             memory_timeout_secs,
@@ -92,6 +97,13 @@ impl SystemHandler {
     /// defaulted to an orphan cache (pre-flight then falls back to DB-only).
     pub fn set_probe_cache(&mut self, cache: crate::managers::provider_probe::ProbeCache) {
         self.probe_cache = cache;
+    }
+
+    /// Wire the shared `AppState::last_usage` store into this handler.
+    /// Production code calls this right after construction; tests leave it
+    /// defaulted to an orphan store.
+    pub fn set_usage_store(&mut self, store: crate::managers::usage_tracker::UsageStore) {
+        self.last_usage = store;
     }
 
     /// Extract user_id from a ClotoMessage's source.
@@ -1483,6 +1495,7 @@ impl SystemHandler {
                 "context": context_val,
             });
             let result = mcp.call_server_tool(engine_id, "think", args).await?;
+            self.maybe_record_usage(&agent.id, engine_id, &result).await;
             return Self::extract_mcp_think_content(&result);
         }
 
@@ -1533,10 +1546,56 @@ impl SystemHandler {
             let result = mcp
                 .call_server_tool(engine_id, "think_with_tools", args)
                 .await?;
+            self.maybe_record_usage(&agent.id, engine_id, &result).await;
             return Self::parse_mcp_think_result(&result);
         }
 
         Err(anyhow::anyhow!("Engine '{}' not found", engine_id))
+    }
+
+    /// Record the `usage` block returned by a mind MCP server into the
+    /// per-agent [`UsageStore`] so the dashboard can display "used / max".
+    /// Silently no-ops when the MCP server didn't include usage (older
+    /// cloto-mcp-servers versions, or non-final responses) — we don't want a
+    /// missing counter to produce log noise on every turn.
+    async fn maybe_record_usage(
+        &self,
+        agent_id: &str,
+        engine_id: &str,
+        result: &crate::managers::mcp_protocol::CallToolResult,
+    ) {
+        use crate::managers::mcp_protocol::ToolContent;
+        let Some(ToolContent::Text { text }) = result.content.first() else {
+            return;
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(text) else {
+            return;
+        };
+        let Some(usage) = json.get("usage") else {
+            return;
+        };
+        let Some((prompt, completion, total)) =
+            crate::managers::usage_tracker::normalize_usage(usage)
+        else {
+            return;
+        };
+
+        let provider_id = engine_id.strip_prefix("mind.").unwrap_or(engine_id);
+        let provider = crate::db::get_llm_provider(&self.pool, provider_id).await.ok();
+
+        self.last_usage.record(
+            agent_id,
+            crate::managers::usage_tracker::LastUsage {
+                prompt_tokens: prompt,
+                completion_tokens: completion,
+                total_tokens: total,
+                context_length: provider.as_ref().and_then(|p| p.context_length),
+                provider_id: provider_id.to_string(),
+                model_id: provider.map_or_else(String::new, |p| p.model_id),
+                is_estimate: false,
+                updated_at: chrono::Utc::now(),
+            },
+        );
     }
 
     /// Extract text content from MCP think() response.
