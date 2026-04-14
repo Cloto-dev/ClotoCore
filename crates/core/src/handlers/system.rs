@@ -21,6 +21,16 @@ use super::engine_routing::{
     evaluate_engine_routing, is_retriable_error, needs_escalation, EngineSelection,
 };
 
+/// Outcome reported by `handle_message_impl` so the `handle_message`
+/// wrapper can record the final CRON job status accurately.
+/// Without this distinction, a cron job dispatched to a powered-off agent
+/// would be silently dropped and still recorded as "success" in `cron_jobs`
+/// (violates `docs/DEVELOPMENT.md §1.2`: "Do not silently drop events").
+enum HandleOutcome {
+    Executed,
+    Skipped(String),
+}
+
 pub struct SystemHandler {
     registry: Arc<PluginRegistry>,
     agent_manager: AgentManager,
@@ -115,16 +125,84 @@ impl SystemHandler {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
+    /// Public entry point — delegates to `handle_message_impl` and records the
+    /// final CRON job status (`success` / `error` / `skipped`) + cleans up the
+    /// active cron context. This wrapper guarantees the DB row reflects the
+    /// actual execution outcome regardless of which early-return path the
+    /// implementation took.
     pub async fn handle_message(&self, msg: ClotoMessage) -> anyhow::Result<()> {
+        let cron_job_id = msg.metadata.get("cron_job_id").cloned();
+        let target_agent_id = msg
+            .target_agent
+            .clone()
+            .or_else(|| msg.metadata.get("target_agent_id").cloned())
+            .unwrap_or_else(|| self.default_agent_id.clone());
+        let agent_id_for_audit = target_agent_id.clone();
+
+        let outcome = self.handle_message_impl(msg).await;
+
+        // Bug #2: cron context cleanup — unconditional, even on error / early return.
+        if cron_job_id.is_some() {
+            self.active_cron_contexts.remove(&target_agent_id);
+        }
+
+        // Bug #1: write the final cron status now that we know the real outcome.
+        if let Some(ref job_id) = cron_job_id {
+            let (status, err_msg): (&str, Option<String>) = match &outcome {
+                Ok(HandleOutcome::Executed) => ("success", None),
+                Ok(HandleOutcome::Skipped(reason)) => ("skipped", Some(reason.clone())),
+                Err(e) => ("error", Some(e.to_string())),
+            };
+            if let Err(db_err) = crate::db::update_cron_job_last_status(
+                &self.pool,
+                job_id,
+                status,
+                err_msg.as_deref(),
+            )
+            .await
+            {
+                warn!(
+                    job_id = %job_id,
+                    status,
+                    error = %db_err,
+                    "Failed to write final CRON status"
+                );
+            }
+
+            // Observability guarantee (§1.2): a cron execution that was dropped
+            // without running the agentic loop must leave an audit trail.
+            if let Ok(HandleOutcome::Skipped(ref reason)) = outcome {
+                crate::db::spawn_audit_log(
+                    self.pool.clone(),
+                    crate::db::AuditLogEntry {
+                        timestamp: chrono::Utc::now(),
+                        event_type: "CRON_SKIPPED".into(),
+                        actor_id: Some("system_handler".into()),
+                        target_id: Some(agent_id_for_audit.clone()),
+                        permission: None,
+                        result: "skipped".into(),
+                        reason: reason.clone(),
+                        metadata: Some(serde_json::json!({ "job_id": job_id })),
+                        trace_id: None,
+                    },
+                );
+            }
+        }
+
+        outcome.map(|_| ())
+    }
+
+    #[allow(clippy::too_many_lines)]
+    async fn handle_message_impl(&self, msg: ClotoMessage) -> anyhow::Result<HandleOutcome> {
         let target_agent_id = msg
             .target_agent
             .clone()
             .or_else(|| msg.metadata.get("target_agent_id").cloned())
             .unwrap_or_else(|| self.default_agent_id.clone());
 
-        // Set active cron context if this message was dispatched by a cron job
-        let cron_context_key = if let Some(cron_job_id) = msg.metadata.get("cron_job_id") {
+        // Set active cron context if this message was dispatched by a cron job.
+        // Cleanup is handled by the `handle_message` wrapper (runs on every exit path).
+        if let Some(cron_job_id) = msg.metadata.get("cron_job_id") {
             let generation = crate::db::get_cron_job_generation(&self.pool, cron_job_id)
                 .await
                 .unwrap_or(0);
@@ -135,10 +213,7 @@ impl SystemHandler {
                     generation,
                 },
             );
-            Some(target_agent_id.clone())
-        } else {
-            None
-        };
+        }
 
         // 1. エージェント情報の取得
         let (agent, default_engine_id) = self
@@ -146,10 +221,15 @@ impl SystemHandler {
             .get_agent_config(&target_agent_id)
             .await?;
 
-        // Block disabled agents from processing messages
+        // Block disabled agents from processing messages.
+        // For cron dispatches, the wrapper records this as `last_status="skipped"`
+        // and emits a CRON_SKIPPED audit log (§1.2 observability guarantee).
         if !agent.enabled {
             info!(agent_id = %target_agent_id, "🔌 Agent is powered off. Message dropped.");
-            return Ok(());
+            return Ok(HandleOutcome::Skipped(format!(
+                "agent '{}' is powered off",
+                target_agent_id
+            )));
         }
 
         // Passive heartbeat: update last_seen on message routing
@@ -1063,12 +1143,9 @@ impl SystemHandler {
             });
         }
 
-        // Clear active cron context
-        if let Some(ref agent_key) = cron_context_key {
-            self.active_cron_contexts.remove(agent_key);
-        }
+        // active_cron_contexts cleanup is handled by the `handle_message` wrapper.
 
-        Ok(())
+        Ok(HandleOutcome::Executed)
     }
 
     // ── Agentic Loop ──
@@ -1206,13 +1283,23 @@ impl SystemHandler {
         let mut iteration: u8 = 0;
         let mut total_tool_calls: u32 = 0;
 
+        // CRON jobs may carry a per-job `max_iterations_override` in metadata.
+        // Fall back to the kernel default, and cap at 64 (matches
+        // `config.rs` validator so overrides can't exceed the global ceiling).
+        let max_iterations = message
+            .metadata
+            .get("max_iterations_override")
+            .and_then(|v| v.parse::<u8>().ok())
+            .unwrap_or(self.max_agentic_iterations)
+            .min(64);
+
         loop {
             iteration = iteration.saturating_add(1);
-            if iteration > self.max_agentic_iterations {
+            if iteration > max_iterations {
                 warn!(
                     agent_id = %agent.id,
                     "⚠️ Agentic loop hit max iterations ({}), forcing text response",
-                    self.max_agentic_iterations
+                    max_iterations
                 );
                 return self
                     .engine_think(
@@ -1581,7 +1668,9 @@ impl SystemHandler {
         };
 
         let provider_id = engine_id.strip_prefix("mind.").unwrap_or(engine_id);
-        let provider = crate::db::get_llm_provider(&self.pool, provider_id).await.ok();
+        let provider = crate::db::get_llm_provider(&self.pool, provider_id)
+            .await
+            .ok();
 
         self.last_usage.record(
             agent_id,
