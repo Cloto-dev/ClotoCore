@@ -396,7 +396,7 @@
     "type_cron": "Cron 式",
     "type_once": "ワンショット (ISO 8601)",
     "label_interval": "インターバル (秒、最小 60)",
-    "label_cron": "Cron 式 (例: 0 9 * * *)",
+    "label_cron": "Cron 式 — 秒付き 6 フィールド (例: 0 0 9 * * *)",
     "label_once": "実行日時 (ISO 8601)",
     "message": "メッセージ (エージェントに送信するプロンプト)",
     "message_placeholder": "例: 今日のタスクを要約してブリーフィングを送信してください。",

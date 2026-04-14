@@ -239,7 +239,7 @@ export interface CronJob {
   message: string;
   next_run_at: number;
   last_run_at?: number;
-  last_status?: 'success' | 'error';
+  last_status?: 'success' | 'error' | 'dispatched' | 'skipped';
   last_error?: string;
   max_iterations?: number;
   created_at: string;

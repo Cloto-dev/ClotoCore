@@ -11,7 +11,7 @@
   "type_cron": "Cron Expression",
   "type_once": "One-shot (ISO 8601)",
   "label_interval": "Interval (seconds, min 60)",
-  "label_cron": "Cron Expression (e.g. 0 9 * * *)",
+  "label_cron": "Cron Expression — 6-field with seconds (e.g. 0 0 9 * * *)",
   "label_once": "Run At (ISO 8601)",
   "message": "Message (prompt sent to agent)",
   "message_placeholder": "e.g. Summarize today's tasks and send a briefing.",

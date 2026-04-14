@@ -96,6 +96,27 @@ pub async fn update_cron_job_run(
     Ok(())
 }
 
+/// Update only `last_status` and `last_error` — used by `handle_message`
+/// to record the final execution outcome after the agentic loop resolves.
+/// The scheduler initially writes `"dispatched"`; this helper overwrites
+/// with `"success"` / `"error"` / `"skipped"` once the actual result is known.
+pub async fn update_cron_job_last_status(
+    pool: &SqlitePool,
+    id: &str,
+    last_status: &str,
+    last_error: Option<&str>,
+) -> anyhow::Result<()> {
+    db_timeout(
+        sqlx::query("UPDATE cron_jobs SET last_status = ?, last_error = ? WHERE id = ?")
+            .bind(last_status)
+            .bind(last_error)
+            .bind(id)
+            .execute(pool),
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn delete_cron_job(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
     let result = db_timeout(
         sqlx::query("DELETE FROM cron_jobs WHERE id = ?")
