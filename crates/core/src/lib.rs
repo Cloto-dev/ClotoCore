@@ -409,22 +409,31 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             .map_or(2, |v| v.min(6)),
     ));
 
-    let system_handler = Arc::new(SystemHandler::new(
-        registry_arc.clone(),
-        agent_manager.clone(),
-        config.default_agent_id.clone(),
-        event_tx.clone(),
-        config.memory_context_limit,
-        metrics.clone(),
-        config.consensus_engines.clone(),
-        config.max_agentic_iterations,
-        config.tool_execution_timeout_secs,
-        pending_command_approvals.clone(),
-        session_trusted_commands.clone(),
-        pool.clone(),
-        active_cron_contexts.clone(),
-        config.memory_timeout_secs,
-    ));
+    // Shared between SystemHandler (reader — consults LM Studio's actual loaded n_ctx
+    // to clamp DB-configured context_length during pre-flight) and AppState
+    // (populated by /api/llm/providers/:id/models requests).
+    let probe_cache = managers::provider_probe::ProbeCache::new();
+
+    let system_handler = {
+        let mut h = SystemHandler::new(
+            registry_arc.clone(),
+            agent_manager.clone(),
+            config.default_agent_id.clone(),
+            event_tx.clone(),
+            config.memory_context_limit,
+            metrics.clone(),
+            config.consensus_engines.clone(),
+            config.max_agentic_iterations,
+            config.tool_execution_timeout_secs,
+            pending_command_approvals.clone(),
+            session_trusted_commands.clone(),
+            pool.clone(),
+            active_cron_contexts.clone(),
+            config.memory_timeout_secs,
+        );
+        h.set_probe_cache(probe_cache.clone());
+        Arc::new(h)
+    };
 
     // SystemHandler is NOT registered as a plugin — it runs outside the dispatch
     // pipeline to avoid blocking the event loop during agentic loops.
@@ -508,7 +517,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         )),
         install_limiter: install_limiter.clone(),
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
-        provider_probe_cache: managers::provider_probe::ProbeCache::new(),
+        provider_probe_cache: probe_cache,
     });
 
     // Wire up kernel event bus to MCP manager (for PermissionRequested emission)
