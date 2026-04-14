@@ -110,7 +110,11 @@ pub fn check_budget(
     .max_by_key(|&(_, n)| n)
     .map_or(DominantComponent::Tools, |(c, _)| c);
 
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     let allowed_input = (context_length as f64 * SAFETY_FRACTION) as usize;
     let budget_ceiling = allowed_input.saturating_sub(RESPONSE_HEADROOM);
     let exceeds = estimated_input > budget_ceiling;
