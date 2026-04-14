@@ -24,6 +24,7 @@ type Provider = {
   display_name: string;
   has_key: boolean;
   model_id: string;
+  context_length: number | null;
 };
 
 type ModelOption = {
@@ -54,6 +55,13 @@ export function LlmProvidersSection() {
   const [modelError, setModelError] = useState<string | null>(null);
   const [modelList, setModelList] = useState<ModelListState | null>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
+
+  // Context length edit state (separate from model edit so both fields can be toggled independently)
+  const [editingCtxId, setEditingCtxId] = useState<string | null>(null);
+  const [ctxInput, setCtxInput] = useState('');
+  const [ctxSaving, setCtxSaving] = useState(false);
+  const [ctxError, setCtxError] = useState<string | null>(null);
+  const ctxInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api
@@ -154,6 +162,64 @@ export function LlmProvidersSection() {
     } else if (e.key === 'Escape') {
       e.preventDefault();
       cancelModelEdit();
+    }
+  };
+
+  const startCtxEdit = (p: Provider) => {
+    setEditingCtxId(p.id);
+    setCtxInput(p.context_length != null ? String(p.context_length) : '');
+    setCtxError(null);
+    setTimeout(() => ctxInputRef.current?.focus(), 0);
+  };
+
+  const cancelCtxEdit = () => {
+    setEditingCtxId(null);
+    setCtxInput('');
+    setCtxError(null);
+  };
+
+  const commitCtxEdit = async (providerId: string) => {
+    const trimmed = ctxInput.trim();
+    const parsed: number | null = trimmed === '' ? null : Number(trimmed);
+    if (parsed !== null && (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0)) {
+      setCtxError(t('llm_providers.context_length_validation'));
+      return;
+    }
+    setCtxSaving(true);
+    setCtxError(null);
+    try {
+      await api.setLlmProviderContextLength(providerId, parsed);
+      const d = await api.listLlmProviders();
+      setProviders(d.providers);
+      cancelCtxEdit();
+    } catch (e) {
+      setCtxError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCtxSaving(false);
+    }
+  };
+
+  const handleCtxKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, providerId: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitCtxEdit(providerId);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelCtxEdit();
+    }
+  };
+
+  /// Auto-fill context_length from a probed LM Studio model, if its max_context_length is known.
+  const detectCtxFromProbe = async (providerId: string) => {
+    const list = await fetchModels(providerId);
+    const currentProvider = providers.find((p) => p.id === providerId);
+    const modelId = currentProvider?.model_id;
+    const target = modelId ? list.models.find((m) => m.id === modelId) : undefined;
+    const detected = target?.max_context_length;
+    if (detected) {
+      setCtxInput(String(detected));
+    } else {
+      setCtxError(t('llm_providers.context_length_detect_unavailable'));
     }
   };
 
@@ -264,6 +330,64 @@ export function LlmProvidersSection() {
                     {p.model_id || <span className="italic">{t('llm_providers.model_unset')}</span>}
                   </button>
                 )}
+                <span className="text-content-tertiary text-[10px]">·</span>
+                {editingCtxId === p.id ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      ref={ctxInputRef}
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={ctxInput}
+                      onChange={(e) => setCtxInput(e.target.value)}
+                      onKeyDown={(e) => handleCtxKeyDown(e, p.id)}
+                      aria-label={`${p.display_name} context length`}
+                      placeholder={t('llm_providers.context_length_placeholder')}
+                      className="bg-surface-base border border-brand/50 rounded px-2 py-0.5 text-[11px] font-mono text-content-primary placeholder:text-content-tertiary w-24"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => detectCtxFromProbe(p.id)}
+                      disabled={ctxSaving}
+                      aria-label={t('llm_providers.context_length_detect')}
+                      title={t('llm_providers.context_length_detect')}
+                      className="px-2 py-0.5 text-content-tertiary text-[10px] hover:text-brand rounded disabled:opacity-40"
+                    >
+                      {t('llm_providers.context_length_detect')}
+                    </button>
+                    <button
+                      onClick={() => commitCtxEdit(p.id)}
+                      disabled={ctxSaving}
+                      aria-label={t('llm_providers.model_save')}
+                      className="px-2 py-0.5 bg-brand text-white text-[10px] font-bold rounded disabled:opacity-40"
+                    >
+                      {ctxSaving ? '...' : t('llm_providers.model_save')}
+                    </button>
+                    <button
+                      onClick={cancelCtxEdit}
+                      disabled={ctxSaving}
+                      aria-label={t('llm_providers.model_cancel')}
+                      className="px-2 py-0.5 text-content-tertiary text-[10px] hover:text-content-primary rounded"
+                    >
+                      {t('llm_providers.model_cancel')}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startCtxEdit(p)}
+                    title={t('llm_providers.context_length_edit_hint')}
+                    className="text-[11px] font-mono text-content-tertiary hover:text-brand hover:underline cursor-pointer bg-transparent border-0 p-0"
+                  >
+                    {p.context_length != null ? (
+                      t('llm_providers.model_ctx_suffix', {
+                        tokens: p.context_length.toLocaleString(),
+                      })
+                    ) : (
+                      <span className="italic">{t('llm_providers.context_length_unset')}</span>
+                    )}
+                  </button>
+                )}
               </div>
               {editingModelId === p.id && modelError && (
                 <p className="text-[10px] text-red-400 mt-1 ml-4">{modelError}</p>
@@ -272,6 +396,9 @@ export function LlmProvidersSection() {
                 <p className="text-[10px] text-content-tertiary mt-1 ml-4">
                   {t('llm_providers.model_dropdown_error', { code: modelList.errorCode ?? 'unknown' })}
                 </p>
+              )}
+              {editingCtxId === p.id && ctxError && (
+                <p className="text-[10px] text-red-400 mt-1 ml-4">{ctxError}</p>
               )}
               <div className="flex gap-2 mt-2">
                 <input

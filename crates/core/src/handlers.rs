@@ -36,8 +36,8 @@ pub use cron::{
 };
 pub use events::post_event_handler;
 pub use llm::{
-    delete_llm_provider_key, list_llm_providers, list_provider_models, set_llm_provider_key,
-    set_llm_provider_model,
+    delete_llm_provider_key, list_llm_providers, list_provider_models,
+    set_llm_provider_context_length, set_llm_provider_key, set_llm_provider_model,
 };
 pub use marketplace::{
     batch_install_handler, catalog_handler, install_handler, marketplace_progress_handler,

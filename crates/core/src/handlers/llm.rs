@@ -32,6 +32,7 @@ pub async fn list_llm_providers(
                 "model_id": p.model_id,
                 "timeout_secs": p.timeout_secs,
                 "enabled": p.enabled,
+                "context_length": p.context_length,
             })
         })
         .collect();
@@ -360,6 +361,73 @@ pub async fn list_provider_models(
     }
 
     ok_data(serde_json::json!({ "models": models }))
+}
+
+/// POST /api/llm/providers/:id/context-length
+///
+/// Sets or clears the provider's context window hint. Accepts
+/// `{ "context_length": number | null }`. Stored value is used by the kernel's
+/// pre-flight budget check to reject oversized requests before they reach
+/// the provider (and to surface a localized hint instead of a 400 from
+/// upstream). Audit-logged like other LLM provider mutations.
+pub async fn set_llm_provider_context_length(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(provider_id): axum::extract::Path<String>,
+    Json(payload): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let raw = payload.get("context_length");
+    let new_value: Option<i64> = match raw {
+        None | Some(serde_json::Value::Null) => None,
+        Some(v) => {
+            let n = v
+                .as_i64()
+                .ok_or_else(|| AppError::Validation("context_length must be a number or null".into()))?;
+            if n <= 0 {
+                return Err(AppError::Validation(
+                    "context_length must be positive".into(),
+                ));
+            }
+            // 8M tokens is well beyond any shipping model; reject absurd values so the
+            // pre-flight check stays meaningful.
+            if n > 8_000_000 {
+                return Err(AppError::Validation(
+                    "context_length exceeds sane upper bound".into(),
+                ));
+            }
+            Some(n)
+        }
+    };
+
+    let old_value = crate::db::set_llm_provider_context_length(&state.pool, &provider_id, new_value)
+        .await
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        "LLM_PROVIDER_CONTEXT_LENGTH_UPDATED",
+        provider_id.clone(),
+        format!(
+            "Context length changed from {} to {}",
+            old_value.map_or_else(|| "null".to_string(), |n| n.to_string()),
+            new_value.map_or_else(|| "null".to_string(), |n| n.to_string()),
+        ),
+        None,
+        Some(serde_json::json!({
+            "old_context_length": old_value,
+            "new_context_length": new_value,
+        })),
+        None,
+    );
+
+    tracing::info!(
+        provider = %provider_id,
+        new_value = ?new_value,
+        "LLM provider context_length updated"
+    );
+    ok_data(serde_json::json!({}))
 }
 
 /// DELETE /api/llm/providers/:id/key
