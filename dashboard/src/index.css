@@ -64,6 +64,15 @@
   }
 }
 
+@layer components {
+  /* A-group: solid semi-transparent card surface for primary content
+   * (agent cards, memory cards, marketplace cards, chat header controls).
+   * Callers add their own border color, padding, rounded-*, and hover color. */
+  .card-solid {
+    @apply bg-surface-primary/50 shadow-sm hover:shadow-md transition-all duration-300;
+  }
+}
+
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar {
     display: none;

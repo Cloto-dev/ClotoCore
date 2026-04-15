@@ -419,7 +419,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                   return (
                     <div
                       key={mem.id}
-                      className={`bg-surface-primary/50 p-4 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group flex flex-col ${isEditing ? '' : 'max-h-48'}`}
+                      className={`card-solid p-4 rounded-xl border border-edge hover:border-brand group flex flex-col ${isEditing ? '' : 'max-h-48'}`}
                     >
                       <div className="flex items-center gap-3 mb-2">
                         <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-brand/10 transition-colors">
