@@ -79,7 +79,7 @@ export function ContextUsageBadge({ agentId, refreshKey }: Props) {
 
   return (
     <div
-      className={`px-2.5 py-1 rounded-full bg-surface-primary/50 shadow-sm hover:shadow-md border text-[10px] font-mono flex items-center gap-2 transition-all duration-300 ${tone}`}
+      className={`card-solid px-2.5 py-1 rounded-full border text-[10px] font-mono flex items-center gap-2 ${tone}`}
       title={tooltipParts}
       aria-label={t('agent.context_usage_aria', { used, max: maxLabel })}
     >

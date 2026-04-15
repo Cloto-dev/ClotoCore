@@ -81,6 +81,25 @@ evidence is needed to confirm existence (e.g., AI-discovered bugs that could be 
 - **Hover borders**: `hover:border-brand` (interactive), `hover:border-red-500` (destructive). Full opacity.
 - **Tailwind CSS**: The dashboard uses pre-compiled CSS (`src/compiled-tailwind.css`), NOT JIT. When adding or changing Tailwind utility classes in JSX, you MUST regenerate: `cd dashboard && npx tailwindcss -i src/index.css -o src/compiled-tailwind.css`. New classes will not take effect without this step.
 
+### Glass / Card Surface Policy
+
+The dashboard has two distinct surface patterns. Pick the right one for the role.
+
+- **Primary content cards** (agent cards, memory cards, marketplace cards, chat header controls, anything the user directly interacts with as a "tile"):
+  Use the `card-solid` component class (defined in `src/index.css` `@layer components`).
+  Expands to: `bg-surface-primary/50 shadow-sm hover:shadow-md transition-all duration-300`.
+  Callers add `border border-edge`, padding, `rounded-*`, and hover color on top.
+  Reference: `AgentTerminal.tsx:362`.
+
+- **Functional UI surfaces** (panels, inputs, dropdowns, bars, sidebars, modals, nav buttons, empty-state containers):
+  Use the existing `bg-glass*` + `backdrop-blur-*` utilities.
+  - `bg-glass` (60% alpha): default panel background.
+  - `bg-glass-subtle` (80% alpha, lighter): prominent glass buttons and nav bars.
+  - `bg-glass-strong` (80% alpha, darker): input fields, hover states over solid containers.
+  Reference: `AgentPluginWorkspace.tsx:250` (glass button), `KernelMonitor.tsx:16` (glass panel).
+
+- **Do not mix** the two. `bg-surface-primary/50` must not appear on functional UI, and `bg-glass*` must not appear on primary content cards. If in doubt, grep for a nearby equivalent use and follow its pattern.
+
 ## Git Rules
 
 - Commit messages in English

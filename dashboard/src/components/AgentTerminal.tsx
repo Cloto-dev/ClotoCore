@@ -359,7 +359,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                 return (
                   <div
                     key={agent.id}
-                    className="relative bg-surface-primary/50 p-4 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-edge hover:border-brand group cursor-pointer overflow-hidden"
+                    className="relative card-solid p-4 rounded-xl border border-edge hover:border-brand group cursor-pointer overflow-hidden"
                     onClick={() => onSelectAgent(agent)}
                   >
                     {agent.metadata?.has_avatar === 'true' && (
