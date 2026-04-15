@@ -3521,6 +3521,11 @@ video {
   cursor: not-allowed;
 }
 
+.disabled\:text-content-tertiary:disabled {
+  --tw-text-opacity: 1;
+  color: rgb(var(--text-tertiary) / var(--tw-text-opacity, 1));
+}
+
 .disabled\:opacity-25:disabled {
   opacity: 0.25;
 }
@@ -3535,11 +3540,6 @@ video {
 
 .disabled\:opacity-50:disabled {
   opacity: 0.5;
-}
-
-.disabled\:grayscale:disabled {
-  --tw-grayscale: grayscale(100%);
-  filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
 }
 
 .group:hover .group-hover\:bg-brand\/10 {
