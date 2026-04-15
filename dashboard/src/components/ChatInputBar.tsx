@@ -249,7 +249,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
         <button
           onClick={handleSend}
           disabled={disabled || (!input.trim() && !attachment)}
-          className="absolute right-2 p-2.5 bg-brand text-white rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:grayscale disabled:scale-100 shadow-lg shadow-brand/20"
+          className="absolute right-2 p-2.5 text-brand hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:text-content-tertiary disabled:scale-100"
         >
           <Send size={20} />
         </button>
