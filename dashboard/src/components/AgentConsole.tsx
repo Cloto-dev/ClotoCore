@@ -56,7 +56,7 @@ function LongPressResetButton({ onReset }: { onReset: () => void }) {
     <button
       {...handlers}
       aria-label={progress > 0 ? t('console.hold') : t('console.reset')}
-      className="relative px-3 py-1.5 rounded-full border border-edge text-[9px] font-bold text-content-tertiary hover:text-amber-500 hover:border-amber-400/30 transition-all uppercase tracking-widest flex items-center gap-1.5 overflow-hidden"
+      className="relative px-3 py-1.5 rounded-full bg-surface-primary/50 shadow-sm hover:shadow-md border border-edge text-[9px] font-bold text-content-tertiary hover:text-amber-500 hover:border-amber-400/30 transition-all duration-300 uppercase tracking-widest flex items-center gap-1.5 overflow-hidden"
     >
       {progress > 0 && (
         <span
@@ -709,7 +709,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
           <button
             onClick={onBack}
             aria-label={t('console.back')}
-            className="p-2 rounded-full bg-glass-subtle border border-edge hover:border-brand hover:text-brand transition-all"
+            className="p-2 rounded-full bg-surface-primary/50 shadow-sm hover:shadow-md border border-edge hover:border-brand hover:text-brand transition-all duration-300"
           >
             <ArrowLeft size={16} />
           </button>
@@ -734,7 +734,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
           {hasVrm && (
             <button
               onClick={() => openVrmWindow(agent.id, api.apiKey)}
-              className="px-3 py-1.5 rounded-full border border-edge text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5 transition-all text-content-tertiary hover:text-brand hover:border-brand/30"
+              className="px-3 py-1.5 rounded-full bg-surface-primary/50 shadow-sm hover:shadow-md border border-edge text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5 transition-all duration-300 text-content-tertiary hover:text-brand hover:border-brand/30"
               title="Open 3D Avatar Window"
               aria-label="Open 3D Avatar Window"
             >

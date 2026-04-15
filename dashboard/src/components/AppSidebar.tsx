@@ -55,7 +55,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
 
   return (
     <div
-      className={`${collapsed ? 'w-14' : 'w-48'} h-full flex flex-col py-3 bg-surface-secondary/60 backdrop-blur-md border-r border-[var(--border-strong)] transition-[width] duration-200`}
+      className={`${collapsed ? 'w-14' : 'w-48'} h-full flex flex-col py-3 bg-surface-secondary/60 border-r border-[var(--border-strong)] transition-[width] duration-200`}
     >
       {/* System / Kernel */}
       <button
@@ -64,7 +64,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
         aria-label={t('system')}
         className={`relative mx-2 flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 ${
           systemActive && isAgentPageActive
-            ? 'bg-surface-primary shadow-sm text-brand ring-1 ring-brand/20'
+            ? 'bg-surface-primary text-brand'
             : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
         }`}
       >
@@ -89,7 +89,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
               aria-label={agent.name}
               className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-left w-full ${
                 isActive
-                  ? 'bg-surface-primary text-brand shadow-sm ring-1 ring-brand/20'
+                  ? 'bg-surface-primary text-brand'
                   : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
               }`}
             >
@@ -138,7 +138,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
               aria-label={label}
               className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-xs font-bold uppercase tracking-wide ${
                 isActive
-                  ? 'bg-surface-primary text-brand shadow-sm ring-1 ring-brand/20'
+                  ? 'bg-surface-primary text-brand'
                   : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
               }`}
             >
