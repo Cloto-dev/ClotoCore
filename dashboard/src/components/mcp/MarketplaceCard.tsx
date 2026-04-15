@@ -56,7 +56,7 @@ export function MarketplaceCard({ entry, onInstall, onUninstall, actionsDisabled
   const isUpdate = entry.installed && entry.update_available;
 
   return (
-    <div className="bg-surface-primary/50 border border-edge rounded-xl p-4 flex flex-col gap-2 transition-all duration-200 hover:border-brand group">
+    <div className="card-solid border border-edge rounded-xl p-4 flex flex-col gap-2 hover:border-brand group">
       {/* Header */}
       <div className="flex items-center gap-2">
         <Icon size={14} className="text-brand shrink-0" />
