@@ -1381,8 +1381,11 @@ impl SystemHandler {
                     });
                     if let Some(ref content) = assistant_content {
                         assistant_msg["content"] = serde_json::json!(content);
-                        // Emit thinking event so the frontend can show intermediate reasoning
-                        if !content.is_empty() {
+                        // Emit thinking event so the frontend can show intermediate reasoning.
+                        // Whitespace-only content would produce a blank-label thought step
+                        // in the UI (Qwen3 often returns "\n\n" as content while the real
+                        // prose lives in reasoning_content).
+                        if !content.trim().is_empty() {
                             self.emit_event(
                                 trace_id,
                                 ClotoEventData::AgentThinking {
@@ -1492,6 +1495,15 @@ impl SystemHandler {
                             duration_ms = duration_ms,
                             "  🔧 Tool executed"
                         );
+
+                        if !success {
+                            warn!(
+                                tool = %call.name,
+                                args = %call.arguments,
+                                error_body = %content,
+                                "  ⚠️ Tool failed — dumping arguments for diagnosis"
+                            );
+                        }
 
                         // Build a short hint for UI display (e.g., command name for execute_command)
                         let tool_hint =
