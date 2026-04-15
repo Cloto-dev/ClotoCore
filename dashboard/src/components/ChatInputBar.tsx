@@ -183,24 +183,24 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
         <button
           onClick={handleFileSelect}
           disabled={disabled}
-          className="p-2 rounded-lg text-content-tertiary hover:text-brand hover:bg-glass transition-colors disabled:opacity-30"
+          className="p-2.5 rounded-lg text-content-tertiary hover:text-brand hover:bg-glass transition-colors disabled:opacity-30"
           title={t('chat_input.attach_image')}
         >
-          <Plus size={16} />
+          <Plus size={20} />
         </button>
 
         {/* Mic button */}
         <button
           onClick={toggleRecording}
           disabled={disabled}
-          className={`p-2 rounded-lg transition-colors disabled:opacity-30 ${
+          className={`p-2.5 rounded-lg transition-colors disabled:opacity-30 ${
             isRecording
               ? 'text-red-500 bg-red-500/10 animate-pulse'
               : 'text-content-tertiary hover:text-brand hover:bg-glass'
           }`}
           title={isRecording ? t('chat_input.stop_recording') : t('chat_input.record_audio')}
         >
-          {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
+          {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
         </button>
 
         {/* Engine selector */}
@@ -230,7 +230,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
                 ? t('chat_input.placeholder_processing')
                 : t('chat_input.placeholder')
           }
-          className="flex-1 bg-surface-primary border rounded-xl py-3 px-4 pr-12 text-xs font-mono focus:outline-none transition-colors placeholder:text-content-tertiary disabled:opacity-50 shadow-inner border-edge focus:border-brand"
+          className="flex-1 bg-surface-primary border rounded-lg py-3 px-4 pr-12 text-xs font-mono focus:outline-none transition-colors placeholder:text-content-tertiary disabled:opacity-50 shadow-inner border-edge focus:border-brand"
           style={editMode ? { borderColor: '#fbbf24' } : undefined}
         />
 
@@ -249,9 +249,9 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
         <button
           onClick={handleSend}
           disabled={disabled || (!input.trim() && !attachment)}
-          className="absolute right-2 p-2 bg-brand text-white rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:grayscale disabled:scale-100 shadow-lg shadow-brand/20"
+          className="absolute right-2 p-2.5 bg-brand text-white rounded-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:grayscale disabled:scale-100 shadow-lg shadow-brand/20"
         >
-          <Send size={16} />
+          <Send size={20} />
         </button>
       </div>
 

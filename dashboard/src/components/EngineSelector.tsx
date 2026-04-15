@@ -72,7 +72,7 @@ export function EngineSelector({ servers, selectedEngine, onSelect, disabled }: 
           }
         }}
         disabled={disabled}
-        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider border transition-colors disabled:opacity-30 ${
+        className={`flex items-center gap-1.5 px-4 py-3 rounded-lg text-xs font-mono font-bold uppercase tracking-wider border transition-colors disabled:opacity-30 ${
           selectedEngine
             ? 'border-brand/40 bg-brand/10 text-brand'
             : 'border-edge bg-glass text-content-secondary hover:text-brand hover:border-brand/30'
@@ -80,9 +80,9 @@ export function EngineSelector({ servers, selectedEngine, onSelect, disabled }: 
         style={{ outline: 'none' }}
         title="Select engine"
       >
-        <Zap size={12} />
+        <Zap size={14} />
         <span>{pillLabel}</span>
-        <ChevronDown size={10} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown size={12} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {/* Popover menu — portaled to body */}
