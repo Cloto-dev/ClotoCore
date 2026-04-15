@@ -56,7 +56,7 @@ function LongPressResetButton({ onReset }: { onReset: () => void }) {
     <button
       {...handlers}
       aria-label={progress > 0 ? t('console.hold') : t('console.reset')}
-      className="relative card-solid px-3 py-1.5 rounded-full border border-edge text-[9px] font-bold text-content-tertiary hover:text-amber-500 hover:border-amber-400/30 uppercase tracking-widest flex items-center gap-1.5 overflow-hidden"
+      className="relative card-solid px-4 py-2 rounded-full border border-edge text-[13px] font-bold text-content-tertiary hover:text-amber-500 hover:border-amber-400/30 uppercase tracking-widest flex items-center gap-1.5 overflow-hidden"
     >
       {progress > 0 && (
         <span
@@ -64,7 +64,7 @@ function LongPressResetButton({ onReset }: { onReset: () => void }) {
           style={{ transform: `scaleX(${progress})` }}
         />
       )}
-      <RotateCcw size={10} className={progress > 0 ? 'animate-spin' : ''} />
+      <RotateCcw size={12} className={progress > 0 ? 'animate-spin' : ''} />
       <span className="relative">{progress > 0 ? t('console.hold') : t('console.reset')}</span>
     </button>
   );
@@ -709,9 +709,9 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
           <button
             onClick={onBack}
             aria-label={t('console.back')}
-            className="card-solid p-2 rounded-full border border-edge hover:border-brand hover:text-brand"
+            className="card-solid p-2.5 rounded-full border border-edge hover:border-brand hover:text-brand"
           >
-            <ArrowLeft size={16} />
+            <ArrowLeft size={20} />
           </button>
           <div
             className="w-10 h-10 text-white rounded-md shadow-sm overflow-hidden flex items-center justify-center"
@@ -734,11 +734,11 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
           {hasVrm && (
             <button
               onClick={() => openVrmWindow(agent.id, api.apiKey)}
-              className="card-solid px-3 py-1.5 rounded-full border border-edge text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5 text-content-tertiary hover:text-brand hover:border-brand/30"
+              className="card-solid px-4 py-2 rounded-full border border-edge text-[13px] font-bold uppercase tracking-widest flex items-center gap-1.5 text-content-tertiary hover:text-brand hover:border-brand/30"
               title="Open 3D Avatar Window"
               aria-label="Open 3D Avatar Window"
             >
-              <Box size={10} />
+              <Box size={12} />
               <span>VRM</span>
             </button>
           )}
