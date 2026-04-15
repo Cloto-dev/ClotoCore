@@ -286,7 +286,7 @@ export const CronJobs = memo(function CronJobs() {
             jobs.map((job) => (
               <div
                 key={job.id}
-                className={`bg-glass-strong backdrop-blur-sm p-4 rounded-lg border transition-all duration-300 ${
+                className={`card-solid p-4 rounded-lg border ${
                   job.enabled ? 'border-edge hover:border-brand' : 'border-edge-subtle opacity-60'
                 }`}
               >
