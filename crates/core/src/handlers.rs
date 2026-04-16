@@ -401,6 +401,7 @@ pub async fn get_metrics(
     check_auth(&state, &headers)?;
     let history_len = state.event_history.read().await.len();
     let max_size = state.config.event_history_size;
+    let (audit_ok, audit_failed) = crate::db::audit_write_counters();
 
     ok_data(serde_json::json!({
         "total_requests": state.metrics.total_requests.load(std::sync::atomic::Ordering::Relaxed),
@@ -411,6 +412,10 @@ pub async fn get_metrics(
             "current_size": history_len,
             "max_size": max_size,
             "memory_estimate_bytes": history_len * std::mem::size_of::<crate::events::SequencedEvent>(),
+        },
+        "audit_writes": {
+            "ok": audit_ok,
+            "failed": audit_failed,
         }
     }))
 }
