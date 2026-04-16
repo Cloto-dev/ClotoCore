@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -10,6 +12,22 @@ const AUDIT_MAX_RETRIES: u32 = 3;
 
 /// Base delay in milliseconds for audit log retry backoff.
 const AUDIT_RETRY_BASE_MS: u64 = 100;
+
+/// Process-lifetime counters so `/api/metrics` can expose whether the audit
+/// pipeline is quietly losing entries. Today's cron incident was blind for
+/// 14 hours because silent audit failures looked exactly like no events at
+/// all — this counter turns that back into an observable signal.
+static AUDIT_WRITES_OK: AtomicU64 = AtomicU64::new(0);
+static AUDIT_WRITES_FAILED: AtomicU64 = AtomicU64::new(0);
+
+/// Returns `(ok_count, failed_count)` for the audit log write pipeline.
+#[must_use]
+pub fn audit_write_counters() -> (u64, u64) {
+    (
+        AUDIT_WRITES_OK.load(Ordering::Relaxed),
+        AUDIT_WRITES_FAILED.load(Ordering::Relaxed),
+    )
+}
 
 /// Audit log entry structure for security event tracking
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,13 +117,27 @@ async fn write_audit_log_inner(pool: &SqlitePool, entry: AuditLogEntry) -> anyho
 
 /// Spawn a background task to write an audit log entry with retry.
 /// M-06: Retries up to 3 times with backoff instead of fire-and-forget.
+///
+/// Every permanent loss is counted (see `audit_write_counters`) and logged
+/// with the entry's `event_type` / `actor_id` / `target_id` so a failing
+/// batch can be diagnosed from the kernel log even without the DB row.
 pub fn spawn_audit_log(pool: SqlitePool, entry: AuditLogEntry) {
     tokio::spawn(async move {
         for attempt in 0..AUDIT_MAX_RETRIES {
             match write_audit_log(&pool, entry.clone()).await {
-                Ok(()) => return,
+                Ok(()) => {
+                    AUDIT_WRITES_OK.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
                 Err(e) => {
-                    tracing::error!(attempt = attempt + 1, "Failed to write audit log: {}", e);
+                    tracing::error!(
+                        attempt = attempt + 1,
+                        event_type = %entry.event_type,
+                        actor_id = entry.actor_id.as_deref().unwrap_or(""),
+                        target_id = entry.target_id.as_deref().unwrap_or(""),
+                        "Failed to write audit log: {}",
+                        e
+                    );
                     if attempt < AUDIT_MAX_RETRIES - 1 {
                         tokio::time::sleep(std::time::Duration::from_millis(
                             AUDIT_RETRY_BASE_MS * (u64::from(attempt) + 1),
@@ -115,7 +147,11 @@ pub fn spawn_audit_log(pool: SqlitePool, entry: AuditLogEntry) {
                 }
             }
         }
+        AUDIT_WRITES_FAILED.fetch_add(1, Ordering::Relaxed);
         tracing::error!(
+            event_type = %entry.event_type,
+            actor_id = entry.actor_id.as_deref().unwrap_or(""),
+            target_id = entry.target_id.as_deref().unwrap_or(""),
             "Audit log entry permanently lost after {} attempts",
             AUDIT_MAX_RETRIES
         );
