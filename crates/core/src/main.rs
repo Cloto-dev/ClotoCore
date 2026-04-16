@@ -14,11 +14,11 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            tracing_subscriber::fmt::init();
+            cloto_core::init_tracing();
             cloto_core::run_kernel().await
         }
         Some(cmd) => {
-            tracing_subscriber::fmt::init();
+            cloto_core::init_tracing();
             cloto_core::cli::dispatch(cmd).await
         }
     }
