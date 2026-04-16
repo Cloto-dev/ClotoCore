@@ -399,11 +399,23 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     db::set_db_timeout(config.db_timeout_secs);
 
     // 1. データベースの初期化
-    use sqlx::sqlite::SqliteConnectOptions;
+    //
+    // WAL journal + busy_timeout are critical for concurrent write resilience:
+    // SQLite's default DELETE journal serializes readers against writers, and a
+    // default busy_timeout of 0 fails SQLITE_BUSY immediately. Before this change
+    // the audit_logs writer (which uses a two-statement tx to chain-hash the
+    // previous row) went silent for 14 h under normal load because every retry
+    // lost the race while chat_messages kept squeezing through. WAL lets readers
+    // run in parallel with a writer, and busy_timeout=10s gives the retry ladder
+    // in spawn_audit_log a realistic chance to succeed.
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
     use std::str::FromStr;
     let opts = SqliteConnectOptions::from_str(&config.database_url)?
         .create_if_missing(true)
-        .pragma("foreign_keys", "ON");
+        .journal_mode(SqliteJournalMode::Wal)
+        .busy_timeout(std::time::Duration::from_secs(10))
+        .pragma("foreign_keys", "ON")
+        .pragma("synchronous", "NORMAL");
     let pool = sqlx::SqlitePool::connect_with(opts).await?;
     db::init_db(&pool, &config.database_url, &config.memory_plugin_id).await?;
 
