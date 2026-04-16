@@ -23,6 +23,70 @@ pub use db::{
     query_audit_logs, update_permission_request, write_audit_log, AuditLogEntry, PermissionRequest,
 };
 
+/// Initialize the global tracing subscriber.
+///
+/// In dev builds (`debug_assertions` on, `cfg(test)` off) this also writes a
+/// daily-rotated `cloto-kernel.log` under `{exe_dir}/data/` alongside the stderr
+/// stream, so post-mortem diagnosis is possible without re-running the session.
+/// Release builds and test contexts emit to stderr only. The `WorkerGuard` for
+/// the non-blocking file writer is intentionally leaked to give it a `'static`
+/// lifetime — we accept that the final batch of lines may not flush on abrupt
+/// termination in exchange for not having to thread the guard through every
+/// embedder (main.rs, Tauri lib.rs).
+///
+/// Safe to call multiple times: uses `try_init`, so subsequent calls are no-ops.
+/// Respects `RUST_LOG` via `EnvFilter`, defaulting to `info`.
+#[cfg(all(debug_assertions, not(test)))]
+pub fn init_tracing() {
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+    let data_dir = config::exe_dir().join("data");
+    // Best-effort: if we can't create the directory, fall back to stderr-only below.
+    let file_layer = match std::fs::create_dir_all(&data_dir) {
+        Ok(()) => {
+            let appender = tracing_appender::rolling::daily(&data_dir, "cloto-kernel.log");
+            let (writer, guard) = tracing_appender::non_blocking(appender);
+            // Leak the guard so flushes continue for the life of the process.
+            Box::leak(Box::new(guard));
+            Some(fmt::layer().with_writer(writer).with_ansi(false))
+        }
+        Err(e) => {
+            eprintln!(
+                "[init_tracing] Failed to create data directory at {} ({}). File logging disabled.",
+                data_dir.display(),
+                e
+            );
+            None
+        }
+    };
+
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let base = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt::layer().with_writer(std::io::stderr));
+
+    let _ = match file_layer {
+        Some(fl) => base.with(fl).try_init(),
+        None => base.try_init(),
+    };
+}
+
+/// Release / test variant: stderr only, no file output.
+#[cfg(not(all(debug_assertions, not(test))))]
+pub fn init_tracing() {
+    use tracing_subscriber::{fmt, EnvFilter};
+
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let _ = fmt()
+        .with_env_filter(env_filter)
+        .with_writer(std::io::stderr)
+        .try_init();
+}
+
 /// Rate limiter stale-entry cleanup interval in seconds.
 const RATE_LIMITER_CLEANUP_SECS: u64 = 600;
 
