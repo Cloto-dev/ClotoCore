@@ -1405,11 +1405,13 @@ impl SystemHandler {
                         self.registry.mcp_manager.as_ref().is_some_and(|m| {
                             m.yolo_mode.load(std::sync::atomic::Ordering::Relaxed)
                         });
+                    let cron_source = message.metadata.contains_key("cron_source");
                     let denied_call_ids = command_approval::run_approval_gate(
                         &calls,
                         &agent.id,
                         trace_id,
                         yolo,
+                        cron_source,
                         self.registry.mcp_manager.as_ref(),
                         &self.pending_approvals,
                         &self.session_trusted_commands,
