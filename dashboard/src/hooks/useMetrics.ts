@@ -7,6 +7,10 @@ export interface Metrics {
   total_memories: number;
   total_episodes: number;
   ram_usage: string;
+  audit_writes?: {
+    ok: number;
+    failed: number;
+  };
 }
 
 export function useMetrics(pollIntervalMs: number = 10000) {
