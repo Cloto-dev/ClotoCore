@@ -311,6 +311,10 @@ pub fn run() {
             // Load .env before spawn so we can inspect CLOTO_API_KEY synchronously.
             dotenvy::dotenv().ok();
 
+            // Initialize kernel tracing (stderr + dev-only daily-rotated file log)
+            // before spawning start_kernel so the earliest boot logs are captured.
+            cloto_core::init_tracing();
+
             // Provide API key to dashboard: use .env key if present, otherwise auto-generate
             match std::env::var("CLOTO_API_KEY") {
                 Ok(key) => {
