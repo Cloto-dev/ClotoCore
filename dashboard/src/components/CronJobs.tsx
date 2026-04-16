@@ -144,6 +144,10 @@ export const CronJobs = memo(function CronJobs() {
         {showForm && (
           <div className="bg-glass-strong backdrop-blur-sm p-6 rounded-lg border border-edge space-y-4">
             <h3 className="text-xs font-bold text-content-secondary uppercase tracking-widest">{t('new_cron_job')}</h3>
+            <div className="flex items-start gap-2 p-3 rounded border border-amber-500/30 bg-amber-500/5">
+              <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-content-secondary leading-relaxed">{t('hitl_bypass_notice')}</p>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">{t('agent')}</label>

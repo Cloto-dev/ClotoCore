@@ -56,6 +56,61 @@ fn extract_denied_ids(untrusted_cmds: &[serde_json::Value]) -> HashSet<String> {
         .collect()
 }
 
+/// Cron source: auto-approve all tool calls dispatched by the scheduler.
+///
+/// Cron jobs run unattended — there is no human to press Approve in SecurityGuard
+/// or CommandApprovalCard, so the 60s timeout would deny every destructive call.
+/// Users accept this tradeoff when they create a cron job (the UI warns about it),
+/// and an audit log entry records every bypassed call so the trail is preserved.
+async fn handle_cron_approval(
+    calls: &[ToolCall],
+    agent_id: &str,
+    trace_id: ClotoId,
+    pool: &SqlitePool,
+    sender: &tokio::sync::mpsc::Sender<crate::EnvelopedEvent>,
+) {
+    let tool_names: Vec<&str> = calls.iter().map(|c| c.name.as_str()).collect();
+    if tool_names.is_empty() {
+        return;
+    }
+
+    info!(
+        agent_id = %agent_id,
+        tools = ?tool_names,
+        "⏰ Cron source: HITL approval bypassed"
+    );
+
+    let approval_id = uuid::Uuid::new_v4().to_string();
+    crate::db::spawn_audit_log(
+        pool.clone(),
+        crate::db::AuditLogEntry {
+            timestamp: chrono::Utc::now(),
+            event_type: "CRON_AUTO_APPROVED".to_string(),
+            actor_id: Some(agent_id.to_string()),
+            target_id: Some(approval_id.clone()),
+            permission: None,
+            result: "SUCCESS".to_string(),
+            reason: format!(
+                "Cron scheduler auto-approved {} tool call(s): {:?}",
+                tool_names.len(),
+                tool_names
+            ),
+            metadata: None,
+            trace_id: Some(trace_id.to_string()),
+        },
+    );
+
+    emit_event(
+        sender,
+        trace_id,
+        ClotoEventData::CommandApprovalResult {
+            approval_id,
+            decision: "cron_auto_approved".to_string(),
+        },
+    )
+    .await;
+}
+
 /// YOLO mode: auto-approve all sandboxed commands with audit logging.
 async fn handle_yolo_approval(
     calls: &[ToolCall],
@@ -288,12 +343,18 @@ pub(crate) async fn run_approval_gate(
     agent_id: &str,
     trace_id: ClotoId,
     yolo_mode: bool,
+    cron_source: bool,
     mcp_manager: Option<&Arc<McpClientManager>>,
     pending_approvals: &PendingApprovals,
     session_trusted: &SessionTrustedCommands,
     pool: &SqlitePool,
     sender: &tokio::sync::mpsc::Sender<crate::EnvelopedEvent>,
 ) -> HashSet<String> {
+    if cron_source {
+        handle_cron_approval(calls, agent_id, trace_id, pool, sender).await;
+        return HashSet::new();
+    }
+
     if yolo_mode {
         handle_yolo_approval(calls, agent_id, trace_id, pool, sender).await;
         return HashSet::new();

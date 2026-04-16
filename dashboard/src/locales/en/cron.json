@@ -2,6 +2,7 @@
   "title": "Cron Jobs",
   "new_job": "New Job",
   "new_cron_job": "New Cron Job",
+  "hitl_bypass_notice": "Cron jobs run unattended. Destructive tool calls (Discord send_message, file writes, etc.) bypass the HITL approval gate and execute automatically — no confirmation prompt will appear in SecurityGuard. Every bypassed call is recorded as a CRON_AUTO_APPROVED audit entry for later review.",
   "agent": "Agent",
   "select_agent": "Select agent...",
   "name": "Name",
