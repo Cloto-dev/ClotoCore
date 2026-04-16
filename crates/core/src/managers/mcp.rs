@@ -1851,7 +1851,32 @@ impl McpClientManager {
             }
         }
 
-        let result = client.call_tool(tool_name, args).await?;
+        // Transport-level failure (stdio pipe dead, timeout, JSON-RPC parse error,
+        // MGP permission denied, etc.) bypasses the TOOL_EXECUTED audit below
+        // because `?` short-circuits before the emission. Emit a TOOL_ERROR
+        // entry on that path so the audit log can answer "what tool call blew
+        // up" without replaying the session under a debugger. Tool-result
+        // errors (`result.is_error == Some(true)`) still land in TOOL_EXECUTED
+        // with result="error" — those are MCP-level refusals, not transport
+        // failures.
+        let result = match client.call_tool(tool_name, args).await {
+            Ok(r) => r,
+            Err(e) => {
+                self.broadcast_audit_event(&crate::db::AuditLogEntry {
+                    timestamp: chrono::Utc::now(),
+                    event_type: "TOOL_ERROR".to_string(),
+                    actor_id: Some(server_id.clone()),
+                    target_id: Some(tool_name.to_string()),
+                    permission: None,
+                    result: "error".to_string(),
+                    reason: e.to_string(),
+                    metadata: None,
+                    trace_id: None,
+                })
+                .await;
+                return Err(e);
+            }
+        };
 
         // Audit: TOOL_EXECUTED
         self.broadcast_audit_event(&crate::db::AuditLogEntry {
