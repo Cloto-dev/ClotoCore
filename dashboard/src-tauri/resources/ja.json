@@ -387,6 +387,7 @@
     "title": "Cron ジョブ",
     "new_job": "新規ジョブ",
     "new_cron_job": "新規 Cron ジョブ",
+    "hitl_bypass_notice": "Cron ジョブは無人実行されます。破壊的ツール呼び出し (Discord 送信、ファイル書き込み等) は HITL 承認ゲートをバイパスして自動実行され、SecurityGuard に確認通知は出ません。バイパスされた全呼び出しは CRON_AUTO_APPROVED として監査ログに記録されます。",
     "agent": "エージェント",
     "select_agent": "エージェントを選択...",
     "name": "名前",
