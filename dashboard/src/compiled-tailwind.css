@@ -764,6 +764,10 @@ video {
   top: 50%;
 }
 
+.top-2 {
+  top: 0.5rem;
+}
+
 .top-4 {
   top: 1rem;
 }
@@ -2071,6 +2075,10 @@ video {
   background-color: rgb(var(--surface-primary) / var(--tw-bg-opacity, 1));
 }
 
+.bg-surface-primary\/30 {
+  background-color: rgb(var(--surface-primary) / 0.3);
+}
+
 .bg-surface-primary\/50 {
   background-color: rgb(var(--surface-primary) / 0.5);
 }
@@ -3044,6 +3052,58 @@ video {
   animation: blink 0.8s step-end infinite;
 }
 
+/* Shimmer sweep — light band slides across connected server cards (1.5s) */
+
+@keyframes shimmer {
+  0%   {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.shimmer-active {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    120deg,
+    transparent 25%,
+    rgba(255, 255, 255, 0.08) 50%,
+    transparent 75%
+  );
+  animation: shimmer 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.shimmer-active-mgp {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-active-mgp::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    120deg,
+    transparent 25%,
+    rgba(168, 85, 247, 0.12) 50%,
+    transparent 75%
+  );
+  animation: shimmer 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
 /* Chat markdown prose — use !important to override Tailwind base resets */
 
 .chat-markdown p {
@@ -3387,6 +3447,10 @@ video {
 .hover\:bg-surface-base:hover {
   --tw-bg-opacity: 1;
   background-color: rgb(var(--surface-base) / var(--tw-bg-opacity, 1));
+}
+
+.hover\:bg-surface-primary\/50:hover {
+  background-color: rgb(var(--surface-primary) / 0.5);
 }
 
 .hover\:bg-surface-secondary:hover {
