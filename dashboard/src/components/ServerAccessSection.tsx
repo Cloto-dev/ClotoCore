@@ -1,41 +1,31 @@
-import { AlertTriangle, Layers, Plus, Server, Wifi, WifiOff, X } from 'lucide-react';
+import { Layers, Plus, Server, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { displayServerId } from '../lib/format';
 import { detectPreset, SERVER_PRESETS } from '../lib/presets';
 import type { McpServerInfo } from '../types';
+import { StatusDot, type StatusDotStatus } from './ui/StatusDot';
 
-const StatusIcon = ({ status }: { status: McpServerInfo['status'] }) => {
-  switch (status) {
-    case 'Connected':
-      return <Wifi size={12} className="text-emerald-500" />;
-    case 'Disconnected':
-      return <WifiOff size={12} className="text-content-muted" />;
-    case 'Error':
-      return <AlertTriangle size={12} className="text-red-500" />;
-  }
-};
+function mcpStatusToDot(server: McpServerInfo): StatusDotStatus {
+  if (server.status === 'Connected') return 'connected';
+  if (server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered')
+    return 'connecting';
+  if (server.status === 'Error' && server.has_unresolved_env) return 'degraded';
+  if (server.status === 'Error') return 'error';
+  return 'offline';
+}
 
-const StatusBadge = ({ status, t }: { status: McpServerInfo['status']; t: (key: string) => string }) => {
-  const labelKey =
-    status === 'Connected'
-      ? 'plugin_workspace.status_connected'
-      : status === 'Error'
-        ? 'plugin_workspace.status_error'
-        : 'plugin_workspace.status_disconnected';
+function isMgpServer(server: McpServerInfo): boolean {
   return (
-    <span
-      className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-        status === 'Connected'
-          ? 'bg-emerald-500/10 text-emerald-500'
-          : status === 'Error'
-            ? 'bg-red-500/10 text-red-500'
-            : 'bg-surface-secondary text-content-tertiary'
-      }`}
-    >
-      {t(labelKey)}
-    </span>
+    (server.mgp_supported || server.id.startsWith('io.') || server.id.startsWith('output.')) &&
+    server.status === 'Connected'
   );
-};
+}
+
+function serverStatusLabel(server: McpServerInfo, t: (key: string) => string): string {
+  if (server.status === 'Connected') return t('plugin_workspace.status_connected');
+  if (server.status === 'Error') return t('plugin_workspace.status_error');
+  return t('plugin_workspace.status_disconnected');
+}
 
 interface Props {
   grantedServers: McpServerInfo[];
@@ -104,39 +94,67 @@ export function ServerAccessSection({
             {t('plugin_workspace.no_servers_granted')}
           </div>
         ) : (
-          <div className="space-y-2">
-            {grantedServers.map((server) => (
-              // biome-ignore lint/a11y/useSemanticElements: clickable div preserved to avoid structural changes
-              <div
-                key={server.id}
-                className="bg-glass-strong backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-red-500 transition-all flex items-center gap-3 group cursor-pointer"
-                role="button"
-                tabIndex={0}
-                aria-label={`${t('plugin_workspace.revoke')} ${displayServerId(server.id)}`}
-                onClick={() => onRevoke(server.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') onRevoke(server.id);
-                }}
-              >
-                <div
-                  className="p-1.5 rounded-md"
-                  style={{ backgroundColor: `${agentColorHex}15`, color: agentColorHex }}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
+            {grantedServers.map((server) => {
+              const mgp = isMgpServer(server);
+              const isTransitioning = server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered';
+              const shimmer = isTransitioning ? (mgp ? 'shimmer-active-mgp' : 'shimmer-active') : '';
+              return (
+                <button
+                  key={server.id}
+                  type="button"
+                  className={`text-left relative p-4 rounded-xl border transition-all duration-200 group cursor-pointer ${shimmer} ${
+                    mgp
+                      ? 'overflow-hidden border-purple-500/50 bg-purple-950/30 hover:border-red-500 shadow-purple-500/20 shadow-lg'
+                      : 'border-edge bg-surface-primary/50 hover:border-red-500'
+                  }`}
+                  aria-label={`${t('plugin_workspace.revoke')} ${displayServerId(server.id)}`}
+                  onClick={() => onRevoke(server.id)}
                 >
-                  <Server size={16} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm font-bold text-content-primary">{displayServerId(server.id)}</span>
-                  <span className="text-xs text-content-tertiary ml-2 font-mono">
-                    {t('plugin_workspace.tools_count', { count: server.tools.length })}
+                  {mgp && (
+                    <div
+                      className="absolute inset-0 rounded-xl bg-gradient-to-br from-purple-500/20 via-transparent to-blue-500/10 pointer-events-none animate-pulse"
+                      style={{ animationDuration: '3s' }}
+                    />
+                  )}
+                  <span className="absolute top-2 right-2 p-1 rounded text-content-muted group-hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all">
+                    <X size={12} />
                   </span>
-                </div>
-                <StatusIcon status={server.status} />
-                <StatusBadge status={server.status} t={t} />
-                <span className="p-1.5 rounded text-content-muted group-hover:text-red-500 transition-all opacity-0 group-hover:opacity-100">
-                  <X size={14} />
-                </span>
-              </div>
-            ))}
+                  <div className={`flex items-center gap-2.5 mb-2 ${mgp ? 'relative' : ''}`}>
+                    <Server
+                      size={14}
+                      className={`shrink-0 transition-colors ${mgp ? 'text-purple-400 group-hover:text-purple-300' : ''}`}
+                      style={!mgp ? { color: agentColorHex } : undefined}
+                    />
+                    <span className="text-xs font-mono font-bold text-content-primary truncate">
+                      {displayServerId(server.id)}
+                    </span>
+                    {mgp && (
+                      <span
+                        className="text-[9px] font-bold tracking-wider text-purple-400 shrink-0 drop-shadow-[0_0_4px_rgba(168,85,247,0.6)]"
+                        title="MGP (bidirectional protocol)"
+                      >
+                        MGP
+                      </span>
+                    )}
+                    {server.transport === 'streamable-http' && (
+                      <span className="text-[9px] font-mono text-cyan-500/70 shrink-0" title="Remote HTTP transport">
+                        HTTP
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    className={`flex items-center gap-3 text-[10px] font-mono text-content-tertiary leading-none ${mgp ? 'relative' : ''}`}
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <StatusDot status={mcpStatusToDot(server)} size="sm" />
+                      <span>{serverStatusLabel(server, t)}</span>
+                    </span>
+                    <span>{t('plugin_workspace.tools_count', { count: server.tools.length })}</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </section>
@@ -150,36 +168,70 @@ export function ServerAccessSection({
               {t('plugin_workspace.available')}
             </h2>
           </div>
-          <div className="space-y-2">
-            {availableServers.map((server) => (
-              // biome-ignore lint/a11y/useSemanticElements: clickable div preserved to avoid structural changes
-              <div
-                key={server.id}
-                className="bg-glass backdrop-blur-sm px-4 py-3 rounded-lg border border-edge hover:border-brand transition-all flex items-center gap-3 group cursor-pointer"
-                role="button"
-                tabIndex={0}
-                aria-label={`${t('plugin_workspace.grant')} ${displayServerId(server.id)}`}
-                onClick={() => onGrant(server.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') onGrant(server.id);
-                }}
-              >
-                <div className="p-1.5 rounded-md text-content-muted group-hover:text-brand transition-colors">
-                  <Server size={16} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium text-content-secondary">{displayServerId(server.id)}</span>
-                  <span className="text-xs text-content-tertiary ml-2 font-mono">
-                    {t('plugin_workspace.tools_count', { count: server.tools.length })}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
+            {availableServers.map((server) => {
+              const mgp = isMgpServer(server);
+              const isTransitioning = server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered';
+              const shimmer = isTransitioning ? (mgp ? 'shimmer-active-mgp' : 'shimmer-active') : '';
+              return (
+                <button
+                  key={server.id}
+                  type="button"
+                  className={`text-left relative p-4 rounded-xl border transition-all duration-200 group cursor-pointer ${shimmer} ${
+                    mgp
+                      ? 'overflow-hidden border-purple-500/50 bg-purple-950/30 hover:bg-purple-950/40 hover:border-brand shadow-purple-500/20 shadow-lg'
+                      : 'border-edge bg-surface-primary/30 hover:bg-surface-primary/50 hover:border-brand'
+                  }`}
+                  aria-label={`${t('plugin_workspace.grant')} ${displayServerId(server.id)}`}
+                  onClick={() => onGrant(server.id)}
+                >
+                  {mgp && (
+                    <div
+                      className="absolute inset-0 rounded-xl bg-gradient-to-br from-purple-500/20 via-transparent to-blue-500/10 pointer-events-none animate-pulse"
+                      style={{ animationDuration: '3s' }}
+                    />
+                  )}
+                  <span className="absolute top-2 right-2 p-1 rounded text-content-muted group-hover:text-brand opacity-0 group-hover:opacity-100 transition-all">
+                    <Plus size={12} />
                   </span>
-                </div>
-                <StatusIcon status={server.status} />
-                <StatusBadge status={server.status} t={t} />
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold text-brand opacity-0 group-hover:opacity-100 transition-all">
-                  <Plus size={10} /> {t('plugin_workspace.grant')}
-                </span>
-              </div>
-            ))}
+                  <div className={`flex items-center gap-2.5 mb-2 ${mgp ? 'relative' : ''}`}>
+                    <Server
+                      size={14}
+                      className={`shrink-0 transition-colors ${
+                        mgp
+                          ? 'text-purple-400 group-hover:text-purple-300'
+                          : 'text-content-tertiary group-hover:text-brand'
+                      }`}
+                    />
+                    <span className="text-xs font-mono font-bold text-content-primary truncate">
+                      {displayServerId(server.id)}
+                    </span>
+                    {mgp && (
+                      <span
+                        className="text-[9px] font-bold tracking-wider text-purple-400 shrink-0 drop-shadow-[0_0_4px_rgba(168,85,247,0.6)]"
+                        title="MGP (bidirectional protocol)"
+                      >
+                        MGP
+                      </span>
+                    )}
+                    {server.transport === 'streamable-http' && (
+                      <span className="text-[9px] font-mono text-cyan-500/70 shrink-0" title="Remote HTTP transport">
+                        HTTP
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    className={`flex items-center gap-3 text-[10px] font-mono text-content-tertiary leading-none ${mgp ? 'relative' : ''}`}
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <StatusDot status={mcpStatusToDot(server)} size="sm" />
+                      <span>{serverStatusLabel(server, t)}</span>
+                    </span>
+                    <span>{t('plugin_workspace.tools_count', { count: server.tools.length })}</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </section>
       )}
