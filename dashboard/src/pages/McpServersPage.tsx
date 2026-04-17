@@ -229,12 +229,14 @@ export function McpServersPage() {
                 const isMgp =
                   (server.mgp_supported || server.id.startsWith('io.') || server.id.startsWith('output.')) &&
                   server.status === 'Connected';
+                const isTransitioning = server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered';
+                const shimmer = isTransitioning ? (isMgp ? 'shimmer-active-mgp' : 'shimmer-active') : '';
                 return (
                   <button
                     key={server.id}
                     onClick={() => setSelectedId(server.id)}
                     aria-label={displayServerId(server.id)}
-                    className={`text-left p-4 rounded-xl border transition-all duration-200 group ${
+                    className={`text-left p-4 rounded-xl border transition-all duration-200 group ${shimmer} ${
                       isMgp
                         ? 'relative overflow-hidden border-purple-500/50 bg-purple-950/30 hover:bg-purple-950/40 hover:border-purple-400 shadow-purple-500/20 shadow-lg'
                         : 'border-edge bg-surface-primary/50 hover:bg-surface-secondary/80 hover:border-brand'
