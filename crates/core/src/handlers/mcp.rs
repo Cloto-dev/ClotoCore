@@ -354,6 +354,33 @@ if __name__ == "__main__":
     ))
 }
 
+/// Validate a dynamic MCP server name.
+///
+/// Accepts ASCII alphanumerics plus `_`, `-`, and `.` so the dashboard's
+/// dot-delimited convention (`tool.terminal`, `memory.cpersona`, …) works
+/// through the create endpoint too. Rejects anything that could form a
+/// traversal-like path fragment (leading/trailing dot or a `..` sequence).
+fn validate_server_name(name: &str) -> AppResult<()> {
+    if name.is_empty() || name.len() > 64 {
+        return Err(AppError::Validation(
+            "Server name must be 1-64 characters".into(),
+        ));
+    }
+    if name.starts_with('.')
+        || name.ends_with('.')
+        || name.contains("..")
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+    {
+        return Err(AppError::Validation(
+            "Server name must contain only alphanumeric characters, underscores, hyphens, and dots (no leading/trailing dot and no '..' sequence)"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn create_mcp_server(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -366,21 +393,7 @@ pub async fn create_mcp_server(
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::Validation("Missing required field: name".into()))?;
 
-    // Name validation
-    if name.is_empty() || name.len() > 64 {
-        return Err(AppError::Validation(
-            "Server name must be 1-64 characters".into(),
-        ));
-    }
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
-        return Err(AppError::Validation(
-            "Server name must contain only alphanumeric characters, underscores, and hyphens"
-                .into(),
-        ));
-    }
+    validate_server_name(name)?;
 
     // Determine command/args: either explicit or auto-generated from code
     let (command, args, script_content) =
@@ -998,4 +1011,63 @@ pub async fn set_max_cron_generation(
     );
 
     ok_data(serde_json::json!({ "value": val }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn is_validation(result: AppResult<()>) -> bool {
+        matches!(result, Err(AppError::Validation(_)))
+    }
+
+    #[test]
+    fn server_name_accepts_dotted_ids() {
+        // Mirror the built-in servers and the Add Server modal hint.
+        for name in [
+            "tool.terminal",
+            "memory.cpersona",
+            "mind.local",
+            "x-browser",
+            "github-bridge",
+            "a",
+            "foo.bar.baz",
+            "with_underscores",
+        ] {
+            assert!(
+                validate_server_name(name).is_ok(),
+                "expected '{}' to be accepted",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn server_name_rejects_traversal_shapes() {
+        for name in [".hidden", "trailing.", "foo..bar", "..", "."] {
+            assert!(
+                is_validation(validate_server_name(name)),
+                "expected '{}' to be rejected",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn server_name_rejects_non_ascii_and_special_chars() {
+        for name in ["hello world", "foo/bar", "foo\\bar", "サーバー", ""] {
+            assert!(
+                is_validation(validate_server_name(name)),
+                "expected '{}' to be rejected",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn server_name_length_limits() {
+        assert!(is_validation(validate_server_name("")));
+        assert!(validate_server_name(&"a".repeat(64)).is_ok());
+        assert!(is_validation(validate_server_name(&"a".repeat(65))));
+    }
 }
