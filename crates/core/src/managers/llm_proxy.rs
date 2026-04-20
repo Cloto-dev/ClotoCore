@@ -215,12 +215,39 @@ async fn proxy_handler(
         }
     }
 
-    // Build the forwarded request
+    // Phase C: when the MCP server requested `stream: true`, pass the SSE
+    // body through untouched instead of buffering + JSON-parsing it. Both the
+    // flag check and the passthrough are pure transport — no reasoning about
+    // provider shape — so it works across OpenAI-compatible, Anthropic, and
+    // llama.cpp upstreams uniformly.
+    let streaming_requested = forward_body
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    // Build the forwarded request.
+    //
+    // For non-streaming requests, `provider.timeout_secs` caps the whole
+    // call. For streaming requests we deliberately omit the reqwest
+    // `.timeout(...)` because it applies to the entire response (including
+    // body reading): a 120 s cap would otherwise truncate long LLM
+    // generations mid-flight and the server-side handler would return the
+    // partial text as if it were complete.
+    //
+    // The safety nets for streaming are:
+    //   * mcp_client.rs::call_tool_streaming — per-request total cap and
+    //     per-chunk idle cap (Phase B, bug-351)
+    //   * The upstream's own timeout (LM Studio / OpenAI / Anthropic all
+    //     enforce server-side generation limits)
+    //   * call_llm_api_streaming — raises on upstream closing without the
+    //     [DONE] sentinel so truncation is surfaced to the agent
     let mut req = state
         .http_client
         .post(&provider.api_url)
-        .header("Content-Type", "application/json")
-        .timeout(Duration::from_secs(provider.timeout_secs as u64));
+        .header("Content-Type", "application/json");
+    if !streaming_requested {
+        req = req.timeout(Duration::from_secs(provider.timeout_secs as u64));
+    }
 
     // Add API key if configured (auth_type driven — no hard-coded provider IDs)
     if !provider.api_key.is_empty() {
@@ -236,18 +263,9 @@ async fn proxy_handler(
     debug!(
         provider = %provider_id,
         url = %provider.api_url,
+        streaming = %streaming_requested,
         "Proxying LLM request"
     );
-
-    // Phase C: when the MCP server requested `stream: true`, pass the SSE
-    // body through untouched instead of buffering + JSON-parsing it. Both the
-    // flag check and the passthrough are pure transport — no reasoning about
-    // provider shape — so it works across OpenAI-compatible, Anthropic, and
-    // llama.cpp upstreams uniformly.
-    let streaming_requested = forward_body
-        .get("stream")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
 
     // Forward the request
     match req.json(&forward_body).send().await {
