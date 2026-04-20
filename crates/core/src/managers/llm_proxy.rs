@@ -22,9 +22,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
+    body::Body,
     extract::State,
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::post,
     Json, Router,
 };
@@ -145,12 +146,17 @@ async fn bind_llm_proxy(addr: SocketAddr) -> std::io::Result<tokio::net::TcpList
     unreachable!()
 }
 
+/// Build a JSON error response with a uniform envelope.
+fn json_error(status: StatusCode, body: Value) -> Response {
+    (status, Json(body)).into_response()
+}
+
 #[allow(clippy::too_many_lines)]
 async fn proxy_handler(
     State(state): State<Arc<ProxyState>>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> impl IntoResponse {
+) -> Response {
     // Determine provider from header or body
     let provider_id = headers
         .get("X-LLM-Provider")
@@ -163,11 +169,11 @@ async fn proxy_handler(
         });
 
     let Some(provider_id) = provider_id else {
-        return (
+        return json_error(
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
+            serde_json::json!({
                 "error": { "message": "Missing X-LLM-Provider header or 'provider' field" }
-            })),
+            }),
         );
     };
 
@@ -175,21 +181,21 @@ async fn proxy_handler(
     let provider = match db::get_llm_provider(&state.pool, &provider_id).await {
         Ok(p) => p,
         Err(e) => {
-            return (
+            return json_error(
                 StatusCode::NOT_FOUND,
-                Json(serde_json::json!({
+                serde_json::json!({
                     "error": { "message": format!("Provider '{}' not found: {}", provider_id, e) }
-                })),
+                }),
             );
         }
     };
 
     if !provider.enabled {
-        return (
+        return json_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
+            serde_json::json!({
                 "error": { "message": format!("Provider '{}' is disabled", provider_id) }
-            })),
+            }),
         );
     }
 
@@ -233,14 +239,54 @@ async fn proxy_handler(
         "Proxying LLM request"
     );
 
+    // Phase C: when the MCP server requested `stream: true`, pass the SSE
+    // body through untouched instead of buffering + JSON-parsing it. Both the
+    // flag check and the passthrough are pure transport — no reasoning about
+    // provider shape — so it works across OpenAI-compatible, Anthropic, and
+    // llama.cpp upstreams uniformly.
+    let streaming_requested = forward_body
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
     // Forward the request
     match req.json(&forward_body).send().await {
         Ok(response) => {
             let status = response.status();
+
+            if streaming_requested && status.is_success() {
+                // Streaming pass-through: lift the upstream byte stream into
+                // an Axum response body with the original content-type header.
+                let content_type = response
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("text/event-stream")
+                    .to_string();
+                let stream = response.bytes_stream();
+                return match Response::builder()
+                    .status(StatusCode::OK)
+                    .header("content-type", content_type)
+                    .header("cache-control", "no-cache")
+                    .body(Body::from_stream(stream))
+                {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        error!(provider = %provider_id, error = %e, "Failed to build streaming response");
+                        json_error(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            serde_json::json!({
+                                "error": { "message": "Failed to build streaming response", "code": "internal" }
+                            }),
+                        )
+                    }
+                };
+            }
+
             match response.json::<Value>().await {
                 Ok(resp_body) => {
                     if status.is_success() {
-                        (StatusCode::OK, Json(resp_body))
+                        json_error(StatusCode::OK, resp_body)
                     } else {
                         warn!(
                             provider = %provider_id,
@@ -295,36 +341,36 @@ async fn proxy_handler(
                         } else {
                             format!("{}: {}", msg, upstream_detail)
                         };
-                        (
+                        json_error(
                             StatusCode::from_u16(status.as_u16())
                                 .unwrap_or(StatusCode::BAD_GATEWAY),
-                            Json(serde_json::json!({
+                            serde_json::json!({
                                 "error": { "message": full_msg, "code": code }
-                            })),
+                            }),
                         )
                     }
                 }
                 Err(e) => {
                     error!(provider = %provider_id, error = %e, "Failed to parse provider response");
-                    (
+                    json_error(
                         StatusCode::BAD_GATEWAY,
-                        Json(serde_json::json!({
+                        serde_json::json!({
                             "error": { "message": format!("Failed to parse provider response: {}", e) }
-                        })),
+                        }),
                     )
                 }
             }
         }
         Err(e) => {
             error!(provider = %provider_id, error = %e, "Failed to reach LLM provider");
-            (
+            json_error(
                 StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({
+                serde_json::json!({
                     "error": {
                         "message": format!("Cannot connect to provider '{}'. Ensure the service is running.", provider_id),
                         "code": "connection_failed"
                     }
-                })),
+                }),
             )
         }
     }
