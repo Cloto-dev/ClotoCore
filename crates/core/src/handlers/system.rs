@@ -56,6 +56,10 @@ pub struct SystemHandler {
     /// tests don't need to wire anything; production wires the `AppState` one
     /// via [`Self::set_usage_store`] right after construction.
     last_usage: crate::managers::usage_tracker::UsageStore,
+    /// Phase C opt-in gate — when true the agentic loop routes `mind.*` engine
+    /// calls through `call_tool_streaming` and emits `AgentTokenStream`
+    /// events. Controlled by `CLOTO_MCP_STREAMING_ENABLED`.
+    mcp_streaming_enabled: bool,
 }
 
 impl SystemHandler {
@@ -75,6 +79,7 @@ impl SystemHandler {
         pool: SqlitePool,
         active_cron_contexts: crate::ActiveCronContexts,
         memory_timeout_secs: u64,
+        mcp_streaming_enabled: bool,
     ) -> Self {
         Self {
             registry,
@@ -93,7 +98,14 @@ impl SystemHandler {
             active_cron_contexts,
             memory_timeout_secs,
             probe_cache: crate::managers::provider_probe::ProbeCache::new(),
+            mcp_streaming_enabled,
         }
+    }
+
+    /// Gate for Phase C streaming: only `mind.*` engines, and only when the
+    /// `CLOTO_MCP_STREAMING_ENABLED` env var opted in.
+    fn should_stream_engine(&self, engine_id: &str) -> bool {
+        self.mcp_streaming_enabled && engine_id.starts_with("mind.")
     }
 
     /// Get the default agent ID for message routing.
@@ -1323,6 +1335,7 @@ impl SystemHandler {
                     context.clone(),
                     &tools,
                     &tool_history,
+                    iteration,
                 )
                 .await?;
 
@@ -1604,6 +1617,7 @@ impl SystemHandler {
     }
 
     /// Call engine's think_with_tools() — routes to either Rust plugin or MCP server.
+    #[allow(clippy::too_many_arguments)]
     async fn engine_think_with_tools(
         &self,
         engine_plugin: Option<&Arc<dyn Plugin>>,
@@ -1614,17 +1628,41 @@ impl SystemHandler {
         context: Vec<ClotoMessage>,
         tools: &[serde_json::Value],
         tool_history: &[serde_json::Value],
+        iteration: u8,
     ) -> anyhow::Result<ThinkResult> {
         if let Some(plugin) = engine_plugin {
             let engine = plugin.as_reasoning().ok_or_else(|| {
                 anyhow::anyhow!("Plugin '{}' is not a ReasoningEngine", engine_id)
             })?;
+            // Rust plugins don't participate in MGP streaming (iteration unused).
+            let _ = iteration;
             return engine
                 .think_with_tools(agent, message, context, tools, tool_history)
                 .await;
         }
 
         if let Some(mcp) = mcp_engine {
+            // Phase C: route mind.* engines through call_tool_streaming when
+            // CLOTO_MCP_STREAMING_ENABLED=true. Chunk deltas are emitted as
+            // AgentTokenStream events while the final CallToolResult flows
+            // through the same parser as the non-streaming path.
+            if self.should_stream_engine(engine_id) {
+                let result = self
+                    .collect_streaming_think_result(
+                        mcp,
+                        engine_id,
+                        agent,
+                        message,
+                        &context,
+                        tools,
+                        tool_history,
+                        iteration,
+                    )
+                    .await?;
+                self.maybe_record_usage(&agent.id, engine_id, &result).await;
+                return Self::parse_mcp_think_result(&result);
+            }
+
             let agent_val = serde_json::to_value(agent)?;
             let message_val = serde_json::to_value(message)?;
             let context_val = serde_json::Value::Array(Self::serialize_context(&context));
@@ -1652,6 +1690,99 @@ impl SystemHandler {
         }
 
         Err(anyhow::anyhow!("Engine '{}' not found", engine_id))
+    }
+
+    /// Drive a streaming `think_with_tools` call (Phase C).
+    ///
+    /// Forwards each received chunk delta as a `ClotoEventData::AgentTokenStream`
+    /// on the kernel event bus, then returns the authoritative final
+    /// `CallToolResult` (whose content still carries the complete accumulated
+    /// text per MGP §12.5). The caller is expected to feed the result through
+    /// `parse_mcp_think_result` and `maybe_record_usage` exactly as in the
+    /// non-streaming branch.
+    #[allow(clippy::too_many_arguments)]
+    async fn collect_streaming_think_result(
+        &self,
+        mcp: &Arc<McpClientManager>,
+        engine_id: &str,
+        agent: &AgentMetadata,
+        message: &ClotoMessage,
+        context: &[ClotoMessage],
+        tools: &[serde_json::Value],
+        tool_history: &[serde_json::Value],
+        iteration: u8,
+    ) -> anyhow::Result<crate::managers::mcp_protocol::CallToolResult> {
+        let agent_val = serde_json::to_value(agent)?;
+        let message_val = serde_json::to_value(message)?;
+        let context_val = serde_json::Value::Array(Self::serialize_context(context));
+        let tools_val = serde_json::Value::Array(tools.to_vec());
+
+        self.preflight_token_budget(
+            engine_id,
+            &agent_val,
+            &context_val,
+            &tools_val,
+            &message_val,
+        )
+        .await?;
+
+        let args = serde_json::json!({
+            "agent": agent_val,
+            "message": message_val,
+            "context": context_val,
+            "tools": tools,
+            "tool_history": tool_history,
+        });
+
+        let (mut chunk_rx, result_rx) = mcp
+            .call_server_tool_streaming(engine_id, "think_with_tools", args)
+            .await?;
+
+        // Fan chunk deltas onto the event bus as `AgentTokenStream`. The
+        // spawned task owns the receiver and exits naturally when the server
+        // drops the stream_collector (bug-351 total / idle timeout, normal
+        // completion, or cancel).
+        let event_tx = self.sender.clone();
+        let agent_id = agent.id.clone();
+        let engine_id_owned = engine_id.to_string();
+        let source_message_id = message.id.clone();
+
+        tokio::spawn(async move {
+            while let Some(chunk_params) = chunk_rx.recv().await {
+                let index = chunk_params
+                    .get("index")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0) as u32;
+                let delta = chunk_params
+                    .get("content")
+                    .and_then(|c| c.get("text"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
+                if delta.is_empty() {
+                    continue;
+                }
+                let ev =
+                    crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::AgentTokenStream {
+                        agent_id: agent_id.clone(),
+                        engine_id: engine_id_owned.clone(),
+                        delta: delta.to_string(),
+                        index,
+                        iteration,
+                        source_message_id: source_message_id.clone(),
+                    });
+                if event_tx.send(ev).await.is_err() {
+                    break; // event bus closed / kernel shutting down
+                }
+            }
+        });
+
+        match result_rx.await {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(anyhow::anyhow!(
+                "Streaming result channel closed unexpectedly"
+            )),
+        }
     }
 
     /// Record the `usage` block returned by a mind MCP server into the

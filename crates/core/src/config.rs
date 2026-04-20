@@ -56,6 +56,12 @@ pub struct AppConfig {
     /// streaming tool call when no chunk arrives within this window, bounded
     /// above by `mcp_request_timeout_secs`. bug-351.
     pub mcp_stream_idle_timeout_secs: u64,
+    /// Opt-in gate for routing `mind.*` engine calls through
+    /// `call_tool_streaming`. When enabled, the agentic loop emits
+    /// `ClotoEventData::AgentTokenStream` for each chunk. Default off to
+    /// preserve the non-streaming path; flip to true with
+    /// `CLOTO_MCP_STREAMING_ENABLED=true`.
+    pub mcp_streaming_enabled: bool,
     /// MCP health check interval in seconds.
     pub mcp_health_interval_secs: u64,
     /// LLM proxy HTTP client timeout in seconds.
@@ -344,6 +350,10 @@ impl AppConfig {
             );
         }
 
+        let mcp_streaming_enabled = env::var("CLOTO_MCP_STREAMING_ENABLED")
+            .map(|v| matches!(v.as_str(), "true" | "1" | "yes" | "on"))
+            .unwrap_or(false);
+
         let mcp_health_interval_secs = env::var("CLOTO_MCP_HEALTH_INTERVAL_SECS")
             .unwrap_or_else(|_| "10".to_string())
             .parse::<u64>()
@@ -510,6 +520,7 @@ impl AppConfig {
             heartbeat_threshold_ms,
             mcp_request_timeout_secs,
             mcp_stream_idle_timeout_secs,
+            mcp_streaming_enabled,
             mcp_health_interval_secs,
             llm_proxy_timeout_secs,
             rate_limit_per_sec,

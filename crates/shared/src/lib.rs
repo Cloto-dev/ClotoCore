@@ -507,6 +507,21 @@ pub enum ClotoEventData {
         content: String,
         iteration: u8,
     },
+    /// Per-token streaming delta from a `mind.*` engine using MGP §12 streaming
+    /// (Phase C). Consumers concatenate deltas in `index` order to reconstruct
+    /// the text generated so far. Only emitted when
+    /// `CLOTO_MCP_STREAMING_ENABLED=true` and the engine_id starts with
+    /// `mind.`. The final result still arrives as `ThoughtResponse` /
+    /// `AgenticLoopCompleted` so consumers that ignore this variant stay
+    /// functional.
+    AgentTokenStream {
+        agent_id: String,
+        engine_id: String,
+        delta: String,
+        index: u32,
+        iteration: u8,
+        source_message_id: String,
+    },
     /// An agentic loop completed (all tool calls resolved).
     AgenticLoopCompleted {
         agent_id: String,
