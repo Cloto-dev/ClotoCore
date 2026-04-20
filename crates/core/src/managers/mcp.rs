@@ -1961,12 +1961,16 @@ impl McpClientManager {
     /// Applies kernel-side validation (A) and delegation checks (§5.6)
     /// before forwarding to the MCP server.
     #[allow(clippy::too_many_lines)]
-    pub async fn call_server_tool(
+    /// Resolve the target McpClient for a tool call and run all pre-dispatch
+    /// gating (§5.6 delegation chain, handle lookup, kernel-side arg
+    /// validation). Shared by the non-streaming and streaming call paths so
+    /// that both enforce identical security policy.
+    async fn resolve_tool_call_target(
         &self,
         server_id: &str,
         tool_name: &str,
-        args: Value,
-    ) -> Result<super::mcp_protocol::CallToolResult> {
+        args: &Value,
+    ) -> Result<Arc<McpClient>> {
         // ──── §5.6 Delegation Check ────
         // If _mgp.delegation is present, verify chain depth ≤ 3, actor validity,
         // anti-spoofing (§5.6.3), and permission intersection (§5.6.1).
@@ -2084,10 +2088,49 @@ impl McpClientManager {
 
         // ──── Kernel-side Validation (A): Validate tool arguments before forwarding ────
         if let Some(validator_name) = super::mcp_tool_validator::get_kernel_validator(tool_name) {
-            validate_tool_arguments(validator_name, tool_name, &args)?;
+            validate_tool_arguments(validator_name, tool_name, args)?;
         }
 
+        Ok(client)
+    }
+
+    pub async fn call_server_tool(
+        &self,
+        server_id: &str,
+        tool_name: &str,
+        args: Value,
+    ) -> Result<super::mcp_protocol::CallToolResult> {
+        let client = self
+            .resolve_tool_call_target(server_id, tool_name, &args)
+            .await?;
         client.call_tool(tool_name, args).await
+    }
+
+    /// Streaming variant of `call_server_tool` (MGP §12, Phase C wiring).
+    ///
+    /// Returns a pair `(chunk_rx, result_rx)`:
+    ///   * `chunk_rx` yields the raw params of each
+    ///     `notifications/mgp.stream.chunk` received from the server.
+    ///   * `result_rx` completes with the final `CallToolResult` (authoritative
+    ///     per MGP §12.5), or an error — including the bug-351 idle / total
+    ///     timeout surfaces added in Phase B.
+    ///
+    /// Shares the delegation / validator / client-lookup chain with
+    /// `call_server_tool` via `resolve_tool_call_target`, so security policy
+    /// is identical between the two paths.
+    pub async fn call_server_tool_streaming(
+        &self,
+        server_id: &str,
+        tool_name: &str,
+        args: Value,
+    ) -> Result<(
+        tokio::sync::mpsc::Receiver<Value>,
+        tokio::sync::oneshot::Receiver<Result<super::mcp_protocol::CallToolResult>>,
+    )> {
+        let client = self
+            .resolve_tool_call_target(server_id, tool_name, &args)
+            .await?;
+        client.call_tool_streaming(tool_name, args).await
     }
 
     /// Handle an incoming stream chunk notification: track sequence, detect gaps,

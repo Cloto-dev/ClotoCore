@@ -37,7 +37,8 @@ async fn test_system_handler_loop_prevention() {
         Arc::new(dashmap::DashMap::new()),
         pool,
         Arc::new(dashmap::DashMap::new()),
-        5, // memory_timeout_secs
+        5,     // memory_timeout_secs
+        false, // mcp_streaming_enabled
     );
 
     // Test User Message → triggers handle_message (agentic loop).
@@ -109,6 +110,7 @@ async fn build_cron_test_handler(
         pool.clone(),
         active_cron_contexts.clone(),
         5,
+        false, // mcp_streaming_enabled
     );
 
     (handler, pool, active_cron_contexts, event_rx)
