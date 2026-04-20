@@ -43,6 +43,20 @@ export interface StrictSystemEvent {
   data?: unknown;
 }
 
+// Payload shape for `ClotoEventData::AgentTokenStream` emitted by the kernel
+// when the agentic loop streams a mind.* engine response (MGP §12, Phase C).
+// Consumers concatenate `delta` values in `index` order to reconstruct the
+// text generated so far; the authoritative final text arrives via the
+// `ThoughtResponse` event that follows.
+export interface AgentTokenStreamData {
+  agent_id: string;
+  engine_id: string;
+  delta: string;
+  index: number;
+  iteration: number;
+  source_message_id: string;
+}
+
 // Chat persistence types
 export interface ContentBlock {
   type: 'text' | 'image' | 'code' | 'tool_result' | 'file' | 'audio';

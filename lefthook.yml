@@ -6,4 +6,5 @@ pre-commit:
       run: cargo fmt -- --check
     ts-lint:
       glob: "dashboard/src/**/*.{ts,tsx}"
-      run: cd dashboard && npx biome check {staged_files}
+      root: "dashboard/"
+      run: npx biome check {staged_files}
