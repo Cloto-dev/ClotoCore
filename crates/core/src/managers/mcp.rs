@@ -1009,11 +1009,18 @@ impl McpClientManager {
                     )
                     .await
                 } else {
+                    // For mind.* engines, surface the DB-configured model_id
+                    // as `{PREFIX}_MODEL` so the server can auto-detect
+                    // reasoning/thinking behavior from the actual upstream
+                    // model (see common/llm_provider.py::_model_suggests_reasoning).
+                    // Only injected when the user hasn't already set the var
+                    // via mcp.toml or DB env.
+                    let augmented_env = self.augment_mind_env(&id, &config.env).await;
                     McpClient::connect(
                         &id,
                         &config.command,
                         &config.args,
-                        &config.env,
+                        &augmented_env,
                         self.notification_tx.clone(),
                         self.mcp_request_timeout_secs,
                         self.mcp_stream_idle_timeout_secs,
@@ -2630,6 +2637,38 @@ impl McpClientManager {
         // Stop if running (ignore error if already stopped)
         let _ = self.stop_server(id).await;
         self.start_server(id).await
+    }
+
+    /// For `mind.<name>` servers, inject `{NAME}_MODEL` derived from the
+    /// `llm_providers` DB row (keyed on the `<name>` portion of the id) when
+    /// the user hasn't already supplied that env var via mcp.toml / DB env.
+    ///
+    /// This exists because mind.* servers usually receive their model via the
+    /// kernel LLM proxy overriding the `model` field in the forwarded body,
+    /// so the server subprocess never sees the active model in its own env.
+    /// The server-side reasoning/thinking auto-detection
+    /// (`common/llm_provider.py::_model_suggests_reasoning`) wants that
+    /// signal at startup — this helper bridges the gap.
+    async fn augment_mind_env(
+        &self,
+        id: &str,
+        base_env: &HashMap<String, String>,
+    ) -> HashMap<String, String> {
+        let mut env = base_env.clone();
+        let Some(name) = id.strip_prefix("mind.") else {
+            return env;
+        };
+        let key = format!("{}_MODEL", name.to_uppercase());
+        if env.contains_key(&key) {
+            return env;
+        }
+        match crate::db::get_llm_provider(&self.pool, name).await {
+            Ok(provider) if !provider.model_id.is_empty() => {
+                env.insert(key, provider.model_id);
+            }
+            _ => { /* no provider row or empty model — leave env untouched */ }
+        }
+        env
     }
 
     /// Get a server's in-memory environment variables (from config or runtime).
