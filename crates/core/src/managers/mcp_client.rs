@@ -410,14 +410,30 @@ impl McpClient {
             // and a per-chunk idle timeout (MGP §12, bug-351). All three error
             // paths emit a message containing "Streaming request timed out" so
             // that qa/issue-registry.json's bug-351 pattern still matches.
+            //
+            // Subtle: the per-chunk idle deadline is only armed AFTER the first
+            // chunk arrives. Before that, the upstream may legitimately be
+            // busy with prompt processing (a 9B model digesting a multi-k
+            // token system prompt can easily exceed the idle window). During
+            // that phase we rely on the total cap alone. Once streaming has
+            // actually started, idle silence is a real stall.
             tokio::spawn(async move {
                 let total_deadline = tokio::time::Instant::now()
                     + std::time::Duration::from_secs(total_timeout_secs);
                 let idle_duration = std::time::Duration::from_secs(idle_timeout_secs);
-                let mut idle_deadline = tokio::time::Instant::now() + idle_duration;
+                let mut idle_deadline: Option<tokio::time::Instant> = None;
                 let mut inner_rx = inner_rx;
 
                 let result: Result<CallToolResult> = loop {
+                    // Compose the idle branch dynamically — a pending future
+                    // (never resolves) until the first chunk arms the deadline.
+                    let idle_sleep: std::pin::Pin<
+                        Box<dyn std::future::Future<Output = ()> + Send>,
+                    > = match idle_deadline {
+                        Some(d) => Box::pin(tokio::time::sleep_until(d)),
+                        None => Box::pin(std::future::pending::<()>()),
+                    };
+
                     tokio::select! {
                         // Final response arrived (or the oneshot was dropped).
                         res = &mut inner_rx => match res {
@@ -433,16 +449,16 @@ impl McpClient {
                                 total_timeout_secs
                             ));
                         }
-                        // No chunk arrived within the per-chunk idle window.
-                        () = tokio::time::sleep_until(idle_deadline) => {
+                        // Idle window elapsed after streaming had started.
+                        () = idle_sleep => {
                             break Err(anyhow::anyhow!(
                                 "Streaming request timed out (idle {}s, no chunk received)",
                                 idle_timeout_secs
                             ));
                         }
-                        // Chunk delivered — bump the idle deadline and keep waiting.
+                        // Chunk delivered — arm (on first notify) or reset the idle deadline.
                         () = activity_notify.notified() => {
-                            idle_deadline = tokio::time::Instant::now() + idle_duration;
+                            idle_deadline = Some(tokio::time::Instant::now() + idle_duration);
                         }
                     }
                 };
