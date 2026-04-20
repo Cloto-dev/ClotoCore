@@ -3,3 +3,10 @@
 # between builds causes "migration was previously applied but has been
 # modified" errors on existing databases.
 crates/core/migrations/*.sql text eol=crlf
+
+# Force LF for .env files. On macOS, dotenvy 0.15 leaves the trailing CR
+# attached to the value, which produces invalid HTTP header bytes when the
+# value is used in X-API-Key or Authorization headers (kernel returns 400
+# with empty body, very hard to diagnose).
+.env text eol=lf
+.env.* text eol=lf

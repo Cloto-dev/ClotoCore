@@ -107,7 +107,12 @@ impl AppConfig {
             format!("sqlite:{}", db_path.display())
         });
 
-        let admin_api_key = env::var("CLOTO_API_KEY").ok();
+        // Trim surrounding whitespace to survive CRLF in `.env` on Windows/macOS.
+        // A stray `\r` in the value breaks HTTP header parsing (400 with empty body).
+        let admin_api_key = env::var("CLOTO_API_KEY")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
 
         if let Some(ref key) = admin_api_key {
             if key.len() < 32 {
@@ -604,5 +609,41 @@ mod tests {
         assert_eq!(config.consensus_engines[0], "mind.deepseek");
         assert_eq!(config.consensus_engines[1], "mind.anthropic");
         assert_eq!(config.consensus_engines[2], "mind.openai");
+    }
+
+    #[test]
+    fn test_admin_api_key_strips_crlf() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        // A CR at the end is the symptom when .env is saved as CRLF on macOS.
+        std::env::set_var(
+            "CLOTO_API_KEY",
+            "d6b705613200449d6c9e08ecf218b0571742937c9575c26982c5be29b10443f3\r",
+        );
+        let _guard = EnvGuard("CLOTO_API_KEY");
+
+        let config = AppConfig::load().unwrap();
+        let key = config.admin_api_key.expect("CLOTO_API_KEY must be loaded");
+        assert!(
+            !key.contains('\r'),
+            "CR must be stripped from admin_api_key"
+        );
+        assert!(
+            !key.contains('\n'),
+            "LF must be stripped from admin_api_key"
+        );
+        assert_eq!(key.len(), 64, "64-hex key must survive trim");
+    }
+
+    #[test]
+    fn test_admin_api_key_blank_is_none() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::set_var("CLOTO_API_KEY", "   \t\r\n  ");
+        let _guard = EnvGuard("CLOTO_API_KEY");
+
+        let config = AppConfig::load().unwrap();
+        assert!(
+            config.admin_api_key.is_none(),
+            "whitespace-only CLOTO_API_KEY must collapse to None"
+        );
     }
 }
