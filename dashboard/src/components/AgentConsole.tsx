@@ -21,10 +21,10 @@ import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { findBranchPoints, flattenConversation } from '../lib/conversationTree';
 import { sendNativeNotification } from '../lib/notifications';
 import { openVrmWindow } from '../lib/tauri';
-import { ContextUsageBadge } from './ContextUsageBadge';
 import { EVENTS_URL } from '../services/api';
 import type {
   AgentMetadata,
+  AgentTokenStreamData,
   ChatMessage,
   ClotoMessage,
   CommandApprovalRequest,
@@ -37,6 +37,7 @@ import { BranchNavigator } from './BranchNavigator';
 import { ChatInputBar } from './ChatInputBar';
 import { CommandApprovalCard } from './CommandApprovalCard';
 import { MessageContent } from './ContentBlockView';
+import { ContextUsageBadge } from './ContextUsageBadge';
 import { SkeletonThinking } from './SkeletonThinking';
 import { SystemAlertCard } from './SystemAlertCard';
 import { TypewriterMessage } from './TypewriterMessage';
@@ -118,6 +119,10 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     text: string;
     elapsedSecs: number;
     parentId?: string;
+    /** Live MGP §12 streaming in progress — render raw text (no typewriter)
+     * and skip the final TypewriterMessage animation when ThoughtResponse
+     * arrives (text has already been shown to the user chunk-by-chunk). */
+    streaming?: boolean;
   } | null>(null);
   const [thinkingSteps, setThinkingStepsRaw] = useState<
     Array<{ id: number; status: 'ok' | 'fail' | 'done' | 'thought'; text: string; detail?: string; ts: number }>
@@ -329,6 +334,10 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                   if (newMsgs.some((m) => m.source === 'agent')) {
                     setIsTyping(false);
                     setThinkingSteps([]);
+                    // A streaming pendingResponse would otherwise linger on
+                    // screen as a zombie after the authoritative final
+                    // message has already been loaded from the DB.
+                    setPendingResponse((prev) => (prev?.streaming ? null : prev));
                   }
                   return [...prev, ...newMsgs];
                 }
@@ -382,6 +391,25 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
             },
           ]);
         }
+        // MGP §12 streaming chunk (Phase C). Append the delta to the pending
+        // response so the user sees tokens as they arrive from the mind.*
+        // engine. The authoritative final text still arrives via
+        // ThoughtResponse below and overwrites what we've shown so far.
+        if (event.type === 'AgentTokenStream' && event.data?.agent_id === agent.id) {
+          const stream = event.data as unknown as AgentTokenStreamData;
+          setPendingResponse((prev) => {
+            if (prev?.streaming) {
+              return { ...prev, text: prev.text + stream.delta };
+            }
+            return {
+              id: `${stream.source_message_id}-stream`,
+              text: stream.delta,
+              elapsedSecs: 0,
+              parentId: stream.source_message_id,
+              streaming: true,
+            };
+          });
+        }
       }
 
       // Command approval request from kernel (batch)
@@ -426,8 +454,27 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         // Clear retry guard so recoverTypingState can resume
         retryParentIdRef.current = null;
 
-        // If a previous typewriter is still running, finalize it immediately
+        // If a previous typewriter is still running, finalize it immediately.
+        // When the previous pendingResponse was in MGP §12 streaming mode
+        // (Phase C), we've already shown the text to the user chunk-by-chunk;
+        // we trust `event.data.content` as authoritative (MGP §12.5) and push
+        // it directly to messages without running the typewriter animation
+        // a second time.
         setPendingResponse((prev) => {
+          if (prev?.streaming) {
+            const streamedMsg: ChatMessage = {
+              id: msgId,
+              agent_id: agent.id,
+              user_id: identity.id,
+              source: 'agent',
+              content: [{ type: 'text', text: event.data.content as string }],
+              metadata: { elapsed_secs: elapsedSecs },
+              created_at: Date.now(),
+              parent_id: parentId as string | undefined,
+            };
+            setMessages((msgs) => [...msgs, streamedMsg]);
+            return null;
+          }
           if (prev) {
             const prevMsg: ChatMessage = {
               id: prev.id,
@@ -874,7 +921,10 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                 );
               })
             )}
-            {/* Typewriter animation for current response */}
+            {/* Typewriter animation for current response (or live streaming
+                when MGP §12 chunks are flowing — in that case we render raw
+                text and skip the typewriter since the user already sees the
+                tokens arrive in real time). */}
             {pendingResponse && (
               <div className="flex items-start gap-3 message-enter">
                 <div
@@ -884,11 +934,15 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                   <AgentIcon agent={agent} size={32} />
                 </div>
                 <div className="max-w-[80%] pt-1 text-base leading-7 select-text text-content-primary">
-                  <TypewriterMessage
-                    text={pendingResponse.text}
-                    onComplete={handleTypewriterComplete}
-                    onCodeBlock={handleCodeBlockExtracted}
-                  />
+                  {pendingResponse.streaming ? (
+                    <div className="whitespace-pre-wrap">{pendingResponse.text}</div>
+                  ) : (
+                    <TypewriterMessage
+                      text={pendingResponse.text}
+                      onComplete={handleTypewriterComplete}
+                      onCodeBlock={handleCodeBlockExtracted}
+                    />
+                  )}
                   {pendingResponse.elapsedSecs > 0 && (
                     <div className="mt-1 text-[10px] font-mono text-content-tertiary">
                       {pendingResponse.elapsedSecs}s
