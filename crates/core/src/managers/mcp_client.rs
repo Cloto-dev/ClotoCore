@@ -16,7 +16,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex, Notify};
 use tracing::{debug, error, info};
 
 /// MCP server-initiated notification (Server→Kernel).
@@ -26,6 +26,12 @@ pub struct McpNotification {
     pub method: String,
     pub params: Option<Value>,
 }
+
+/// A single streaming request's dispatch state. `sender` forwards chunks to
+/// the caller's `mpsc::Receiver`; `activity` is pulsed on each chunk so that
+/// the per-request watchdog in `call_tool_streaming` can reset its idle
+/// deadline (bug-351).
+pub(super) type StreamCollector = (mpsc::Sender<Value>, Arc<Notify>);
 
 pub struct McpClient {
     transport: Arc<Mutex<McpTransport>>,
@@ -38,8 +44,12 @@ pub struct McpClient {
     response_task: Option<tokio::task::JoinHandle<()>>,
     notification_tx: mpsc::Sender<McpNotification>,
     request_timeout_secs: u64,
-    /// Stream chunk collectors: request_id → sender for streaming chunks (MGP §12).
-    stream_collectors: Arc<Mutex<HashMap<i64, mpsc::Sender<Value>>>>,
+    /// Per-request idle timeout for streaming calls (MGP §12). When no chunk
+    /// arrives within this window, `call_tool_streaming` aborts with a
+    /// "Streaming request timed out" error. bug-351.
+    stream_idle_timeout_secs: u64,
+    /// Stream chunk collectors: request_id → (chunk sender, activity notifier).
+    stream_collectors: Arc<Mutex<HashMap<i64, StreamCollector>>>,
 }
 
 impl Drop for McpClient {
@@ -61,6 +71,7 @@ impl McpClient {
         transport.kill_and_wait().await;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn connect(
         server_id: &str,
         command: &str,
@@ -68,6 +79,7 @@ impl McpClient {
         env: &HashMap<String, String>,
         notification_tx: mpsc::Sender<McpNotification>,
         request_timeout_secs: u64,
+        stream_idle_timeout_secs: u64,
         isolation: Option<&super::mcp_isolation::IsolationProfile>,
         llm_proxy_port: u16,
         sensitive_env_keys: &[String],
@@ -91,6 +103,7 @@ impl McpClient {
             response_task: None,
             notification_tx,
             request_timeout_secs,
+            stream_idle_timeout_secs,
             stream_collectors: Arc::new(Mutex::new(HashMap::new())),
         };
 
@@ -107,6 +120,7 @@ impl McpClient {
         auth_token: Option<&str>,
         notification_tx: mpsc::Sender<McpNotification>,
         request_timeout_secs: u64,
+        stream_idle_timeout_secs: u64,
     ) -> Result<(Self, Option<MgpServerCapabilities>)> {
         let http = HttpTransport::start(url, auth_token).await?;
         let sender = http.sender();
@@ -119,6 +133,7 @@ impl McpClient {
             response_task: None,
             notification_tx,
             request_timeout_secs,
+            stream_idle_timeout_secs,
             stream_collectors: Arc::new(Mutex::new(HashMap::new())),
         };
 
@@ -190,8 +205,12 @@ impl McpClient {
                                         params.get("request_id").and_then(serde_json::Value::as_i64)
                                     {
                                         let collectors = stream_collectors.lock().await;
-                                        if let Some(tx) = collectors.get(&req_id) {
+                                        if let Some((tx, notify)) = collectors.get(&req_id) {
                                             let _ = tx.try_send(params.clone());
+                                            // Pulse the per-stream watchdog so its idle
+                                            // deadline resets. Buffered — safe even if the
+                                            // watchdog hasn't entered `notified()` yet.
+                                            notify.notify_one();
                                             continue; // routed to collector, skip normal path
                                         }
                                     }
@@ -366,38 +385,69 @@ impl McpClient {
         let request = JsonRpcRequest::new(id, "tools/call", Some(params_value));
         let req_str = serde_json::to_string(&request)?;
 
-        // Create stream chunk channel
+        // Create stream chunk channel + per-request activity notifier (bug-351).
+        // The notifier is pulsed by response_loop on every chunk arrival so the
+        // watchdog task below can reset its idle deadline.
         let (chunk_tx, chunk_rx) = mpsc::channel(256);
+        let activity_notify = Arc::new(Notify::new());
         {
             let mut collectors = self.stream_collectors.lock().await;
-            collectors.insert(id, chunk_tx);
+            collectors.insert(id, (chunk_tx, activity_notify.clone()));
         }
 
         // Create final result channel
         let (result_tx, result_rx) = oneshot::channel();
         let stream_collectors = self.stream_collectors.clone();
         let final_id = id;
-        let timeout_secs = self.request_timeout_secs;
+        let total_timeout_secs = self.request_timeout_secs;
+        let idle_timeout_secs = self.stream_idle_timeout_secs;
         {
             let mut map = self.pending_requests.lock().await;
             let (inner_tx, inner_rx) = oneshot::channel();
             map.insert(id, inner_tx);
 
-            // Spawn a task to convert the raw response to CallToolResult and clean up
+            // Spawn a watchdog task that enforces both the total request cap
+            // and a per-chunk idle timeout (MGP §12, bug-351). All three error
+            // paths emit a message containing "Streaming request timed out" so
+            // that qa/issue-registry.json's bug-351 pattern still matches.
             tokio::spawn(async move {
-                let result = match tokio::time::timeout(
-                    std::time::Duration::from_secs(timeout_secs),
-                    inner_rx,
-                )
-                .await
-                {
-                    Ok(Ok(Ok(val))) => serde_json::from_value::<CallToolResult>(val)
-                        .map_err(|e| anyhow::anyhow!("Failed to parse streaming result: {}", e)),
-                    Ok(Ok(Err(e))) => Err(e),
-                    Ok(Err(_)) => Err(anyhow::anyhow!("Response channel closed")),
-                    Err(_) => Err(anyhow::anyhow!("Streaming request timed out")),
+                let total_deadline = tokio::time::Instant::now()
+                    + std::time::Duration::from_secs(total_timeout_secs);
+                let idle_duration = std::time::Duration::from_secs(idle_timeout_secs);
+                let mut idle_deadline = tokio::time::Instant::now() + idle_duration;
+                let mut inner_rx = inner_rx;
+
+                let result: Result<CallToolResult> = loop {
+                    tokio::select! {
+                        // Final response arrived (or the oneshot was dropped).
+                        res = &mut inner_rx => match res {
+                            Ok(Ok(val)) => break serde_json::from_value::<CallToolResult>(val)
+                                .map_err(|e| anyhow::anyhow!("Failed to parse streaming result: {}", e)),
+                            Ok(Err(e)) => break Err(e),
+                            Err(_) => break Err(anyhow::anyhow!("Response channel closed")),
+                        },
+                        // Request-total cap reached (existing behavior, preserved).
+                        () = tokio::time::sleep_until(total_deadline) => {
+                            break Err(anyhow::anyhow!(
+                                "Streaming request timed out (total {}s)",
+                                total_timeout_secs
+                            ));
+                        }
+                        // No chunk arrived within the per-chunk idle window.
+                        () = tokio::time::sleep_until(idle_deadline) => {
+                            break Err(anyhow::anyhow!(
+                                "Streaming request timed out (idle {}s, no chunk received)",
+                                idle_timeout_secs
+                            ));
+                        }
+                        // Chunk delivered — bump the idle deadline and keep waiting.
+                        () = activity_notify.notified() => {
+                            idle_deadline = tokio::time::Instant::now() + idle_duration;
+                        }
+                    }
                 };
-                // Clean up stream collector
+
+                // Clean up stream collector regardless of how we exited.
                 {
                     let mut collectors = stream_collectors.lock().await;
                     collectors.remove(&final_id);

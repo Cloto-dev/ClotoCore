@@ -46,6 +46,8 @@ pub struct McpClientManager {
     notification_tx: mpsc::Sender<McpNotification>,
     notification_rx: Mutex<Option<mpsc::Receiver<McpNotification>>>,
     mcp_request_timeout_secs: u64,
+    /// Per-chunk idle timeout for streaming MCP tool calls (bug-351, MGP §12).
+    mcp_stream_idle_timeout_secs: u64,
     /// Kernel event bus sender — set after AppState creation for PermissionRequested emission.
     kernel_event_tx: Mutex<Option<mpsc::Sender<crate::EnvelopedEvent>>>,
     /// Lifecycle manager for restart policies (MGP §11)
@@ -76,7 +78,12 @@ pub struct McpClientManager {
 
 impl McpClientManager {
     #[must_use]
-    pub fn new(pool: SqlitePool, yolo_mode: bool, mcp_request_timeout_secs: u64) -> Self {
+    pub fn new(
+        pool: SqlitePool,
+        yolo_mode: bool,
+        mcp_request_timeout_secs: u64,
+        mcp_stream_idle_timeout_secs: u64,
+    ) -> Self {
         let (notification_tx, notification_rx) = mpsc::channel(256);
         Self {
             state: RwLock::new(McpState {
@@ -88,6 +95,7 @@ impl McpClientManager {
             notification_tx,
             notification_rx: Mutex::new(Some(notification_rx)),
             mcp_request_timeout_secs,
+            mcp_stream_idle_timeout_secs,
             lifecycle: super::mcp_lifecycle::LifecycleManager::new(),
             events: super::mcp_events::EventManager::new(),
             rich_tool_index: super::mcp_tool_discovery::ToolIndex::new(),
@@ -997,6 +1005,7 @@ impl McpClientManager {
                         auth,
                         self.notification_tx.clone(),
                         self.mcp_request_timeout_secs,
+                        self.mcp_stream_idle_timeout_secs,
                     )
                     .await
                 } else {
@@ -1007,6 +1016,7 @@ impl McpClientManager {
                         &config.env,
                         self.notification_tx.clone(),
                         self.mcp_request_timeout_secs,
+                        self.mcp_stream_idle_timeout_secs,
                         isolation_profile.as_ref(),
                         self.llm_proxy_port,
                         &self.sensitive_env_keys,
@@ -2839,10 +2849,10 @@ mod tests {
             .await
             .unwrap();
 
-        let manager_off = McpClientManager::new(pool.clone(), false, 120);
+        let manager_off = McpClientManager::new(pool.clone(), false, 120, 30);
         assert!(!manager_off.yolo_mode.load(Ordering::Relaxed));
 
-        let manager_on = McpClientManager::new(pool, true, 120);
+        let manager_on = McpClientManager::new(pool, true, 120, 30);
         assert!(manager_on.yolo_mode.load(Ordering::Relaxed));
     }
 
@@ -2853,7 +2863,7 @@ mod tests {
             .await
             .unwrap();
 
-        let manager = McpClientManager::new(pool, false, 120);
+        let manager = McpClientManager::new(pool, false, 120, 30);
         assert!(!manager.yolo_mode.load(Ordering::Relaxed));
 
         manager.yolo_mode.store(true, Ordering::Relaxed);
@@ -2871,13 +2881,13 @@ mod tests {
             .unwrap();
 
         // YOLO off: no kernel tools
-        let manager = McpClientManager::new(pool.clone(), false, 120);
+        let manager = McpClientManager::new(pool.clone(), false, 120, 30);
         let schemas = manager.collect_tool_schemas().await;
         // §16: meta-tools (discover + request) are always included even with YOLO off
         assert_eq!(schemas.len(), 2, "YOLO off should only include meta-tools");
 
         // YOLO on: kernel tools included (create_mcp_server + access control + audit)
-        let manager_on = McpClientManager::new(pool, true, 120);
+        let manager_on = McpClientManager::new(pool, true, 120, 30);
         let schemas_on = manager_on.collect_tool_schemas().await;
         assert!(
             !schemas_on.is_empty(),
@@ -2894,7 +2904,7 @@ mod tests {
             .await
             .unwrap();
 
-        let manager = McpClientManager::new(pool, true, 120);
+        let manager = McpClientManager::new(pool, true, 120, 30);
         let schemas = manager.collect_tool_schemas().await;
         let names: Vec<&str> = schemas
             .iter()
@@ -2921,7 +2931,7 @@ mod tests {
             .await
             .unwrap();
 
-        let manager = McpClientManager::new(pool, true, 120);
+        let manager = McpClientManager::new(pool, true, 120, 30);
         let schemas = manager.collect_tool_schemas().await;
         let names: Vec<&str> = schemas
             .iter()
@@ -2940,7 +2950,7 @@ mod tests {
             .await
             .unwrap();
 
-        let manager = McpClientManager::new(pool, true, 120);
+        let manager = McpClientManager::new(pool, true, 120, 30);
         let schemas = manager.collect_tool_schemas().await;
         let names: Vec<&str> = schemas
             .iter()
@@ -2967,7 +2977,7 @@ mod tests {
             .await
             .unwrap();
 
-        let manager = McpClientManager::new(pool, true, 120);
+        let manager = McpClientManager::new(pool, true, 120, 30);
         let schemas = manager.collect_tool_schemas().await;
         let names: Vec<&str> = schemas
             .iter()
@@ -2986,7 +2996,7 @@ mod tests {
             .await
             .unwrap();
 
-        let manager = McpClientManager::new(pool, true, 120);
+        let manager = McpClientManager::new(pool, true, 120, 30);
         let schemas = manager.collect_tool_schemas().await;
         let names: Vec<&str> = schemas
             .iter()
@@ -3017,7 +3027,7 @@ mod tests {
             .await
             .unwrap();
 
-        let manager = McpClientManager::new(pool, true, 120);
+        let manager = McpClientManager::new(pool, true, 120, 30);
         let schemas = manager.collect_tool_schemas().await;
         // 5 Tier 2 + 9 Tier 3 + 1 ask_agent + 2 gui = 17 Tier 1-3 + 3 discovery + 3 session = 23 YOLO tools + 2 meta-tools = 25
         assert_eq!(
