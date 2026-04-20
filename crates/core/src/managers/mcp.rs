@@ -2665,6 +2665,16 @@ impl McpClientManager {
         match crate::db::get_llm_provider(&self.pool, name).await {
             Ok(provider) if !provider.model_id.is_empty() => {
                 env.insert(key, provider.model_id);
+                let prefill_key = format!("{}_REASONING_PREFILL", name.to_uppercase());
+                match provider.reasoning_prefill.as_str() {
+                    "on" => {
+                        env.insert(prefill_key, "true".to_string());
+                    }
+                    "off" => {
+                        env.insert(prefill_key, "false".to_string());
+                    }
+                    _ => { /* "auto" — server-side heuristic decides */ }
+                }
             }
             _ => { /* no provider row or empty model — leave env untouched */ }
         }
