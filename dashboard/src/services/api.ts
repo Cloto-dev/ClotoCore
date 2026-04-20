@@ -506,18 +506,16 @@ export const api = {
     agentId: string,
     apiKey: string,
   ): Promise<{
-    usage:
-      | {
-          prompt_tokens: number;
-          completion_tokens: number;
-          total_tokens: number;
-          context_length: number | null;
-          provider_id: string;
-          model_id: string;
-          is_estimate: boolean;
-          updated_at: string;
-        }
-      | null;
+    usage: {
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+      context_length: number | null;
+      provider_id: string;
+      model_id: string;
+      is_estimate: boolean;
+      updated_at: string;
+    } | null;
   }> =>
     fetch(`${API_BASE}/agents/${encodeURIComponent(agentId)}/last-usage`, {
       headers: { 'X-API-Key': apiKey },
@@ -538,13 +536,9 @@ export const api = {
     models_count: number | null;
     error: string | null;
   }> =>
-    mutate(
-      `/llm/providers/${encodeURIComponent(providerId)}/test`,
-      'POST',
-      'test provider connection',
-      undefined,
-      { 'X-API-Key': apiKey },
-    )
+    mutate(`/llm/providers/${encodeURIComponent(providerId)}/test`, 'POST', 'test provider connection', undefined, {
+      'X-API-Key': apiKey,
+    })
       .then((r) => r.json())
       .then((b) => b.data),
 
@@ -554,6 +548,15 @@ export const api = {
       'POST',
       'set provider context length',
       { context_length: contextLength },
+      { 'X-API-Key': apiKey },
+    ).then(() => {}),
+
+  setLlmProviderReasoningPrefill: (providerId: string, apiKey: string, value: 'auto' | 'on' | 'off') =>
+    mutate(
+      `/llm/providers/${encodeURIComponent(providerId)}/reasoning-prefill`,
+      'POST',
+      'set provider reasoning prefill',
+      { value },
       { 'X-API-Key': apiKey },
     ).then(() => {}),
 
@@ -826,6 +829,8 @@ export function createAuthenticatedApi(apiKey: string) {
     setLlmProviderModel: (providerId: string, modelId: string) => api.setLlmProviderModel(providerId, k, modelId),
     setLlmProviderContextLength: (providerId: string, contextLength: number | null) =>
       api.setLlmProviderContextLength(providerId, k, contextLength),
+    setLlmProviderReasoningPrefill: (providerId: string, value: 'auto' | 'on' | 'off') =>
+      api.setLlmProviderReasoningPrefill(providerId, k, value),
     listProviderModels: (providerId: string) => api.listProviderModels(providerId, k),
     testProviderConnection: (providerId: string) => api.testProviderConnection(providerId, k),
     getAgentLastUsage: (agentId: string) => api.getAgentLastUsage(agentId, k),

@@ -33,6 +33,7 @@ pub async fn list_llm_providers(
                 "timeout_secs": p.timeout_secs,
                 "enabled": p.enabled,
                 "context_length": p.context_length,
+                "reasoning_prefill": p.reasoning_prefill,
             })
         })
         .collect();
@@ -556,6 +557,56 @@ pub async fn set_llm_provider_context_length(
         provider = %provider_id,
         new_value = ?new_value,
         "LLM provider context_length updated"
+    );
+    ok_data(serde_json::json!({}))
+}
+
+/// POST /api/llm/providers/:id/reasoning-prefill
+///
+/// Sets the per-provider thinking/reasoning override. Accepts
+/// `{ "value": "auto" | "on" | "off" }`. `"on"`/`"off"` are injected into the
+/// mind.* server env as `{PREFIX}_REASONING_PREFILL=true/false`; `"auto"`
+/// leaves env untouched so the server-side model-name heuristic fires.
+/// Audit-logged like other LLM provider mutations.
+pub async fn set_llm_provider_reasoning_prefill(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(provider_id): axum::extract::Path<String>,
+    Json(payload): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let value = payload
+        .get("value")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Validation("value is required".into()))?;
+    if !matches!(value, "auto" | "on" | "off") {
+        return Err(AppError::Validation(
+            "value must be 'auto', 'on', or 'off'".into(),
+        ));
+    }
+
+    let old_value = crate::db::set_llm_provider_reasoning_prefill(&state.pool, &provider_id, value)
+        .await
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        "LLM_PROVIDER_REASONING_PREFILL_UPDATED",
+        provider_id.clone(),
+        format!("Reasoning prefill changed from {} to {}", old_value, value),
+        None,
+        Some(serde_json::json!({
+            "old_reasoning_prefill": old_value,
+            "new_reasoning_prefill": value,
+        })),
+        None,
+    );
+
+    tracing::info!(
+        provider = %provider_id,
+        new_value = %value,
+        "LLM provider reasoning_prefill updated"
     );
     ok_data(serde_json::json!({}))
 }

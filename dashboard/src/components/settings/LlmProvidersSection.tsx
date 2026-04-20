@@ -19,12 +19,15 @@ const MODEL_PLACEHOLDER_BY_PROVIDER: Record<string, string> = {
   groq: 'openai/gpt-oss-20b',
 };
 
+type ReasoningPrefill = 'auto' | 'on' | 'off';
+
 type Provider = {
   id: string;
   display_name: string;
   has_key: boolean;
   model_id: string;
   context_length: number | null;
+  reasoning_prefill: ReasoningPrefill;
 };
 
 type ModelOption = {
@@ -63,6 +66,9 @@ export function LlmProvidersSection() {
   const [ctxSaving, setCtxSaving] = useState(false);
   const [ctxError, setCtxError] = useState<string | null>(null);
   const ctxInputRef = useRef<HTMLInputElement>(null);
+
+  // Reasoning prefill 3-way toggle state — per-provider override for thinking mode.
+  const [reasoningSavingId, setReasoningSavingId] = useState<string | null>(null);
 
   // Per-provider connection test state — ephemeral UI feedback.
   type TestState =
@@ -165,10 +171,7 @@ export function LlmProvidersSection() {
     }
   };
 
-  const handleModelKeyDown = (
-    e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>,
-    providerId: string,
-  ) => {
+  const handleModelKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>, providerId: string) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       commitModelEdit(providerId);
@@ -219,6 +222,19 @@ export function LlmProvidersSection() {
     } else if (e.key === 'Escape') {
       e.preventDefault();
       cancelCtxEdit();
+    }
+  };
+
+  const commitReasoningPrefill = async (providerId: string, value: ReasoningPrefill) => {
+    setReasoningSavingId(providerId);
+    try {
+      await api.setLlmProviderReasoningPrefill(providerId, value);
+      const d = await api.listLlmProviders();
+      setProviders(d.providers);
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn('setLlmProviderReasoningPrefill failed:', e);
+    } finally {
+      setReasoningSavingId(null);
     }
   };
 
@@ -315,8 +331,12 @@ export function LlmProvidersSection() {
                           // Prefer showing the actually loaded n_ctx (what LM Studio will
                           // accept right now) alongside the model's native maximum so the
                           // user can see the gap at a glance.
-                          if (m.loaded && m.loaded_context_length && m.max_context_length &&
-                              m.loaded_context_length !== m.max_context_length) {
+                          if (
+                            m.loaded &&
+                            m.loaded_context_length &&
+                            m.max_context_length &&
+                            m.loaded_context_length !== m.max_context_length
+                          ) {
                             parts.push(
                               `· ${t('llm_providers.model_ctx_loaded_of_max', {
                                 loaded: m.loaded_context_length.toLocaleString(),
@@ -357,7 +377,9 @@ export function LlmProvidersSection() {
                           modelList?.status === 'loading'
                             ? t('llm_providers.model_dropdown_loading')
                             : MODEL_PLACEHOLDER_BY_PROVIDER[p.id]
-                              ? t('llm_providers.model_placeholder_ex', { example: MODEL_PLACEHOLDER_BY_PROVIDER[p.id] })
+                              ? t('llm_providers.model_placeholder_ex', {
+                                  example: MODEL_PLACEHOLDER_BY_PROVIDER[p.id],
+                                })
                               : t('llm_providers.model_placeholder')
                         }
                         className="bg-surface-base border border-brand/50 rounded px-2 py-0.5 text-[11px] font-mono text-content-primary placeholder:text-content-tertiary w-48"
@@ -371,9 +393,7 @@ export function LlmProvidersSection() {
                       title={t('llm_providers.model_refresh')}
                       className="p-0.5 text-content-tertiary hover:text-brand rounded disabled:opacity-40"
                     >
-                      <RefreshCw
-                        className={`w-3 h-3 ${modelList?.status === 'loading' ? 'animate-spin' : ''}`}
-                      />
+                      <RefreshCw className={`w-3 h-3 ${modelList?.status === 'loading' ? 'animate-spin' : ''}`} />
                     </button>
                     <button
                       onClick={() => commitModelEdit(p.id)}
@@ -460,6 +480,32 @@ export function LlmProvidersSection() {
                     )}
                   </button>
                 )}
+                <span className="text-content-tertiary text-[10px]">·</span>
+                <div
+                  className="inline-flex items-center rounded border border-edge overflow-hidden"
+                  title={t('llm_providers.thinking_hint')}
+                >
+                  <span className="px-2 py-0.5 text-[10px] font-mono text-content-tertiary bg-transparent">
+                    {t('llm_providers.thinking_label')}
+                  </span>
+                  {(['auto', 'on', 'off'] as const).map((mode) => {
+                    const active = (p.reasoning_prefill ?? 'auto') === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => commitReasoningPrefill(p.id, mode)}
+                        disabled={reasoningSavingId === p.id}
+                        aria-pressed={active}
+                        className={`px-2 py-0.5 text-[10px] font-mono border-l border-edge ${
+                          active ? 'bg-brand text-white' : 'bg-transparent text-content-tertiary hover:text-brand'
+                        } disabled:opacity-40`}
+                      >
+                        {t(`llm_providers.thinking_${mode}`)}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               {editingModelId === p.id && modelError && (
                 <p className="text-[10px] text-red-400 mt-1 ml-4">{modelError}</p>
@@ -469,9 +515,7 @@ export function LlmProvidersSection() {
                   {t('llm_providers.model_dropdown_error', { code: modelList.errorCode ?? 'unknown' })}
                 </p>
               )}
-              {editingCtxId === p.id && ctxError && (
-                <p className="text-[10px] text-red-400 mt-1 ml-4">{ctxError}</p>
-              )}
+              {editingCtxId === p.id && ctxError && <p className="text-[10px] text-red-400 mt-1 ml-4">{ctxError}</p>}
               <div className="flex gap-2 mt-2">
                 <input
                   type="password"
@@ -523,11 +567,7 @@ export function LlmProvidersSection() {
                         : ts.status === 'unreachable'
                           ? t('llm_providers.test_unreachable')
                           : t('llm_providers.test_model_list_unavailable');
-                  return (
-                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${color}`}>
-                      {label}
-                    </span>
-                  );
+                  return <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${color}`}>{label}</span>;
                 })()}
               </div>
             </div>
