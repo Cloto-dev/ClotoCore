@@ -52,6 +52,10 @@ pub struct AppConfig {
     pub heartbeat_threshold_ms: i64,
     /// MCP request timeout in seconds.
     pub mcp_request_timeout_secs: u64,
+    /// MCP streaming per-chunk idle timeout in seconds (MGP §12). Aborts a
+    /// streaming tool call when no chunk arrives within this window, bounded
+    /// above by `mcp_request_timeout_secs`. bug-351.
+    pub mcp_stream_idle_timeout_secs: u64,
     /// MCP health check interval in seconds.
     pub mcp_health_interval_secs: u64,
     /// LLM proxy HTTP client timeout in seconds.
@@ -329,6 +333,17 @@ impl AppConfig {
             );
         }
 
+        let mcp_stream_idle_timeout_secs = env::var("CLOTO_MCP_STREAM_IDLE_TIMEOUT_SECS")
+            .unwrap_or_else(|_| "30".to_string())
+            .parse::<u64>()
+            .context("Failed to parse CLOTO_MCP_STREAM_IDLE_TIMEOUT_SECS")?;
+        if !(5..=300).contains(&mcp_stream_idle_timeout_secs) {
+            anyhow::bail!(
+                "CLOTO_MCP_STREAM_IDLE_TIMEOUT_SECS must be between 5 and 300 (got {})",
+                mcp_stream_idle_timeout_secs
+            );
+        }
+
         let mcp_health_interval_secs = env::var("CLOTO_MCP_HEALTH_INTERVAL_SECS")
             .unwrap_or_else(|_| "10".to_string())
             .parse::<u64>()
@@ -494,6 +509,7 @@ impl AppConfig {
             memory_timeout_secs,
             heartbeat_threshold_ms,
             mcp_request_timeout_secs,
+            mcp_stream_idle_timeout_secs,
             mcp_health_interval_secs,
             llm_proxy_timeout_secs,
             rate_limit_per_sec,

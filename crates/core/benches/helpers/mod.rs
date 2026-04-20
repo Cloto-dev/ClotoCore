@@ -40,7 +40,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
 
     let rate_limiter = Arc::new(cloto_core::middleware::RateLimiter::new(100, 200));
 
-    let mcp_manager = Arc::new(McpClientManager::new(pool.clone(), false, 30));
+    let mcp_manager = Arc::new(McpClientManager::new(pool.clone(), false, 30, 30));
 
     Arc::new(AppState {
         tx,

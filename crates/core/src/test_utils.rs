@@ -39,6 +39,7 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
         pool.clone(),
         false, // yolo_mode disabled in tests
         120,   // mcp_request_timeout_secs
+        30,    // mcp_stream_idle_timeout_secs
     ));
 
     Arc::new(crate::AppState {

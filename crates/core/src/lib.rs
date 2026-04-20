@@ -60,8 +60,7 @@ pub fn init_tracing() {
         }
     };
 
-    let env_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     let base = tracing_subscriber::registry()
         .with(env_filter)
@@ -78,8 +77,7 @@ pub fn init_tracing() {
 pub fn init_tracing() {
     use tracing_subscriber::{fmt, EnvFilter};
 
-    let env_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     let _ = fmt()
         .with_env_filter(env_filter)
@@ -455,8 +453,12 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             None => config.yolo_mode, // fall back to env var
         }
     };
-    let mut mcp_manager =
-        managers::McpClientManager::new(pool.clone(), yolo_mode, config.mcp_request_timeout_secs);
+    let mut mcp_manager = managers::McpClientManager::new(
+        pool.clone(),
+        yolo_mode,
+        config.mcp_request_timeout_secs,
+        config.mcp_stream_idle_timeout_secs,
+    );
     mcp_manager.configure_isolation(&config);
     let mcp_manager = Arc::new(mcp_manager);
 
