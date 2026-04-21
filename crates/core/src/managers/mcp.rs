@@ -2665,13 +2665,19 @@ impl McpClientManager {
         match crate::db::get_llm_provider(&self.pool, name).await {
             Ok(provider) if !provider.model_id.is_empty() => {
                 env.insert(key, provider.model_id);
+                // Translate user intent (thinking_mode) to the mechanism the
+                // Python MGP servers already understand ({PREFIX}_REASONING_PREFILL,
+                // i.e. "apply the anti-thinking prefill"):
+                //   * thinking on  → do NOT prefill (let the model think)
+                //   * thinking off → DO prefill (suppress thinking)
+                //   * auto         → leave env unset so the heuristic decides
                 let prefill_key = format!("{}_REASONING_PREFILL", name.to_uppercase());
-                match provider.reasoning_prefill.as_str() {
+                match provider.thinking_mode.as_str() {
                     "on" => {
-                        env.insert(prefill_key, "true".to_string());
+                        env.insert(prefill_key, "false".to_string());
                     }
                     "off" => {
-                        env.insert(prefill_key, "false".to_string());
+                        env.insert(prefill_key, "true".to_string());
                     }
                     _ => { /* "auto" — server-side heuristic decides */ }
                 }

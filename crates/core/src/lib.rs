@@ -1017,8 +1017,8 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             post(handlers::set_llm_provider_context_length),
         )
         .route(
-            "/llm/providers/:id/reasoning-prefill",
-            post(handlers::set_llm_provider_reasoning_prefill),
+            "/llm/providers/:id/thinking-mode",
+            post(handlers::set_llm_provider_thinking_mode),
         )
         .route(
             "/llm/providers/:id/test",
