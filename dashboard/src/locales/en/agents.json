@@ -97,5 +97,14 @@
   "import_error": "Import failed: {{error}}",
   "import_invalid": "Invalid agent config file.",
   "import_engine_missing": "Engine \"{{engine}}\" not found. Set to none.",
-  "import_server_skipped": "MCP server \"{{server}}\" not found, skipped."
+  "import_server_skipped": "MCP server \"{{server}}\" not found, skipped.",
+  "import_preview": {
+    "title": "Import Preview",
+    "hint": "Review the import, then Save to apply.",
+    "engine_label": "Engine",
+    "access_label": "MCP access",
+    "access_count": "{{count}} server(s)",
+    "none": "(none)",
+    "save": "Save Import"
+  }
 }
