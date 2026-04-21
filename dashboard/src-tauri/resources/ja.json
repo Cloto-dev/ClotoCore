@@ -40,19 +40,26 @@
       ]
     },
     "browser_banner": "ブラウザアクセスは非推奨です。<1>Cloto デスクトップアプリ</1>をご利用ください。",
+    "update_available_banner": "ClotoCore {{version}} が利用可能です — 設定 → 情報 から更新できます。",
     "help": {
+      "title": "ヘルプ",
       "navigation": "ナビゲーション",
+      "agent_desc": "エージェント管理、チャット、システム状態",
       "status_desc": "システム状態、エージェントステータス、リアルタイムメトリクス",
       "memory_desc": "保存されたメモリとエピソードアーカイブの閲覧",
       "cloto_desc": "AI エージェントとチャット",
-      "mcp_desc": "MCP サーバー接続とツールの管理",
+      "mcp_desc": "MCP / MGP サーバー接続とツールの管理",
       "cron_desc": "エージェントタスクの自動スケジュール",
       "settings_desc": "API キー、テーマ、設定の構成",
       "ask_assistant": "Cloto アシスタントに質問",
       "ask_hint": "デフォルトエージェントとチャットして質問や相談ができます",
       "docs": "ドキュメント",
       "github": "GitHub"
-    }
+    },
+    "error_boundary_title": "システムエラー",
+    "error_boundary_message": "予期しないエラーが発生しました",
+    "error_boundary_restart": "再起動",
+    "skeleton_thinking": "思考中..."
   },
   "agents": {
     "title": "エージェント",
@@ -148,7 +155,16 @@
     "import_error": "インポート失敗: {{error}}",
     "import_invalid": "無効なエージェント構成ファイルです。",
     "import_engine_missing": "エンジン \"{{engine}}\" が見つかりません。未設定で作成します。",
-    "import_server_skipped": "MCP サーバー \"{{server}}\" が見つかりません。スキップしました。"
+    "import_server_skipped": "MCP サーバー \"{{server}}\" が見つかりません。スキップしました。",
+    "import_preview": {
+      "title": "インポートプレビュー",
+      "hint": "内容を確認し、保存で反映してください。",
+      "engine_label": "エンジン",
+      "access_label": "MCP アクセス",
+      "access_count": "{{count}} サーバー",
+      "none": "(なし)",
+      "save": "インポート保存"
+    }
   },
   "settings": {
     "title": "設定",
@@ -208,7 +224,38 @@
       "contact": "連絡先",
       "setup": "クイックセットアップ",
       "setup_desc": "初期セットアップウィザードを再表示して、言語・テーマ・表示名を変更できます。",
-      "rerun_setup": "クイックセットアップを再表示"
+      "rerun_setup": "クイックセットアップを再表示",
+      "auto_update": "アップデートの自動確認",
+      "auto_update_desc": "アプリ起動時に新しいバージョンがあるかを自動で確認します。"
+    },
+    "advanced": {
+      "yolo_title": "YOLO モード",
+      "auto_approve_label": "MCP 権限を自動承認",
+      "yolo_warning": "MCP サーバー接続権限は手動確認なしで自動承認されます。ツール実行は依然として承認が必要で、SafetyGate とコードバリデータは引き続き動作します。",
+      "yolo_desc": "有効化すると MCP サーバー接続権限リクエストが自動承認されます。ツール実行の承認は影響を受けず、SafetyGate の事後検証がセーフティネットとして機能します。",
+      "cron_limit_title": "CRON 再帰上限",
+      "cron_limit_desc": "CRON ジョブが子 CRON ジョブを再帰的に作成できる世代数の上限。0 で再帰を完全に無効化します。",
+      "cron_limit_hint": "(0-6、既定値: 2)"
+    },
+    "security": {
+      "api_key_title": "API キー",
+      "configured": "設定済み",
+      "not_configured": "未設定",
+      "placeholder_replace": "置換する新しいキーを入力",
+      "placeholder_new": "API キーを入力",
+      "invalidate_label": "現在のキーを無効化 (システム全体)",
+      "invalidate_confirm_desc": "すべてのクライアントでキーが無効化されます。",
+      "error_invalid_key": "無効な API キーです",
+      "error_invalidate_failed": "キーの無効化に失敗しました"
+    },
+    "display": {
+      "cursor_title": "カーソル",
+      "cursor_label": "カスタムアニメーションカーソル",
+      "cursor_desc": "Canvas レンダリングによるトレイルアニメーション付きの独自カーソルでシステムカーソルを置き換えます。"
+    },
+    "log": {
+      "title": "イベントログ",
+      "awaiting_signal": "近日公開 — 構造化イベントログビューアは今後のリリースで予定されています。"
     },
     "llm_providers": {
       "title": "LLM プロバイダー",
@@ -233,6 +280,11 @@
       "context_length_detect": "検出",
       "context_length_detect_unavailable": "自動検出できませんでした。手動で入力してください。",
       "context_length_validation": "コンテキスト長は正の整数で入力してください。",
+      "thinking_label": "Thinking",
+      "thinking_auto": "自動",
+      "thinking_on": "オン",
+      "thinking_off": "オフ",
+      "thinking_hint": "「オン」はモデルが自由に思考できます。「オフ」は anti-think プリフィルで思考を抑制します (推論モデルで即答を得たい場合に使用)。「自動」はモデル ID から判定します。",
       "test": "テスト",
       "test_ok": "OK ({{latency}} ms)",
       "test_auth_failed": "認証失敗",
@@ -339,7 +391,10 @@
       "save_changes": "変更を保存",
       "saving": "保存中...",
       "reset": "リセット",
-      "remove": "削除"
+      "remove": "削除",
+      "placeholder_key": "KEY",
+      "placeholder_value": "値",
+      "add": "追加"
     },
     "logs": {
       "event_log": "イベントログ",
@@ -369,7 +424,8 @@
       "uninstall_confirm": "{{name}} をアンインストールしますか？サーバーとファイルが削除されます。",
       "uninstall_error": "サーバーのアンインストールに失敗しました",
       "install_success": "{{name}} をインストールしました",
-      "uninstall_success": "{{name}} をアンインストールしました"
+      "uninstall_success": "{{name}} をアンインストールしました",
+      "rust_notice": "このサーバーは Rust ツールチェイン (cargo) が必要です。初回ビルドに 5〜10 分かかる場合があります。"
     }
   },
   "nav": {
@@ -412,6 +468,10 @@
     "next_label": "次回:",
     "last_label": "前回:",
     "prompt_label": "プロンプト:",
+    "source_type": "メッセージ送信者",
+    "source_label": "送信者:",
+    "source_system": "system",
+    "source_user": "user",
     "no_jobs": "Cron ジョブが設定されていません。作成してエージェントの自動実行を有効にしましょう。"
   },
   "memory": {
@@ -422,8 +482,23 @@
     "no_memories": "アーカイブされたメモリはありません。",
     "episodic": "エピソードストリーム",
     "no_episodes": "記録されたエピソードはありません。",
+    "edit_memory": "メモリを編集",
+    "save": "保存",
+    "cancel": "キャンセル",
+    "lock_memory": "メモリをロック",
+    "unlock_memory": "メモリのロックを解除",
+    "memory_locked": "メモリはロックされています",
     "delete_memory": "メモリを削除",
-    "delete_episode": "エピソードを削除"
+    "delete_episode": "エピソードを削除",
+    "export": "エクスポート",
+    "import": "インポート",
+    "export_tooltip": "メモリを JSONL でエクスポート",
+    "import_tooltip": "JSONL からメモリをインポート",
+    "import_confirm": "{{memories}} 件のメモリと {{episodes}} 件のエピソードをインポートしますか？",
+    "import_success": "{{memories}} 件のメモリと {{episodes}} 件のエピソードをインポートしました ({{skipped}} 件スキップ)",
+    "operation_failed": "操作に失敗しました",
+    "import_error": "インポートに失敗しました",
+    "importing": "インポート中..."
   },
   "wizard": {
     "welcome_title": "Cloto へようこそ",
@@ -479,6 +554,8 @@
     "marketplace_hint": "一部のサーバーはマーケットプレイスからインストールすることで使用可能になります。",
     "console_warning": "インストールが実行されています。コンソールウィンドウを閉じないでください。",
     "step_install_preparing": "インストールの準備中...",
+    "install_elapsed": "経過時間: {{time}}",
+    "install_estimate": "推定: {{min}}〜{{max}} 分",
     "quick_guide": "クイックガイド",
     "guide_agents": "AI エージェントとチャット、新規作成、設定の管理。",
     "guide_mcp": "MCP サーバープラグインの接続と管理。",
@@ -489,5 +566,32 @@
     "next": "次へ",
     "back": "戻る",
     "step_of": "{{current}} / {{total}}"
+  },
+  "setup": {
+    "title": "CLOTO SYSTEM",
+    "subtitle": "初回セットアップ",
+    "checking": "システム要件を確認中...",
+    "step_download_uv": "uv をダウンロード",
+    "step_download": "MCP サーバーをダウンロード",
+    "step_verify": "アーカイブを検証",
+    "step_extract": "ファイルを展開",
+    "step_create_venv": "仮想環境を作成",
+    "step_install_deps": "依存関係をインストール",
+    "step_finalize": "完了処理",
+    "start_setup": "セットアップ開始",
+    "start_description": "MCP サーバーをダウンロードして構成する必要があります。これは初回のみの処理です。",
+    "retry": "再試行",
+    "error_title": "セットアップに失敗しました",
+    "error_description": "セットアップ中にエラーが発生しました。再試行できます。",
+    "progress_downloading": "ダウンロード中...",
+    "progress_installing": "サーバーをインストール中: {{name}}",
+    "complete_title": "セットアップ完了",
+    "complete_description": "すべての MCP サーバーがインストール・構成されました。",
+    "complete_server_count": "{{count}} サーバーをインストール済み",
+    "continue": "続行",
+    "show_log": "ログを表示",
+    "hide_log": "ログを非表示",
+    "server_count": "{{count}} サーバー",
+    "marketplace_hint": "一部のサーバーは後でマーケットプレイスからインストールできます。"
   }
 }
