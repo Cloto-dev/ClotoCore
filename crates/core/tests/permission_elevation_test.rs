@@ -132,6 +132,8 @@ async fn test_dynamic_permission_elevation_flow() {
         None, // consensus
         sys_handler,
         10_000, // max_event_history
+        10,     // hal_rate_limit_per_sec
+        20,     // hal_rate_limit_burst
     );
     let (event_tx, event_rx) = mpsc::channel(10);
 

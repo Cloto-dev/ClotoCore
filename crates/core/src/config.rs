@@ -70,6 +70,11 @@ pub struct AppConfig {
     pub rate_limit_per_sec: u32,
     /// Rate limiter: burst size.
     pub rate_limit_burst: u32,
+    /// HAL action rate limiter: actions per second per requester
+    /// (bug-143 Guardrail 1.6: prevents InputControl runaway).
+    pub hal_rate_limit_per_sec: u32,
+    /// HAL action rate limiter: burst size per requester.
+    pub hal_rate_limit_burst: u32,
     /// Maximum event history ring buffer size.
     pub max_event_history: usize,
     /// Event processing concurrency limit.
@@ -403,6 +408,28 @@ impl AppConfig {
             );
         }
 
+        let hal_rate_limit_per_sec = env::var("CLOTO_HAL_RATE_LIMIT_PER_SEC")
+            .unwrap_or_else(|_| "10".to_string())
+            .parse::<u32>()
+            .context("Failed to parse CLOTO_HAL_RATE_LIMIT_PER_SEC")?;
+        if hal_rate_limit_per_sec == 0 || hal_rate_limit_per_sec > 1000 {
+            anyhow::bail!(
+                "CLOTO_HAL_RATE_LIMIT_PER_SEC must be between 1 and 1000 (got {})",
+                hal_rate_limit_per_sec
+            );
+        }
+
+        let hal_rate_limit_burst = env::var("CLOTO_HAL_RATE_LIMIT_BURST")
+            .unwrap_or_else(|_| "20".to_string())
+            .parse::<u32>()
+            .context("Failed to parse CLOTO_HAL_RATE_LIMIT_BURST")?;
+        if hal_rate_limit_burst == 0 || hal_rate_limit_burst > 10_000 {
+            anyhow::bail!(
+                "CLOTO_HAL_RATE_LIMIT_BURST must be between 1 and 10000 (got {})",
+                hal_rate_limit_burst
+            );
+        }
+
         let max_event_history = env::var("CLOTO_MAX_EVENT_HISTORY")
             .unwrap_or_else(|_| "10000".to_string())
             .parse::<usize>()
@@ -530,6 +557,8 @@ impl AppConfig {
             llm_proxy_timeout_secs,
             rate_limit_per_sec,
             rate_limit_burst,
+            hal_rate_limit_per_sec,
+            hal_rate_limit_burst,
             max_event_history,
             event_concurrency_limit,
             max_chat_query_limit,

@@ -54,6 +54,8 @@ async fn create_test_processor(
         None, // consensus
         sys_handler,
         10_000, // max_event_history
+        10,     // hal_rate_limit_per_sec
+        20,     // hal_rate_limit_burst
     ));
 
     (processor, event_history)

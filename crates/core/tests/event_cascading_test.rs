@@ -137,6 +137,8 @@ async fn test_event_cascading_protection() {
         None, // consensus
         sys_handler,
         10_000, // max_event_history
+        10,     // hal_rate_limit_per_sec
+        20,     // hal_rate_limit_burst
     );
 
     let tx_internal_for_loop = tx_internal.clone();
