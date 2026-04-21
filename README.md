@@ -216,6 +216,8 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `CLOTO_LLM_PROXY_TIMEOUT_SECS` | `180` | LLM proxy HTTP timeout (30-600) |
 | `CLOTO_RATE_LIMIT_PER_SEC` | `10` | Rate limit requests/sec (1-1000) |
 | `CLOTO_RATE_LIMIT_BURST` | `50` | Rate limit burst size (1-10000) |
+| `CLOTO_HAL_RATE_LIMIT_PER_SEC` | `10` | HAL action rate limit per requester (1-1000) |
+| `CLOTO_HAL_RATE_LIMIT_BURST` | `20` | HAL action burst size per requester (1-10000) |
 | `CLOTO_MAX_CHAT_QUERY_LIMIT` | `200` | Max chat messages per query (10-10000) |
 | `CLOTO_ATTACHMENT_INLINE_THRESHOLD` | `65536` | Attachment inline threshold in bytes (0-10485760) |
 | `CLOTO_UPDATE_REPO` | `Cloto-dev/ClotoCore` | GitHub repo for update checks |

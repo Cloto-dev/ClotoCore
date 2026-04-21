@@ -53,6 +53,10 @@ pub struct EventProcessor {
     consensus: Option<Arc<crate::consensus::ConsensusOrchestrator>>,
     /// Per-plugin rate limiter for InputControl actions (bug-143: Guardrail 1.6)
     action_rate_limiter: Arc<dashmap::DashMap<String, governor::DefaultDirectRateLimiter>>,
+    /// Configured HAL rate limit (actions/sec/requester).
+    hal_rate_limit_per_sec: u32,
+    /// Configured HAL rate limit burst.
+    hal_rate_limit_burst: u32,
     /// Kernel system handler — runs agentic loops outside the plugin dispatch pipeline.
     system_handler: Arc<SystemHandler>,
     /// Per-agent semaphore to serialize agentic loops for the same agent.
@@ -75,6 +79,8 @@ impl EventProcessor {
         consensus: Option<Arc<crate::consensus::ConsensusOrchestrator>>,
         system_handler: Arc<SystemHandler>,
         max_event_history: usize,
+        hal_rate_limit_per_sec: u32,
+        hal_rate_limit_burst: u32,
     ) -> Self {
         Self {
             registry,
@@ -87,6 +93,8 @@ impl EventProcessor {
             event_retention_hours,
             consensus,
             action_rate_limiter: Arc::new(dashmap::DashMap::new()),
+            hal_rate_limit_per_sec,
+            hal_rate_limit_burst,
             system_handler,
             agent_locks: Arc::new(dashmap::DashMap::new()),
             max_event_history,
@@ -633,15 +641,18 @@ impl EventProcessor {
         use governor::{Quota, RateLimiter};
         use std::num::NonZeroU32;
 
+        // AppConfig validates these are non-zero on startup, so the NonZeroU32
+        // construction cannot fail here. We still guard with expect() rather
+        // than unwrap() so the panic message points at the validation layer.
+        let per_sec = NonZeroU32::new(self.hal_rate_limit_per_sec)
+            .expect("hal_rate_limit_per_sec must be non-zero (validated in AppConfig)");
+        let burst = NonZeroU32::new(self.hal_rate_limit_burst)
+            .expect("hal_rate_limit_burst must be non-zero (validated in AppConfig)");
+
         let limiter = self
             .action_rate_limiter
             .entry(requester_id.to_string())
-            .or_insert_with(|| {
-                RateLimiter::direct(
-                    Quota::per_second(NonZeroU32::new(10).unwrap())
-                        .allow_burst(NonZeroU32::new(20).unwrap()),
-                )
-            });
+            .or_insert_with(|| RateLimiter::direct(Quota::per_second(per_sec).allow_burst(burst)));
         limiter.check().is_ok()
     }
 

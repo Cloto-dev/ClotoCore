@@ -181,6 +181,8 @@ async fn test_vulnerability_event_forging() {
         None, // consensus
         sys_handler,
         10_000, // max_event_history
+        10,     // hal_rate_limit_per_sec
+        20,     // hal_rate_limit_burst
     );
 
     // Run Processor in background
