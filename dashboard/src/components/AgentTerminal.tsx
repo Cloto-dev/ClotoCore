@@ -35,18 +35,23 @@ export interface AgentTerminalProps {
   onBack?: () => void;
 }
 
+interface PendingImport {
+  agentData: {
+    name: string;
+    description: string;
+    default_engine: string;
+    metadata: Record<string, string>;
+  };
+  grantedServerIds: string[];
+  warnings: string[];
+  displayEngineId: string;
+}
+
 export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh, onBack }: AgentTerminalProps) {
   const api = useApi();
   const { t } = useTranslation('agents');
   const { t: tc } = useTranslation('common');
   const [configuringAgent, setConfiguringAgent] = useState<AgentMetadata | null>(null);
-
-  // Clear config mode when parent deselects the agent (e.g. sidebar navigation)
-  useEffect(() => {
-    if (!selectedAgent && configuringAgent) {
-      setConfiguringAgent(null);
-    }
-  }, [selectedAgent, configuringAgent]);
 
   // Power toggle modal
   const [powerTarget, setPowerTarget] = useState<AgentMetadata | null>(null);
@@ -65,9 +70,25 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
 
   const DEFAULT_AGENT_ID = 'agent.cloto_default';
 
-  // Import file input
+  // Import (deferred: parse into pendingImport, commit on Save)
   const importRef = useRef<HTMLInputElement>(null);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  // Clear transient UI state when the agent is deselected from the parent
+  // (e.g. sidebar navigation). Pending imports are discarded since they
+  // haven't been committed yet.
+  useEffect(() => {
+    if (!selectedAgent && configuringAgent) {
+      setConfiguringAgent(null);
+    }
+    if (!selectedAgent && pendingImport) {
+      setPendingImport(null);
+      setImportError(null);
+    }
+  }, [selectedAgent, configuringAgent, pendingImport]);
 
   const handleExport = async (agent: AgentMetadata) => {
     try {
@@ -103,8 +124,9 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
     }
   };
 
+  // Parse the import file and build a pending preview. No API calls yet:
+  // createAgent + putAgentMcpAccess are committed on Save.
   const handleImport = async (file: File) => {
-    const warnings: string[] = [];
     try {
       const text = await file.text();
       const data = JSON.parse(text);
@@ -120,6 +142,8 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
         agent_type: agentData.metadata?.agent_type || 'ai',
       };
 
+      const warnings: string[] = [];
+
       // Check if engine exists
       let engineId = agentData.default_engine_id || '';
       if (engineId && !mcpEngines.some((s) => s.id === engineId)) {
@@ -127,24 +151,12 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
         engineId = '';
       }
 
-      // Create agent
-      await api.createAgent({
-        name: agentData.name,
-        description: agentData.description || '',
-        default_engine: engineId,
-        metadata: meta,
-      });
-
-      // Find newly created agent to get its ID
-      const allAgents = await api.getAgents();
-      const created = allAgents.find((a: AgentMetadata) => a.name === agentData.name);
-
-      // Restore MCP access in a single batch request. Unknown servers in the
-      // imported payload are filtered out here with a warning so the backend
-      // only receives server_ids that currently exist.
-      if (created && Array.isArray(data.mcp_access) && data.mcp_access.length > 0) {
-        const knownServerIds = new Set(mcpServers.map((s) => s.id));
-        const grantedServerIds: string[] = [];
+      // Filter out MCP servers that are not currently installed. The pending
+      // state only carries server_ids that exist — surviving warnings are
+      // shown in the preview card so the user can decide before committing.
+      const knownServerIds = new Set(mcpServers.map((s) => s.id));
+      const grantedServerIds: string[] = [];
+      if (Array.isArray(data.mcp_access)) {
         for (const access of data.mcp_access) {
           if (!knownServerIds.has(access.server_id)) {
             warnings.push(t('import_server_skipped', { server: access.server_id }));
@@ -152,26 +164,73 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
           }
           grantedServerIds.push(access.server_id);
         }
-        if (grantedServerIds.length > 0) {
+      }
+
+      setPendingImport({
+        agentData: {
+          name: agentData.name,
+          description: agentData.description || '',
+          default_engine: engineId,
+          metadata: meta,
+        },
+        grantedServerIds,
+        warnings,
+        displayEngineId: engineId,
+      });
+      setImportError(null);
+      setImportWarnings([]);
+    } catch (e) {
+      alert(t('import_error', { error: e instanceof Error ? e.message : 'Unknown error' }));
+    }
+  };
+
+  const handleSaveImport = async () => {
+    if (!pendingImport || isImporting) return;
+    setIsImporting(true);
+    setImportError(null);
+    try {
+      await api.createAgent({
+        name: pendingImport.agentData.name,
+        description: pendingImport.agentData.description,
+        default_engine: pendingImport.agentData.default_engine,
+        metadata: pendingImport.agentData.metadata,
+      });
+
+      const finalWarnings = [...pendingImport.warnings];
+
+      if (pendingImport.grantedServerIds.length > 0) {
+        const allAgents = await api.getAgents();
+        const created = allAgents.find((a: AgentMetadata) => a.name === pendingImport.agentData.name);
+        if (created) {
           try {
-            await api.putAgentMcpAccess(created.id, grantedServerIds);
+            await api.putAgentMcpAccess(created.id, pendingImport.grantedServerIds);
           } catch {
-            // Fall back to per-server warnings so the user sees which imports failed.
-            for (const serverId of grantedServerIds) {
-              warnings.push(t('import_server_skipped', { server: serverId }));
+            // Grant failed after agent was created. Surface per-server warnings
+            // so the user knows to re-grant manually.
+            for (const serverId of pendingImport.grantedServerIds) {
+              finalWarnings.push(t('import_server_skipped', { server: serverId }));
             }
           }
         }
       }
 
+      const name = pendingImport.agentData.name;
       onRefresh();
-      setImportWarnings(warnings);
-      if (warnings.length === 0) {
-        alert(t('import_success', { name: agentData.name }));
+      setImportWarnings(finalWarnings);
+      setPendingImport(null);
+      if (finalWarnings.length === 0) {
+        alert(t('import_success', { name }));
       }
     } catch (e) {
-      alert(t('import_error', { error: e instanceof Error ? e.message : 'Unknown error' }));
+      setImportError(e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setIsImporting(false);
     }
+  };
+
+  const handleCancelImport = () => {
+    setPendingImport(null);
+    setImportError(null);
   };
 
   const handleDeleteConfirm = async () => {
@@ -322,12 +381,79 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
             />
             <button
               onClick={() => importRef.current?.click()}
+              disabled={pendingImport !== null || isImporting}
               aria-label={t('import_config')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload size={14} /> {t('import_config')}
             </button>
           </div>
+
+          {/* Import preview (pending state — Save commits, Cancel discards) */}
+          {pendingImport && (
+            <div className="mb-4 p-4 rounded-xl bg-brand/5 border border-brand/40 space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-brand/10 text-brand">
+                  <Upload size={14} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-bold text-xs text-content-primary uppercase tracking-widest">
+                    {t('import_preview.title')}
+                  </h3>
+                  <p className="text-[10px] text-content-tertiary font-mono mt-0.5">{t('import_preview.hint')}</p>
+                </div>
+              </div>
+              <div className="bg-surface-secondary rounded-lg p-3 space-y-1.5 font-mono text-[11px]">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-content-tertiary">name:</span>
+                  <span className="text-content-primary font-bold truncate">{pendingImport.agentData.name}</span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-content-tertiary">{t('import_preview.engine_label')}:</span>
+                  <span className="text-content-primary truncate">
+                    {pendingImport.displayEngineId
+                      ? displayServerId(pendingImport.displayEngineId)
+                      : t('import_preview.none')}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-content-tertiary">{t('import_preview.access_label')}:</span>
+                  <span className="text-content-primary">
+                    {t('import_preview.access_count', { count: pendingImport.grantedServerIds.length })}
+                  </span>
+                </div>
+              </div>
+              {pendingImport.warnings.length > 0 && (
+                <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 space-y-1">
+                  {pendingImport.warnings.map((w) => (
+                    <p key={w} className="text-[10px] text-amber-400 font-mono">
+                      {w}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {importError && <p className="text-xs text-red-400 font-mono">{importError}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCancelImport}
+                  disabled={isImporting}
+                  aria-label={tc('cancel')}
+                  className="flex-1 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:bg-surface-secondary transition-all disabled:opacity-50"
+                >
+                  {tc('cancel')}
+                </button>
+                <button
+                  onClick={handleSaveImport}
+                  disabled={isImporting}
+                  aria-label={t('import_preview.save')}
+                  className="flex-1 py-2 rounded-lg bg-brand text-white text-xs font-bold hover:bg-brand/90 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
+                >
+                  {isImporting ? <Activity size={12} className="animate-spin" /> : <Upload size={12} />}
+                  {t('import_preview.save')}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Import warnings */}
           {importWarnings.length > 0 && (
