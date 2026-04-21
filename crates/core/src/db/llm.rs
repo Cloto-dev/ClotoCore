@@ -21,32 +21,41 @@ pub struct LlmProviderRow {
     /// Populated manually via Dashboard or auto-detected from LM Studio probes.
     #[serde(default)]
     pub context_length: Option<i64>,
-    /// Override for reasoning/thinking mode: "auto" (default), "on", "off".
-    /// Injected by `augment_mind_env` as `{PREFIX}_REASONING_PREFILL=true/false`
-    /// when the value is "on"/"off"; "auto" leaves env untouched so the
-    /// server-side heuristic can decide.
-    #[serde(default = "default_reasoning_prefill")]
-    pub reasoning_prefill: String,
+    /// User-facing thinking mode toggle: "auto" (default), "on", "off".
+    ///
+    /// Semantic is the USER INTENT, not the internal mechanism:
+    ///   * `"on"`   — thinking is allowed (no prefill applied)
+    ///   * `"off"`  — thinking is suppressed via an assistant `<think></think>`
+    ///                prefill on the outbound request
+    ///   * `"auto"` — server-side heuristic on the model id decides
+    ///
+    /// `augment_mind_env` translates this into the internal
+    /// `{PREFIX}_REASONING_PREFILL=true/false` env var that the Python MGP
+    /// servers already consume. The env var keeps its old name because it
+    /// describes the mechanism ("apply the anti-think prefill"); only the
+    /// user-facing column/field was renamed.
+    #[serde(default = "default_thinking_mode")]
+    pub thinking_mode: String,
 }
 
 fn default_auth_type() -> String {
     "bearer".to_string()
 }
 
-fn default_reasoning_prefill() -> String {
+fn default_thinking_mode() -> String {
     "auto".to_string()
 }
 
 pub async fn list_llm_providers(pool: &SqlitePool) -> anyhow::Result<Vec<LlmProviderRow>> {
     let rows = db_timeout(sqlx::query_as::<_, LlmProviderRow>(
-        "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type, context_length, reasoning_prefill FROM llm_providers ORDER BY id"
+        "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type, context_length, thinking_mode FROM llm_providers ORDER BY id"
     ).fetch_all(pool)).await?;
     Ok(rows)
 }
 
 pub async fn get_llm_provider(pool: &SqlitePool, id: &str) -> anyhow::Result<LlmProviderRow> {
     let row = db_timeout(sqlx::query_as::<_, LlmProviderRow>(
-        "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type, context_length, reasoning_prefill FROM llm_providers WHERE id = ?"
+        "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type, context_length, thinking_mode FROM llm_providers WHERE id = ?"
     ).bind(id).fetch_optional(pool)).await?;
     row.ok_or_else(|| anyhow::anyhow!("LLM provider '{}' not found", id))
 }
@@ -140,21 +149,21 @@ pub async fn set_llm_provider_context_length(
     Ok(old)
 }
 
-/// Update the provider's reasoning/thinking override.
+/// Update the provider's thinking mode.
 /// Valid values: "auto" (default), "on", "off". Returns the previous value for audit logs.
-pub async fn set_llm_provider_reasoning_prefill(
+pub async fn set_llm_provider_thinking_mode(
     pool: &SqlitePool,
     id: &str,
     value: &str,
 ) -> anyhow::Result<String> {
     if !matches!(value, "auto" | "on" | "off") {
         return Err(anyhow::anyhow!(
-            "reasoning_prefill must be 'auto', 'on', or 'off' (got '{}')",
+            "thinking_mode must be 'auto', 'on', or 'off' (got '{}')",
             value
         ));
     }
     let old: String = db_timeout(
-        sqlx::query_scalar("SELECT reasoning_prefill FROM llm_providers WHERE id = ?")
+        sqlx::query_scalar("SELECT thinking_mode FROM llm_providers WHERE id = ?")
             .bind(id)
             .fetch_optional(pool),
     )
@@ -162,7 +171,7 @@ pub async fn set_llm_provider_reasoning_prefill(
     .ok_or_else(|| anyhow::anyhow!("LLM provider '{}' not found", id))?;
 
     let result = db_timeout(
-        sqlx::query("UPDATE llm_providers SET reasoning_prefill = ? WHERE id = ?")
+        sqlx::query("UPDATE llm_providers SET thinking_mode = ? WHERE id = ?")
             .bind(value)
             .bind(id)
             .execute(pool),

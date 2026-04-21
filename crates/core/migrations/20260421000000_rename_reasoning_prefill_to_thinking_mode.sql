@@ -1,0 +1,22 @@
+-- Rename llm_providers.reasoning_prefill → thinking_mode and invert the
+-- dashboard-facing semantic so the label matches what users expect.
+--
+-- Before: "reasoning_prefill" was the INTERNAL MECHANISM name ("apply the
+-- anti-thinking prefill"). The Dashboard surfaced it as "Thinking: on/off"
+-- but actually mapped on → suppress thinking and off → allow thinking,
+-- which is exactly backwards from user intent.
+--
+-- After: the column expresses USER INTENT for thinking mode:
+--   'on'   : thinking allowed  (kernel sets {PREFIX}_REASONING_PREFILL=false)
+--   'off'  : thinking suppressed via prefill (kernel sets it to true)
+--   'auto' : server-side heuristic decides (kernel leaves the var unset)
+--
+-- Values are intentionally NOT flipped during the rename. Under the old
+-- broken mapping, most users who picked "Off" to disable thinking actually
+-- stored 'off' in a column that suppressed thinking — the opposite of what
+-- they meant. The kernel-side mapping flip (in the same PR) makes that
+-- stored 'off' mean what they originally wanted. Anyone who had been
+-- working around the bug by picking the opposite value will need to re-
+-- select once after upgrading, which is the minority case.
+
+ALTER TABLE llm_providers RENAME COLUMN reasoning_prefill TO thinking_mode;

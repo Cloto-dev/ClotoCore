@@ -472,6 +472,7 @@ export const api = {
       timeout_secs: number;
       enabled: boolean;
       context_length: number | null;
+      thinking_mode: 'auto' | 'on' | 'off';
     }>;
   }> =>
     fetch(`${API_BASE}/llm/providers`, { headers: { 'X-API-Key': apiKey } }).then((r) => {
@@ -551,11 +552,11 @@ export const api = {
       { 'X-API-Key': apiKey },
     ).then(() => {}),
 
-  setLlmProviderReasoningPrefill: (providerId: string, apiKey: string, value: 'auto' | 'on' | 'off') =>
+  setLlmProviderThinkingMode: (providerId: string, apiKey: string, value: 'auto' | 'on' | 'off') =>
     mutate(
-      `/llm/providers/${encodeURIComponent(providerId)}/reasoning-prefill`,
+      `/llm/providers/${encodeURIComponent(providerId)}/thinking-mode`,
       'POST',
-      'set provider reasoning prefill',
+      'set provider thinking mode',
       { value },
       { 'X-API-Key': apiKey },
     ).then(() => {}),
@@ -829,8 +830,8 @@ export function createAuthenticatedApi(apiKey: string) {
     setLlmProviderModel: (providerId: string, modelId: string) => api.setLlmProviderModel(providerId, k, modelId),
     setLlmProviderContextLength: (providerId: string, contextLength: number | null) =>
       api.setLlmProviderContextLength(providerId, k, contextLength),
-    setLlmProviderReasoningPrefill: (providerId: string, value: 'auto' | 'on' | 'off') =>
-      api.setLlmProviderReasoningPrefill(providerId, k, value),
+    setLlmProviderThinkingMode: (providerId: string, value: 'auto' | 'on' | 'off') =>
+      api.setLlmProviderThinkingMode(providerId, k, value),
     listProviderModels: (providerId: string) => api.listProviderModels(providerId, k),
     testProviderConnection: (providerId: string) => api.testProviderConnection(providerId, k),
     getAgentLastUsage: (agentId: string) => api.getAgentLastUsage(agentId, k),
