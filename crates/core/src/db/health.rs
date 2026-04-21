@@ -6,6 +6,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 
 use super::db_timeout;
+use crate::CHILD_PROCESS_TIMEOUT_SECS;
 
 // ── Types ──
 
@@ -515,7 +516,7 @@ async fn repair_venv(servers_dir: &Path, data_dir: &Path) -> Option<RepairAction
         target_python
     );
     let result = tokio::time::timeout(
-        std::time::Duration::from_secs(120),
+        std::time::Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
         tokio::process::Command::new(&uv_str)
             .args([
                 "venv",

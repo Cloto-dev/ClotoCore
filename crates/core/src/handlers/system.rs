@@ -10,6 +10,11 @@ const MAX_TOOL_HISTORY: usize = 100;
 /// Number of unarchived memories that triggers automatic episode archival.
 const TOOL_USAGE_THRESHOLD: usize = 10;
 
+/// Timeout for engine-side summary / keyword / resolved pre-computations
+/// during archive_episode. Reasoning models legitimately spend most of this
+/// on first token; hanging past it is a sign the engine is stuck.
+const AGENTIC_THINK_TIMEOUT_SECS: u64 = 30;
+
 use crate::managers::{AgentManager, McpClientManager, PluginRegistry};
 use cloto_shared::{
     AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, Plugin, ThinkResult, ToolCall,
@@ -2479,7 +2484,7 @@ impl SystemHandler {
 
         // Pre-compute summary, keywords, resolved via CFR engine (mind server)
         let formatted = Self::format_history_for_llm(&history);
-        let think_timeout = Duration::from_secs(30);
+        let think_timeout = Duration::from_secs(AGENTIC_THINK_TIMEOUT_SECS);
 
         let summary = tokio::time::timeout(
             think_timeout,

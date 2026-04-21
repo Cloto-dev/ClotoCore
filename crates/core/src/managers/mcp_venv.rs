@@ -13,6 +13,8 @@
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
+use crate::CHILD_PROCESS_TIMEOUT_SECS;
+
 /// Target Python version for venv creation.
 pub const TARGET_PYTHON: &str = "3.13";
 
@@ -299,7 +301,7 @@ pub async fn ensure_mcp_venv(data_dir: &Path) {
 
         let venv_path_str = venv_dir.to_string_lossy().to_string();
         let create_result = tokio::time::timeout(
-            std::time::Duration::from_secs(120),
+            std::time::Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
             tokio::process::Command::new(&uv_str)
                 .args(["venv", "--python", TARGET_PYTHON, &venv_path_str])
                 .stdout(std::process::Stdio::piped())

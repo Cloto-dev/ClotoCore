@@ -9,6 +9,11 @@ use std::sync::{Arc, RwLock};
 use tokio::net::lookup_host;
 use tracing::warn;
 
+/// Default HTTP request timeout for capability-driven outbound HTTP. Most
+/// third-party APIs (OpenAI, Anthropic, registry probes) comfortably fit in
+/// this window, and longer-running work should go through dedicated paths.
+const CAPABILITY_HTTP_PROBE_TIMEOUT_SECS: u64 = 30;
+
 #[derive(Clone)]
 pub struct SafeHttpClient {
     client: reqwest::Client,
@@ -28,7 +33,9 @@ impl SafeHttpClient {
 
         Ok(Self {
             client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
+                .timeout(std::time::Duration::from_secs(
+                    CAPABILITY_HTTP_PROBE_TIMEOUT_SECS,
+                ))
                 .build()?,
             allowed_hosts: Arc::new(RwLock::new(hosts)),
         })

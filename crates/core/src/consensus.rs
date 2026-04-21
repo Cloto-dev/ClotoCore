@@ -15,6 +15,10 @@ use tracing::{info, warn};
 /// Named constant for the synthetic consensus agent (prevents type confusion).
 const SYSTEM_CONSENSUS_AGENT: &str = "system.consensus";
 
+/// How often the background cleanup task sweeps stale consensus sessions.
+/// Independent of `session_timeout_secs` (which controls per-session TTL).
+const SESSION_CLEANUP_INTERVAL_SECS: u64 = 30;
+
 // ============================================================
 // Configuration
 // ============================================================
@@ -290,7 +294,10 @@ impl ConsensusOrchestrator {
         let this = Arc::downgrade(self);
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(
+                    SESSION_CLEANUP_INTERVAL_SECS,
+                ))
+                .await;
                 let Some(orchestrator) = this.upgrade() else {
                     break; // Orchestrator dropped, stop cleanup
                 };
