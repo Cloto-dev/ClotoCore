@@ -240,7 +240,13 @@ pub async fn query_audit_logs_since(
                 permission: perm,
                 result,
                 reason,
-                metadata: metadata.and_then(|s| serde_json::from_str(&s).ok()),
+                metadata: metadata.and_then(|s| match serde_json::from_str(&s) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        tracing::warn!(err = %e, "Audit log metadata is not valid JSON, dropping");
+                        None
+                    }
+                }),
                 trace_id: trace,
             },
         ));

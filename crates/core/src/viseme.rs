@@ -231,8 +231,8 @@ fn japanese_to_visemes(text: &str) -> Vec<VisemeEntry> {
             // Handle long vowel mark: extend previous entry instead of adding neutral
             if c == 'ー' && !entries.is_empty() {
                 let last: &mut VisemeEntry = entries.last_mut().unwrap();
-                last.duration_ms += duration;
-                cursor_ms += duration;
+                last.duration_ms = last.duration_ms.saturating_add(duration);
+                cursor_ms = cursor_ms.saturating_add(duration);
                 continue;
             }
 
@@ -241,7 +241,7 @@ fn japanese_to_visemes(text: &str) -> Vec<VisemeEntry> {
                 start_ms: cursor_ms,
                 duration_ms: duration,
             });
-            cursor_ms += duration;
+            cursor_ms = cursor_ms.saturating_add(duration);
         }
     }
 
@@ -279,8 +279,8 @@ fn english_to_visemes(text: &str) -> Vec<VisemeEntry> {
                 if last.viseme == "neutral" {
                     // Extend previous neutral instead of adding another
                     let last_mut: &mut VisemeEntry = entries.last_mut().unwrap();
-                    last_mut.duration_ms += ENGLISH_CHAR_MS / 2;
-                    cursor_ms += ENGLISH_CHAR_MS / 2;
+                    last_mut.duration_ms = last_mut.duration_ms.saturating_add(ENGLISH_CHAR_MS / 2);
+                    cursor_ms = cursor_ms.saturating_add(ENGLISH_CHAR_MS / 2);
                     continue;
                 }
             }
@@ -291,7 +291,7 @@ fn english_to_visemes(text: &str) -> Vec<VisemeEntry> {
             start_ms: cursor_ms,
             duration_ms: ENGLISH_CHAR_MS,
         });
-        cursor_ms += ENGLISH_CHAR_MS;
+        cursor_ms = cursor_ms.saturating_add(ENGLISH_CHAR_MS);
     }
 
     entries
@@ -330,7 +330,7 @@ pub fn generate_timeline(text: &str) -> VisemeTimeline {
                         start_ms: cursor_ms,
                         duration_ms: pause,
                     });
-                    cursor_ms += pause;
+                    cursor_ms = cursor_ms.saturating_add(pause);
                     continue;
                 }
             }
@@ -343,17 +343,22 @@ pub fn generate_timeline(text: &str) -> VisemeTimeline {
 
         // Offset entries by current cursor position
         for mut entry in segment_entries {
-            entry.start_ms += cursor_ms;
+            entry.start_ms = entry.start_ms.saturating_add(cursor_ms);
             all_entries.push(entry);
         }
 
         // Update cursor to end of last entry
         if let Some(last) = all_entries.last() {
-            cursor_ms = last.start_ms + last.duration_ms + MIN_GAP_MS;
+            cursor_ms = last
+                .start_ms
+                .saturating_add(last.duration_ms)
+                .saturating_add(MIN_GAP_MS);
         }
     }
 
-    let total = all_entries.last().map_or(0, |e| e.start_ms + e.duration_ms);
+    let total = all_entries
+        .last()
+        .map_or(0, |e| e.start_ms.saturating_add(e.duration_ms));
 
     VisemeTimeline {
         entries: all_entries,

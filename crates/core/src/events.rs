@@ -17,6 +17,11 @@ use tracing::{debug, error, info, warn};
 const EVENT_CLEANUP_INTERVAL_SECS: u64 = 300;
 
 /// Global monotonic sequence counter for SSE event ordering.
+///
+/// Wraps on `u64::MAX` overflow, which is unreachable in practice: sustaining
+/// one million events per second would still take ~580,000 years to exhaust
+/// the counter. SSE `Last-Event-ID` replay ordering is therefore safe for any
+/// realistic kernel lifetime.
 static GLOBAL_SEQ: AtomicU64 = AtomicU64::new(1);
 
 /// Transport-layer wrapper that pairs a `ClotoEvent` with a monotonic sequence ID.
@@ -459,13 +464,24 @@ impl EventProcessor {
                         "📥 External message callback received"
                     );
 
-                    // 1. Resolve target agent from mcp_access_control
+                    // 1. Resolve target agent from mcp_access_control.
+                    // The DB fetch is already timeout-wrapped via db_timeout at
+                    // the db layer; here we only need to surface the failure
+                    // reason in the log instead of dropping it silently so that
+                    // "message fell back to default agent" can be traced.
                     let pool_opt = self.registry.mcp_manager.as_ref().map(|m| m.pool().clone());
                     let target_agent_id = if let Some(ref pool) = pool_opt {
-                        crate::db::mcp::get_agents_for_server(pool, server_id)
-                            .await
-                            .ok()
-                            .and_then(|agents| agents.into_iter().next())
+                        match crate::db::mcp::get_agents_for_server(pool, server_id).await {
+                            Ok(agents) => agents.into_iter().next(),
+                            Err(e) => {
+                                warn!(
+                                    err = %e,
+                                    server_id = %server_id,
+                                    "Failed to resolve target agent for external message; falling back to default"
+                                );
+                                None
+                            }
+                        }
                     } else {
                         None
                     }
