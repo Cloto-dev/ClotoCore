@@ -1,6 +1,7 @@
 import { CheckCircle, Download, RefreshCw, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { REPOSITORY_URL } from '../../constants';
 import { useLocalStorage } from '../../hooks/useStorage';
 import { applyUpdate, checkForUpdates, isTauri, type UpdateInfo } from '../../lib/tauri';
 import { SetupWizard } from '../SetupWizard';
@@ -194,7 +195,7 @@ export function AboutSection() {
             {
               labelKey: 'about.repository',
               value: 'github.com/Cloto-dev/ClotoCore',
-              href: 'https://github.com/Cloto-dev/ClotoCore',
+              href: REPOSITORY_URL,
             },
             { labelKey: 'about.contact', value: 'ClotoCore@proton.me', href: 'mailto:ClotoCore@proton.me' },
           ].map((link) => (

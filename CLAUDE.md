@@ -74,6 +74,26 @@ evidence is needed to confirm existence (e.g., AI-discovered bugs that could be 
 - Pattern: event handler → set pending state only, `handleSave` → execute all pending
 - Reference implementation: `AgentPluginWorkspace.tsx`
 
+### Exception: Confirm-modal destructive actions
+
+Destructive actions that are already gated by a dedicated Confirm modal
+(optionally password-protected) are exempt from the deferred pattern and
+MAY execute immediately on confirm. Current exempted handlers:
+
+- `AgentTerminal.tsx` — Delete agent (`handleDeleteConfirm`)
+- `SecuritySection.tsx` — Invalidate API key (`handleInvalidate`)
+- `PowerToggleModal.tsx` — Toggle agent power (`handleConfirm`)
+
+Rationale:
+
+- The modal itself provides the cancellation opportunity, so the pending
+  state would be redundant.
+- A pending Delete would introduce a "cancel then actually delete" flow
+  that is more error-prone than a direct confirm.
+
+Rule scope: **non-destructive** config edits (rename, persona, engine,
+MCP access, avatar, VRM) still MUST follow the deferred pattern.
+
 ## Dashboard UI Rules
 
 - **Min text size**: `text-[9px]`. Never `text-[8px]` or smaller.

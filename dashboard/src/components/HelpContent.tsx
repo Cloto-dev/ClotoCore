@@ -1,5 +1,6 @@
 import { Brain, Clock, ExternalLink, MessageCircle, Server, Settings, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { ISSUES_URL, REPOSITORY_URL } from '../constants';
 
 declare const __APP_VERSION__: string;
 
@@ -64,7 +65,7 @@ export function HelpContent({ onAskAgent }: HelpContentProps) {
       <div className="border-t border-edge px-5 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3 text-[9px] font-mono text-content-tertiary">
           <a
-            href="https://github.com/Cloto-dev/ClotoCore"
+            href={REPOSITORY_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-content-secondary transition-colors flex items-center gap-1"
@@ -72,7 +73,7 @@ export function HelpContent({ onAskAgent }: HelpContentProps) {
             {t('help.docs')} <ExternalLink size={8} />
           </a>
           <a
-            href="https://github.com/Cloto-dev/ClotoCore/issues"
+            href={ISSUES_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-content-secondary transition-colors flex items-center gap-1"
