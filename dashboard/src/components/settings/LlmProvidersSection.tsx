@@ -19,7 +19,7 @@ const MODEL_PLACEHOLDER_BY_PROVIDER: Record<string, string> = {
   groq: 'openai/gpt-oss-20b',
 };
 
-type ReasoningPrefill = 'auto' | 'on' | 'off';
+type ThinkingMode = 'auto' | 'on' | 'off';
 
 type Provider = {
   id: string;
@@ -27,7 +27,7 @@ type Provider = {
   has_key: boolean;
   model_id: string;
   context_length: number | null;
-  reasoning_prefill: ReasoningPrefill;
+  thinking_mode: ThinkingMode;
 };
 
 type ModelOption = {
@@ -67,8 +67,8 @@ export function LlmProvidersSection() {
   const [ctxError, setCtxError] = useState<string | null>(null);
   const ctxInputRef = useRef<HTMLInputElement>(null);
 
-  // Reasoning prefill 3-way toggle state — per-provider override for thinking mode.
-  const [reasoningSavingId, setReasoningSavingId] = useState<string | null>(null);
+  // Thinking mode 3-way toggle state — per-provider user-facing override.
+  const [thinkingSavingId, setThinkingSavingId] = useState<string | null>(null);
 
   // Per-provider connection test state — ephemeral UI feedback.
   type TestState =
@@ -225,16 +225,16 @@ export function LlmProvidersSection() {
     }
   };
 
-  const commitReasoningPrefill = async (providerId: string, value: ReasoningPrefill) => {
-    setReasoningSavingId(providerId);
+  const commitThinkingMode = async (providerId: string, value: ThinkingMode) => {
+    setThinkingSavingId(providerId);
     try {
-      await api.setLlmProviderReasoningPrefill(providerId, value);
+      await api.setLlmProviderThinkingMode(providerId, value);
       const d = await api.listLlmProviders();
       setProviders(d.providers);
     } catch (e) {
-      if (import.meta.env.DEV) console.warn('setLlmProviderReasoningPrefill failed:', e);
+      if (import.meta.env.DEV) console.warn('setLlmProviderThinkingMode failed:', e);
     } finally {
-      setReasoningSavingId(null);
+      setThinkingSavingId(null);
     }
   };
 
@@ -489,13 +489,13 @@ export function LlmProvidersSection() {
                     {t('llm_providers.thinking_label')}
                   </span>
                   {(['auto', 'on', 'off'] as const).map((mode) => {
-                    const active = (p.reasoning_prefill ?? 'auto') === mode;
+                    const active = (p.thinking_mode ?? 'auto') === mode;
                     return (
                       <button
                         key={mode}
                         type="button"
-                        onClick={() => commitReasoningPrefill(p.id, mode)}
-                        disabled={reasoningSavingId === p.id}
+                        onClick={() => commitThinkingMode(p.id, mode)}
+                        disabled={thinkingSavingId === p.id}
                         aria-pressed={active}
                         className={`px-2 py-0.5 text-[10px] font-mono border-l border-edge ${
                           active ? 'bg-brand text-white' : 'bg-transparent text-content-tertiary hover:text-brand'

@@ -96,7 +96,7 @@
     "thinking_auto": "Auto",
     "thinking_on": "On",
     "thinking_off": "Off",
-    "thinking_hint": "Auto uses model-name heuristic. On/Off forces reasoning regardless of name.",
+    "thinking_hint": "On allows the model to think freely. Off suppresses thinking via an anti-think prefill (use for reasoning models where you want fast direct answers). Auto picks based on the model id.",
     "test": "Test",
     "test_ok": "OK ({{latency}} ms)",
     "test_auth_failed": "Auth failed",
