@@ -617,7 +617,7 @@ pub async fn get_mcp_server_settings(
         sqlx::query_as::<_, McpServerRecord>(
             "SELECT name, command, args, env, transport, directory, display_name, auto_restart, \
              script_content, description, default_policy, marketplace_id, installed_version, \
-             is_active, created_at, updated_at \
+             trust_level, is_active, created_at, updated_at \
              FROM mcp_servers WHERE name = ?",
         )
         .bind(name)
