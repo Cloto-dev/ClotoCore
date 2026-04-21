@@ -23,6 +23,25 @@ pub use db::{
     query_audit_logs, update_permission_request, write_audit_log, AuditLogEntry, PermissionRequest,
 };
 
+// ── Shared timeout constants ────────────────────────────────────────────
+// Durations that are shared across multiple kernel modules. Module-local
+// timeouts with narrower semantics (e.g. AGENTIC_THINK_TIMEOUT_SECS,
+// SSE_KEEPALIVE_INTERVAL_SECS) live next to their consumer.
+
+/// Maximum wall time to wait for a spawned child process (uv install,
+/// venv creation, migration, health probe). Long uploads and solid-state
+/// installs legitimately take this long, but anything beyond is stuck.
+pub(crate) const CHILD_PROCESS_TIMEOUT_SECS: u64 = 120;
+
+/// Maximum wall time to download a tarball archive (registry snapshot or
+/// per-server install bundle). Applies to the reqwest client-level timeout.
+pub(crate) const TARBALL_DOWNLOAD_TIMEOUT_SECS: u64 = 120;
+
+/// How long to wait for the HTTP server's readiness `Notify` before booting
+/// deferred MCP servers. If we time out, we still boot — MCP callbacks just
+/// log a warning until the server actually binds.
+const HTTP_READY_WAIT_SECS: u64 = 30;
+
 /// Initialize the global tracing subscriber.
 ///
 /// In dev builds (`debug_assertions` on, `cfg(test)` off) this also writes a
@@ -670,14 +689,14 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             // Wait for HTTP server to bind before connecting deferred MCP servers,
             // because they may send MGP callbacks that hit kernel HTTP endpoints.
             if tokio::time::timeout(
-                std::time::Duration::from_secs(30),
+                std::time::Duration::from_secs(HTTP_READY_WAIT_SECS),
                 deferred_http_ready.notified(),
             )
             .await
             .is_err()
             {
                 tracing::warn!(
-                    "HTTP server readiness timed out (30s), proceeding with deferred MCP boot"
+                    "HTTP server readiness timed out ({HTTP_READY_WAIT_SECS}s), proceeding with deferred MCP boot"
                 );
             }
             info!(

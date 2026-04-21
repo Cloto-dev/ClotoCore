@@ -4,7 +4,7 @@
 //! for first-launch dependency installation.
 //! Uses `uv` for Python venv creation and dependency management.
 
-use crate::AppState;
+use crate::{AppState, CHILD_PROCESS_TIMEOUT_SECS};
 use axum::{
     extract::State,
     response::sse::{Event, Sse},
@@ -454,7 +454,12 @@ pub(crate) async fn spawn_uv_streaming(
         })
     });
 
-    match tokio::time::timeout(std::time::Duration::from_secs(120), child.wait()).await {
+    match tokio::time::timeout(
+        Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
+        child.wait(),
+    )
+    .await
+    {
         Ok(Ok(exit)) if exit.success() => {
             if let Some(h) = stderr_stream {
                 let _ = h.await;

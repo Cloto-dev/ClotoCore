@@ -13,6 +13,11 @@ use crate::{AppError, AppResult, AppState};
 
 use super::{check_auth, ok_data, spawn_admin_audit};
 
+/// Max wall time for vision-based avatar analysis (Ollama model load +
+/// inference). We fall back to "no description" past this so a hung model
+/// doesn't block the upload path.
+const AVATAR_ANALYSIS_TIMEOUT_SECS: u64 = 30;
+
 /// GET /api/agents/:id/last-usage
 ///
 /// Returns the token usage recorded from the most recent LLM response for an
@@ -486,9 +491,9 @@ pub async fn upload_avatar(
     };
 
     let avatar_description = if has_vision_access {
-        // Graceful degradation, 30s timeout for Ollama model load + inference
+        // Graceful degradation: bounded wait for vision model load + inference.
         if let Ok(result) = tokio::time::timeout(
-            std::time::Duration::from_secs(30),
+            std::time::Duration::from_secs(AVATAR_ANALYSIS_TIMEOUT_SECS),
             analyze_avatar(&state, &avatar_path_str),
         )
         .await
@@ -496,7 +501,7 @@ pub async fn upload_avatar(
             result
         } else {
             tracing::warn!(
-                "Avatar vision analysis timed out after 30s, storing without description"
+                "Avatar vision analysis timed out after {AVATAR_ANALYSIS_TIMEOUT_SECS}s, storing without description"
             );
             None
         }

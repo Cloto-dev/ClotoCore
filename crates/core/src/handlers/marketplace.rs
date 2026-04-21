@@ -13,7 +13,13 @@ use std::{collections::HashMap, convert::Infallible, path::PathBuf, sync::Arc, t
 use tracing::{error, info, warn};
 
 use super::setup::{emit, SetupProgressEvent};
-use crate::{AppError, AppResult, AppState};
+use crate::{
+    AppError, AppResult, AppState, CHILD_PROCESS_TIMEOUT_SECS, TARBALL_DOWNLOAD_TIMEOUT_SECS,
+};
+
+/// Timeout for fetching the marketplace registry JSON from GitHub. Small
+/// payload, so anything past this usually means a network stall.
+const MARKETPLACE_REGISTRY_FETCH_TIMEOUT_SECS: u64 = 30;
 
 // ── Registry types ──────────────────────────────────────────────────
 
@@ -497,7 +503,7 @@ async fn fetch_registry(state: &AppState, force_refresh: bool) -> anyhow::Result
     let url = "https://raw.githubusercontent.com/Cloto-dev/cloto-mcp-servers/master/registry.json";
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(MARKETPLACE_REGISTRY_FETCH_TIMEOUT_SECS))
         .build()?;
     let resp = client.get(url).send().await?;
 
@@ -764,7 +770,7 @@ async fn run_install(
 
     // Download with custom headers for GitHub API
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
+        .timeout(Duration::from_secs(TARBALL_DOWNLOAD_TIMEOUT_SECS))
         .build()?;
     let resp = client
         .get(tarball_url)
@@ -949,7 +955,7 @@ async fn run_install(
         if !venv_dir.join("pyvenv.cfg").exists() {
             let venv_path_str = venv_dir.to_string_lossy().to_string();
             let _ = tokio::time::timeout(
-                Duration::from_secs(120),
+                Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
                 tokio::process::Command::new(&uv_str)
                     .args(["venv", "--python", target_python, &venv_path_str])
                     .stdin(std::process::Stdio::null())
@@ -975,7 +981,7 @@ async fn run_install(
                     },
                 );
                 let result = tokio::time::timeout(
-                    Duration::from_secs(120),
+                    Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
                     tokio::process::Command::new(&uv_str)
                         .args([
                             "pip",
@@ -1459,7 +1465,7 @@ async fn run_batch_install(
     let tarball_url = "https://api.github.com/repos/Cloto-dev/cloto-mcp-servers/tarball/master";
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
+        .timeout(Duration::from_secs(TARBALL_DOWNLOAD_TIMEOUT_SECS))
         .build()?;
     let resp = client
         .get(tarball_url)
@@ -1658,7 +1664,11 @@ async fn run_batch_install(
                 .stderr(std::process::Stdio::null());
             #[cfg(windows)]
             cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-            let result = tokio::time::timeout(Duration::from_secs(120), cmd.status()).await;
+            let result = tokio::time::timeout(
+                Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
+                cmd.status(),
+            )
+            .await;
             match &result {
                 Ok(Ok(status)) if status.success() => diag("venv created OK"),
                 Ok(Ok(status)) => diag(&format!("venv FAILED exit={:?}", status.code())),
@@ -1737,7 +1747,11 @@ async fn run_batch_install(
             .stderr(std::process::Stdio::null());
             #[cfg(windows)]
             cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-            let result = tokio::time::timeout(Duration::from_secs(120), cmd.status()).await;
+            let result = tokio::time::timeout(
+                Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
+                cmd.status(),
+            )
+            .await;
             match result {
                 Ok(Ok(status)) if status.success() => {
                     emit(
