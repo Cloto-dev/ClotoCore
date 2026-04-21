@@ -660,6 +660,8 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         Some(consensus_orchestrator),
         system_handler,
         config.max_event_history,
+        config.hal_rate_limit_per_sec,
+        config.hal_rate_limit_burst,
     ));
 
     // Start event history cleanup task
