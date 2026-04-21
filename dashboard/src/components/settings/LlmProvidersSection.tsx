@@ -91,7 +91,7 @@ export function LlmProvidersSection() {
       });
   }, [api]);
 
-  const handleSave = async (providerId: string) => {
+  const handleCommitKey = async (providerId: string) => {
     if (!keyInputs[providerId]?.trim()) return;
     setSaving(providerId);
     try {
@@ -525,7 +525,7 @@ export function LlmProvidersSection() {
                   className="flex-1 bg-surface-base border border-edge rounded px-2 py-1 text-xs font-mono text-content-primary placeholder:text-content-tertiary"
                 />
                 <button
-                  onClick={() => handleSave(p.id)}
+                  onClick={() => handleCommitKey(p.id)}
                   disabled={!keyInputs[p.id]?.trim() || saving === p.id}
                   aria-label={`${tc('save')} ${p.display_name}`}
                   className="px-3 py-1 bg-brand text-white text-xs font-bold rounded disabled:opacity-40"
