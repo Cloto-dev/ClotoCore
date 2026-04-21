@@ -74,14 +74,14 @@ export function EnvVariableEditor({
               type="button"
               onClick={() => toggleVisibility(entry.key)}
               aria-label={visibleKeys.has(entry.key) ? 'Hide value' : 'Show value'}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-secondary"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-content-tertiary hover:text-content-secondary"
             >
               {visibleKeys.has(entry.key) ? <EyeOff size={12} /> : <Eye size={12} />}
             </button>
           </div>
           <button
             onClick={() => removeEntry(entry.key)}
-            className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
+            className="p-1 rounded text-content-tertiary hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
             title={removeLabel}
             aria-label={removeLabel}
           >
