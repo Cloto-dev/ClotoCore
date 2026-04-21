@@ -92,29 +92,50 @@ pub async fn set_llm_provider_model(
         ));
     }
 
+    // Read the current row before mutating so we can both capture the old
+    // model id for audit and consult `provider_quirks.switch_model_tool`
+    // without a second DB round-trip.
+    let provider = crate::db::get_llm_provider(&state.pool, &provider_id)
+        .await
+        .map_err(|_| AppError::NotFound(format!("LLM provider '{}' not found", provider_id)))?;
+    let quirks = provider.quirks_parsed();
+
     let old_model = crate::db::set_llm_provider_model(&state.pool, &provider_id, model_id)
         .await
         .map_err(|e| AppError::Validation(e.to_string()))?;
 
-    // mind.ollama reads OLLAMA_MODEL only at startup, so relay the change to
-    // its switch_model tool. Failure here is non-fatal (DB is already updated;
+    // Providers whose mind server binds the model name at startup need a live
+    // relay (e.g. `mind.ollama` reads OLLAMA_MODEL only on spawn). Declared
+    // in `llm_providers.quirks.switch_model_tool` instead of a hard-coded
+    // provider_id branch. Failure here is non-fatal (DB is already updated;
     // post-connect sync will catch up on the next (re)start).
-    if provider_id == "ollama" {
+    if let Some(tool_name) = quirks.switch_model_tool.clone() {
         let mcp_mgr = state.mcp_manager.clone();
         let model_owned = model_id.to_string();
+        let server_id = format!("mind.{}", provider_id);
+        let provider_id_audit = provider_id.clone();
         tokio::spawn(async move {
             match mcp_mgr
                 .call_server_tool(
-                    "mind.ollama",
-                    "switch_model",
+                    &server_id,
+                    &tool_name,
                     serde_json::json!({ "model": model_owned }),
                 )
                 .await
             {
-                Ok(_) => tracing::info!(model = %model_owned, "mind.ollama switch_model relayed"),
+                Ok(_) => tracing::info!(
+                    provider = %provider_id_audit,
+                    server = %server_id,
+                    tool = %tool_name,
+                    model = %model_owned,
+                    "live switch_model relayed",
+                ),
                 Err(e) => tracing::warn!(
                     error = %e,
-                    "mind.ollama switch_model relay failed (DB updated; next connect will resync)"
+                    provider = %provider_id_audit,
+                    server = %server_id,
+                    tool = %tool_name,
+                    "switch_model relay failed (DB updated; next connect will resync)"
                 ),
             }
         });
@@ -136,15 +157,15 @@ pub async fn set_llm_provider_model(
 
 /// Derive the model-list URL for a given provider.
 ///
-/// Providers expose their model catalog at different paths:
-///   - OpenAI-compatible (DeepSeek, Cerebras, Groq, LM Studio/local): strip the trailing
-///     `/chat/completions` segment from the configured chat URL and append `/models`.
-///   - Anthropic (Claude): `/v1/messages` → `/v1/models` (same parent).
-///   - Ollama (native): `/api/chat` → `/api/tags`.
+/// Most providers are OpenAI-compatible, so we default to stripping the
+/// trailing `/chat/completions` segment and appending `/models`. Providers
+/// with a native catalog endpoint (e.g. Ollama's `/api/tags`) declare it via
+/// `provider.quirks.models_endpoint_path`; when set, we mount that path on
+/// the configured host instead of the OpenAI-compat derivation.
 ///
 /// Rejects non-http(s) schemes so this function cannot be tricked into issuing
 /// file:// or other unexpected requests from an admin-set DB value.
-fn derive_models_url(api_url: &str, provider_id: &str) -> Result<String, String> {
+fn derive_models_url(api_url: &str, native_path_override: Option<&str>) -> Result<String, String> {
     let url = reqwest::Url::parse(api_url).map_err(|e| format!("invalid api_url: {}", e))?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err(format!("unsupported api_url scheme: {}", url.scheme()));
@@ -153,9 +174,16 @@ fn derive_models_url(api_url: &str, provider_id: &str) -> Result<String, String>
     out.set_query(None);
     out.set_fragment(None);
 
-    // Ollama uses a native (non-OpenAI-compat) catalog endpoint.
-    if provider_id == "ollama" {
-        out.set_path("/api/tags");
+    // Quirks-declared native catalog endpoint wins over the OpenAI-compat derivation.
+    if let Some(path) = native_path_override {
+        // Refuse paths that aren't absolute or contain scheme/authority, so a
+        // bad `quirks` payload can't redirect us off the configured host.
+        if !path.starts_with('/') {
+            return Err(format!(
+                "models_endpoint_path must be an absolute path, got: {path}"
+            ));
+        }
+        out.set_path(path);
         return Ok(out.to_string());
     }
 
@@ -203,13 +231,16 @@ pub async fn list_provider_models(
     let provider = crate::db::get_llm_provider(&state.pool, &provider_id)
         .await
         .map_err(|_| AppError::NotFound(format!("LLM provider '{}' not found", provider_id)))?;
+    let quirks = provider.quirks_parsed();
 
-    let models_url =
-        derive_models_url(&provider.api_url, &provider.id).map_err(AppError::Validation)?;
+    let models_url = derive_models_url(&provider.api_url, quirks.models_endpoint_path.as_deref())
+        .map_err(AppError::Validation)?;
 
     // SaaS providers that require an API key will reject the call; surface a static
-    // fallback for Claude (curated list) and a clean error code otherwise.
-    let needs_key = provider.id != "ollama" && provider.id != "local";
+    // fallback for Claude (curated list) and a clean error code otherwise. The
+    // "no API key needed" flag is declared per-provider via quirks.no_api_key,
+    // not a hard-coded provider_id branch (ARCHITECTURE.md §1.1).
+    let needs_key = !quirks.no_api_key;
     if needs_key && provider.api_key.is_empty() {
         if provider.id == "claude" {
             return ok_data(serde_json::json!({
@@ -299,8 +330,12 @@ pub async fn list_provider_models(
         }
     };
 
-    let mut models: Vec<serde_json::Value> = if provider.id == "ollama" {
-        // Ollama: {"models":[{"name":"qwen3.5:9b", ...}]}
+    // Native-catalog providers (declared via quirks.models_endpoint_path) also
+    // return a different JSON shape — Ollama returns `{"models":[{"name":...}]}`
+    // instead of the OpenAI-compat `{"data":[{"id":...}]}`. The schema is tied
+    // to the endpoint choice, so we reuse the same quirks flag as the dispatch.
+    let mut models: Vec<serde_json::Value> = if quirks.models_endpoint_path.is_some() {
+        // Native (Ollama-style): {"models":[{"name":"qwen3.5:9b", ...}]}
         body.get("models")
             .and_then(|v| v.as_array())
             .map(|arr| {
@@ -404,9 +439,10 @@ pub async fn test_provider_connection(
     let provider = crate::db::get_llm_provider(&state.pool, &provider_id)
         .await
         .map_err(|_| AppError::NotFound(format!("LLM provider '{}' not found", provider_id)))?;
+    let quirks = provider.quirks_parsed();
 
-    let models_url =
-        derive_models_url(&provider.api_url, &provider.id).map_err(AppError::Validation)?;
+    let models_url = derive_models_url(&provider.api_url, quirks.models_endpoint_path.as_deref())
+        .map_err(AppError::Validation)?;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(MODELS_FETCH_TIMEOUT_SECS))
@@ -634,11 +670,11 @@ mod tests {
     fn derives_openai_compat_v1_base() {
         // local (LM Studio), cerebras, groq-adjacent all share the /v1/chat/completions form.
         assert_eq!(
-            derive_models_url("http://localhost:1234/v1/chat/completions", "local").unwrap(),
+            derive_models_url("http://localhost:1234/v1/chat/completions", None).unwrap(),
             "http://localhost:1234/v1/models"
         );
         assert_eq!(
-            derive_models_url("https://api.cerebras.ai/v1/chat/completions", "cerebras").unwrap(),
+            derive_models_url("https://api.cerebras.ai/v1/chat/completions", None).unwrap(),
             "https://api.cerebras.ai/v1/models"
         );
     }
@@ -646,7 +682,7 @@ mod tests {
     #[test]
     fn derives_groq_openai_prefixed_base() {
         assert_eq!(
-            derive_models_url("https://api.groq.com/openai/v1/chat/completions", "groq").unwrap(),
+            derive_models_url("https://api.groq.com/openai/v1/chat/completions", None).unwrap(),
             "https://api.groq.com/openai/v1/models"
         );
     }
@@ -655,7 +691,7 @@ mod tests {
     fn derives_deepseek_non_v1_base() {
         // DeepSeek's seed URL has no /v1 prefix: /chat/completions → /models.
         assert_eq!(
-            derive_models_url("https://api.deepseek.com/chat/completions", "deepseek").unwrap(),
+            derive_models_url("https://api.deepseek.com/chat/completions", None).unwrap(),
             "https://api.deepseek.com/models"
         );
     }
@@ -663,17 +699,25 @@ mod tests {
     #[test]
     fn derives_anthropic_messages_base() {
         assert_eq!(
-            derive_models_url("https://api.anthropic.com/v1/messages", "claude").unwrap(),
+            derive_models_url("https://api.anthropic.com/v1/messages", None).unwrap(),
             "https://api.anthropic.com/v1/models"
         );
     }
 
     #[test]
-    fn derives_ollama_native_tags_endpoint() {
+    fn quirks_override_to_native_tags_endpoint() {
+        // Provider declares a native catalog path via quirks.models_endpoint_path;
+        // the returned URL mounts that path on the configured host.
         assert_eq!(
-            derive_models_url("http://localhost:11434/api/chat", "ollama").unwrap(),
+            derive_models_url("http://localhost:11434/api/chat", Some("/api/tags")).unwrap(),
             "http://localhost:11434/api/tags"
         );
+    }
+
+    #[test]
+    fn rejects_quirk_path_without_leading_slash() {
+        // A bad quirks payload must not be able to redirect us off-host.
+        assert!(derive_models_url("http://localhost:11434/api/chat", Some("api/tags")).is_err());
     }
 
     #[test]
@@ -681,7 +725,7 @@ mod tests {
         // If admin already set api_url to /v1/models (unusual but harmless), we still produce
         // a valid /v1/models URL — parent of /v1/models is /v1, append /models back.
         assert_eq!(
-            derive_models_url("http://localhost:1234/v1/models", "local").unwrap(),
+            derive_models_url("http://localhost:1234/v1/models", None).unwrap(),
             "http://localhost:1234/v1/models"
         );
     }
@@ -691,7 +735,7 @@ mod tests {
         assert_eq!(
             derive_models_url(
                 "http://localhost:1234/v1/chat/completions?token=x#frag",
-                "local"
+                None,
             )
             .unwrap(),
             "http://localhost:1234/v1/models"
@@ -700,12 +744,12 @@ mod tests {
 
     #[test]
     fn rejects_non_http_schemes() {
-        assert!(derive_models_url("file:///etc/passwd", "local").is_err());
-        assert!(derive_models_url("ftp://example.com/chat", "local").is_err());
+        assert!(derive_models_url("file:///etc/passwd", None).is_err());
+        assert!(derive_models_url("ftp://example.com/chat", None).is_err());
     }
 
     #[test]
     fn rejects_malformed_url() {
-        assert!(derive_models_url("not-a-url", "local").is_err());
+        assert!(derive_models_url("not-a-url", None).is_err());
     }
 }
