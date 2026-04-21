@@ -58,7 +58,7 @@ export function McpServerLogsTab({ server }: Props) {
         </span>
         <button
           onClick={() => setLogs([])}
-          className="p-1 rounded hover:bg-glass text-content-muted hover:text-content-primary transition-colors"
+          className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
           title={t('logs.clear')}
           aria-label={t('logs.clear')}
         >

@@ -102,7 +102,7 @@ export function CommandApprovalCard({ approvalId, commands, onResolved }: Props)
       <div className="font-mono text-xs text-content-secondary space-y-1 whitespace-pre-line">
         {commands.map((cmd, i) => (
           <div key={i} className="break-all">
-            <span className="text-content-muted select-none">$ </span>
+            <span className="text-content-tertiary select-none">$ </span>
             {cmd.command}
           </div>
         ))}

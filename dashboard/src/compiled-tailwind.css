@@ -2083,10 +2083,6 @@ video {
   background-color: rgb(var(--surface-primary) / 0.3);
 }
 
-.bg-surface-primary\/50 {
-  background-color: rgb(var(--surface-primary) / 0.5);
-}
-
 .bg-surface-primary\/90 {
   background-color: rgb(var(--surface-primary) / 0.9);
 }
@@ -2579,11 +2575,6 @@ video {
 
 .text-brand\/80 {
   color: rgb(var(--brand-primary) / 0.8);
-}
-
-.text-content-muted {
-  --tw-text-opacity: 1;
-  color: rgb(var(--text-muted) / var(--tw-text-opacity, 1));
 }
 
 .text-content-muted\/30 {

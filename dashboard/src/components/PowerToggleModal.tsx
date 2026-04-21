@@ -51,7 +51,7 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
         </div>
         {needsPassword && (
           <div className="relative">
-            <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
+            <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary" />
             <input
               type="password"
               value={password}

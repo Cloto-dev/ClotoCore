@@ -441,8 +441,8 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                                 ? 'memory-lock-glow text-purple-400'
                                 : 'text-brand'
                               : capabilities.lock_memory
-                                ? 'text-content-muted hover:text-purple-400 hover:bg-purple-500/10 opacity-0 group-hover:opacity-100'
-                                : 'text-content-muted hover:text-brand hover:bg-brand/10 opacity-0 group-hover:opacity-100'
+                                ? 'text-content-tertiary hover:text-purple-400 hover:bg-purple-500/10 opacity-0 group-hover:opacity-100'
+                                : 'text-content-tertiary hover:text-brand hover:bg-brand/10 opacity-0 group-hover:opacity-100'
                           }`}
                           title={isLocked ? t('unlock_memory') : t('lock_memory')}
                           aria-label={isLocked ? t('unlock_memory') : t('lock_memory')}
@@ -469,7 +469,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                             <button
                               type="button"
                               onClick={handleCancelEdit}
-                              className="p-1 rounded text-content-muted hover:text-content-secondary hover:bg-surface-secondary transition-all"
+                              className="p-1 rounded text-content-tertiary hover:text-content-secondary hover:bg-surface-secondary transition-all"
                               title={t('cancel')}
                             >
                               <X size={16} />
@@ -494,7 +494,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                                 e.stopPropagation();
                                 handleStartEdit(mem);
                               }}
-                              className="p-1 rounded text-content-muted hover:text-brand hover:bg-brand/10 transition-all opacity-0 group-hover:opacity-100"
+                              className="p-1 rounded text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all opacity-0 group-hover:opacity-100"
                               title={t('edit_memory')}
                               aria-label={t('edit_memory')}
                             >
@@ -511,7 +511,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                             className={`p-1 rounded transition-all ${
                               isLocked
                                 ? 'text-content-muted/30 cursor-not-allowed'
-                                : 'text-content-muted hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100'
+                                : 'text-content-tertiary hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100'
                             }`}
                             title={isLocked ? t('memory_locked') : t('delete_memory')}
                             aria-label={t('delete_memory')}
@@ -540,7 +540,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                 filteredEpisodes.map((epi) => (
                   <div
                     key={epi.id}
-                    className="bg-surface-primary/50 p-3 rounded-xl border-l-2 border-brand shadow-sm hover:translate-x-1 transition-transform group"
+                    className="card-solid p-3 rounded-xl border-l-2 border-brand hover:translate-x-1 transition-transform group"
                   >
                     <div className="text-[10px] font-black text-brand mb-1 uppercase tracking-wider flex justify-between items-center">
                       <span className="text-[12px]">{epi.created_at || 'LOG: RECENT'}</span>
@@ -553,7 +553,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                             e.stopPropagation();
                             handleDeleteEpisode(epi.id);
                           }}
-                          className="p-1 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+                          className="p-1 rounded text-content-tertiary hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
                           title={t('delete_episode')}
                           aria-label={t('delete_episode')}
                         >

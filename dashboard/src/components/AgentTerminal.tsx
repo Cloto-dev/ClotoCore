@@ -659,7 +659,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                 <span className="text-content-tertiary font-normal normal-case">({t('form.password_optional')})</span>
               </label>
               <div className="relative">
-                <Lock size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
+                <Lock size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary" />
                 <input
                   type="password"
                   value={newAgent.password}
@@ -706,7 +706,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                           type="button"
                           onClick={() => removeRoutingRule(i)}
                           aria-label={t('routing.remove_rule')}
-                          className="p-0.5 rounded text-content-muted hover:text-red-500 hover:bg-red-500/10 transition-all shrink-0"
+                          className="p-0.5 rounded text-content-tertiary hover:text-red-500 hover:bg-red-500/10 transition-all shrink-0"
                         >
                           <X size={12} />
                         </button>

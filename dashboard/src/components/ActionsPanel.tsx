@@ -58,7 +58,7 @@ export function ActionsPanel({
     return (
       <button
         onClick={onOpen}
-        className="h-full w-8 shrink-0 border-l border-edge bg-surface-primary/50 backdrop-blur-sm hover:bg-glass-strong flex flex-col items-center justify-center gap-2 transition-colors group"
+        className="h-full w-8 shrink-0 border-l border-edge bg-glass backdrop-blur-sm hover:bg-glass-strong flex flex-col items-center justify-center gap-2 transition-colors group"
         title="Open Actions"
       >
         <ChevronLeft size={12} className="text-content-tertiary group-hover:text-brand transition-colors" />
@@ -75,7 +75,7 @@ export function ActionsPanel({
 
   return (
     <div
-      className="h-full bg-surface-primary/50 backdrop-blur-sm border-l border-edge flex flex-col"
+      className="h-full bg-glass backdrop-blur-sm border-l border-edge flex flex-col"
       style={{ width: '480px', maxWidth: '50vw', minWidth: '320px' }}
     >
       {/* Header */}

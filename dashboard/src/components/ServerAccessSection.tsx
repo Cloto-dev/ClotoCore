@@ -97,7 +97,8 @@ export function ServerAccessSection({
           <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
             {grantedServers.map((server) => {
               const mgp = isMgpServer(server);
-              const isTransitioning = server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered';
+              const isTransitioning =
+                server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered';
               const shimmer = isTransitioning ? (mgp ? 'shimmer-active-mgp' : 'shimmer-active') : '';
               return (
                 <button
@@ -106,7 +107,7 @@ export function ServerAccessSection({
                   className={`text-left relative p-4 rounded-xl border transition-all duration-200 group cursor-pointer ${shimmer} ${
                     mgp
                       ? 'overflow-hidden border-purple-500/50 bg-purple-950/30 hover:border-red-500 shadow-purple-500/20 shadow-lg'
-                      : 'border-edge bg-surface-primary/50 hover:border-red-500'
+                      : 'border-edge card-solid hover:border-red-500'
                   }`}
                   aria-label={`${t('plugin_workspace.revoke')} ${displayServerId(server.id)}`}
                   onClick={() => onRevoke(server.id)}
@@ -117,7 +118,7 @@ export function ServerAccessSection({
                       style={{ animationDuration: '3s' }}
                     />
                   )}
-                  <span className="absolute top-2 right-2 p-1 rounded text-content-muted group-hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all">
+                  <span className="absolute top-2 right-2 p-1 rounded text-content-tertiary group-hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all">
                     <X size={12} />
                   </span>
                   <div className={`flex items-center gap-2.5 mb-2 ${mgp ? 'relative' : ''}`}>
@@ -171,7 +172,8 @@ export function ServerAccessSection({
           <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
             {availableServers.map((server) => {
               const mgp = isMgpServer(server);
-              const isTransitioning = server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered';
+              const isTransitioning =
+                server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered';
               const shimmer = isTransitioning ? (mgp ? 'shimmer-active-mgp' : 'shimmer-active') : '';
               return (
                 <button
@@ -191,7 +193,7 @@ export function ServerAccessSection({
                       style={{ animationDuration: '3s' }}
                     />
                   )}
-                  <span className="absolute top-2 right-2 p-1 rounded text-content-muted group-hover:text-brand opacity-0 group-hover:opacity-100 transition-all">
+                  <span className="absolute top-2 right-2 p-1 rounded text-content-tertiary group-hover:text-brand opacity-0 group-hover:opacity-100 transition-all">
                     <Plus size={12} />
                   </span>
                   <div className={`flex items-center gap-2.5 mb-2 ${mgp ? 'relative' : ''}`}>
