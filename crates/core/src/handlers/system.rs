@@ -17,9 +17,75 @@ const AGENTIC_THINK_TIMEOUT_SECS: u64 = 30;
 
 use crate::managers::{AgentManager, McpClientManager, PluginRegistry};
 use cloto_shared::{
-    AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, Plugin, ThinkResult, ToolCall,
+    AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, Plugin, RejectionCode,
+    ThinkResult, ToolCall, ToolFailure, ToolRejection,
 };
 use sqlx::SqlitePool;
+
+/// Compose the `tool_history` content string injected for a rejected tool call.
+/// Uses self-contained natural language (code-name independent) plus an
+/// explicit "Do not retry" directive so that weak LLMs still back off even
+/// when they do not recognise the `RejectionCode` identifier. Canonical
+/// format: `docs/TOOL_REJECTION_TEST_PLAN.md` §3.1.
+fn compose_rejection_text(rejection: &ToolRejection) -> String {
+    let remediation = rejection
+        .remediation_hint
+        .as_deref()
+        .unwrap_or("This rejection cannot be resolved by operator action.");
+    format!(
+        "Error: {}\nREMEDIATION: {}\nDo not retry this tool call; report the situation to the user.",
+        rejection.reason, remediation
+    )
+}
+
+/// Compose the mechanical final response text when the agentic loop breaks
+/// due to rejection(s). The kernel synthesises this string directly instead
+/// of making another LLM round-trip, so the user-facing final message
+/// preserves kernel truth and cannot be paraphrased away by a confused
+/// model. Canonical templates: `docs/TOOL_REJECTION_TEST_PLAN.md` §3.3.
+fn compose_rejection_final_response(rejections: &[(String, ToolRejection)]) -> String {
+    let last = &rejections
+        .last()
+        .expect("break requires at least one rejection")
+        .1;
+    let tool_names: Vec<String> = rejections
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let tools_str = tool_names.join(", ");
+    match last.code {
+        RejectionCode::YoloRequired => format!(
+            "The requested operation (tool(s): {tools_str}) was rejected because privileged (YOLO) mode is currently disabled. Please enable it in Settings → Security to allow these operations."
+        ),
+        RejectionCode::SelfDelegation => {
+            "Inter-agent delegation was aborted: the delegation target is the same as the caller. This is a logical constraint and cannot be resolved.".to_string()
+        }
+        RejectionCode::DelegationDepth => {
+            "Inter-agent delegation was aborted: the delegation chain exceeded the maximum depth. This is a logical constraint — the agent logic needs to be redesigned to avoid deep delegation.".to_string()
+        }
+        RejectionCode::DelegationCycle => {
+            "Inter-agent delegation was aborted: the requested chain would form a cycle. This is a logical constraint and cannot be resolved without changing the delegation target.".to_string()
+        }
+        RejectionCode::AccessDenied => format!(
+            "Access to tool(s) {tools_str} was denied by the access control policy. Please review the agent's permissions in the Agent Workspace."
+        ),
+        RejectionCode::SealUnsigned => format!(
+            "Tool(s) {tools_str} could not be executed because the providing MCP server is not signed at the required trust level. Please sign the server or lower its trust level."
+        ),
+        RejectionCode::CodeUnsafe => {
+            "Generated MCP server code failed safety validation. Please review the violations reported in the rejection details.".to_string()
+        }
+        RejectionCode::RiskUnapproved => format!(
+            "Tool(s) {tools_str} are classified as dangerous and have not been approved for autonomous execution. Please approve them in the dashboard."
+        ),
+        RejectionCode::Unknown => format!(
+            "Tool(s) {tools_str} were rejected by the MCP server. Reason: {}",
+            last.reason
+        ),
+    }
+}
 
 use super::command_approval::{self, PendingApprovals, SessionTrustedCommands};
 use super::engine_routing::{
@@ -1300,6 +1366,14 @@ impl SystemHandler {
         let mut iteration: u8 = 0;
         let mut total_tool_calls: u32 = 0;
 
+        // Phase C: track structured rejections across iterations so we can
+        // (a) detect two-consecutive-same-code breaks, (b) bail immediately
+        // on a non-retryable rejection, and (c) synthesise a mechanical
+        // final response that does not rely on the LLM understanding the
+        // rejection. See docs/TOOL_REJECTION_TEST_PLAN.md §3.
+        let mut rejections: Vec<(String, ToolRejection)> = Vec::new();
+        let mut break_on_rejection: bool = false;
+
         // CRON jobs may carry a per-job `max_iterations_override` in metadata.
         // Fall back to the kernel default, and cap at 64 (matches
         // `config.rs` validator so overrides can't exceed the global ceiling).
@@ -1503,10 +1577,18 @@ impl SystemHandler {
 
                         let duration_ms = start.elapsed().as_millis() as u64;
 
-                        let (success, content) = match tool_result {
-                            Ok(Ok(v)) => (true, v.to_string()),
-                            Ok(Err(e)) => (false, format!("Error: {}", e)),
-                            Err(_) => (false, "Error: tool execution timed out".to_string()),
+                        // Phase C: three-way dispatch — distinguish structured
+                        // rejections from both runtime errors and success.
+                        let (success, content, rejection_opt) = match tool_result {
+                            Ok(Ok(v)) => (true, v.to_string(), None),
+                            Ok(Err(ToolFailure::Rejection(r))) => {
+                                let text = compose_rejection_text(&r);
+                                (false, text, Some(r))
+                            }
+                            Ok(Err(ToolFailure::Error(e))) => {
+                                (false, format!("Error: {}", e), None)
+                            }
+                            Err(_) => (false, "Error: tool execution timed out".to_string(), None),
                         };
 
                         info!(
@@ -1558,18 +1640,115 @@ impl SystemHandler {
                         )
                         .await;
 
+                        // Phase C: emit a dedicated ToolRejected event and
+                        // record a TOOL_REJECTED audit log entry alongside
+                        // the `ToolInvoked(false)` observability signal.
+                        if let Some(ref rejection) = rejection_opt {
+                            self.emit_event(
+                                trace_id,
+                                ClotoEventData::ToolRejected {
+                                    agent_id: agent.id.clone(),
+                                    engine_id: engine_id.to_string(),
+                                    tool_name: call.name.clone(),
+                                    call_id: call.id.clone(),
+                                    code: rejection.code,
+                                    reason: rejection.reason.clone(),
+                                    remediation_hint: rejection.remediation_hint.clone(),
+                                    retryable: rejection.retryable,
+                                    iteration,
+                                    details: rejection.details.clone(),
+                                },
+                            )
+                            .await;
+
+                            crate::db::spawn_audit_log(
+                                self.pool.clone(),
+                                crate::db::AuditLogEntry {
+                                    timestamp: chrono::Utc::now(),
+                                    event_type: "TOOL_REJECTED".to_string(),
+                                    actor_id: Some(agent.id.clone()),
+                                    target_id: Some(call.name.clone()),
+                                    permission: None,
+                                    result: "rejected".to_string(),
+                                    reason: format!("{:?}: {}", rejection.code, rejection.reason),
+                                    metadata: Some(serde_json::json!({
+                                        "call_id": call.id,
+                                        "code": rejection.code,
+                                        "iteration": iteration,
+                                        "retryable": rejection.retryable,
+                                        "details": rejection.details,
+                                    })),
+                                    trace_id: Some(trace_id.to_string()),
+                                },
+                            );
+
+                            // Break evaluation:
+                            //   (1) retryable == false  → hard rejection, break after this call.
+                            //   (2) same RejectionCode appears twice in a row → break.
+                            let hard = !rejection.retryable;
+                            let consecutive_same_code = rejections
+                                .last()
+                                .is_some_and(|(_, prev)| prev.code == rejection.code);
+                            rejections.push((call.name.clone(), rejection.clone()));
+                            if hard || consecutive_same_code {
+                                break_on_rejection = true;
+                                warn!(
+                                    agent_id = %agent.id,
+                                    code = ?rejection.code,
+                                    hard = hard,
+                                    consecutive = consecutive_same_code,
+                                    "🛑 Rejection break triggered — skipping remaining calls and composing mechanical final response"
+                                );
+                            }
+                        }
+
                         // Add tool result to history (OpenAI format)
                         tool_history.push(serde_json::json!({
                             "role": "tool",
                             "tool_call_id": call.id,
                             "content": content
                         }));
+
+                        // Phase C: when break_on_rejection fires we must stop
+                        // processing remaining calls in this iteration (see
+                        // docs/TOOL_REJECTION_TEST_PLAN.md §3.2 — "break
+                        // immediately after that call").
+                        if break_on_rejection {
+                            break;
+                        }
                     }
 
                     // M-03: Prevent unbounded tool_history growth
                     if tool_history.len() > MAX_TOOL_HISTORY {
                         let excess = tool_history.len() - MAX_TOOL_HISTORY;
                         tool_history.drain(..excess);
+                    }
+
+                    // Phase C: rejection-driven loop break. Synthesize the
+                    // mechanical final response (§3.3) and exit without
+                    // another LLM round-trip. The user-facing message is
+                    // kernel-authored so it cannot be paraphrased away.
+                    if break_on_rejection {
+                        let final_response = compose_rejection_final_response(&rejections);
+                        self.emit_event(
+                            trace_id,
+                            ClotoEventData::AgenticLoopCompleted {
+                                agent_id: agent.id.clone(),
+                                engine_id: engine_id.to_string(),
+                                total_iterations: iteration,
+                                total_tool_calls,
+                                source_message_id: message.id.clone(),
+                            },
+                        )
+                        .await;
+                        info!(
+                            agent_id = %agent.id,
+                            iterations = iteration,
+                            tool_calls = total_tool_calls,
+                            rejection_count = rejections.len(),
+                            "✅ Agentic loop completed via rejection break"
+                        );
+                        return Ok(final_response);
                     }
                 }
             }
@@ -2709,5 +2888,146 @@ impl SystemHandler {
         if let Err(e) = self.sender.send(envelope).await {
             warn!("⚠️ Failed to emit observability event: {}", e);
         }
+    }
+}
+
+#[cfg(test)]
+mod phase_c_rejection_helpers_tests {
+    //! Phase C helper tests — covers `compose_rejection_text` (tool_history
+    //! injection format, §3.1) and `compose_rejection_final_response`
+    //! (mechanical templates, §3.3) from docs/TOOL_REJECTION_TEST_PLAN.md.
+    use super::*;
+
+    fn sample(
+        code: RejectionCode,
+        reason: &str,
+        hint: Option<&str>,
+        retryable: bool,
+    ) -> ToolRejection {
+        ToolRejection {
+            code,
+            reason: reason.to_string(),
+            remediation_hint: hint.map(str::to_string),
+            retryable,
+            details: None,
+        }
+    }
+
+    #[test]
+    fn compose_rejection_text_contains_error_and_do_not_retry() {
+        let r = sample(
+            RejectionCode::YoloRequired,
+            "privileged mode disabled",
+            Some("enable YOLO"),
+            true,
+        );
+        let text = compose_rejection_text(&r);
+        assert!(text.starts_with("Error: "));
+        assert!(text.contains("privileged mode disabled"));
+        assert!(text.contains("REMEDIATION: enable YOLO"));
+        assert!(text.contains("Do not retry"));
+    }
+
+    #[test]
+    fn compose_rejection_text_falls_back_when_no_remediation() {
+        let r = sample(
+            RejectionCode::DelegationCycle,
+            "cycle detected",
+            None,
+            false,
+        );
+        let text = compose_rejection_text(&r);
+        assert!(text.contains("cannot be resolved by operator action"));
+        assert!(text.contains("Do not retry"));
+    }
+
+    #[test]
+    fn final_response_yolo_required_matches_template() {
+        let r = sample(RejectionCode::YoloRequired, "x", Some("y"), true);
+        let text = compose_rejection_final_response(&[("mgp.access.grant".into(), r)]);
+        assert!(text.contains("tool(s): mgp.access.grant"));
+        assert!(text.contains("privileged (YOLO) mode"));
+        assert!(text.contains("Settings → Security"));
+    }
+
+    #[test]
+    fn final_response_self_delegation_template() {
+        let r = sample(RejectionCode::SelfDelegation, "x", None, false);
+        let text = compose_rejection_final_response(&[("mgp.agent.ask".into(), r)]);
+        assert!(text.contains("delegation target is the same as the caller"));
+        assert!(text.contains("cannot be resolved"));
+    }
+
+    #[test]
+    fn final_response_delegation_depth_template() {
+        let r = sample(RejectionCode::DelegationDepth, "x", None, false);
+        let text = compose_rejection_final_response(&[("mgp.agent.ask".into(), r)]);
+        assert!(text.contains("maximum depth"));
+        assert!(text.contains("redesigned"));
+    }
+
+    #[test]
+    fn final_response_delegation_cycle_template() {
+        let r = sample(RejectionCode::DelegationCycle, "x", None, false);
+        let text = compose_rejection_final_response(&[("mgp.agent.ask".into(), r)]);
+        assert!(text.contains("cycle"));
+        assert!(text.contains("changing the delegation target"));
+    }
+
+    #[test]
+    fn final_response_access_denied_template() {
+        let r = sample(RejectionCode::AccessDenied, "x", Some("y"), true);
+        let text = compose_rejection_final_response(&[("tool.foo".into(), r)]);
+        assert!(text.contains("access control policy"));
+        assert!(text.contains("Agent Workspace"));
+    }
+
+    #[test]
+    fn final_response_seal_unsigned_template() {
+        let r = sample(RejectionCode::SealUnsigned, "x", Some("y"), true);
+        let text = compose_rejection_final_response(&[("tool.foo".into(), r)]);
+        assert!(text.contains("not signed"));
+        assert!(text.contains("trust level"));
+    }
+
+    #[test]
+    fn final_response_code_unsafe_template() {
+        let r = sample(RejectionCode::CodeUnsafe, "x", Some("y"), true);
+        let text = compose_rejection_final_response(&[("create_mcp_server".into(), r)]);
+        assert!(text.contains("safety validation"));
+    }
+
+    #[test]
+    fn final_response_risk_unapproved_template() {
+        let r = sample(RejectionCode::RiskUnapproved, "x", Some("y"), true);
+        let text = compose_rejection_final_response(&[("tool.foo".into(), r)]);
+        assert!(text.contains("dangerous"));
+        assert!(text.contains("approve"));
+    }
+
+    #[test]
+    fn final_response_unknown_passes_through_reason() {
+        let r = sample(
+            RejectionCode::Unknown,
+            "external server said no",
+            None,
+            true,
+        );
+        let text = compose_rejection_final_response(&[("tool.foo".into(), r)]);
+        assert!(text.contains("external server said no"));
+    }
+
+    #[test]
+    fn final_response_tools_deduplicated_alphabetical() {
+        let r1 = sample(RejectionCode::YoloRequired, "x", Some("y"), true);
+        let r2 = sample(RejectionCode::YoloRequired, "x", Some("y"), true);
+        let r3 = sample(RejectionCode::YoloRequired, "x", Some("y"), true);
+        let text = compose_rejection_final_response(&[
+            ("mgp.access.grant".into(), r1),
+            ("mgp.access.query".into(), r2),
+            ("mgp.access.grant".into(), r3),
+        ]);
+        // Dedup + sorted by BTreeSet.
+        assert!(text.contains("mgp.access.grant, mgp.access.query"));
     }
 }
