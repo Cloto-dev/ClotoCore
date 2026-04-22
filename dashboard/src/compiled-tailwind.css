@@ -576,6 +576,15 @@ video {
   --brand-primary: 46 77 230;
   --brand-hex: #2e4de6;
   --brand-hover: #1e3bb3;
+  /* MGP identity palette — theme-invariant purple signal for MGP-negotiated servers */
+  --mgp-primary: 168 85 247;
+  /* purple-500 */
+  --mgp-accent: 192 132 252;
+  /* purple-400 */
+  --mgp-accent-light: 196 181 253;
+  /* purple-300 */
+  --mgp-surface: 76 29 149;
+  /* purple-950 */
   /* Canvas */
   --canvas-bg: #f8fafc;
   --canvas-grid: #cbd5e1;
@@ -605,6 +614,15 @@ video {
   --brand-primary: 91 122 255;
   --brand-hex: #5b7aff;
   --brand-hover: #7b93ff;
+  /* MGP identity palette — theme-invariant purple signal for MGP-negotiated servers */
+  --mgp-primary: 168 85 247;
+  /* purple-500 */
+  --mgp-accent: 192 132 252;
+  /* purple-400 */
+  --mgp-accent-light: 196 181 253;
+  /* purple-300 */
+  --mgp-surface: 76 29 149;
+  /* purple-950 */
   /* Canvas */
   --canvas-bg: #0f172a;
   --canvas-grid: #334155;
@@ -630,6 +648,65 @@ video {
   --tw-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --tw-shadow-colored: 0 4px 6px -1px var(--tw-shadow-color), 0 2px 4px -2px var(--tw-shadow-color);
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+/* MGP card surface — identity color (purple) for MGP-negotiated MCP servers.
+   * Callers add border-radius, padding, and the hover border color appropriate
+   * to the card's action (hover:border-mgp-accent for navigation,
+   * hover:border-red-500 for destructive, hover:border-brand for grant, etc.). */
+
+.card-mgp {
+  position: relative;
+  overflow: hidden;
+  border-color: rgb(var(--mgp-primary) / 0.5);
+  background-color: rgb(var(--mgp-surface) / 0.3);
+  --tw-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --tw-shadow-colored: 0 10px 15px -3px var(--tw-shadow-color), 0 4px 6px -4px var(--tw-shadow-color);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+  --tw-shadow-color: rgb(var(--mgp-primary) / 0.2);
+  --tw-shadow: var(--tw-shadow-colored);
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 300ms;
+}
+
+/* Halo gradient overlay placed inside a .card-mgp container (absolute child). */
+
+.mgp-halo {
+  pointer-events: none;
+  position: absolute;
+  inset: 0px;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: .5;
+  }
+}
+
+.mgp-halo {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  border-radius: 0.75rem;
+  background-image: linear-gradient(to bottom right, var(--tw-gradient-stops));
+  --tw-gradient-from: rgb(var(--mgp-primary) / 0.2) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--mgp-primary) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+  --tw-gradient-to: rgb(0 0 0 / 0)  var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), transparent var(--tw-gradient-via-position), var(--tw-gradient-to);
+  --tw-gradient-to: rgb(59 130 246 / 0.1) var(--tw-gradient-to-position);
+  animation-duration: 3s;
+}
+
+/* Small "MGP" pill label next to the server id in an MGP card. */
+
+.mgp-label {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  --tw-text-opacity: 1;
+  color: rgb(var(--mgp-accent) / var(--tw-text-opacity, 1));
+  filter: drop-shadow(0 0 4px rgb(var(--mgp-primary) / 0.6));
 }
 
 .sr-only {
@@ -1807,10 +1884,6 @@ video {
   border-color: rgb(249 115 22 / 0.25);
 }
 
-.border-purple-500\/50 {
-  border-color: rgb(168 85 247 / 0.5);
-}
-
 .border-red-400 {
   --tw-border-opacity: 1;
   border-color: rgb(248 113 113 / var(--tw-border-opacity, 1));
@@ -2040,10 +2113,6 @@ video {
   background-color: rgb(249 115 22 / 0.05);
 }
 
-.bg-purple-950\/30 {
-  background-color: rgb(59 7 100 / 0.3);
-}
-
 .bg-red-500 {
   --tw-bg-opacity: 1;
   background-color: rgb(239 68 68 / var(--tw-bg-opacity, 1));
@@ -2100,10 +2169,6 @@ video {
   background-color: rgb(var(--surface-secondary) / 0.5);
 }
 
-.bg-surface-secondary\/60 {
-  background-color: rgb(var(--surface-secondary) / 0.6);
-}
-
 .bg-transparent {
   background-color: transparent;
 }
@@ -2119,25 +2184,6 @@ video {
 
 .bg-yellow-500\/20 {
   background-color: rgb(234 179 8 / 0.2);
-}
-
-.bg-gradient-to-br {
-  background-image: linear-gradient(to bottom right, var(--tw-gradient-stops));
-}
-
-.from-purple-500\/20 {
-  --tw-gradient-from: rgb(168 85 247 / 0.2) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(168 85 247 / 0) var(--tw-gradient-to-position);
-  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
-}
-
-.via-transparent {
-  --tw-gradient-to: rgb(0 0 0 / 0)  var(--tw-gradient-to-position);
-  --tw-gradient-stops: var(--tw-gradient-from), transparent var(--tw-gradient-via-position), var(--tw-gradient-to);
-}
-
-.to-blue-500\/10 {
-  --tw-gradient-to: rgb(59 130 246 / 0.1) var(--tw-gradient-to-position);
 }
 
 .object-contain {
@@ -2639,14 +2685,14 @@ video {
   color: rgb(34 197 94 / var(--tw-text-opacity, 1));
 }
 
+.text-mgp-accent {
+  --tw-text-opacity: 1;
+  color: rgb(var(--mgp-accent) / var(--tw-text-opacity, 1));
+}
+
 .text-orange-400 {
   --tw-text-opacity: 1;
   color: rgb(251 146 60 / var(--tw-text-opacity, 1));
-}
-
-.text-purple-400 {
-  --tw-text-opacity: 1;
-  color: rgb(192 132 252 / var(--tw-text-opacity, 1));
 }
 
 .text-red-400 {
@@ -2805,11 +2851,6 @@ video {
   --tw-shadow: var(--tw-shadow-colored);
 }
 
-.shadow-purple-500\/20 {
-  --tw-shadow-color: rgb(168 85 247 / 0.2);
-  --tw-shadow: var(--tw-shadow-colored);
-}
-
 .outline-none {
   outline: 2px solid transparent;
   outline-offset: 2px;
@@ -2826,11 +2867,6 @@ video {
 
 .blur-sm {
   --tw-blur: blur(4px);
-  filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
-}
-
-.drop-shadow-\[0_0_4px_rgba\(168\2c 85\2c 247\2c 0\.6\)\] {
-  --tw-drop-shadow: drop-shadow(0 0 4px rgba(168,85,247,0.6));
   filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
 }
 
@@ -2967,11 +3003,11 @@ video {
 
 @keyframes memory-lock-glow {
   0%, 100% {
-    filter: drop-shadow(0 0 3px rgba(168, 85, 247, 0.6));
+    filter: drop-shadow(0 0 3px rgb(var(--mgp-primary) / 0.6));
   }
 
   50% {
-    filter: drop-shadow(0 0 8px rgba(168, 85, 247, 0.8));
+    filter: drop-shadow(0 0 8px rgb(var(--mgp-primary) / 0.8));
   }
 }
 
@@ -3092,7 +3128,7 @@ video {
   background: linear-gradient(
     120deg,
     transparent 25%,
-    rgba(168, 85, 247, 0.12) 50%,
+    rgb(var(--mgp-primary) / 0.12) 50%,
     transparent 75%
   );
   animation: shimmer 1.5s ease-in-out infinite;
@@ -3330,9 +3366,9 @@ video {
   border-color: rgb(var(--border-default) / var(--tw-border-opacity, 1));
 }
 
-.hover\:border-purple-400:hover {
+.hover\:border-mgp-accent:hover {
   --tw-border-opacity: 1;
-  border-color: rgb(192 132 252 / var(--tw-border-opacity, 1));
+  border-color: rgb(var(--mgp-accent) / var(--tw-border-opacity, 1));
 }
 
 .hover\:border-red-500:hover {
@@ -3414,12 +3450,12 @@ video {
   background-color: rgb(34 197 94 / 0.1);
 }
 
-.hover\:bg-purple-500\/10:hover {
-  background-color: rgb(168 85 247 / 0.1);
+.hover\:bg-mgp-surface\/40:hover {
+  background-color: rgb(var(--mgp-surface) / 0.4);
 }
 
-.hover\:bg-purple-950\/40:hover {
-  background-color: rgb(59 7 100 / 0.4);
+.hover\:bg-mgp\/10:hover {
+  background-color: rgb(var(--mgp-primary) / 0.1);
 }
 
 .hover\:bg-red-500\/10:hover {
@@ -3495,9 +3531,9 @@ video {
   color: rgb(34 197 94 / var(--tw-text-opacity, 1));
 }
 
-.hover\:text-purple-400:hover {
+.hover\:text-mgp-accent:hover {
   --tw-text-opacity: 1;
-  color: rgb(192 132 252 / var(--tw-text-opacity, 1));
+  color: rgb(var(--mgp-accent) / var(--tw-text-opacity, 1));
 }
 
 .hover\:text-red-300:hover {
@@ -3620,9 +3656,9 @@ video {
   color: rgb(var(--text-secondary) / var(--tw-text-opacity, 1));
 }
 
-.group:hover .group-hover\:text-purple-300 {
+.group:hover .group-hover\:text-mgp-accent-light {
   --tw-text-opacity: 1;
-  color: rgb(216 180 254 / var(--tw-text-opacity, 1));
+  color: rgb(var(--mgp-accent-light) / var(--tw-text-opacity, 1));
 }
 
 .group:hover .group-hover\:text-red-500 {

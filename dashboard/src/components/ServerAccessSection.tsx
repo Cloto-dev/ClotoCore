@@ -105,36 +105,26 @@ export function ServerAccessSection({
                   key={server.id}
                   type="button"
                   className={`text-left relative p-4 rounded-xl border transition-all duration-200 group cursor-pointer ${shimmer} ${
-                    mgp
-                      ? 'overflow-hidden border-purple-500/50 bg-purple-950/30 hover:border-red-500 shadow-purple-500/20 shadow-lg'
-                      : 'border-edge card-solid hover:border-red-500'
+                    mgp ? 'card-mgp hover:border-red-500' : 'border-edge card-solid hover:border-red-500'
                   }`}
                   aria-label={`${t('plugin_workspace.revoke')} ${displayServerId(server.id)}`}
                   onClick={() => onRevoke(server.id)}
                 >
-                  {mgp && (
-                    <div
-                      className="absolute inset-0 rounded-xl bg-gradient-to-br from-purple-500/20 via-transparent to-blue-500/10 pointer-events-none animate-pulse"
-                      style={{ animationDuration: '3s' }}
-                    />
-                  )}
+                  {mgp && <div className="mgp-halo" />}
                   <span className="absolute top-2 right-2 p-1 rounded text-content-tertiary group-hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all">
                     <X size={12} />
                   </span>
                   <div className={`flex items-center gap-2.5 mb-2 ${mgp ? 'relative' : ''}`}>
                     <Server
                       size={14}
-                      className={`shrink-0 transition-colors ${mgp ? 'text-purple-400 group-hover:text-purple-300' : ''}`}
+                      className={`shrink-0 transition-colors ${mgp ? 'text-mgp-accent group-hover:text-mgp-accent-light' : ''}`}
                       style={!mgp ? { color: agentColorHex } : undefined}
                     />
                     <span className="text-xs font-mono font-bold text-content-primary truncate">
                       {displayServerId(server.id)}
                     </span>
                     {mgp && (
-                      <span
-                        className="text-[9px] font-bold tracking-wider text-purple-400 shrink-0 drop-shadow-[0_0_4px_rgba(168,85,247,0.6)]"
-                        title="MGP (bidirectional protocol)"
-                      >
+                      <span className="mgp-label" title="MGP (bidirectional protocol)">
                         MGP
                       </span>
                     )}
@@ -181,18 +171,13 @@ export function ServerAccessSection({
                   type="button"
                   className={`text-left relative p-4 rounded-xl border transition-all duration-200 group cursor-pointer ${shimmer} ${
                     mgp
-                      ? 'overflow-hidden border-purple-500/50 bg-purple-950/30 hover:bg-purple-950/40 hover:border-brand shadow-purple-500/20 shadow-lg'
+                      ? 'card-mgp hover:bg-mgp-surface/40 hover:border-brand'
                       : 'border-edge bg-surface-primary/30 hover:bg-surface-primary/50 hover:border-brand'
                   }`}
                   aria-label={`${t('plugin_workspace.grant')} ${displayServerId(server.id)}`}
                   onClick={() => onGrant(server.id)}
                 >
-                  {mgp && (
-                    <div
-                      className="absolute inset-0 rounded-xl bg-gradient-to-br from-purple-500/20 via-transparent to-blue-500/10 pointer-events-none animate-pulse"
-                      style={{ animationDuration: '3s' }}
-                    />
-                  )}
+                  {mgp && <div className="mgp-halo" />}
                   <span className="absolute top-2 right-2 p-1 rounded text-content-tertiary group-hover:text-brand opacity-0 group-hover:opacity-100 transition-all">
                     <Plus size={12} />
                   </span>
@@ -201,7 +186,7 @@ export function ServerAccessSection({
                       size={14}
                       className={`shrink-0 transition-colors ${
                         mgp
-                          ? 'text-purple-400 group-hover:text-purple-300'
+                          ? 'text-mgp-accent group-hover:text-mgp-accent-light'
                           : 'text-content-tertiary group-hover:text-brand'
                       }`}
                     />
@@ -209,10 +194,7 @@ export function ServerAccessSection({
                       {displayServerId(server.id)}
                     </span>
                     {mgp && (
-                      <span
-                        className="text-[9px] font-bold tracking-wider text-purple-400 shrink-0 drop-shadow-[0_0_4px_rgba(168,85,247,0.6)]"
-                        title="MGP (bidirectional protocol)"
-                      >
+                      <span className="mgp-label" title="MGP (bidirectional protocol)">
                         MGP
                       </span>
                     )}

@@ -438,10 +438,10 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                           className={`p-1 rounded shrink-0 transition-all ${
                             isLocked
                               ? mem.lock_level === 'server'
-                                ? 'memory-lock-glow text-purple-400'
+                                ? 'memory-lock-glow text-mgp-accent'
                                 : 'text-brand'
                               : capabilities.lock_memory
-                                ? 'text-content-tertiary hover:text-purple-400 hover:bg-purple-500/10 opacity-0 group-hover:opacity-100'
+                                ? 'text-content-tertiary hover:text-mgp-accent hover:bg-mgp/10 opacity-0 group-hover:opacity-100'
                                 : 'text-content-tertiary hover:text-brand hover:bg-brand/10 opacity-0 group-hover:opacity-100'
                           }`}
                           title={isLocked ? t('unlock_memory') : t('lock_memory')}

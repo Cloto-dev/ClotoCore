@@ -27,6 +27,11 @@
     --brand-primary: 46 77 230;
     --brand-hex: #2e4de6;
     --brand-hover: #1e3bb3;
+    /* MGP identity palette — theme-invariant purple signal for MGP-negotiated servers */
+    --mgp-primary: 168 85 247;       /* purple-500 */
+    --mgp-accent: 192 132 252;       /* purple-400 */
+    --mgp-accent-light: 196 181 253; /* purple-300 */
+    --mgp-surface: 76 29 149;        /* purple-950 */
     /* Canvas */
     --canvas-bg: #f8fafc;
     --canvas-grid: #cbd5e1;
@@ -56,6 +61,11 @@
     --brand-primary: 91 122 255;
     --brand-hex: #5b7aff;
     --brand-hover: #7b93ff;
+    /* MGP identity palette — theme-invariant purple signal for MGP-negotiated servers */
+    --mgp-primary: 168 85 247;       /* purple-500 */
+    --mgp-accent: 192 132 252;       /* purple-400 */
+    --mgp-accent-light: 196 181 253; /* purple-300 */
+    --mgp-surface: 76 29 149;        /* purple-950 */
     /* Canvas */
     --canvas-bg: #0f172a;
     --canvas-grid: #334155;
@@ -70,6 +80,26 @@
    * Callers add their own border color, padding, rounded-*, and hover color. */
   .card-solid {
     @apply bg-surface-primary/50 shadow-sm hover:shadow-md transition-all duration-300;
+  }
+
+  /* MGP card surface — identity color (purple) for MGP-negotiated MCP servers.
+   * Callers add border-radius, padding, and the hover border color appropriate
+   * to the card's action (hover:border-mgp-accent for navigation,
+   * hover:border-red-500 for destructive, hover:border-brand for grant, etc.). */
+  .card-mgp {
+    @apply relative overflow-hidden border-mgp/50 bg-mgp-surface/30 shadow-mgp/20 shadow-lg transition-all duration-300;
+  }
+
+  /* Halo gradient overlay placed inside a .card-mgp container (absolute child). */
+  .mgp-halo {
+    @apply absolute inset-0 rounded-xl bg-gradient-to-br from-mgp/20 via-transparent to-blue-500/10 pointer-events-none animate-pulse;
+    animation-duration: 3s;
+  }
+
+  /* Small "MGP" pill label next to the server id in an MGP card. */
+  .mgp-label {
+    @apply text-[9px] font-bold tracking-wider text-mgp-accent shrink-0;
+    filter: drop-shadow(0 0 4px rgb(var(--mgp-primary) / 0.6));
   }
 }
 
@@ -99,8 +129,8 @@
 
 /* Memory lock glow — pulsing purple drop-shadow on lock icon (DB-level lock, matches MGP cards) */
 @keyframes memory-lock-glow {
-  0%, 100% { filter: drop-shadow(0 0 3px rgba(168, 85, 247, 0.6)); }
-  50% { filter: drop-shadow(0 0 8px rgba(168, 85, 247, 0.8)); }
+  0%, 100% { filter: drop-shadow(0 0 3px rgb(var(--mgp-primary) / 0.6)); }
+  50% { filter: drop-shadow(0 0 8px rgb(var(--mgp-primary) / 0.8)); }
 }
 .memory-lock-glow {
   animation: memory-lock-glow 2s ease-in-out infinite;
@@ -166,7 +196,7 @@
   background: linear-gradient(
     120deg,
     transparent 25%,
-    rgba(168, 85, 247, 0.12) 50%,
+    rgb(var(--mgp-primary) / 0.12) 50%,
     transparent 75%
   );
   animation: shimmer 1.5s ease-in-out infinite;
