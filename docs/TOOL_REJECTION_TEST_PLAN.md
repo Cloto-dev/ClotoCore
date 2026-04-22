@@ -217,8 +217,8 @@ New event_type `TOOL_REJECTED` added in Phase C. Schema:
 - [ ] Mock MCP server returns `CallToolResult { isError: false }` with `status:"rejected"` in content → **not promoted** (isError:false takes precedence)
 
 ### Phase F (cloto-mcp-servers) docs tests
-- [ ] `MGP_SPEC.md` §13.3 passes repo's markdown linter (if any)
-- [ ] JSON Schema example in §13.3 validates against actual `ToolRejection` serde output
+- [ ] `MGP_SPEC.md` §14.7 passes repo's markdown linter (if any)
+- [ ] JSON Schema example in §14.7 validates against actual `ToolRejection` serde output
 
 ---
 
@@ -260,4 +260,4 @@ Copy this into each phase's PR description:
 
 ## 8. Archive Policy
 
-This doc lives in `docs/` during the Phase A–F migration. Once Phase F lands (MGP_SPEC §13.3 draft accepted), archive this file to `docs/archive/TOOL_REJECTION_TEST_PLAN_<phase-f-merge-date>.md` and remove from active docs.
+This doc lives in `docs/` during the Phase A–F migration. Once Phase F lands (MGP_SPEC §14.7 draft accepted), archive this file to `docs/archive/TOOL_REJECTION_TEST_PLAN_<phase-f-merge-date>.md` and remove from active docs.
