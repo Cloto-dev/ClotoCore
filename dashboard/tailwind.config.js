@@ -31,6 +31,12 @@ export default {
           DEFAULT: 'rgb(var(--border-default) / <alpha-value>)',
           subtle: 'rgb(var(--border-subtle) / <alpha-value>)',
         },
+        mgp: {
+          DEFAULT: 'rgb(var(--mgp-primary) / <alpha-value>)',
+          accent: 'rgb(var(--mgp-accent) / <alpha-value>)',
+          'accent-light': 'rgb(var(--mgp-accent-light) / <alpha-value>)',
+          surface: 'rgb(var(--mgp-surface) / <alpha-value>)',
+        },
       },
       backgroundColor: {
         glass: 'var(--surface-glass)',

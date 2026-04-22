@@ -237,27 +237,23 @@ export function McpServersPage() {
                     key={server.id}
                     onClick={() => setSelectedId(server.id)}
                     aria-label={displayServerId(server.id)}
-                    // MGP servers use purple as an identity color — exempt from
-                    // the `hover:border-brand` rule (CLAUDE.md Dashboard UI Rules).
+                    // MGP servers use the `mgp` design-token palette as an identity
+                    // color (see --mgp-* tokens in index.css) — exempt from the
+                    // `hover:border-brand` rule (CLAUDE.md Dashboard UI Rules).
                     // Non-MGP cards follow the standard `card-solid` + `hover:border-brand` pattern.
                     className={`text-left p-4 rounded-xl border transition-all duration-200 group ${shimmer} ${
                       isMgp
-                        ? 'relative overflow-hidden border-purple-500/50 bg-purple-950/30 hover:bg-purple-950/40 hover:border-purple-400 shadow-purple-500/20 shadow-lg'
+                        ? 'card-mgp hover:bg-mgp-surface/40 hover:border-mgp-accent'
                         : 'border-edge card-solid hover:bg-surface-secondary/80 hover:border-brand'
                     }`}
                   >
-                    {isMgp && (
-                      <div
-                        className="absolute inset-0 rounded-xl bg-gradient-to-br from-purple-500/20 via-transparent to-blue-500/10 pointer-events-none animate-pulse"
-                        style={{ animationDuration: '3s' }}
-                      />
-                    )}
+                    {isMgp && <div className="mgp-halo" />}
                     <div className={`flex items-center gap-2.5 mb-2 ${isMgp ? 'relative' : ''}`}>
                       <Server
                         size={14}
                         className={`shrink-0 transition-colors ${
                           isMgp
-                            ? 'text-purple-400 group-hover:text-purple-300'
+                            ? 'text-mgp-accent group-hover:text-mgp-accent-light'
                             : 'text-content-tertiary group-hover:text-brand'
                         }`}
                       />
@@ -265,10 +261,7 @@ export function McpServersPage() {
                         {displayServerId(server.id)}
                       </span>
                       {isMgp && (
-                        <span
-                          className="text-[9px] font-bold tracking-wider text-purple-400 shrink-0 drop-shadow-[0_0_4px_rgba(168,85,247,0.6)]"
-                          title="MGP (bidirectional protocol)"
-                        >
+                        <span className="mgp-label" title="MGP (bidirectional protocol)">
                           MGP
                         </span>
                       )}
