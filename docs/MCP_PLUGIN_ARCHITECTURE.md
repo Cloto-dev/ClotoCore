@@ -165,6 +165,26 @@ While maximizing the use of the MCP standard, the following ClotoCore-specific m
 | `notifications/cloto.event` | Forwarding of Kernel events |
 | `notifications/cloto.config_updated` | Notification of plugin configuration changes |
 
+#### Kernel Tools (non-MGP-standard)
+
+The following kernel tools are implemented by the ClotoCore kernel but are
+not part of the MGP specification. They are standard MCP `tools/call`
+invocations served by the kernel (see
+`crates/core/src/managers/mcp_kernel_tool.rs`) and coexist with the
+Layer 4 `mgp.*` kernel tools defined in MGP_SPEC §1.6.
+
+| Tool | Purpose |
+|------|---------|
+| `create_mcp_server` | Dynamic MCP server generation (agent-initiated). See MGP §16.6 for the equivalent standardized mechanism under `tool_creation: { enabled: true }`. |
+| `ask_agent` | Inter-agent query. Scheduled to be renamed to `mgp.agent.ask` per MGP_SPEC §1.6 Layer 4 diagram. |
+| `gui.map` | Retrieve the dashboard component map for UI-aware agents. |
+| `gui.read` | Read dashboard state. |
+
+These tools are invoked via standard `tools/call` and follow ClotoCore's
+access control policies (§5). They are excluded from LLM tool context by
+default per MGP §1.6.3 visibility rules for administrative tools, and
+are surfaced to operators via the dashboard or programmatic API.
+
 ### 3.3 Legacy Trait to MCP Tool Mapping
 
 #### ReasoningEngine → MCP Tools
