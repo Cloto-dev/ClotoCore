@@ -27,7 +27,9 @@ use sqlx::SqlitePool;
 /// explicit "Do not retry" directive so that weak LLMs still back off even
 /// when they do not recognise the `RejectionCode` identifier. Canonical
 /// format: `docs/TOOL_REJECTION_TEST_PLAN.md` §3.1.
-fn compose_rejection_text(rejection: &ToolRejection) -> String {
+///
+/// `pub` so integration tests can exercise the same template the kernel uses.
+pub fn compose_rejection_text(rejection: &ToolRejection) -> String {
     let remediation = rejection
         .remediation_hint
         .as_deref()
@@ -43,7 +45,9 @@ fn compose_rejection_text(rejection: &ToolRejection) -> String {
 /// of making another LLM round-trip, so the user-facing final message
 /// preserves kernel truth and cannot be paraphrased away by a confused
 /// model. Canonical templates: `docs/TOOL_REJECTION_TEST_PLAN.md` §3.3.
-fn compose_rejection_final_response(rejections: &[(String, ToolRejection)]) -> String {
+///
+/// `pub` so integration tests can exercise the same template the kernel uses.
+pub fn compose_rejection_final_response(rejections: &[(String, ToolRejection)]) -> String {
     let last = &rejections
         .last()
         .expect("break requires at least one rejection")
