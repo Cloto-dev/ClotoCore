@@ -1945,6 +1945,12 @@ impl McpClientManager {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
+            // Phase E: promote rejection-shaped payloads from external MCP
+            // servers to structured `ToolFailure::Rejection { code: Unknown }`.
+            // Kernel-issued rejections (Phase B) never reach this path.
+            if let Some(rejection) = detect_external_rejection(&error_text) {
+                return Err(ToolFailure::Rejection(rejection));
+            }
             return Err(anyhow::anyhow!("MCP tool error: {}", error_text).into());
         }
 
@@ -2941,6 +2947,65 @@ pub fn mcp_events_handle_callback(
     super::mcp_events::handle_callback_request(manager, server_id, params)
 }
 
+/// Phase E — detect if an external MCP server's `CallToolResult { is_error:
+/// true }` body carries a rejection-shaped payload. Returns `Some(rejection)`
+/// to promote the response to `ToolFailure::Rejection { code: Unknown }`;
+/// `None` falls through to the generic `ToolFailure::Error` path.
+///
+/// Conservative heuristic by design: the kernel cannot distinguish a
+/// deliberate policy rejection from an ordinary runtime error text, so we
+/// only promote when the content parses as a JSON object with an explicit
+/// `"status"` field equal to `"rejected"` or `"denied"`. Any other shape
+/// (plain strings, stack traces, `{"error": "..."}`) stays on the error
+/// path so community servers are not mis-classified.
+///
+/// Extracted fields:
+/// - `reason` — human-readable explanation (falls back to a generic string)
+/// - `remediation_hint` — honours either `remediation_hint` or `remediation`
+/// - `retryable` — boolean; defaults to `true` when absent
+/// - `details` — remaining object keys, so downstream callers keep the
+///   original structure without the already-extracted fields
+pub(crate) fn detect_external_rejection(text: &str) -> Option<cloto_shared::ToolRejection> {
+    let v: Value = serde_json::from_str(text).ok()?;
+    let obj = v.as_object()?;
+    let status = obj.get("status")?.as_str()?;
+    if status != "rejected" && status != "denied" {
+        return None;
+    }
+    let reason = obj
+        .get("reason")
+        .and_then(|r| r.as_str())
+        .unwrap_or("External MCP server rejected the tool call.")
+        .to_string();
+    let remediation_hint = obj
+        .get("remediation_hint")
+        .or_else(|| obj.get("remediation"))
+        .and_then(|r| r.as_str())
+        .map(str::to_string);
+    let retryable = obj
+        .get("retryable")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let mut details = obj.clone();
+    details.remove("status");
+    details.remove("reason");
+    details.remove("remediation_hint");
+    details.remove("remediation");
+    details.remove("retryable");
+    let details_val = if details.is_empty() {
+        None
+    } else {
+        Some(Value::Object(details))
+    };
+    Some(cloto_shared::ToolRejection {
+        code: cloto_shared::RejectionCode::Unknown,
+        reason,
+        remediation_hint,
+        retryable,
+        details: details_val,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3191,5 +3256,77 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(row.unwrap().0, "true");
+    }
+
+    // ── Phase E: detect_external_rejection ──
+
+    #[test]
+    fn phase_e_rejected_status_promoted() {
+        let text = r#"{"status":"rejected","reason":"policy blocked","retryable":true}"#;
+        let r = super::detect_external_rejection(text).expect("should promote");
+        assert_eq!(r.code, cloto_shared::RejectionCode::Unknown);
+        assert_eq!(r.reason, "policy blocked");
+        assert!(r.retryable);
+        assert!(r.details.is_none());
+        assert!(r.remediation_hint.is_none());
+    }
+
+    #[test]
+    fn phase_e_denied_status_also_promoted() {
+        let text = r#"{"status":"denied","reason":"no grant"}"#;
+        let r = super::detect_external_rejection(text).expect("should promote");
+        assert_eq!(r.code, cloto_shared::RejectionCode::Unknown);
+        assert!(r.retryable, "retryable defaults to true when absent");
+    }
+
+    #[test]
+    fn phase_e_remediation_aliases() {
+        let a = super::detect_external_rejection(r#"{"status":"rejected","remediation":"fix it"}"#)
+            .unwrap();
+        assert_eq!(a.remediation_hint.as_deref(), Some("fix it"));
+        let b = super::detect_external_rejection(
+            r#"{"status":"rejected","remediation_hint":"fix it 2"}"#,
+        )
+        .unwrap();
+        assert_eq!(b.remediation_hint.as_deref(), Some("fix it 2"));
+    }
+
+    #[test]
+    fn phase_e_preserves_extra_fields_as_details() {
+        let text = r#"{"status":"rejected","reason":"x","retryable":false,"chain":["a","b"],"violations":[1,2]}"#;
+        let r = super::detect_external_rejection(text).expect("should promote");
+        assert!(!r.retryable);
+        let d = r.details.expect("details must be present");
+        assert!(d.get("chain").is_some());
+        assert!(d.get("violations").is_some());
+        // Already-extracted keys must not leak into details.
+        assert!(d.get("status").is_none());
+        assert!(d.get("reason").is_none());
+        assert!(d.get("retryable").is_none());
+    }
+
+    #[test]
+    fn phase_e_reason_fallback_when_absent() {
+        let r = super::detect_external_rejection(r#"{"status":"rejected"}"#).unwrap();
+        assert!(r.reason.contains("External MCP server rejected"));
+    }
+
+    #[test]
+    fn phase_e_non_rejection_shapes_stay_on_error_path() {
+        // Plain text
+        assert!(super::detect_external_rejection("Traceback (most recent call last)").is_none());
+        // JSON but not an object
+        assert!(super::detect_external_rejection(r#"["a","b"]"#).is_none());
+        // Object but no status key
+        assert!(super::detect_external_rejection(r#"{"error":"boom"}"#).is_none());
+        // Object with unrelated status value
+        assert!(super::detect_external_rejection(r#"{"status":"success"}"#).is_none());
+        assert!(super::detect_external_rejection(r#"{"status":"pending"}"#).is_none());
+        // Case-sensitive (uppercase should not match)
+        assert!(super::detect_external_rejection(r#"{"status":"REJECTED"}"#).is_none());
+        // Malformed JSON
+        assert!(super::detect_external_rejection("{status: rejected}").is_none());
+        // Empty string
+        assert!(super::detect_external_rejection("").is_none());
     }
 }
