@@ -26,8 +26,7 @@ documents below.
 
 ClotoCore is the reference implementation of MGP. ClotoCore-specific
 kernel tool extensions that are not part of the MGP specification
-(e.g., `create_mcp_server`, `ask_agent`, `gui.map`, `gui.read`) are
-documented in:
+(e.g., `create_mcp_server`, `gui.map`, `gui.read`) are documented in:
 
 - [MCP_PLUGIN_ARCHITECTURE.md §3.2](./MCP_PLUGIN_ARCHITECTURE.md#32-clotocore-specific-extensions-custom-methods)
 
