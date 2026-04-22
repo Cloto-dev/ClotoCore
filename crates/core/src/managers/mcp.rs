@@ -13,6 +13,7 @@ use super::mcp_protocol::{McpConfigFile, McpServerConfig, ToolContent};
 use super::mcp_tool_validator::validate_tool_arguments;
 use super::mcp_transport;
 use anyhow::{Context, Result};
+use cloto_shared::ToolFailure;
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -1722,7 +1723,7 @@ impl McpClientManager {
         tool_name: &str,
         args: Value,
         caller: Option<&str>,
-    ) -> Result<Value> {
+    ) -> std::result::Result<Value, ToolFailure> {
         if let Some(agent_id) = caller {
             debug!(tool = %tool_name, caller = %agent_id, "Tool execution requested");
         }
@@ -1732,12 +1733,16 @@ impl McpClientManager {
     /// Execute a tool by name, routing to the correct MCP server (kernel-internal).
     /// Handles kernel-native tools (create_mcp_server) internally.
     /// Applies kernel-side validation (A) before forwarding to the MCP server.
+    ///
+    /// Returns `Result<Value, ToolFailure>` so that structured kernel-tool
+    /// rejections (`ToolFailure::Rejection`) propagate distinctly from
+    /// runtime errors (`ToolFailure::Error` wrapping `anyhow::Error`).
     #[allow(clippy::too_many_lines)]
     pub(crate) async fn execute_tool_internal(
         &self,
         tool_name: &str,
         args: Value,
-    ) -> Result<Value> {
+    ) -> std::result::Result<Value, ToolFailure> {
         // Kernel-native tools
         match tool_name {
             "create_mcp_server" => {
@@ -1864,7 +1869,7 @@ impl McpClientManager {
                     trace_id: None,
                 })
                 .await;
-                return Err(e);
+                return Err(e.into());
             }
         }
 
@@ -1891,7 +1896,7 @@ impl McpClientManager {
                     trace_id: None,
                 })
                 .await;
-                return Err(e);
+                return Err(e.into());
             }
         };
 
@@ -1940,7 +1945,7 @@ impl McpClientManager {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            return Err(anyhow::anyhow!("MCP tool error: {}", error_text));
+            return Err(anyhow::anyhow!("MCP tool error: {}", error_text).into());
         }
 
         // Return text content as JSON

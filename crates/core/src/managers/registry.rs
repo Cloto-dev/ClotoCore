@@ -177,7 +177,7 @@ impl PluginRegistry {
         &self,
         tool_name: &str,
         args: serde_json::Value,
-    ) -> anyhow::Result<serde_json::Value> {
+    ) -> std::result::Result<serde_json::Value, cloto_shared::ToolFailure> {
         // 1. Try Rust plugins first
         let tool_plugin = {
             let state = self.state.read().await;
@@ -192,7 +192,7 @@ impl PluginRegistry {
         }; // read lock dropped here
         if let Some(plugin) = tool_plugin {
             if let Some(tool) = plugin.as_tool() {
-                return tool.execute(args).await;
+                return tool.execute(args).await.map_err(Into::into);
             }
         }
 
@@ -201,7 +201,7 @@ impl PluginRegistry {
             return mcp.execute_tool_internal(tool_name, args).await;
         }
 
-        Err(anyhow::anyhow!("Tool '{}' not found", tool_name))
+        Err(anyhow::anyhow!("Tool '{}' not found", tool_name).into())
     }
 
     /// Execute a tool by name, only if it belongs to the agent's allowed plugin set.
@@ -211,7 +211,7 @@ impl PluginRegistry {
         allowed_plugin_ids: &[String],
         tool_name: &str,
         args: serde_json::Value,
-    ) -> anyhow::Result<serde_json::Value> {
+    ) -> std::result::Result<serde_json::Value, cloto_shared::ToolFailure> {
         // 1. Try Rust plugins first
         let tool_plugin = {
             let state = self.state.read().await;
@@ -229,7 +229,7 @@ impl PluginRegistry {
         }; // read lock dropped here
         if let Some(plugin) = tool_plugin {
             if let Some(tool) = plugin.as_tool() {
-                return tool.execute(args).await;
+                return tool.execute(args).await.map_err(Into::into);
             }
         }
 
@@ -251,7 +251,8 @@ impl PluginRegistry {
         Err(anyhow::anyhow!(
             "Tool '{}' not found or not available for this agent",
             tool_name
-        ))
+        )
+        .into())
     }
 
     /// Collect tool schemas for a specific agent.
@@ -293,7 +294,7 @@ impl PluginRegistry {
         agent_id: &str,
         tool_name: &str,
         args: serde_json::Value,
-    ) -> anyhow::Result<serde_json::Value> {
+    ) -> std::result::Result<serde_json::Value, cloto_shared::ToolFailure> {
         // 1. Try Rust plugins first (same gate as execute_tool_for)
         let tool_plugin = {
             let state = self.state.read().await;
@@ -311,7 +312,7 @@ impl PluginRegistry {
         }; // read lock dropped here
         if let Some(plugin) = tool_plugin {
             if let Some(tool) = plugin.as_tool() {
-                return tool.execute(args).await;
+                return tool.execute(args).await.map_err(Into::into);
             }
         }
 
@@ -328,7 +329,8 @@ impl PluginRegistry {
                         "Access denied: agent '{}' cannot use kernel tool '{}'",
                         agent_id,
                         tool_name
-                    ));
+                    )
+                    .into());
                 }
                 return mcp.execute_tool_internal(tool_name, args).await;
             }
@@ -343,14 +345,16 @@ impl PluginRegistry {
                         "Access denied: agent '{}' cannot use tool '{}'",
                         agent_id,
                         tool_name
-                    ));
+                    )
+                    .into());
                 }
                 Err(e) => {
                     return Err(anyhow::anyhow!(
                         "Access check failed for tool '{}': {}",
                         tool_name,
                         e
-                    ));
+                    )
+                    .into());
                 }
             }
         }
@@ -358,7 +362,8 @@ impl PluginRegistry {
         Err(anyhow::anyhow!(
             "Tool '{}' not found or not available for this agent",
             tool_name
-        ))
+        )
+        .into())
     }
 
     /// 全てのアクティブなプラグインにイベントを配信する

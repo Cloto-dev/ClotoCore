@@ -7,12 +7,18 @@
 use super::mcp::McpClientManager;
 use super::mcp_mgp::ToolSecurityMetadata;
 use super::mcp_protocol::McpTool;
-use anyhow::Result;
+use cloto_shared::ToolFailure;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 use tracing::{debug, warn};
+
+/// Local alias: these discovery tools currently never emit structured
+/// rejections, but return `Result<Value, ToolFailure>` so the kernel
+/// dispatcher can treat all tool endpoints uniformly. `?` on anyhow
+/// errors continues to work via `From<anyhow::Error> for ToolFailure`.
+type Result<T> = std::result::Result<T, ToolFailure>;
 
 // ============================================================
 // Latency Tier (§16 — Tool Cost Awareness)
@@ -731,9 +737,7 @@ pub(super) async fn execute_tools_discover(
         "category" => {
             let cats = filter.categories.clone().unwrap_or_default();
             if cats.is_empty() {
-                return Err(anyhow::anyhow!(
-                    "Category search requires filter.categories"
-                ));
+                return Err(anyhow::anyhow!("Category search requires filter.categories").into());
             }
             let r = manager.rich_tool_index.search_category(&cats, max_results);
             (r, "category", None)
