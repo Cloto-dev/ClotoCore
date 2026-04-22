@@ -5,7 +5,7 @@ use tracing::error;
 use cloto_shared::{ClotoId, Permission, Plugin, PluginManifest};
 
 /// Kernel-native tools that bypass MCP access control (handled directly by execute_tool).
-const KERNEL_NATIVE_TOOLS: &[&str] = &["create_mcp_server", "ask_agent"];
+const KERNEL_NATIVE_TOOLS: &[&str] = &["create_mcp_server", "mgp.agent.ask"];
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct PluginSetting {
