@@ -4,10 +4,13 @@
 //! `mgp.discovery.list`, `mgp.discovery.register`, `mgp.discovery.deregister`.
 
 use super::mcp::McpClientManager;
-use anyhow::Result;
+use cloto_shared::{RejectionCode, ToolFailure, ToolRejection};
 use serde_json::Value;
 use std::sync::atomic::Ordering;
 use tracing::{debug, info};
+
+/// Local alias shadowing `anyhow::Result`. See `mcp_kernel_tool.rs` for rationale.
+type Result<T> = std::result::Result<T, ToolFailure>;
 
 // ============================================================
 // Kernel Tool Schemas (§15.4)
@@ -245,11 +248,13 @@ pub(super) async fn execute_discovery_register(
     args: Value,
 ) -> Result<Value> {
     if !manager.yolo_mode.load(Ordering::Relaxed) {
-        return Err(anyhow::Error::new(
-            super::mcp_mgp::MgpError::permission_denied(
-                "mgp.discovery.register requires YOLO mode to be enabled",
-            ),
-        ));
+        return Err(ToolFailure::Rejection(ToolRejection {
+            code: RejectionCode::YoloRequired,
+            reason: "This tool is restricted to privileged (YOLO) mode, which is currently disabled by the operator. The kernel will reject identical requests until the operator re-enables privileged mode in the dashboard.".to_string(),
+            remediation_hint: Some("Ask the operator to enable YOLO mode in Settings → Security.".to_string()),
+            retryable: true,
+            details: None,
+        }));
     }
 
     let id = args
@@ -269,12 +274,12 @@ pub(super) async fn execute_discovery_register(
     {
         let state = manager.state.read().await;
         if state.servers.contains_key(id) {
-            return Err(anyhow::Error::new(
-                super::mcp_mgp::MgpError::server_already_registered(format!(
-                    "Server '{}' is already registered",
-                    id
-                )),
-            ));
+            return Err(
+                anyhow::Error::new(super::mcp_mgp::MgpError::server_already_registered(
+                    format!("Server '{}' is already registered", id),
+                ))
+                .into(),
+            );
         }
     }
 
@@ -348,7 +353,7 @@ pub(super) async fn execute_discovery_deregister(
     {
         let state = manager.state.read().await;
         if !state.servers.contains_key(id) {
-            return Err(anyhow::anyhow!("Server '{}' not found", id));
+            return Err(anyhow::anyhow!("Server '{}' not found", id).into());
         }
     }
 
@@ -398,5 +403,27 @@ mod tests {
         assert!(required.iter().any(|v| v.as_str() == Some("id")));
         assert!(required.iter().any(|v| v.as_str() == Some("command")));
         assert!(required.iter().any(|v| v.as_str() == Some("transport")));
+    }
+
+    #[tokio::test]
+    async fn execute_discovery_register_rejects_when_yolo_off() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
+        let mgr = McpClientManager::new(pool, false, 120, 30);
+        let args = serde_json::json!({
+            "id": "test_server",
+            "command": "echo",
+            "transport": "stdio"
+        });
+        match execute_discovery_register(&mgr, args).await {
+            Err(ToolFailure::Rejection(r)) => {
+                assert_eq!(r.code, RejectionCode::YoloRequired);
+                assert!(r.retryable);
+                assert!(r.reason.contains("privileged"));
+            }
+            other => panic!("expected YoloRequired rejection, got {:?}", other),
+        }
     }
 }
