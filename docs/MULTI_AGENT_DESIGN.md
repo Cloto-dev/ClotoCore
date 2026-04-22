@@ -397,7 +397,7 @@ delegation_access_control:
 
 ```json
 {
-  "name": "ask_agent",
+  "name": "mgp.agent.ask",
   "description": "Ask another agent to perform a task or answer a question",
   "parameters": {
     "target_agent_id": {

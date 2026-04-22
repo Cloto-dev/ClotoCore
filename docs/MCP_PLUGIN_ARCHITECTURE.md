@@ -176,9 +176,12 @@ Layer 4 `mgp.*` kernel tools defined in MGP_SPEC §1.6.
 | Tool | Purpose |
 |------|---------|
 | `create_mcp_server` | Dynamic MCP server generation (agent-initiated). See MGP §16.6 for the equivalent standardized mechanism under `tool_creation: { enabled: true }`. |
-| `ask_agent` | Inter-agent query. Scheduled to be renamed to `mgp.agent.ask` per MGP_SPEC §1.6 Layer 4 diagram. |
 | `gui.map` | Retrieve the dashboard component map for UI-aware agents. |
 | `gui.read` | Read dashboard state. |
+
+(`mgp.agent.ask` was listed here in an earlier revision. It is part of
+MGP spec Layer 4 (`mgp.agent.*`) and is therefore documented in
+[MGP_SPEC](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_SPEC.md) §1.6.)
 
 These tools are invoked via standard `tools/call` and follow ClotoCore's
 access control policies (§5). They are excluded from LLM tool context by

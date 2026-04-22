@@ -1813,8 +1813,8 @@ impl McpClientManager {
                 return super::mcp_tool_discovery::execute_tools_session_evict(self, args).await;
             }
             // Inter-agent delegation
-            "ask_agent" => {
-                return super::mcp_kernel_tool::execute_ask_agent(self, args).await;
+            "mgp.agent.ask" => {
+                return super::mcp_kernel_tool::execute_mgp_agent_ask(self, args).await;
             }
             // GUI documentation
             "gui.map" => {
@@ -3127,7 +3127,7 @@ mod tests {
 
         let manager = McpClientManager::new(pool, true, 120, 30);
         let schemas = manager.collect_tool_schemas().await;
-        // 5 Tier 2 + 9 Tier 3 + 1 ask_agent + 2 gui = 17 Tier 1-3 + 3 discovery + 3 session = 23 YOLO tools + 2 meta-tools = 25
+        // 5 Tier 2 + 9 Tier 3 + 1 mgp.agent.ask + 2 gui = 17 Tier 1-3 + 3 discovery + 3 session = 23 YOLO tools + 2 meta-tools = 25
         assert_eq!(
             schemas.len(),
             25,

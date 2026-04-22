@@ -1,6 +1,6 @@
 //! Kernel-native tool implementations.
 //!
-//! Includes `create_mcp_server` (dynamic MCP server creation) and `ask_agent`
+//! Includes `create_mcp_server` (dynamic MCP server creation) and `mgp.agent.ask`
 //! (inter-agent delegation for specialist consultation).
 
 use super::mcp::McpClientManager;
@@ -36,7 +36,7 @@ pub(super) fn kernel_tool_schemas() -> Vec<Value> {
         // Tier 3: Callbacks
         callback_respond_schema(),
         // Inter-agent delegation
-        ask_agent_schema(),
+        mgp_agent_ask_schema(),
         // GUI documentation
         gui_map_schema(),
         gui_read_schema(),
@@ -1244,12 +1244,12 @@ pub(super) async fn execute_callback_respond(
 
 // ── Inter-Agent Delegation ──
 
-/// Schema for `ask_agent` — inter-agent question/delegation tool.
-fn ask_agent_schema() -> Value {
+/// Schema for `mgp.agent.ask` — inter-agent question/delegation tool.
+fn mgp_agent_ask_schema() -> Value {
     serde_json::json!({
         "type": "function",
         "function": {
-            "name": "ask_agent",
+            "name": "mgp.agent.ask",
             "description": "Ask another agent a question or delegate a task. The target agent processes the prompt using its own LLM engine and system prompt, then returns a response. Context isolation is enforced: the target agent cannot see the caller's conversation history.",
             "parameters": {
                 "type": "object",
@@ -1276,18 +1276,21 @@ fn ask_agent_schema() -> Value {
 /// Maximum delegation chain depth (prevents infinite delegation loops).
 const MAX_DELEGATION_DEPTH: usize = 3;
 
-/// Execute `ask_agent` — delegate a question/task to another agent.
+/// Execute `mgp.agent.ask` — delegate a question/task to another agent.
 ///
 /// The calling agent's `agent_id` is injected by the kernel (anti-spoofing).
 /// The target agent processes the prompt with its own LLM engine and system prompt.
 /// Context isolation: the target agent does NOT receive the caller's conversation history.
 #[allow(clippy::too_many_lines)]
-pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -> Result<Value> {
+pub(super) async fn execute_mgp_agent_ask(
+    manager: &McpClientManager,
+    args: Value,
+) -> Result<Value> {
     // 1. YOLO mode check — inter-agent delegation is a privileged operation
     if !manager.yolo_mode.load(Ordering::Relaxed) {
         return Ok(serde_json::json!({
             "status": "rejected",
-            "reason": "ask_agent requires YOLO mode to be enabled (inter-agent delegation is a privileged operation)."
+            "reason": "mgp.agent.ask requires YOLO mode to be enabled (inter-agent delegation is a privileged operation)."
         }));
     }
 
@@ -1410,7 +1413,7 @@ pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -
     });
 
     info!(
-        "ask_agent: {} → {} (engine: {}, chain depth: {})",
+        "mgp.agent.ask: {} → {} (engine: {}, chain depth: {})",
         caller_agent_id,
         target_agent_id,
         engine_id,
@@ -1447,7 +1450,9 @@ pub(super) async fn execute_ask_agent(manager: &McpClientManager, args: Value) -
     };
 
     let response =
-        match run_ask_agent_loop(manager, &engine_id, &think_args, &tools, target_agent_id).await {
+        match run_mgp_agent_ask_loop(manager, &engine_id, &think_args, &tools, target_agent_id)
+            .await
+        {
             Ok(content) => content,
             Err(e) => {
                 // Emit AgentDialogue "error" event
@@ -1678,18 +1683,18 @@ pub(super) async fn execute_gui_read(_manager: &McpClientManager, args: Value) -
 }
 
 // ────────────────────────────────────────────────────────────────────
-// ask_agent Mini Agentic Loop
+// mgp.agent.ask Mini Agentic Loop
 // ────────────────────────────────────────────────────────────────────
 
-/// Maximum tool iterations for ask_agent (keeps delegations concise).
-const ASK_AGENT_MAX_TOOL_ITERATIONS: u8 = 5;
+/// Maximum tool iterations for mgp.agent.ask (keeps delegations concise).
+const MGP_AGENT_ASK_MAX_TOOL_ITERATIONS: u8 = 5;
 /// Tool execution timeout in seconds.
-const ASK_AGENT_TOOL_TIMEOUT_SECS: u64 = 30;
+const MGP_AGENT_ASK_TOOL_TIMEOUT_SECS: u64 = 30;
 
-/// Run a mini agentic loop for ask_agent: think_with_tools → execute tools → repeat.
+/// Run a mini agentic loop for mgp.agent.ask: think_with_tools → execute tools → repeat.
 /// Falls back to plain `think` if no tools are available.
 #[allow(clippy::too_many_lines)]
-async fn run_ask_agent_loop(
+async fn run_mgp_agent_ask_loop(
     manager: &McpClientManager,
     engine_id: &str,
     think_args: &Value,
@@ -1712,7 +1717,7 @@ async fn run_ask_agent_loop(
 
     let mut tool_history: Vec<Value> = Vec::new();
 
-    for iteration in 0..ASK_AGENT_MAX_TOOL_ITERATIONS {
+    for iteration in 0..MGP_AGENT_ASK_MAX_TOOL_ITERATIONS {
         // Add accumulated tool_history
         if let Some(obj) = loop_args.as_object_mut() {
             obj.insert(
@@ -1728,7 +1733,7 @@ async fn run_ask_agent_loop(
         match parse_think_result(&result)? {
             cloto_shared::ThinkResult::Final(content) => {
                 info!(
-                    "ask_agent loop: final response at iteration {}",
+                    "mgp.agent.ask loop: final response at iteration {}",
                     iteration + 1
                 );
                 return Ok(content);
@@ -1774,7 +1779,7 @@ async fn run_ask_agent_loop(
                     let server_id = manager.resolve_tool_server(&call.name).await;
                     let tool_result = if let Some(sid) = server_id {
                         tokio::time::timeout(
-                            std::time::Duration::from_secs(ASK_AGENT_TOOL_TIMEOUT_SECS),
+                            std::time::Duration::from_secs(MGP_AGENT_ASK_TOOL_TIMEOUT_SECS),
                             manager.call_server_tool(&sid, &call.name, safe_args),
                         )
                         .await
@@ -1804,7 +1809,7 @@ async fn run_ask_agent_loop(
                     };
 
                     info!(
-                        "ask_agent loop: tool {} executed (iteration {})",
+                        "mgp.agent.ask loop: tool {} executed (iteration {})",
                         call.name,
                         iteration + 1
                     );
@@ -1821,8 +1826,8 @@ async fn run_ask_agent_loop(
 
     // Max iterations reached — return last assistant content or error
     Err(anyhow::anyhow!(
-        "ask_agent agentic loop exceeded {} iterations",
-        ASK_AGENT_MAX_TOOL_ITERATIONS
+        "mgp.agent.ask agentic loop exceeded {} iterations",
+        MGP_AGENT_ASK_MAX_TOOL_ITERATIONS
     ))
 }
 
@@ -1850,7 +1855,7 @@ fn extract_think_response(result: &super::mcp_protocol::CallToolResult) -> Strin
 }
 
 /// Parse ThinkResult from MCP think_with_tools() response.
-/// Standalone version of SystemHandler::parse_mcp_think_result for use in ask_agent.
+/// Standalone version of SystemHandler::parse_mcp_think_result for use in mgp.agent.ask.
 fn parse_think_result(
     result: &super::mcp_protocol::CallToolResult,
 ) -> anyhow::Result<cloto_shared::ThinkResult> {

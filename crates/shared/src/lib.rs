@@ -581,7 +581,7 @@ pub enum ClotoEventData {
         /// The callback_id used for response routing back to the I/O bridge.
         callback_id: String,
     },
-    /// Inter-agent dialogue: one agent delegated a question to another via ask_agent.
+    /// Inter-agent dialogue: one agent delegated a question to another via mgp.agent.ask.
     /// Emitted at request time (response = None) and at completion (response = Some).
     AgentDialogue {
         dialogue_id: String,
