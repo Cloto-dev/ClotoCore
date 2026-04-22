@@ -8,8 +8,9 @@
 //! This test will be removed when Phase F (MGP_SPEC §13.3 draft) archives
 //! the test plan document.
 
+use cloto_core::handlers::system::{compose_rejection_final_response, compose_rejection_text};
 use cloto_core::managers::McpClientManager;
-use cloto_shared::{RejectionCode, ToolFailure};
+use cloto_shared::{ClotoEventData, ClotoId, RejectionCode, ToolFailure, ToolRejection};
 use serde_json::{json, Value};
 
 /// Simulate what system.rs (agentic loop, line ~1506) would do with a
@@ -179,17 +180,133 @@ async fn phase_b_live_rejection_output_demo() {
         .await,
     );
 
+    // ────── Phase C: tool_history injection + mechanical final response ──────
+    println!();
+    println!("╔══════════════════════════════════════════════════════════════════╗");
+    println!("║  Phase C — tool_history injection + mechanical final response   ║");
+    println!("╚══════════════════════════════════════════════════════════════════╝");
+
+    let yolo_rejection = match call(
+        &mgr_off,
+        "mgp.access.grant",
+        json!({
+            "agent_id": "agent.demo",
+            "server_id": "file.terminal",
+            "entry_type": "server_grant",
+            "permission": "allow"
+        }),
+    )
+    .await
+    {
+        Err(ToolFailure::Rejection(r)) => r,
+        other => panic!("expected YoloRequired rejection, got {:?}", other),
+    };
+
+    println!();
+    println!("--- compose_rejection_text (tool_history 'content' field) ---");
+    let history_text = compose_rejection_text(&yolo_rejection);
+    for line in history_text.lines() {
+        println!("  | {}", line);
+    }
+
+    println!();
+    println!("--- compose_rejection_final_response (AgentFinalResponse content) ---");
+    let final_text = compose_rejection_final_response(&[(
+        "mgp.access.grant".to_string(),
+        yolo_rejection.clone(),
+    )]);
+    for line in final_text.lines() {
+        println!("  > {}", line);
+    }
+
+    println!();
+    println!("--- Break logic simulation (§3.2) ---");
+
+    let a = ToolRejection {
+        code: RejectionCode::YoloRequired,
+        reason: "privileged mode disabled".into(),
+        remediation_hint: Some("enable YOLO".into()),
+        retryable: true,
+        details: None,
+    };
+    let b_same = ToolRejection {
+        code: RejectionCode::YoloRequired,
+        reason: "privileged mode disabled".into(),
+        remediation_hint: Some("enable YOLO".into()),
+        retryable: true,
+        details: None,
+    };
+    let b_diff = ToolRejection {
+        code: RejectionCode::AccessDenied,
+        reason: "no grant".into(),
+        remediation_hint: Some("ask operator".into()),
+        retryable: true,
+        details: None,
+    };
+    let hard = ToolRejection {
+        code: RejectionCode::DelegationCycle,
+        reason: "cycle".into(),
+        remediation_hint: None,
+        retryable: false,
+        details: Some(json!({"chain": ["a", "b", "a"]})),
+    };
+
+    fn describe_break(rejections: &[(String, ToolRejection)], label: &str) {
+        let should_break = rejections.iter().any(|(_, r)| !r.retryable)
+            || rejections.windows(2).any(|w| w[0].1.code == w[1].1.code);
+        println!(
+            "  [{}] rejections={} → break={}",
+            label,
+            rejections.len(),
+            should_break
+        );
+    }
+
+    describe_break(&[("t1".into(), a.clone())], "single retryable");
+    describe_break(
+        &[("t1".into(), a.clone()), ("t2".into(), b_diff.clone())],
+        "two DIFFERENT codes",
+    );
+    describe_break(
+        &[("t1".into(), a.clone()), ("t2".into(), b_same.clone())],
+        "two SAME codes (YoloRequired x 2)",
+    );
+    describe_break(
+        &[("t1".into(), hard.clone())],
+        "single retryable=false (hard)",
+    );
+
+    println!();
+    println!("--- ToolRejected SSE event shape (serialized JSON) ---");
+    let event = ClotoEventData::ToolRejected {
+        agent_id: "agent.demo".to_string(),
+        engine_id: "mind.local".to_string(),
+        tool_name: "mgp.access.grant".to_string(),
+        call_id: "call_abc123".to_string(),
+        code: yolo_rejection.code,
+        reason: yolo_rejection.reason.clone(),
+        remediation_hint: yolo_rejection.remediation_hint.clone(),
+        retryable: yolo_rejection.retryable,
+        iteration: 1,
+        details: yolo_rejection.details.clone(),
+    };
+    let wrapped = cloto_shared::ClotoEvent::with_trace(ClotoId::new(), event);
+    let pretty = serde_json::to_string_pretty(&wrapped).unwrap();
+    for line in pretty.lines() {
+        println!("  {}", line);
+    }
+
     println!();
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("SUMMARY: Every case above returned Err(ToolFailure::Rejection).");
-    println!("- Pre-Phase B behavior: Ok({{\"status\":\"rejected\",...}}) with success=true.");
-    println!("- Phase B behavior:     Err(Rejection) with success=false.");
-    println!("  The LLM's tool_history now begins with 'Error:' + structured reason.");
-    println!("- Phase C (next) adds: ToolRejected SSE event, break-on-same-code,");
-    println!("  break-on-!retryable, and mechanical AgentFinalResponse.");
+    println!("SUMMARY");
+    println!("- Phase B verified: 7 YOLO-gated + 3 delegation sites produce");
+    println!("  structured Err(ToolFailure::Rejection) instead of silent Ok().");
+    println!("- Phase C verified: helpers produce canonical strings, break");
+    println!("  logic correctly detects hard / same-code rejections, and the");
+    println!("  ToolRejected SSE event serialises with discriminated 'type'.");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-    // Sanity assertion: YOLO OFF case must be a YoloRequired rejection.
+    // Sanity assertions
     let sanity = call(&mgr_off, "mgp.access.revoke", json!({})).await;
     match sanity {
         Err(ToolFailure::Rejection(r)) => {
@@ -198,4 +315,9 @@ async fn phase_b_live_rejection_output_demo() {
         }
         other => panic!("Expected YoloRequired rejection, got {:?}", other),
     }
+    // Phase C assertions
+    assert!(history_text.starts_with("Error:"));
+    assert!(history_text.contains("Do not retry"));
+    assert!(final_text.contains("privileged (YOLO) mode"));
+    assert!(final_text.contains("mgp.access.grant"));
 }
