@@ -99,6 +99,54 @@ export interface CommandApprovalRequest {
   commands: Array<{ command: string; command_name: string }>;
 }
 
+/**
+ * SCREAMING_SNAKE_CASE rejection code emitted by the kernel. Matches the
+ * `RejectionCode` enum in `crates/shared/src/lib.rs` (serde `rename_all =
+ * "SCREAMING_SNAKE_CASE"`). Kept as a string literal union so switch
+ * statements can be exhaustive in TypeScript.
+ */
+export type RejectionCode =
+  | 'YOLO_REQUIRED'
+  | 'ACCESS_DENIED'
+  | 'SEAL_UNSIGNED'
+  | 'RISK_UNAPPROVED'
+  | 'CODE_UNSAFE'
+  | 'DELEGATION_CYCLE'
+  | 'DELEGATION_DEPTH'
+  | 'SELF_DELEGATION'
+  | 'UNKNOWN';
+
+/**
+ * Payload of the `ToolRejected` SSE event (mirrors
+ * `ClotoEventData::ToolRejected` in `crates/shared/src/lib.rs`). Emitted
+ * alongside `ToolInvoked { success: false }` whenever a kernel tool is
+ * rejected by policy or logic. See docs/TOOL_REJECTION_TEST_PLAN.md.
+ */
+export interface ToolRejectionData {
+  agent_id: string;
+  engine_id: string;
+  tool_name: string;
+  call_id: string;
+  code: RejectionCode;
+  reason: string;
+  remediation_hint?: string;
+  retryable: boolean;
+  iteration: number;
+  details?: unknown;
+}
+
+/**
+ * Local dashboard shape for tracking a pending rejection card. `dismissed`
+ * is managed client-side (the kernel never sends a dismissal event — this
+ * card is informational only, see §5 Phase 5 of the plan).
+ */
+export interface PendingRejection extends ToolRejectionData {
+  /** Local dashboard id: `${call_id}-rejection` (unique within agent view). */
+  local_id: string;
+  /** Wall-clock time the event was received (used for sort / fade). */
+  received_at: number;
+}
+
 export interface Metrics {
   total_requests: number;
   total_memories: number;

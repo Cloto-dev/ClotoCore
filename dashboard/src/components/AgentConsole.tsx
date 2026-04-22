@@ -30,6 +30,8 @@ import type {
   CommandApprovalRequest,
   ContentBlock,
   McpServerInfo,
+  PendingRejection,
+  ToolRejectionData,
 } from '../types';
 import { useGazeBroadcast } from '../vrm/useGazeBroadcast';
 import { ActionsPanel } from './ActionsPanel';
@@ -40,6 +42,7 @@ import { MessageContent } from './ContentBlockView';
 import { ContextUsageBadge } from './ContextUsageBadge';
 import { SkeletonThinking } from './SkeletonThinking';
 import { SystemAlertCard } from './SystemAlertCard';
+import { ToolRejectionCard } from './ToolRejectionCard';
 import { TypewriterMessage } from './TypewriterMessage';
 import { StatusDot } from './ui/StatusDot';
 
@@ -151,6 +154,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     });
   };
   const [pendingApprovals, setPendingApprovals] = useState<CommandApprovalRequest[]>([]);
+  const [pendingRejections, setPendingRejections] = useState<PendingRejection[]>([]);
   const thinkingIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -367,6 +371,24 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
               ts: Date.now(),
             },
           ]);
+        }
+        // ToolRejected — kernel-issued structured rejection. Emitted alongside
+        // ToolInvoked{success:false}; drives the dedicated ToolRejectionCard
+        // rendered below (dismissable, purely informational).
+        if (event.type === 'ToolRejected' && event.data?.agent_id === agent.id) {
+          const rej = event.data as unknown as ToolRejectionData;
+          const localId = `${rej.call_id}-rejection`;
+          setPendingRejections((prev) => {
+            if (prev.some((r) => r.local_id === localId)) return prev;
+            return [
+              ...prev,
+              {
+                ...rej,
+                local_id: localId,
+                received_at: Date.now(),
+              },
+            ];
+          });
         }
         if (event.type === 'AgenticLoopCompleted' && event.data.agent_id === agent.id) {
           setThinkingSteps((prev) => [
@@ -1003,6 +1025,14 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                 approvalId={approval.approval_id}
                 commands={approval.commands}
                 onResolved={(id) => setPendingApprovals((prev) => prev.filter((a) => a.approval_id !== id))}
+              />
+            ))}
+            {/* Tool Rejection Cards (kernel-issued, dismissable) */}
+            {pendingRejections.map((rejection) => (
+              <ToolRejectionCard
+                key={rejection.local_id}
+                rejection={rejection}
+                onDismiss={(localId) => setPendingRejections((prev) => prev.filter((r) => r.local_id !== localId))}
               />
             ))}
             {/* Skeleton (waiting for SSE response) */}
