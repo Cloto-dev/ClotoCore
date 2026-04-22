@@ -363,6 +363,102 @@ pub struct ToolCall {
     pub arguments: serde_json::Value,
 }
 
+// ── Tool Rejection Envelope (Option C — see docs/TOOL_REJECTION_TEST_PLAN.md) ──
+
+/// Discriminator for structured tool rejections. Distinct from `anyhow::Error`
+/// runtime failures — a rejection is a kernel-enforced policy/logical denial
+/// that the agent can reason about and the operator can potentially resolve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RejectionCode {
+    /// Privileged (YOLO) mode is required but currently disabled.
+    YoloRequired,
+    /// Access control policy denies this agent from using the tool.
+    /// Phase G target — enum reserved for forward compatibility.
+    AccessDenied,
+    /// MCP server is not signed at the required trust level.
+    /// Phase G target — enum reserved for forward compatibility.
+    SealUnsigned,
+    /// Tool classified as dangerous and not approved for autonomous execution.
+    /// Dormant — no enforcer implemented yet; enum reserved for forward compatibility.
+    RiskUnapproved,
+    /// Generated MCP server code failed safety validation.
+    /// Phase G target — enum reserved for forward compatibility.
+    CodeUnsafe,
+    /// Inter-agent delegation would form a cycle. Hard rejection.
+    DelegationCycle,
+    /// Inter-agent delegation chain exceeded maximum depth. Hard rejection.
+    DelegationDepth,
+    /// Delegation target equals caller. Hard rejection.
+    SelfDelegation,
+    /// External MCP server returned a rejection-shaped response that the
+    /// kernel could not map to a specific code (Phase E fallback).
+    Unknown,
+}
+
+/// Structured tool rejection payload. The `reason` field is self-contained
+/// English that does not depend on the LLM understanding the code name —
+/// keywords like "privileged mode", "currently disabled" are designed to
+/// guide even weak local models. See docs/TOOL_REJECTION_TEST_PLAN.md §2
+/// for the canonical text per code.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolRejection {
+    pub code: RejectionCode,
+    /// Human- and LLM-readable explanation, self-contained (no code-name dependency).
+    pub reason: String,
+    /// Short hint for the operator (e.g., "Enable YOLO in Settings → Security").
+    /// `None` for hard rejections that no operator action can resolve.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remediation_hint: Option<String>,
+    /// If `false`, the agentic loop breaks after a single occurrence
+    /// (no retry can succeed). If `true`, the consecutive-same-code rule
+    /// applies (break after 2 in a row).
+    pub retryable: bool,
+    /// Code-specific additional data (e.g., `{"chain": [...]}` for delegation,
+    /// `{"violations": [...]}` for code safety).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
+}
+
+/// Failure result of a tool execution. Distinguishes structured policy
+/// rejections (which the agent must recognize and the operator may resolve)
+/// from runtime/resource errors (which flow through the existing error path).
+///
+/// `impl From<anyhow::Error>` provides `?`-operator compatibility so existing
+/// kernel code that returns `anyhow::Result<Value>` can be migrated
+/// incrementally to `Result<Value, ToolFailure>`.
+#[derive(Debug)]
+pub enum ToolFailure {
+    /// Structured policy or logical rejection.
+    Rejection(ToolRejection),
+    /// Any other runtime failure (network, missing args, resource unavailable).
+    Error(anyhow::Error),
+}
+
+impl From<anyhow::Error> for ToolFailure {
+    fn from(err: anyhow::Error) -> Self {
+        Self::Error(err)
+    }
+}
+
+impl std::fmt::Display for ToolFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rejection(r) => write!(f, "rejected ({:?}): {}", r.code, r.reason),
+            Self::Error(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl std::error::Error for ToolFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Rejection(_) => None,
+            Self::Error(e) => e.source(),
+        }
+    }
+}
+
 #[async_trait]
 pub trait ReasoningEngine: Plugin {
     fn name(&self) -> &str;
@@ -499,6 +595,23 @@ pub enum ClotoEventData {
         /// Short summary of tool arguments for UI display (e.g., command name).
         #[serde(skip_serializing_if = "Option::is_none")]
         tool_hint: Option<String>,
+    },
+    /// A tool invocation was structurally rejected by kernel policy or logic.
+    /// Emitted in addition to `ToolInvoked { success: false }` for the same
+    /// call. Dashboard renders this as a dedicated rejection card.
+    ToolRejected {
+        agent_id: String,
+        engine_id: String,
+        tool_name: String,
+        call_id: String,
+        code: RejectionCode,
+        reason: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        remediation_hint: Option<String>,
+        retryable: bool,
+        iteration: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        details: Option<serde_json::Value>,
     },
     /// Intermediate reasoning text from the LLM before executing tool calls.
     AgentThinking {
@@ -654,5 +767,180 @@ impl AgentMetadata {
                 "degraded".to_string()
             }
         };
+    }
+}
+
+#[cfg(test)]
+mod tool_rejection_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn rejection_code_serializes_as_screaming_snake_case() {
+        let cases = [
+            (RejectionCode::YoloRequired, "\"YOLO_REQUIRED\""),
+            (RejectionCode::AccessDenied, "\"ACCESS_DENIED\""),
+            (RejectionCode::SealUnsigned, "\"SEAL_UNSIGNED\""),
+            (RejectionCode::RiskUnapproved, "\"RISK_UNAPPROVED\""),
+            (RejectionCode::CodeUnsafe, "\"CODE_UNSAFE\""),
+            (RejectionCode::DelegationCycle, "\"DELEGATION_CYCLE\""),
+            (RejectionCode::DelegationDepth, "\"DELEGATION_DEPTH\""),
+            (RejectionCode::SelfDelegation, "\"SELF_DELEGATION\""),
+            (RejectionCode::Unknown, "\"UNKNOWN\""),
+        ];
+        for (code, expected) in cases {
+            let actual = serde_json::to_string(&code).unwrap();
+            assert_eq!(actual, expected, "code {:?}", code);
+            let round: RejectionCode = serde_json::from_str(&actual).unwrap();
+            assert_eq!(round, code);
+        }
+    }
+
+    #[test]
+    fn tool_rejection_roundtrip_minimal() {
+        let rej = ToolRejection {
+            code: RejectionCode::YoloRequired,
+            reason: "This tool is restricted to privileged (YOLO) mode".to_string(),
+            remediation_hint: Some("Enable YOLO in Settings".to_string()),
+            retryable: true,
+            details: None,
+        };
+        let s = serde_json::to_string(&rej).unwrap();
+        let parsed: ToolRejection = serde_json::from_str(&s).unwrap();
+        assert_eq!(parsed.code, RejectionCode::YoloRequired);
+        assert!(parsed.reason.starts_with("This tool is restricted"));
+        assert_eq!(
+            parsed.remediation_hint.as_deref(),
+            Some("Enable YOLO in Settings")
+        );
+        assert!(parsed.retryable);
+        assert!(parsed.details.is_none());
+        // Verify skip_serializing_if elides absent fields.
+        assert!(!s.contains("\"details\""));
+    }
+
+    #[test]
+    fn tool_rejection_roundtrip_with_details() {
+        let rej = ToolRejection {
+            code: RejectionCode::DelegationCycle,
+            reason: "Inter-agent delegation would form a cycle".to_string(),
+            remediation_hint: None,
+            retryable: false,
+            details: Some(json!({"chain": ["agent.a", "agent.b", "agent.a"]})),
+        };
+        let s = serde_json::to_string(&rej).unwrap();
+        let parsed: ToolRejection = serde_json::from_str(&s).unwrap();
+        assert_eq!(parsed.code, RejectionCode::DelegationCycle);
+        assert!(!parsed.retryable);
+        assert!(parsed.remediation_hint.is_none());
+        assert_eq!(
+            parsed
+                .details
+                .as_ref()
+                .and_then(|d| d.get("chain"))
+                .and_then(|c| c.as_array())
+                .map(Vec::len),
+            Some(3)
+        );
+        // Elided because None.
+        assert!(!s.contains("\"remediation_hint\""));
+    }
+
+    #[test]
+    fn tool_failure_from_anyhow_preserves_error() {
+        let err = anyhow::anyhow!("missing required parameter: agent_id");
+        let failure: ToolFailure = err.into();
+        match failure {
+            ToolFailure::Error(e) => {
+                assert!(e.to_string().contains("missing required parameter"));
+            }
+            ToolFailure::Rejection(_) => panic!("expected Error variant"),
+        }
+    }
+
+    #[test]
+    fn tool_failure_question_mark_compat() {
+        fn inner() -> Result<serde_json::Value, ToolFailure> {
+            // Demonstrates that anyhow-returning code can be called with `?`
+            // from a function returning `Result<_, ToolFailure>`.
+            let v: serde_json::Value = serde_json::from_str("{\"ok\": true}")
+                .map_err(|e| anyhow::anyhow!("parse failed: {}", e))?;
+            Ok(v)
+        }
+        let result = inner().expect("should succeed");
+        assert_eq!(result["ok"], json!(true));
+    }
+
+    #[test]
+    fn tool_failure_display_formats_both_variants() {
+        let rejection = ToolFailure::Rejection(ToolRejection {
+            code: RejectionCode::YoloRequired,
+            reason: "privileged mode disabled".to_string(),
+            remediation_hint: None,
+            retryable: true,
+            details: None,
+        });
+        assert!(rejection.to_string().contains("YoloRequired"));
+        assert!(rejection.to_string().contains("privileged mode disabled"));
+
+        let error: ToolFailure = anyhow::anyhow!("runtime issue").into();
+        assert_eq!(error.to_string(), "runtime issue");
+    }
+
+    #[test]
+    fn tool_rejected_event_serializes_with_type_tag() {
+        let event = ClotoEventData::ToolRejected {
+            agent_id: "agent.test".to_string(),
+            engine_id: "mind.deepseek".to_string(),
+            tool_name: "mgp.access.grant".to_string(),
+            call_id: "call_123".to_string(),
+            code: RejectionCode::YoloRequired,
+            reason: "privileged mode is disabled".to_string(),
+            remediation_hint: Some("enable it in Settings".to_string()),
+            retryable: true,
+            iteration: 1,
+            details: None,
+        };
+        let s = serde_json::to_string(&event).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&s).unwrap();
+        assert_eq!(v["type"], json!("ToolRejected"));
+        assert_eq!(v["data"]["code"], json!("YOLO_REQUIRED"));
+        assert_eq!(v["data"]["tool_name"], json!("mgp.access.grant"));
+        assert_eq!(v["data"]["retryable"], json!(true));
+        // Optional details field elided when None.
+        assert!(v["data"].get("details").is_none());
+    }
+
+    #[test]
+    fn tool_rejected_event_roundtrip() {
+        let event = ClotoEventData::ToolRejected {
+            agent_id: "agent.x".to_string(),
+            engine_id: "mind.cerebras".to_string(),
+            tool_name: "mgp.agent.ask".to_string(),
+            call_id: "call_abc".to_string(),
+            code: RejectionCode::DelegationCycle,
+            reason: "cycle detected".to_string(),
+            remediation_hint: None,
+            retryable: false,
+            iteration: 2,
+            details: Some(json!({"chain": ["a", "b", "a"]})),
+        };
+        let s = serde_json::to_string(&event).unwrap();
+        let parsed: ClotoEventData = serde_json::from_str(&s).unwrap();
+        match parsed {
+            ClotoEventData::ToolRejected {
+                code,
+                retryable,
+                iteration,
+                details,
+                ..
+            } => {
+                assert_eq!(code, RejectionCode::DelegationCycle);
+                assert!(!retryable);
+                assert_eq!(iteration, 2);
+                assert!(details.is_some());
+            }
+            _ => panic!("expected ToolRejected variant"),
+        }
     }
 }
