@@ -97,21 +97,19 @@ other functionality is provided as standard MCP tools exposed by the kernel.
 │  ├─ mgp/callback/respond                                 │
 │  └─ mgp/stream/cancel                                    │
 ├──────────────────────────────────────────────────────────┤
-│  Layer 4: Kernel Tools (25 — standard tools/call)        │
+│  Layer 4: Kernel Tools (22 — standard tools/call)        │
 │  ├─ mgp.access.*    (query, grant, revoke)       — §5   │
-│  ├─ mgp.audit.*     (replay)                    — §6   │
+│  ├─ mgp.audit.*     (replay)                     — §6   │
 │  ├─ mgp.health.*    (ping, status)               — §11  │
 │  ├─ mgp.lifecycle.* (shutdown)                   — §11  │
 │  ├─ mgp.stream.*    (cancel, pace)               — §12  │
 │  ├─ mgp.events.*    (subscribe, unsubscribe,     — §13  │
-│  │                    replay, pending_callbacks)          │
+│  │                    replay, pending_callbacks)         │
 │  ├─ mgp.callback.*  (respond)                    — §13  │
 │  ├─ mgp.discovery.* (list, register, deregister) — §15  │
 │  ├─ mgp.tools.*     (discover, request,          — §16  │
-│  │                    session, session.evict)             │
-│  ├─ create_mcp_server                            — §15  │
-│  ├─ ask_agent                                    — §16  │
-│  └─ gui.*           (map, read)                  — §17  │
+│  │                    session, session.evict)            │
+│  └─ mgp.agent.*     (ask)                        — §16  │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -155,7 +153,7 @@ They do NOT require new protocol methods because:
    tools defined in §5, §11, §13, §15, and §16. The tool schemas are standardized
    even though the invocation mechanism is `tools/call` rather than a dedicated method.
 
-This architecture reduces MGP's protocol surface area by 52% (25 → 12 primitives)
+This architecture reduces MGP's protocol surface area by 65% (34 → 12 primitives)
 while maintaining full security guarantees and MCP structural limitation breakthroughs.
 
 #### 1.6.3 Kernel Tool Namespace and Visibility
@@ -192,6 +190,18 @@ agent tool contexts:
 **Admin-only enforcement:** Tools marked `admin_only: true` accept calls only from
 operator-level requests (e.g., HTTP API, CLI). Tool calls from LLM agents to
 admin-only kernel tools MUST be rejected with `1000 PERMISSION_DENIED`.
+
+### 1.6.4 Reference: ClotoCore Client Extensions
+
+The ClotoCore kernel negotiates the following 14 extensions during `initialize`:
+
+```
+tool_security, permissions, access_control, audit, code_safety,
+error_handling, lifecycle, streaming, progress, events,
+callbacks, discovery, tool_discovery, delegation
+```
+
+Only extensions supported by both client and server are activated (intersection).
 
 ### 1.7 Relationship to MCP & Migration Policy
 
