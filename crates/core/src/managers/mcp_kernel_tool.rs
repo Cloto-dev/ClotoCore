@@ -7,10 +7,35 @@ use super::mcp::McpClientManager;
 use super::mcp_tool_validator::{
     validate_mcp_code, BLOCKED_IMPORTS, BLOCKED_PATTERNS, MAX_CODE_SIZE,
 };
-use anyhow::Result;
+use cloto_shared::{RejectionCode, ToolFailure, ToolRejection};
 use serde_json::Value;
 use std::sync::atomic::Ordering;
 use tracing::info;
+
+/// Local alias shadowing `anyhow::Result`. Kernel tool functions return
+/// `Result<Value>` = `std::result::Result<Value, ToolFailure>` so that
+/// structured rejections (`ToolFailure::Rejection`) propagate distinctly
+/// from runtime errors (`ToolFailure::Error`). `?` on `anyhow::Error`
+/// keeps working via `From<anyhow::Error> for ToolFailure`.
+type Result<T> = std::result::Result<T, ToolFailure>;
+
+/// Shared constructor for `YoloRequired` rejections. All kernel tools
+/// gated on YOLO mode return this identical payload when the mode is off.
+/// Canonical text comes from docs/TOOL_REJECTION_TEST_PLAN.md §2.
+fn yolo_required_rejection() -> ToolFailure {
+    ToolFailure::Rejection(ToolRejection {
+        code: RejectionCode::YoloRequired,
+        reason: "This tool is restricted to privileged (YOLO) mode, which is currently \
+                 disabled by the operator. The kernel will reject identical requests \
+                 until the operator re-enables privileged mode in the dashboard."
+            .to_string(),
+        remediation_hint: Some(
+            "Ask the operator to enable YOLO mode in Settings → Security.".to_string(),
+        ),
+        retryable: true,
+        details: None,
+    })
+}
 
 /// Return Tier 1-4 kernel tool schemas (create_mcp_server + access control + audit replay + Tier 3 + Tier 4).
 /// Only exposed when YOLO mode is enabled.
@@ -261,10 +286,7 @@ pub(super) async fn execute_create_mcp_server(
     args: Value,
 ) -> Result<Value> {
     if !manager.yolo_mode.load(Ordering::Relaxed) {
-        return Ok(serde_json::json!({
-            "status": "rejected",
-            "reason": "Autonomous MCP server creation requires YOLO mode to be enabled. Ask the operator to enable it in Settings.",
-        }));
+        return Err(yolo_required_rejection());
     }
 
     let name = args
@@ -287,12 +309,13 @@ pub(super) async fn execute_create_mcp_server(
         return Err(anyhow::anyhow!(
             "Invalid server_type '{}': must be 'basic' or 'coordinator'",
             server_type
-        ));
+        )
+        .into());
     }
 
     // Validate name (same rules as handlers.rs)
     if name.is_empty() || name.len() > 64 {
-        return Err(anyhow::anyhow!("Server name must be 1-64 characters"));
+        return Err(anyhow::anyhow!("Server name must be 1-64 characters").into());
     }
     let valid_name = name
         .chars()
@@ -300,7 +323,8 @@ pub(super) async fn execute_create_mcp_server(
     if !valid_name {
         return Err(anyhow::anyhow!(
             "Server name must contain only alphanumeric, underscore, or hyphen"
-        ));
+        )
+        .into());
     }
 
     // Code safety validation (Layer 5)
@@ -511,10 +535,7 @@ if __name__ == "__main__":
 /// Execute mgp.access.query — query access entries or resolve tool access.
 pub(super) async fn execute_access_query(manager: &McpClientManager, args: Value) -> Result<Value> {
     if !manager.yolo_mode.load(Ordering::Relaxed) {
-        return Ok(serde_json::json!({
-            "status": "rejected",
-            "reason": "Access control tools require YOLO mode (operator-level privilege).",
-        }));
+        return Err(yolo_required_rejection());
     }
 
     let agent_id = args
@@ -567,10 +588,7 @@ pub(super) async fn execute_access_query(manager: &McpClientManager, args: Value
 /// Execute mgp.access.grant — create an access control entry.
 pub(super) async fn execute_access_grant(manager: &McpClientManager, args: Value) -> Result<Value> {
     if !manager.yolo_mode.load(Ordering::Relaxed) {
-        return Ok(serde_json::json!({
-            "status": "rejected",
-            "reason": "Access control tools require YOLO mode (operator-level privilege).",
-        }));
+        return Err(yolo_required_rejection());
     }
 
     let agent_id = args
@@ -652,10 +670,7 @@ pub(super) async fn execute_access_revoke(
     args: Value,
 ) -> Result<Value> {
     if !manager.yolo_mode.load(Ordering::Relaxed) {
-        return Ok(serde_json::json!({
-            "status": "rejected",
-            "reason": "Access control tools require YOLO mode (operator-level privilege).",
-        }));
+        return Err(yolo_required_rejection());
     }
 
     let agent_id = args
@@ -713,10 +728,7 @@ pub(super) async fn execute_access_revoke(
 /// Execute mgp.audit.replay — replay audit log entries.
 pub(super) async fn execute_audit_replay(manager: &McpClientManager, args: Value) -> Result<Value> {
     if !manager.yolo_mode.load(Ordering::Relaxed) {
-        return Ok(serde_json::json!({
-            "status": "rejected",
-            "reason": "Audit tools require YOLO mode (operator-level privilege).",
-        }));
+        return Err(yolo_required_rejection());
     }
 
     let since_seq = args.get("since_seq").and_then(serde_json::Value::as_i64);
@@ -1166,7 +1178,7 @@ pub(super) async fn execute_events_subscribe(
     manager: &McpClientManager,
     args: Value,
 ) -> Result<Value> {
-    super::mcp_events::subscribe(manager, args).await
+    Ok(super::mcp_events::subscribe(manager, args).await?)
 }
 
 /// Execute mgp.events.unsubscribe — remove event subscription.
@@ -1174,7 +1186,7 @@ pub(super) async fn execute_events_unsubscribe(
     manager: &McpClientManager,
     args: Value,
 ) -> Result<Value> {
-    super::mcp_events::unsubscribe(manager, args).await
+    Ok(super::mcp_events::unsubscribe(manager, args).await?)
 }
 
 /// Execute mgp.events.replay — replay buffered events.
@@ -1182,7 +1194,7 @@ pub(super) async fn execute_events_replay(
     manager: &McpClientManager,
     args: Value,
 ) -> Result<Value> {
-    super::mcp_events::replay(manager, args).await
+    Ok(super::mcp_events::replay(manager, args).await?)
 }
 
 /// Execute mgp.events.pending_callbacks — list pending (unresponded) callbacks.
@@ -1239,7 +1251,7 @@ pub(super) async fn execute_callback_respond(
     manager: &McpClientManager,
     args: Value,
 ) -> Result<Value> {
-    super::mcp_events::respond_to_callback(manager, args).await
+    Ok(super::mcp_events::respond_to_callback(manager, args).await?)
 }
 
 // ── Inter-Agent Delegation ──
@@ -1288,10 +1300,7 @@ pub(super) async fn execute_mgp_agent_ask(
 ) -> Result<Value> {
     // 1. YOLO mode check — inter-agent delegation is a privileged operation
     if !manager.yolo_mode.load(Ordering::Relaxed) {
-        return Ok(serde_json::json!({
-            "status": "rejected",
-            "reason": "mgp.agent.ask requires YOLO mode to be enabled (inter-agent delegation is a privileged operation)."
-        }));
+        return Err(yolo_required_rejection());
     }
 
     // 2. Extract parameters
@@ -1313,11 +1322,17 @@ pub(super) async fn execute_mgp_agent_ask(
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
 
-    // 4. Prevent self-delegation
+    // 4. Prevent self-delegation — hard rejection, no operator remediation possible
     if caller_agent_id == target_agent_id {
-        return Ok(serde_json::json!({
-            "status": "rejected",
-            "reason": "Cannot delegate to self."
+        return Err(ToolFailure::Rejection(ToolRejection {
+            code: RejectionCode::SelfDelegation,
+            reason: "Delegation target and caller are the same agent. An agent cannot \
+                     delegate to itself; this is a hard logical constraint enforced by \
+                     the kernel."
+                .to_string(),
+            remediation_hint: None,
+            retryable: false,
+            details: None,
         }));
     }
 
@@ -1328,26 +1343,34 @@ pub(super) async fn execute_mgp_agent_ask(
         .unwrap_or_default();
 
     if delegation_chain.len() >= MAX_DELEGATION_DEPTH {
-        return Ok(serde_json::json!({
-            "status": "rejected",
-            "reason": format!(
-                "Delegation chain depth {} exceeds maximum of {}.",
+        return Err(ToolFailure::Rejection(ToolRejection {
+            code: RejectionCode::DelegationDepth,
+            reason: format!(
+                "Inter-agent delegation chain exceeded the maximum depth limit \
+                 (chain length: {}, maximum: {}). This is a hard logical constraint \
+                 enforced by the kernel to prevent runaway delegation.",
                 delegation_chain.len(),
                 MAX_DELEGATION_DEPTH
             ),
-            "chain": delegation_chain,
+            remediation_hint: None,
+            retryable: false,
+            details: Some(serde_json::json!({"chain": delegation_chain})),
         }));
     }
 
     // 6. Circular reference detection
     if delegation_chain.contains(&target_agent_id.to_string()) {
-        return Ok(serde_json::json!({
-            "status": "rejected",
-            "reason": format!(
-                "Circular delegation detected: '{}' is already in the delegation chain.",
+        return Err(ToolFailure::Rejection(ToolRejection {
+            code: RejectionCode::DelegationCycle,
+            reason: format!(
+                "Inter-agent delegation would form a cycle — the target agent '{}' \
+                 is already in the current delegation chain. This is a hard logical \
+                 constraint enforced by the kernel.",
                 target_agent_id
             ),
-            "chain": delegation_chain,
+            remediation_hint: None,
+            retryable: false,
+            details: Some(serde_json::json!({"chain": delegation_chain})),
         }));
     }
 
@@ -1398,7 +1421,8 @@ pub(super) async fn execute_mgp_agent_ask(
     // 11. Construct the think() call arguments
     //     Uses the same format as SystemHandler::engine_think() (system.rs:1051-1060)
     let think_args = serde_json::json!({
-        "agent": serde_json::to_value(&agent_meta)?,
+        "agent": serde_json::to_value(&agent_meta)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize agent metadata: {}", e))?,
         "message": {
             "id": format!("delegation-{}", chrono::Utc::now().timestamp_millis()),
             "source": { "Agent": { "id": caller_agent_id } },
@@ -1917,4 +1941,181 @@ fn parse_think_result(
     Err(anyhow::anyhow!(
         "MCP engine returned no parseable ThinkResult"
     ))
+}
+
+#[cfg(test)]
+mod phase_b_rejection_tests {
+    //! Phase B migration tests: verify YOLO-gated and delegation tool
+    //! functions return structured `ToolFailure::Rejection` rather than
+    //! silent `Ok({"status":"rejected"})` payloads. See
+    //! `docs/TOOL_REJECTION_TEST_PLAN.md` §5 (Phase B).
+
+    use super::*;
+    use cloto_shared::RejectionCode;
+
+    async fn yolo_off_manager() -> McpClientManager {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
+        McpClientManager::new(pool, false, 120, 30)
+    }
+
+    fn assert_yolo_rejection(result: Result<Value>) {
+        match result {
+            Err(ToolFailure::Rejection(r)) => {
+                assert_eq!(r.code, RejectionCode::YoloRequired);
+                assert!(r.retryable);
+                assert!(r.reason.contains("privileged"));
+                assert!(r.reason.contains("currently"));
+                assert!(
+                    r.remediation_hint
+                        .as_ref()
+                        .is_some_and(|h| h.contains("YOLO")),
+                    "remediation hint should mention YOLO"
+                );
+            }
+            other => panic!("expected YoloRequired rejection, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn yolo_required_helper_produces_canonical_payload() {
+        match yolo_required_rejection() {
+            ToolFailure::Rejection(r) => {
+                assert_eq!(r.code, RejectionCode::YoloRequired);
+                assert!(r.retryable);
+                assert!(r.reason.contains("privileged (YOLO) mode"));
+                assert!(r.remediation_hint.is_some());
+                assert!(r.details.is_none());
+            }
+            ToolFailure::Error(e) => panic!("expected Rejection variant, got Error: {}", e),
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_create_mcp_server_rejects_when_yolo_off() {
+        let mgr = yolo_off_manager().await;
+        let args = serde_json::json!({"name": "test", "code": "x"});
+        assert_yolo_rejection(execute_create_mcp_server(&mgr, args).await);
+    }
+
+    #[tokio::test]
+    async fn execute_access_query_rejects_when_yolo_off() {
+        let mgr = yolo_off_manager().await;
+        let args = serde_json::json!({"agent_id": "a", "server_id": "s"});
+        assert_yolo_rejection(execute_access_query(&mgr, args).await);
+    }
+
+    #[tokio::test]
+    async fn execute_access_grant_rejects_when_yolo_off() {
+        let mgr = yolo_off_manager().await;
+        let args = serde_json::json!({
+            "agent_id": "a", "server_id": "s",
+            "entry_type": "server_grant", "permission": "allow"
+        });
+        assert_yolo_rejection(execute_access_grant(&mgr, args).await);
+    }
+
+    #[tokio::test]
+    async fn execute_access_revoke_rejects_when_yolo_off() {
+        let mgr = yolo_off_manager().await;
+        let args = serde_json::json!({
+            "agent_id": "a", "server_id": "s", "entry_type": "server_grant"
+        });
+        assert_yolo_rejection(execute_access_revoke(&mgr, args).await);
+    }
+
+    #[tokio::test]
+    async fn execute_audit_replay_rejects_when_yolo_off() {
+        let mgr = yolo_off_manager().await;
+        let args = serde_json::json!({});
+        assert_yolo_rejection(execute_audit_replay(&mgr, args).await);
+    }
+
+    #[tokio::test]
+    async fn execute_mgp_agent_ask_rejects_when_yolo_off() {
+        let mgr = yolo_off_manager().await;
+        let args = serde_json::json!({
+            "target_agent_id": "agent.other",
+            "prompt": "hi",
+            "agent_id": "agent.caller"
+        });
+        assert_yolo_rejection(execute_mgp_agent_ask(&mgr, args).await);
+    }
+
+    #[tokio::test]
+    async fn execute_mgp_agent_ask_rejects_self_delegation() {
+        // YOLO on so we bypass the first gate; still rejected for self-target.
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
+        let mgr = McpClientManager::new(pool, true, 120, 30);
+        let args = serde_json::json!({
+            "target_agent_id": "agent.same",
+            "prompt": "loopback",
+            "agent_id": "agent.same"
+        });
+        match execute_mgp_agent_ask(&mgr, args).await {
+            Err(ToolFailure::Rejection(r)) => {
+                assert_eq!(r.code, RejectionCode::SelfDelegation);
+                assert!(!r.retryable, "self-delegation must be hard rejection");
+                assert!(r.remediation_hint.is_none());
+            }
+            other => panic!("expected SelfDelegation, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_mgp_agent_ask_rejects_depth_exceeded() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
+        let mgr = McpClientManager::new(pool, true, 120, 30);
+        // Build a chain at the limit.
+        let chain: Vec<String> = (0..MAX_DELEGATION_DEPTH)
+            .map(|i| format!("agent.{}", i))
+            .collect();
+        let args = serde_json::json!({
+            "target_agent_id": "agent.target",
+            "prompt": "deep",
+            "agent_id": "agent.caller",
+            "_delegation_chain": chain
+        });
+        match execute_mgp_agent_ask(&mgr, args).await {
+            Err(ToolFailure::Rejection(r)) => {
+                assert_eq!(r.code, RejectionCode::DelegationDepth);
+                assert!(!r.retryable);
+                let details = r.details.expect("details should include chain");
+                assert!(details.get("chain").and_then(|c| c.as_array()).is_some());
+            }
+            other => panic!("expected DelegationDepth, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_mgp_agent_ask_rejects_cycle() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
+        let mgr = McpClientManager::new(pool, true, 120, 30);
+        let chain = vec!["agent.a".to_string(), "agent.target".to_string()];
+        let args = serde_json::json!({
+            "target_agent_id": "agent.target",
+            "prompt": "looping",
+            "agent_id": "agent.caller",
+            "_delegation_chain": chain
+        });
+        match execute_mgp_agent_ask(&mgr, args).await {
+            Err(ToolFailure::Rejection(r)) => {
+                assert_eq!(r.code, RejectionCode::DelegationCycle);
+                assert!(!r.retryable);
+                assert!(r.reason.contains("cycle"));
+            }
+            other => panic!("expected DelegationCycle, got {:?}", other),
+        }
+    }
 }
