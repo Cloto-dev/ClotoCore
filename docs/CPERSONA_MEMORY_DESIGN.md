@@ -26,7 +26,8 @@
 | CPersona 2.4.3 | ClotoCore | Same as 2.4.1 | Same as 2.4 | Store validation (`_sanitize_content`), content dedup, `MAX_CONTENT_LENGTH=2000`. `check_health` tool (7 issue types + auto-fix). | **Complete** |
 | CPersona 2.4.4 | ClotoCore | Schema v7: `recall_count`, `last_recalled_at` | Same as 2.4 | Dynamic time decay (rate adapts to memory time range). Recall boost (frequently recalled memories resist decay). Boost decay (protection fades if not re-recalled). | **Complete** |
 | CPersona 2.4.5 | ClotoCore | Same as 2.4.4 | Same as 2.4 | Extended `check_health` to 15 checks: FTS5 sync, schema version, JSON validity, timestamp consistency, stale tasks, null embedding auto-repair (batch 50), storage stats, missing profiles. | **Complete** |
-| CPersona 2.4.6 | ClotoCore | Same as 2.4.4 | Same as 2.4 | Adaptive quality gate: dynamic recall threshold based on memory pool size (logarithmic scaling). Profile injection gated (≥50 memories). Unscored results gated (≥100 memories). Deep recall halves threshold. | **Complete** |
+| CPersona 2.4.6 | ClotoCore | Same as 2.4.4 | Same as 2.4 | Adaptive quality gate: dynamic recall threshold based on memory pool size (logarithmic scaling). Profile injection gated (≥50 memories). Unscored results gated (≥100 memories). Deep recall halves threshold. | **Complete** (regressed RRF — see v2.4.12) |
+| CPersona 2.4.12 | ClotoCore | Same as 2.4.4 | Same as 2.4 | Scale-aware quality gate: priority confidence > cosine > rrf; `_rrf_score` threshold is scaled by `RRF_MAX_SCALE = 3/(RRF_K+1)`. Fixes v2.4.6 regression where every RRF-mode result was silently rejected because a cosine-scale threshold (0.2–1.0) was compared against an RRF-scale value (0–0.05). | **Complete** |
 | CPersona 2.5 | ClotoCore | Dedicated SQLite (`data/cpersona.db`) | FTS5 + vector + recency-weighted scoring | Anti-contamination + gated recency boost (reuses v2.3.2 normalization) | Planned |
 | CPersona 3.0 | Standalone | SQLite + graph tables (nodes/edges) | Cascade + graph traversal (BFS) + bi-temporal | MIT license, PyPI packaging, memory evolution (full) | Planned |
 
@@ -1609,6 +1610,31 @@ Cancelled because: (1) `tool.embedding` LRU cache already eliminates the main bo
 - [x] **Timestamp annotations** — `_format_memory_timestamp()` converts ISO-8601 timestamps to human-readable local time; recall prepends `[Memory from YYYY-MM-DD HH:MM TZ]` to each memory
 - [x] **Boundary markers** — `[Episode]` prefix on episode summaries, `[Profile]` prefix on profile entries in recall results; `source: {"System": "episode"}` / `{"System": "profile"}` for semantic distinction
 - [ ] **Explicit anti-hallucination guardrails** — not yet implemented (no system-prompt-level instructions to LLM about memory provenance)
+
+### Known Issue: Topic-Drift Contamination — **Open** (2026-04-24)
+
+Even with the v2.4.12 quality-gate fix restoring correct RRF recall, agents
+occasionally treat recalled memories as active discussion threads and drift
+into unrelated topics (e.g., a "パン" question triggering an elaborated
+"ラズベリーパイ" response). Root cause is how the **mind server** packs
+recalled memories into the LLM prompt as `role=user`/`role=assistant` turns
+in `common/llm_provider.py::build_chat_messages` — chat-history shape invites
+the LLM to continue those threads.
+
+Controlled AB-test (5 arms × 42 trials = 210 trials on DeepSeek) found:
+
+- `v2.4.12` gate fix alone reduces severe drift **28.2% → 23.1%** (baseline).
+- Collapsing memories into a single `<<BACKGROUND_MEMORIES>>` system block
+  *regresses* both drift rate (23.1% → 36.4%) and timeout rate (7% → 48%).
+- A system-prompt anti-contamination instruction has no measurable effect.
+
+Full methodology, per-query tables, and rejected design variants:
+[RECALL_CONTAMINATION_AB_2026-04-24.md](./RECALL_CONTAMINATION_AB_2026-04-24.md).
+
+Workaround available today: `CPERSONA_RECALL_MODE=cascade` tends to surface
+fewer borderline matches, reducing drift frequency. Structural fixes
+(inline-marker memory format, top-K truncation, MMR diversification,
+episode-boundary recall, topic clustering) are deferred to v2.5 / v3.0.
 
 ---
 
