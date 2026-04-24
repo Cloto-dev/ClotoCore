@@ -121,7 +121,7 @@ impl Default for McpServerRecord {
             auto_restart: true,
             script_content: None,
             description: None,
-            default_policy: "opt-out".to_string(),
+            default_policy: "opt-in".to_string(),
             marketplace_id: None,
             installed_version: None,
             trust_level: None,

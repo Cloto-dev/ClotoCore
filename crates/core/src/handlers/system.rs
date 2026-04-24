@@ -1304,14 +1304,14 @@ impl SystemHandler {
                 .await;
         }
 
-        // エージェントに割り当てられたプラグインのみからツールを収集
-        let tools = if agent_plugin_ids.is_empty() {
-            self.registry.collect_tool_schemas().await
-        } else {
-            self.registry
-                .collect_tool_schemas_for_agent(agent_plugin_ids, &agent.id)
-                .await
-        };
+        // 🔐 Always route through the agent-scoped collector so mcp_access_control
+        // is consulted. Previously, an empty grant list fell through to
+        // collect_tool_schemas(), which returned every tool from every server
+        // and completely bypassed per-agent access control.
+        let tools = self
+            .registry
+            .collect_tool_schemas_for_agent(agent_plugin_ids, &agent.id)
+            .await;
         if tools.is_empty() {
             self.emit_event(
                 trace_id,
