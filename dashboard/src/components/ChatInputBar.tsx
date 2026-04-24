@@ -45,6 +45,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isComposingRef = useRef(false);
 
   // Prefill input when entering edit mode
   useEffect(() => {
@@ -217,8 +218,16 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onCompositionStart={() => {
+            isComposingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            isComposingRef.current = false;
+          }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSend();
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing && !isComposingRef.current && e.keyCode !== 229) {
+              handleSend();
+            }
             if (e.key === 'Escape' && editMode) editMode.onCancel();
           }}
           onPaste={handlePaste}
