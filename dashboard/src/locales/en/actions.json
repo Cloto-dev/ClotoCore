@@ -1,0 +1,11 @@
+{
+  "title": "Actions",
+  "empty": "No code artifacts yet",
+  "open": "Open Actions",
+  "collapse": "Collapse",
+  "tabs": {
+    "code": "Code",
+    "dialogues": "Dialogues",
+    "external": "External"
+  }
+}
