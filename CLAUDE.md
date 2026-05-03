@@ -54,17 +54,40 @@ Then restart the kernel — sqlx will re-apply the migration and record the curr
 checksum. Only needed in dev; users installing via release builds never hit this
 because the migration file is embedded once at package time.
 
+### Do NOT delete the dev DB
+
+`cloto_memories.db`, `cloto.db`, `*.db-wal`, and `*.db-shm` must not be `rm`'d
+or truncated — even preemptively, even in the name of avoiding a potential
+checksum mismatch. Deletion destroys chat history, episode memory, registered
+MCP servers (including custom/dynamic ones that cannot be re-derived from
+`registry.json`), `mcp_access_control` grants, local embedding namespaces,
+cron jobs, audit logs, and every piece of agent-side state that has no other
+persistent source.
+
+A freshly authored migration that has never been `cargo run`'d cannot trigger
+a checksum mismatch — the `_sqlx_migrations` row it would conflict with
+doesn't exist yet. Preemptive `rm` "to be safe" is therefore never correct.
+
+If recovery is unavoidable, use the targeted partial-repair form above
+(`DELETE FROM _sqlx_migrations WHERE version=X;` + `ALTER TABLE t DROP COLUMN`)
+— it surgically rolls back exactly one migration while preserving every
+other row. Never escalate to `rm` without explicit user confirmation.
+
+Incident: 2026-04-21, beta.13 quirks-column session. A preemptive delete
+destroyed ~30 minutes of state (mcp_access grants, custom `x-browser` +
+`github-bridge` registrations, `x_style_reference` vectors) that had to be
+rebuilt via Setup Wizard + API re-registration + grants union.
+
 ## Bug Verification (Anti-Hallucination)
 
-The issue registry is a **hallucination prevention tool**, not a comprehensive bug tracker.
-It verifies that reported bugs actually exist in the codebase via grep patterns.
-Not every bug fix requires an issue-registry entry — only bugs where code-level
-evidence is needed to confirm existence (e.g., AI-discovered bugs that could be false positives).
+> Inherits: `../CLAUDE.md` — "Mandatory: Issue Registry Verification" section.
+> MUST run `bash scripts/verify-issues.sh` when adding / fixing / claiming a fix for
+> entries in `qa/issue-registry.json`. PostToolUse hook auto-runs on edits;
+> `.githooks/pre-commit` blocks commits with `[STALE]` / `[UNFIXED]`.
 
 - Source of truth: `qa/issue-registry.json`
-- Discovery: add entry → `bash scripts/verify-issues.sh` → must return `[VERIFIED]`
-- Fix: update `expected`→`"absent"`, `status`→`"fixed"` → re-verify → must return `[FIXED]`
-- `scripts/verify-issues.sh` is **read-only infrastructure** — never modify without user approval
+- Scope: bugs where code-level evidence is needed (e.g., AI-discovered bugs that could be false positives). Not every fix needs an entry.
+- **Enable pre-commit blocker (once per clone)**: `bash scripts/install-hooks.sh` — sets `core.hooksPath=.githooks`. Baseline: currently has pre-existing `[ERROR]` / `[STALE]` entries (bug-265, bug-333, bug-349, bug-368 as of 2026-04-24) so registry-touching commits will block until those are resolved or `--no-verify` is used intentionally.
 
 ## Agent Config Rules
 
@@ -122,9 +145,8 @@ The dashboard has two distinct surface patterns. Pick the right one for the role
 
 ## Git Rules
 
-- Commit messages in English
-- Git author: `ClotoCore Project <ClotoCore@proton.me>`
-- Do NOT push without explicit user permission
+> Inherits: `../CLAUDE.md` — shared Git Rules section (author, English commits, push = explicit instruction only).
+
 - Do NOT create git tags manually — use `gh release create`
 - Binaries distributed exclusively via [GitHub Releases](https://github.com/Cloto-dev/ClotoCore/releases)
 
