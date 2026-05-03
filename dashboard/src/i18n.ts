@@ -7,6 +7,7 @@ import {
   saveLanguagePack as savePack,
   scanLanguagesDir,
 } from './lib/tauri';
+import en_actions from './locales/en/actions.json';
 import en_agents from './locales/en/agents.json';
 // Bundled: English only
 import en_common from './locales/en/common.json';
@@ -18,7 +19,7 @@ import en_settings from './locales/en/settings.json';
 import en_setup from './locales/en/setup.json';
 import en_wizard from './locales/en/wizard.json';
 
-const NAMESPACES = ['common', 'agents', 'settings', 'mcp', 'nav', 'cron', 'memory', 'wizard', 'setup'] as const;
+const NAMESPACES = ['common', 'agents', 'settings', 'mcp', 'nav', 'cron', 'memory', 'wizard', 'setup', 'actions'] as const;
 
 i18n
   .use(LanguageDetector)
@@ -35,6 +36,7 @@ i18n
         memory: en_memory,
         wizard: en_wizard,
         setup: en_setup,
+        actions: en_actions,
       },
     },
     fallbackLng: 'en',
@@ -114,6 +116,7 @@ export function exportLanguageTemplate(): string {
     memory: en_memory,
     wizard: en_wizard,
     setup: en_setup,
+    actions: en_actions,
   };
   return JSON.stringify(template, null, 2);
 }

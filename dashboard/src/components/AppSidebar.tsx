@@ -55,7 +55,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
 
   return (
     <div
-      className={`${collapsed ? 'w-14' : 'w-48'} h-full flex flex-col py-3 bg-surface-secondary/60 border-r border-[var(--border-strong)] transition-[width] duration-200`}
+      className={`${collapsed ? 'w-14' : 'w-48'} h-full flex flex-col py-3 bg-glass backdrop-blur-sm border-r border-edge transition-[width] duration-200`}
     >
       {/* System / Kernel */}
       <button
