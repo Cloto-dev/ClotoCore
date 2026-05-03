@@ -1,4 +1,5 @@
 import { ChevronLeft, PanelRightClose } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { ActionCategory, Artifact, DialogueTab, ExternalActionTab } from '../hooks/useActions';
 import { CodeBlock } from './CodeBlock';
 import { DialogueCard } from './DialogueCard';
@@ -47,6 +48,7 @@ export function ActionsPanel({
   unreadExternalCount,
   totalCount,
 }: ActionsPanelProps) {
+  const { t } = useTranslation('actions');
   if (totalCount === 0) return null;
 
   const active = artifacts[activeArtifactIndex] || artifacts[0];
@@ -59,11 +61,11 @@ export function ActionsPanel({
       <button
         onClick={onOpen}
         className="h-full w-8 shrink-0 border-l border-edge bg-glass backdrop-blur-sm hover:bg-glass-strong flex flex-col items-center justify-center gap-2 transition-colors group"
-        title="Open Actions"
+        title={t('open')}
       >
         <ChevronLeft size={12} className="text-content-tertiary group-hover:text-brand transition-colors" />
         <span className="text-[9px] font-black uppercase tracking-widest text-content-tertiary group-hover:text-content-secondary [writing-mode:vertical-rl] rotate-180">
-          Actions
+          {t('title')}
         </span>
         <div className="flex flex-col items-center gap-1">
           <span className="text-[9px] font-mono text-brand/70">{totalCount}</span>
@@ -81,13 +83,13 @@ export function ActionsPanel({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-edge/50 shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-black uppercase tracking-widest text-content-primary">Actions</span>
+          <span className="text-xs font-black uppercase tracking-widest text-content-primary">{t('title')}</span>
           <span className="text-[9px] font-mono text-content-tertiary">{totalCount}</span>
         </div>
         <button
           onClick={onClose}
-          className="p-1.5 rounded-md hover:bg-surface-secondary text-content-tertiary hover:text-content-primary transition-all"
-          title="Collapse"
+          className="p-1.5 rounded-md hover:bg-glass-strong text-content-tertiary hover:text-content-primary transition-all"
+          title={t('collapse')}
         >
           <PanelRightClose size={14} />
         </button>
@@ -104,7 +106,7 @@ export function ActionsPanel({
                 : 'border-transparent text-content-tertiary hover:text-content-secondary'
             }`}
           >
-            Code
+            {t('tabs.code')}
             {artifacts.length > 0 && <span className="ml-1.5 text-[9px] font-mono opacity-60">{artifacts.length}</span>}
           </button>
           {hasDialogues && (
@@ -116,7 +118,7 @@ export function ActionsPanel({
                   : 'border-transparent text-content-tertiary hover:text-content-secondary'
               }`}
             >
-              Dialogues
+              {t('tabs.dialogues')}
               <span className="ml-1.5 text-[9px] font-mono opacity-60">{dialogues.length}</span>
               {unreadDialogueCount > 0 && activeCategory !== 'dialogues' && (
                 <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
@@ -132,7 +134,7 @@ export function ActionsPanel({
                   : 'border-transparent text-content-tertiary hover:text-content-secondary'
               }`}
             >
-              External
+              {t('tabs.external')}
               <span className="ml-1.5 text-[9px] font-mono opacity-60">{externalActions.length}</span>
               {unreadExternalCount > 0 && activeCategory !== 'external' && (
                 <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
@@ -177,7 +179,7 @@ export function ActionsPanel({
       {/* Content: Code empty state (when on code tab but no artifacts) */}
       {activeCategory === 'code' && artifacts.length === 0 && (
         <div className="flex-1 flex items-center justify-center">
-          <span className="text-[10px] text-content-tertiary">No code artifacts yet</span>
+          <span className="text-[10px] text-content-tertiary">{t('empty')}</span>
         </div>
       )}
 
