@@ -763,6 +763,10 @@ video {
   visibility: visible;
 }
 
+.invisible {
+  visibility: hidden;
+}
+
 .collapse {
   visibility: collapse;
 }
@@ -825,6 +829,10 @@ video {
 
 .left-3 {
   left: 0.75rem;
+}
+
+.left-4 {
+  left: 1rem;
 }
 
 .right-0 {
@@ -1025,6 +1033,10 @@ video {
 
 .ml-4 {
   margin-left: 1rem;
+}
+
+.ml-\[26px\] {
+  margin-left: 26px;
 }
 
 .ml-auto {
@@ -1434,6 +1446,10 @@ video {
 
 .flex-shrink-0 {
   flex-shrink: 0;
+}
+
+.shrink {
+  flex-shrink: 1;
 }
 
 .shrink-0 {
@@ -2454,6 +2470,10 @@ video {
 
 .pl-1 {
   padding-left: 0.25rem;
+}
+
+.pl-10 {
+  padding-left: 2.5rem;
 }
 
 .pl-3 {
