@@ -1779,7 +1779,8 @@ impl SystemHandler {
         }
 
         if let Some(mcp) = mcp_engine {
-            let agent_val = serde_json::to_value(agent)?;
+            let agent_for_dispatch = mcp.enrich_agent_for_dispatch(agent).await;
+            let agent_val = serde_json::to_value(&agent_for_dispatch)?;
             let message_val = serde_json::to_value(message)?;
             let context_val = serde_json::Value::Array(Self::serialize_context(&context));
             let tools_val = serde_json::Value::Array(vec![]);
@@ -1851,7 +1852,8 @@ impl SystemHandler {
                 return Self::parse_mcp_think_result(&result);
             }
 
-            let agent_val = serde_json::to_value(agent)?;
+            let agent_for_dispatch = mcp.enrich_agent_for_dispatch(agent).await;
+            let agent_val = serde_json::to_value(&agent_for_dispatch)?;
             let message_val = serde_json::to_value(message)?;
             let context_val = serde_json::Value::Array(Self::serialize_context(&context));
             let tools_val = serde_json::Value::Array(tools.to_vec());
@@ -1900,7 +1902,8 @@ impl SystemHandler {
         tool_history: &[serde_json::Value],
         iteration: u8,
     ) -> anyhow::Result<crate::managers::mcp_protocol::CallToolResult> {
-        let agent_val = serde_json::to_value(agent)?;
+        let agent_for_dispatch = mcp.enrich_agent_for_dispatch(agent).await;
+        let agent_val = serde_json::to_value(&agent_for_dispatch)?;
         let message_val = serde_json::to_value(message)?;
         let context_val = serde_json::Value::Array(Self::serialize_context(context));
         let tools_val = serde_json::Value::Array(tools.to_vec());
