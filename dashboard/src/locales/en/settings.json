@@ -32,9 +32,7 @@
     "user_identity": "User Identity",
     "display_name": "Display Name",
     "name_placeholder": "User",
-    "name_hint": "The name shown to agents when you chat. Agents can use it to address you personally.",
-    "inject_language_to_prompt": "Inject into prompt",
-    "inject_language_hint": "When ON, agents are instructed to reply in the selected language unless their description says otherwise."
+    "name_hint": "The name shown to agents when you chat. Agents can use it to address you personally."
   },
   "about": {
     "clotocore": "ClotoCore",
