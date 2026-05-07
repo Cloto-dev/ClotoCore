@@ -361,8 +361,7 @@ impl AppConfig {
         }
 
         let mcp_streaming_enabled = env::var("CLOTO_MCP_STREAMING_ENABLED")
-            .map(|v| matches!(v.as_str(), "true" | "1" | "yes" | "on"))
-            .unwrap_or(false);
+            .is_ok_and(|v| matches!(v.as_str(), "true" | "1" | "yes" | "on"));
 
         let mcp_health_interval_secs = env::var("CLOTO_MCP_HEALTH_INTERVAL_SECS")
             .unwrap_or_else(|_| "10".to_string())
@@ -570,17 +569,13 @@ impl AppConfig {
             // Magic Seal: block unsigned MCP servers at Untrusted trust level.
             // Core/Standard/Experimental servers are always allowed without a seal.
             // Only affects Untrusted servers — set to true if you register Untrusted servers in dev.
-            allow_unsigned: env::var("CLOTO_ALLOW_UNSIGNED")
-                .map(|v| v == "true" || v == "1")
-                .unwrap_or(false),
+            allow_unsigned: env::var("CLOTO_ALLOW_UNSIGNED").is_ok_and(|v| v == "true" || v == "1"),
             isolation_enabled: env::var("CLOTO_ISOLATION_ENABLED")
-                .map(|v| v != "false" && v != "0")
-                .unwrap_or(true), // Default: true
+                .map_or(true, |v| v != "false" && v != "0"), // Default: true
             sandbox_base_dir: env::var("CLOTO_SANDBOX_DIR")
                 .map_or_else(|_| PathBuf::from("data/mcp-sandbox"), PathBuf::from),
             health_scan_on_startup: env::var("CLOTO_HEALTH_SCAN_ON_STARTUP")
-                .map(|v| v != "false" && v != "0")
-                .unwrap_or(true),
+                .map_or(true, |v| v != "false" && v != "0"),
         })
     }
 }
