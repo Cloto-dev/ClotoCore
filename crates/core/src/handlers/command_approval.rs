@@ -384,7 +384,7 @@ pub(crate) async fn run_approval_gate(
     )
     .await;
 
-    let decision = tokio::time::timeout(std::time::Duration::from_secs(60), arx).await;
+    let decision = tokio::time::timeout(std::time::Duration::from_mins(1), arx).await;
     pending_approvals.remove(&approval_id);
 
     process_approval_decision(

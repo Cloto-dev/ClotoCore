@@ -391,7 +391,7 @@ impl HttpTransport {
         validate_http_url(url)?;
 
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_mins(1))
             .build()
             .context("Failed to create HTTP client")?;
 

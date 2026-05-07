@@ -72,7 +72,7 @@ impl RateLimiter {
     /// Remove idle entries to prevent memory growth.
     /// M-04: Uses timestamp-based staleness instead of consuming tokens
     pub fn cleanup(&self) {
-        let idle_threshold = std::time::Duration::from_secs(600); // 10 minutes
+        let idle_threshold = std::time::Duration::from_mins(10); // 10 minutes
         self.limiters
             .retain(|_, (_, last_seen)| last_seen.elapsed() < idle_threshold);
     }

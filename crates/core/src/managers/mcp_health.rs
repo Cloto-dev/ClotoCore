@@ -42,7 +42,7 @@ pub(super) fn spawn_health_monitor(
                     check_and_restart_dead_servers(&manager, &setup_in_progress).await;
                     // Clean up responded callbacks older than 5 minutes (§13.4)
                     let cleaned = manager.events.cleanup_stale_callbacks(
-                        std::time::Duration::from_secs(300),
+                        std::time::Duration::from_mins(5),
                     );
                     if cleaned > 0 {
                         debug!(count = cleaned, "Cleaned up stale callbacks");

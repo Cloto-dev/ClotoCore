@@ -235,7 +235,7 @@ mod tests {
         assert_eq!(d6, Duration::from_millis(3200)); // 100 * 2^5
 
         let d7 = lm.calculate_backoff("s1", &policy);
-        assert_eq!(d7, Duration::from_millis(5000)); // capped at max
+        assert_eq!(d7, Duration::from_secs(5)); // capped at max
     }
 
     #[test]

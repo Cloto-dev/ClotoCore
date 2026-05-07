@@ -47,7 +47,7 @@ pub struct LlmProviderRow {
     /// Semantic is the USER INTENT, not the internal mechanism:
     ///   * `"on"`   — thinking is allowed (no prefill applied)
     ///   * `"off"`  — thinking is suppressed via an assistant `<think></think>`
-    ///                prefill on the outbound request
+    ///     prefill on the outbound request
     ///   * `"auto"` — server-side heuristic on the model id decides
     ///
     /// `augment_mind_env` translates this into the internal
