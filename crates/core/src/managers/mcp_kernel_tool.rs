@@ -1420,8 +1420,9 @@ pub(super) async fn execute_mgp_agent_ask(
 
     // 11. Construct the think() call arguments
     //     Uses the same format as SystemHandler::engine_think() (system.rs:1051-1060)
+    let agent_for_dispatch = manager.enrich_agent_for_dispatch(&agent_meta).await;
     let think_args = serde_json::json!({
-        "agent": serde_json::to_value(&agent_meta)
+        "agent": serde_json::to_value(&agent_for_dispatch)
             .map_err(|e| anyhow::anyhow!("Failed to serialize agent metadata: {}", e))?,
         "message": {
             "id": format!("delegation-{}", chrono::Utc::now().timestamp_millis()),
