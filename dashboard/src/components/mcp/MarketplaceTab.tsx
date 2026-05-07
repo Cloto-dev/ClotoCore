@@ -207,7 +207,6 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
         onConfirm={handleUninstall}
         onCancel={() => {
           setUninstallTarget(null);
-          setUninstallError(null);
         }}
       />
 
