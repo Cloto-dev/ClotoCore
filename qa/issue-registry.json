@@ -1372,8 +1372,8 @@
       "commit": "b60f329",
       "file": "dashboard/src/components/CustomCursor.tsx",
       "pattern": "\\}, \\[\\]\\);",
-      "expected": "present",
-      "status": "wontfix",
+      "expected": "absent",
+      "status": "fixed",
       "github_issue": 36
     },
     {
@@ -2195,7 +2195,7 @@
       "commit": "08fc0e1",
       "file": "crates/core/src/lib.rs",
       "pattern": "CRITICAL: Failed to parse MCP config file",
-      "expected": "present",
+      "expected": "absent",
       "status": "fixed"
     },
     {
@@ -2375,7 +2375,7 @@
       "commit": "ccfbc25",
       "file": "crates/core/src/managers/mcp_transport.rs",
       "pattern": "stdout silent for 120s",
-      "expected": "present",
+      "expected": "absent",
       "status": "fixed"
     },
     {
@@ -2603,8 +2603,8 @@
       "commit": "0d03c1a",
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "Python dependency installation failed",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed"
     },
     {
       "id": "bug-369",
