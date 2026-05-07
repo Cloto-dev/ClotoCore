@@ -2,7 +2,6 @@ import { Download, Globe, Monitor, Moon, Sun, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useUserIdentity } from '../../contexts/UserIdentityContext';
-import { useApi } from '../../hooks/useApi';
 import { useTheme } from '../../hooks/useTheme';
 import { exportLanguageTemplate, getCustomLanguages, importLanguagePack } from '../../i18n';
 import { getLanguagesDir, isTauri, openFileDialog, readTextFile } from '../../lib/tauri';
@@ -14,7 +13,6 @@ const BUILTIN_LANGUAGES = [
 ];
 
 export function GeneralSection() {
-  const api = useApi();
   const { preference, setPreference } = useTheme();
   const { identity, setIdentity } = useUserIdentity();
   const { t, i18n } = useTranslation('settings');
@@ -22,47 +20,11 @@ export function GeneralSection() {
   const [displayName, setDisplayName] = useState(identity.name);
   const [importStatus, setImportStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [customLangs, setCustomLangs] = useState<{ code: string; label: string }[]>([]);
-  const [injectLangEnabled, setInjectLangEnabled] = useState(true);
-  const [injectLangLoaded, setInjectLangLoaded] = useState(false);
 
   // Load external languages from filesystem
   useEffect(() => {
     getCustomLanguages().then(setCustomLangs);
   }, []);
-
-  // Load response-language injection setting from backend
-  useEffect(() => {
-    api
-      .fetchJson<{ enabled: boolean; language: string }>('/settings/language')
-      .then((data) => setInjectLangEnabled(data.enabled))
-      .catch((e) => {
-        if (import.meta.env.DEV) console.warn('Failed to load language setting:', e);
-      })
-      .finally(() => setInjectLangLoaded(true));
-  }, [api]);
-
-  // Sync UI language → backend so the system prompt uses the right code
-  // when injection is enabled. Fire-and-forget; failure is non-fatal.
-  const syncLanguageToBackend = (code: string) => {
-    api.put('/settings/language', { language: code }).catch((e) => {
-      if (import.meta.env.DEV) console.warn('Failed to sync language to backend:', e);
-    });
-  };
-
-  const handleLanguageChange = (code: string) => {
-    i18n.changeLanguage(code);
-    syncLanguageToBackend(code);
-  };
-
-  const handleToggleInjectLang = async () => {
-    const next = !injectLangEnabled;
-    try {
-      await api.put('/settings/language', { enabled: next });
-      setInjectLangEnabled(next);
-    } catch (err) {
-      if (import.meta.env.DEV) console.error('Failed to toggle language injection:', err);
-    }
-  };
 
   const builtinCodes = new Set(BUILTIN_LANGUAGES.map((l) => l.code));
 
@@ -94,7 +56,6 @@ export function GeneralSection() {
       const langs = await getCustomLanguages();
       setCustomLangs(langs);
       i18n.changeLanguage(result.code);
-      syncLanguageToBackend(result.code);
       setImportStatus({
         type: 'success',
         message: t('general.import_success', { label: result.label, code: result.code }),
@@ -164,39 +125,21 @@ export function GeneralSection() {
 
       <SectionCard title={t('general.language')}>
         <div className="space-y-3">
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="relative flex items-center">
-              <Globe size={14} className="text-content-tertiary absolute left-4 pointer-events-none" />
-              <select
-                value={i18n.language.split('-')[0]}
-                onChange={(e) => handleLanguageChange(e.target.value)}
-                className="pl-10 pr-8 py-2.5 h-10 bg-surface-secondary border border-edge rounded-xl text-xs font-bold text-content-primary hover:border-brand focus:border-brand focus:outline-none transition-all appearance-none cursor-pointer"
-              >
-                {allLanguages.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
-                    {lang.label}
-                    {'custom' in lang ? ` (${t('general.custom_label')})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {injectLangLoaded && (
-              <button
-                onClick={handleToggleInjectLang}
-                role="switch"
-                aria-checked={injectLangEnabled}
-                aria-label={t('general.inject_language_to_prompt')}
-                className={`flex items-center gap-2 px-5 py-2.5 h-10 rounded-xl text-xs font-bold transition-all border ${
-                  injectLangEnabled
-                    ? 'bg-brand text-white border-transparent shadow-md'
-                    : 'bg-surface-secondary text-content-secondary border-edge hover:border-brand hover:text-content-primary'
-                }`}
-              >
-                {t('general.inject_language_to_prompt')}
-              </button>
-            )}
+          <div className="flex items-center gap-3">
+            <Globe size={14} className="text-content-tertiary shrink-0" />
+            <select
+              value={i18n.language.split('-')[0]}
+              onChange={(e) => i18n.changeLanguage(e.target.value)}
+              className="px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-sm text-content-primary focus:border-brand focus:outline-none transition-colors"
+            >
+              {allLanguages.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.label}
+                  {'custom' in lang ? ` (${t('general.custom_label')})` : ''}
+                </option>
+              ))}
+            </select>
           </div>
-          <p className="text-xs text-content-tertiary">{t('general.inject_language_hint')}</p>
 
           {/* Import / Export buttons */}
           <div className="flex items-center gap-2">
