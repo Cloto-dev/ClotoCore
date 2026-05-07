@@ -871,8 +871,14 @@ impl McpClientManager {
             }
         }
 
-        // ──── Seal Verification (MGP §8 L0) ────
-        let trust_level = config
+        // ──── Seal Verification (MGP_ISOLATION_DESIGN.md §4.0 / §10, v0.6.3+) ────
+        //
+        // v0.6.3 universalized Security Invariant 3: an unsealed server is
+        // downgraded to `untrusted` regardless of declared tier, replacing the
+        // prior `core`-only rule. We compute `effective_trust_level` here and
+        // hand it to `derive_isolation_profile` below, so the isolation profile
+        // matches what the kernel actually trusts — not what the server claimed.
+        let declared_trust_level = config
             .mgp
             .as_ref()
             .and_then(|m| m.trust_level.as_deref())
@@ -884,12 +890,12 @@ impl McpClientManager {
             .transpose()
             .unwrap_or(None)
             .unwrap_or(super::mcp_mgp::TrustLevel::Standard);
+        let mut effective_trust_level = declared_trust_level;
 
         if is_http_transport {
-            // HTTP transport: skip seal verification and isolation (external server)
+            // HTTP transport: skip seal verification and isolation (external server).
             debug!(id = %id, "HTTP transport — skipping seal and isolation checks");
-        } else if let Some(ref seal_value) = config.seal {
-            // Seal is present in config — verify the entry point binary.
+        } else {
             let entry_point = std::path::Path::new(&config.command);
             if entry_point.exists() {
                 let seal_key = super::mcp_seal::load_or_generate_seal_key(
@@ -898,8 +904,8 @@ impl McpClientManager {
                         .unwrap_or(std::path::Path::new("data")),
                 )?;
                 let status = super::mcp_seal::check_seal(
-                    &trust_level,
-                    Some(seal_value.as_str()),
+                    &declared_trust_level,
+                    config.seal.as_deref(),
                     entry_point,
                     &seal_key,
                     self.allow_unsigned,
@@ -909,6 +915,7 @@ impl McpClientManager {
                         info!(id = %id, "Magic Seal verified for MCP server");
                     }
                     super::mcp_seal::SealStatus::Failed => {
+                        // Tampering detected — block startup unconditionally.
                         let msg = format!(
                             "MCP server '{}': Magic Seal verification failed — binary may be tampered",
                             id
@@ -916,19 +923,59 @@ impl McpClientManager {
                         self.set_server_error(&id, &msg).await;
                         return Err(anyhow::anyhow!("{}", msg));
                     }
-                    _ => {}
+                    super::mcp_seal::SealStatus::Unsigned
+                        if declared_trust_level != super::mcp_mgp::TrustLevel::Untrusted =>
+                    {
+                        // v0.6.3 §10 inv 3: force the effective trust_level to
+                        // Untrusted so the isolation profile is pinned to the
+                        // untrusted baseline. Surface as TRUST_LEVEL_DOWNGRADED_NO_SEAL
+                        // (MGP_SECURITY.md §6.4) — keep the field names stable so
+                        // log/audit consumers can match on `event_type`.
+                        warn!(
+                            event_type = "TRUST_LEVEL_DOWNGRADED_NO_SEAL",
+                            server_id = %id,
+                            declared_trust_level = ?declared_trust_level,
+                            effective_trust_level = ?super::mcp_mgp::TrustLevel::Untrusted,
+                            "MCP server has no Magic Seal — forcing trust_level to Untrusted (MGP_ISOLATION_DESIGN.md §10 inv 3, v0.6.3)"
+                        );
+                        effective_trust_level = super::mcp_mgp::TrustLevel::Untrusted;
+                    }
+                    super::mcp_seal::SealStatus::Unsigned => {
+                        // Declared was already Untrusted — no downgrade needed.
+                        debug!(id = %id, "Untrusted server with no seal — starting under untrusted profile");
+                    }
+                    super::mcp_seal::SealStatus::Skipped => {
+                        // Dev-mode bypass: CLOTO_ALLOW_UNSIGNED=true. Keep declared.
+                        warn!(
+                            id = %id,
+                            "CLOTO_ALLOW_UNSIGNED=true — keeping declared trust_level without seal verification (development only)"
+                        );
+                    }
                 }
             } else {
-                debug!(id = %id, "Seal configured but entry point is not a file path — skipping seal check");
+                // Entry point is not a literal file path (e.g. interpreter binary
+                // resolved from PATH). We cannot HMAC something we cannot read,
+                // so we fall back to the same v0.6.3 force-untrusted rule.
+                if declared_trust_level != super::mcp_mgp::TrustLevel::Untrusted
+                    && !self.allow_unsigned
+                {
+                    warn!(
+                        event_type = "TRUST_LEVEL_DOWNGRADED_NO_SEAL",
+                        server_id = %id,
+                        declared_trust_level = ?declared_trust_level,
+                        effective_trust_level = ?super::mcp_mgp::TrustLevel::Untrusted,
+                        reason = "entry_point_not_a_file",
+                        "MCP server entry point is not a sealable file — forcing trust_level to Untrusted"
+                    );
+                    effective_trust_level = super::mcp_mgp::TrustLevel::Untrusted;
+                } else {
+                    debug!(id = %id, "Entry point is not a file path — skipping seal check");
+                }
             }
-        } else if trust_level == super::mcp_mgp::TrustLevel::Untrusted && !self.allow_unsigned {
-            let msg = format!(
-                "MCP server '{}': Untrusted servers require a Magic Seal in production mode",
-                id
-            );
-            self.set_server_error(&id, &msg).await;
-            return Err(anyhow::anyhow!("{}", msg));
         }
+        // For backwards compatibility with the rest of this function (which
+        // historically used a binding called `trust_level`), shadow it here.
+        let trust_level = effective_trust_level;
 
         // ──── Isolation Profile Derivation (MGP §8-10) ────
         let isolation_profile = if is_http_transport {
