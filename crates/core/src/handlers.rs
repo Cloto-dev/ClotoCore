@@ -48,11 +48,10 @@ pub use marketplace::{
 pub use mcp::{
     apply_plugin_settings, call_mcp_tool, create_mcp_server, delete_mcp_server, get_agent_access,
     get_max_cron_generation, get_mcp_server_access, get_mcp_server_settings, get_plugin_config,
-    get_plugin_permissions, get_plugins, get_response_language, get_yolo_mode,
-    grant_permission_handler, list_mcp_servers, put_agent_mcp_access, put_mcp_server_access,
-    restart_mcp_server, revoke_permission_handler, set_max_cron_generation, set_response_language,
-    set_yolo_mode, start_mcp_server, stop_mcp_server, update_mcp_server_settings,
-    update_plugin_config,
+    get_plugin_permissions, get_plugins, get_yolo_mode, grant_permission_handler, list_mcp_servers,
+    put_agent_mcp_access, put_mcp_server_access, restart_mcp_server, revoke_permission_handler,
+    set_max_cron_generation, set_yolo_mode, start_mcp_server, stop_mcp_server,
+    update_mcp_server_settings, update_plugin_config,
 };
 pub use permissions::{approve_permission, deny_permission, get_pending_permissions};
 
