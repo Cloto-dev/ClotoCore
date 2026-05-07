@@ -472,6 +472,39 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             None => config.yolo_mode, // fall back to env var
         }
     };
+
+    // Response language injection: DB > $LANG env var > "en"
+    // Two keys: `inject_response_language` (toggle, default true) and
+    // `response_language` (ISO 639-1 code).
+    let inject_response_language = {
+        let db_val: Option<(String,)> = sqlx::query_as(
+            "SELECT config_value FROM plugin_configs WHERE plugin_id = 'kernel' AND config_key = 'inject_response_language'"
+        )
+            .fetch_optional(&pool)
+            .await
+            .unwrap_or(None);
+        match db_val {
+            Some((val,)) => val == "true",
+            None => true, // default ON
+        }
+    };
+    let response_language = {
+        let db_val: Option<(String,)> = sqlx::query_as(
+            "SELECT config_value FROM plugin_configs WHERE plugin_id = 'kernel' AND config_key = 'response_language'"
+        )
+            .fetch_optional(&pool)
+            .await
+            .unwrap_or(None);
+        match db_val {
+            Some((val,)) if !val.is_empty() => val,
+            _ => std::env::var("LANG")
+                .ok()
+                .and_then(|l| l.split(['_', '.']).next().map(str::to_string))
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "en".to_string()),
+        }
+    };
+
     let mut mcp_manager = managers::McpClientManager::new(
         pool.clone(),
         yolo_mode,
@@ -479,6 +512,9 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         config.mcp_stream_idle_timeout_secs,
     );
     mcp_manager.configure_isolation(&config);
+    mcp_manager
+        .configure_response_language(inject_response_language, response_language)
+        .await;
     let mcp_manager = Arc::new(mcp_manager);
 
     // 4. Initialize External Plugins
@@ -1102,6 +1138,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .route(
             "/settings/yolo",
             get(handlers::get_yolo_mode).put(handlers::set_yolo_mode),
+        )
+        .route(
+            "/settings/language",
+            get(handlers::get_response_language).put(handlers::set_response_language),
         )
         .route(
             "/settings/max-cron-generation",

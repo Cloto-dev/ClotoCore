@@ -43,6 +43,13 @@ pub struct McpClientManager {
     /// YOLO mode: auto-approve all MCP server permissions (ARCHITECTURE.md §5.7).
     /// Arc<AtomicBool> allows runtime toggle via API without restart.
     pub yolo_mode: Arc<AtomicBool>,
+    /// When true, kernel injects `metadata["response_language"]` into every
+    /// agent dict sent to MCP think tools so the system prompt asks the LLM
+    /// to reply in the operator's language. Toggle from Settings UI.
+    pub inject_response_language: Arc<AtomicBool>,
+    /// ISO 639-1 code (`ja`, `en`, …) used when `inject_response_language` is true.
+    /// Synced from the dashboard's language selector via PUT /api/settings/language.
+    pub response_language: Arc<tokio::sync::RwLock<String>>,
     /// Shared notification channel — all MCP servers' notifications are collected here
     notification_tx: mpsc::Sender<McpNotification>,
     notification_rx: Mutex<Option<mpsc::Receiver<McpNotification>>>,
@@ -93,6 +100,9 @@ impl McpClientManager {
             }),
             pool,
             yolo_mode: Arc::new(AtomicBool::new(yolo_mode)),
+            // Defaults; callers override via configure_response_language().
+            inject_response_language: Arc::new(AtomicBool::new(true)),
+            response_language: Arc::new(tokio::sync::RwLock::new(String::new())),
             notification_tx,
             notification_rx: Mutex::new(Some(notification_rx)),
             mcp_request_timeout_secs,
@@ -113,6 +123,16 @@ impl McpClientManager {
         }
     }
 
+    /// Set the initial response-language injection settings (called once at
+    /// startup after `new`). The values come from `plugin_configs` or the
+    /// `LANG` env var; runtime updates flow through the API handlers which
+    /// mutate `inject_response_language` and `response_language` directly.
+    pub async fn configure_response_language(&self, enabled: bool, language: String) {
+        self.inject_response_language
+            .store(enabled, Ordering::Relaxed);
+        *self.response_language.write().await = language;
+    }
+
     /// Configure isolation settings from AppConfig (called once at startup).
     pub fn configure_isolation(&mut self, config: &crate::config::AppConfig) {
         self.llm_proxy_port = config.llm_proxy_port;
@@ -131,6 +151,29 @@ impl McpClientManager {
     /// Set the kernel event bus sender (called once after AppState creation).
     pub async fn set_kernel_event_tx(&self, tx: mpsc::Sender<crate::EnvelopedEvent>) {
         *self.kernel_event_tx.lock().await = Some(tx);
+    }
+
+    /// Return a clone of the agent metadata with `response_language` injected
+    /// into `metadata` when the global toggle is on, otherwise return the
+    /// agent unchanged. Called by every think/think_with_tools dispatch path
+    /// before `serde_json::to_value(&agent)` so the Python `build_system_prompt`
+    /// reads it via `metadata.get("response_language")`.
+    pub async fn enrich_agent_for_dispatch(
+        &self,
+        agent: &cloto_shared::AgentMetadata,
+    ) -> cloto_shared::AgentMetadata {
+        if !self.inject_response_language.load(Ordering::Relaxed) {
+            return agent.clone();
+        }
+        let language = self.response_language.read().await.clone();
+        if language.is_empty() {
+            return agent.clone();
+        }
+        let mut enriched = agent.clone();
+        enriched
+            .metadata
+            .insert("response_language".to_string(), language);
+        enriched
     }
 
     /// Emit a kernel event via the event bus (if connected).
