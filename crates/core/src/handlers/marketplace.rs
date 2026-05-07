@@ -86,7 +86,7 @@ pub struct CatalogCache {
     pub fetched_at: Option<tokio::time::Instant>,
 }
 
-const CACHE_TTL: Duration = Duration::from_secs(3600); // 1 hour
+const CACHE_TTL: Duration = Duration::from_hours(1); // 1 hour
 
 // ── Response types ──────────────────────────────────────────────────
 
@@ -605,7 +605,7 @@ async fn cargo_build_server(
         None
     };
 
-    let status = match tokio::time::timeout(Duration::from_secs(600), child.wait()).await {
+    let status = match tokio::time::timeout(Duration::from_mins(10), child.wait()).await {
         Ok(Ok(status)) => status,
         Ok(Err(e)) => {
             warn!("cargo build process error: {e}");
