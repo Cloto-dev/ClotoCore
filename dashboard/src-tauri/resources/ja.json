@@ -200,7 +200,9 @@
       "user_identity": "ユーザー情報",
       "display_name": "表示名",
       "name_placeholder": "ユーザー",
-      "name_hint": "チャット時にエージェントに表示される名前です。エージェントがあなたを名前で呼ぶことができます。"
+      "name_hint": "チャット時にエージェントに表示される名前です。エージェントがあなたを名前で呼ぶことができます。",
+      "inject_language_to_prompt": "プロンプトに注入",
+      "inject_language_hint": "ONにすると、エージェントは選択した言語で返答するよう指示されます。エージェントの説明で上書き可能です。"
     },
     "about": {
       "clotocore": "ClotoCore",
