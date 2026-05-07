@@ -29,6 +29,7 @@ use sqlx::SqlitePool;
 /// format: `docs/TOOL_REJECTION_TEST_PLAN.md` §3.1.
 ///
 /// `pub` so integration tests can exercise the same template the kernel uses.
+#[must_use]
 pub fn compose_rejection_text(rejection: &ToolRejection) -> String {
     let remediation = rejection
         .remediation_hint
@@ -47,6 +48,7 @@ pub fn compose_rejection_text(rejection: &ToolRejection) -> String {
 /// model. Canonical templates: `docs/TOOL_REJECTION_TEST_PLAN.md` §3.3.
 ///
 /// `pub` so integration tests can exercise the same template the kernel uses.
+#[must_use]
 pub fn compose_rejection_final_response(rejections: &[(String, ToolRejection)]) -> String {
     let last = &rejections
         .last()
@@ -863,8 +865,8 @@ impl SystemHandler {
                             crate::managers::capability_dispatcher::CapabilityType::Speech,
                         )
                         .await
-                        .filter(|sid| granted_server_ids.contains(sid))
-                        .is_some()
+                        .as_ref()
+                        .is_some_and(|sid| granted_server_ids.contains(sid))
                     } else {
                         false
                     };

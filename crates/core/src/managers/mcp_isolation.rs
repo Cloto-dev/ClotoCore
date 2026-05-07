@@ -166,20 +166,14 @@ fn apply_permission_upgrades(
 ) {
     for perm in permissions {
         match perm.as_str() {
-            "network.outbound" => {
-                if net_scope.rank() < NetworkScope::ProxyOnly.rank() {
-                    *net_scope = NetworkScope::ProxyOnly;
-                }
+            "network.outbound" if net_scope.rank() < NetworkScope::ProxyOnly.rank() => {
+                *net_scope = NetworkScope::ProxyOnly;
             }
-            "filesystem.write" => {
-                if fs_scope.rank() < FilesystemScope::Sandbox.rank() {
-                    *fs_scope = FilesystemScope::Sandbox;
-                }
+            "filesystem.write" if fs_scope.rank() < FilesystemScope::Sandbox.rank() => {
+                *fs_scope = FilesystemScope::Sandbox;
             }
-            "filesystem.read" => {
-                if fs_scope.rank() < FilesystemScope::Readonly.rank() {
-                    *fs_scope = FilesystemScope::Readonly;
-                }
+            "filesystem.read" if fs_scope.rank() < FilesystemScope::Readonly.rank() => {
+                *fs_scope = FilesystemScope::Readonly;
             }
             _ => {}
         }

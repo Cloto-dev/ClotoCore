@@ -129,8 +129,7 @@ pub(crate) fn check_auth_with_query(
         #[cfg(debug_assertions)]
         {
             let skip_auth = std::env::var("CLOTO_DEBUG_SKIP_AUTH")
-                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                .unwrap_or(false);
+                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
             if !skip_auth {
                 return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
                     cloto_shared::Permission::AdminAccess,

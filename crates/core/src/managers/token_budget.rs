@@ -26,7 +26,7 @@ use serde_json::Value;
 #[must_use]
 pub fn estimate_request_tokens(v: &Value) -> usize {
     // Serialize without pretty-printing; we're measuring raw payload size.
-    let bytes = serde_json::to_vec(v).map(|b| b.len()).unwrap_or(0);
+    let bytes = serde_json::to_vec(v).map_or(0, |b| b.len());
     bytes / 3
 }
 
