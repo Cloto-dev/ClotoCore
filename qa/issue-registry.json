@@ -2458,7 +2458,7 @@
       "version": "0.6.3-beta.8",
       "commit": "ccfbc25",
       "file": "crates/core/src/managers/mcp_transport.rs",
-      "pattern": "timeout\\(std::time::Duration::from_secs\\(60\\)\\)",
+      "pattern": "timeout\\(std::time::Duration::from_mins\\(1\\)\\)",
       "expected": "present",
       "status": "open"
     },
