@@ -116,6 +116,12 @@ pub struct CatalogEntry {
     pub icon: Option<String>,
     pub runtime: String,
     pub changelog: Option<String>,
+    /// MGP Magic Seal in `sha256:HEX` form (registry-side, before install).
+    /// `None` means the upstream registry did not ship a seal — at runtime
+    /// the kernel will force trust_level=untrusted (MGP v0.6.3 §10 inv 3).
+    /// Surfaced to the dashboard so MarketplaceCard can show a verified /
+    /// unverified badge before the user installs.
+    pub seal: Option<String>,
     // Merged local state
     pub installed: bool,
     pub installed_version: Option<String>,
@@ -210,6 +216,7 @@ pub async fn catalog_handler(
                 icon: entry.icon.clone(),
                 runtime: entry.runtime.clone(),
                 changelog: entry.changelog.clone(),
+                seal: entry.seal.clone(),
                 installed,
                 installed_version,
                 update_available,
