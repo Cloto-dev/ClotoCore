@@ -73,16 +73,32 @@ pub fn verify_seal(file_path: &Path, expected_seal: &str, key: &[u8]) -> anyhow:
 
 /// Check seal status based on trust level and configuration.
 ///
-/// Behavior matrix (from MGP Section 4.0):
+/// This function only computes the cryptographic outcome. Translating the
+/// outcome into a startup decision (block / start under untrusted profile /
+/// start under declared profile) is the caller's job — see the v0.6.3
+/// behavior table below.
 ///
-/// | Trust Level   | Seal Present | Seal Absent | Invalid Seal |
-/// |--------------|-------------|-------------|-------------|
-/// | Core         | Verify      | Allow       | WARN + Block |
-/// | Standard     | Verify      | Allow       | WARN + Block |
-/// | Experimental | Verify      | Allow       | Block        |
-/// | Untrusted    | Verify      | Block*      | Block        |
+/// Behavior matrix (MGP_ISOLATION_DESIGN.md §4.0, v0.6.3+):
 ///
-/// * Unless `allow_unsigned=true` (development mode), then WARN + Allow.
+/// | Trust Level   | Seal Present | Seal Absent       | Seal Invalid |
+/// |---------------|--------------|-------------------|--------------|
+/// | Core          | Verify       | Force `untrusted` | Block        |
+/// | Standard      | Verify       | Force `untrusted` | Block        |
+/// | Experimental  | Verify       | Force `untrusted` | Block        |
+/// | Untrusted     | Verify       | Allow*            | Block        |
+///
+/// "Force `untrusted`" means: this function returns [`SealStatus::Unsigned`];
+/// the caller MUST override the effective trust_level to `Untrusted` (so the
+/// isolation profile is pinned to the untrusted baseline) and emit a
+/// `TRUST_LEVEL_DOWNGRADED_NO_SEAL` audit event (MGP_SECURITY.md §6.4).
+///
+/// * `Untrusted` + seal absent: returns [`SealStatus::Skipped`] when
+///   `allow_unsigned=true` (dev mode), [`SealStatus::Unsigned`] otherwise.
+///   Either way the effective trust_level is already `Untrusted`, so no
+///   override is needed; the caller still allows startup.
+///
+/// `Seal invalid` (tampering) returns [`SealStatus::Failed`] across all tiers
+/// — the caller MUST block startup. v0.6.3 only relaxed the `Seal absent` row.
 pub fn check_seal(
     trust_level: &TrustLevel,
     seal_value: Option<&str>,
@@ -104,20 +120,19 @@ pub fn check_seal(
         }
         None => {
             // Seal absent — behavior depends on trust level.
-            match trust_level {
-                TrustLevel::Core | TrustLevel::Standard | TrustLevel::Experimental => {
-                    // Higher trust levels allow unsigned binaries.
-                    Ok(SealStatus::Unsigned)
-                }
-                TrustLevel::Untrusted => {
-                    if allow_unsigned {
-                        // Development mode: allow but caller should log a warning.
-                        Ok(SealStatus::Skipped)
-                    } else {
-                        // Production: block unsigned untrusted servers.
-                        Ok(SealStatus::Failed)
-                    }
-                }
+            //
+            // v0.6.3: every tier returns `Unsigned` here; the caller forces the
+            // effective trust_level to `Untrusted` regardless of declared tier.
+            // Prior to v0.6.3 we returned `Failed` for `Untrusted` in production
+            // (which blocked startup); v0.6.3 §4.0 relaxed that so an unsealed
+            // `Untrusted` server starts under the same untrusted profile it
+            // would have anyway. `Skipped` is reserved for dev-mode bypass.
+            if matches!(trust_level, TrustLevel::Untrusted) && allow_unsigned {
+                // Dev-mode bypass for already-untrusted: caller may keep the
+                // declared profile. Emitted only for parity with prior versions.
+                Ok(SealStatus::Skipped)
+            } else {
+                Ok(SealStatus::Unsigned)
             }
         }
     }
@@ -413,11 +428,14 @@ mod tests {
     }
 
     #[test]
-    fn check_seal_untrusted_absent_blocks() {
+    fn check_seal_untrusted_absent_allows_v063() {
+        // v0.6.3 §4.0 relaxation: an unsealed `Untrusted` server starts under
+        // the same untrusted profile it would have anyway. Prior to v0.6.3
+        // this returned `Failed` (Block); now it returns `Unsigned` (Allow).
         let file = temp_file_with(b"binary");
         let status =
             check_seal(&TrustLevel::Untrusted, None, file.path(), TEST_KEY, false).unwrap();
-        assert_eq!(status, SealStatus::Failed);
+        assert_eq!(status, SealStatus::Unsigned);
     }
 
     // --- Untrusted + allow_unsigned ---
