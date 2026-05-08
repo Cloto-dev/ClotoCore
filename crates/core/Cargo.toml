@@ -7,6 +7,10 @@ edition.workspace = true
 name = "cloto_system"
 path = "src/main.rs"
 
+[[bin]]
+name = "cloto"
+path = "src/bin/cloto.rs"
+
 [dependencies]
 cloto_shared = { path = "../shared" }
 tokio.workspace = true
