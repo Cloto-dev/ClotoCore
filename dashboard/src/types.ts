@@ -271,6 +271,10 @@ export interface MarketplaceCatalogEntry {
   auto_restart: boolean;
   icon?: string;
   runtime: string;
+  /** MGP Magic Seal in `sha256:HEX` form. `null` / `undefined` = unverified
+   * (registry shipped without seal). Used by MarketplaceCard to render a
+   * verified / unverified badge. See MGP v0.6.3 §10 invariant 3. */
+  seal?: string | null;
   installed: boolean;
   installed_version?: string;
   update_available: boolean;

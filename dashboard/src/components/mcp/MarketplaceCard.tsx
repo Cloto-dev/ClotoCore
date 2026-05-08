@@ -13,6 +13,8 @@ import {
   Monitor,
   Package,
   Search,
+  ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Terminal,
   Wrench,
@@ -40,6 +42,38 @@ const ICON_MAP: Record<string, LucideIcon> = {
   'message-circle': MessageCircle,
 };
 
+// Static class map (Tailwind is pre-compiled, so tone keys must resolve to
+// fully-literal class strings — no `bg-${tone}-500/15` interpolation).
+const BADGE_TONE = {
+  orange: 'bg-orange-500/15 text-orange-400 border-orange-500/25',
+  emerald: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
+  amber: 'bg-amber-500/15 text-amber-400 border-amber-500/25',
+} as const;
+
+type BadgeTone = keyof typeof BADGE_TONE;
+
+function Badge({
+  icon: BadgeIcon,
+  label,
+  tone,
+  title,
+}: {
+  icon?: LucideIcon;
+  label: string;
+  tone: BadgeTone;
+  title?: string;
+}) {
+  return (
+    <span
+      title={title}
+      className={`inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border ${BADGE_TONE[tone]}`}
+    >
+      {BadgeIcon && <BadgeIcon size={11} aria-hidden="true" />}
+      {label}
+    </span>
+  );
+}
+
 interface MarketplaceCardProps {
   entry: MarketplaceCatalogEntry;
   onInstall: (entry: MarketplaceCatalogEntry) => void;
@@ -61,14 +95,29 @@ export function MarketplaceCard({ entry, onInstall, onUninstall, actionsDisabled
       <div className="flex items-center gap-2">
         <Icon size={14} className="text-brand shrink-0" />
         <span className="text-[13px] font-sans font-bold text-content-primary truncate">{entry.name}</span>
-        {entry.runtime === 'rust' && (
-          <span className="text-[9px] font-mono px-1 rounded bg-orange-500/15 text-orange-400 border border-orange-500/25 shrink-0">
-            Rust
-          </span>
-        )}
         <span className="ml-auto text-[11px] font-sans px-1.5 rounded bg-surface-secondary text-content-tertiary uppercase shrink-0">
           {entry.category}
         </span>
+      </div>
+
+      {/* Badge row (runtime + Magic Seal verification) */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {entry.runtime === 'rust' && <Badge label="Rust" tone="orange" />}
+        {entry.seal ? (
+          <Badge
+            icon={ShieldCheck}
+            label={t('marketplace.seal_verified')}
+            tone="emerald"
+            title={t('marketplace.seal_verified_tooltip')}
+          />
+        ) : (
+          <Badge
+            icon={ShieldAlert}
+            label={t('marketplace.seal_unverified')}
+            tone="amber"
+            title={t('marketplace.seal_unverified_tooltip')}
+          />
+        )}
       </div>
 
       {/* Description */}
