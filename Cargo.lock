@@ -1148,9 +1148,9 @@ dependencies = [
  "futures",
  "governor",
  "hex",
- "hmac",
  "http",
  "lindera",
+ "mgp-seal",
  "mime_guess",
  "rand 0.8.6",
  "reqwest 0.12.28",
@@ -4072,6 +4072,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "mgp-seal"
+version = "0.1.0"
+source = "git+https://github.com/Cloto-dev/mgp-seal?tag=v0.1.0#e8dd703b082c09c9f4073aef74831c685a1638a7"
+dependencies = [
+ "anyhow",
+ "hex",
+ "hmac",
+ "rand 0.8.6",
+ "serde",
+ "sha2",
+ "subtle",
 ]
 
 [[package]]

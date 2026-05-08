@@ -14,7 +14,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use cloto_core::managers::mcp_seal;
+use mgp_seal as mcp_seal;
 
 const DEFAULT_DATA_DIR: &str = "data";
 

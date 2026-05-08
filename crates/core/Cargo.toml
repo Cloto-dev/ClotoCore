@@ -36,12 +36,12 @@ chrono = { version = "0.4", features = ["serde"] }
 governor = "0.6"
 dashmap.workspace = true
 sha2 = "0.10"
-hmac = "0.12"
 hex = "0.4"
 argon2 = "0.5"
 clap = { version = "4", features = ["derive"] }
 rand = "0.8"
 subtle = "2"
+mgp-seal = { git = "https://github.com/Cloto-dev/mgp-seal", tag = "v0.1.0" }
 toml = "1.0"
 cron = "0.16"
 uuid.workspace = true
