@@ -2686,7 +2686,7 @@
       "version": "0.6.3-beta.9",
       "commit": "0d03c1a",
       "file": "crates/core/src/handlers/marketplace.rs",
-      "pattern": "tarball/master",
+      "pattern": "tarball/\\{ref\\}",
       "expected": "present",
       "status": "fixed"
     },
