@@ -59,6 +59,13 @@ pub struct RegistryEntry {
     pub bin_name: Option<String>,
     #[serde(default)]
     pub changelog: Option<String>,
+    /// MGP Magic Seal in `sha256:HEX` form (MGP_ISOLATION_DESIGN.md §8 L0).
+    /// Populated by upstream `cloto-mcp-servers` via `cloto seal generate`;
+    /// flows through marketplace install into `McpServerConfig.seal` and
+    /// the persisted DB record. `None` triggers v0.6.3 §10 inv 3
+    /// force-untrusted at connect time.
+    #[serde(default)]
+    pub seal: Option<String>,
 }
 
 fn default_trust_level() -> String {
@@ -1107,7 +1114,9 @@ async fn run_install(
     // Use add_server() for proper lifecycle integration:
     // creates ServerConfig → connect_server() (spawn + register) → save to DB.
     // The registry's trust_level is threaded through as MgpServerConfig so
-    // isolation derivation at next boot picks up the correct level.
+    // isolation derivation at next boot picks up the correct level. The
+    // registry's `seal` flows through unchanged so the kernel can verify
+    // it at connect time (MGP_ISOLATION_DESIGN.md §8 L0).
     let mgp = Some(crate::managers::mcp_mgp::MgpServerConfig {
         trust_level: Some(entry.trust_level.clone()),
     });
@@ -1120,6 +1129,7 @@ async fn run_install(
             None,
             Some(entry.description.clone()),
             mgp,
+            entry.seal.clone(),
             env_map,
         )
         .await
@@ -1896,6 +1906,7 @@ async fn run_batch_install(
                 None,
                 Some(entry.description.clone()),
                 mgp,
+                entry.seal.clone(),
                 env_map,
             )
             .await
