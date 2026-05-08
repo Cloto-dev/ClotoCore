@@ -103,6 +103,10 @@ pub struct McpServerRecord {
     /// MGP trust level ('core' | 'standard' | 'experimental' | 'untrusted').
     /// NULL ⇒ isolation falls back to the Standard default at `mcp.rs:867`.
     pub trust_level: Option<String>,
+    /// MGP Magic Seal in `sha256:HEX` form (MGP_ISOLATION_DESIGN.md §8 L0).
+    /// NULL ⇒ kernel forces `effective_trust_level = untrusted` on connect
+    /// per v0.6.3 §10 inv 3 and emits `TRUST_LEVEL_DOWNGRADED_NO_SEAL`.
+    pub seal: Option<String>,
     pub is_active: bool,
     pub created_at: i64,
     pub updated_at: Option<i64>,
@@ -125,6 +129,7 @@ impl Default for McpServerRecord {
             marketplace_id: None,
             installed_version: None,
             trust_level: None,
+            seal: None,
             is_active: true,
             created_at: 0,
             updated_at: None,
@@ -138,8 +143,8 @@ pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> any
             "INSERT INTO mcp_servers \
              (name, command, args, env, transport, directory, display_name, auto_restart, \
               script_content, description, default_policy, marketplace_id, installed_version, \
-              trust_level, is_active, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+              trust_level, seal, is_active, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
              ON CONFLICT(name) DO UPDATE SET \
                command = excluded.command, \
                args = excluded.args, \
@@ -153,6 +158,7 @@ pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> any
                marketplace_id = COALESCE(excluded.marketplace_id, mcp_servers.marketplace_id), \
                installed_version = COALESCE(excluded.installed_version, mcp_servers.installed_version), \
                trust_level = COALESCE(excluded.trust_level, mcp_servers.trust_level), \
+               seal = COALESCE(excluded.seal, mcp_servers.seal), \
                is_active = excluded.is_active, \
                updated_at = unixepoch()",
         )
@@ -170,6 +176,7 @@ pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> any
         .bind(&record.marketplace_id)
         .bind(&record.installed_version)
         .bind(&record.trust_level)
+        .bind(&record.seal)
         .bind(record.is_active)
         .bind(record.created_at)
         .bind(record.updated_at)
@@ -184,7 +191,7 @@ pub async fn load_active_mcp_servers(pool: &SqlitePool) -> anyhow::Result<Vec<Mc
         sqlx::query_as::<_, McpServerRecord>(
             "SELECT name, command, args, env, transport, directory, display_name, auto_restart, \
              script_content, description, default_policy, marketplace_id, installed_version, \
-             trust_level, is_active, created_at, updated_at \
+             trust_level, seal, is_active, created_at, updated_at \
              FROM mcp_servers WHERE is_active = 1 ORDER BY created_at ASC",
         )
         .fetch_all(pool),

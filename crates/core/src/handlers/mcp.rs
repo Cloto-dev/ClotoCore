@@ -425,7 +425,9 @@ pub async fn create_mcp_server(
             (command, args, None)
         };
 
-    // Add server via McpClientManager (handles connection + DB persistence)
+    // Add server via McpClientManager (handles connection + DB persistence).
+    // Dynamic servers added via this API path have no upfront seal — the
+    // kernel applies v0.6.3 §10 inv 3 force-untrusted on connect.
     let tool_names = state
         .mcp_manager
         .add_server(
@@ -436,6 +438,7 @@ pub async fn create_mcp_server(
             body.get("description")
                 .and_then(|v| v.as_str())
                 .map(String::from),
+            None,
             None,
             std::collections::HashMap::new(),
         )

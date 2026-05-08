@@ -390,6 +390,7 @@ impl McpClientManager {
                     .map(|tl| super::mcp_mgp::MgpServerConfig {
                         trust_level: Some(tl),
                     }),
+                seal: r.seal.clone(),
                 ..Default::default()
             })
             .collect();
@@ -685,9 +686,14 @@ impl McpClientManager {
                 auto_restart: Some(true),
                 required_permissions: Vec::new(),
                 display_name: None,
-                mgp: None,
+                mgp: record
+                    .trust_level
+                    .clone()
+                    .map(|tl| super::mcp_mgp::MgpServerConfig {
+                        trust_level: Some(tl),
+                    }),
                 restart_policy: None,
-                seal: None,
+                seal: record.seal.clone(),
                 isolation: None,
             });
         }
@@ -2355,6 +2361,13 @@ impl McpClientManager {
     // ============================================================
 
     /// Add a new dynamic MCP server, connect, and persist to DB.
+    ///
+    /// `seal`: optional `sha256:HEX` Magic Seal for the entry point. Threaded
+    /// from registry.json (`RegistryEntry.seal`) through marketplace install
+    /// into both the live `McpServerConfig` and the persisted record so the
+    /// kernel can verify it on connect (MGP_ISOLATION_DESIGN.md §8 L0).
+    /// `None` triggers v0.6.3 §10 inv 3 force-untrusted at connect time.
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_server(
         &self,
         id: String,
@@ -2363,6 +2376,7 @@ impl McpClientManager {
         script_content: Option<String>,
         description: Option<String>,
         mgp: Option<super::mcp_mgp::MgpServerConfig>,
+        seal: Option<String>,
         env: HashMap<String, String>,
     ) -> Result<Vec<String>> {
         let config = McpServerConfig {
@@ -2378,14 +2392,15 @@ impl McpClientManager {
             display_name: None,
             mgp,
             restart_policy: None,
-            seal: None,
+            seal: seal.clone(),
             isolation: None,
         };
 
         // Persist to DB first (so server is always tracked even if connect fails).
-        // trust_level flows from the MgpServerConfig the caller built (e.g., from
-        // registry.json during marketplace install) into the DB so subsequent
-        // boots can derive the correct isolation profile before handshake.
+        // trust_level + seal flow from the MgpServerConfig + RegistryEntry the
+        // caller built (e.g., from registry.json during marketplace install)
+        // into the DB so subsequent boots can derive the correct isolation
+        // profile before handshake and verify the seal on connect.
         let trust_level = config.mgp.as_ref().and_then(|m| m.trust_level.clone());
         let record = crate::db::McpServerRecord {
             name: id.clone(),
@@ -2395,6 +2410,7 @@ impl McpClientManager {
             script_content,
             description,
             trust_level,
+            seal,
             created_at: chrono::Utc::now().timestamp(),
             is_active: true,
             ..Default::default()
