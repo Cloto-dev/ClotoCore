@@ -127,6 +127,10 @@
     "uninstall_error": "Failed to uninstall server",
     "install_success": "{{name}} installed successfully",
     "uninstall_success": "{{name}} uninstalled successfully",
-    "rust_notice": "This server requires the Rust toolchain (cargo). First build may take 5-10 minutes."
+    "rust_notice": "This server requires the Rust toolchain (cargo). First build may take 5-10 minutes.",
+    "seal_verified": "Verified",
+    "seal_verified_tooltip": "Magic Seal present — kernel will honor the declared trust level.",
+    "seal_unverified": "Unverified",
+    "seal_unverified_tooltip": "No Magic Seal — kernel will force trust level to untrusted at runtime (MGP v0.6.3 §10 invariant 3)."
   }
 }

@@ -1797,6 +1797,10 @@ video {
   border-color: rgb(245 158 11 / 0.2);
 }
 
+.border-amber-500\/25 {
+  border-color: rgb(245 158 11 / 0.25);
+}
+
 .border-amber-500\/30 {
   border-color: rgb(245 158 11 / 0.3);
 }
@@ -1862,6 +1866,10 @@ video {
 
 .border-emerald-500\/20 {
   border-color: rgb(16 185 129 / 0.2);
+}
+
+.border-emerald-500\/25 {
+  border-color: rgb(16 185 129 / 0.25);
 }
 
 .border-emerald-500\/30 {
