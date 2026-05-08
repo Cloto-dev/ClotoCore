@@ -360,29 +360,15 @@ pub enum RiskLevel {
 // Trust Level (§2, §4)
 // ============================================================
 
-/// Server trust level — determined by kernel (mcp.toml config), not self-declared.
-/// Ordering: Untrusted < Experimental < Standard < Core.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TrustLevel {
-    Untrusted,
-    Experimental,
-    Standard,
-    Core,
-}
-
-impl TrustLevel {
-    /// Parse a trust level string. Unknown values map to `Untrusted`.
-    #[must_use]
-    pub fn from_str_lossy(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "core" => Self::Core,
-            "standard" => Self::Standard,
-            "experimental" => Self::Experimental,
-            _ => Self::Untrusted,
-        }
-    }
-}
+/// Server trust level — re-exported from the `mgp-seal` reference implementation.
+///
+/// `mgp-seal` is the canonical extraction of MGP §8 L0 / §2 trust types so that
+/// any MGP-compatible runtime (kernel, registry, ClotoHub, verification tooling)
+/// can share the same enum without depending on ClotoCore. The variants and
+/// `Ord` semantics (`Untrusted < Experimental < Standard < Core`), the
+/// `from_str_lossy` parser, and the lowercase serde representation are all
+/// preserved verbatim.
+pub use mgp_seal::TrustLevel;
 
 // ============================================================
 // Capability Negotiation Types (§2)
