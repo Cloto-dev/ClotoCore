@@ -496,7 +496,12 @@ if __name__ == "__main__":
         }
     }
 
-    // Register and connect the server
+    // Register and connect the server.
+    //
+    // Agent-authored servers ship without a Magic Seal — they are generated at
+    // runtime, so there's nothing for the operator to sign ahead of time.
+    // Passing `seal=None` lets v0.6.3 §10 inv 3 take effect (already declared
+    // untrusted above, so the kernel keeps it under the untrusted profile).
     let mgp_config = Some(super::mcp_mgp::MgpServerConfig {
         trust_level: Some("untrusted".to_string()),
     });
@@ -508,6 +513,7 @@ if __name__ == "__main__":
             Some(script),
             Some(description.to_string()),
             mgp_config,
+            None,
             env,
         )
         .await
