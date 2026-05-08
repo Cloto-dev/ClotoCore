@@ -57,6 +57,7 @@ http = "1.0"
 criterion = { workspace = true }
 tokio-test = "0.4"
 tempfile = "3"
+wiremock = "0.6"
 
 [[bench]]
 name = "event_processing"
