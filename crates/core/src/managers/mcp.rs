@@ -904,12 +904,12 @@ impl McpClientManager {
         } else {
             let entry_point = std::path::Path::new(&config.command);
             if entry_point.exists() {
-                let seal_key = super::mcp_seal::load_or_generate_seal_key(
+                let seal_key = mgp_seal::load_or_generate_seal_key(
                     self.sandbox_base_dir
                         .parent()
                         .unwrap_or(std::path::Path::new("data")),
                 )?;
-                let status = super::mcp_seal::check_seal(
+                let status = mgp_seal::check_seal(
                     &declared_trust_level,
                     config.seal.as_deref(),
                     entry_point,
@@ -917,10 +917,10 @@ impl McpClientManager {
                     self.allow_unsigned,
                 )?;
                 match status {
-                    super::mcp_seal::SealStatus::Verified => {
+                    mgp_seal::SealStatus::Verified => {
                         info!(id = %id, "Magic Seal verified for MCP server");
                     }
-                    super::mcp_seal::SealStatus::Failed => {
+                    mgp_seal::SealStatus::Failed => {
                         // Tampering detected — block startup unconditionally.
                         let msg = format!(
                             "MCP server '{}': Magic Seal verification failed — binary may be tampered",
@@ -929,7 +929,7 @@ impl McpClientManager {
                         self.set_server_error(&id, &msg).await;
                         return Err(anyhow::anyhow!("{}", msg));
                     }
-                    super::mcp_seal::SealStatus::Unsigned
+                    mgp_seal::SealStatus::Unsigned
                         if declared_trust_level != super::mcp_mgp::TrustLevel::Untrusted =>
                     {
                         // v0.6.3 §10 inv 3: force the effective trust_level to
@@ -946,11 +946,11 @@ impl McpClientManager {
                         );
                         effective_trust_level = super::mcp_mgp::TrustLevel::Untrusted;
                     }
-                    super::mcp_seal::SealStatus::Unsigned => {
+                    mgp_seal::SealStatus::Unsigned => {
                         // Declared was already Untrusted — no downgrade needed.
                         debug!(id = %id, "Untrusted server with no seal — starting under untrusted profile");
                     }
-                    super::mcp_seal::SealStatus::Skipped => {
+                    mgp_seal::SealStatus::Skipped => {
                         // Dev-mode bypass: CLOTO_ALLOW_UNSIGNED=true. Keep declared.
                         warn!(
                             id = %id,

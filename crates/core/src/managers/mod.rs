@@ -16,7 +16,6 @@ mod mcp_kernel_tool;
 mod mcp_lifecycle;
 pub mod mcp_mgp;
 pub mod mcp_protocol;
-pub mod mcp_seal;
 mod mcp_streaming;
 mod mcp_tool_discovery;
 pub mod mcp_tool_validator;
