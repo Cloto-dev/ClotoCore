@@ -95,6 +95,78 @@ pub struct CatalogCache {
 
 const CACHE_TTL: Duration = Duration::from_hours(1); // 1 hour
 
+/// Default upstream catalog URL. Overridable via `CLOTO_CATALOG_URL` so
+/// Phase 5 can flip the marketplace fetch source from raw GitHub to
+/// ClotoHub.dev without a code change.
+const DEFAULT_CATALOG_URL: &str =
+    "https://raw.githubusercontent.com/Cloto-dev/cloto-mcp-servers/master/registry.json";
+
+/// Default tarball URL template. `{ref}` is replaced with the git ref
+/// (currently always `master`). Overridable via
+/// `CLOTO_TARBALL_URL_TEMPLATE` for the same Phase 5 cutover.
+const DEFAULT_TARBALL_URL_TEMPLATE: &str =
+    "https://api.github.com/repos/Cloto-dev/cloto-mcp-servers/tarball/{ref}";
+
+/// Resolve the marketplace catalog URL, honoring `CLOTO_CATALOG_URL` if set.
+fn catalog_url() -> String {
+    std::env::var("CLOTO_CATALOG_URL").unwrap_or_else(|_| DEFAULT_CATALOG_URL.to_string())
+}
+
+/// Resolve the tarball download URL for a given git ref, honoring
+/// `CLOTO_TARBALL_URL_TEMPLATE` if set. The template must contain `{ref}`,
+/// which is replaced with `ref_name`.
+fn tarball_url(ref_name: &str) -> String {
+    let template = std::env::var("CLOTO_TARBALL_URL_TEMPLATE")
+        .unwrap_or_else(|_| DEFAULT_TARBALL_URL_TEMPLATE.to_string());
+    template.replace("{ref}", ref_name)
+}
+
+// ── Registry fetch result ───────────────────────────────────────────
+
+/// Outcome of [`fetch_registry`]. `Stale` means the upstream returned a
+/// non-success status (or, by extension, refused to serve), but the
+/// in-process cache had a previously-fetched copy that callers can still
+/// use. Surfaces upstream errors to the UI instead of swallowing them.
+#[derive(Debug, Clone)]
+pub enum FetchResult {
+    Fresh(Registry),
+    Stale { cached: Registry, error: String },
+}
+
+impl FetchResult {
+    /// Discard freshness info and return the underlying [`Registry`].
+    #[must_use]
+    pub fn into_registry(self) -> Registry {
+        match self {
+            Self::Fresh(r) | Self::Stale { cached: r, .. } => r,
+        }
+    }
+
+    /// Borrow the underlying [`Registry`].
+    #[must_use]
+    pub fn registry(&self) -> &Registry {
+        match self {
+            Self::Fresh(r) | Self::Stale { cached: r, .. } => r,
+        }
+    }
+
+    /// `true` when the data came from a cached fallback after an upstream
+    /// failure.
+    #[must_use]
+    pub fn is_stale(&self) -> bool {
+        matches!(self, Self::Stale { .. })
+    }
+
+    /// Reason for the stale fallback, if any.
+    #[must_use]
+    pub fn stale_reason(&self) -> Option<&str> {
+        match self {
+            Self::Stale { error, .. } => Some(error.as_str()),
+            Self::Fresh(_) => None,
+        }
+    }
+}
+
 // ── Response types ──────────────────────────────────────────────────
 
 #[allow(clippy::struct_excessive_bools)]
@@ -161,11 +233,14 @@ pub async fn catalog_handler(
 ) -> AppResult<Json<serde_json::Value>> {
     super::check_auth(&state, &headers)?;
 
-    let registry = fetch_registry(&state, query.force_refresh)
+    let fetched = fetch_registry(&state, query.force_refresh)
         .await
         .map_err(|e| {
             AppError::Internal(anyhow::anyhow!("Failed to fetch marketplace catalog: {e}"))
         })?;
+    let is_stale = fetched.is_stale();
+    let stale_reason = fetched.stale_reason().map(str::to_string);
+    let registry = fetched.into_registry();
 
     let marketplace_servers = crate::db::mcp::get_marketplace_servers(&state.pool)
         .await
@@ -236,6 +311,8 @@ pub async fn catalog_handler(
     super::ok_data(serde_json::json!({
         "servers": entries,
         "cached_at": cached_at,
+        "is_stale": is_stale,
+        "stale_reason": stale_reason,
     }))
 }
 
@@ -265,7 +342,8 @@ pub async fn install_handler(
         Some(r) => r,
         None => fetch_registry(&state, false)
             .await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("Registry not available: {e}")))?,
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Registry not available: {e}")))?
+            .into_registry(),
     };
 
     let entry = registry
@@ -442,7 +520,8 @@ pub async fn batch_install_handler(
     // Resolve entries from registry
     let registry = fetch_registry(&state, false)
         .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Registry not available: {e}")))?;
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Registry not available: {e}")))?
+        .into_registry();
 
     let mut entries = Vec::new();
     let mut skipped_ids = Vec::new();
@@ -502,36 +581,40 @@ pub async fn batch_install_handler(
 
 // ── Registry fetch with cache ───────────────────────────────────────
 
-async fn fetch_registry(state: &AppState, force_refresh: bool) -> anyhow::Result<Registry> {
+pub async fn fetch_registry(state: &AppState, force_refresh: bool) -> anyhow::Result<FetchResult> {
     // Check cache first
     if !force_refresh {
         let cache = state.marketplace_cache.read().await;
         if let (Some(data), Some(fetched_at)) = (&cache.data, cache.fetched_at) {
             if fetched_at.elapsed() < CACHE_TTL {
-                return Ok(data.clone());
+                return Ok(FetchResult::Fresh(data.clone()));
             }
         }
     }
 
-    info!("Fetching marketplace registry from GitHub...");
-    let url = "https://raw.githubusercontent.com/Cloto-dev/cloto-mcp-servers/master/registry.json";
+    let url = catalog_url();
+    info!(url = %url, "Fetching marketplace registry");
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(MARKETPLACE_REGISTRY_FETCH_TIMEOUT_SECS))
         .build()?;
-    let resp = client.get(url).send().await?;
+    let resp = client.get(&url).send().await?;
 
     if !resp.status().is_success() {
+        let status = resp.status();
         // Fall back to cache if available
         let cache = state.marketplace_cache.read().await;
         if let Some(data) = &cache.data {
             warn!(
-                "GitHub API returned {}, using cached registry",
-                resp.status()
+                status = %status,
+                "Catalog upstream returned non-success, using cached registry"
             );
-            return Ok(data.clone());
+            return Ok(FetchResult::Stale {
+                cached: data.clone(),
+                error: format!("HTTP {status}"),
+            });
         }
-        anyhow::bail!("Failed to fetch registry: HTTP {}", resp.status());
+        anyhow::bail!("Failed to fetch registry: HTTP {status}");
     }
 
     let registry: Registry = resp.json().await?;
@@ -545,7 +628,7 @@ async fn fetch_registry(state: &AppState, force_refresh: bool) -> anyhow::Result
     cache.data = Some(registry.clone());
     cache.fetched_at = Some(tokio::time::Instant::now());
 
-    Ok(registry)
+    Ok(FetchResult::Fresh(registry))
 }
 
 // ── Toolchain detection ─────────────────────────────────────────────
@@ -780,7 +863,7 @@ async fn run_install(
     tokio::fs::create_dir_all(&tmp_dir).await?;
     let archive_path = tmp_dir.join("cloto-mcp-servers-latest.tar.gz");
 
-    let tarball_url = "https://api.github.com/repos/Cloto-dev/cloto-mcp-servers/tarball/master";
+    let tarball_url = tarball_url("master");
 
     // Download with custom headers for GitHub API
     let client = reqwest::Client::builder()
@@ -1479,7 +1562,7 @@ async fn run_batch_install(
     tokio::fs::create_dir_all(&tmp_dir).await?;
     let archive_path = tmp_dir.join("cloto-mcp-servers-latest.tar.gz");
 
-    let tarball_url = "https://api.github.com/repos/Cloto-dev/cloto-mcp-servers/tarball/master";
+    let tarball_url = tarball_url("master");
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(TARBALL_DOWNLOAD_TIMEOUT_SECS))
