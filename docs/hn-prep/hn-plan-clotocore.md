@@ -1,14 +1,14 @@
-# HN投稿 & リポジトリ整備計画（ClotoCore中心）
-## 2026-04-03 〜 04-10
+# HN Submission & Repo-Prep Plan (ClotoCore-centric)
+## 2026-04-03 to 04-10
 
 ---
 
-## 投稿対象
+## Submission target
 **ClotoCore** (https://github.com/Cloto-dev/ClotoCore)
-cpersonaはClotoCoreの一部として言及。単体投稿ではない。
+cpersona is mentioned as a part of ClotoCore. Not a standalone post.
 
-## キー数字
-| 指標 | 値 |
+## Key numbers
+| Metric | Value |
 |------|-----|
 | Rust LOC | ~34,000 |
 | TypeScript LOC | ~17,000 |
@@ -17,78 +17,78 @@ cpersonaはClotoCoreの一部として言及。単体投稿ではない。
 | Tools | 100+ |
 | Tests | 351 (Rust 234 + Python 117) |
 | Dev cost | $230 |
-| Dev period | 3ヶ月（2026年1月〜） |
+| Dev period | 3 months (since Jan 2026) |
 | Developer | Solo |
 
-## 訴求軸（2軸）
-1. **AIエージェント基盤** — Rustカーネル、MCPプラグイン、サンドボックス、GUIダッシュボード
-2. **$230ソロ開発** — AI-assisted developmentのdata point
+## Pitch axes (2)
+1. **AI agent platform** — Rust kernel, MCP plugins, sandbox, GUI dashboard
+2. **$230 solo dev** — a data point for AI-assisted development
 
 ---
 
-## 今日完了した作業
-- [x] cpersona専用README.md新規作成（HN経由の流入用）
-- [x] cloto-mcp-servers/README.md → v2.4.4対応更新
-- [x] ClotoCore/README.md → テスト数・embedding記述更新
-- [x] 3ファイル間の整合性検証
+## Completed today
+- [x] New cpersona-dedicated README.md (for HN-driven traffic)
+- [x] Updated cloto-mcp-servers/README.md to v2.4.4
+- [x] Updated ClotoCore/README.md (test counts, embedding sections)
+- [x] Cross-checked consistency between the 3 files
 
-## 残タスク
+## Remaining tasks
 
-### the maintainer側（手動）
-| タスク | 期限 |
+### Author side (manual)
+| Task | Due |
 |--------|------|
-| README内容レビュー | 4/4 |
-| git commit & push（cloto-mcp-servers + ClotoCore） | 4/4 |
-| GitHub Sponsors設置確認 | 4/6 |
-| テスト全通過確認 | 4/7 |
-| HN投稿文の最終レビュー・暗記 | 4/7 |
-| ダッシュボードスクリーンショット最新化（任意） | 4/7 |
+| README content review | 4/4 |
+| git commit & push (cloto-mcp-servers + ClotoCore) | 4/4 |
+| Confirm GitHub Sponsors setup | 4/6 |
+| Confirm full test suite passes | 4/7 |
+| Final review and memorization of HN post text | 4/7 |
+| Refresh dashboard screenshots (optional) | 4/7 |
 
-### 次のセッション
-| タスク | 説明 |
+### Next session
+| Task | Notes |
 |--------|------|
-| HN投稿文の最終磨き | the maintainerのフィードバック反映 |
-| Q&Aの追加・修正 | 実際のHN投稿例を参考に調整 |
-| self-commentの精査 | 4項目の優先順位・長さ調整 |
+| Final polish of HN post text | Apply author's feedback |
+| Add/refine Q&A | Tune based on actual HN post examples |
+| Tighten self-comment | Adjust priority and length of the 4 items |
 
 ---
 
-## タイムライン
+## Timeline
 
-| 日付 | タスク |
+| Date | Task |
 |------|--------|
-| 4/3 (木) | ✅ README整備 + HN投稿文ドラフト + Q&A完成 |
-| 4/4 (金) | the maintainerレビュー → commit & push |
-| 4/5 (土) | Q&A暗記 + 最終調整 |
-| 4/6 (日) | QRトラッキング案件締切対応 |
-| 4/7 (月) | 最終確認（テスト・Sponsors・スクショ） |
-| 4/8 (火) | **HN投稿** 🎯 JST 01:00-03:00 = US西海岸火曜午前 |
-| 4/9 (水) | HNコメント対応 |
-| 4/10 (木) | 予備日 |
+| 4/3 (Thu) | ✅ README prep + HN post draft + Q&A complete |
+| 4/4 (Fri) | Author review → commit & push |
+| 4/5 (Sat) | Q&A memorization + final adjustments |
+| 4/6 (Sun) | Handle the QR-tracking project deadline |
+| 4/7 (Mon) | Final checks (tests, Sponsors, screenshots) |
+| 4/8 (Tue) | **HN submission** 🎯 JST 01:00-03:00 = Tue morning US Pacific |
+| 4/9 (Wed) | Respond to HN comments |
+| 4/10 (Thu) | Buffer day |
 
 ---
 
-## 投稿前チェックリスト
+## Pre-submission checklist
 
-- [x] ClotoCore/README.md が最新かつ正確（ドキュメント監査完了 4/3）
-- [x] cloto-mcp-servers/README.md がv2.4.6と整合（監査完了 4/3）
-- [x] cpersona/README.md が存在しHN経由の流入に対応
-- [x] FUNDING.yml 設置済み（Sponsorsプロフィール申請は手動で必要）
-- [x] ライセンスファイル確認（ClotoCore=BSL 1.1, cpersona=MIT）
-- [x] テスト全通過確認（351: 234 Rust + 117 Python, 4/3確認）
-- [x] v0.6.3-beta.1 リリースビルド完了（24MB .exe, GitHub Release添付済み）
-- [ ] ダッシュボードGIF + スクリーンショット最新化（DaVinci Resolve編集予定）
-- [x] HN投稿文の最終レビュー完了（4/4）
-- [x] self-commentの準備完了
-- [ ] Q&A回答の暗記完了
+- [x] ClotoCore/README.md current and accurate (doc audit done 4/3)
+- [x] cloto-mcp-servers/README.md aligned with v2.4.6 (audit done 4/3)
+- [x] cpersona/README.md exists and serves HN-driven traffic
+- [x] FUNDING.yml in place (Sponsors profile registration still needs to be done manually)
+- [x] License files confirmed (ClotoCore=BSL 1.1, cpersona=MIT)
+- [x] Full test suite passes (351: 234 Rust + 117 Python, confirmed 4/3)
+- [x] v0.6.3-beta.1 release build complete (24MB .exe, attached to GitHub Release)
+- [ ] Refresh dashboard GIF + screenshots (planned in DaVinci Resolve)
+- [x] Final review of HN post text complete (4/4)
+- [x] Self-comment prepared
+- [ ] Q&A responses memorized
 
 ---
 
-## 成果物一覧
+## Deliverables
 
-| ファイル | 内容 |
+| File | Contents |
 |----------|------|
-| `hn-show-hn-clotocore.md` | HN投稿文ドラフト + self-comment + タイミング表 |
-| `hn-qa-clotocore.md` | 想定Q&A 18問（技術8 + 開発プロセス4 + ビジネス3 + 批判4） |
-| `hn-plan-clotocore.md` | この計画書 |
-| `servers/cpersona/README.md` | cpersona専用README（新規、リポジトリに直接書き込み済み） |
+| `hn-show-hn-clotocore.md` | HN post draft + self-comment + timing table |
+| `hn-qa-clotocore.md` | 18 anticipated Q&A (tech 8 + dev process 4 + business 3 + critique 4) |
+| `hn-plan-clotocore.md` | This planning doc |
+| `servers/cpersona/README.md` | Dedicated cpersona README (new, written directly into the repo) |

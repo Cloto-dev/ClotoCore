@@ -78,7 +78,7 @@ Phase 2 OS-level enforcement (cgroups, seccomp, iptables) is designed but deferr
 #### Layer 6: DNS Rebinding Protection
 - **IP validation**: `capabilities.rs:39-57` — blocks private, loopback, link-local, multicast
 - **Checked before request**: `capabilities.rs:104-124` — `lookup_host()` + IP validation
-- **Comment**: explicitly marked "DNS Rebinding対策"
+- **Comment**: source explicitly marked `"DNS Rebinding対策"` (= "DNS Rebinding mitigation")
 
 #### Layer 7: API Key Auth + Rate Limiting
 - **Auth**: `handlers.rs:83-139` — `X-API-Key` header, constant-time comparison (`subtle::ConstantTimeEq`)
