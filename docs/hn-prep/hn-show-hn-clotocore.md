@@ -1,8 +1,8 @@
-# HN投稿ドラフト — ClotoCore
+# HN Submission Draft — ClotoCore
 
-## タイトル候補
+## Title candidates
 
-**A (推奨):**
+**A (recommended):**
 ```
 Show HN: ClotoCore – A Rust AI agent platform ($230 total dev cost, 50K LOC, solo dev)
 ```
@@ -19,7 +19,7 @@ Show HN: ClotoCore – Build AI agents with sandboxed MCP plugins, Rust kernel, 
 
 ---
 
-## 本文ドラフト
+## Body draft
 
 ```
 Hi HN,
@@ -96,7 +96,7 @@ in practice.
 
 ---
 
-## self-comment（投稿直後に自分で書くコメント）
+## Self-comment (posted by the author immediately after submission)
 
 ```
 A few notes on the development process:
@@ -144,23 +144,23 @@ Architecture doc: https://github.com/Cloto-dev/ClotoCore/blob/main/docs/ARCHITEC
 
 ---
 
-## 投稿タイミング
+## Submission timing
 
-| 候補 | 日本時間 | US西海岸時間 | 曜日 |
+| Candidate | JST | US Pacific | Day |
 |------|---------|-------------|------|
-| **第一候補** | 4/8 (水) 01:00-03:00 | 4/7 (火) 09:00-11:00 | 火曜 |
-| 予備1 | 4/9 (木) 01:00-03:00 | 4/8 (水) 09:00-11:00 | 水曜 |
-| 予備2 | 4/10 (金) 01:00-03:00 | 4/9 (木) 09:00-11:00 | 木曜 |
+| **Primary** | 4/8 (Wed) 01:00-03:00 | 4/7 (Tue) 09:00-11:00 | Tue |
+| Backup 1 | 4/9 (Thu) 01:00-03:00 | 4/8 (Wed) 09:00-11:00 | Wed |
+| Backup 2 | 4/10 (Fri) 01:00-03:00 | 4/9 (Thu) 09:00-11:00 | Thu |
 
 ---
 
-## トーンチェック
+## Tone check
 
-- [x] 「抑制された自信」— 事実を淡々と列挙
-- [x] 経済的困窮への言及なし
-- [x] $230は「data point」として中立的に提示
-- [x] "Built with Claude Code" はさらっと明記
-- [x] 過激表現なし（"revolutionary", "game-changing" 等の排除）
-- [x] Neuro-Samaへの言及はHN読者に文脈を提供（VTuberクロスオーバー層の関心）
-- [x] GitHub Sponsorsへの直接誘導なし（リポジトリ側で自然に導線）
-- [x] ライセンスの透明性（BSL 1.1の条件を明示）
+- [x] "Restrained confidence" — list facts plainly
+- [x] No mention of financial hardship
+- [x] $230 presented neutrally as a "data point"
+- [x] "Built with Claude Code" mentioned in passing
+- [x] No hyperbole (avoid "revolutionary", "game-changing", etc.)
+- [x] Neuro-Sama reference gives HN readers context (interest from the VTuber crossover audience)
+- [x] No direct GitHub Sponsors call-to-action (let the repo side handle that organically)
+- [x] License transparency (BSL 1.1 terms made explicit)

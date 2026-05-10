@@ -1,8 +1,8 @@
-# HN想定Q&A — ClotoCore
+# HN Anticipated Q&A — ClotoCore
 
 ---
 
-## 技術・アーキテクチャ系
+## Technical & Architecture
 
 ### Q: Why Rust? Isn't that overkill for an AI agent framework?
 
@@ -56,7 +56,7 @@ Different trade-off: WASM is tighter per-call isolation. MGP is a security contr
 
 ---
 
-## 開発プロセス系
+## Development Process
 
 ### Q: "$230 total dev cost" — what does that actually mean?
 
@@ -78,7 +78,7 @@ This isn't about being frugal — it's evidence that the barrier to building non
 
 ---
 
-## ビジネス・ライセンス系
+## Business & License
 
 ### Q: BSL 1.1 — why not just MIT/Apache?
 
@@ -94,7 +94,7 @@ This isn't about being frugal — it's evidence that the barrier to building non
 
 ---
 
-## 批判・懐疑系
+## Criticism & Skepticism
 
 ### Q: How does this compare to OpenFang or OpenPawz?
 
