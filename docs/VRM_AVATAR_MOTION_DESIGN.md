@@ -55,7 +55,7 @@ by MGP (Multi-Agent Gateway Protocol) rather than embedded in the kernel.
 
 Final bone transform = Layer 1 + Layer 2 + Layer 3 (additive blending)
 
-### 2.1 Layer 1: Vitality (生命感)
+### 2.1 Layer 1: Vitality
 
 Always-running procedural animation computed locally in the dashboard at 60fps.
 No per-frame MGP communication required.
@@ -99,7 +99,7 @@ Parameters are dynamically adjustable via MGP:
 The dashboard updates its procedural generation parameters; subsequent frames
 use the new values. No per-frame MGP messages are sent.
 
-### 2.2 Layer 2: Emotional Posture (感情姿勢) ★ Research Area ★
+### 2.2 Layer 2: Emotional Posture ★ Research Area ★
 
 Maps `persona.emotion` v1.0 emotion vectors to continuous body parameter adjustments.
 `persona.emotion` is a dedicated MCP server, independent from `memory.cpersona`.
@@ -160,7 +160,7 @@ ClotoCore's layered approach combines all three: procedural base (Layer 1),
 continuous emotion mapping (Layer 2), and hybrid gestures (Layer 3). The
 "invention" lies in Layer 2's continuous emotion-to-body mapping.
 
-### 2.3 Layer 3: Gesture (ジェスチャー)
+### 2.3 Layer 3: Gesture
 
 Discrete actions triggered by events, speech, or agent decisions.
 Uses D-3 Hybrid approach: procedural for head/neck, animation clips for arms/body.
@@ -308,7 +308,7 @@ The dashboard maintains a viseme schedule buffer:
 
 ---
 
-## 5. Look At (視線・頭部追跡)
+## 5. Look At
 
 ### 5.1 Three-Tier Fallback
 
