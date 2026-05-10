@@ -1,3 +1,6 @@
+<!-- Archive: this document predates the English-only documentation rule
+     (effective 2026-05-09). Preserved verbatim as historical record. -->
+
 # v0.3.x Chat UX — ストリーミング・Artifactパネル・スケルトン
 
 ## Overview
