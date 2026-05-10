@@ -458,18 +458,6 @@
       "status": "fixed"
     },
     {
-      "id": "bug-059",
-      "summary": "Old Karin branding remains in SystemHistory and useNeuralNetwork",
-      "severity": "LOW",
-      "discovered": "2026-02-22T00:00:00Z",
-      "version": "0.1.0",
-      "commit": "da2dbdd",
-      "file": "dashboard/src/components/SystemHistory.tsx",
-      "pattern": "Karin Strategic",
-      "expected": "absent",
-      "status": "fixed"
-    },
-    {
       "id": "bug-060",
       "summary": "Duplicate CSS spinner pattern across 3 components",
       "severity": "LOW",
@@ -538,18 +526,6 @@
       "commit": "b717b15",
       "file": "dashboard/src/components/SecurityGuard.tsx",
       "pattern": "emerald-50[^0-9]",
-      "expected": "absent",
-      "status": "fixed"
-    },
-    {
-      "id": "bug-071",
-      "summary": "Stale 'karin' node ID in useNeuralNetwork (15 occurrences)",
-      "severity": "MEDIUM",
-      "discovered": "2026-02-22T12:00:00Z",
-      "version": "0.1.0",
-      "commit": "b717b15",
-      "file": "dashboard/src/hooks/useNeuralNetwork.ts",
-      "pattern": "'karin'",
       "expected": "absent",
       "status": "fixed"
     },
@@ -732,18 +708,6 @@
       "pattern": "KS2",
       "expected": "absent",
       "status": "fixed"
-    },
-    {
-      "id": "bug-088",
-      "summary": "[redacted] reference in SystemHistory (intentional historical reference)",
-      "severity": "LOW",
-      "discovered": "2026-02-22T14:00:00Z",
-      "version": "0.1.0",
-      "commit": "b717b15",
-      "file": "dashboard/src/components/SystemHistory.tsx",
-      "pattern": "[redacted]",
-      "expected": "present",
-      "status": "wontfix"
     },
     {
       "id": "bug-089",
