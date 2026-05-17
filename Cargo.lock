@@ -1160,6 +1160,7 @@ dependencies = [
  "hex",
  "http",
  "lindera",
+ "mgp-sdk",
  "mgp-seal",
  "mime_guess",
  "rand 0.8.6",
@@ -4179,6 +4180,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "mgp-sdk"
+version = "0.2.0"
+source = "git+https://github.com/Cloto-dev/mgp-rs?tag=mgp-sdk-v0.2.0#90ee3df7361f00cdda9f7cc7f0900a082c066268"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "url",
 ]
 
 [[package]]

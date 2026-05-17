@@ -42,6 +42,7 @@ clap = { version = "4", features = ["derive"] }
 rand = "0.8"
 subtle = "2"
 mgp-seal = { git = "https://github.com/Cloto-dev/mgp-rs", tag = "mgp-seal-v0.2.0" }
+mgp-sdk = { git = "https://github.com/Cloto-dev/mgp-rs", tag = "mgp-sdk-v0.2.0" }
 toml = "1.0"
 cron = "0.16"
 uuid.workspace = true
