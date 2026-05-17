@@ -734,17 +734,52 @@ fn rust_binary_path(server_path: &std::path::Path, entry: &RegistryEntry) -> Pat
 
 // ── Install orchestration ───────────────────────────────────────────
 
-#[allow(clippy::too_many_lines)]
+/// Dispatch a marketplace install based on the catalog entry's
+/// `install.source`. `None` falls back to the legacy
+/// `cloto-mcp-servers` monorepo tarball path so pre-v0.2 registries keep
+/// working unchanged. Per-source installers handle materialization, then
+/// share [`build_and_register`] / [`register_server`] for the toolchain
+/// + add_server + auto_start steps.
 async fn run_install(
     state: &AppState,
     entry: &RegistryEntry,
     env_overrides: HashMap<String, String>,
     auto_start: bool,
 ) -> anyhow::Result<()> {
-    let tx = &state.setup_progress_tx;
-    let is_rust = entry.runtime == "rust";
+    use mgp_sdk::adapters::SourceSpec;
+    match entry.install.as_ref().map(|i| &i.source) {
+        Some(SourceSpec::Git(spec)) => {
+            install_from_git(state, entry, spec, env_overrides, auto_start).await
+        }
+        Some(SourceSpec::RawUrl(spec)) => {
+            install_from_raw_url(state, entry, spec, env_overrides, auto_start).await
+        }
+        Some(SourceSpec::Pypi(spec)) => {
+            install_from_pypi(state, entry, spec, env_overrides, auto_start).await
+        }
+        Some(SourceSpec::Docker(_)) => {
+            emit(
+                &state.setup_progress_tx,
+                SetupProgressEvent::StepError {
+                    step: "check_source".into(),
+                    error: format!(
+                        "Connector '{}' uses source.type=docker, which is not yet supported by ClotoCore's marketplace install path.",
+                        entry.id
+                    ),
+                    recoverable: false,
+                },
+            );
+            Ok(())
+        }
+        None => install_from_monorepo_tarball(state, entry, env_overrides, auto_start).await,
+    }
+}
 
-    // Step 1: Check toolchain
+/// Ensure the toolchain required by `entry.runtime` is available. Emits a
+/// `StepError` and returns `Ok(false)` on failure (caller should return
+/// early); returns `Ok(true)` when the toolchain is ready.
+async fn ensure_toolchain(state: &AppState, is_rust: bool) -> anyhow::Result<bool> {
+    let tx = &state.setup_progress_tx;
     if is_rust {
         emit(
             tx,
@@ -764,7 +799,7 @@ async fn run_install(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(false);
         }
         emit(
             tx,
@@ -792,7 +827,7 @@ async fn run_install(
                         recoverable: true,
                     },
                 );
-                return Ok(());
+                return Ok(false);
             }
         }
         emit(
@@ -801,6 +836,359 @@ async fn run_install(
                 step: "check_uv".into(),
             },
         );
+    }
+    Ok(true)
+}
+
+/// Steps 4-5 for installs that produce a source tree on disk: build /
+/// install Python deps from `server_path`, then register via
+/// [`register_server`]. Callers must have already invoked
+/// [`ensure_toolchain`].
+#[allow(clippy::too_many_lines)]
+async fn build_and_register(
+    state: &AppState,
+    entry: &RegistryEntry,
+    server_path: &std::path::Path,
+    needs_common: bool,
+    env_overrides: HashMap<String, String>,
+    auto_start: bool,
+) -> anyhow::Result<()> {
+    let tx = &state.setup_progress_tx;
+    let is_rust = entry.runtime == "rust";
+    let servers_dir = resolve_servers_dir(state);
+
+    // Step 4: Install dependencies / build
+    let (command, args) = if is_rust {
+        // ── Rust server: cargo build ──
+        // Verify extraction produced a valid Cargo project
+        let cargo_toml = server_path.join("Cargo.toml");
+        if !cargo_toml.exists() {
+            warn!(
+                "Extracted directory missing Cargo.toml: {}",
+                server_path.display()
+            );
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "cargo_build".into(),
+                    error: format!(
+                        "Cargo.toml not found in {}. Extraction may have failed.",
+                        server_path.display()
+                    ),
+                    recoverable: false,
+                },
+            );
+            return Ok(());
+        }
+        // Ensure the package is not absorbed by a parent workspace.
+        // Append [workspace] to Cargo.toml so Cargo treats it as standalone.
+        {
+            let content = std::fs::read_to_string(&cargo_toml).unwrap_or_else(|e| {
+                tracing::warn!(path = %cargo_toml.display(), "Failed to read Cargo.toml: {e}");
+                String::new()
+            });
+            if !content.contains("[workspace]") {
+                std::fs::write(&cargo_toml, format!("{content}\n[workspace]\n"))
+                    .unwrap_or_else(|e| warn!("Failed to patch Cargo.toml: {e}"));
+            }
+        }
+        info!(
+            "Cargo.toml found, starting build in {}",
+            server_path.display()
+        );
+
+        if !cargo_build_server(tx, server_path, &entry.name).await? {
+            return Ok(());
+        }
+
+        let bin_path = rust_binary_path(server_path, entry);
+        if !bin_path.exists() {
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "cargo_build".into(),
+                    error: format!("Binary not found at {}", bin_path.display()),
+                    recoverable: false,
+                },
+            );
+            return Ok(());
+        }
+
+        emit(
+            tx,
+            SetupProgressEvent::ServerInstall {
+                server_name: entry.name.clone(),
+                status: "installed".into(),
+            },
+        );
+
+        (bin_path.to_string_lossy().to_string(), vec![])
+    } else {
+        // ── Python server: venv + pip install ──
+        emit(
+            tx,
+            SetupProgressEvent::StepStart {
+                step: "install_deps".into(),
+                description: format!("Installing {} dependencies", entry.name),
+            },
+        );
+
+        let venv_dir = crate::managers::mcp_venv::resolve_venv_dir()
+            .unwrap_or_else(|| servers_dir.join(".venv"));
+
+        // Ensure venv exists (with timeout to avoid hanging)
+        let uv = crate::managers::mcp_venv::uv_bin(&state.data_dir);
+        let uv_str = uv.to_string_lossy().to_string();
+        let target_python = crate::managers::mcp_venv::TARGET_PYTHON;
+        if !venv_dir.join("pyvenv.cfg").exists() {
+            let venv_path_str = venv_dir.to_string_lossy().to_string();
+            let _ = tokio::time::timeout(
+                Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
+                tokio::process::Command::new(&uv_str)
+                    .args(["venv", "--python", target_python, &venv_path_str])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .status(),
+            )
+            .await;
+        }
+
+        let venv_python = crate::managers::mcp_venv::venv_python(&venv_dir);
+        let venv_python_str = venv_python.to_string_lossy().to_string();
+
+        // Install common first if needed (monorepo path only — standalone
+        // connectors are expected to bundle their own utility code).
+        if needs_common {
+            let common_path = servers_dir.join("common");
+            if common_path.join("pyproject.toml").exists() {
+                emit(
+                    tx,
+                    SetupProgressEvent::ServerInstall {
+                        server_name: "common".into(),
+                        status: "installing".into(),
+                    },
+                );
+                let result = tokio::time::timeout(
+                    Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
+                    tokio::process::Command::new(&uv_str)
+                        .args([
+                            "pip",
+                            "install",
+                            "--no-progress",
+                            "--python",
+                            &venv_python_str,
+                            &common_path.to_string_lossy(),
+                        ])
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped())
+                        .output(),
+                )
+                .await;
+                match result {
+                    Ok(Ok(output)) if output.status.success() => {
+                        emit(
+                            tx,
+                            SetupProgressEvent::ServerInstall {
+                                server_name: "common".into(),
+                                status: "installed".into(),
+                            },
+                        );
+                    }
+                    Err(_) => warn!("Common module install timed out (120s)"),
+                    _ => warn!("Failed to install common dependency"),
+                }
+            }
+        }
+
+        // Install the target server
+        emit(
+            tx,
+            SetupProgressEvent::ServerInstall {
+                server_name: entry.name.clone(),
+                status: "installing".into(),
+            },
+        );
+
+        let result = tokio::process::Command::new(&uv_str)
+            .args([
+                "pip",
+                "install",
+                "--no-progress",
+                "--python",
+                &venv_python_str,
+                &server_path.to_string_lossy(),
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await;
+
+        match result {
+            Ok(output) if output.status.success() => {
+                emit(
+                    tx,
+                    SetupProgressEvent::ServerInstall {
+                        server_name: entry.name.clone(),
+                        status: "installed".into(),
+                    },
+                );
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let last_line = stderr.lines().last().unwrap_or("unknown error");
+                emit(
+                    tx,
+                    SetupProgressEvent::StepError {
+                        step: "install_deps".into(),
+                        error: format!("uv pip install failed: {last_line}"),
+                        recoverable: true,
+                    },
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                emit(
+                    tx,
+                    SetupProgressEvent::StepError {
+                        step: "install_deps".into(),
+                        error: format!("Failed to run pip: {e}"),
+                        recoverable: true,
+                    },
+                );
+                return Ok(());
+            }
+        }
+
+        emit(
+            tx,
+            SetupProgressEvent::StepComplete {
+                step: "install_deps".into(),
+            },
+        );
+
+        let server_script = server_path.join("server.py").to_string_lossy().to_string();
+        // Use bare "python" — resolved to venv python at spawn time
+        ("python".to_string(), vec![server_script])
+    };
+
+    register_server(state, entry, command, args, env_overrides, auto_start).await
+}
+
+/// Step 5: register the materialized server via `add_server`, persist
+/// marketplace metadata, and honor `auto_start`. Independent of how the
+/// source was materialized.
+async fn register_server(
+    state: &AppState,
+    entry: &RegistryEntry,
+    command: String,
+    args: Vec<String>,
+    env_overrides: HashMap<String, String>,
+    auto_start: bool,
+) -> anyhow::Result<()> {
+    let tx = &state.setup_progress_tx;
+
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "finalize".into(),
+            description: "Registering server".into(),
+        },
+    );
+
+    // Build env: merge defaults with overrides
+    let mut env_map: HashMap<String, String> = HashMap::new();
+    for var in &entry.env_vars {
+        if let Some(default) = &var.default {
+            env_map.insert(var.name.clone(), default.clone());
+        }
+    }
+    for (k, v) in &env_overrides {
+        env_map.insert(k.clone(), v.clone());
+    }
+
+    // Use add_server() for proper lifecycle integration:
+    // creates ServerConfig → connect_server() (spawn + register) → save to DB.
+    // The registry's trust_level is threaded through as MgpServerConfig so
+    // isolation derivation at next boot picks up the correct level. The
+    // registry's `seal` flows through unchanged so the kernel can verify
+    // it at connect time (MGP_ISOLATION_DESIGN.md §8 L0).
+    let mgp = Some(crate::managers::mcp_mgp::MgpServerConfig {
+        trust_level: Some(entry.trust_level.clone()),
+    });
+    match state
+        .mcp_manager
+        .add_server(
+            entry.id.clone(),
+            command,
+            args,
+            None,
+            Some(entry.description.clone()),
+            mgp,
+            entry.seal.clone(),
+            env_map,
+        )
+        .await
+    {
+        Ok(tools) => {
+            info!(
+                "Marketplace server connected: {} ({} tools)",
+                entry.id,
+                tools.len()
+            );
+        }
+        Err(e) => {
+            warn!("Server registered but failed to connect: {e}");
+            // Continue — server is in DB and can be started manually later
+        }
+    }
+
+    // Set marketplace-specific fields (source, version, marketplace_id)
+    if let Err(e) = crate::db::mcp::set_marketplace_fields(
+        &state.pool,
+        &entry.id,
+        &entry.version,
+        &entry.id,
+        Some(&entry.trust_level),
+    )
+    .await
+    {
+        warn!("Failed to set marketplace fields: {e}");
+    }
+
+    // If user requested no auto-start, stop the server after registration
+    if !auto_start {
+        let _ = state.mcp_manager.stop_server(&entry.id).await;
+    }
+
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "finalize".into(),
+        },
+    );
+
+    info!("Marketplace install complete: {}", entry.id);
+    Ok(())
+}
+
+/// Legacy install path: download the entire `cloto-mcp-servers` monorepo
+/// tarball, selectively extract `{entry.directory}/` (plus `common/` if
+/// depended on), then build_and_register. Used when the catalog entry
+/// carries no per-entry `install.source` block — preserves backward
+/// compat with the pre-v0.2 registry.json shape.
+#[allow(clippy::too_many_lines)]
+async fn install_from_monorepo_tarball(
+    state: &AppState,
+    entry: &RegistryEntry,
+    env_overrides: HashMap<String, String>,
+    auto_start: bool,
+) -> anyhow::Result<()> {
+    let tx = &state.setup_progress_tx;
+    let is_rust = entry.runtime == "rust";
+
+    if !ensure_toolchain(state, is_rust).await? {
+        return Ok(());
     }
 
     // Step 2: Download repo tarball
@@ -913,316 +1301,479 @@ async fn run_install(
         },
     );
 
-    // Step 4: Install dependencies / build
     let server_path = servers_dir.join(&entry.directory);
+    let result = build_and_register(
+        state,
+        entry,
+        &server_path,
+        needs_common,
+        env_overrides,
+        auto_start,
+    )
+    .await;
 
-    let (command, args, venv_dir) = if is_rust {
-        // ── Rust server: cargo build ──
-        // Verify extraction produced a valid Cargo project
-        let cargo_toml = server_path.join("Cargo.toml");
-        if !cargo_toml.exists() {
+    // Cleanup tarball regardless of register outcome
+    if let Err(e) = tokio::fs::remove_file(&archive_path).await {
+        warn!("Failed to cleanup archive {}: {e}", archive_path.display());
+    }
+
+    result
+}
+
+/// Install from a `git` source: clone `{spec.url}` into
+/// `{servers_dir}/{entry.directory}`, optionally checking out
+/// `spec.reference`. When `spec.subdir` is set, the actual server path
+/// becomes `{clone_dir}/{spec.subdir}`. Requires `git` on PATH; emits a
+/// clear StepError if missing.
+#[allow(clippy::too_many_lines)]
+async fn install_from_git(
+    state: &AppState,
+    entry: &RegistryEntry,
+    spec: &mgp_sdk::adapters::GitSpec,
+    env_overrides: HashMap<String, String>,
+    auto_start: bool,
+) -> anyhow::Result<()> {
+    let tx = &state.setup_progress_tx;
+    let is_rust = entry.runtime == "rust";
+
+    if !ensure_toolchain(state, is_rust).await? {
+        return Ok(());
+    }
+
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "git_clone".into(),
+            description: format!("Cloning {} from {}", entry.name, spec.url),
+        },
+    );
+
+    let servers_dir = resolve_servers_dir(state);
+    tokio::fs::create_dir_all(&servers_dir).await?;
+    let directory = if entry.directory.is_empty() {
+        entry.id.clone()
+    } else {
+        entry.directory.clone()
+    };
+    let clone_dir = servers_dir.join(&directory);
+
+    // Clear any leftover tree from a prior failed install so `git clone`
+    // can target a fresh directory.
+    if clone_dir.exists() {
+        if let Err(e) = tokio::fs::remove_dir_all(&clone_dir).await {
             warn!(
-                "Extracted directory missing Cargo.toml: {}",
-                server_path.display()
+                "Failed to clear existing clone dir {}: {e}",
+                clone_dir.display()
             );
+        }
+    }
+
+    // `--depth 1 --branch <ref>` covers branches and tags; full commit
+    // SHAs are not supported in v1 because `git clone --branch` rejects
+    // SHA arguments and a fallback to fetch-then-checkout would double
+    // the network cost on the happy path. Connectors that need to pin a
+    // SHA should publish a tag pointing at that commit instead.
+    let mut clone_cmd = tokio::process::Command::new("git");
+    clone_cmd.arg("clone").arg("--depth").arg("1");
+    if !spec.reference.is_empty() {
+        clone_cmd.arg("--branch").arg(&spec.reference);
+    }
+    clone_cmd
+        .arg(&spec.url)
+        .arg(&clone_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let clone_result = tokio::time::timeout(
+        Duration::from_secs(TARBALL_DOWNLOAD_TIMEOUT_SECS),
+        clone_cmd.output(),
+    )
+    .await;
+
+    match clone_result {
+        Ok(Ok(output)) if output.status.success() => {
+            emit(
+                tx,
+                SetupProgressEvent::StepComplete {
+                    step: "git_clone".into(),
+                },
+            );
+        }
+        Ok(Ok(output)) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let last_line = stderr.lines().last().unwrap_or("git clone failed");
             emit(
                 tx,
                 SetupProgressEvent::StepError {
-                    step: "cargo_build".into(),
+                    step: "git_clone".into(),
+                    error: format!("git clone failed: {last_line}"),
+                    recoverable: true,
+                },
+            );
+            return Ok(());
+        }
+        Ok(Err(e)) => {
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "git_clone".into(),
                     error: format!(
-                        "Cargo.toml not found in {}. Extraction may have failed.",
-                        server_path.display()
+                        "Failed to spawn git: {e}. Ensure git is installed and on PATH."
                     ),
                     recoverable: false,
                 },
             );
             return Ok(());
         }
-        // Ensure the package is not absorbed by a parent workspace.
-        // Append [workspace] to Cargo.toml so Cargo treats it as standalone.
-        {
-            let content = std::fs::read_to_string(&cargo_toml).unwrap_or_else(|e| {
-                tracing::warn!(path = %cargo_toml.display(), "Failed to read Cargo.toml: {e}");
-                String::new()
-            });
-            if !content.contains("[workspace]") {
-                std::fs::write(&cargo_toml, format!("{content}\n[workspace]\n"))
-                    .unwrap_or_else(|e| warn!("Failed to patch Cargo.toml: {e}"));
-            }
-        }
-        info!(
-            "Cargo.toml found, starting build in {}",
-            server_path.display()
-        );
-
-        if !cargo_build_server(tx, &server_path, &entry.name).await? {
-            return Ok(());
-        }
-
-        let bin_path = rust_binary_path(&server_path, entry);
-        if !bin_path.exists() {
+        Err(_) => {
             emit(
                 tx,
                 SetupProgressEvent::StepError {
-                    step: "cargo_build".into(),
-                    error: format!("Binary not found at {}", bin_path.display()),
+                    step: "git_clone".into(),
+                    error: "git clone timed out".into(),
+                    recoverable: true,
+                },
+            );
+            return Ok(());
+        }
+    }
+
+    let server_path = match spec.subdir.as_deref().filter(|s| !s.is_empty()) {
+        Some(subdir) => clone_dir.join(subdir),
+        None => clone_dir,
+    };
+    let needs_common = !is_rust
+        && entry.dependencies.contains(&"common".to_string())
+        && !servers_dir.join("common").join("__init__.py").exists();
+
+    build_and_register(
+        state,
+        entry,
+        &server_path,
+        needs_common,
+        env_overrides,
+        auto_start,
+    )
+    .await
+}
+
+/// Install from a single HTTP(S) artifact: download `{spec.url}`,
+/// verify `spec.sha256` if present, extract a `.tar.gz` into
+/// `{servers_dir}/{entry.directory}` (stripping a single shared
+/// top-level prefix when the archive uses one, GitHub-style), then
+/// build_and_register.
+#[allow(clippy::too_many_lines)]
+async fn install_from_raw_url(
+    state: &AppState,
+    entry: &RegistryEntry,
+    spec: &mgp_sdk::adapters::RawUrlSpec,
+    env_overrides: HashMap<String, String>,
+    auto_start: bool,
+) -> anyhow::Result<()> {
+    let tx = &state.setup_progress_tx;
+    let is_rust = entry.runtime == "rust";
+
+    if !ensure_toolchain(state, is_rust).await? {
+        return Ok(());
+    }
+
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "download".into(),
+            description: format!("Downloading {} from {}", entry.name, spec.url),
+        },
+    );
+
+    let tmp_dir = state.data_dir.join("tmp");
+    tokio::fs::create_dir_all(&tmp_dir).await?;
+    let archive_path = tmp_dir.join(format!("{}-raw-url.tar.gz", entry.id));
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(TARBALL_DOWNLOAD_TIMEOUT_SECS))
+        .build()?;
+    let resp = client
+        .get(&spec.url)
+        .header("User-Agent", "ClotoCore")
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        emit(
+            tx,
+            SetupProgressEvent::StepError {
+                step: "download".into(),
+                error: format!("HTTP {} from {}", resp.status(), spec.url),
+                recoverable: true,
+            },
+        );
+        return Ok(());
+    }
+
+    let total = resp.content_length();
+    let mut stream = resp.bytes_stream();
+    let mut file = tokio::fs::File::create(&archive_path).await?;
+    let mut downloaded: u64 = 0;
+    let mut hasher = sha2::Sha256::new();
+
+    use futures::StreamExt;
+    use sha2::Digest;
+    use tokio::io::AsyncWriteExt;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        file.write_all(&chunk).await?;
+        if spec.sha256.is_some() {
+            hasher.update(&chunk);
+        }
+        downloaded += chunk.len() as u64;
+
+        if let Some(total) = total {
+            let progress = (downloaded as f32 / total as f32).min(1.0);
+            let mb_done = downloaded as f64 / 1_048_576.0;
+            let mb_total = total as f64 / 1_048_576.0;
+            emit(
+                tx,
+                SetupProgressEvent::StepProgress {
+                    step: "download".into(),
+                    progress,
+                    detail: format!("{mb_done:.1} / {mb_total:.1} MB"),
+                },
+            );
+        }
+    }
+    file.flush().await?;
+
+    if let Some(expected) = &spec.sha256 {
+        let actual = hex::encode(hasher.finalize());
+        if !actual.eq_ignore_ascii_case(expected) {
+            let _ = tokio::fs::remove_file(&archive_path).await;
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "download".into(),
+                    error: format!("sha256 mismatch: expected {expected}, got {actual}"),
                     recoverable: false,
                 },
             );
             return Ok(());
         }
-
-        emit(
-            tx,
-            SetupProgressEvent::ServerInstall {
-                server_name: entry.name.clone(),
-                status: "installed".into(),
-            },
-        );
-
-        (
-            bin_path.to_string_lossy().to_string(),
-            vec![],
-            servers_dir.join(".venv"), // unused but needed for type consistency
-        )
-    } else {
-        // ── Python server: venv + pip install ──
-        emit(
-            tx,
-            SetupProgressEvent::StepStart {
-                step: "install_deps".into(),
-                description: format!("Installing {} dependencies", entry.name),
-            },
-        );
-
-        let venv_dir = crate::managers::mcp_venv::resolve_venv_dir()
-            .unwrap_or_else(|| servers_dir.join(".venv"));
-
-        // Ensure venv exists (with timeout to avoid hanging)
-        let uv = crate::managers::mcp_venv::uv_bin(&state.data_dir);
-        let uv_str = uv.to_string_lossy().to_string();
-        let target_python = crate::managers::mcp_venv::TARGET_PYTHON;
-        if !venv_dir.join("pyvenv.cfg").exists() {
-            let venv_path_str = venv_dir.to_string_lossy().to_string();
-            let _ = tokio::time::timeout(
-                Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
-                tokio::process::Command::new(&uv_str)
-                    .args(["venv", "--python", target_python, &venv_path_str])
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped())
-                    .status(),
-            )
-            .await;
-        }
-
-        let venv_python = crate::managers::mcp_venv::venv_python(&venv_dir);
-        let venv_python_str = venv_python.to_string_lossy().to_string();
-
-        // Install common first if needed
-        if needs_common {
-            let common_path = servers_dir.join("common");
-            if common_path.join("pyproject.toml").exists() {
-                emit(
-                    tx,
-                    SetupProgressEvent::ServerInstall {
-                        server_name: "common".into(),
-                        status: "installing".into(),
-                    },
-                );
-                let result = tokio::time::timeout(
-                    Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
-                    tokio::process::Command::new(&uv_str)
-                        .args([
-                            "pip",
-                            "install",
-                            "--no-progress",
-                            "--python",
-                            &venv_python_str,
-                            &common_path.to_string_lossy(),
-                        ])
-                        .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::piped())
-                        .output(),
-                )
-                .await;
-                match result {
-                    Ok(Ok(output)) if output.status.success() => {
-                        emit(
-                            tx,
-                            SetupProgressEvent::ServerInstall {
-                                server_name: "common".into(),
-                                status: "installed".into(),
-                            },
-                        );
-                    }
-                    Err(_) => warn!("Common module install timed out (120s)"),
-                    _ => warn!("Failed to install common dependency"),
-                }
-            }
-        }
-
-        // Install the target server
-        emit(
-            tx,
-            SetupProgressEvent::ServerInstall {
-                server_name: entry.name.clone(),
-                status: "installing".into(),
-            },
-        );
-
-        let result = tokio::process::Command::new(&uv_str)
-            .args([
-                "pip",
-                "install",
-                "--no-progress",
-                "--python",
-                &venv_python_str,
-                &server_path.to_string_lossy(),
-            ])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .await;
-
-        match result {
-            Ok(output) if output.status.success() => {
-                emit(
-                    tx,
-                    SetupProgressEvent::ServerInstall {
-                        server_name: entry.name.clone(),
-                        status: "installed".into(),
-                    },
-                );
-            }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let last_line = stderr.lines().last().unwrap_or("unknown error");
-                emit(
-                    tx,
-                    SetupProgressEvent::StepError {
-                        step: "install_deps".into(),
-                        error: format!("uv pip install failed: {last_line}"),
-                        recoverable: true,
-                    },
-                );
-                return Ok(());
-            }
-            Err(e) => {
-                emit(
-                    tx,
-                    SetupProgressEvent::StepError {
-                        step: "install_deps".into(),
-                        error: format!("Failed to run pip: {e}"),
-                        recoverable: true,
-                    },
-                );
-                return Ok(());
-            }
-        }
-
-        emit(
-            tx,
-            SetupProgressEvent::StepComplete {
-                step: "install_deps".into(),
-            },
-        );
-
-        let server_script = server_path.join("server.py").to_string_lossy().to_string();
-        // Use bare "python" — resolved to venv python at spawn time
-        ("python".to_string(), vec![server_script], venv_dir)
-    };
-
-    // Step 5: Register and start via add_server()
-    emit(
-        tx,
-        SetupProgressEvent::StepStart {
-            step: "finalize".into(),
-            description: "Registering server".into(),
-        },
-    );
-
-    // Build env: merge defaults with overrides
-    let mut env_map: HashMap<String, String> = HashMap::new();
-    for var in &entry.env_vars {
-        if let Some(default) = &var.default {
-            env_map.insert(var.name.clone(), default.clone());
-        }
-    }
-    for (k, v) in &env_overrides {
-        env_map.insert(k.clone(), v.clone());
-    }
-    let _ = &venv_dir; // suppress unused warning
-
-    // Use add_server() for proper lifecycle integration:
-    // creates ServerConfig → connect_server() (spawn + register) → save to DB.
-    // The registry's trust_level is threaded through as MgpServerConfig so
-    // isolation derivation at next boot picks up the correct level. The
-    // registry's `seal` flows through unchanged so the kernel can verify
-    // it at connect time (MGP_ISOLATION_DESIGN.md §8 L0).
-    let mgp = Some(crate::managers::mcp_mgp::MgpServerConfig {
-        trust_level: Some(entry.trust_level.clone()),
-    });
-    match state
-        .mcp_manager
-        .add_server(
-            entry.id.clone(),
-            command,
-            args,
-            None,
-            Some(entry.description.clone()),
-            mgp,
-            entry.seal.clone(),
-            env_map,
-        )
-        .await
-    {
-        Ok(tools) => {
-            info!(
-                "Marketplace server connected: {} ({} tools)",
-                entry.id,
-                tools.len()
-            );
-        }
-        Err(e) => {
-            warn!("Server registered but failed to connect: {e}");
-            // Continue — server is in DB and can be started manually later
-        }
-    }
-
-    // Set marketplace-specific fields (source, version, marketplace_id)
-    if let Err(e) = crate::db::mcp::set_marketplace_fields(
-        &state.pool,
-        &entry.id,
-        &entry.version,
-        &entry.id,
-        Some(&entry.trust_level),
-    )
-    .await
-    {
-        warn!("Failed to set marketplace fields: {e}");
-    }
-
-    // If user requested no auto-start, stop the server after registration
-    if !auto_start {
-        let _ = state.mcp_manager.stop_server(&entry.id).await;
     }
 
     emit(
         tx,
         SetupProgressEvent::StepComplete {
-            step: "finalize".into(),
+            step: "download".into(),
         },
     );
 
-    // Cleanup tarball
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "extract".into(),
+            description: format!("Extracting {}", entry.name),
+        },
+    );
+
+    let servers_dir = resolve_servers_dir(state);
+    tokio::fs::create_dir_all(&servers_dir).await?;
+    let directory = if entry.directory.is_empty() {
+        entry.id.clone()
+    } else {
+        entry.directory.clone()
+    };
+    let target_dir = servers_dir.join(&directory);
+    if target_dir.exists() {
+        if let Err(e) = tokio::fs::remove_dir_all(&target_dir).await {
+            warn!(
+                "Failed to clear existing target dir {}: {e}",
+                target_dir.display()
+            );
+        }
+    }
+    tokio::fs::create_dir_all(&target_dir).await?;
+
+    let archive_path_clone = archive_path.clone();
+    let target_dir_clone = target_dir.clone();
+    tokio::task::spawn_blocking(move || {
+        extract_tarball_stripped(&archive_path_clone, &target_dir_clone)
+    })
+    .await??;
+
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "extract".into(),
+        },
+    );
+
+    // raw_url tarballs are expected to be standalone — they don't reach
+    // back into the monorepo's `common/` package.
+    let needs_common = false;
+    let result = build_and_register(
+        state,
+        entry,
+        &target_dir,
+        needs_common,
+        env_overrides,
+        auto_start,
+    )
+    .await;
+
     if let Err(e) = tokio::fs::remove_file(&archive_path).await {
         warn!("Failed to cleanup archive {}: {e}", archive_path.display());
     }
 
-    info!("Marketplace install complete: {}", entry.id);
+    result
+}
 
-    Ok(())
+/// Install from a PyPI package: ensure the shared venv, run
+/// `uv pip install {spec.install_argument()}`, then register the
+/// connector as `python -m {module}`. `{module}` resolves to
+/// `entry.bin_name` (if set) or `entry.id.replace('-', '_')` — avoids
+/// invoking a console script directly since the kernel's command
+/// whitelist would reject one (see `mcp_transport::ALLOWED_COMMANDS`).
+/// Python-only; errors for `entry.runtime == "rust"`.
+#[allow(clippy::too_many_lines)]
+async fn install_from_pypi(
+    state: &AppState,
+    entry: &RegistryEntry,
+    spec: &mgp_sdk::adapters::PypiSpec,
+    env_overrides: HashMap<String, String>,
+    auto_start: bool,
+) -> anyhow::Result<()> {
+    let tx = &state.setup_progress_tx;
+
+    if entry.runtime == "rust" {
+        emit(
+            tx,
+            SetupProgressEvent::StepError {
+                step: "check_source".into(),
+                error: format!(
+                    "Connector '{}' declares source.type=pypi with runtime=rust; pypi installs are Python-only.",
+                    entry.id
+                ),
+                recoverable: false,
+            },
+        );
+        return Ok(());
+    }
+
+    if !ensure_toolchain(state, false).await? {
+        return Ok(());
+    }
+
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "install_deps".into(),
+            description: format!("Installing {} from PyPI", entry.name),
+        },
+    );
+
+    let servers_dir = resolve_servers_dir(state);
+    let venv_dir =
+        crate::managers::mcp_venv::resolve_venv_dir().unwrap_or_else(|| servers_dir.join(".venv"));
+
+    let uv = crate::managers::mcp_venv::uv_bin(&state.data_dir);
+    let uv_str = uv.to_string_lossy().to_string();
+    let target_python = crate::managers::mcp_venv::TARGET_PYTHON;
+    if !venv_dir.join("pyvenv.cfg").exists() {
+        let venv_path_str = venv_dir.to_string_lossy().to_string();
+        let _ = tokio::time::timeout(
+            Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
+            tokio::process::Command::new(&uv_str)
+                .args(["venv", "--python", target_python, &venv_path_str])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .status(),
+        )
+        .await;
+    }
+
+    let venv_python = crate::managers::mcp_venv::venv_python(&venv_dir);
+    let venv_python_str = venv_python.to_string_lossy().to_string();
+
+    let install_arg = spec.install_argument();
+    emit(
+        tx,
+        SetupProgressEvent::ServerInstall {
+            server_name: entry.name.clone(),
+            status: "installing".into(),
+        },
+    );
+    let result = tokio::process::Command::new(&uv_str)
+        .args([
+            "pip",
+            "install",
+            "--no-progress",
+            "--python",
+            &venv_python_str,
+            &install_arg,
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await;
+
+    match result {
+        Ok(output) if output.status.success() => {
+            emit(
+                tx,
+                SetupProgressEvent::ServerInstall {
+                    server_name: entry.name.clone(),
+                    status: "installed".into(),
+                },
+            );
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let last_line = stderr.lines().last().unwrap_or("unknown error");
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "install_deps".into(),
+                    error: format!("uv pip install {install_arg} failed: {last_line}"),
+                    recoverable: true,
+                },
+            );
+            return Ok(());
+        }
+        Err(e) => {
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "install_deps".into(),
+                    error: format!("Failed to run uv pip install: {e}"),
+                    recoverable: true,
+                },
+            );
+            return Ok(());
+        }
+    }
+
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "install_deps".into(),
+        },
+    );
+
+    let module = entry
+        .bin_name
+        .clone()
+        .unwrap_or_else(|| entry.id.replace('-', "_"));
+
+    register_server(
+        state,
+        entry,
+        "python".to_string(),
+        vec!["-m".to_string(), module],
+        env_overrides,
+        auto_start,
+    )
+    .await
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -1308,6 +1859,90 @@ fn extract_selective(
                 let mut out = std::fs::File::create(&dest)?;
                 std::io::copy(&mut entry, &mut out)?;
             }
+        }
+    }
+
+    Ok(())
+}
+
+/// Detect a single shared top-level directory across all tarball
+/// entries. Returns `Some(prefix)` when every non-empty entry sits under
+/// the same first path component (the GitHub `archive/<ref>.tar.gz`
+/// convention), or `None` when entries are at the root or split across
+/// multiple top-level dirs.
+fn detect_shared_prefix<R: std::io::Read>(
+    archive: &mut tar::Archive<R>,
+) -> anyhow::Result<Option<std::path::PathBuf>> {
+    let mut prefix: Option<std::path::PathBuf> = None;
+    for entry_result in archive.entries()? {
+        let entry = entry_result?;
+        let path = entry.path()?.to_path_buf();
+        let first = match path.components().next() {
+            Some(c) => std::path::PathBuf::from(c.as_os_str()),
+            None => continue,
+        };
+        // An entry that is just the top-level dir itself contributes only
+        // its name; an entry that has only one component (a top-level
+        // file) means there is no shared prefix to strip.
+        let has_more = path.components().count() > 1;
+        match &prefix {
+            None if has_more => prefix = Some(first),
+            None => return Ok(None),
+            Some(p) if *p != first || !has_more => return Ok(None),
+            _ => {}
+        }
+    }
+    Ok(prefix)
+}
+
+/// Extract a `.tar.gz` into `target_dir`, stripping a single shared
+/// top-level directory prefix when the archive uses one. Zip-slip safe
+/// via [`validate_dest_path`].
+fn extract_tarball_stripped(
+    archive_path: &std::path::Path,
+    target_dir: &std::path::Path,
+) -> anyhow::Result<()> {
+    // First pass: detect a shared prefix without writing any files.
+    let strip_prefix = {
+        let file = std::fs::File::open(archive_path)?;
+        let decoder = flate2::read::GzDecoder::new(file);
+        let mut archive = tar::Archive::new(decoder);
+        detect_shared_prefix(&mut archive)?
+    };
+
+    // Second pass: extract.
+    let file = std::fs::File::open(archive_path)?;
+    let decoder = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(decoder);
+
+    for entry_result in archive.entries()? {
+        let mut entry = entry_result?;
+        let path = entry.path()?.to_path_buf();
+
+        let relative = match &strip_prefix {
+            Some(prefix) => match path.strip_prefix(prefix) {
+                Ok(p) if p.as_os_str().is_empty() => continue,
+                Ok(p) => p.to_path_buf(),
+                Err(_) => continue,
+            },
+            None => path,
+        };
+
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+
+        let dest = target_dir.join(&relative);
+        validate_dest_path(target_dir, &dest)?;
+
+        if entry.header().entry_type().is_dir() {
+            std::fs::create_dir_all(&dest)?;
+        } else {
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut out = std::fs::File::create(&dest)?;
+            std::io::copy(&mut entry, &mut out)?;
         }
     }
 
