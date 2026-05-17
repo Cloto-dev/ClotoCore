@@ -210,9 +210,21 @@ pub async fn catalog_handler(
                 .find(|r| r.marketplace_id.as_deref() == Some(&entry.id));
             // Installed if: DB marketplace record is active, OR server files
             // exist on disk (covers Config servers installed by batch setup).
+            // When `entry.directory` is empty (the new source-spec install
+            // path treats empty as "use entry.id as the dir name"), `join("")`
+            // would degenerate to the `mcp-servers/` parent itself, which
+            // exists as soon as any other server is installed — flipping the
+            // catalog UI's installed badge to true for every empty-directory
+            // entry. Mirror the install fallback (entry.id) here so the on-
+            // disk probe targets the same path the installer would write to.
             let db_installed = mp_record.is_some_and(|r| r.is_active);
             let files_installed = {
-                let server_dir = state.data_dir.join("mcp-servers").join(&entry.directory);
+                let effective_dir = if entry.directory.is_empty() {
+                    entry.id.as_str()
+                } else {
+                    entry.directory.as_str()
+                };
+                let server_dir = state.data_dir.join("mcp-servers").join(effective_dir);
                 server_dir.is_dir()
             };
             let installed = db_installed || files_installed;
