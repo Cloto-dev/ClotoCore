@@ -210,23 +210,15 @@ pub async fn catalog_handler(
                 .find(|r| r.marketplace_id.as_deref() == Some(&entry.id));
             // Installed if: DB marketplace record is active, OR server files
             // exist on disk (covers Config servers installed by batch setup).
-            // When `entry.directory` is empty (the new source-spec install
-            // path treats empty as "use entry.id as the dir name"), `join("")`
-            // would degenerate to the `mcp-servers/` parent itself, which
-            // exists as soon as any other server is installed — flipping the
-            // catalog UI's installed badge to true for every empty-directory
-            // entry. Mirror the install fallback (entry.id) here so the on-
-            // disk probe targets the same path the installer would write to.
+            // `effective_install_dir` mirrors the install path's fallback so
+            // the on-disk probe targets the same dir the installer wrote to,
+            // even when `entry.directory` is empty.
             let db_installed = mp_record.is_some_and(|r| r.is_active);
-            let files_installed = {
-                let effective_dir = if entry.directory.is_empty() {
-                    entry.id.as_str()
-                } else {
-                    entry.directory.as_str()
-                };
-                let server_dir = state.data_dir.join("mcp-servers").join(effective_dir);
-                server_dir.is_dir()
-            };
+            let files_installed = state
+                .data_dir
+                .join("mcp-servers")
+                .join(effective_install_dir(entry))
+                .is_dir();
             let installed = db_installed || files_installed;
             let installed_version = mp_record.and_then(|r| r.installed_version.clone());
             let update_available = installed_version
@@ -422,18 +414,21 @@ pub async fn uninstall_handler(
         // Still proceed with file cleanup even if server wasn't in memory
     }
 
-    // Delete server files from disk.
-    // Resolve directory name from catalog cache, fallback to id-based convention.
+    // Delete server files from disk. Resolve via the catalog cache when
+    // we have an entry (so `effective_install_dir` mirrors the install
+    // path's fallback); otherwise drop back to `server_id` as-is — same
+    // convention the installers (`install_from_git`,
+    // `install_from_raw_url`) use when `entry.directory` is empty.
     let directory = {
         let cache = state.marketplace_cache.read().await;
         cache.data.as_ref().and_then(|reg| {
             reg.servers
                 .iter()
                 .find(|s| s.id == server_id)
-                .map(|s| s.directory.clone())
+                .map(|s| effective_install_dir(s).to_string())
         })
     }
-    .unwrap_or_else(|| server_id.replace('.', "-"));
+    .unwrap_or_else(|| server_id.clone());
 
     let server_dir = state.data_dir.join("mcp-servers").join(&directory);
     if server_dir.is_dir() {
@@ -1362,12 +1357,7 @@ async fn install_from_git(
 
     let servers_dir = resolve_servers_dir(state);
     tokio::fs::create_dir_all(&servers_dir).await?;
-    let directory = if entry.directory.is_empty() {
-        entry.id.clone()
-    } else {
-        entry.directory.clone()
-    };
-    let clone_dir = servers_dir.join(&directory);
+    let clone_dir = servers_dir.join(effective_install_dir(entry));
 
     // Clear any leftover tree from a prior failed install so `git clone`
     // can target a fresh directory.
@@ -1589,12 +1579,7 @@ async fn install_from_raw_url(
 
     let servers_dir = resolve_servers_dir(state);
     tokio::fs::create_dir_all(&servers_dir).await?;
-    let directory = if entry.directory.is_empty() {
-        entry.id.clone()
-    } else {
-        entry.directory.clone()
-    };
-    let target_dir = servers_dir.join(&directory);
+    let target_dir = servers_dir.join(effective_install_dir(entry));
     if target_dir.exists() {
         if let Err(e) = tokio::fs::remove_dir_all(&target_dir).await {
             warn!(
@@ -1794,6 +1779,21 @@ async fn install_from_pypi(
 /// separate from config-loaded servers in [paths].servers.
 fn resolve_servers_dir(state: &AppState) -> PathBuf {
     state.data_dir.join("mcp-servers")
+}
+
+/// Resolve the on-disk directory name a marketplace install uses under
+/// `{data_dir}/mcp-servers/`. Falls back to `entry.id` when
+/// `entry.directory` is empty so callers never hit the
+/// `PathBuf::join("")` degeneracy (which collapses to the
+/// `mcp-servers/` parent itself — flips the catalog's installed badge
+/// for every empty-directory entry, and worse: lets uninstall
+/// `remove_dir_all` walk the parent).
+fn effective_install_dir(entry: &RegistryEntry) -> &str {
+    if entry.directory.is_empty() {
+        entry.id.as_str()
+    } else {
+        entry.directory.as_str()
+    }
 }
 
 /// Validate that a destination path stays within the target directory (zip-slip prevention).
@@ -2670,4 +2670,58 @@ async fn run_batch_install(
     info!("Batch install complete: {} server(s)", entries.len());
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(id: &str, directory: &str) -> RegistryEntry {
+        RegistryEntry {
+            id: id.into(),
+            name: "test".into(),
+            description: String::new(),
+            category: "test".into(),
+            version: "0.0.0".into(),
+            directory: directory.into(),
+            dependencies: vec![],
+            env_vars: vec![],
+            optional_env_vars: vec![],
+            tags: vec![],
+            trust_level: "standard".into(),
+            auto_restart: false,
+            icon: None,
+            runtime: "python".into(),
+            bin_name: None,
+            changelog: None,
+            seal: None,
+            install: None,
+        }
+    }
+
+    #[test]
+    fn effective_install_dir_falls_back_to_id_when_directory_empty() {
+        assert_eq!(effective_install_dir(&entry("cpersona", "")), "cpersona");
+    }
+
+    #[test]
+    fn effective_install_dir_prefers_explicit_directory() {
+        assert_eq!(
+            effective_install_dir(&entry("memory.cpersona", "cpersona")),
+            "cpersona"
+        );
+    }
+
+    #[test]
+    fn effective_install_dir_preserves_dotted_id_when_directory_empty() {
+        // Legacy monorepo-style ids (e.g. `memory.cpersona`) flow through
+        // unchanged — uninstall's old `.replace('.', "-")` fallback would
+        // have collapsed this to `memory-cpersona`, diverging from the
+        // installer's on-disk write path. Keeping ids as-is keeps the
+        // three sites in lock-step.
+        assert_eq!(
+            effective_install_dir(&entry("memory.cpersona", "")),
+            "memory.cpersona"
+        );
+    }
 }
