@@ -23,66 +23,19 @@ const MARKETPLACE_REGISTRY_FETCH_TIMEOUT_SECS: u64 = 30;
 
 // ── Registry types ──────────────────────────────────────────────────
 
+/// Per-entry registry shape, sourced from `mgp-sdk` v0.2.0 so ClotoCore and
+/// the ClotoHub.dev catalog feed share one wire definition. The `install`
+/// field is `Option<InstallShape>` — `None` falls back to ClotoCore's
+/// legacy monorepo-tarball install path; `Some(_)` will branch on
+/// `install.source` once `run_install` is updated.
+pub use mgp_sdk::shape::{InstallShape, RegistryEntry};
+pub use mgp_sdk::types::EnvVarDef;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Registry {
     pub schema_version: u32,
     pub updated_at: String,
     pub servers: Vec<RegistryEntry>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegistryEntry {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub category: String,
-    pub version: String,
-    #[serde(default)]
-    pub directory: String,
-    #[serde(default)]
-    pub dependencies: Vec<String>,
-    #[serde(default)]
-    pub env_vars: Vec<EnvVarDef>,
-    #[serde(default)]
-    pub optional_env_vars: Vec<EnvVarDef>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default = "default_trust_level")]
-    pub trust_level: String,
-    #[serde(default)]
-    pub auto_restart: bool,
-    #[serde(default)]
-    pub icon: Option<String>,
-    #[serde(default = "default_runtime")]
-    pub runtime: String,
-    #[serde(default)]
-    pub bin_name: Option<String>,
-    #[serde(default)]
-    pub changelog: Option<String>,
-    /// MGP Magic Seal in `sha256:HEX` form (MGP_ISOLATION_DESIGN.md §8 L0).
-    /// Populated by upstream `cloto-mcp-servers` via `cloto seal generate`;
-    /// flows through marketplace install into `McpServerConfig.seal` and
-    /// the persisted DB record. `None` triggers v0.6.3 §10 inv 3
-    /// force-untrusted at connect time.
-    #[serde(default)]
-    pub seal: Option<String>,
-}
-
-fn default_trust_level() -> String {
-    "standard".to_string()
-}
-
-fn default_runtime() -> String {
-    "python".to_string()
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EnvVarDef {
-    pub key: String,
-    #[serde(default)]
-    pub default: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
 }
 
 // ── Catalog cache ───────────────────────────────────────────────────
@@ -1193,7 +1146,7 @@ async fn run_install(
     let mut env_map: HashMap<String, String> = HashMap::new();
     for var in &entry.env_vars {
         if let Some(default) = &var.default {
-            env_map.insert(var.key.clone(), default.clone());
+            env_map.insert(var.name.clone(), default.clone());
         }
     }
     for (k, v) in &env_overrides {
@@ -1980,7 +1933,7 @@ async fn run_batch_install(
         let mut env_map: HashMap<String, String> = HashMap::new();
         for var in &entry.env_vars {
             if let Some(default) = &var.default {
-                env_map.insert(var.key.clone(), default.clone());
+                env_map.insert(var.name.clone(), default.clone());
             }
         }
 
