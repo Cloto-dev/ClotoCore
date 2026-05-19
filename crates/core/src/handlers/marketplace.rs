@@ -48,15 +48,21 @@ pub struct CatalogCache {
 
 const CACHE_TTL: Duration = Duration::from_hours(1); // 1 hour
 
-/// Default upstream catalog URL. Overridable via `CLOTO_CATALOG_URL` so
-/// Phase 5 can flip the marketplace fetch source from raw GitHub to
-/// ClotoHub.dev without a code change.
-const DEFAULT_CATALOG_URL: &str =
-    "https://raw.githubusercontent.com/Cloto-dev/cloto-mcp-servers/master/registry.json";
+/// Default upstream catalog URL. Phase 5d-2 flipped this from the
+/// legacy `raw.githubusercontent.com/Cloto-dev/cloto-mcp-servers/...`
+/// path to the curated ClotoHub.dev catalog endpoint. Overridable via
+/// `CLOTO_CATALOG_URL` (e.g. to point a dev build at a local server,
+/// or to pin a release to the legacy GitHub-served registry).
+const DEFAULT_CATALOG_URL: &str = "https://hub.cloto.dev/api/catalog";
 
-/// Default tarball URL template. `{ref}` is replaced with the git ref
-/// (currently always `master`). Overridable via
-/// `CLOTO_TARBALL_URL_TEMPLATE` for the same Phase 5 cutover.
+/// Default tarball URL template for the *legacy* monorepo install path
+/// (`install.source.kind == "monorepo_directory"` entries). `{ref}` is
+/// replaced with the git ref (currently always `master`). Catalog
+/// entries served by ClotoHub.dev dispatch through `run_install`
+/// (`install.source: Git/RawUrl/Pypi/Docker`) and never hit this
+/// template — it is preserved only so a `CLOTO_CATALOG_URL` override
+/// pointing back at the legacy `cloto-mcp-servers` registry still
+/// resolves correctly. Overridable via `CLOTO_TARBALL_URL_TEMPLATE`.
 const DEFAULT_TARBALL_URL_TEMPLATE: &str =
     "https://api.github.com/repos/Cloto-dev/cloto-mcp-servers/tarball/{ref}";
 
