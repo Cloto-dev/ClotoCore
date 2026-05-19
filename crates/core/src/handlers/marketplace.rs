@@ -1811,12 +1811,12 @@ async fn install_from_docker(
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .status(),
+            .output(),
     )
     .await;
 
     match docker_check {
-        Ok(Ok(status)) if status.success() => {
+        Ok(Ok(output)) if output.status.success() => {
             emit(
                 tx,
                 SetupProgressEvent::StepComplete {
