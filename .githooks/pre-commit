@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# pre-commit hook: if qa/issue-registry.json is in the staged diff, run
+# scripts/verify-issues.sh and block the commit when [STALE] / [UNFIXED] /
+# [ERROR] is reported. This prevents shipping a registry update that does
+# not match the codebase.
+#
+# Install via: bash scripts/install-hooks.sh  (sets core.hooksPath=.githooks)
+# Bypass      : git commit --no-verify  (do not use without explicit reason)
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+[[ -n "$REPO_ROOT" ]] || exit 0
+
+cd "$REPO_ROOT"
+
+# --- Check 1: git author identity ------------------------------------------
+# Public Cloto-dev repos MUST commit as the shared project identity.
+# (See repos/CLAUDE.md "Git Rules (shared across Cloto-dev repos)".)
+EXPECTED_NAME="ClotoCore Project"
+EXPECTED_EMAIL="ClotoCore@proton.me"
+ACTUAL_NAME="$(git config user.name || echo "")"
+ACTUAL_EMAIL="$(git config user.email || echo "")"
+
+if [[ "$ACTUAL_NAME" != "$EXPECTED_NAME" || "$ACTUAL_EMAIL" != "$EXPECTED_EMAIL" ]]; then
+  echo "[pre-commit] ERROR: git author identity mismatch."
+  echo "[pre-commit]   expected: $EXPECTED_NAME <$EXPECTED_EMAIL>"
+  echo "[pre-commit]   actual  : ${ACTUAL_NAME:-<unset>} <${ACTUAL_EMAIL:-<unset>}>"
+  echo "[pre-commit] Fix with:"
+  echo "    git config user.name  \"$EXPECTED_NAME\""
+  echo "    git config user.email \"$EXPECTED_EMAIL\""
+  echo "[pre-commit] Commit blocked. Use --no-verify to override intentionally."
+  exit 1
+fi
+
+# --- Check 2: registry verification ----------------------------------------
+# Only run when the registry is part of the staged diff.
+if ! git diff --cached --name-only | grep -qx 'qa/issue-registry.json'; then
+  exit 0
+fi
+
+if [[ ! -x scripts/verify-issues.sh && ! -f scripts/verify-issues.sh ]]; then
+  echo "[pre-commit] scripts/verify-issues.sh not found — skipping registry verification."
+  exit 0
+fi
+
+echo "[pre-commit] qa/issue-registry.json is staged — running scripts/verify-issues.sh..."
+if bash scripts/verify-issues.sh; then
+  echo "[pre-commit] Registry verification passed."
+  exit 0
+else
+  echo ""
+  echo "[pre-commit] Registry verification FAILED (stale / unfixed / error present)."
+  echo "[pre-commit] Fix the offending entries or the underlying code, then re-stage and re-commit."
+  echo "[pre-commit] To bypass after conscious review, use 'git commit --no-verify' (discouraged)."
+  exit 1
+fi
