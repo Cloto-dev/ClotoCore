@@ -52,7 +52,7 @@ impl McpTransport {
 }
 
 /// Allowed commands for MCP server execution (security whitelist)
-const ALLOWED_COMMANDS: &[&str] = &["npx", "node", "python", "python3", "deno", "bun"];
+const ALLOWED_COMMANDS: &[&str] = &["npx", "node", "python", "python3", "deno", "bun", "docker"];
 
 /// Buffer size for MCP stdio channel (request and response).
 const MCP_CHANNEL_BUFFER_SIZE: usize = 100;
