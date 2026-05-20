@@ -7,6 +7,48 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.3] — 2026-05-20
+
+First stable release of the 0.6.3 line. Promotes `0.6.3-beta.14` after coordinated Discord T1 session-continuity work and CRITICAL Setup Wizard fixes. Cumulative since v0.6.3-beta.13.
+
+### Added
+- **T1 SessionManager (kernel-owned short-term transcript)** — new `SessionManager` keeps an in-memory `AgentSession` per `(agent_id, bridge_session_id)` with bounded transcript + `tool_history`. Replaces stateless context-injection between Discord bridge and kernel: Discord callbacks no longer refetch channel history via REST or traverse 3-hop reply chains, and the agentic loop consumes T1 as the authority source for short-term context. CPersona handles long-term memory only.
+- **Magic Seal verification** — `cloto seal generate/verify` CLI binary; `mgp-seal` crate integration (cut from external repo to `mgp-rs` workspace); `RegistryEntry.seal` threaded through DB + runtime config; verified/unverified badge on `MarketplaceCard`; force-untrusted on missing seal per MGP v0.6.3 §10 invariant 3.
+- **Docker source dispatch** — `install_from_docker` for `SourceSpec::Docker` (bare-command whitelist + `docker pull` + `-e KEY` no-value secret-leak guard + `BTreeSet` env dedup). Companion to the new run_install dispatch on `install.source.kind` (Git / RawUrl / Pypi / Docker).
+- **Marketplace catalog flip** — default catalog URL switched to `https://hub.cloto.dev/api/catalog` (Phase 5d-2). The legacy `raw.githubusercontent.com/Cloto-dev/cloto-mcp-servers` tarball template is retained for monorepo install path only; new catalog entries dispatch via the typed `SourceSpec` runner.
+- **Marketplace install helper** — `effective_install_dir` helper extracted; uninstall fallback aligned; empty `install.directory` entries now probe the correct directory.
+
+### Fixed
+- **bug-359/360/361/362 (CRITICAL — Setup Wizard)**:
+  - `installingRef.current` re-entrancy guard closes the prior `EventSource` before opening a new one on retry (bug-359 — multiple concurrent SSE connections).
+  - `applyingRef.current` re-entrancy guard suppresses double-click duplicates on step 4 preset apply (bug-360).
+  - Back-from-step-5 navigation resets installation state via `setInstallStarted(false)` + EventSource close + ref clear so step 4 re-entry is clean (bug-361).
+  - `setup-complete.json` is now written atomically via `setup-complete.json.tmp` + rename, eliminating the corrupted-file → re-setup loop (bug-362).
+- **bug-287 (CRITICAL — Access Control)** — removed the hardcoded `KERNEL_NATIVE_TOOLS` allowlist from `registry.rs`; renamed `create_mcp_server` to `mgp.kernel.create_mcp_server` so it is dispatched by the `mgp.` prefix like every other kernel-native tool. Access control still routes through `resolve_tool_access(pool, agent_id, "kernel", tool_name)`; `mcp_servers` has no `name='kernel'` row so the default policy is opt-in → Deny without an explicit grant. Tool name renamed across `mcp_kernel_tool.rs` (schema + `TOOL_NAME_CREATE_MCP_SERVER` const), `mcp.rs` (dispatch match), `system.rs` (rejection compose test), `tool_rejection_smoke.rs`, `MGP_SPEC.md`, `MCP_PLUGIN_ARCHITECTURE.md`.
+- **bug-286 (HIGH — Memory Recall Contract)** — kernel now owns short-term context via SessionManager (T1) and asks the memory plugin only for long-term `recall`. The local payload variable was renamed and the call switched from `recall_with_context` to `recall`, so the original `recall_args` symbol no longer appears in `handlers/system.rs`. Full constant-ification of memory tool names is deferred to 0.6.4 (bug-290).
+- **bug-310 (HIGH — Recall Timestamp Sort)** — `parse_mcp_recall_result` now sorts the parsed messages by timestamp ascending (`result.sort_by_key(|m| m.timestamp);`) before returning, guaranteeing chronological order for engines that expect oldest-first.
+- **bug-344 (HIGH — Cross-User Memory Contamination)** — CPersona `recall` now accepts a `source_id` prefix filter (cpersona v2.4.20); the kernel derives `recall_source_id` from `msg.source` (User → `id`, otherwise empty for v2.4.19 fallback) and threads it into the MCP recall payload at `handlers/system.rs:504`. The empty fallback preserves backwards-compatible all-users recall for Agent / System messages.
+
+### Changed
+- **Marketplace install dispatch** — `RegistryEntry` / `EnvVarDef` cut over to `mgp-sdk` v0.2.0; `run_install` now dispatches on `install.source` (Git / RawUrl / Pypi / Docker) via the typed `SourceSpec` runner instead of the legacy monorepo path. Legacy monorepo install retained for back-compat.
+- **mcp-seal module → mgp-seal crate** — internal `mcp_seal` module swapped for the `mgp-seal` crate (now sourced from `mgp-rs` workspace, no external repo dependency).
+- **Phase 5 cutover prep** — URL helpers extracted; catalog fetch now exposes a `Stale { cached, error }` variant so the UI keeps showing the prior catalog when the origin is briefly unreachable.
+- **Documentation language** — `MGP_SPEC.md` retargeted as a pointer to the `mgp-spec` repo; small-touch Japanese strings translated to English across 5 files; `MCP_STARTUP_PERFORMANCE` analysis translated to English; `V0_3_CHAT_UX` archive entry exempted + stale archive entries pruned.
+- **Git hooks** — `.githooks/pre-commit` and `scripts/install-hooks.sh` are now source-controlled (was per-clone manual install).
+- **Dependencies** — `tauri-plugin-single-instance` 2.4.0→2.4.2; `tauri-plugin-dialog` 2.7.0→2.7.1; `tracing-appender` 0.2.4→0.2.5; `tauri-build` 2.5.6→2.6.1; `jsdom` 29.0.1→29.1.1 (dev); `sigstore/cosign-installer` 4.1.1→4.1.2 (CI).
+
+### Security
+- **Force-untrusted on missing seal** (MGP v0.6.3 §10 invariant 3) — connectors without a valid Magic Seal are forced to `untrusted` trust level on install, independent of the server's self-declared trust level. Closes the curation-layer bypass where a malicious connector could self-declare `core` trust.
+
+### CI / QA
+- `qa/issue-registry.json` updated: 8 bugs marked fixed in 0.6.3 (bug-286/287/310/344/359/360/361/362) with `fix_note` referencing the responsible phase and commit. `scripts/verify-issues.sh` PASS (87 verified / 134 fixed / 0 stale / 0 errors). Fix marker patterns intentionally surface as `[VERIFIED]` (= fix marker present) rather than `[FIXED]` (= bug pattern absent) for the 6 in-place modifications; the script's PASS/FAIL gate is unaffected.
+
+### Companion releases
+- `cpersona` v2.4.20 — `source_id` prefix filter, fixes bug-344 cross-user memory contamination at the memory-plugin layer.
+- `cloto-mgp-discord` v0.5.0 — deletes per-callback Discord REST history fetch and 3-hop reply chain traversal (183 LOC net reduction); relies on the kernel's T1 transcript instead.
+
+---
+
 ## [0.6.3-beta.6] — 2026-04-05
 
 ### Added

@@ -1922,9 +1922,11 @@
       "version": "0.6.2",
       "commit": "8c09a10",
       "file": "crates/core/src/handlers/system.rs",
-      "pattern": "fn parse_mcp_recall_result",
+      "pattern": "G1\\.4: Sort by timestamp",
       "expected": "present",
-      "status": "open"
+      "status": "fixed",
+      "fixed_in": "0.6.3",
+      "fix_note": "Phase 3a (Goal #45): the kernel now sorts the recall payload via `result.sort_by_key(|m| m.timestamp);` immediately after parsing the JSON `messages` array in `parse_mcp_recall_result`, so chronological order (oldest→newest) is guaranteed before the engine sees the transcript. Pattern switched from the function signature to the in-body fix marker comment `G1.4: Sort by timestamp ascending` for tighter regression detection."
     },
     {
       "id": "bug-311",
@@ -2318,9 +2320,11 @@
       "version": "0.6.3-beta.5",
       "commit": "e976b54",
       "file": "crates/core/src/handlers/system.rs",
-      "pattern": "\"agent_id\": agent\\.id",
+      "pattern": "\"source_id\": recall_source_id",
       "expected": "present",
-      "status": "open"
+      "status": "fixed",
+      "fixed_in": "0.6.3",
+      "fix_note": "Phase 1 (cpersona v2.4.20 e83f532) + Phase 3a (ClotoCore fda3549): cpersona's recall now accepts a `source_id` prefix filter, and the kernel derives `recall_source_id` from `msg.source` (User → id, otherwise empty for v2.4.19 fallback) and threads it into the MCP recall payload at handlers/system.rs:504. The empty fallback preserves backwards-compatible all-users recall for Agent/System messages and the legacy single-user path."
     },
     {
       "id": "bug-345",
@@ -2500,7 +2504,9 @@
       "file": "dashboard/src/components/SetupWizard.tsx",
       "pattern": "installingRef\\.current",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "fixed_in": "0.6.3",
+      "fix_note": "Phase 3b (Goal #46, commit 1652dbf): SetupWizard now guards re-entrancy with `installingRef.current`, closing the old EventSource and clearing `installEventSource` before opening a new one on retry. Pattern switched to the `installingRef.current` fix marker so regressions in the guard register as STALE."
     },
     {
       "id": "bug-360",
@@ -2512,7 +2518,9 @@
       "file": "dashboard/src/components/SetupWizard.tsx",
       "pattern": "applyingRef\\.current",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "fixed_in": "0.6.3",
+      "fix_note": "Phase 3b (Goal #46, commit 1652dbf): SetupWizard step 4 preset-apply now guards re-entrancy with `applyingRef.current` to suppress double-click duplicates. Pattern switched to the `applyingRef.current` fix marker."
     },
     {
       "id": "bug-361",
@@ -2524,7 +2532,9 @@
       "file": "dashboard/src/components/SetupWizard.tsx",
       "pattern": "setInstallStarted\\(false\\)",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "fixed_in": "0.6.3",
+      "fix_note": "Phase 3b (Goal #46, commit 1652dbf): SetupWizard back-from-step-5 navigation now resets installation state by calling `setInstallStarted(false)` (plus closing the EventSource and clearing the install ref), so step 4 can be re-entered cleanly. Pattern switched to the `setInstallStarted(false)` fix marker."
     },
     {
       "id": "bug-362",
@@ -2536,7 +2546,9 @@
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "setup-complete\\.json\\.tmp",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "fixed_in": "0.6.3",
+      "fix_note": "Phase 3b (Goal #46, commit 1652dbf): marketplace.rs now writes setup-complete.json atomically via `setup-complete.json.tmp` + rename, eliminating the corrupted-file → re-setup loop. Pattern switched to the `setup-complete.json.tmp` fix marker."
     },
     {
       "id": "bug-363",
