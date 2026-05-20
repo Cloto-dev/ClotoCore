@@ -113,6 +113,7 @@ export function SetupWizard({ onComplete }: Props) {
     Array<{ step: string; description: string; status: string; detail?: string; progress?: number }>
   >([]);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const installingRef = useRef(false);
   const [installStartTime, setInstallStartTime] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
 
@@ -145,6 +146,7 @@ export function SetupWizard({ onComplete }: Props) {
       // Clear installation state when leaving step 5 (bug-361)
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
+      installingRef.current = false;
       setInstallStarted(false);
       setInstallComplete(false);
       setInstallError(null);
@@ -268,6 +270,9 @@ export function SetupWizard({ onComplete }: Props) {
 
   // Step 5: Core batch installation (after Python check passes)
   const doInstall = useCallback(async () => {
+    // Synchronous guard: prevent concurrent runs from auto-start + retry double-click (bug-359)
+    if (installingRef.current) return;
+    installingRef.current = true;
     setInstallStarted(true);
     setInstallStartTime(Date.now());
     setInstallError(null);
@@ -306,6 +311,7 @@ export function SetupWizard({ onComplete }: Props) {
             case 'StepError':
               setInstallSteps((prev) => prev.map((s) => (s.step === data.step ? { ...s, status: 'error' } : s)));
               setInstallError(data.error);
+              installingRef.current = false;
               if (!data.recoverable) {
                 es.close();
               }
@@ -323,6 +329,7 @@ export function SetupWizard({ onComplete }: Props) {
               break;
             case 'Complete':
               setInstallComplete(true);
+              installingRef.current = false;
               es.close();
               // Auto-advance to next step after brief delay
               setTimeout(() => next(), 1000);
@@ -335,17 +342,18 @@ export function SetupWizard({ onComplete }: Props) {
 
       es.onerror = () => {
         es.close();
+        installingRef.current = false;
         if (!installComplete) {
           setInstallComplete(true);
           setTimeout(() => next(), 1000);
         }
       };
     } catch (e) {
+      installingRef.current = false;
       setInstallError(e instanceof Error ? e.message : 'Installation failed');
     }
   }, [api, installComplete, getActiveServers, next]);
 
-  // Guard ref to prevent concurrent startInstallation() calls from React
   // Auto-start installation when entering step 5
   useEffect(() => {
     if (step === 5 && !installStarted) {

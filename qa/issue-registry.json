@@ -2498,9 +2498,9 @@
       "version": "0.6.3-beta.9",
       "commit": "0d03c1a",
       "file": "dashboard/src/components/SetupWizard.tsx",
-      "pattern": "new EventSource",
+      "pattern": "installingRef\\.current",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-360",
@@ -2510,9 +2510,9 @@
       "version": "0.6.3-beta.9",
       "commit": "0d03c1a",
       "file": "dashboard/src/components/SetupWizard.tsx",
-      "pattern": "handlePresetNext",
+      "pattern": "applyingRef\\.current",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-361",
@@ -2522,9 +2522,9 @@
       "version": "0.6.3-beta.9",
       "commit": "0d03c1a",
       "file": "dashboard/src/components/SetupWizard.tsx",
-      "pattern": "prev === 5 \\? 4",
+      "pattern": "setInstallStarted\\(false\\)",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-362",
@@ -2533,10 +2533,10 @@
       "discovered": "2026-04-07T00:00:00Z",
       "version": "0.6.3-beta.9",
       "commit": "0d03c1a",
-      "file": "crates/core/src/handlers/setup.rs",
-      "pattern": "setup-complete\\.json",
+      "file": "crates/core/src/handlers/marketplace.rs",
+      "pattern": "setup-complete\\.json\\.tmp",
       "expected": "present",
-      "status": "open"
+      "status": "fixed"
     },
     {
       "id": "bug-363",
