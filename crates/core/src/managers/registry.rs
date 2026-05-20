@@ -4,8 +4,12 @@ use tracing::error;
 
 use cloto_shared::{ClotoId, Permission, Plugin, PluginManifest};
 
-/// Kernel-native tools that bypass MCP access control (handled directly by execute_tool).
-const KERNEL_NATIVE_TOOLS: &[&str] = &["create_mcp_server", "mgp.agent.ask"];
+// Kernel-native tools are identified solely by the `mgp.` / `gui.` prefix.
+// Closes bug-287: the previous hardcoded allowlist that named individual
+// tool symbols (e.g. `create_mcp_server`) leaked the kernel's tool surface
+// into the registry layer. `create_mcp_server` has been renamed to
+// `mgp.kernel.create_mcp_server` so it is dispatched by prefix like every
+// other kernel-native tool.
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct PluginSetting {
@@ -88,11 +92,13 @@ impl PluginRegistry {
     }
 
     /// Check if a tool name belongs to the kernel-native tool set.
-    /// These tools are handled directly by execute_tool() without access control lookup.
+    /// Kernel-native tools are dispatched by the `mgp.` / `gui.` prefix; no
+    /// per-name allowlist is consulted (see comment on the deleted
+    /// `KERNEL_NATIVE_TOOLS` constant above). Access control still flows
+    /// through `resolve_tool_access(..., "kernel", ...)` in
+    /// `execute_tool_for_agent`.
     fn is_kernel_native_tool(tool_name: &str) -> bool {
-        tool_name.starts_with("mgp.")
-            || tool_name.starts_with("gui.")
-            || KERNEL_NATIVE_TOOLS.contains(&tool_name)
+        tool_name.starts_with("mgp.") || tool_name.starts_with("gui.")
     }
 
     pub async fn update_effective_permissions(&self, plugin_id: ClotoId, permission: Permission) {

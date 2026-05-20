@@ -175,7 +175,7 @@ Layer 4 `mgp.*` kernel tools defined in MGP_SPEC §1.6.
 
 | Tool | Purpose |
 |------|---------|
-| `create_mcp_server` | Dynamic MCP server generation (agent-initiated). See MGP §16.6 for the equivalent standardized mechanism under `tool_creation: { enabled: true }`. |
+| `mgp.kernel.create_mcp_server` | Dynamic MCP server generation (agent-initiated). See MGP §16.6 for the equivalent standardized mechanism under `tool_creation: { enabled: true }`. |
 | `gui.map` | Retrieve the dashboard component map for UI-aware agents. |
 | `gui.read` | Read dashboard state. |
 
