@@ -770,19 +770,8 @@ async fn run_install(
         Some(SourceSpec::Pypi(spec)) => {
             install_from_pypi(state, entry, spec, env_overrides, auto_start).await
         }
-        Some(SourceSpec::Docker(_)) => {
-            emit(
-                &state.setup_progress_tx,
-                SetupProgressEvent::StepError {
-                    step: "check_source".into(),
-                    error: format!(
-                        "Connector '{}' uses source.type=docker, which is not yet supported by ClotoCore's marketplace install path.",
-                        entry.id
-                    ),
-                    recoverable: false,
-                },
-            );
-            Ok(())
+        Some(SourceSpec::Docker(spec)) => {
+            install_from_docker(state, entry, spec, env_overrides, auto_start).await
         }
         None => install_from_monorepo_tarball(state, entry, env_overrides, auto_start).await,
     }
@@ -1773,6 +1762,176 @@ async fn install_from_pypi(
         entry,
         "python".to_string(),
         vec!["-m".to_string(), module],
+        env_overrides,
+        auto_start,
+    )
+    .await
+}
+
+/// Install a marketplace server whose `install.source` is a Docker image.
+/// Verifies the `docker` CLI is on `PATH`, pulls the image, and registers
+/// the server as `docker run --rm -i [-e KEY ...] <image>:<tag>`. Env vars
+/// declared in `entry.env_vars` plus any `env_overrides` are exposed to the
+/// container via `-e KEY` flags (no inline `=VALUE` form, so secrets do not
+/// leak into the process listing — values flow through the parent env that
+/// `register_server` configures on the docker CLI process).
+async fn install_from_docker(
+    state: &AppState,
+    entry: &RegistryEntry,
+    spec: &mgp_sdk::adapters::DockerSpec,
+    env_overrides: HashMap<String, String>,
+    auto_start: bool,
+) -> anyhow::Result<()> {
+    let tx = &state.setup_progress_tx;
+
+    if let Err(msg) = spec.check() {
+        emit(
+            tx,
+            SetupProgressEvent::StepError {
+                step: "check_source".into(),
+                error: format!("Invalid docker source for '{}': {msg}", entry.id),
+                recoverable: false,
+            },
+        );
+        return Ok(());
+    }
+
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "check_docker".into(),
+            description: "Checking docker CLI".into(),
+        },
+    );
+
+    let docker_check = tokio::time::timeout(
+        Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
+        tokio::process::Command::new("docker")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output(),
+    )
+    .await;
+
+    match docker_check {
+        Ok(Ok(output)) if output.status.success() => {
+            emit(
+                tx,
+                SetupProgressEvent::StepComplete {
+                    step: "check_docker".into(),
+                },
+            );
+        }
+        _ => {
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "check_docker".into(),
+                    error: "`docker` not found on PATH. Install Docker Desktop or a compatible OCI CLI and retry.".into(),
+                    recoverable: true,
+                },
+            );
+            return Ok(());
+        }
+    }
+
+    let reference = spec.canonical_reference();
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "pull_image".into(),
+            description: format!("Pulling {reference}"),
+        },
+    );
+
+    let pull_result = tokio::time::timeout(
+        Duration::from_secs(TARBALL_DOWNLOAD_TIMEOUT_SECS),
+        tokio::process::Command::new("docker")
+            .args(["pull", &reference])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output(),
+    )
+    .await;
+
+    match pull_result {
+        Ok(Ok(output)) if output.status.success() => {
+            emit(
+                tx,
+                SetupProgressEvent::StepComplete {
+                    step: "pull_image".into(),
+                },
+            );
+        }
+        Ok(Ok(output)) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let last_line = stderr.lines().last().unwrap_or("unknown error");
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "pull_image".into(),
+                    error: format!("docker pull {reference} failed: {last_line}"),
+                    recoverable: true,
+                },
+            );
+            return Ok(());
+        }
+        Ok(Err(e)) => {
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "pull_image".into(),
+                    error: format!("Failed to run docker pull: {e}"),
+                    recoverable: true,
+                },
+            );
+            return Ok(());
+        }
+        Err(_) => {
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "pull_image".into(),
+                    error: format!(
+                        "docker pull {reference} timed out after {TARBALL_DOWNLOAD_TIMEOUT_SECS}s"
+                    ),
+                    recoverable: true,
+                },
+            );
+            return Ok(());
+        }
+    }
+
+    // Dedup env keys from entry.env_vars (with defaults) ∪ env_overrides
+    // so the docker run arg list carries each `-e KEY` once. Values reach
+    // the container through the parent env that register_server attaches
+    // to the docker CLI process — no `KEY=VALUE` in argv keeps secrets
+    // out of `ps`.
+    let mut env_keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for var in &entry.env_vars {
+        if var.default.is_some() {
+            env_keys.insert(var.name.clone());
+        }
+    }
+    for k in env_overrides.keys() {
+        env_keys.insert(k.clone());
+    }
+
+    let mut args = vec!["run".to_string(), "--rm".to_string(), "-i".to_string()];
+    for key in &env_keys {
+        args.push("-e".to_string());
+        args.push(key.clone());
+    }
+    args.push(reference);
+
+    register_server(
+        state,
+        entry,
+        "docker".to_string(),
+        args,
         env_overrides,
         auto_start,
     )
