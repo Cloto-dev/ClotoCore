@@ -3110,7 +3110,7 @@ mod phase_c_rejection_helpers_tests {
     #[test]
     fn final_response_code_unsafe_template() {
         let r = sample(RejectionCode::CodeUnsafe, "x", Some("y"), true);
-        let text = compose_rejection_final_response(&[("create_mcp_server".into(), r)]);
+        let text = compose_rejection_final_response(&[("mgp.kernel.create_mcp_server".into(), r)]);
         assert!(text.contains("safety validation"));
     }
 

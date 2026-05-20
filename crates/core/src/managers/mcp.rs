@@ -1643,7 +1643,7 @@ impl McpClientManager {
     }
 
     /// Collect tool schemas filtered by server IDs.
-    /// Includes kernel-native tools (create_mcp_server) only when YOLO mode is enabled.
+    /// Includes kernel-native tools (`mgp.kernel.create_mcp_server`) only when YOLO mode is enabled.
     pub async fn collect_tool_schemas_for(&self, server_ids: &[String]) -> Vec<Value> {
         let state = self.state.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
@@ -1784,7 +1784,7 @@ impl McpClientManager {
     }
 
     /// Execute a tool by name, routing to the correct MCP server (kernel-internal).
-    /// Handles kernel-native tools (create_mcp_server) internally.
+    /// Handles kernel-native tools (`mgp.kernel.create_mcp_server`) internally.
     /// Applies kernel-side validation (A) before forwarding to the MCP server.
     ///
     /// Returns `Result<Value, ToolFailure>` so that structured kernel-tool
@@ -1798,7 +1798,7 @@ impl McpClientManager {
     ) -> std::result::Result<Value, ToolFailure> {
         // Kernel-native tools
         match tool_name {
-            "create_mcp_server" => {
+            "mgp.kernel.create_mcp_server" => {
                 return super::mcp_kernel_tool::execute_create_mcp_server(self, args).await;
             }
             "mgp.access.query" => {
@@ -3117,7 +3117,7 @@ mod tests {
         // §16: meta-tools (discover + request) are always included even with YOLO off
         assert_eq!(schemas.len(), 2, "YOLO off should only include meta-tools");
 
-        // YOLO on: kernel tools included (create_mcp_server + access control + audit)
+        // YOLO on: kernel tools included (mgp.kernel.create_mcp_server + access control + audit)
         let manager_on = McpClientManager::new(pool, true, 120, 30);
         let schemas_on = manager_on.collect_tool_schemas().await;
         assert!(
@@ -3125,7 +3125,7 @@ mod tests {
             "YOLO on should include kernel tools"
         );
         let name = schemas_on[0]["function"]["name"].as_str().unwrap();
-        assert_eq!(name, "create_mcp_server");
+        assert_eq!(name, "mgp.kernel.create_mcp_server");
     }
 
     #[tokio::test]

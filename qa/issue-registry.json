@@ -1645,8 +1645,10 @@
       "commit": "8c09a10",
       "file": "crates/core/src/managers/registry.rs",
       "pattern": "\"create_mcp_server\"",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.3",
+      "fix_note": "Phase 3c (Goal #47): the hardcoded KERNEL_NATIVE_TOOLS allowlist that named individual tool symbols was removed from registry.rs. `create_mcp_server` was renamed to `mgp.kernel.create_mcp_server` so it is dispatched by the `mgp.` prefix like every other kernel-native tool. Access control still routes through `resolve_tool_access(pool, agent_id, \"kernel\", tool_name)`; the `mcp_servers` table has no `name='kernel'` row so the default policy is opt-in → Deny for any agent without an explicit grant. Tool name renamed across mcp_kernel_tool.rs (schema, `TOOL_NAME_CREATE_MCP_SERVER` const), mcp.rs (dispatch match), system.rs (rejection compose test), tool_rejection_smoke.rs, MGP_SPEC.md, MCP_PLUGIN_ARCHITECTURE.md."
     },
     {
       "id": "bug-288",

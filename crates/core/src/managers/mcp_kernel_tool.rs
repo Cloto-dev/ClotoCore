@@ -1,9 +1,20 @@
 //! Kernel-native tool implementations.
 //!
-//! Includes `create_mcp_server` (dynamic MCP server creation) and `mgp.agent.ask`
-//! (inter-agent delegation for specialist consultation).
+//! Includes `mgp.kernel.create_mcp_server` (dynamic MCP server creation) and
+//! `mgp.agent.ask` (inter-agent delegation for specialist consultation).
+//!
+//! All kernel-native tool names live under the `mgp.` prefix so the registry
+//! gate can dispatch them with a single prefix check instead of carrying a
+//! hand-maintained allowlist (closes bug-287).
 
 use super::mcp::McpClientManager;
+
+/// MGP-prefixed name for the kernel-native MCP server creation tool.
+/// Kept as a `pub` constant so callers across the kernel (dispatcher, agentic
+/// loop rejection composer, tests) reference one symbol instead of repeating
+/// the literal — anchored in this module since the schema definition is the
+/// source of truth for the wire name.
+pub const TOOL_NAME_CREATE_MCP_SERVER: &str = "mgp.kernel.create_mcp_server";
 use super::mcp_tool_validator::{
     validate_mcp_code, BLOCKED_IMPORTS, BLOCKED_PATTERNS, MAX_CODE_SIZE,
 };
@@ -213,12 +224,12 @@ fn audit_replay_schema() -> Value {
     })
 }
 
-/// Kernel-native tool schema: create_mcp_server
+/// Kernel-native tool schema: mgp.kernel.create_mcp_server
 pub(super) fn kernel_tool_schema() -> Value {
     serde_json::json!({
         "type": "function",
         "function": {
-            "name": "create_mcp_server",
+            "name": TOOL_NAME_CREATE_MCP_SERVER,
             "description": concat!(
                 "Create a new MCP server from Python code. ",
                 "The code is safety-validated before execution. ",

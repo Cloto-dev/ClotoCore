@@ -83,11 +83,11 @@ async fn phase_b_live_rejection_output_demo() {
     let mgr_off = setup_manager(false).await;
 
     print_outcome(
-        "YOLO OFF — create_mcp_server",
-        "create_mcp_server",
+        "YOLO OFF — mgp.kernel.create_mcp_server",
+        "mgp.kernel.create_mcp_server",
         call(
             &mgr_off,
-            "create_mcp_server",
+            "mgp.kernel.create_mcp_server",
             json!({"name": "demo_server", "code": "print('hi')"}),
         )
         .await,
