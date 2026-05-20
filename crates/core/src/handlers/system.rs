@@ -305,6 +305,21 @@ impl SystemHandler {
             .or_else(|| msg.metadata.get("target_agent_id").cloned())
             .unwrap_or_else(|| self.default_agent_id.clone());
 
+        // T1 session key: the bridge sets `external_session_id` per the
+        // chunk/thread/slash lifecycle it owns (Principle 1.2 — opaque to the
+        // kernel). For kernel-internal sources (cron, system-routed work) we
+        // synthesize a per-message id so each invocation gets its own isolated
+        // session and nothing leaks between unrelated cron firings.
+        let bridge_session_id = msg
+            .metadata
+            .get("external_session_id")
+            .cloned()
+            .unwrap_or_else(|| format!("kernel:{}", msg.id));
+        let session_key = crate::managers::session_manager::SessionKey::new(
+            target_agent_id.clone(),
+            bridge_session_id,
+        );
+
         // Set active cron context if this message was dispatched by a cron job.
         // Cleanup is handled by the `handle_message` wrapper (runs on every exit path).
         if let Some(cron_job_id) = msg.metadata.get("cron_job_id") {
@@ -459,23 +474,19 @@ impl SystemHandler {
                 vec![]
             }
         } else if let Some((ref mcp, ref server_id)) = mcp_memory {
-            // MCP Memory Resolver. As of v0.6.3 the kernel scopes recall per
-            // user via CPersona v2.4.20's `source_id` argument, eliminating
-            // cross-user memory contamination in multi-user channels (bug-344).
-            // The source_id mirrors the `{source}:{author_id}` shape that
-            // events.rs:467+ already writes onto incoming messages via
-            // `MessageSource::User { id: format!("{}:{}", source, author_id) }`.
+            // MCP Memory Resolver. As of v0.6.3 the kernel owns the
+            // short-term transcript via `SessionManager` (T1) and asks the
+            // memory plugin only for long-term recall, scoped per user via
+            // CPersona v2.4.20's `source_id` argument (bug-344). The
+            // `external_context` merge that lived in `recall_with_context`
+            // is now handled below by merging T1's snapshot with the recall
+            // result chronologically, so we call the simpler `recall` tool
+            // instead.
             let memory_channel = msg
                 .metadata
                 .get("external_source")
                 .cloned()
                 .unwrap_or_else(|| "chat".into());
-
-            let external_context: serde_json::Value = msg
-                .metadata
-                .get("conversation_context")
-                .and_then(|raw| serde_json::from_str(raw).ok())
-                .unwrap_or(serde_json::json!([]));
 
             // For an external User message, source.id is already "{source}:{author_id}".
             // Other message kinds (Agent / System) leave source_id empty so
@@ -485,17 +496,16 @@ impl SystemHandler {
                 _ => String::new(),
             };
 
-            let recall_args = serde_json::json!({
+            let mcp_recall_payload = serde_json::json!({
                 "agent_id": agent.id,
                 "query": msg.content,
                 "limit": self.memory_context_limit,
                 "channel": memory_channel,
-                "external_context": external_context,
                 "source_id": recall_source_id,
             });
             match tokio::time::timeout(
                 Duration::from_secs(self.memory_timeout_secs),
-                mcp.call_server_tool(server_id, "recall_with_context", recall_args),
+                mcp.call_server_tool(server_id, "recall", mcp_recall_payload),
             )
             .await
             {
@@ -512,6 +522,43 @@ impl SystemHandler {
         } else {
             vec![]
         };
+
+        // T1 (in-flight session) merge: short-term context is kernel-owned,
+        // long-term recall is plugin-owned. Past turns of this bridge_session
+        // come from `SessionManager::snapshot_transcript` and may overlap
+        // with what the memory plugin just returned (e.g. the immediately
+        // previous turn that's already been `store`d). Dedup by message id
+        // so the LLM sees a single coherent timeline.
+        let context = {
+            let t1_history = self.session_manager.snapshot_transcript(&session_key);
+            if t1_history.is_empty() {
+                context
+            } else {
+                let seen: std::collections::HashSet<String> = context
+                    .iter()
+                    .map(|m| m.id.clone())
+                    .filter(|id| !id.is_empty())
+                    .collect();
+                let mut merged = context;
+                for m in t1_history {
+                    if m.id.is_empty() || !seen.contains(&m.id) {
+                        merged.push(m);
+                    }
+                }
+                merged.sort_by_key(|m| m.timestamp);
+                merged
+            }
+        };
+
+        // Append the current user message to T1 so subsequent callbacks on
+        // this bridge_session see it as past history. Done after building
+        // `context` so the LLM still receives the message via the dedicated
+        // `message` argument (not duplicated into the prior-turn list).
+        // First touch on this session creates the entry; subsequent appends
+        // refresh `last_active` and keep the tier in HotActive.
+        let _ = self
+            .session_manager
+            .append_message(&session_key, msg.clone());
 
         // 3. 【核心】思考要求イベントを発行
         info!(
@@ -726,6 +773,7 @@ impl SystemHandler {
                                 context.clone(),
                                 &granted_server_ids,
                                 trace_id,
+                                &session_key,
                             )
                             .await;
                         (r, escalate_id.to_string())
@@ -746,6 +794,7 @@ impl SystemHandler {
                                 context.clone(),
                                 &granted_server_ids,
                                 trace_id,
+                                &session_key,
                             )
                             .await;
                         (r, fallback_id.to_string())
@@ -762,6 +811,7 @@ impl SystemHandler {
                         context.clone(),
                         &granted_server_ids,
                         trace_id,
+                        &session_key,
                     )
                     .await;
 
@@ -778,6 +828,7 @@ impl SystemHandler {
                                 context.clone(),
                                 &granted_server_ids,
                                 trace_id,
+                                &session_key,
                             )
                             .await;
                         (r, fallback_id.to_string())
@@ -789,6 +840,23 @@ impl SystemHandler {
             let engine_id = final_engine_id;
             match final_result {
                 Ok(content) => {
+                    // Append assistant response to T1 alongside the user turn
+                    // appended pre-loop, so the next callback on this
+                    // bridge_session sees a complete user→assistant→… history.
+                    let assistant_resp = ClotoMessage {
+                        id: format!("{}-resp", msg.id),
+                        source: cloto_shared::MessageSource::Agent {
+                            id: agent.id.clone(),
+                        },
+                        target_agent: Some(agent.id.clone()),
+                        content: content.clone(),
+                        timestamp: Utc::now(),
+                        metadata: std::collections::HashMap::new(),
+                    };
+                    let _ = self
+                        .session_manager
+                        .append_message(&session_key, assistant_resp);
+
                     // エージェント返答もメモリに保存 (user messageと対で保存)
                     if let Some(plugin) = &memory_plugin {
                         let plugin_clone = plugin.clone();
@@ -1268,7 +1336,7 @@ impl SystemHandler {
 
     // ── Agentic Loop ──
 
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     async fn run_agentic_loop(
         &self,
         agent: &AgentMetadata,
@@ -1277,6 +1345,7 @@ impl SystemHandler {
         context: Vec<ClotoMessage>,
         agent_plugin_ids: &[String],
         trace_id: ClotoId,
+        session_key: &crate::managers::session_manager::SessionKey,
     ) -> anyhow::Result<String> {
         // Engine Resolver: try Rust plugin first, then fall back to MCP server
         let engine_plugin = self.registry.get_engine(engine_id).await;
@@ -1397,7 +1466,14 @@ impl SystemHandler {
             "🔄 Starting agentic loop"
         );
 
-        let mut tool_history: Vec<serde_json::Value> = Vec::new();
+        // Resume tool_history from T1 so an in-flight conversation that
+        // returned mid-loop (rejected approval, transient transport error,
+        // user injecting a new message) can pick up the assistant/tool
+        // exchange without making the LLM relearn what it already tried.
+        // Cleared automatically when the session transitions HotStashed → Warm
+        // (see `SessionManager::run_cleanup`).
+        let mut tool_history: Vec<serde_json::Value> =
+            self.session_manager.snapshot_tool_history(session_key);
         let mut iteration: u8 = 0;
         let mut total_tool_calls: u32 = 0;
 
@@ -1427,6 +1503,8 @@ impl SystemHandler {
                     "⚠️ Agentic loop hit max iterations ({}), forcing text response",
                     max_iterations
                 );
+                self.session_manager
+                    .record_tool_history(session_key, tool_history.clone());
                 return self
                     .engine_think(
                         engine_plugin.as_ref(),
@@ -1474,6 +1552,8 @@ impl SystemHandler {
                         tool_calls = total_tool_calls,
                         "✅ Agentic loop completed"
                     );
+                    self.session_manager
+                        .record_tool_history(session_key, tool_history.clone());
                     return Ok(content);
                 }
                 ThinkResult::ToolCalls {
@@ -1783,6 +1863,8 @@ impl SystemHandler {
                             rejection_count = rejections.len(),
                             "✅ Agentic loop completed via rejection break"
                         );
+                        self.session_manager
+                            .record_tool_history(session_key, tool_history.clone());
                         return Ok(final_response);
                     }
                 }
