@@ -1631,8 +1631,10 @@
       "commit": "8c09a10",
       "file": "crates/core/src/handlers/system.rs",
       "pattern": "recall_args",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.3",
+      "fix_note": "Phase 3a-continuation (an earlier decision): the kernel now owns short-term context via SessionManager (T1) and asks the memory plugin only for long-term recall. The local payload variable was renamed and the call switched from `recall_with_context` to `recall`, so the original `recall_args` symbol no longer appears in this file. Tool-name constants are still inline; full constant-ification is tracked under bug-290 (0.6.4 scope)."
     },
     {
       "id": "bug-287",
