@@ -200,6 +200,10 @@ pub struct AppState {
     /// Populated by the agentic loop on each completion; read by the dashboard
     /// "context usage" badge.
     pub last_usage: managers::usage_tracker::UsageStore,
+    /// In-flight conversation state (T1, v0.6.3+) keyed by
+    /// `(agent_id, bridge_session_id)`. Process-lifetime only — see
+    /// `managers::session_manager` for the tier model and rationale.
+    pub session_manager: Arc<managers::session_manager::SessionManager>,
 }
 
 pub enum AppError {
@@ -519,6 +523,11 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     // AppState (reader — exposes GET /api/agents/:id/last-usage to the dashboard).
     let last_usage_store = managers::usage_tracker::UsageStore::new();
 
+    // Shared T1 conversation state (v0.6.3+) — SystemHandler reads / mutates
+    // it during the agentic loop; a background cleanup task below evicts
+    // Cold sessions and clears stale tool_history on the Warm tier boundary.
+    let session_manager = Arc::new(managers::session_manager::SessionManager::new());
+
     let system_handler = {
         let mut h = SystemHandler::new(
             registry_arc.clone(),
@@ -539,8 +548,26 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         );
         h.set_probe_cache(probe_cache.clone());
         h.set_usage_store(last_usage_store.clone());
+        h.set_session_manager(session_manager.clone());
         Arc::new(h)
     };
+
+    // Background T1 cleanup — 60s tick is fine; tier transitions happen on
+    // minute timescales and the cost per tick is `O(active sessions)`.
+    {
+        let sm = session_manager.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_mins(1));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                let evicted = sm.run_cleanup();
+                if evicted > 0 {
+                    tracing::debug!(evicted, "T1 SessionManager: cold-evicted sessions");
+                }
+            }
+        });
+    }
 
     // SystemHandler is NOT registered as a plugin — it runs outside the dispatch
     // pipeline to avoid blocking the event loop during agentic loops.
@@ -626,6 +653,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
         provider_probe_cache: probe_cache,
         last_usage: last_usage_store,
+        session_manager,
     });
 
     // Wire up kernel event bus to MCP manager (for PermissionRequested emission)

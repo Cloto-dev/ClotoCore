@@ -75,5 +75,6 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
         provider_probe_cache: crate::managers::provider_probe::ProbeCache::new(),
         last_usage: crate::managers::usage_tracker::UsageStore::new(),
+        session_manager: Arc::new(crate::managers::session_manager::SessionManager::new()),
     })
 }
