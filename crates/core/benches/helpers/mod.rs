@@ -72,6 +72,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
         provider_probe_cache: cloto_core::managers::provider_probe::ProbeCache::new(),
         last_usage: cloto_core::managers::usage_tracker::UsageStore::new(),
+        session_manager: Arc::new(cloto_core::managers::session_manager::SessionManager::new()),
     })
 }
 

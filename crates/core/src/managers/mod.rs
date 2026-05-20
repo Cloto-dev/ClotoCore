@@ -26,6 +26,7 @@ mod plugin;
 pub mod provider_probe;
 mod registry;
 pub mod scheduler;
+pub mod session_manager;
 pub mod token_budget;
 pub mod usage_tracker;
 

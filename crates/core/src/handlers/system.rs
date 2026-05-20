@@ -137,6 +137,11 @@ pub struct SystemHandler {
     /// calls through `call_tool_streaming` and emits `AgentTokenStream`
     /// events. Controlled by `CLOTO_MCP_STREAMING_ENABLED`.
     mcp_streaming_enabled: bool,
+    /// In-memory per-`(agent_id, bridge_session_id)` conversation state
+    /// (T1, v0.6.3+). Wired via [`Self::set_session_manager`] from `AppState`.
+    /// Defaults to an orphan store so tests don't need to construct one; the
+    /// production agentic loop reads from `AppState::session_manager`.
+    session_manager: Arc<crate::managers::session_manager::SessionManager>,
 }
 
 impl SystemHandler {
@@ -176,7 +181,18 @@ impl SystemHandler {
             memory_timeout_secs,
             probe_cache: crate::managers::provider_probe::ProbeCache::new(),
             mcp_streaming_enabled,
+            session_manager: Arc::new(crate::managers::session_manager::SessionManager::new()),
         }
+    }
+
+    /// Wire the shared `AppState::session_manager` into this handler.
+    /// Production code calls this right after construction; tests leave it
+    /// defaulted to an orphan store.
+    pub fn set_session_manager(
+        &mut self,
+        sm: Arc<crate::managers::session_manager::SessionManager>,
+    ) {
+        self.session_manager = sm;
     }
 
     /// Gate for Phase C streaming: only `mind.*` engines, and only when the
@@ -443,8 +459,12 @@ impl SystemHandler {
                 vec![]
             }
         } else if let Some((ref mcp, ref server_id)) = mcp_memory {
-            // MCP Memory Resolver: recall_with_context merges long-term recall
-            // with short-term conversation context (dedup + chronological sort).
+            // MCP Memory Resolver. As of v0.6.3 the kernel scopes recall per
+            // user via CPersona v2.4.20's `source_id` argument, eliminating
+            // cross-user memory contamination in multi-user channels (bug-344).
+            // The source_id mirrors the `{source}:{author_id}` shape that
+            // events.rs:467+ already writes onto incoming messages via
+            // `MessageSource::User { id: format!("{}:{}", source, author_id) }`.
             let memory_channel = msg
                 .metadata
                 .get("external_source")
@@ -457,12 +477,21 @@ impl SystemHandler {
                 .and_then(|raw| serde_json::from_str(raw).ok())
                 .unwrap_or(serde_json::json!([]));
 
+            // For an external User message, source.id is already "{source}:{author_id}".
+            // Other message kinds (Agent / System) leave source_id empty so
+            // recall falls back to v2.4.19 behaviour (all-users).
+            let recall_source_id: String = match &msg.source {
+                cloto_shared::MessageSource::User { id, .. } => id.clone(),
+                _ => String::new(),
+            };
+
             let recall_args = serde_json::json!({
                 "agent_id": agent.id,
                 "query": msg.content,
                 "limit": self.memory_context_limit,
                 "channel": memory_channel,
                 "external_context": external_context,
+                "source_id": recall_source_id,
             });
             match tokio::time::timeout(
                 Duration::from_secs(self.memory_timeout_secs),
