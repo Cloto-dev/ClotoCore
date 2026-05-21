@@ -10,6 +10,11 @@ on:
         description: "Version to release (e.g., 0.2.0)"
         required: true
         type: string
+      draft_only:
+        description: "Build artifacts only — skip tag creation and Release publish (for pre-release verification)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -589,7 +594,7 @@ jobs:
             release-files/SHA256SUMS.txt
 
       - name: Create tag (workflow_dispatch only)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.draft_only != 'true'
         run: |
           # M-26: Check for existing tag before creating
           if git ls-remote --tags origin | grep -q "refs/tags/v${{ steps.version.outputs.version }}$"; then
@@ -622,6 +627,7 @@ jobs:
           HEADER
 
       - name: Create GitHub Release
+        if: github.event.inputs.draft_only != 'true'
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
