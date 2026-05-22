@@ -154,3 +154,30 @@ The dashboard has two distinct surface patterns. Pick the right one for the role
 
 - Bump version in `Cargo.toml`, `dashboard/package.json`, `dashboard/src-tauri/tauri.conf.json`
 - Release notes: cumulative from previous release (`gh release list` to find it)
+
+### Pre-release verification (draft_only)
+
+To produce installer artifacts on any branch without creating a tag or
+publishing a GitHub Release (e.g. for hands-on Windows NSIS smoke that cannot
+be reproduced on macOS / Linux), dispatch `release.yml` with `draft_only=true`:
+
+```bash
+gh workflow run release.yml \
+  --ref <branch-name> \
+  -f version=<x.y.z> \
+  -f draft_only=true
+```
+
+The `Create tag` and `Create GitHub Release` steps are skipped; NSIS / `.dmg` /
+`.deb` / `.AppImage` artifacts are uploaded to the workflow run and retrieved
+with:
+
+```bash
+gh run list --workflow=release.yml --branch=<branch-name> --limit=1
+gh run download <run-id>
+```
+
+The `version` input is still required by the workflow but the produced tag is
+neither created nor published, so any throwaway placeholder is acceptable for
+verification builds. Use real `x.y.z` matching `Cargo.toml` when iterating
+toward an actual release so artifact filenames are coherent.
