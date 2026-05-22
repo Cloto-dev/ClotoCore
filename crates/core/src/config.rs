@@ -13,6 +13,63 @@ pub fn exe_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Returns the directory used for mutable runtime data: SQLite DB, attachments,
+/// avatars, VRM files, MCP venv, etc.
+///
+/// Resolution order:
+/// 1. Dev layout (Cargo.toml found walking up from the current exe) →
+///    `<exe_dir>/data`. Preserves `cargo run` / `cargo tauri dev` and the dev DB
+///    at `target/debug/data/cloto_memories.db`.
+/// 2. Production: `<platform user-data dir>/cloto-system` via `dirs::data_dir()`.
+///    - Windows: `%APPDATA%\Roaming\cloto-system\`
+///    - macOS:   `~/Library/Application Support/cloto-system/`
+///    - Linux:   `~/.local/share/cloto-system/`
+/// 3. Fallback (no exe, no user-data dir): `<exe_dir>/data` (legacy behaviour).
+///
+/// bug-377: under NSIS install on Windows the exe lives in `C:\Program Files\…`
+/// which is not user-writable; `create_dir_all(<exe_dir>/data)` fails with
+/// `ERROR_ACCESS_DENIED (os error 5)` and the kernel exits on boot.
+#[must_use]
+pub fn data_dir() -> PathBuf {
+    if is_dev_layout() {
+        return exe_dir().join("data");
+    }
+    dirs::data_dir().map_or_else(|| exe_dir().join("data"), |d| d.join("cloto-system"))
+}
+
+/// True when running from a Cargo workspace (`cargo run`, `cargo test`,
+/// `cargo tauri dev`). Detected by walking up from the running exe and finding
+/// a `Cargo.toml`. Returns false in shipped binaries installed outside the repo.
+fn is_dev_layout() -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    let Some(start) = exe.parent() else {
+        return false;
+    };
+    let Ok(canonical) = std::fs::canonicalize(start) else {
+        return false;
+    };
+    // Strip Windows UNC prefix (\\?\) that canonicalize() adds.
+    let mut dir = {
+        let s = canonical.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            PathBuf::from(stripped)
+        } else {
+            canonical
+        }
+    };
+    for _ in 0..10 {
+        if dir.join("Cargo.toml").exists() {
+            return true;
+        }
+        if !dir.pop() {
+            return false;
+        }
+    }
+    false
+}
+
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone)]
 pub struct AppConfig {
@@ -108,7 +165,7 @@ impl AppConfig {
     #[allow(clippy::too_many_lines)]
     pub fn load() -> anyhow::Result<Self> {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            let db_path = exe_dir().join("data").join("cloto_memories.db");
+            let db_path = data_dir().join("cloto_memories.db");
             format!("sqlite:{}", db_path.display())
         });
 
@@ -668,6 +725,51 @@ mod tests {
         assert!(
             config.admin_api_key.is_none(),
             "whitespace-only CLOTO_API_KEY must collapse to None"
+        );
+    }
+
+    /// bug-377: under `cargo test` the working tree contains `Cargo.toml`, so
+    /// `data_dir()` must take the dev branch and resolve to `<exe_dir>/data`.
+    /// This is the path that backs the dev DB at `target/debug/data/cloto_memories.db`.
+    #[test]
+    fn test_data_dir_dev_layout_uses_exe_dir() {
+        let resolved = data_dir();
+        let expected = exe_dir().join("data");
+        assert_eq!(
+            resolved,
+            expected,
+            "under cargo test data_dir() must equal exe_dir()/data (dev layout); got {} vs {}",
+            resolved.display(),
+            expected.display()
+        );
+    }
+
+    /// bug-377: `data_dir()` must always resolve to a non-empty path so the
+    /// caller can safely `create_dir_all` it. Guards against accidental empty
+    /// PathBuf regressions in the fallback chain.
+    #[test]
+    fn test_data_dir_is_non_empty() {
+        let resolved = data_dir();
+        assert!(
+            !resolved.as_os_str().is_empty(),
+            "data_dir() must not be empty"
+        );
+    }
+
+    /// bug-377: DATABASE_URL default fallback must route through `data_dir()`
+    /// (not raw `exe_dir().join("data")`), so production installs land in the
+    /// user-writable data dir rather than under `C:\Program Files\…`.
+    #[test]
+    fn test_database_url_default_uses_data_dir() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _guard = EnvGuard("DATABASE_URL");
+        std::env::remove_var("DATABASE_URL");
+
+        let config = AppConfig::load().unwrap();
+        let expected = format!("sqlite:{}", data_dir().join("cloto_memories.db").display());
+        assert_eq!(
+            config.database_url, expected,
+            "DATABASE_URL default must equal sqlite:<data_dir>/cloto_memories.db"
         );
     }
 }

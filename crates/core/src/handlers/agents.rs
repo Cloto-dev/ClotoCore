@@ -791,7 +791,7 @@ pub async fn serve_speech_file(
         return Err(AppError::Validation("Invalid filename".to_string()));
     }
 
-    let speech_dir = crate::config::exe_dir().join("data").join("speech");
+    let speech_dir = crate::config::data_dir().join("speech");
     let file_path = speech_dir.join(&filename);
 
     // Ensure the resolved path is within the speech directory

@@ -59,7 +59,7 @@ const HTTP_READY_WAIT_SECS: u64 = 30;
 pub fn init_tracing() {
     use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-    let data_dir = config::exe_dir().join("data");
+    let data_dir = config::data_dir();
     // Best-effort: if we can't create the directory, fall back to stderr-only below.
     let file_layer = match std::fs::create_dir_all(&data_dir) {
         Ok(()) => {
@@ -380,8 +380,8 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         }
     }
 
-    // 0b. Ensure storage directories exist (relative to exe_dir for Tauri compatibility)
-    let data_dir = config::exe_dir().join("data");
+    // 0b. Ensure storage directories exist (user-writable layout per bug-377).
+    let data_dir = config::data_dir();
     if let Err(e) = std::fs::create_dir_all(data_dir.join("attachments")) {
         tracing::warn!("Failed to create data/attachments directory: {}", e);
     }

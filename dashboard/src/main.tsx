@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { useTranslation } from 'react-i18next';
 import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
@@ -40,9 +40,19 @@ function App() {
   const { connected } = useConnection();
   const { t } = useTranslation();
 
-  // Re-trigger setup wizard if backend reports setup incomplete (e.g. version upgrade)
+  // Re-trigger setup wizard if backend reports setup incomplete (e.g. version
+  // upgrade where the stored `cloto-setup-completed=1` predates the new kernel).
+  //
+  // Only check on the *initial* boot of the App component — not on every
+  // `setupDone` transition. After the user clicks Finish, `setupDone` flips
+  // false→true; if we re-ran the check there and the backend reports
+  // `setup_complete=false` for any reason, we would silently unmount the
+  // wizard and remount it at step 0 (bug-383).
+  const initialStatusCheckRef = useRef(true);
   useEffect(() => {
     if (!connected || !setupDone) return;
+    if (!initialStatusCheckRef.current) return;
+    initialStatusCheckRef.current = false;
     api
       .getSetupStatus()
       .then((status) => {

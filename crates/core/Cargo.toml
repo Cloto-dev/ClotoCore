@@ -52,6 +52,7 @@ tar = "0.4"
 zip = "2"
 unicode-normalization = "0.1"
 lindera = { version = "2.3", features = ["embed-ipadic"] }
+dirs = "5"
 
 [dev-dependencies]
 http = "1.0"
