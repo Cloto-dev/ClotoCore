@@ -11,6 +11,7 @@ import { useAsyncAction } from '../hooks/useAsyncAction';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { extractError } from '../lib/errors';
 import { displayServerId } from '../lib/format';
+import { isMgpServer } from '../lib/mgp';
 import type { McpServerInfo } from '../types';
 
 function mcpStatusToDot(server: McpServerInfo): StatusDotStatus {
@@ -225,10 +226,7 @@ export function McpServersPage() {
 
             <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
               {sortedServers.map((server) => {
-                // MGP servers: negotiated, or I/O bridge / output servers (bidirectional by design)
-                const isMgp =
-                  (server.mgp_supported || server.id.startsWith('io.') || server.id.startsWith('output.')) &&
-                  server.status === 'Connected';
+                const isMgp = isMgpServer(server);
                 const isTransitioning =
                   server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered';
                 const shimmer = isTransitioning ? (isMgp ? 'shimmer-active-mgp' : 'shimmer-active') : '';
