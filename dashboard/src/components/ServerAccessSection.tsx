@@ -1,6 +1,7 @@
 import { Layers, Plus, Server, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { displayServerId } from '../lib/format';
+import { isMgpServer } from '../lib/mgp';
 import { detectPreset, SERVER_PRESETS } from '../lib/presets';
 import type { McpServerInfo } from '../types';
 import { StatusDot, type StatusDotStatus } from './ui/StatusDot';
@@ -12,13 +13,6 @@ function mcpStatusToDot(server: McpServerInfo): StatusDotStatus {
   if (server.status === 'Error' && server.has_unresolved_env) return 'degraded';
   if (server.status === 'Error') return 'error';
   return 'offline';
-}
-
-function isMgpServer(server: McpServerInfo): boolean {
-  return (
-    (server.mgp_supported || server.id.startsWith('io.') || server.id.startsWith('output.')) &&
-    server.status === 'Connected'
-  );
 }
 
 function serverStatusLabel(server: McpServerInfo, t: (key: string) => string): string {

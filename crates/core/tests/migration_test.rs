@@ -214,4 +214,33 @@ async fn test_set_marketplace_fields_persists_trust_level() {
         .unwrap();
     assert_eq!(row.trust_level.as_deref(), Some("core"));
     assert_eq!(row.installed_version.as_deref(), Some("1.2.3"));
+    // marketplace_id must persist so it can flow into McpServerConfig and
+    // McpServerInfo.marketplace_id, gating the dashboard's MGP purple card
+    // for catalog-originated servers (lib/mgp.ts isMgpServer).
+    assert_eq!(row.marketplace_id.as_deref(), Some("test.marketplace"));
+}
+
+/// Manually-registered (non-marketplace) servers must persist `marketplace_id`
+/// as NULL so the dashboard distinguishes them from catalog-origin servers
+/// in `lib/mgp.ts isMgpServer()` / `isVerified()`.
+#[tokio::test]
+async fn test_manual_register_leaves_marketplace_id_null() {
+    let pool = fresh_pool().await;
+    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        .await
+        .unwrap();
+
+    let record = make_record("test.manual", None);
+    cloto_core::db::save_mcp_server(&pool, &record)
+        .await
+        .unwrap();
+
+    let loaded = cloto_core::db::load_active_mcp_servers(&pool)
+        .await
+        .unwrap();
+    let row = loaded.iter().find(|r| r.name == "test.manual").unwrap();
+    assert!(
+        row.marketplace_id.is_none(),
+        "manual register must leave marketplace_id NULL"
+    );
 }

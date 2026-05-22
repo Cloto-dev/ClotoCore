@@ -321,6 +321,7 @@ pub(super) async fn execute_discovery_register(
         restart_policy: None,
         seal: None,
         isolation: None,
+        marketplace_id: None,
     };
 
     info!(id = %id, command = %command, "Registering dynamic server via mgp.discovery.register");

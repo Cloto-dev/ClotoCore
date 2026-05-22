@@ -277,6 +277,13 @@ pub struct McpServerConfig {
     /// Per-server isolation config overrides (MGP §8-10).
     #[serde(default)]
     pub isolation: Option<super::mcp_isolation::IsolationConfig>,
+    /// ClotoHub catalog connector id when this server was installed via
+    /// `/api/marketplace/install`. NULL ⇒ manually registered (CLI / API / mcp.toml).
+    /// Surfaced in `McpServerInfo.marketplace_id` so the dashboard can render
+    /// the MGP purple card for catalog-originated servers even when unsigned
+    /// (per MGP §10 inv 3: seal absence demotes trust_level, not MGP membership).
+    #[serde(default)]
+    pub marketplace_id: Option<String>,
 }
 
 fn default_transport() -> String {
@@ -300,6 +307,7 @@ impl Default for McpServerConfig {
             restart_policy: None,
             seal: None,
             isolation: None,
+            marketplace_id: None,
         }
     }
 }
