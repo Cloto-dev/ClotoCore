@@ -214,6 +214,11 @@ export interface McpServerInfo {
   transport?: string;
   url?: string;
   has_unresolved_env?: boolean;
+  /** ClotoHub catalog connector id when the server was installed via the
+   * marketplace (`POST /api/marketplace/install`). Absent ⇒ manually
+   * registered (CLI / API / mcp.toml). Used together with `mgp_supported`
+   * by `isMgpServer()` in `lib/mgp.ts` to render the MGP purple card. */
+  marketplace_id?: string | null;
 }
 
 export interface AccessControlEntry {

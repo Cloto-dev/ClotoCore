@@ -82,6 +82,12 @@ pub struct McpServerInfo {
     /// True when the server config contains env vars that reference unset variables.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub has_unresolved_env: bool,
+    /// ClotoHub catalog connector id when the server was installed via marketplace.
+    /// NULL ⇒ manually registered. The dashboard uses this together with
+    /// `mgp_supported` to render the MGP purple card (catalog-origin OR
+    /// protocol-negotiated), separate from the seal-based Verified badge.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub marketplace_id: Option<String>,
 }
 
 #[must_use]

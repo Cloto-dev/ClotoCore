@@ -391,6 +391,7 @@ impl McpClientManager {
                         trust_level: Some(tl),
                     }),
                 seal: r.seal.clone(),
+                marketplace_id: r.marketplace_id.clone(),
                 ..Default::default()
             })
             .collect();
@@ -695,6 +696,7 @@ impl McpClientManager {
                 restart_policy: None,
                 seal: record.seal.clone(),
                 isolation: None,
+                marketplace_id: record.marketplace_id.clone(),
             });
         }
 
@@ -1552,6 +1554,7 @@ impl McpClientManager {
                 transport: (h.config.transport != "stdio").then(|| h.config.transport.clone()),
                 url: h.config.url.clone(),
                 has_unresolved_env: has_unresolved_env_vars(&h.config.env),
+                marketplace_id: h.config.marketplace_id.clone(),
             })
             .collect()
     }
@@ -2394,6 +2397,7 @@ impl McpClientManager {
             restart_policy: None,
             seal: seal.clone(),
             isolation: None,
+            marketplace_id: None,
         };
 
         // Persist to DB first (so server is always tracked even if connect fails).
@@ -2672,6 +2676,7 @@ impl McpClientManager {
             restart_policy: None,
             seal: None,
             isolation: None,
+            marketplace_id: record.marketplace_id.clone(),
         };
 
         self.connect_server(config).await
