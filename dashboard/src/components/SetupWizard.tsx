@@ -343,9 +343,18 @@ export function SetupWizard({ onComplete }: Props) {
       es.onerror = () => {
         es.close();
         installingRef.current = false;
+        // bug-384 Prong 2(b): if the SSE stream errors out before we received a
+        // `Complete` event, the install genuinely did not finish. Surface this
+        // as a retry-able error instead of silently auto-advancing to step 6,
+        // which would let the user reach Finish on top of an incomplete
+        // install and (combined with backend `setup_complete=false`) bounce
+        // them back through the wizard on next launch.
         if (!installComplete) {
-          setInstallComplete(true);
-          setTimeout(() => next(), 1000);
+          setInstallError(
+            t('install_error_stream_disconnected', {
+              defaultValue: 'Install progress stream disconnected. Please retry.',
+            }),
+          );
         }
       };
     } catch (e) {
