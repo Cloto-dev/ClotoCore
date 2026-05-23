@@ -93,8 +93,7 @@ async fn db_has_agents(pool: &sqlx::SqlitePool) -> bool {
     sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM agents")
         .fetch_one(pool)
         .await
-        .map(|count| count > 0)
-        .unwrap_or(false)
+        .is_ok_and(|count| count > 0)
 }
 
 // ── Endpoints ────────────────────────────────────────────────────────
