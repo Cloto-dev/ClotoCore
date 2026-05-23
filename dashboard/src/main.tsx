@@ -40,19 +40,25 @@ function App() {
   const { connected } = useConnection();
   const { t } = useTranslation();
 
-  // Re-trigger setup wizard if backend reports setup incomplete (e.g. version
-  // upgrade where the stored `cloto-setup-completed=1` predates the new kernel).
+  // Re-trigger the setup wizard ONLY when the session began with a stored
+  // completion flag and the backend disagrees — i.e. the version-upgrade
+  // scenario where the stored `cloto-setup-completed=1` predates the new
+  // kernel. We capture the *mount-time* value of `setupDone` once; if the
+  // session started with no flag (fresh install), this effect never runs at
+  // all, so a Finish click never bounces.
   //
-  // Only check on the *initial* boot of the App component — not on every
-  // `setupDone` transition. After the user clicks Finish, `setupDone` flips
-  // false→true; if we re-ran the check there and the backend reports
-  // `setup_complete=false` for any reason, we would silently unmount the
-  // wizard and remount it at step 0 (bug-383).
-  const initialStatusCheckRef = useRef(true);
+  // bug-384: bug-383's `useRef(true)` still consumed the gate on the first
+  // false→true transition of `setupDone` (i.e. right after onComplete on a
+  // fresh install), which could bounce the user back to step 0 if the backend
+  // momentarily reported `setup_complete=false`. Capturing `setupDone` itself
+  // is the correct gate — `useRef` only reads its initial argument on the
+  // first render, so a later `setSetupDone(true)` cannot retroactively open
+  // this guard.
+  const checkOnUpgradeRef = useRef<boolean>(setupDone);
   useEffect(() => {
     if (!connected || !setupDone) return;
-    if (!initialStatusCheckRef.current) return;
-    initialStatusCheckRef.current = false;
+    if (!checkOnUpgradeRef.current) return;
+    checkOnUpgradeRef.current = false;
     api
       .getSetupStatus()
       .then((status) => {
