@@ -2793,7 +2793,7 @@
       "status": "fixed",
       "fixed_in": "0.6.4",
       "fix_note": "Three-prong bundle. (Prong 1, main.tsx) replace `useRef(true)` with `useRef<boolean>(setupDone)` so the version-upgrade re-check fires only when the session began with a stored completion flag — on a fresh install the gate starts `false` and the effect can never bounce the post-onComplete transition. (Prong 2b, SetupWizard.tsx) when the install-progress `EventSource` errors before a `Complete` payload, surface a retry-able error via the existing `installError` UI instead of auto-advancing the wizard to step 6 with no install artefacts. (Prong 2c, handlers/setup.rs) relax the bug-378 fallback to require only an `agents` row, so users who explicitly Skip the marketplace install are not re-prompted through the wizard on every launch — DEVELOPMENT.md §1.9 documents the new doctrine that `setup_complete` is the kernel's minimum-proof-of-boot contract, not a check on optional install artefacts. bug-383 remains marked `fixed` (its useRef-based gate was the right shape, just initialised wrong) and its `pattern` is updated to the corrected call form that ships with this PR.",
-      "github_issue": null
+      "github_issue": 133
     },
     {
       "id": "bug-383",
