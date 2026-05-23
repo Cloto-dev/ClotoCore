@@ -84,6 +84,18 @@ fn resolve_root() -> Option<std::path::PathBuf> {
     crate::managers::McpClientManager::detect_project_root(&exe)
 }
 
+/// Returns true when the `agents` table has at least one row.
+///
+/// Used as the bug-384 minimum-proof-of-setup fallback in `status_handler`.
+/// On any unexpected SQL error, returns false — the caller falls through to
+/// the wizard, which is the safe default for an unhealthy DB.
+async fn db_has_agents(pool: &sqlx::SqlitePool) -> bool {
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM agents")
+        .fetch_one(pool)
+        .await
+        .is_ok_and(|count| count > 0)
+}
+
 // ── Endpoints ────────────────────────────────────────────────────────
 
 /// GET /api/setup/status — lightweight check (no auth required, like health_handler).
@@ -132,15 +144,19 @@ pub async fn status_handler(State(state): State<Arc<AppState>>) -> Json<serde_js
         }
     }
 
-    // Fallback: if JSON missing but servers + DB agents exist, treat as complete (bug-378)
-    if !setup_complete && mcp_servers_present && venv_exists {
-        let agent_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agents")
-            .fetch_one(&state.pool)
-            .await
-            .unwrap_or(0);
-        if agent_count > 0 {
-            setup_complete = true;
-        }
+    // Fallback: DB initialization alone is sufficient proof of a usable setup.
+    //
+    // `mcp_servers_present` and `venv_exists` are quality-of-life indicators
+    // surfaced to the dashboard via the SetupStatus fields; they are not
+    // invariants of `setup_complete`. Requiring them in the fallback (bug-378
+    // shape) re-prompted Skip-path users — who intentionally bypassed the
+    // marketplace install — through the wizard on every launch (bug-384).
+    // The kernel's minimum proof of "usable setup" is a healthy `agents` row,
+    // which `init_db` seeds on first boot via the migration suite. A version
+    // upgrade that genuinely needs re-install is handled separately by the
+    // batch installer's stale-version cleanup (marketplace.rs).
+    if !setup_complete && db_has_agents(&state.pool).await {
+        setup_complete = true;
     }
 
     let in_progress = state
@@ -509,5 +525,22 @@ mod tests {
         let file: SetupCompleteFile = serde_json::from_str(json).unwrap();
         assert_eq!(file.server_count, 10);
         assert!(file.uv_version.is_none());
+    }
+
+    /// bug-384: the post-init fallback treats a single agent row as proof of
+    /// usable setup, even when `setup-complete.json` and the MCP bundle are
+    /// absent (the Skip-path case). The first migration seed inserts
+    /// `agent.cloto_default` unconditionally, so this is true from the very
+    /// first kernel boot.
+    #[tokio::test]
+    async fn test_db_has_agents_after_init() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        // Sanity: empty pool reports no agents.
+        assert!(!db_has_agents(&pool).await);
+        // After init_db, the cloto_default seed row exists.
+        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+            .await
+            .unwrap();
+        assert!(db_has_agents(&pool).await);
     }
 }

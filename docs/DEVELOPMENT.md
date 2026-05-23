@@ -89,6 +89,15 @@ Always review this list before making code changes and adhere to the constraints
 | Process facial images | Do not save or externally transmit raw facial video | Prevents biometric data leakage. Stream coordinate data only |
 | Share gaze data | Do not stream gaze data to non-permitted domains | "What someone is looking at" is itself sensitive information |
 
+### 1.9 Setup State: Minimum Proof of Boot
+
+**Goal**: Treat `setup_complete` as a single, narrow contract — "the kernel can boot and serve a usable agent" — so that frontend gates do not re-prompt users who have intentionally bypassed optional install paths.
+
+| Step | DO NOT | Reason |
+| :--- | :--- | :--- |
+| Compute `setup_complete` in `handlers/setup.rs::status_handler` | Do not require MCP-server bundles or a Python venv as invariants of `setup_complete` | The Setup Wizard's Skip path produces no install artefacts on disk; requiring them would loop the user through the wizard on every launch (bug-384). MCP-bundle presence is surfaced separately via the `mcp_servers_present` / `venv_exists` fields for the dashboard's quality-of-life signals |
+| Detect version-upgrade re-setup needs | Do not rely on the `status_handler` fallback to force a wizard re-show on version mismatch | The batch installer (`handlers/marketplace.rs::run_batch_install`) owns stale-version cleanup; the status fallback's role is "is the kernel usable?", not "should the user re-run the wizard?" |
+
 ---
 
 ## 2. Current Refactoring Status
