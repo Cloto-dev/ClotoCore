@@ -2824,6 +2824,20 @@
       "fixed_in": "0.6.4",
       "fix_note": "DATABASE_URL fallback (config.rs) and the storage directories created at boot (lib.rs L62 tracing, L384 attachments/avatars/vrm/speech) were hard-coded to `exe_dir()/data/`. NSIS places `cloto-system.exe` under `C:\\Program Files\\cloto-system\\` which is not user-writable for standard accounts, so `create_dir_all` returned `ERROR_ACCESS_DENIED` and the FATAL `?` at lib.rs:370 crashed the kernel on first boot. Introduced `config::data_dir()` helper that takes a dev/prod split via `is_dev_layout()`: dev (Cargo.toml detected by walking up from current exe) keeps `<exe_dir>/data` to preserve `target/debug/data/cloto_memories.db`; production routes through `dirs::data_dir().join(\"cloto-system\")` giving `%APPDATA%\\Roaming\\cloto-system\\` on Windows, `~/Library/Application Support/cloto-system/` on macOS, `~/.local/share/cloto-system/` on Linux. handlers/agents.rs speech reader updated to match. MCP server bundle layout (mcp_venv.rs / managers/mcp.rs `<exe_dir>/data/mcp-servers/`) is a separate workflow tracked as follow-up.",
       "github_issue": 130
+    },
+    {
+      "id": "bug-385",
+      "summary": "CRITICAL: 'Failed to apply update' — applyUpdate spawns non-existent sidecar 'cloto_system' via @tauri-apps/plugin-shell, bypassing the configured Tauri Updater plugin",
+      "severity": "CRITICAL",
+      "discovered": "2026-05-24T00:00:00Z",
+      "version": "0.6.4",
+      "commit": "a420e01",
+      "file": "dashboard/src/lib/tauri.ts",
+      "pattern": "Command\\.create\\('cloto_system'",
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.5",
+      "fix_note": "applyUpdate() shelled out to a sidecar binary `cloto_system` via @tauri-apps/plugin-shell, but the binary is never bundled into the NSIS / DMG / .deb installer — `bundle.externalBin` is unset in tauri.conf.json and the release.yml build-tauri jobs do not copy the standalone cloto_system bin into the app bundle. Every Update Now click failed at Command.create() with a 'program not found' style error, which the UI surfaced as the default 'Failed to apply update' message. Compounded by checkForUpdates() using GitHub API directly (rate-limited 60 req/h unauth) instead of the configured Tauri Updater endpoint. The Tauri Updater plugin itself was fully wired up (pubkey + endpoint=latest.json + createUpdaterArtifacts:'v1Compatible'), and CI generated a valid latest.json per release — the dashboard simply never invoked it. Switched applyUpdate() to @tauri-apps/plugin-updater check() + downloadAndInstall() and @tauri-apps/plugin-process relaunch(); unified checkForUpdates() to the same check() API to drop the GitHub API path; removed the now-dead shell:allow-execute cloto_system entry from capabilities/default.json. Affects all installer paths from 0.6.3 onward — existing 0.6.3 / 0.6.4 users must manually download 0.6.5 to recover the auto-update flow. Known limitation: latest.json resolves via GitHub `/releases/latest/download/` which only points to stable releases; pre-release channel discovery is deferred to a future feature."
     }
   ]
 }

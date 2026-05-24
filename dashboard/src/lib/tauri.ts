@@ -223,80 +223,63 @@ export interface UpdateInfo {
 }
 
 /**
- * Parse a semver string into [major, minor, patch] + optional pre-release tag.
- * Stable releases are considered NEWER than pre-releases of the same version.
+ * Check for updates via the Tauri Updater plugin. Reads `latest.json` from the
+ * GitHub release endpoint configured in `tauri.conf.json`. Browser mode is a
+ * no-op (returns `available: false`).
+ *
+ * The endpoint resolves through GitHub's `/releases/latest/download/` URL, which
+ * always points to the latest STABLE release — pre-release channel discovery is
+ * deferred to a future feature.
  */
-function parseSemver(v: string): { nums: number[]; pre: string | null } {
-  const [core, ...preParts] = v.split('-');
-  const nums = core.split('.').map((n) => Number.parseInt(n, 10) || 0);
-  const pre = preParts.length > 0 ? preParts.join('-') : null;
-  return { nums, pre };
-}
-
-function isNewerVersion(current: string, latest: string): boolean {
-  const c = parseSemver(current);
-  const l = parseSemver(latest);
-  // Compare major.minor.patch
-  for (let i = 0; i < 3; i++) {
-    if ((l.nums[i] || 0) !== (c.nums[i] || 0)) return (l.nums[i] || 0) > (c.nums[i] || 0);
-  }
-  // Same major.minor.patch — compare pre-release
-  // stable (null) > pre-release ("alpha.2")
-  if (c.pre !== null && l.pre === null) return true; // current is pre, latest is stable → upgrade
-  if (c.pre === null && l.pre !== null) return false; // current is stable, latest is pre → no downgrade
-  if (c.pre === null && l.pre === null) return false; // both stable, same version
-  // Both pre-release: compare segments (e.g. alpha.4 vs alpha.5)
-  const cParts = c.pre!.split('.');
-  const lParts = l.pre!.split('.');
-  const len = Math.max(cParts.length, lParts.length);
-  for (let i = 0; i < len; i++) {
-    if (cParts[i] === undefined) return true; // latest has more segments → newer
-    if (lParts[i] === undefined) return false;
-    const cn = Number(cParts[i]);
-    const ln = Number(lParts[i]);
-    if (!Number.isNaN(cn) && !Number.isNaN(ln)) {
-      if (ln !== cn) return ln > cn;
-    } else if (lParts[i] !== cParts[i]) {
-      return lParts[i] > cParts[i];
-    }
-  }
-  return false;
-}
-
 export async function checkForUpdates(): Promise<UpdateInfo> {
   const current = __APP_VERSION__;
-  const isCurrentPreRelease = parseSemver(current).pre !== null;
-
-  const resp = await fetch('https://api.github.com/repos/Cloto-dev/ClotoCore/releases?per_page=30', {
-    headers: { Accept: 'application/vnd.github.v3+json' },
-  });
-  if (!resp.ok) throw new Error(`GitHub API error: ${resp.status}`);
-  const releases: Array<{ tag_name: string; prerelease: boolean; draft: boolean; published_at: string; body: string }> =
-    await resp.json();
-
-  // Pre-release users: newest overall. Stable users: newest stable only.
-  const published = releases.filter((r) => !r.draft);
-  const target = isCurrentPreRelease ? published[0] : published.find((r) => !r.prerelease);
-
-  if (!target) {
+  if (!isTauri) {
     return { available: false, currentVersion: current, latestVersion: current };
   }
-
-  const latest = (target.tag_name || '').replace(/^v/, '');
+  const { check } = await import('@tauri-apps/plugin-updater');
+  const update = await check();
+  if (!update) {
+    return { available: false, currentVersion: current, latestVersion: current };
+  }
   return {
-    available: isNewerVersion(current, latest),
-    currentVersion: current,
-    latestVersion: latest,
-    releaseDate: target.published_at,
-    releaseNotes: target.body,
+    available: true,
+    currentVersion: update.currentVersion,
+    latestVersion: update.version,
+    releaseDate: update.date,
+    releaseNotes: update.body,
   };
 }
 
+/**
+ * Download and install the available update, then relaunch the app.
+ * Throws when not in desktop mode or no update is available.
+ *
+ * On Windows (NSIS), the installer terminates the running process and starts
+ * the new exe itself, so the `relaunch()` call may reject — that is expected
+ * and is swallowed. On macOS / Linux (.AppImage), `relaunch()` performs the
+ * restart explicitly.
+ */
 export async function applyUpdate(): Promise<string> {
   if (!isTauri) throw new Error('Update can only be applied in desktop mode');
-  const { Command } = await import('@tauri-apps/plugin-shell');
-  const cmd = Command.create('cloto_system', ['update', '--yes']);
-  const output = await cmd.execute();
-  if (output.code !== 0) throw new Error(output.stderr || 'Update failed');
-  return output.stdout;
+  const { check } = await import('@tauri-apps/plugin-updater');
+  const { relaunch } = await import('@tauri-apps/plugin-process');
+  const update = await check();
+  if (!update) throw new Error('No update available');
+  let downloaded = 0;
+  let contentLength = 0;
+  await update.downloadAndInstall((event) => {
+    if (event.event === 'Started') {
+      contentLength = event.data.contentLength ?? 0;
+    } else if (event.event === 'Progress') {
+      downloaded += event.data.chunkLength;
+    }
+  });
+  const sizeBytes = contentLength || downloaded;
+  const sizeMb = sizeBytes / 1_048_576;
+  try {
+    await relaunch();
+  } catch {
+    // NSIS installer may have already killed the process
+  }
+  return `Updated to v${update.version} (${sizeMb.toFixed(1)} MB). Restarting…`;
 }
