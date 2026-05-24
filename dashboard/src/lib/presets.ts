@@ -4,14 +4,7 @@ import { Box, Layers, type LucideIcon, Shield, Zap } from 'lucide-react';
 
 export const MINIMAL_SERVERS = ['cpersona', 'tool.agent_utils'];
 
-export const STANDARD_SERVERS = [
-  'cpersona',
-  'tool.cron',
-  'tool.terminal',
-  'tool.websearch',
-  'tool.research',
-  'tool.agent_utils',
-];
+export const STANDARD_SERVERS = ['cpersona', 'tool.cron', 'tool.terminal', 'tool.websearch', 'tool.agent_utils'];
 
 export const ADVANCED_SERVERS = [...STANDARD_SERVERS, 'tool.imagegen', 'tool.embedding'];
 

@@ -58,10 +58,9 @@ fn classify_latency_tier(server_id: &str, tool_name: &str) -> LatencyTier {
 
     match (suffix, tool_name) {
         // Tier S — very expensive
-        ("imagegen", "generate_image")
-        | ("research", "deep_research")
-        | ("stt", "transcribe")
-        | ("capture", "analyze_image") => LatencyTier::S,
+        ("imagegen", "generate_image") | ("stt", "transcribe") | ("capture", "analyze_image") => {
+            LatencyTier::S
+        }
 
         // Tier A — network or moderate LLM
         ("websearch", "fetch_page")
@@ -1594,17 +1593,6 @@ mod tests {
                 ],
             ),
             (
-                "tool.research",
-                vec![
-                    ("deep_research", "Conduct deep research on a topic", 5),
-                    (
-                        "summarize_sources",
-                        "Summarize multiple research sources",
-                        4,
-                    ),
-                ],
-            ),
-            (
                 "tool.capture",
                 vec![
                     ("screenshot", "Capture a screenshot of the screen", 4),
@@ -1708,8 +1696,8 @@ mod tests {
 
         // Assertions: meaningful reduction must be achieved
         assert!(
-            total_tools >= 40,
-            "Realistic deployment should have 40+ tools, got {total_tools}"
+            total_tools >= 35,
+            "Realistic deployment should have 35+ tools, got {total_tools}"
         );
         assert!(
             reduction_pct >= 50.0,
@@ -1809,22 +1797,19 @@ mod tests {
     fn latency_tier_affects_scoring() {
         let index = ToolIndex::new();
 
-        // Two tools with the keyword "search" — one Tier C (websearch), one Tier S (research)
-        let fast_tool = make_tool("web_search", "Search the web for information");
-        let slow_tool = make_tool(
-            "deep_research",
-            "Deep research search across multiple sources",
-        );
+        // Two tools with the keyword "image" — one Tier C (websearch), one Tier S (imagegen)
+        let fast_tool = make_tool("search_image_results", "Search the web for image pages");
+        let slow_tool = make_tool("generate_image", "Generate an image via Stable Diffusion");
 
         index.add_server_tools("tool.websearch", &[fast_tool], |_| None);
-        index.add_server_tools("tool.research", &[slow_tool], |_| None);
+        index.add_server_tools("tool.imagegen", &[slow_tool], |_| None);
 
-        let results = index.search_keyword("search", 10, &ToolSearchFilter::default());
-        assert!(results.len() >= 2, "Both tools should match 'search'");
+        let results = index.search_keyword("image", 10, &ToolSearchFilter::default());
+        assert!(results.len() >= 2, "Both tools should match 'image'");
 
-        // web_search (Tier C, multiplier 1.0) should rank above deep_research (Tier S, multiplier 0.5)
+        // search_image_results (Tier C, multiplier 1.0) should rank above generate_image (Tier S, multiplier 0.5)
         assert_eq!(
-            results[0].0.name, "web_search",
+            results[0].0.name, "search_image_results",
             "Tier C tool should rank above Tier S tool for equal keyword relevance"
         );
         assert!(
@@ -1840,10 +1825,6 @@ mod tests {
         // Tier S
         assert_eq!(
             classify_latency_tier("tool.imagegen", "generate_image"),
-            LatencyTier::S
-        );
-        assert_eq!(
-            classify_latency_tier("tool.research", "deep_research"),
             LatencyTier::S
         );
         assert_eq!(
