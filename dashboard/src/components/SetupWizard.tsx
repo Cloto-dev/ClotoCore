@@ -40,7 +40,7 @@ import { SERVER_PRESETS, STANDARD_SERVERS } from '../lib/presets';
 const ENGINE_IDS = ['mind.cerebras', 'mind.groq', 'mind.deepseek', 'mind.claude', 'mind.local', 'mind.ollama'] as const;
 
 const ALL_SELECTABLE_SERVER_IDS = [
-  'memory.cpersona',
+  'cpersona',
   'tool.terminal',
   'tool.cron',
   'tool.websearch',
@@ -54,7 +54,7 @@ const ALL_SELECTABLE_SERVER_IDS = [
   'voice.tts',
 ] as const;
 
-/** Map server ID → translation key (e.g., "memory.cpersona" → "server_memory_cpersona") */
+/** Map server ID → translation key (e.g., "tool.terminal" → "server_tool_terminal", "cpersona" → "server_cpersona") */
 function serverTKey(id: string): string {
   return `server_${id.replace('.', '_')}`;
 }

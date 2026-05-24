@@ -266,7 +266,7 @@ async fn seed_mcp_server(pool: &sqlx::SqlitePool, name: &str) {
 async fn test_put_agent_mcp_access_replaces_grants() {
     let state = create_test_app_state(Some("test-key".to_string())).await;
     seed_mcp_server(&state.pool, "terminal").await;
-    seed_mcp_server(&state.pool, "memory.cpersona").await;
+    seed_mcp_server(&state.pool, "cpersona").await;
     seed_mcp_server(&state.pool, "mind.deepseek").await;
 
     // Pre-existing grant that should be removed by the replacement.
@@ -283,7 +283,7 @@ async fn test_put_agent_mcp_access_replaces_grants() {
     let app = create_test_router(state.clone());
 
     let payload = json!({
-        "granted_server_ids": ["terminal", "memory.cpersona"]
+        "granted_server_ids": ["terminal", "cpersona"]
     });
 
     let response = app
@@ -314,7 +314,7 @@ async fn test_put_agent_mcp_access_replaces_grants() {
     .expect("query grants");
 
     let server_ids: Vec<String> = rows.into_iter().map(|(s,)| s).collect();
-    assert_eq!(server_ids, vec!["memory.cpersona", "terminal"]);
+    assert_eq!(server_ids, vec!["cpersona", "terminal"]);
 }
 
 #[tokio::test]
@@ -389,7 +389,7 @@ async fn test_put_agent_mcp_access_auto_creates_missing_server_row() {
     let app = create_test_router(state.clone());
 
     let payload = json!({
-        "granted_server_ids": ["terminal", "memory.cpersona"]
+        "granted_server_ids": ["terminal", "cpersona"]
     });
 
     let response = app
@@ -413,7 +413,7 @@ async fn test_put_agent_mcp_access_auto_creates_missing_server_row() {
     // config-loaded placeholders.
     let server_rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT name, command FROM mcp_servers \
-         WHERE name IN ('terminal', 'memory.cpersona') ORDER BY name",
+         WHERE name IN ('terminal', 'cpersona') ORDER BY name",
     )
     .fetch_all(&state.pool)
     .await

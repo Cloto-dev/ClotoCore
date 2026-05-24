@@ -32,7 +32,7 @@
   "engine_claude": "Claude",
   "engine_local": "Local LLM (Recommended)",
   "engine_ollama": "Ollama (Alternative)",
-  "server_memory_cpersona": "CPersona Memory",
+  "server_cpersona": "CPersona Memory",
   "server_tool_terminal": "Terminal",
   "server_tool_cron": "Cron Scheduler",
   "server_tool_websearch": "Web Search",
