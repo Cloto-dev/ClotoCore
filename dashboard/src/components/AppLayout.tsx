@@ -83,7 +83,7 @@ export function AppLayout() {
         {!immersive && (
           <ViewHeader
             icon={Cpu}
-            title="Cloto System"
+            title="ClotoCore"
             onHelp={() => setHelpOpen(true)}
             navBack={() => navigate(-1)}
             navForward={() => navigate(1)}

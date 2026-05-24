@@ -105,11 +105,11 @@ tar xzf "${TMPDIR}/${ARCHIVE}" -C "${TMPDIR}"
 # --- Install via the binary's self-install command ---
 EXTRACTED_DIR="${TMPDIR}/cloto-${VERSION_NUM}-${PLATFORM}"
 
-if [[ ! -f "${EXTRACTED_DIR}/cloto_system" ]]; then
+if [[ ! -f "${EXTRACTED_DIR}/clotocore" ]]; then
     error "Binary not found in archive"
 fi
 
-chmod +x "${EXTRACTED_DIR}/cloto_system"
+chmod +x "${EXTRACTED_DIR}/clotocore"
 
 echo ""
 echo -e "${CYAN}Installing to ${INSTALL_DIR}...${NC}"
@@ -120,13 +120,13 @@ INSTALL_ARGS=(install --prefix "${INSTALL_DIR}")
 
 # The binary's install command handles: file placement, .env generation,
 # Python setup, and optional systemd service registration.
-sudo "${EXTRACTED_DIR}/cloto_system" "${INSTALL_ARGS[@]}"
+sudo "${EXTRACTED_DIR}/clotocore" "${INSTALL_ARGS[@]}"
 
 echo ""
 echo -e "${GREEN}ClotoCore v${VERSION_NUM} installed successfully.${NC}"
 echo ""
-echo -e "  Binary:    ${CYAN}${INSTALL_DIR}/cloto_system${NC}"
+echo -e "  Binary:    ${CYAN}${INSTALL_DIR}/clotocore${NC}"
 echo -e "  Dashboard: ${CYAN}http://localhost:8081${NC}"
-echo -e "  Manage:    ${CYAN}${INSTALL_DIR}/cloto_system service start|stop|status${NC}"
-echo -e "  Uninstall: ${CYAN}${INSTALL_DIR}/cloto_system uninstall${NC}"
+echo -e "  Manage:    ${CYAN}${INSTALL_DIR}/clotocore service start|stop|status${NC}"
+echo -e "  Uninstall: ${CYAN}${INSTALL_DIR}/clotocore uninstall${NC}"
 echo ""

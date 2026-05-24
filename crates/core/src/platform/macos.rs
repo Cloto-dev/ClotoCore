@@ -15,7 +15,7 @@ fn plist_path() -> std::path::PathBuf {
 
 /// Generate launchd plist content
 fn plist_content(prefix: &Path) -> String {
-    let exec_path = prefix.join("cloto_system");
+    let exec_path = prefix.join("clotocore");
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

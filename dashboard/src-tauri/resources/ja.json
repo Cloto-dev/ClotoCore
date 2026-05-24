@@ -27,7 +27,7 @@
       "disconnected": "未接続"
     },
     "boot": {
-      "title": "CLOTO SYSTEM",
+      "title": "CLOTOCORE",
       "lines": [
         "ニューラルパスウェイを初期化中...",
         "認知マトリクスを校正中...",
@@ -568,7 +568,7 @@
     "step_of": "{{current}} / {{total}}"
   },
   "setup": {
-    "title": "CLOTO SYSTEM",
+    "title": "CLOTOCORE",
     "subtitle": "初回セットアップ",
     "checking": "システム要件を確認中...",
     "step_download_uv": "uv をダウンロード",
