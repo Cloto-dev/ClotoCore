@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, mpsc, Notify, RwLock};
 
 pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::AppState> {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    crate::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 

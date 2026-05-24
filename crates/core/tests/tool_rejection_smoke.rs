@@ -26,7 +26,7 @@ fn simulate_agentic_loop_outcome(tool_result: Result<Value, ToolFailure>) -> (bo
 
 async fn setup_manager(yolo: bool) -> McpClientManager {
     let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
     McpClientManager::new(pool, yolo, 120, 30)

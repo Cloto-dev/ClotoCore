@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 #[tokio::test]
 async fn test_system_handler_loop_prevention() {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 
@@ -75,7 +75,7 @@ async fn build_cron_test_handler(
     mpsc::Receiver<cloto_core::EnvelopedEvent>,
 ) {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 

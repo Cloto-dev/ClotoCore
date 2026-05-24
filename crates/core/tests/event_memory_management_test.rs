@@ -12,7 +12,7 @@ async fn create_test_processor(
     max_history_size: usize,
 ) -> (Arc<EventProcessor>, Arc<RwLock<VecDeque<SequencedEvent>>>) {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 
