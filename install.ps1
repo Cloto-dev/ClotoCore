@@ -133,7 +133,7 @@ function Register-Uninstaller {
     Set-ItemProperty -Path $RegKey -Name "Publisher" -Value "ClotoCore Project"
     Set-ItemProperty -Path $RegKey -Name "InstallLocation" -Value $InstallDir
     Set-ItemProperty -Path $RegKey -Name "UninstallString" -Value "powershell.exe -ExecutionPolicy Bypass -File `"$UninstallScript`""
-    Set-ItemProperty -Path $RegKey -Name "DisplayIcon" -Value (Join-Path $InstallDir "cloto_system.exe")
+    Set-ItemProperty -Path $RegKey -Name "DisplayIcon" -Value (Join-Path $InstallDir "clotocore.exe")
     Set-ItemProperty -Path $RegKey -Name "NoModify" -Value 1 -Type DWord
     Set-ItemProperty -Path $RegKey -Name "NoRepair" -Value 1 -Type DWord
     Set-ItemProperty -Path $RegKey -Name "InstallDate" -Value (Get-Date -Format "yyyyMMdd")
@@ -264,10 +264,10 @@ try {
     $ExtractDir = Join-Path $TmpDir "extracted"
     Expand-Archive -Path (Join-Path $TmpDir $Archive) -DestinationPath $ExtractDir -Force
 
-    $Binary = Join-Path $ExtractDir "cloto_system.exe"
+    $Binary = Join-Path $ExtractDir "clotocore.exe"
     if (-not (Test-Path $Binary)) {
         # Archive may contain a subdirectory
-        $Binary = Get-ChildItem -Path $ExtractDir -Recurse -Filter "cloto_system.exe" | Select-Object -First 1 -ExpandProperty FullName
+        $Binary = Get-ChildItem -Path $ExtractDir -Recurse -Filter "clotocore.exe" | Select-Object -First 1 -ExpandProperty FullName
         if (-not $Binary) {
             Write-Err "Binary not found in archive."
             exit 1
@@ -339,12 +339,12 @@ try {
     Write-Host ""
     Write-Step "ClotoCore v$VersionNum installed successfully!" -Color Green
     Write-Host ""
-    Write-Host "  Binary:    $InstallDir\cloto_system.exe" -ForegroundColor Cyan
+    Write-Host "  Binary:    $InstallDir\clotocore.exe" -ForegroundColor Cyan
     Write-Host "  Dashboard: http://localhost:8081" -ForegroundColor Cyan
-    Write-Host "  Manage:    cloto_system.exe service start|stop|status" -ForegroundColor Cyan
+    Write-Host "  Manage:    clotocore.exe service start|stop|status" -ForegroundColor Cyan
     Write-Host "  Uninstall: powershell -File `"$InstallDir\uninstall.ps1`"" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  NOTE: Restart your terminal to use 'cloto_system' from PATH." -ForegroundColor Yellow
+    Write-Host "  NOTE: Restart your terminal to use 'clotocore' from PATH." -ForegroundColor Yellow
     Write-Host ""
     Write-Log "Installation completed successfully: v$VersionNum -> $InstallDir"
 

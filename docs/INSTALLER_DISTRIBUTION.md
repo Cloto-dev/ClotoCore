@@ -45,13 +45,13 @@ Developer (tag push: v0.6.3)
   │     └── Upload to GitHub Releases
   │
   └── GitHub Releases (distribution point)
-        ├── cloto-system_0.6.3_x64-setup.exe       (Windows NSIS)
-        ├── cloto-system_0.6.3_x64-setup.nsis.zip  (for Tauri updater)
-        ├── cloto-system_0.6.3_x64-setup.nsis.zip.sig (Ed25519 signature)
-        ├── cloto-system_0.6.3_amd64.deb            (Linux DEB)
-        ├── cloto-system_0.6.3_amd64.AppImage        (Linux AppImage)
-        ├── cloto-system_0.6.3_aarch64.dmg           (macOS arm64 DMG)
-        ├── cloto-system_0.6.3_x64.dmg               (macOS x64 DMG)
+        ├── ClotoCore_0.6.6_x64-setup.exe       (Windows NSIS)
+        ├── ClotoCore_0.6.6_x64-setup.nsis.zip  (for Tauri updater)
+        ├── ClotoCore_0.6.6_x64-setup.nsis.zip.sig (Ed25519 signature)
+        ├── ClotoCore_0.6.6_amd64.deb               (Linux DEB)
+        ├── ClotoCore_0.6.6_amd64.AppImage           (Linux AppImage)
+        ├── ClotoCore_0.6.6_aarch64.dmg              (macOS arm64 DMG)
+        ├── ClotoCore_0.6.6_x64.dmg                  (macOS x64 DMG)
         ├── cloto-0.6.3-linux-x64.tar.gz             (CLI: Linux x64)
         ├── cloto-0.6.3-macos-arm64.tar.gz           (CLI: macOS arm64)
         ├── latest.json                              (auto-update: all desktop platforms)
@@ -79,7 +79,7 @@ Casual user:
 ### 3.1 Current State and Issues
 
 **Existing `release.yml`**:
-- Multi-platform build of CLI binary (`cloto_system`)
+- Multi-platform build of CLI binary (`clotocore`)
 - Windows GUI installer via Inno Setup
 - Checksum signing via cosign
 
@@ -151,7 +151,7 @@ Include a manifest for the Tauri updater endpoint in the GitHub Release.
   "platforms": {
     "windows-x86_64": {
       "signature": "<Ed25519 signature>",
-      "url": "https://github.com/Cloto-dev/ClotoCore/releases/download/v0.6.3/cloto-system_0.6.3_x64-setup.nsis.zip"
+      "url": "https://github.com/Cloto-dev/ClotoCore/releases/download/v0.6.3/ClotoCore_0.6.6_x64-setup.nsis.zip"
     }
   }
 }
@@ -166,7 +166,7 @@ Tauri's NSIS installer **replaces** Inno Setup.
 
 | Item | Inno Setup (current) | Tauri NSIS (new) |
 |------|---------------------|------------------|
-| Target binary | CLI (`cloto_system`) | Desktop app (`app.exe`) |
+| Target binary | CLI (`clotocore`) | Desktop app (`app.exe`) |
 | Dashboard | Via browser | Built-in Tauri WebView |
 | Auto-update | None | Ed25519 native |
 | Component selection | Defined in ISS | NSIS customization or in-app |

@@ -334,7 +334,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     let kernel_start = std::time::Instant::now();
 
     info!("+---------------------------------------+");
-    info!("|            Cloto System Kernel         |");
+    info!("|             ClotoCore Kernel           |");
     info!(
         "|             Version {:<10}      |",
         env!("CARGO_PKG_VERSION")
@@ -1219,7 +1219,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     // Signal deferred MCP boot that the HTTP server is now ready for callbacks.
     http_ready.notify_waiters();
     info!(
-        "🚀 Cloto System Kernel is listening on http://{}:{} (startup: {:.1}s)",
+        "🚀 ClotoCore Kernel is listening on http://{}:{} (startup: {:.1}s)",
         config.bind_address,
         config.port,
         kernel_start.elapsed().as_secs_f64()

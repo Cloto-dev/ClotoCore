@@ -7,7 +7,7 @@ const SERVICE_NAME: &str = "Cloto";
 
 /// Register Cloto as a Windows Service via sc.exe
 pub fn install_service(prefix: &Path, _user: Option<&str>) -> anyhow::Result<()> {
-    let exe_path = prefix.join("cloto_system.exe");
+    let exe_path = prefix.join("clotocore.exe");
 
     let status = Command::new("sc.exe")
         .args([
@@ -15,7 +15,7 @@ pub fn install_service(prefix: &Path, _user: Option<&str>) -> anyhow::Result<()>
             SERVICE_NAME,
             &format!("binPath={}", exe_path.display()),
             "start=auto",
-            "DisplayName=Cloto System",
+            "DisplayName=ClotoCore",
         ])
         .status()
         .context("Failed to run sc.exe (are you running as Administrator?)")?;

@@ -8,10 +8,10 @@ const SERVICE_FILE: &str = "/etc/systemd/system/cloto.service";
 
 /// Generate systemd service unit file content
 fn service_unit(prefix: &Path, user: &str) -> String {
-    let exec_start = prefix.join("cloto_system");
+    let exec_start = prefix.join("clotocore");
     format!(
         r"[Unit]
-Description=Cloto System
+Description=ClotoCore
 After=network.target
 
 [Service]

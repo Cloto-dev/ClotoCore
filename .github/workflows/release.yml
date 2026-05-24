@@ -60,35 +60,35 @@ jobs:
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             cross: false
-            binary: cloto_system
+            binary: clotocore
             archive: tar.gz
 
           - platform: linux-arm64
             os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             cross: true
-            binary: cloto_system
+            binary: clotocore
             archive: tar.gz
 
           - platform: macos-x64
             os: macos-latest
             target: x86_64-apple-darwin
             cross: false
-            binary: cloto_system
+            binary: clotocore
             archive: tar.gz
 
           - platform: macos-arm64
             os: macos-latest
             target: aarch64-apple-darwin
             cross: false
-            binary: cloto_system
+            binary: clotocore
             archive: tar.gz
 
           - platform: windows-x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
             cross: false
-            binary: cloto_system.exe
+            binary: clotocore.exe
             archive: zip
 
     runs-on: ${{ matrix.os }}
@@ -180,7 +180,7 @@ jobs:
 
           # Bare binary for self-update mechanism (update.rs expects this name)
           cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
-            "cloto_system-${{ matrix.target }}"
+            "clotocore-${{ matrix.target }}"
 
       - name: Package (zip)
         if: matrix.archive == 'zip'
@@ -199,7 +199,7 @@ jobs:
 
           # Bare binary for self-update mechanism
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" `
-            "cloto_system-${{ matrix.target }}"
+            "clotocore-${{ matrix.target }}"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -207,7 +207,7 @@ jobs:
           name: release-${{ matrix.platform }}
           path: |
             cloto-${{ steps.version.outputs.version }}-${{ matrix.platform }}.*
-            cloto_system-${{ matrix.target }}
+            clotocore-${{ matrix.target }}
           retention-days: 7
 
   build-tauri:
@@ -612,7 +612,7 @@ jobs:
           ## Install
 
           **Windows (Desktop App — recommended):**
-          Download **cloto-system_${VERSION}_x64-setup.exe** from the assets below and run the NSIS installer.
+          Download **ClotoCore_${VERSION}_x64-setup.exe** from the assets below and run the NSIS installer.
 
           **macOS (Desktop App):**
           Download the **.dmg** file for your architecture (arm64 for Apple Silicon, x64 for Intel) from the assets below.
