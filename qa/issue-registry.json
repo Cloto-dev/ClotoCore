@@ -2839,6 +2839,19 @@
       "fixed_in": "0.6.5",
       "fix_note": "applyUpdate() shelled out to a sidecar binary `cloto_system` via @tauri-apps/plugin-shell, but the binary is never bundled into the NSIS / DMG / .deb installer — `bundle.externalBin` is unset in tauri.conf.json and the release.yml build-tauri jobs do not copy the standalone cloto_system bin into the app bundle. Every Update Now click failed at Command.create() with a 'program not found' style error, which the UI surfaced as the default 'Failed to apply update' message. Compounded by checkForUpdates() using GitHub API directly (rate-limited 60 req/h unauth) instead of the configured Tauri Updater endpoint. The Tauri Updater plugin itself was fully wired up (pubkey + endpoint=latest.json + createUpdaterArtifacts:'v1Compatible'), and CI generated a valid latest.json per release — the dashboard simply never invoked it. Switched applyUpdate() to @tauri-apps/plugin-updater check() + downloadAndInstall() and @tauri-apps/plugin-process relaunch(); unified checkForUpdates() to the same check() API to drop the GitHub API path; removed the now-dead shell:allow-execute cloto_system entry from capabilities/default.json. Affects all installer paths from 0.6.3 onward — existing 0.6.3 / 0.6.4 users must manually download 0.6.5 to recover the auto-update flow. Known limitation: latest.json resolves via GitHub `/releases/latest/download/` which only points to stable releases; pre-release channel discovery is deferred to a future feature.",
       "github_issue": 135
+    },
+    {
+      "id": "bug-386",
+      "summary": "CRITICAL: 'Failed to apply update' on 0.6.5 → 0.6.6 auto-update — productName change (cloto-system → ClotoCore) suspected to break NSIS in-place upgrade path even though identifier (com.cloto.app) is unchanged",
+      "severity": "CRITICAL",
+      "discovered": "2026-05-24T00:00:00Z",
+      "version": "0.6.6",
+      "commit": "e4b8f5e",
+      "file": "dashboard/src-tauri/tauri.conf.json",
+      "pattern": "\"productName\": \"ClotoCore\"",
+      "expected": "present",
+      "status": "open",
+      "fix_note": "Symptom: 0.6.5 dashboard's Settings → Info shows 'v0.6.6 available' (Tauri Updater check() succeeded against latest.json), but clicking 'Update Now' surfaces the default 'Failed to apply update' message and the upgrade does not complete. Reproduces on the user's installed 0.6.5 (NSIS install at C:\\Program Files\\cloto-system\\) even after all 22 release assets (including ClotoCore_0.6.6_x64-setup.nsis.zip + .sig) are uploaded — so this is not a race condition (which is tracked separately as a contributing factor). Highest-confidence root-cause hypothesis: the 0.6.6 release flipped productName from cloto-system to ClotoCore, which moves the Tauri NSIS default install path from {autopf}\\cloto-system\\ to {autopf}\\ClotoCore\\; the Tauri Updater plugin's downloadAndInstall() runs the new NSIS installer in silent mode, but the path / registry mismatch leaves the upgrade in a state the plugin reports as failure. an earlier decision description explicitly flagged this as a sub-risk and required Windows Sandbox in-place upgrade verify pre-tag; the maintainer chose case-B (skip Sandbox verify) for the 0.6.6 release and this bug realized that risk. The pattern targets the offending productName value so verify-issues.sh surfaces this as VERIFIED (bug evidence present) until the hotfix lands. Tracked in an earlier decision (an earlier decision, 0.6.7 hotfix). Fix candidates: (i) revert productName to cloto-system while keeping bin name = clotocore (cosmetic compromise — UI brand split from binary name); (ii) extend the NSIS template with an upgrade hook that detects the legacy install location and migrates; (iii) ship a user-side migration script that moves the install dir before applyUpdate runs."
     }
   ]
 }
