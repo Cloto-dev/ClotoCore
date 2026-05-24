@@ -7,6 +7,44 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.6] — 2026-05-24
+
+Kernel structural cleanup release. Two long-pending architectural threads ship together in a single release with bisect-friendly per-PR isolation: (1) the surface product is renamed `cloto-system` → `ClotoCore` to align with the three-layer doctrine (`ClotoCore + ClotoCloud + Cloto アプリ + ClotoHub`), and (2) the kernel is decoupled from hardcoded knowledge of any specific memory plugin id. Cumulative since v0.6.5.
+
+### Changed
+
+- **Product rename `cloto-system` → `ClotoCore`** (PR #136). `productName` in `tauri.conf.json`, the Cargo `[[bin]]` name (`cloto_system` → `clotocore`, separate from the existing `cloto` Magic Seal CLI), all user-facing display strings (`"Cloto System"` / `"CLOTO SYSTEM"` → `"ClotoCore"` / `"CLOTOCORE"`), `cli.rs` invocation help / version banner / self-update asset lookup pattern (`cloto_system-{target}` → `clotocore-{target}`), platform service `DisplayName` / systemd `Description`, dashboard tray tooltip, i18n titles, NSIS release artifact branding, install scripts (`install.ps1` / `install.sh`), and `docs/INSTALLER_DISTRIBUTION.md` artifact examples. Preserved invariants (rename-safe — would break in-place upgrade): `identifier = com.cloto.app`, `cli.rs default_prefix` (`/opt/cloto`, `C:\ProgramData\Cloto`), macOS launchd `SERVICE_LABEL = com.cloto.system`, Linux systemd `SERVICE_NAME = cloto`, Windows `sc.exe SERVICE_NAME = Cloto`, `config.rs:37 data_dir = ".../cloto-system"` (existing users' chat history / agent state / embedding namespaces live under this path).
+
+- **Memory plugin decouple Phase A + B** (PR #137). `config.memory_plugin_id: String` → `Option<String>` (env empty/unset → `None`); `db::init_db(..., memory_plugin_id: Option<&str>)` signature change; `plugin_configs.database_url` INSERT gated on `Some(_)` so kernel boots successfully without an embedded-plugin seed. `handlers/marketplace.rs::register_server` gained a `bind_default_memory_if_unset` helper — when a `category == "memory"` plugin installs, the helper mirrors its id into `agent.cloto_default.metadata.preferred_memory` (only if absent / empty, never clobbers a user's manual choice). 41 test fixtures across `tests/` / `benches/` / `src/test_utils.rs` / `db/mod.rs` unit tests switched `init_db(..., "memory.cpersona")` → `init_db(..., None)`. Aligns with MGP §10 invariant 3 (open standard, no privileged plugin).
+
+- **Memory plugin id rename `memory.cpersona` → `cpersona`** (PR #138). Catalog-canonical id propagated across dashboard preset lists (`presets.ts` MINIMAL / STANDARD / ADVANCED / EXPERT_SERVERS), `SetupWizard.tsx` `ALL_SELECTABLE_SERVER_IDS`, i18n keys (`server_memory_cpersona` → `server_cpersona`), `handlers_http_test.rs` test fixtures, and `README.md` MCP server table. Intentionally preserved: historical migration SQL literals (sqlx checksum constraint), `marketplace.rs::effective_install_dir` legacy backward-compat tests, `handlers/mcp.rs` dotted-id acceptance test, `capability_dispatcher` test fixtures, `format.test.ts` namespace-stripping assertion, and 5 design docs that discuss both old/new ids (deferred to follow-up editorial pass).
+
+### Migrations
+
+- `20260524000000_backfill_default_memory.sql` — back-fills `agent.cloto_default.metadata.preferred_memory = 'cpersona'` for existing users whose pre-0.6.6 memory binding came from the env default (`CLOTO_MEMORY_PLUGIN_ID`) rather than dashboard selection. Idempotent: no-op when `preferred_memory` already has a value or when no memory plugin is installed yet.
+- `20260524010000_rename_memory_cpersona_to_cpersona.sql` — renames `mcp_servers.name` `memory.cpersona` → `cpersona`, re-issues the `mcp_access_control` `server_grant` row under the new id (DELETE + INSERT around the parent rename — mirrors the KS22 rename precedent at `20260309000000`, FK requires this shape), renames `plugin_configs.plugin_id`, and cosmetically normalises any `agent.metadata.preferred_memory = 'memory.cpersona'` row to `'cpersona'`. Idempotent: WHERE clauses target only legacy rows.
+
+### Backward compatibility
+
+- Users with `CLOTO_MEMORY_PLUGIN_ID=memory.cpersona` in env keep their pre-0.6.6 behavior (env value flows through as `Some(...)`, plugin_configs row written as before). Phase D migration then renames the row so `cpersona` becomes the canonical id.
+- `init_db(..., None)` is a new valid state — the kernel boots with no memory plugin pre-seeded, then the modern Setup Wizard / marketplace install path populates `preferred_memory` on the first memory-kind install (via `bind_default_memory_if_unset`).
+- Existing chat history, agent state, embedding namespaces, mcp_access_control grants — all preserved (`config.rs:37 data_dir` and `tauri.conf.json identifier` are explicitly held constant).
+
+### CI / QA
+
+- Test count: 324 tests pass (322 pre-0.6.6 + 2 new migration tests in `migration_test.rs` for Phase C+D smoke and Phase C idempotency).
+- `cargo fmt --all -- --check` + `cargo clippy --workspace --exclude app -- -D warnings -A …` (CI lint suppressions) + `npx biome lint src/` all clean.
+
+### Fixed-points (irreversible from this release)
+
+- `config.memory_plugin_id: Option<String>` (downstream test fixtures depend on Option semantics)
+- `agent.metadata.preferred_memory` is the single source of truth for per-agent memory plugin selection
+- `init_db` signature `Option<&str>`
+- Cargo `[[bin]] name = "clotocore"` (cascades to CI artifact names + install scripts + platform path constants)
+- `mcp_servers.name = 'cpersona'` for the CPersona plugin (no `memory.` prefix); legacy rows migrated and gone after first boot on 0.6.6+
+
+---
+
 ## [0.6.5] — 2026-05-24
 
 CRITICAL hotfix release. Restores the auto-update path for all installer-based ClotoCore installs by switching the dashboard from a broken sidecar shell-out to the configured Tauri Updater plugin. Cumulative since v0.6.4 (2026-05-23).
