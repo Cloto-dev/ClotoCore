@@ -125,7 +125,7 @@ All plugin functionality is delivered via **MCP (Model Context Protocol)** serve
 | `mind.cerebras` | Reasoning | Ultra-high-speed reasoning via Cerebras API |
 | `mind.claude` | Reasoning | Anthropic Claude API (native Messages API) |
 | `mind.ollama` | Reasoning | Local model inference via Ollama |
-| `memory.cpersona` | Memory | [CPersona](https://github.com/Cloto-dev/cloto-mcp-servers/tree/main/servers/cpersona) — persistent memory with RRF hybrid search (vector + FTS5 + keyword), confidence scoring, episodic/profile memory, 16 tools (MIT) |
+| `cpersona` | Memory | [CPersona](https://github.com/Cloto-dev/cloto-mcp-servers/tree/main/servers/cpersona) — persistent memory with RRF hybrid search (vector + FTS5 + keyword), confidence scoring, episodic/profile memory, 16 tools (MIT) |
 | `tool.terminal` | Tool | Sandboxed shell command execution |
 | `tool.agent_utils` | Tool | Deterministic utilities (time, math, UUID, hash, etc.) |
 | `tool.cron` | Tool | Stateless CRON job management via kernel REST API |

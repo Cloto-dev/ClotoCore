@@ -536,7 +536,7 @@
     "engine_claude": "Claude",
     "engine_local": "ローカル LLM (推奨)",
     "engine_ollama": "Ollama（代替）",
-    "server_memory_cpersona": "CPersona メモリ",
+    "server_cpersona": "CPersona メモリ",
     "server_tool_terminal": "ターミナル",
     "server_tool_cron": "Cron スケジューラ",
     "server_tool_websearch": "Web 検索",

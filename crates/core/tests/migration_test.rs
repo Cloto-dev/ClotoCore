@@ -244,3 +244,120 @@ async fn test_manual_register_leaves_marketplace_id_null() {
         "manual register must leave marketplace_id NULL"
     );
 }
+
+/// 0.6.6 Phase C+D smoke: assert the in-tree migrations rewrote the
+/// `memory.cpersona` seed (from `20260309100000_heal_default_agent.sql`) to
+/// the catalog-canonical `cpersona`, back-filled
+/// `agent.cloto_default.preferred_memory`, and renamed the FK-bound
+/// `mcp_access_control` row to match. The heal-migration seed gives us a
+/// realistic pre-0.6.6 starting state without any manual setup.
+#[tokio::test]
+async fn test_phase_cd_migrations_rewrite_legacy_memory_cpersona() {
+    let pool = fresh_pool().await;
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
+        .await
+        .unwrap();
+
+    // Phase D: legacy `memory.cpersona` row in mcp_servers (seeded by
+    // 20260309100000_heal_default_agent.sql) should have been renamed.
+    let legacy_server_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM mcp_servers WHERE name = 'memory.cpersona'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        legacy_server_count, 0,
+        "Phase D should rename 'memory.cpersona' out of mcp_servers"
+    );
+
+    let new_server_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM mcp_servers WHERE name = 'cpersona'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        new_server_count, 1,
+        "Phase D should leave exactly one 'cpersona' row in mcp_servers"
+    );
+
+    // Phase C: agent.cloto_default.preferred_memory back-filled to 'cpersona'.
+    let preferred: Option<String> = sqlx::query_scalar(
+        "SELECT json_extract(metadata, '$.preferred_memory') \
+         FROM agents WHERE id = 'agent.cloto_default'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        preferred.as_deref(),
+        Some("cpersona"),
+        "Phase C should back-fill preferred_memory='cpersona'"
+    );
+
+    // Phase D step 3: the migration-issued server_grant for the default agent
+    // points at the new id.
+    let new_grant_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM mcp_access_control \
+         WHERE server_id = 'cpersona' AND agent_id = 'agent.cloto_default' \
+           AND entry_type = 'server_grant'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        new_grant_count >= 1,
+        "Phase D should leave a 'cpersona' server_grant for the default agent"
+    );
+
+    // Phase D leaves no legacy access_control rows.
+    let legacy_grant_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM mcp_access_control WHERE server_id = 'memory.cpersona'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        legacy_grant_count, 0,
+        "Phase D should DELETE legacy access_control rows"
+    );
+}
+
+/// 0.6.6 Phase C+D idempotency: replaying Phase C against an init_db'd schema
+/// is a no-op — the EXISTS gate and the empty-or-null `preferred_memory`
+/// guard both fail, so a user who already picked a memory plugin manually
+/// keeps their choice.
+#[tokio::test]
+async fn test_phase_c_migration_preserves_manual_choice() {
+    let pool = fresh_pool().await;
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
+        .await
+        .unwrap();
+
+    // Overwrite the back-filled preferred_memory with a manual choice
+    // (simulating a user who picked a custom memory plugin via dashboard).
+    sqlx::query(
+        "UPDATE agents \
+         SET metadata = json_set(COALESCE(metadata, '{}'), '$.preferred_memory', 'custom.memory') \
+         WHERE id = 'agent.cloto_default'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Re-execute Phase C SQL: the guard should preserve the manual choice.
+    let phase_c = include_str!("../migrations/20260524000000_backfill_default_memory.sql");
+    sqlx::raw_sql(phase_c).execute(&pool).await.unwrap();
+
+    let preferred: Option<String> = sqlx::query_scalar(
+        "SELECT json_extract(metadata, '$.preferred_memory') \
+         FROM agents WHERE id = 'agent.cloto_default'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        preferred.as_deref(),
+        Some("custom.memory"),
+        "Phase C must not overwrite a non-empty manual preferred_memory"
+    );
+}
