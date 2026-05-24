@@ -1,7 +1,7 @@
 //! `cloto` — administrative CLI for ClotoCore.
 //!
 //! Currently provides Magic Seal management (MGP_ISOLATION_DESIGN.md §8 L0).
-//! Exists as a separate binary from `cloto_system` so the operator-facing
+//! Exists as a separate binary from `clotocore` so the operator-facing
 //! `cloto seal …` invocation matches the spec verbatim.
 //!
 //! Exit codes:

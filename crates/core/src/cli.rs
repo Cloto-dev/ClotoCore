@@ -5,9 +5,9 @@ use tracing::info;
 
 #[derive(Parser)]
 #[command(
-    name = "cloto_system",
+    name = "clotocore",
     version = env!("CARGO_PKG_VERSION"),
-    about = "Cloto System - AI Agent Orchestration Platform"
+    about = "ClotoCore - AI Agent Orchestration Platform"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -124,7 +124,7 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
             yes,
         } => update_command(check, version, yes).await,
         Commands::Version => {
-            println!("Cloto System v{}", env!("CARGO_PKG_VERSION"));
+            println!("ClotoCore v{}", env!("CARGO_PKG_VERSION"));
             println!("Build target: {}", env!("TARGET"));
             Ok(())
         }
@@ -183,12 +183,12 @@ async fn update_command(
     let current_version = env!("CARGO_PKG_VERSION");
     let target = env!("TARGET");
 
-    println!("Cloto System v{} ({})", current_version, target);
+    println!("ClotoCore v{} ({})", current_version, target);
     println!("Update repository: github.com/{}", repo);
     println!();
 
     let client = reqwest::Client::new();
-    let ua = format!("Cloto-System/{}", current_version);
+    let ua = format!("ClotoCore/{}", current_version);
 
     // Resolve the release to check
     let release: GitHubRelease = if let Some(ref ver) = target_version {
@@ -261,13 +261,13 @@ async fn update_command(
 
     if check_only {
         if latest_version != current_version {
-            println!("Update available. Run `cloto_system update` to apply.");
+            println!("Update available. Run `clotocore update` to apply.");
         }
         return Ok(());
     }
 
     // Find matching binary asset
-    let expected_name = format!("cloto_system-{}", target);
+    let expected_name = format!("clotocore-{}", target);
     let binary_asset = release
         .assets
         .iter()
@@ -374,7 +374,7 @@ async fn update_command(
     println!("SHA256: {}", computed_hash);
     println!();
     println!("Restart the service to use the new version:");
-    println!("  cloto_system service stop && cloto_system service start");
+    println!("  clotocore service stop && clotocore service start");
 
     Ok(())
 }

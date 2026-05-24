@@ -386,7 +386,7 @@ export function SetupWizard({ onComplete }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 bg-surface-base flex flex-col">
-      <ViewHeader icon={Settings} title="Cloto System" />
+      <ViewHeader icon={Settings} title="ClotoCore" />
 
       <div className="flex-1 flex items-center justify-center">
         <div className="bg-surface-primary border border-edge rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col">
@@ -394,7 +394,7 @@ export function SetupWizard({ onComplete }: Props) {
           <div className="p-8 min-h-[340px] flex flex-col items-center justify-center">
             {step === 0 && (
               <div className="text-center space-y-6">
-                <h1 className="text-3xl font-black tracking-[0.15em] text-content-primary">CLOTO SYSTEM</h1>
+                <h1 className="text-3xl font-black tracking-[0.15em] text-content-primary">CLOTOCORE</h1>
                 <p className="text-sm text-content-secondary max-w-sm">{t('welcome_desc')}</p>
                 <button
                   onClick={next}
