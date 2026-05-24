@@ -3081,7 +3081,7 @@ mod tests {
     #[tokio::test]
     async fn yolo_mode_initializes_correctly() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
 
@@ -3095,7 +3095,7 @@ mod tests {
     #[tokio::test]
     async fn yolo_mode_toggle_at_runtime() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
 
@@ -3112,7 +3112,7 @@ mod tests {
     #[tokio::test]
     async fn yolo_mode_affects_kernel_tool_schemas() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
 
@@ -3136,7 +3136,7 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_access_control() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
 
@@ -3163,7 +3163,7 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_audit_replay() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
 
@@ -3182,7 +3182,7 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_tier3_lifecycle() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
 
@@ -3209,7 +3209,7 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_tier3_streaming() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
 
@@ -3228,7 +3228,7 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_include_tier3_events() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
 
@@ -3259,7 +3259,7 @@ mod tests {
     #[tokio::test]
     async fn kernel_tools_total_count() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
 
@@ -3304,7 +3304,7 @@ mod tests {
     #[tokio::test]
     async fn yolo_mode_persisted_to_db() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
 

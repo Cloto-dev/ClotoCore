@@ -142,9 +142,20 @@ pub struct AppConfig {
     pub attachment_inline_threshold: usize,
     /// Default max iterations for cron jobs.
     pub cron_default_max_iterations: u8,
-    /// Default memory plugin ID for DB config initialization.
-    /// Overridable via CLOTO_MEMORY_PLUGIN_ID env var.
-    pub memory_plugin_id: String,
+    /// Legacy memory plugin ID seed for `plugin_configs.database_url`.
+    ///
+    /// In the modern design, `agent.metadata.preferred_memory` is the single
+    /// source of truth for each agent's memory plugin selection (handled by
+    /// `handlers::system::recall` via `registry.find_memory()` capability
+    /// discovery + per-agent metadata override). This field only seeds the
+    /// legacy embedded-plugin `database_url` config row for backward
+    /// compatibility with pre-0.6.6 installations where the env default was
+    /// the only source of memory binding.
+    ///
+    /// Overridable via `CLOTO_MEMORY_PLUGIN_ID` env var. Empty / unset → `None`
+    /// (= kernel boots with no embedded-plugin seeding; agent metadata drives
+    /// memory selection exclusively).
+    pub memory_plugin_id: Option<String>,
     /// Default API host whitelist for SafeHttpClient.
     /// Overridable via CLOTO_ALLOWED_API_HOSTS env var (comma-separated).
     pub default_allowed_api_hosts: Vec<String>,
@@ -541,8 +552,13 @@ impl AppConfig {
             );
         }
 
-        let memory_plugin_id =
-            env::var("CLOTO_MEMORY_PLUGIN_ID").unwrap_or_else(|_| "memory.cpersona".to_string());
+        // Decoupled from kernel knowledge: modern installs populate
+        // agent.metadata.preferred_memory via Setup Wizard / marketplace
+        // install path. Env override remains for users running the kernel
+        // without the dashboard (CLI-only / service-mode).
+        let memory_plugin_id = env::var("CLOTO_MEMORY_PLUGIN_ID")
+            .ok()
+            .filter(|s| !s.is_empty());
 
         // P1: Configurable API host whitelist (default providers included for compatibility)
         let default_allowed_api_hosts = env::var("CLOTO_ALLOWED_API_HOSTS").map_or_else(

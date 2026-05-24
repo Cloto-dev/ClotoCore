@@ -281,7 +281,7 @@ impl PluginDataStore for ScopedDataStore {
 pub async fn init_db(
     pool: &SqlitePool,
     database_url: &str,
-    memory_plugin_id: &str,
+    memory_plugin_id: Option<&str>,
 ) -> anyhow::Result<()> {
     info!("Running database migrations & seeds...");
 
@@ -304,11 +304,18 @@ pub async fn init_db(
 
     info!("Applying runtime configurations...");
 
-    // Configs that depend on runtime environment
-    sqlx::query("INSERT OR REPLACE INTO plugin_configs (plugin_id, config_key, config_value) VALUES (?, 'database_url', ?)")
-        .bind(memory_plugin_id)
-        .bind(database_url)
-        .execute(pool).await?;
+    // Legacy embedded-plugin seeding: when CLOTO_MEMORY_PLUGIN_ID is set,
+    // mirror the database_url into plugin_configs so a process that boots
+    // without dashboard-driven setup can still resolve the memory plugin's
+    // backing store. With the kernel decoupled in 0.6.6, the modern path
+    // (Setup Wizard / marketplace install) writes agent.metadata.preferred_memory
+    // instead and skips this seed entirely.
+    if let Some(plugin_id) = memory_plugin_id {
+        sqlx::query("INSERT OR REPLACE INTO plugin_configs (plugin_id, config_key, config_value) VALUES (?, 'database_url', ?)")
+            .bind(plugin_id)
+            .bind(database_url)
+            .execute(pool).await?;
+    }
 
     // API keys are NOT persisted to the database for security.
     // Plugins receive API keys at runtime via environment variables
@@ -325,9 +332,7 @@ mod tests {
     #[tokio::test]
     async fn test_audit_log_roundtrip() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        init_db(&pool, "sqlite::memory:", "memory.cpersona")
-            .await
-            .unwrap();
+        init_db(&pool, "sqlite::memory:", None).await.unwrap();
 
         let entry = AuditLogEntry {
             timestamp: Utc::now(),
@@ -354,9 +359,7 @@ mod tests {
     #[tokio::test]
     async fn test_audit_log_ordering() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        init_db(&pool, "sqlite::memory:", "memory.cpersona")
-            .await
-            .unwrap();
+        init_db(&pool, "sqlite::memory:", None).await.unwrap();
 
         // Insert multiple entries
         for i in 1..=5 {
@@ -386,9 +389,7 @@ mod tests {
     #[tokio::test]
     async fn test_permission_request_lifecycle() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        init_db(&pool, "sqlite::memory:", "memory.cpersona")
-            .await
-            .unwrap();
+        init_db(&pool, "sqlite::memory:", None).await.unwrap();
 
         // Create a permission request
         let request = PermissionRequest {
@@ -426,9 +427,7 @@ mod tests {
     #[tokio::test]
     async fn test_multiple_permission_requests() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        init_db(&pool, "sqlite::memory:", "memory.cpersona")
-            .await
-            .unwrap();
+        init_db(&pool, "sqlite::memory:", None).await.unwrap();
 
         // Create multiple requests
         for i in 1..=3 {

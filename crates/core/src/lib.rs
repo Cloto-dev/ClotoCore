@@ -438,7 +438,12 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .pragma("foreign_keys", "ON")
         .pragma("synchronous", "NORMAL");
     let pool = sqlx::SqlitePool::connect_with(opts).await?;
-    db::init_db(&pool, &config.database_url, &config.memory_plugin_id).await?;
+    db::init_db(
+        &pool,
+        &config.database_url,
+        config.memory_plugin_id.as_deref(),
+    )
+    .await?;
 
     // 1b. Sync API keys from environment variables into llm_providers table
     db::sync_env_api_keys(&pool, &config.llm_provider_env_mappings).await;
