@@ -7,6 +7,18 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.5] — 2026-05-24
+
+CRITICAL hotfix release. Restores the auto-update path for all installer-based ClotoCore installs by switching the dashboard from a broken sidecar shell-out to the configured Tauri Updater plugin. Cumulative since v0.6.4 (2026-05-23).
+
+### Fixed
+- **bug-385 (CRITICAL — Auto-update)** — `applyUpdate()` in `dashboard/src/lib/tauri.ts` shelled out to a sidecar named `cloto_system` via `@tauri-apps/plugin-shell`, but the binary was never bundled into the NSIS / DMG / `.deb` installer (`bundle.externalBin` is unset in `tauri.conf.json` and the release workflow never copies the standalone kernel binary into the app bundle). Every "Update Now" click failed at `Command.create()` with a program-not-found error which the UI surfaced as the default "Failed to apply update" message — affecting all installer-based ClotoCore installs since v0.6.3. The Tauri Updater plugin itself was already fully configured (pubkey + endpoint pointing at `latest.json` + `createUpdaterArtifacts: "v1Compatible"`), and the release workflow generates a valid `latest.json` per release — the dashboard simply never invoked it. `checkForUpdates()` now uses `@tauri-apps/plugin-updater` `check()` (replacing direct GitHub API calls and freeing the path from the 60-request/hour unauthenticated rate limit); `applyUpdate()` calls `check()` + `update.downloadAndInstall()` + `@tauri-apps/plugin-process` `relaunch()` (with `try/catch` around `relaunch()` for NSIS install paths where the new installer kills the running process). The now-dead `shell:allow-execute cloto_system` entry was removed from `capabilities/default.json`. Existing v0.6.3 / v0.6.4 users must download v0.6.5 manually one last time to recover the in-app auto-update flow.
+
+### Known limitations
+- `latest.json` resolves through GitHub's `/releases/latest/download/` URL which only points to stable releases. Pre-release channel discovery (previously approximated by reading 30 release entries via the GitHub API) is deferred to a future feature — pre-release users on v0.6.X-beta.Y will not receive in-app upgrade prompts for v0.6.X-beta.Z.
+
+---
+
 ## [0.6.3] — 2026-05-20
 
 First stable release of the 0.6.3 line. Promotes `0.6.3-beta.14` after coordinated Discord T1 session-continuity work and CRITICAL Setup Wizard fixes. Cumulative since v0.6.3-beta.13.
