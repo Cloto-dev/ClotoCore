@@ -43,7 +43,6 @@ impl RoutingRule {
                 "run",
                 "execute",
                 "find",
-                "research",
             ];
             return tool_keywords
                 .iter()

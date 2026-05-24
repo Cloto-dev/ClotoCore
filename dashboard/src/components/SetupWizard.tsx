@@ -44,7 +44,6 @@ const ALL_SELECTABLE_SERVER_IDS = [
   'tool.terminal',
   'tool.cron',
   'tool.websearch',
-  'tool.research',
   'tool.agent_utils',
   'tool.embedding',
   'tool.imagegen',
