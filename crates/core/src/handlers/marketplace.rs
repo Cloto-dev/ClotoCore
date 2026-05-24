@@ -1158,6 +1158,19 @@ async fn register_server(
         warn!("Failed to set marketplace fields: {e}");
     }
 
+    // Modern decouple path (0.6.6+): when a memory-kind plugin is installed
+    // and the default agent has not yet picked one, mirror this install id
+    // into `agent.cloto_default.metadata.preferred_memory`. This replaces
+    // the pre-0.6.6 path where the kernel hardcoded a memory plugin id via
+    // CLOTO_MEMORY_PLUGIN_ID env default and seeded plugin_configs at boot.
+    // Idempotent — touches nothing if the user already chose a memory
+    // plugin manually via the dashboard.
+    if entry.category == "memory" {
+        if let Err(e) = bind_default_memory_if_unset(&state.pool, &entry.id).await {
+            warn!("Failed to bind default agent's preferred_memory: {e}");
+        }
+    }
+
     // If user requested no auto-start, stop the server after registration
     if !auto_start {
         let _ = state.mcp_manager.stop_server(&entry.id).await;
@@ -1171,6 +1184,33 @@ async fn register_server(
     );
 
     info!("Marketplace install complete: {}", entry.id);
+    Ok(())
+}
+
+/// Set `agent.cloto_default.metadata.preferred_memory` to the given plugin
+/// id iff currently absent or empty. Idempotent — touches nothing if the
+/// user has already chosen a memory plugin manually.
+///
+/// Used by `register_server` to auto-bind a memory plugin install when no
+/// kernel-side hardcode is doing it (post-0.6.6 decouple). Mirrors the
+/// shape of the Phase C migration that back-fills the same key for
+/// pre-0.6.6 users (`migrations/<…>_backfill_default_memory.sql`).
+async fn bind_default_memory_if_unset(
+    pool: &sqlx::SqlitePool,
+    plugin_id: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "UPDATE agents \
+         SET metadata = json_set(COALESCE(metadata, '{}'), '$.preferred_memory', ?) \
+         WHERE id = 'agent.cloto_default' \
+           AND ( \
+             json_extract(metadata, '$.preferred_memory') IS NULL \
+             OR json_extract(metadata, '$.preferred_memory') = '' \
+           )",
+    )
+    .bind(plugin_id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

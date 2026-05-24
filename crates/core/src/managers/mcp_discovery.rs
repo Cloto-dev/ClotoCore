@@ -409,7 +409,7 @@ mod tests {
     #[tokio::test]
     async fn execute_discovery_register_rejects_when_yolo_off() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
         let mgr = McpClientManager::new(pool, false, 120, 30);

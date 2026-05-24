@@ -12,10 +12,10 @@ async fn test_db_init_is_idempotent() {
     let pool = fresh_pool().await;
 
     // Running init_db twice should not fail (idempotent migrations)
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 }
@@ -23,7 +23,7 @@ async fn test_db_init_is_idempotent() {
 #[tokio::test]
 async fn test_migration_creates_required_tables() {
     let pool = fresh_pool().await;
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 
@@ -58,7 +58,7 @@ async fn test_plugin_data_store_basic_roundtrip() {
     use std::sync::Arc;
 
     let pool = fresh_pool().await;
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 
@@ -79,7 +79,7 @@ async fn test_plugin_data_store_missing_key_returns_none() {
     use std::sync::Arc;
 
     let pool = fresh_pool().await;
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 
@@ -110,7 +110,7 @@ fn make_record(name: &str, trust_level: Option<&str>) -> cloto_core::db::McpServ
 #[tokio::test]
 async fn test_trust_level_column_is_nullable_and_defaults_null() {
     let pool = fresh_pool().await;
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 
@@ -133,7 +133,7 @@ async fn test_trust_level_column_is_nullable_and_defaults_null() {
 #[tokio::test]
 async fn test_trust_level_roundtrips_through_save_and_load() {
     let pool = fresh_pool().await;
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 
@@ -156,7 +156,7 @@ async fn test_trust_level_roundtrips_through_save_and_load() {
 #[tokio::test]
 async fn test_trust_level_upsert_preserves_prior_value_on_partial_write() {
     let pool = fresh_pool().await;
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 
@@ -186,7 +186,7 @@ async fn test_trust_level_upsert_preserves_prior_value_on_partial_write() {
 #[tokio::test]
 async fn test_set_marketplace_fields_persists_trust_level() {
     let pool = fresh_pool().await;
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 
@@ -226,7 +226,7 @@ async fn test_set_marketplace_fields_persists_trust_level() {
 #[tokio::test]
 async fn test_manual_register_leaves_marketplace_id_null() {
     let pool = fresh_pool().await;
-    cloto_core::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 

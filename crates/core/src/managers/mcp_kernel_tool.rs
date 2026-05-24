@@ -1972,7 +1972,7 @@ mod phase_b_rejection_tests {
 
     async fn yolo_off_manager() -> McpClientManager {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
         McpClientManager::new(pool, false, 120, 30)
@@ -2065,7 +2065,7 @@ mod phase_b_rejection_tests {
     async fn execute_mgp_agent_ask_rejects_self_delegation() {
         // YOLO on so we bypass the first gate; still rejected for self-target.
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
         let mgr = McpClientManager::new(pool, true, 120, 30);
@@ -2087,7 +2087,7 @@ mod phase_b_rejection_tests {
     #[tokio::test]
     async fn execute_mgp_agent_ask_rejects_depth_exceeded() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
         let mgr = McpClientManager::new(pool, true, 120, 30);
@@ -2115,7 +2115,7 @@ mod phase_b_rejection_tests {
     #[tokio::test]
     async fn execute_mgp_agent_ask_rejects_cycle() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
         let mgr = McpClientManager::new(pool, true, 120, 30);

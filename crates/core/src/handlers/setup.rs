@@ -538,7 +538,7 @@ mod tests {
         // Sanity: empty pool reports no agents.
         assert!(!db_has_agents(&pool).await);
         // After init_db, the cloto_default seed row exists.
-        crate::db::init_db(&pool, "sqlite::memory:", "memory.cpersona")
+        crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
         assert!(db_has_agents(&pool).await);
