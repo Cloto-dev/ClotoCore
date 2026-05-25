@@ -626,7 +626,30 @@ jobs:
           ---
           HEADER
 
-      - name: Create GitHub Release
+      # Two-phase upload to prevent the Tauri Updater 404 race window:
+      # softprops/action-gh-release uploads `files` glob entries serially, and the
+      # ~hundreds-of-bytes latest.json finishes long before the ~25 MB
+      # *.nsis.zip. While the binary is still uploading, a client that polled
+      # latest.json sees the new version and triggers downloadAndInstall(),
+      # which 404s on the binary URL → "Failed to apply update". Splitting the
+      # upload so latest.json is published only AFTER every binary asset
+      # closes that window.
+      - name: Stage latest.json for second-phase upload
+        if: github.event.inputs.draft_only != 'true'
+        run: |
+          if [[ -f release-files/latest.json ]]; then
+            mkdir -p release-indicator
+            mv release-files/latest.json release-indicator/
+            echo "Moved latest.json out of release-files/ — will be uploaded after binaries"
+            echo "release-files/ remaining:"
+            ls -1 release-files/
+            echo "release-indicator/:"
+            ls -1 release-indicator/
+          else
+            echo "No latest.json generated (no platform signatures) — skipping stage step"
+          fi
+
+      - name: Create GitHub Release (binaries first, no latest.json)
         if: github.event.inputs.draft_only != 'true'
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
@@ -638,5 +661,14 @@ jobs:
           append_body: true
           generate_release_notes: true
           files: release-files/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Append latest.json (auto-update indicator, after all binaries)
+        if: github.event.inputs.draft_only != 'true' && hashFiles('release-indicator/latest.json') != ''
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: release-indicator/latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
