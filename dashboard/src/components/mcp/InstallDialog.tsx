@@ -28,10 +28,10 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
   const [envVars, setEnvVars] = useState<Record<string, string>>(() => {
     const vars: Record<string, string> = {};
     for (const ev of entry.env_vars) {
-      vars[ev.key] = ev.default ?? '';
+      vars[ev.name] = ev.default ?? '';
     }
     for (const ev of entry.optional_env_vars) {
-      vars[ev.key] = ev.default ?? '';
+      vars[ev.name] = ev.default ?? '';
     }
     return vars;
   });
@@ -185,11 +185,11 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
               Environment Variables
             </span>
             {allEnvVars.map((ev) => {
-              const isRequired = entry.env_vars.some((v) => v.key === ev.key);
+              const isRequired = entry.env_vars.some((v) => v.name === ev.name);
               return (
-                <div key={ev.key}>
+                <div key={ev.name}>
                   <label className="flex items-center gap-1 text-[11px] font-mono text-content-tertiary mb-0.5">
-                    {ev.key}
+                    {ev.name}
                     {isRequired && <span className="text-red-400">*</span>}
                   </label>
                   {ev.description && (
@@ -197,8 +197,8 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
                   )}
                   <input
                     type="text"
-                    value={envVars[ev.key] ?? ''}
-                    onChange={(e) => handleEnvChange(ev.key, e.target.value)}
+                    value={envVars[ev.name] ?? ''}
+                    onChange={(e) => handleEnvChange(ev.name, e.target.value)}
                     placeholder={ev.default ?? ''}
                     className="w-full text-[11px] font-mono bg-glass border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
                   />
