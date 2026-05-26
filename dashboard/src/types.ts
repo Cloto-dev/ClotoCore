@@ -256,7 +256,7 @@ export interface McpServerSettings {
 export type ServerCategory = 'mind' | 'memory' | 'tool' | 'vision' | 'voice' | 'output' | 'io';
 
 export interface EnvVarDef {
-  key: string;
+  name: string;
   default?: string;
   description?: string;
 }
