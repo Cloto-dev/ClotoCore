@@ -7,6 +7,35 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.7] — 2026-05-26
+
+CRITICAL hotfix release. Restores the auto-update path for v0.6.5 users (broken by the v0.6.6 `cloto-system` → `ClotoCore` product rename), unblocks marketplace installs of any server that declares env vars, and removes the silent 404 window during the first seconds after a release publish. Cumulative since v0.6.6.
+
+### Fixed
+
+- **bug-386 (CRITICAL — Auto-update)** — `Tauri Updater downloadAndInstall()` from v0.6.5 to v0.6.6 surfaced "Failed to apply update" because the v0.6.6 NSIS installer (with `productName = ClotoCore`) could not detect or migrate the v0.6.5 install registered under `productName = cloto-system`. New `dashboard/src-tauri/installer.nsh` injects a Tauri `NSIS_HOOK_PREINSTALL` macro (wired via `bundle.windows.nsis.installerHooks`) that probes `HKLM` + `HKCU` for the legacy `Software\Microsoft\Windows\CurrentVersion\Uninstall\cloto-system` key (covering `installMode: "both"`) and, when found, silently invokes the legacy uninstaller before the new install proceeds. The Tauri 2.x uninstaller's `un.SEC_APPDATA` section is not selected by default under `/S`, so user data at `%APPDATA%\Roaming\cloto-system\` survives the migration — `config.rs:37` still resolves `data_dir` to that path post-upgrade, preserving chat history, agent state, embedding namespaces, `mcp_access_control` grants, and registered MCP servers. The new install lands at `{autopf}\ClotoCore\` and registers a fresh uninstall key under the new product name. The hook is a no-op on fresh v0.6.7 installs (no legacy uninstall key present).
+
+- **bug-387 (CRITICAL — Marketplace install)** (PR #152, master = `1d1be73`). `dashboard/src/components/mcp/InstallDialog.tsx` and the `EnvVarDef` TypeScript interface in `dashboard/src/types.ts` still read `.key` from env var definitions after `mgp-sdk` renamed the field to `.name` (with `#[serde(alias = "key")]` covering only the deserialize path). Every env var field collapsed into a single `{undefined: …}` state slot, every input rendered the same value, and the install request body posted `{env: {"undefined": <value>}}` which the kernel marketplace handler rejected with HTTP 400. Replaces seven `.key` references with `.name` and aligns the dashboard interface with the catalog wire shape; covered every marketplace server that declares env vars (CPersona, cmemo, cscheduler, etc.) on v0.6.6.
+
+- **release.yml race** (PR #151, master = `caa94d9`). Switched the GitHub release workflow to a two-phase upload: binaries, signatures, and checksums upload first; `latest.json` (the Tauri Updater's "available version" indicator) uploads only after every other asset is in place. Closes the 404 window where `latest.json` declared v0.6.6 was available while `ClotoCore_0.6.6_x64-setup.nsis.zip` was still uploading.
+
+### Backward compatibility
+
+- v0.6.5 users upgrading via the in-app Tauri Updater path get the legacy install silently uninstalled and replaced with `C:\Program Files\ClotoCore\` — chat history and agent state preserved transparently because `%APPDATA%\Roaming\cloto-system\` is untouched.
+- v0.6.6 users (rare — bug-386 blocked most of them at update time) continue to upgrade through the normal Tauri default flow since their registry uninstall key is already under `ClotoCore`; the new PREINSTALL hook simply no-ops.
+- Fresh v0.6.7 installs are unaffected by the hook and land at `{autopf}\ClotoCore\` with a single clean uninstall key.
+
+### CI / QA
+
+- Windows Sandbox in-place upgrade verified pre-tag: v0.6.5 install → silent run of v0.6.7 NSIS → confirmed legacy uninstaller ran, `%APPDATA%` data preserved, fresh `ClotoCore` folder created, new uninstall registry key written, v0.6.5 chat history visible in the upgraded app.
+- Marketplace install regression verified pre-tag: CPersona v2.4.21 dialog renders six env vars with distinct names and defaults, submit returns 200, `installed_servers` row created, kernel logs show no `git` invocation during `uv pip install` (vendored `mcp-common` path).
+
+### Known limitations
+
+- `config.rs:37 data_dir` literal remains `"cloto-system"` (preserved across the rename for data safety). A future release will migrate the literal to `"ClotoCore"` together with an explicit data-directory move step.
+
+---
+
 ## [0.6.6] — 2026-05-24
 
 Kernel structural cleanup release. Two long-pending architectural threads ship together in a single release with bisect-friendly per-PR isolation: (1) the surface product is renamed `cloto-system` → `ClotoCore` to align with the three-layer doctrine (`ClotoCore + ClotoCloud + Cloto アプリ + ClotoHub`), and (2) the kernel is decoupled from hardcoded knowledge of any specific memory plugin id. Cumulative since v0.6.5.
