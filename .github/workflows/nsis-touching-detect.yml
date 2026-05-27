@@ -1,0 +1,114 @@
+name: NSIS-touching diff detector
+
+# Labels PRs that change NSIS-affecting files so reviewers know a
+# Sandbox / Proxmox VM verify is required pre-merge. See
+# `scripts/proxmox-windows-verify.sh` for the recommended verify driver.
+#
+# Trigger files:
+#   - dashboard/src-tauri/installer.nsh                       (always)
+#   - dashboard/src-tauri/tauri.conf.json bundle/productName/identifier
+#   - any Cargo.toml with [[bin]] block or `name = ` change
+#
+# Skip: include `[no-sandbox]` in the PR title to opt out (recorded
+# as a deliberate maintainer choice — verify still recommended).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  detect:
+    name: Detect NSIS-affecting diff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          fetch-depth: 0
+
+      - name: Probe diff for NSIS-affecting changes
+        id: probe
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          touched=false
+          reasons=""
+
+          changed=$(git diff --name-only "$BASE" "$HEAD" 2>/dev/null || true)
+          echo "Changed files:"; echo "$changed" | sed 's/^/  /'
+
+          # 1) installer.nsh — any edit is NSIS-affecting.
+          if echo "$changed" | grep -qE '^dashboard/src-tauri/installer\.nsh$'; then
+            touched=true
+            reasons+="- \`dashboard/src-tauri/installer.nsh\` edited\n"
+          fi
+
+          # 2) tauri.conf.json — only flag if bundle/productName/identifier/windows changed.
+          if echo "$changed" | grep -qE '^dashboard/src-tauri/tauri\.conf\.json$'; then
+            if git diff "$BASE" "$HEAD" -- dashboard/src-tauri/tauri.conf.json \
+                 | grep -qE '^[+-].*(\"bundle\"|\"productName\"|\"identifier\"|\"windows\")'; then
+              touched=true
+              reasons+="- \`tauri.conf.json\` bundle / productName / identifier / windows block changed\n"
+            fi
+          fi
+
+          # 3) any Cargo.toml [[bin]] or `name = ` line changed.
+          if echo "$changed" | grep -qE '(^|/)Cargo\.toml$'; then
+            if git diff "$BASE" "$HEAD" -- '**/Cargo.toml' Cargo.toml \
+                 | grep -qE '^[+-].*(\[\[bin\]\]|^[+-]name = )'; then
+              touched=true
+              reasons+="- \`Cargo.toml\` [[bin]] / name field changed (potential binary rename)\n"
+            fi
+          fi
+
+          echo "touched=$touched" >> "$GITHUB_OUTPUT"
+          {
+            echo "reasons<<EOF"
+            printf '%b' "$reasons"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check for [no-sandbox] opt-out in PR title
+        id: skip
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [[ "$TITLE" == *"[no-sandbox]"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply nsis-touching label + verify-required comment
+        if: steps.probe.outputs.touched == 'true' && steps.skip.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REASONS: ${{ steps.probe.outputs.reasons }}
+        run: |
+          set -euo pipefail
+          # Ensure label exists (idempotent — ignore if already created).
+          gh label create nsis-touching \
+            --description "Touches NSIS / installer behavior — Sandbox or Proxmox VM verify required" \
+            --color FFA500 2>/dev/null || true
+          gh pr edit "$PR" --add-label nsis-touching
+          gh pr comment "$PR" --body "$(cat <<EOF
+          ⚠ **NSIS-touching diff detected** — Sandbox or Proxmox VM verify required pre-merge.
+
+          Reasons:
+          ${REASONS}
+          Run one of:
+
+          - \`scripts/proxmox-windows-verify.sh --from <previous-stable> --to-version <this-build> --to-asset <built-installer>\` (Mac → PVE Win11 VM, ~6 min/iter)
+          - Manual Windows Sandbox install/upgrade (~30-45 min)
+
+          See \`CLAUDE.md\` Release Rules and \`docs/CHANGELOG.md\` for context.
+
+          To opt out (deliberately, for clearly non-installer diffs): include \`[no-sandbox]\` in the PR title.
+          EOF
+          )"
