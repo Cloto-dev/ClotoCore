@@ -98,6 +98,14 @@ jobs:
       - name: Verify issue registry
         run: bash scripts/verify-issues.sh
 
+  nsis-hook-gate:
+    name: NSIS Hook Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+      - name: Verify installer.nsh hook integrity (bug-386)
+        run: bash scripts/check-nsis-hook.sh
+
   sentinel:
     name: Sentinel
     runs-on: ubuntu-latest
