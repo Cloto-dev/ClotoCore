@@ -7,6 +7,24 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.8-alpha.1] — 2026-05-27
+
+Verify automation MVP release. First prerelease in the 0.6.8 line, deliberately published on the alpha channel so that the Tauri Updater (which resolves `latest.json` via `/releases/latest/download/` and therefore skips entries flagged `prerelease`) does NOT push it to existing stable installs. Production `v0.6.7` users will not see an in-app upgrade prompt; the alpha is reachable only via manual download from the Releases page. This structural isolation is exploited intentionally so verify automation regressions cannot realize on production user machines while the automation itself is being iterated.
+
+### Added
+
+- **NSIS hook structural gate** (`scripts/check-nsis-hook.sh` + new `nsis-hook-gate` CI job). Source-level grep assertion that the bug-386 `NSIS_HOOK_PREINSTALL` macro in `dashboard/src-tauri/installer.nsh` remains intact (macro entry point, legacy `Uninstall\cloto-system` registry probe, legacy silent-uninstall `ExecWait '"$0" /S'` invocation, and the `bug-386:` audit log line). Fails CI in <1 sec with a GitHub Actions `::error::` annotation if any required pattern is missing — silent removal of the hook now becomes impossible without an explicit gate update.
+
+- **Proxmox Win11 verify driver** (`scripts/proxmox-windows-verify.sh`, ~250 LOC). Mac-side shell driver that rollbacks VM 104 to its pristine snapshot, downloads the FROM-version installer from GitHub Releases, seeds a dummy database to detect data preservation, runs silent install, captures a 9-field Windows fingerprint (install paths, both `HKLM` + `HKCU` uninstall keys, current `DisplayVersion`, db file SHA-256), then transports the TO-version installer (local file via `scp` or downloaded via `gh release`), runs silent install, captures the POST fingerprint, and diffs against an assertion matrix selected by the FROM version: hook-PRIMARY path for `0.6.5` (legacy productName migration) and hook-NO-OP path for `0.6.6+` (Tauri default in-place upgrade). Single iteration: ~6 min, vs ~30-45 min for Windows Sandbox manual verify.
+
+- **NSIS-touching PR detector** (`.github/workflows/nsis-touching-detect.yml`). Triggered on `pull_request` open/synchronize/reopen, scans the diff for changes to `installer.nsh` (always flagged), `tauri.conf.json` (only when `bundle` / `productName` / `identifier` / `windows` keys touched), or any `Cargo.toml` `[[bin]]` block / `name = ` field. When a match is found and the PR title does not contain `[no-sandbox]`, applies the `nsis-touching` label (auto-creates on first use) and posts a comment instructing reviewers to run either `scripts/proxmox-windows-verify.sh` or a manual Sandbox verify pre-merge. Opt-out is recorded in the PR title for audit transparency.
+
+### Note (alpha channel)
+
+The 0.6.8 line operates under an α/β promotion pattern: `0.6.8-alpha.N` for feature / refactor iteration, `0.6.8-beta.N` for soak after feature-freeze, `0.6.8` stable for the cumulative release. The Tauri Updater's stable-only resolution (memory `clotocore-0.6.5-bug-385-release-land-30c6bd9-20260524` Known limitation) keeps every alpha and beta tag off the auto-update channel. This automation MVP lands first so subsequent alphas (an earlier decision P1/P2 patches, the `config.rs:37 data_dir` literal migration, and other backlog work) can rely on it.
+
+---
+
 ## [0.6.7] — 2026-05-26
 
 CRITICAL hotfix release. Restores the auto-update path for v0.6.5 users (broken by the v0.6.6 `cloto-system` → `ClotoCore` product rename), unblocks marketplace installs of any server that declares env vars, and removes the silent 404 window during the first seconds after a release publish. Cumulative since v0.6.6.
