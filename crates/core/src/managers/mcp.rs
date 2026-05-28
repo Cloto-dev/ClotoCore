@@ -1413,8 +1413,18 @@ impl McpClientManager {
             }
         }
 
-        // Build capability mappings for dynamic dispatch (P1 Core Minimalism)
-        self.dispatcher.build_from_tools(&id, &tools).await;
+        // Build capability mappings for dynamic dispatch (P1 Core Minimalism).
+        // Manifest-driven (Pattern-C, 0.6.8-alpha.2) takes precedence over the
+        // legacy classify_tool heuristic when the server declares
+        // `tools_for_capability` in its MGP `initialize` response.
+        if let Some(map) = mgp_server_caps
+            .as_ref()
+            .and_then(|c| c.tools_for_capability.as_ref())
+        {
+            self.dispatcher.build_from_capabilities(&id, map).await;
+        } else {
+            self.dispatcher.build_from_tools(&id, &tools).await;
+        }
 
         info!(
             "MCP server '{}' connected with {} tools",
@@ -2493,6 +2503,85 @@ impl McpClientManager {
                 })?
         };
         self.call_server_tool(&server_id, tool_name, args).await
+    }
+
+    // ============================================================
+    // ToolKind-typed entry points (Pattern-C, 0.6.8-alpha.2)
+    //
+    // Keep handlers/ free of tool-name string literals (§1.2). Two flavors:
+    //   * `*_kind`        — dispatcher-resolved server_id (capability-aware)
+    //   * `*_kind_at`     — explicit server_id (engine_id override, Custom variants)
+    // ============================================================
+
+    /// Call a [`ToolKind`] via dispatcher resolution.
+    /// `Custom(_)` variants have no capability and will fail here — use
+    /// [`call_kind_at`] with an explicit `server_id` instead.
+    pub async fn call_kind(
+        &self,
+        kind: &super::capability_dispatcher::ToolKind,
+        args: Value,
+    ) -> Result<super::mcp_protocol::CallToolResult> {
+        let (server_id, _) = self.dispatcher.resolve_kind(kind).await.ok_or_else(|| {
+            anyhow::anyhow!("No server provides ToolKind for tool '{}'", kind.name())
+        })?;
+        self.call_server_tool(&server_id, kind.name(), args).await
+    }
+
+    /// Call a [`ToolKind`] against an explicit `server_id`. Use when the
+    /// caller has a routing override (engine_id, consensus target, …) or is
+    /// dispatching a `Custom` variant.
+    pub async fn call_kind_at(
+        &self,
+        server_id: &str,
+        kind: &super::capability_dispatcher::ToolKind,
+        args: Value,
+    ) -> Result<super::mcp_protocol::CallToolResult> {
+        self.call_server_tool(server_id, kind.name(), args).await
+    }
+
+    /// Streaming counterpart of [`call_kind`].
+    pub async fn call_kind_streaming(
+        &self,
+        kind: &super::capability_dispatcher::ToolKind,
+        args: Value,
+    ) -> Result<(
+        tokio::sync::mpsc::Receiver<Value>,
+        tokio::sync::oneshot::Receiver<Result<super::mcp_protocol::CallToolResult>>,
+    )> {
+        let (server_id, _) = self.dispatcher.resolve_kind(kind).await.ok_or_else(|| {
+            anyhow::anyhow!("No server provides ToolKind for tool '{}'", kind.name())
+        })?;
+        self.call_server_tool_streaming(&server_id, kind.name(), args)
+            .await
+    }
+
+    /// Streaming counterpart of [`call_kind_at`].
+    pub async fn call_kind_streaming_at(
+        &self,
+        server_id: &str,
+        kind: &super::capability_dispatcher::ToolKind,
+        args: Value,
+    ) -> Result<(
+        tokio::sync::mpsc::Receiver<Value>,
+        tokio::sync::oneshot::Receiver<Result<super::mcp_protocol::CallToolResult>>,
+    )> {
+        self.call_server_tool_streaming(server_id, kind.name(), args)
+            .await
+    }
+
+    /// Whether any registered server provides this [`ToolKind`].
+    pub async fn has_kind(&self, kind: &super::capability_dispatcher::ToolKind) -> bool {
+        self.dispatcher.has_kind(kind).await
+    }
+
+    /// Whether `server_id` specifically lists this [`ToolKind`] in its tool index.
+    /// Equivalent to `has_server_tool(server_id, kind.name())`.
+    pub async fn has_kind_at(
+        &self,
+        server_id: &str,
+        kind: &super::capability_dispatcher::ToolKind,
+    ) -> bool {
+        self.has_server_tool(server_id, kind.name()).await
     }
 
     /// Check whether any connected memory server provides the named tool.

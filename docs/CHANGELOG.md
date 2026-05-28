@@ -7,6 +7,35 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.8-alpha.2] — 2026-05-28
+
+Pattern-C capability tool name registry. Second prerelease in the 0.6.8 line; like alpha.1, deliberately published on the alpha channel so existing stable installs do not receive an in-app upgrade prompt. This release lands the structural refactor planned as PR #1 in an earlier decision — the kernel no longer hard-codes MCP tool names as string literals in `handlers/system.rs`. It is the α→β promotion-criterion piece for the 0.6.8 line (per an earlier decision).
+
+### Added
+
+- **`ToolKind` enum** (`crates/core/src/managers/capability_dispatcher.rs`) — 11 well-known tool variants (`Store`, `Recall`, `ListMemories`, `ListEpisodes`, `ArchiveEpisode`, `UpdateProfile`, `Think`, `ThinkWithTools`, `AnalyzeImage`, `Transcribe`, `Speak`) plus `Custom(String)` escape hatch for non-well-known tools.
+- **`CapabilityType::Display` / `FromStr`** — single source of truth for the JSON keys (`"Memory" | "Reasoning" | "Vision" | "Stt" | "Speech"`) used both by the new `build_from_capabilities` ingest path and by server-side `tools_for_capability` declarations.
+- **`MgpServerCapabilities.tools_for_capability`** vendor extension (`Option<HashMap<String, Vec<String>>>`) — MCP servers can now explicitly declare which tools they expose under each capability, overriding the kernel's heuristic `classify_tool` fallback. Targeted for spec formalization in MGP 0.7.0 (Layered Manifest Layer 1/2, see mgp-spec an earlier decision).
+- **`McpClientManager` ToolKind shims** (`call_kind`, `call_kind_at`, `call_kind_streaming`, `call_kind_streaming_at`, `has_kind`, `has_kind_at`) — typed entry points that keep handlers/ free of tool name string literals.
+- **Tests** — 7 new unit tests in `capability_dispatcher.rs` (round-trip, capability mapping consistency, cross-capability rejection, Custom fallback, Display round-trip) and 3 serde tests in `mcp_mgp.rs` for the new field.
+
+### Changed
+
+- **`handlers/system.rs`** — 17 call sites swapped from string-literal tool names to `ToolKind` (categories: 11 direct `call_server_tool`, 1 `has_server_tool`, 3 `call_capability_tool` arg literal, 1 streaming, 1 event-dispatch string comparison). The `get_profile` tool, which is not in any well-known capability whitelist, uses `ToolKind::Custom("get_profile".to_string())` with an explicit `server_id` (escape-hatch convention).
+- **MCP handshake flow** (`crates/core/src/managers/mcp.rs:1417`) — capability mappings are now built from the server's `tools_for_capability` manifest when present, falling back to the legacy `classify_tool` heuristic only for backward compatibility with servers that have not adopted the extension. **No behavior change for current servers** — none emit the field yet.
+
+### Fixed
+
+- **bug-289** (HIGH P2): `"think_with_tools"` literal no longer present in `crates/core/src/handlers/system.rs`. Tool name dispatched via `ToolKind::ThinkWithTools` through `call_kind_at` / `has_kind_at` / `call_kind_streaming_at` shims.
+- **bug-290** (HIGH P2): `"archive_episode"` (and the rest of the Memory-capability literals — `store`, `recall`, `list_memories`, `list_episodes`, `update_profile`) no longer present. ARCHITECTURE.md §1.2 Capability-over-Concrete-Type compliance restored for these dispatch paths.
+
+### Known limitations
+
+- `classify_tool` private fallback list remains in `capability_dispatcher.rs` for servers that have not declared `tools_for_capability`. Removal is scheduled for 0.6.9+ once every shipped server has adopted the manifest path. Server-prefix heuristics (`memory.*`, `mind.*`, `vision.*`, `stt.*`, `output.*`) are also still present and tracked separately under §1.2 audit.
+- bug-282 / bug-285 / bug-293 / bug-296 (other §1.2 violations from the an earlier decision 5-PR plan) are unaffected by this release and remain open.
+
+---
+
 ## [0.6.8-alpha.1] — 2026-05-27
 
 Verify automation MVP release. First prerelease in the 0.6.8 line, deliberately published on the alpha channel so that the Tauri Updater (which resolves `latest.json` via `/releases/latest/download/` and therefore skips entries flagged `prerelease`) does NOT push it to existing stable installs. Production `v0.6.7` users will not see an in-app upgrade prompt; the alpha is reachable only via manual download from the Releases page. This structural isolation is exploited intentionally so verify automation regressions cannot realize on production user machines while the automation itself is being iterated.

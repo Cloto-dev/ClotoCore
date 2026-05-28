@@ -505,7 +505,11 @@ impl SystemHandler {
             });
             match tokio::time::timeout(
                 Duration::from_secs(self.memory_timeout_secs),
-                mcp.call_server_tool(server_id, "recall", mcp_recall_payload),
+                mcp.call_kind_at(
+                    server_id,
+                    &crate::managers::ToolKind::Recall,
+                    mcp_recall_payload,
+                ),
             )
             .await
             {
@@ -627,7 +631,8 @@ impl SystemHandler {
                 .entry("agent_id".to_string())
                 .or_insert(serde_json::json!(agent.id));
             // For backward compat: speak requires "text" from message content
-            if tool_name == "speak" {
+            if crate::managers::ToolKind::from_name(&tool_name) == crate::managers::ToolKind::Speak
+            {
                 args_map
                     .entry("text".to_string())
                     .or_insert(serde_json::json!(msg.content));
@@ -911,7 +916,11 @@ impl SystemHandler {
                             });
                             let _ = tokio::time::timeout(
                                 mem_timeout2,
-                                mcp_clone.call_server_tool(&server_id_clone, "store", store_args),
+                                mcp_clone.call_kind_at(
+                                    &server_id_clone,
+                                    &crate::managers::ToolKind::Store,
+                                    store_args,
+                                ),
                             )
                             .await;
                         });
@@ -1087,12 +1096,8 @@ impl SystemHandler {
                             tokio::spawn(async move {
                                 match tokio::time::timeout(
                                     Duration::from_secs(timeout_secs),
-                                    mcp_clone.call_capability_tool(
-                                        crate::managers::capability_dispatcher::CapabilityType::Speech,
-                                        "speak",
-                                        speak_args,
-                                        None,
-                                    ),
+                                    mcp_clone
+                                        .call_kind(&crate::managers::ToolKind::Speak, speak_args),
                                 )
                                 .await
                                 {
@@ -1296,7 +1301,7 @@ impl SystemHandler {
                 });
                 match tokio::time::timeout(
                     memory_timeout,
-                    mcp.call_server_tool(&server_id, "store", store_args),
+                    mcp.call_kind_at(&server_id, &crate::managers::ToolKind::Store, store_args),
                 )
                 .await
                 {
@@ -1375,7 +1380,8 @@ impl SystemHandler {
                 .is_some_and(cloto_shared::ReasoningEngine::supports_tools)
         } else if let Some(ref mcp) = mcp_engine {
             // MCP engine supports tools if it has a 'think_with_tools' tool
-            mcp.has_server_tool(engine_id, "think_with_tools").await
+            mcp.has_kind_at(engine_id, &crate::managers::ToolKind::ThinkWithTools)
+                .await
         } else {
             false
         };
@@ -1909,7 +1915,9 @@ impl SystemHandler {
                 "message": message_val,
                 "context": context_val,
             });
-            let result = mcp.call_server_tool(engine_id, "think", args).await?;
+            let result = mcp
+                .call_kind_at(engine_id, &crate::managers::ToolKind::Think, args)
+                .await?;
             self.maybe_record_usage(&agent.id, engine_id, &result).await;
             return Self::extract_mcp_think_content(&result);
         }
@@ -1984,7 +1992,7 @@ impl SystemHandler {
                 "tool_history": tool_history,
             });
             let result = mcp
-                .call_server_tool(engine_id, "think_with_tools", args)
+                .call_kind_at(engine_id, &crate::managers::ToolKind::ThinkWithTools, args)
                 .await?;
             self.maybe_record_usage(&agent.id, engine_id, &result).await;
             return Self::parse_mcp_think_result(&result);
@@ -2036,7 +2044,7 @@ impl SystemHandler {
         });
 
         let (mut chunk_rx, result_rx) = mcp
-            .call_server_tool_streaming(engine_id, "think_with_tools", args)
+            .call_kind_streaming_at(engine_id, &crate::managers::ToolKind::ThinkWithTools, args)
             .await?;
 
         // Fan chunk deltas onto the event bus as `AgentTokenStream`. The
@@ -2240,12 +2248,7 @@ impl SystemHandler {
             });
 
             match mcp
-                .call_capability_tool(
-                    crate::managers::CapabilityType::Vision,
-                    "analyze_image",
-                    args,
-                    None,
-                )
+                .call_kind(&crate::managers::ToolKind::AnalyzeImage, args)
                 .await
             {
                 Ok(result) => {
@@ -2355,12 +2358,7 @@ impl SystemHandler {
             });
 
             match mcp
-                .call_capability_tool(
-                    crate::managers::CapabilityType::Stt,
-                    "transcribe",
-                    args,
-                    None,
-                )
+                .call_kind(&crate::managers::ToolKind::Transcribe, args)
                 .await
             {
                 Ok(result) => {
@@ -2708,9 +2706,9 @@ impl SystemHandler {
         // 1. Fetch recent memories
         let Ok(Ok(mem_result)) = tokio::time::timeout(
             memory_timeout,
-            mcp.call_server_tool(
+            mcp.call_kind_at(
                 server_id,
-                "list_memories",
+                &crate::managers::ToolKind::ListMemories,
                 serde_json::json!({"agent_id": agent_id, "limit": TOOL_USAGE_THRESHOLD + 5}),
             ),
         )
@@ -2730,9 +2728,9 @@ impl SystemHandler {
         // 2. Get last episode timestamp
         let Ok(Ok(ep_result)) = tokio::time::timeout(
             memory_timeout,
-            mcp.call_server_tool(
+            mcp.call_kind_at(
                 server_id,
-                "list_episodes",
+                &crate::managers::ToolKind::ListEpisodes,
                 serde_json::json!({"agent_id": agent_id, "limit": 1}),
             ),
         )
@@ -2856,7 +2854,11 @@ impl SystemHandler {
         }
 
         match mcp
-            .call_server_tool(server_id, "archive_episode", archive_args)
+            .call_kind_at(
+                server_id,
+                &crate::managers::ToolKind::ArchiveEpisode,
+                archive_args,
+            )
             .await
         {
             Ok(_) => {
@@ -2868,9 +2870,9 @@ impl SystemHandler {
 
                 // Pre-compute profile update via CFR engine
                 let existing_profile = mcp
-                    .call_server_tool(
+                    .call_kind_at(
                         server_id,
-                        "get_profile",
+                        &crate::managers::ToolKind::Custom("get_profile".to_string()),
                         serde_json::json!({"agent_id": agent_id}),
                     )
                     .await
@@ -2907,9 +2909,9 @@ impl SystemHandler {
 
                 if let Some(profile) = new_profile {
                     match mcp
-                        .call_server_tool(
+                        .call_kind_at(
                             server_id,
-                            "update_profile",
+                            &crate::managers::ToolKind::UpdateProfile,
                             serde_json::json!({"agent_id": agent_id, "profile": profile}),
                         )
                         .await
@@ -2965,7 +2967,10 @@ impl SystemHandler {
             },
             "context": [],
         });
-        match mcp.call_server_tool(engine_id, "think", args).await {
+        match mcp
+            .call_kind_at(engine_id, &crate::managers::ToolKind::Think, args)
+            .await
+        {
             Ok(result) => Self::extract_mcp_think_content(&result).ok(),
             Err(e) => {
                 warn!(engine_id = %engine_id, error = %e, "Engine think_simple failed");
