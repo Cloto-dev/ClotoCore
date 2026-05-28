@@ -91,22 +91,29 @@ resolve_asset() {
 }
 
 # PowerShell heredoc → JSON fingerprint of the install state.
+# Uses PowerShell single quotes + Join-Path to avoid nested double-quote stripping
+# by the Windows OpenSSH default shell (cmd.exe) en route to powershell.exe.
 FINGERPRINT_PS=$(cat <<'PS'
+$dbPath = Join-Path $env:APPDATA 'cloto-system\cloto_memories.db'
 @{
-  dbHash = if (Test-Path "$env:APPDATA\cloto-system\cloto_memories.db") { (Get-FileHash "$env:APPDATA\cloto-system\cloto_memories.db" -Algorithm SHA256).Hash } else { $null }
-  legacyDir_cloto_system = Test-Path "C:\Program Files\cloto-system"
-  legacyDir_ClotoCore    = Test-Path "C:\Program Files\ClotoCore"
-  uninstallKey_HKLM_cloto_system = [bool](Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\cloto-system" -ErrorAction SilentlyContinue)
-  uninstallKey_HKLM_ClotoCore    = [bool](Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ClotoCore" -ErrorAction SilentlyContinue)
-  uninstallKey_HKCU_cloto_system = [bool](Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\cloto-system" -ErrorAction SilentlyContinue)
-  uninstallKey_HKCU_ClotoCore    = [bool](Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ClotoCore" -ErrorAction SilentlyContinue)
-  installedVersion = (Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ClotoCore" DisplayVersion -ErrorAction SilentlyContinue).DisplayVersion
+  dbHash = if (Test-Path $dbPath) { (Get-FileHash $dbPath -Algorithm SHA256).Hash } else { $null }
+  legacyDir_cloto_system = Test-Path 'C:\Program Files\cloto-system'
+  legacyDir_ClotoCore    = Test-Path 'C:\Program Files\ClotoCore'
+  uninstallKey_HKLM_cloto_system = [bool](Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\cloto-system' -ErrorAction SilentlyContinue)
+  uninstallKey_HKLM_ClotoCore    = [bool](Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ClotoCore' -ErrorAction SilentlyContinue)
+  uninstallKey_HKCU_cloto_system = [bool](Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\cloto-system' -ErrorAction SilentlyContinue)
+  uninstallKey_HKCU_ClotoCore    = [bool](Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ClotoCore' -ErrorAction SilentlyContinue)
+  installedVersion = (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ClotoCore' DisplayVersion -ErrorAction SilentlyContinue).DisplayVersion
 } | ConvertTo-Json -Compress
 PS
 )
 
+# Send the PowerShell payload to the guest via -EncodedCommand to immunize it
+# against cmd.exe nested-quote handling on the Windows OpenSSH side.
+FINGERPRINT_PS_B64=$(printf '%s' "$FINGERPRINT_PS" | iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\n')
+
 capture_fingerprint() {
-  $VM "powershell -NoProfile -Command \"$FINGERPRINT_PS\""
+  $VM "powershell -NoProfile -EncodedCommand $FINGERPRINT_PS_B64"
 }
 
 # ─── 1. rollback + cold boot ───────────────────────────────────────────
