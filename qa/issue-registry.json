@@ -1671,8 +1671,10 @@
       "commit": "8c09a10",
       "file": "crates/core/src/handlers/system.rs",
       "pattern": "\"think_with_tools\"",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8-alpha.2",
+      "fix_note": "Pattern-C (Goal #72): replaced literals with ToolKind::ThinkWithTools via call_kind_at / has_kind_at / call_kind_streaming_at shims."
     },
     {
       "id": "bug-290",
@@ -1683,8 +1685,10 @@
       "commit": "8c09a10",
       "file": "crates/core/src/handlers/system.rs",
       "pattern": "\"archive_episode\"",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8-alpha.2",
+      "fix_note": "Pattern-C (Goal #72): tool names typed via ToolKind enum (Store, Recall, ListMemories, ListEpisodes, ArchiveEpisode, UpdateProfile). get_profile uses ToolKind::Custom escape hatch."
     },
     {
       "id": "bug-291",
