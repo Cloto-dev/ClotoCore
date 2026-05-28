@@ -394,6 +394,18 @@ pub struct MgpServerCapabilities {
     /// Permissions the server declares it requires (§3).
     #[serde(default)]
     pub permissions_required: Vec<String>,
+    /// ClotoCore vendor extension (Pattern-C, 0.6.8-alpha.2): explicit
+    /// capability→tool mapping. Keys are `CapabilityType` Display strings
+    /// (`"Memory" | "Reasoning" | "Vision" | "Stt" | "Speech"`).
+    ///
+    /// When present, the kernel uses this to build `CapabilityDispatcher`
+    /// entries directly (manifest-driven). When absent, the kernel falls
+    /// back to the legacy `classify_tool` heuristic for backward compatibility.
+    ///
+    /// Targeted for spec formalization in MGP 0.7.0 Layered Manifest §
+    /// (Layer 1/2 schema).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools_for_capability: Option<std::collections::HashMap<String, Vec<String>>>,
 }
 
 /// Result of MGP capability negotiation, stored in `McpServerHandle`.
@@ -738,6 +750,7 @@ mod tests {
             server_id: Some("test".to_string()),
             trust_level: Some("standard".to_string()),
             permissions_required: Vec::new(),
+            tools_for_capability: None,
         };
         let result = negotiate(Some(&server), None).unwrap();
         // Tier 2: both tool_security and permissions are now in CLIENT_EXTENSIONS
@@ -759,6 +772,7 @@ mod tests {
             server_id: None,
             trust_level: Some("core".to_string()),
             permissions_required: Vec::new(),
+            tools_for_capability: None,
         };
         // Config says experimental, server says core → config wins
         let result = negotiate(Some(&server), Some("experimental")).unwrap();
@@ -889,5 +903,65 @@ mod tests {
         let json = err.to_json_rpc_error();
         assert_eq!(json["data"]["_mgp"]["retryable"], false);
         assert_eq!(json["data"]["_mgp"]["category"], "permission");
+    }
+
+    // ============================================================
+    // Pattern-C tools_for_capability tests (0.6.8-alpha.2)
+    // ============================================================
+
+    #[test]
+    fn tools_for_capability_round_trip() {
+        use std::collections::HashMap;
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        map.insert(
+            "Memory".to_string(),
+            vec!["store".to_string(), "recall".to_string()],
+        );
+        map.insert("Reasoning".to_string(), vec!["think".to_string()]);
+
+        let caps = MgpServerCapabilities {
+            version: "0.6.3".to_string(),
+            extensions: vec![],
+            server_id: None,
+            trust_level: None,
+            permissions_required: vec![],
+            tools_for_capability: Some(map.clone()),
+        };
+
+        let json = serde_json::to_string(&caps).unwrap();
+        let decoded: MgpServerCapabilities = serde_json::from_str(&json).unwrap();
+        let decoded_map = decoded
+            .tools_for_capability
+            .expect("field round-trips as Some");
+        assert_eq!(decoded_map.get("Memory"), map.get("Memory"));
+        assert_eq!(decoded_map.get("Reasoning"), map.get("Reasoning"));
+    }
+
+    #[test]
+    fn tools_for_capability_absent_serialize() {
+        let caps = MgpServerCapabilities {
+            version: "0.6.3".to_string(),
+            extensions: vec![],
+            server_id: None,
+            trust_level: None,
+            permissions_required: vec![],
+            tools_for_capability: None,
+        };
+        let json = serde_json::to_string(&caps).unwrap();
+        // skip_serializing_if = "Option::is_none" suppresses the field entirely
+        // so legacy servers that never see this extension keep their wire format.
+        assert!(
+            !json.contains("tools_for_capability"),
+            "absent field should not appear in JSON, got: {json}"
+        );
+    }
+
+    #[test]
+    fn tools_for_capability_default_when_absent_in_input() {
+        // serde(default) lets us decode legacy server responses (no field)
+        // and get None — backward compatibility for existing servers.
+        let json = r#"{"version":"0.6.3"}"#;
+        let caps: MgpServerCapabilities = serde_json::from_str(json).unwrap();
+        assert!(caps.tools_for_capability.is_none());
     }
 }

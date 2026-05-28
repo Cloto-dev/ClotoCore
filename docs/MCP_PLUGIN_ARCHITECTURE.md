@@ -188,6 +188,49 @@ access control policies (§5). They are excluded from LLM tool context by
 default per MGP §1.6.3 visibility rules for administrative tools, and
 are surfaced to operators via the dashboard or programmatic API.
 
+#### `tools_for_capability` (capability declaration, vendor extension)
+
+ClotoCore vendor extension on `MgpServerCapabilities`, added in ClotoCore
+`0.6.8-alpha.2` (Pattern-C, Goal #72). Lets MCP servers explicitly declare
+which tools they expose under each ClotoCore `CapabilityType`, overriding
+the kernel's heuristic `classify_tool` fallback.
+
+**Field**: `tools_for_capability?: Map<CapabilityName, Array<ToolName>>`
+attached to the `MgpServerCapabilities` payload returned in the MGP
+`initialize` response.
+
+**JSON example** (excerpt from a memory server's `initialize` reply):
+
+```json
+{
+  "capabilities": {
+    "mgp": {
+      "version": "0.6.3",
+      "extensions": ["tool_security", "permissions"],
+      "tools_for_capability": {
+        "Memory": ["store", "recall", "list_memories", "archive_episode"]
+      }
+    }
+  }
+}
+```
+
+**CapabilityName** ∈ `"Memory" | "Reasoning" | "Vision" | "Stt" | "Speech"`.
+Unknown keys are logged and skipped (kernel never invents capabilities from
+arbitrary server strings).
+
+**Precedence**: When present, `tools_for_capability` is authoritative —
+the kernel uses it to build `CapabilityDispatcher` entries directly and
+does **not** consult its built-in `classify_tool` server-prefix /
+tool-name heuristic for that server. Absent field falls back to the
+heuristic, which keeps existing servers working without modification.
+
+This extension is targeted for spec formalization in **MGP 0.7.0** as part
+of the Layered Manifest provisioning section (Layer 1/2 schema). Until
+then it remains a ClotoCore-specific vendor extension. See
+[mgp-spec](https://github.com/Cloto-dev/mgp-spec) for the canonical
+specification roadmap.
+
 ### 3.3 Legacy Trait to MCP Tool Mapping
 
 #### ReasoningEngine → MCP Tools
