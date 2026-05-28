@@ -7,6 +7,24 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.8-alpha.3] — 2026-05-28
+
+Verify-automation hardening. Third prerelease in the 0.6.8 line, published on the alpha channel. Pure infrastructure / tooling fix discovered during the first end-to-end run of `scripts/proxmox-windows-verify.sh` after `v0.6.8-alpha.2` published. No kernel / dashboard / installer behaviour changes.
+
+### Fixed
+
+- **`scripts/proxmox-windows-verify.sh`** — `capture_fingerprint()` was passing the PowerShell `FINGERPRINT_PS` heredoc through a doubly-nested `"…\"…\""` quote chain. Windows OpenSSH delivers remote commands through cmd.exe, which strips inner quotes the heredoc relied on for path strings like `"C:\Program Files\cloto-system"`. PowerShell then parsed `Test-Path C:\Program Files\cloto-system` as `Test-Path C:\Program` plus an unrecognized positional `Files\cloto-system`, aborting the fingerprint with a `PositionalParameterNotFound` error. Fix: switch literal paths to PowerShell single quotes, use `Join-Path` for `$env:APPDATA` derivations, and ship the entire payload via `powershell -EncodedCommand` (Base64 UTF-16LE) so cmd.exe sees no special characters at all.
+
+### Verified
+
+- End-to-end Sandbox verify for `v0.6.7 → v0.6.8-alpha.2` upgrade path on Proxmox VM 104:
+  - **8/8 assertions PASS** (NO-OP hook path — Tauri default upgrade flow, no legacy migration needed).
+  - **Data preservation confirmed**: dummy `cloto_memories.db` SHA-256 unchanged across upgrade.
+  - **Wall clock: ~6 min 20 s** (rollback → guest SSH → download FROM → seed DB → silent install FROM → PRE fingerprint → download TO → silent install TO → POST fingerprint → assertion), well under the an earlier decision α→β promotion criterion of 20 min.
+- Together with an earlier decision (Pattern-C, landed in `0.6.8-alpha.2`) and an earlier decision verify automation (`0.6.8-alpha.1`), this satisfies all three α→β promotion criteria. The 0.6.8 line is eligible for beta.1 promotion.
+
+---
+
 ## [0.6.8-alpha.2] — 2026-05-28
 
 Pattern-C capability tool name registry. Second prerelease in the 0.6.8 line; like alpha.1, deliberately published on the alpha channel so existing stable installs do not receive an in-app upgrade prompt. This release lands the structural refactor planned as PR #1 in an earlier decision — the kernel no longer hard-codes MCP tool names as string literals in `handlers/system.rs`. It is the α→β promotion-criterion piece for the 0.6.8 line (per an earlier decision).
