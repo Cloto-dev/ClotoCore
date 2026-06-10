@@ -419,18 +419,34 @@ pub async fn uninstall_handler(
         ));
     }
 
+    // bug-392: capture the registered args before remove_server deletes the
+    // DB row — the entry-point path is the ground truth for where the
+    // install lives on disk (the catalog entry may be gone, and install
+    // directories don't always match the server id, e.g. legacy registry
+    // installs: id `mind.deepseek`, dir `deepseek`).
+    let registered_args: Option<String> =
+        sqlx::query_scalar("SELECT args FROM mcp_servers WHERE name = ?")
+            .bind(&server_id)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten();
+
     // Disconnect and remove from manager + DB
     if let Err(e) = state.mcp_manager.remove_server(&server_id).await {
         warn!("remove_server warning for {}: {}", server_id, e);
         // Still proceed with file cleanup even if server wasn't in memory
     }
 
-    // Delete server files from disk. Resolve via the catalog cache when
-    // we have an entry (so `effective_install_dir` mirrors the install
-    // path's fallback); otherwise drop back to `server_id` as-is — same
-    // convention the installers (`install_from_git`,
-    // `install_from_raw_url`) use when `entry.directory` is empty.
-    let directory = {
+    // Delete server files from disk. Candidates in order: the catalog
+    // cache's `effective_install_dir` (mirrors the install path's
+    // fallback), the directory derived from the registered entry-point
+    // args, then `server_id` as-is — the installers' convention when
+    // `entry.directory` is empty. The first candidate that exists on disk
+    // is the install; a miss across all of them is logged instead of
+    // silently orphaning the files (bug-392).
+    let servers_root = state.data_dir.join("mcp-servers");
+    let catalog_dir = {
         let cache = state.marketplace_cache.read().await;
         cache.data.as_ref().and_then(|reg| {
             reg.servers
@@ -438,11 +454,24 @@ pub async fn uninstall_handler(
                 .find(|s| s.id == server_id)
                 .map(|s| effective_install_dir(s).to_string())
         })
+    };
+    let args_dir = install_dir_from_args(registered_args.as_deref(), &servers_root);
+    let mut candidates: Vec<String> = Vec::new();
+    for c in [catalog_dir, args_dir, Some(server_id.clone())]
+        .into_iter()
+        .flatten()
+    {
+        if !candidates.contains(&c) {
+            candidates.push(c);
+        }
     }
-    .unwrap_or_else(|| server_id.clone());
 
-    let server_dir = state.data_dir.join("mcp-servers").join(&directory);
-    if server_dir.is_dir() {
+    let mut removed = false;
+    for directory in &candidates {
+        let server_dir = servers_root.join(directory);
+        if !server_dir.is_dir() {
+            continue;
+        }
         if let Err(e) = tokio::fs::remove_dir_all(&server_dir).await {
             warn!(
                 "Failed to remove server directory {}: {}",
@@ -454,7 +483,18 @@ pub async fn uninstall_handler(
                 "Removed marketplace server directory: {}",
                 server_dir.display()
             );
+            removed = true;
         }
+        break;
+    }
+    if !removed {
+        warn!(
+            "Uninstall of '{}' removed no files: no install directory found under {} \
+             (probed {:?})",
+            server_id,
+            servers_root.display(),
+            candidates
+        );
     }
 
     info!("Marketplace server uninstalled: {}", server_id);
@@ -2023,6 +2063,25 @@ fn effective_install_dir(entry: &RegistryEntry) -> &str {
     }
 }
 
+/// Derive the on-disk install directory from a registered server's `args`
+/// JSON (bug-392): the first arg that is an absolute path under
+/// `servers_root` names the install directory as its first path component.
+/// Returns `None` for unparseable args or paths outside the servers root
+/// (e.g. dev-layout scripts).
+fn install_dir_from_args(
+    args_json: Option<&str>,
+    servers_root: &std::path::Path,
+) -> Option<String> {
+    let args: Vec<String> = serde_json::from_str(args_json?).ok()?;
+    args.iter().find_map(|a| {
+        let rel = std::path::Path::new(a).strip_prefix(servers_root).ok()?;
+        rel.components().next().and_then(|c| match c {
+            std::path::Component::Normal(s) => Some(s.to_string_lossy().to_string()),
+            _ => None,
+        })
+    })
+}
+
 /// Locate an installable source tree for the shared `common` package
 /// (bug-389/390). Two layouts exist on disk:
 ///
@@ -2946,6 +3005,39 @@ mod tests {
             seal: None,
             install: None,
         }
+    }
+
+    // ── install_dir_from_args (bug-392) ──
+
+    #[test]
+    fn install_dir_derived_from_first_path_under_root() {
+        let root = std::path::Path::new("/data/mcp-servers");
+        let args = r#"["/data/mcp-servers/deepseek/server.py"]"#;
+        assert_eq!(
+            install_dir_from_args(Some(args), root),
+            Some("deepseek".to_string())
+        );
+    }
+
+    #[test]
+    fn install_dir_skips_flags_and_outside_paths() {
+        let root = std::path::Path::new("/data/mcp-servers");
+        let args = r#"["-u", "/opt/elsewhere/server.py", "/data/mcp-servers/cscheduler/servers/cscheduler/server.py"]"#;
+        assert_eq!(
+            install_dir_from_args(Some(args), root),
+            Some("cscheduler".to_string())
+        );
+    }
+
+    #[test]
+    fn install_dir_none_for_missing_or_invalid_args() {
+        let root = std::path::Path::new("/data/mcp-servers");
+        assert_eq!(install_dir_from_args(None, root), None);
+        assert_eq!(install_dir_from_args(Some("not json"), root), None);
+        assert_eq!(
+            install_dir_from_args(Some(r#"["/opt/elsewhere/server.py"]"#), root),
+            None
+        );
     }
 
     // ── resolve_common_source (bug-389/390) ──
