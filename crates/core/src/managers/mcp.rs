@@ -904,7 +904,7 @@ impl McpClientManager {
             // HTTP transport: skip seal verification and isolation (external server).
             debug!(id = %id, "HTTP transport — skipping seal and isolation checks");
         } else {
-            let entry_point = std::path::Path::new(&config.command);
+            let entry_point = resolve_sealable_entry_point(&config.command, &config.args);
             if entry_point.exists() {
                 let seal_key = mgp_seal::load_or_generate_seal_key(
                     self.sandbox_base_dir
@@ -961,8 +961,9 @@ impl McpClientManager {
                     }
                 }
             } else {
-                // Entry point is not a literal file path (e.g. interpreter binary
-                // resolved from PATH). We cannot HMAC something we cannot read,
+                // No sealable file on disk — the resolved entry point (script
+                // for interpreter launches, `command` otherwise) does not
+                // exist as a file. We cannot HMAC something we cannot read,
                 // so we fall back to the same v0.6.3 force-untrusted rule.
                 if declared_trust_level != super::mcp_mgp::TrustLevel::Untrusted
                     && !self.allow_unsigned
@@ -3064,6 +3065,32 @@ fn resolve_mcp_servers_dir(base_dir: &std::path::Path) -> String {
     )
 }
 
+/// Resolve the file whose bytes a Magic Seal binds (bug-391).
+///
+/// Interpreter-launched servers (`command = "python"` with the script in
+/// `args`) are sealed against the entry-point script, not the interpreter:
+/// hashing the interpreter either skips verification entirely (a bare
+/// `python` is not a file path) or could never match a seal issued for the
+/// script bytes. Binary servers keep `command` as the sealable file.
+/// Leading interpreter flags (`-u`, ...) are skipped; module launches
+/// (`-m pkg.mod`) yield no on-disk file and fall through to the caller's
+/// not-a-file handling.
+fn resolve_sealable_entry_point<'a>(command: &'a str, args: &'a [String]) -> &'a std::path::Path {
+    let stem = std::path::Path::new(command)
+        .file_stem()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or(command)
+        .to_ascii_lowercase();
+    let is_interpreter =
+        stem.starts_with("python") || matches!(stem.as_str(), "node" | "deno" | "bun");
+    if is_interpreter {
+        if let Some(script) = args.iter().find(|a| !a.starts_with('-')) {
+            return std::path::Path::new(script.as_str());
+        }
+    }
+    std::path::Path::new(command)
+}
+
 /// Check if a server's env config contains unresolved `${VAR}` references
 /// (i.e. the env var is not set in the process environment).
 fn has_unresolved_env_vars(env: &std::collections::HashMap<String, String>) -> bool {
@@ -3172,6 +3199,73 @@ pub(crate) fn detect_external_rejection(text: &str) -> Option<cloto_shared::Tool
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── resolve_sealable_entry_point (bug-391) ──
+
+    fn args(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn sealable_entry_point_bare_python_uses_script_arg() {
+        let a = args(&["/data/mcp-servers/cscheduler/server.py"]);
+        let p = resolve_sealable_entry_point("python", &a);
+        assert_eq!(
+            p,
+            std::path::Path::new("/data/mcp-servers/cscheduler/server.py")
+        );
+    }
+
+    #[test]
+    fn sealable_entry_point_venv_python_uses_script_arg() {
+        let a = args(&["/srv/servers/deepseek/server.py"]);
+        for cmd in [
+            "/srv/servers/.venv/bin/python",
+            "/srv/servers/.venv/bin/python3.11",
+            "C:/servers/.venv/Scripts/python.exe",
+            "C:/servers/.venv/Scripts/pythonw.exe",
+        ] {
+            let p = resolve_sealable_entry_point(cmd, &a);
+            assert_eq!(
+                p,
+                std::path::Path::new("/srv/servers/deepseek/server.py"),
+                "command {cmd} should resolve to the script"
+            );
+        }
+    }
+
+    #[test]
+    fn sealable_entry_point_skips_interpreter_flags() {
+        let a = args(&["-u", "/srv/servers/terminal/server.py"]);
+        let p = resolve_sealable_entry_point("python3", &a);
+        assert_eq!(p, std::path::Path::new("/srv/servers/terminal/server.py"));
+    }
+
+    #[test]
+    fn sealable_entry_point_binary_server_keeps_command() {
+        let a = args(&["--port", "8470"]);
+        let p = resolve_sealable_entry_point("/data/mcp-servers/avatar/avatar-server", &a);
+        assert_eq!(
+            p,
+            std::path::Path::new("/data/mcp-servers/avatar/avatar-server")
+        );
+    }
+
+    #[test]
+    fn sealable_entry_point_interpreter_without_args_keeps_command() {
+        let p = resolve_sealable_entry_point("python", &[]);
+        assert_eq!(p, std::path::Path::new("python"));
+    }
+
+    #[test]
+    fn sealable_entry_point_module_launch_has_no_script_file() {
+        // `-m pkg.mod` resolves to the module name, which is not an on-disk
+        // file — callers fall through to the not-a-file downgrade handling.
+        let a = args(&["-m", "cpersona.server"]);
+        let p = resolve_sealable_entry_point("python", &a);
+        assert_eq!(p, std::path::Path::new("cpersona.server"));
+        assert!(!p.exists());
+    }
 
     #[tokio::test]
     async fn yolo_mode_initializes_correctly() {
