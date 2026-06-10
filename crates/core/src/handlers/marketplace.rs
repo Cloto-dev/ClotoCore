@@ -1,5 +1,6 @@
 //! Marketplace endpoints for discovering and installing MCP servers
-//! from the cloto-mcp-servers registry.
+//! from the ClotoHub catalog (legacy: the clotohub-servers registry,
+//! formerly named cloto-mcp-servers).
 
 use axum::{
     extract::{ConnectInfo, Path, Query, State},
@@ -61,10 +62,14 @@ const DEFAULT_CATALOG_URL: &str = "https://hub.cloto.dev/api/catalog";
 /// entries served by ClotoHub.dev dispatch through `run_install`
 /// (`install.source: Git/RawUrl/Pypi/Docker`) and never hit this
 /// template — it is preserved only so a `CLOTO_CATALOG_URL` override
-/// pointing back at the legacy `cloto-mcp-servers` registry still
-/// resolves correctly. Overridable via `CLOTO_TARBALL_URL_TEMPLATE`.
+/// pointing back at the legacy registry still resolves correctly.
+/// Overridable via `CLOTO_TARBALL_URL_TEMPLATE`. Phase 4 renamed the
+/// monorepo `cloto-mcp-servers` → `clotohub-servers` and made it
+/// private, so the default below only works with authenticated access;
+/// unauthenticated dev overrides must point `CLOTO_TARBALL_URL_TEMPLATE`
+/// at a reachable mirror.
 const DEFAULT_TARBALL_URL_TEMPLATE: &str =
-    "https://api.github.com/repos/Cloto-dev/cloto-mcp-servers/tarball/{ref}";
+    "https://api.github.com/repos/Cloto-dev/clotohub-servers/tarball/{ref}";
 
 /// Resolve the marketplace catalog URL, honoring `CLOTO_CATALOG_URL` if set.
 fn catalog_url() -> String {
@@ -749,7 +754,7 @@ fn rust_binary_path(server_path: &std::path::Path, entry: &RegistryEntry) -> Pat
 
 /// Dispatch a marketplace install based on the catalog entry's
 /// `install.source`. `None` falls back to the legacy
-/// `cloto-mcp-servers` monorepo tarball path so pre-v0.2 registries keep
+/// `clotohub-servers` monorepo tarball path so pre-v0.2 registries keep
 /// working unchanged. Per-source installers handle materialization, then
 /// share [`build_and_register`] / [`register_server`] for the toolchain
 /// + add_server + auto_start steps.
@@ -1214,7 +1219,7 @@ async fn bind_default_memory_if_unset(
     Ok(())
 }
 
-/// Legacy install path: download the entire `cloto-mcp-servers` monorepo
+/// Legacy install path: download the entire `clotohub-servers` monorepo
 /// tarball, selectively extract `{entry.directory}/` (plus `common/` if
 /// depended on), then build_and_register. Used when the catalog entry
 /// carries no per-entry `install.source` block — preserves backward
@@ -2033,7 +2038,8 @@ fn validate_dest_path(target_dir: &std::path::Path, dest: &std::path::Path) -> a
 }
 
 /// Extract specific directories from a GitHub tarball.
-/// GitHub tarballs have a prefix like `Cloto-dev-cloto-mcp-servers-{sha}/`.
+/// GitHub tarballs have a prefix like `Cloto-dev-clotohub-servers-{sha}/`
+/// (matching is suffix-based, so the repo name does not matter).
 fn extract_selective(
     archive_path: &std::path::Path,
     target_dir: &std::path::Path,
