@@ -28,7 +28,7 @@ use cloto_shared::PluginDataStore;
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::time::{timeout, Duration};
-use tracing::info;
+use tracing::{info, warn};
 
 // Bug #7: Database operation timeout to prevent indefinite hangs
 const DEFAULT_DB_TIMEOUT_SECS: u64 = 10;
@@ -278,12 +278,105 @@ impl PluginDataStore for ScopedDataStore {
     }
 }
 
+/// bug-388: migration `20260524010000` renames `memory.cpersona` → `cpersona`
+/// in `mcp_servers`. A pre-0.6.6 user who installed cpersona from the
+/// marketplace before first booting a >=0.6.6 build has BOTH rows, so the
+/// rename UPDATE collides with the primary key (`UNIQUE constraint failed:
+/// mcp_servers.name`) and the kernel aborts at boot. The migration file is
+/// checksummed by sqlx and cannot be amended, so the precondition is repaired
+/// here instead: when the migration has not been applied yet and both rows
+/// exist, move the legacy row's access grants onto `cpersona` (skipping
+/// duplicates), dedup `plugin_configs` (its `(plugin_id, config_key)` primary
+/// key collides on the migration's UPDATE the same way), and drop the legacy
+/// rows — every statement in the migration then no-ops.
+///
+/// All probes tolerate a fresh database where the tables (or the sqlx
+/// ledger) don't exist yet — nothing can collide there.
+async fn repair_cpersona_rename_collision(pool: &SqlitePool) -> anyhow::Result<()> {
+    let rename_applied: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM _sqlx_migrations WHERE version = 20260524010000")
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None);
+    if rename_applied.is_some() {
+        return Ok(());
+    }
+
+    let both_rows: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 WHERE EXISTS (SELECT 1 FROM mcp_servers WHERE name = 'memory.cpersona') \
+           AND EXISTS (SELECT 1 FROM mcp_servers WHERE name = 'cpersona')",
+    )
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(None);
+    if both_rows.is_none() {
+        return Ok(());
+    }
+
+    warn!(
+        "bug-388 precondition detected: both 'memory.cpersona' and 'cpersona' exist in \
+         mcp_servers and the rename migration has not run yet — merging the legacy row \
+         into 'cpersona' before migrations"
+    );
+
+    // 1. Re-point legacy grants at `cpersona`, skipping rows that already
+    //    have an equivalent grant (mcp_access_control has no UNIQUE
+    //    constraint, so dedup explicitly).
+    sqlx::query(
+        "INSERT INTO mcp_access_control \
+             (entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at, \
+              expires_at, justification, metadata) \
+         SELECT entry_type, agent_id, 'cpersona', tool_name, permission, granted_by, granted_at, \
+                expires_at, justification, metadata \
+         FROM mcp_access_control AS legacy \
+         WHERE legacy.server_id = 'memory.cpersona' \
+           AND NOT EXISTS ( \
+             SELECT 1 FROM mcp_access_control AS cur \
+             WHERE cur.server_id = 'cpersona' \
+               AND cur.entry_type = legacy.entry_type \
+               AND cur.agent_id = legacy.agent_id \
+               AND COALESCE(cur.tool_name, '') = COALESCE(legacy.tool_name, '') \
+               AND cur.permission = legacy.permission)",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("DELETE FROM mcp_access_control WHERE server_id = 'memory.cpersona'")
+        .execute(pool)
+        .await?;
+
+    // 2. plugin_configs: drop legacy rows whose config_key already exists
+    //    under `cpersona` (the migration's UPDATE renames the rest cleanly).
+    if let Err(e) = sqlx::query(
+        "DELETE FROM plugin_configs WHERE plugin_id = 'memory.cpersona' \
+           AND config_key IN (SELECT config_key FROM plugin_configs WHERE plugin_id = 'cpersona')",
+    )
+    .execute(pool)
+    .await
+    {
+        // plugin_configs may predate this shape in exotic DBs — non-fatal,
+        // the migration's UPDATE will surface any real conflict.
+        warn!("bug-388 repair: plugin_configs dedup skipped: {e}");
+    }
+
+    // 3. Drop the legacy server row itself.
+    sqlx::query("DELETE FROM mcp_servers WHERE name = 'memory.cpersona'")
+        .execute(pool)
+        .await?;
+
+    info!("bug-388 repair complete: legacy 'memory.cpersona' merged into 'cpersona'");
+    Ok(())
+}
+
 pub async fn init_db(
     pool: &SqlitePool,
     database_url: &str,
     memory_plugin_id: Option<&str>,
 ) -> anyhow::Result<()> {
     info!("Running database migrations & seeds...");
+
+    // bug-388: repair the memory.cpersona/cpersona collision before the
+    // checksummed rename migration runs (it cannot be amended in place).
+    repair_cpersona_rename_collision(pool).await?;
 
     // Run migrations from migrations/ directory
     // Bug C: Wrap migration with timeout to prevent indefinite startup hangs (30s for schema changes)
@@ -328,6 +421,133 @@ pub async fn init_db(
 mod tests {
     use super::*;
     use chrono::Utc;
+
+    // ── repair_cpersona_rename_collision (bug-388) ──
+
+    /// Minimal shapes of the four tables touched by migration
+    /// `20260524010000` — enough for its statements to execute verbatim.
+    async fn create_bug388_tables(pool: &SqlitePool) {
+        sqlx::raw_sql(
+            "CREATE TABLE mcp_servers (name TEXT PRIMARY KEY); \
+             CREATE TABLE mcp_access_control ( \
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, \
+                 entry_type TEXT NOT NULL, \
+                 agent_id TEXT NOT NULL, \
+                 server_id TEXT NOT NULL REFERENCES mcp_servers(name) ON DELETE CASCADE, \
+                 tool_name TEXT, \
+                 permission TEXT NOT NULL DEFAULT 'allow', \
+                 granted_by TEXT, \
+                 granted_at TEXT NOT NULL, \
+                 expires_at TEXT, \
+                 justification TEXT, \
+                 metadata TEXT); \
+             CREATE TABLE plugin_configs ( \
+                 plugin_id TEXT, config_key TEXT, config_value TEXT, \
+                 PRIMARY KEY(plugin_id, config_key)); \
+             CREATE TABLE agents (id TEXT PRIMARY KEY, metadata TEXT);",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn bug388_repair_merges_legacy_row_and_rename_migration_applies() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        create_bug388_tables(&pool).await;
+        // Pre-0.6.6 ledger state: no _sqlx_migrations table at all is the
+        // strongest form of "rename not applied yet".
+        sqlx::raw_sql(
+            "INSERT INTO mcp_servers (name) VALUES ('memory.cpersona'), ('cpersona'); \
+             INSERT INTO mcp_access_control (entry_type, agent_id, server_id, permission, granted_at) \
+               VALUES ('server_grant', 'agent.a', 'memory.cpersona', 'allow', 't0'), \
+                      ('server_grant', 'agent.b', 'memory.cpersona', 'allow', 't0'), \
+                      ('server_grant', 'agent.a', 'cpersona', 'allow', 't1'); \
+             INSERT INTO plugin_configs (plugin_id, config_key, config_value) \
+               VALUES ('memory.cpersona', 'database_url', 'old'), \
+                      ('cpersona', 'database_url', 'new'), \
+                      ('memory.cpersona', 'only_legacy', 'x');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        repair_cpersona_rename_collision(&pool).await.unwrap();
+
+        // The checksummed migration must now apply verbatim without a
+        // UNIQUE collision.
+        sqlx::raw_sql(include_str!(
+            "../../migrations/20260524010000_rename_memory_cpersona_to_cpersona.sql"
+        ))
+        .execute(&pool)
+        .await
+        .expect("rename migration must apply cleanly after repair");
+
+        let names: Vec<String> = sqlx::query_scalar("SELECT name FROM mcp_servers ORDER BY name")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(names, vec!["cpersona".to_string()]);
+
+        // agent.b's legacy-only grant moved over; agent.a's duplicate was
+        // not doubled (2 pre-existing + 1 migrated + the migration's own
+        // default grant for agent.cloto_default).
+        let grants: Vec<(String, String)> =
+            sqlx::query_as("SELECT agent_id, server_id FROM mcp_access_control ORDER BY agent_id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            grants,
+            vec![
+                ("agent.a".to_string(), "cpersona".to_string()),
+                ("agent.b".to_string(), "cpersona".to_string()),
+                ("agent.cloto_default".to_string(), "cpersona".to_string()),
+            ]
+        );
+
+        let configs: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT plugin_id, config_key, config_value FROM plugin_configs ORDER BY config_key",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            configs,
+            vec![
+                ("cpersona".into(), "database_url".into(), "new".into()),
+                ("cpersona".into(), "only_legacy".into(), "x".into()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn bug388_repair_noops_when_rename_already_applied() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        create_bug388_tables(&pool).await;
+        sqlx::raw_sql(
+            "CREATE TABLE _sqlx_migrations (version BIGINT PRIMARY KEY); \
+             INSERT INTO _sqlx_migrations (version) VALUES (20260524010000); \
+             INSERT INTO mcp_servers (name) VALUES ('memory.cpersona'), ('cpersona');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        repair_cpersona_rename_collision(&pool).await.unwrap();
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM mcp_servers")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 2, "post-migration rows must not be touched");
+    }
+
+    #[tokio::test]
+    async fn bug388_repair_tolerates_fresh_database() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        repair_cpersona_rename_collision(&pool).await.unwrap();
+    }
 
     #[tokio::test]
     async fn test_audit_log_roundtrip() {
