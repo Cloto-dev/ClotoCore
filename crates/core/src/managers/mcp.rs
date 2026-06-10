@@ -469,7 +469,7 @@ impl McpClientManager {
 
         // Build path variables from [paths] section.
         // Values may themselves reference env vars: ${ENV_VAR_NAME}
-        // Special case: CLOTO_MCP_SERVERS defaults to ../cloto-mcp-servers/servers
+        // Special case: CLOTO_MCP_SERVERS defaults to ../clotohub-servers/servers
         // (resolved against project root) when the env var is not set.
         let path_vars: HashMap<String, String> = config
             .paths
@@ -2998,7 +2998,10 @@ impl McpClientManager {
                 exe_parent.to_path_buf()
             }
         };
-        if exe_dir.join("cloto-mcp-servers").exists() || exe_dir.join("mcp-servers").exists() {
+        if exe_dir.join("clotohub-servers").exists()
+            || exe_dir.join("cloto-mcp-servers").exists()
+            || exe_dir.join("mcp-servers").exists()
+        {
             return Some(exe_dir);
         }
         None
@@ -3031,9 +3034,10 @@ impl McpClientManager {
 ///
 /// Search order (first existing wins):
 /// 1. `base_dir/mcp-servers` — setup wizard install layout (production)
-/// 2. `base_dir/cloto-mcp-servers/servers` — bundled alongside `mcp.toml`
-/// 3. `base_dir/../cloto-mcp-servers/servers` — sibling repo (development)
-/// 4. `exe_dir/mcp-servers/servers` — legacy bundled layout
+/// 2. `base_dir/clotohub-servers/servers` — bundled alongside `mcp.toml`
+/// 3. `base_dir/../clotohub-servers/servers` — sibling repo (development)
+/// 4. legacy `cloto-mcp-servers` variants of 2/3 — pre-rename checkouts
+/// 5. `exe_dir/mcp-servers/servers` — legacy bundled layout
 ///
 /// Fallback (none exist): `base_dir/mcp-servers` — the setup wizard will
 /// create this directory later, so CONFIG server paths resolve correctly
@@ -3042,6 +3046,8 @@ fn resolve_mcp_servers_dir(base_dir: &std::path::Path) -> String {
     let production = base_dir.join("mcp-servers");
     let candidates = [
         &production,
+        &base_dir.join("clotohub-servers/servers"),
+        &base_dir.join("../clotohub-servers/servers"),
         &base_dir.join("cloto-mcp-servers/servers"),
         &base_dir.join("../cloto-mcp-servers/servers"),
         &crate::config::exe_dir().join("mcp-servers/servers"),

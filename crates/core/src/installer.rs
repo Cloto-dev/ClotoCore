@@ -77,9 +77,9 @@ DATABASE_URL=sqlite:{db_path}
 # CORS_ORIGINS=http://localhost:5173
 
 # --- MCP Servers ---
-# Path to cloto-mcp-servers/servers directory.
+# Path to clotohub-servers/servers directory.
 # Required for MCP server auto-discovery from mcp.toml.
-# CLOTO_MCP_SERVERS=C:\path\to\cloto-mcp-servers\servers
+# CLOTO_MCP_SERVERS=C:\path\to\clotohub-servers\servers
 
 # --- Plugin Network Access (Principle #5) ---
 # Additional hosts that plugins with NetworkAccess permission may reach.

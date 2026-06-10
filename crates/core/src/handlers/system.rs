@@ -2097,7 +2097,7 @@ impl SystemHandler {
     /// Record the `usage` block returned by a mind MCP server into the
     /// per-agent [`UsageStore`] so the dashboard can display "used / max".
     /// Silently no-ops when the MCP server didn't include usage (older
-    /// cloto-mcp-servers versions, or non-final responses) — we don't want a
+    /// clotohub-servers builds, or non-final responses) — we don't want a
     /// missing counter to produce log noise on every turn.
     async fn maybe_record_usage(
         &self,
