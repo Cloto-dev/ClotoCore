@@ -6,7 +6,7 @@ Read these before making changes. Do not summarize — read the actual files.
 
 - **`docs/PROJECT_VISION.md`** — Core identity, competitive positioning, target users
 - **`docs/ARCHITECTURE.md`** — System architecture, security framework, design principles
-- **`docs/MGP_SPEC.md`** — MGP protocol (strict MCP superset). Servers: [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers)
+- **`docs/MGP_SPEC.md`** — MGP protocol (strict MCP superset). Servers: [clotohub-servers](https://github.com/Cloto-dev/clotohub-servers) (private; formerly cloto-mcp-servers)
 - **`docs/DEVELOPMENT.md`** — 8 critical guardrails (security, cascading, state, storage, UI/UX, physical safety, external processes, privacy)
 
 If a proposed change conflicts with any of these, flag it before proceeding.

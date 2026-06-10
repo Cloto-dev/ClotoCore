@@ -8,7 +8,7 @@
 > All MCP servers are MGP-compliant. MGP adds trust levels, isolation policies, handshake
 > extensions, and event forwarding on top of the standard MCP protocol.
 > See [MGP_SPEC.md](MGP_SPEC.md) for the full specification and
-> [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers) for detailed MGP documentation.
+> [mgp-spec](https://github.com/Cloto-dev/mgp-spec) for detailed MGP documentation.
 
 ---
 
@@ -92,7 +92,7 @@ Results of evaluating alternatives:
 ┌───────────────────────▼──────────────────────────────┐
 │  Layer 2: MCP Servers (any language)                   │
 │                                                        │
-│  Repository: cloto-mcp-servers (github.com/Cloto-dev/cloto-mcp-servers) │
+│  Repository: clotohub-servers (private, formerly cloto-mcp-servers)   │
 │                                                        │
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐ │
 │  │ mind.*      │ │ memory.*    │ │ tool.*          │ │
@@ -181,7 +181,7 @@ Layer 4 `mgp.*` kernel tools defined in MGP_SPEC §1.6.
 
 (`mgp.agent.ask` was listed here in an earlier revision. It is part of
 MGP spec Layer 4 (`mgp.agent.*`) and is therefore documented in
-[MGP_SPEC](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_SPEC.md) §1.6.)
+[MGP_SPEC](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_SPEC.md) §1.6.)
 
 These tools are invoked via standard `tools/call` and follow ClotoCore's
 access control policies (§5). They are excluded from LLM tool context by
@@ -602,7 +602,7 @@ Components removed or archived as part of the MCP migration:
 
 As of v0.5.4, all MCP/MGP server implementations are maintained in a separate repository:
 
-- **Repository:** [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers)
+- **Repository:** clotohub-servers (private, formerly cloto-mcp-servers); community servers via [ClotoHub](https://hub.cloto.dev)
 - **Contents:** 15 Python + 2 Rust MCP servers (17 total) + common library + tests + MGP documentation
 - **Integration:** `mcp.toml` `[paths].servers` points to the local clone
 - **License:** BSL 1.1 (CPersona and MGP Protocol individually MIT-licensed)

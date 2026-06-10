@@ -178,7 +178,7 @@ Trust level determines the default isolation profile:
 
 ### 5. Using MgpCapabilities helper (optional)
 
-The `cloto-mcp-servers` repository provides a lightweight `MgpCapabilities` builder
+The [`mcp-common`](https://github.com/Cloto-dev/mgp-py) package provides a lightweight `MgpCapabilities` builder
 for declaring MGP capabilities without manually constructing JSON:
 
 ```python
@@ -194,12 +194,12 @@ capabilities = {"tools": {}, **mgp.as_dict()}
 
 > **Note:** A full MGP SDK is not yet available. For advanced MGP features
 > (events, streaming, callbacks), implement the JSON-RPC methods directly.
-> See [MGP Guide](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_GUIDE.md)
+> See [MGP Guide](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_GUIDE.md)
 > for the staged adoption path.
 
 ### 6. Using ClotoCore's ToolRegistry (optional)
 
-The `cloto-mcp-servers` repository provides a `ToolRegistry` helper that
+The [`mcp-common`](https://github.com/Cloto-dev/mgp-py) package provides a `ToolRegistry` helper that
 eliminates boilerplate:
 
 ```python
@@ -228,24 +228,26 @@ if __name__ == "__main__":
 
 ---
 
-## Adding to cloto-mcp-servers
+## Publishing your server
 
-If you want to contribute your server to the official repository:
+First-party servers are maintained in the private `clotohub-servers` repository
+(formerly `cloto-mcp-servers`). Community servers are distributed through the
+[ClotoHub marketplace](https://hub.cloto.dev) instead:
 
-1. Create `servers/<name>/server.py` (use `ToolRegistry` from `common/mcp_utils.py`)
-2. Add `servers/<name>/pyproject.toml`
-3. Add tests to `servers/tests/`
-4. Register in `registry.json`
-5. Add server entry to ClotoCore's `mcp.toml`
-
-See `servers/example/server.py` for a complete reference implementation.
+1. Host your server in your own repository (git / raw_url / pypi / docker sources
+   are supported)
+2. Describe it with a `cloto-connector.json` manifest or `[tool.cloto.mgp]`
+   pyproject hints — see the
+   [MGP Connector spec](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_CONNECTOR.md)
+3. Contact the maintainers (ClotoCore@proton.me) to get it listed in the
+   ClotoHub catalog (listing is currently curated)
 
 ---
 
 ## Further Reading
 
-- [MGP Specification](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_SPEC.md) — Full protocol spec
-- [MGP Security](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_SECURITY.md) — Permission model, RBAC, audit
-- [MGP Guide](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_GUIDE.md) — Implementation guide with staged adoption
+- [MGP Specification](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_SPEC.md) — Full protocol spec
+- [MGP Security](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_SECURITY.md) — Permission model, RBAC, audit
+- [MGP Guide](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_GUIDE.md) — Implementation guide with staged adoption
 - [MCP Official Docs](https://modelcontextprotocol.io/docs/develop/build-server) — Anthropic's MCP documentation
 - [ClotoCore Architecture](ARCHITECTURE.md) — System design and security framework
