@@ -2922,8 +2922,9 @@
       "commit": "9f7f498",
       "file": "crates/core/src/managers/mcp.rs",
       "pattern": "std::path::Path::new\\(&config\\.command\\)",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
+      "fix_note": "Fixed by resolve_sealable_entry_point (managers/mcp.rs): when command is an interpreter (python*/node/deno/bun), the sealable file is the first non-flag arg (the entry-point script the catalog seal binds); binary servers keep command. Bare 'python' marketplace installs now verify the hub seal against server.py instead of skipping via entry_point_not_a_file; an absolute venv interpreter can no longer mismatch a script-bound seal.",
       "github_issue": 165
     },
     {
