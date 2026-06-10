@@ -27,7 +27,8 @@ fn resolve_project_root() -> Option<PathBuf> {
 
 /// Resolve the MCP servers directory.
 /// Primary: `{data_dir}/mcp-servers` (production).
-/// Fallback: `CLOTO_MCP_SERVERS` env var, then `../cloto-mcp-servers/servers` relative to project root (dev).
+/// Fallback: `CLOTO_MCP_SERVERS` env var, then `../clotohub-servers/servers`
+/// (legacy: `../cloto-mcp-servers/servers`) relative to project root (dev).
 #[must_use]
 pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
     // 1. Production: {data_dir}/mcp-servers
@@ -42,11 +43,14 @@ pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
             return Some(p);
         }
     }
-    // 3. Dev: ../cloto-mcp-servers/servers relative to project root
+    // 3. Dev: ../clotohub-servers/servers relative to project root
+    //    (legacy name cloto-mcp-servers still probed for pre-rename checkouts)
     if let Some(root) = resolve_project_root() {
-        let dev_path = root.join("..").join("cloto-mcp-servers").join("servers");
-        if dev_path.is_dir() {
-            return Some(dev_path);
+        for repo_name in ["clotohub-servers", "cloto-mcp-servers"] {
+            let dev_path = root.join("..").join(repo_name).join("servers");
+            if dev_path.is_dir() {
+                return Some(dev_path);
+            }
         }
     }
     None
