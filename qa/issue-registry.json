@@ -1534,9 +1534,10 @@
       "version": "0.6.2",
       "commit": "8c09a10",
       "file": "crates/core/src/db/mod.rs",
-      "pattern": "'memory\\.cpersona'",
+      "pattern": "\"memory\\.cpersona\"",
       "expected": "absent",
-      "status": "fixed"
+      "status": "fixed",
+      "fix_note": "Pattern narrowed 2026-06-10: the original defect was the kernel passing the Rust string literal \"memory.cpersona\" as the hardcoded memory plugin id at startup (removed by the 0.6.6 decouple). The bug-388 repair guard later reintroduced the id into db/mod.rs as SQL data (single-quoted, rename-collision cleanup) which is unrelated to config seeding, so the check now matches the double-quoted Rust literal only."
     },
     {
       "id": "bug-279",
@@ -2881,11 +2882,12 @@
       "discovered": "2026-06-09T19:10:00Z",
       "version": "0.6.8-alpha.3",
       "commit": "9f7f498",
-      "file": "crates/core/migrations/20260524010000_rename_memory_cpersona_to_cpersona.sql",
-      "pattern": "UPDATE mcp_servers SET name = 'cpersona' WHERE name = 'memory.cpersona';",
+      "file": "crates/core/src/db/mod.rs",
+      "pattern": "repair_cpersona_rename_collision",
       "expected": "present",
-      "status": "open",
-      "github_issue": 162
+      "status": "fixed",
+      "github_issue": 162,
+      "fix_note": "Fixed by repair_cpersona_rename_collision (db/mod.rs), which runs before sqlx migrations in init_db: when migration 20260524010000 has not been applied and both 'memory.cpersona' and 'cpersona' rows exist, legacy grants are merged onto 'cpersona' (explicit dedup; mcp_access_control has no UNIQUE constraint), plugin_configs duplicates are dropped (its (plugin_id, config_key) PK collides on the migration's UPDATE the same way), and the legacy mcp_servers row is deleted — the checksummed migration then no-ops. Covered by a test that replays the actual migration file after repair. NOTE: the buggy migration file itself is intentionally unchanged (sqlx checksum); this entry's check therefore verifies the presence of the repair guard rather than the absence of the original SQL."
     },
     {
       "id": "bug-389",
