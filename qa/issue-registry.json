@@ -2940,9 +2940,10 @@
       "commit": "9f7f498",
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "join\\(\"mcp-servers\"\\)\\.join\\(&directory\\)",
-      "expected": "present",
-      "status": "open",
-      "github_issue": 166
+      "expected": "absent",
+      "status": "fixed",
+      "github_issue": 166,
+      "fix_note": "Fixed: uninstall now probes candidates in order — catalog effective_install_dir, the directory derived from the registered entry-point args (install_dir_from_args reads mcp_servers.args BEFORE remove_server deletes the row), then server_id — removes the first that exists, and warns instead of silently no-oping when none is found."
     }
   ]
 }
