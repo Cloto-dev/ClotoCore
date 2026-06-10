@@ -2884,7 +2884,8 @@
       "file": "crates/core/migrations/20260524010000_rename_memory_cpersona_to_cpersona.sql",
       "pattern": "UPDATE mcp_servers SET name = 'cpersona' WHERE name = 'memory.cpersona';",
       "expected": "present",
-      "status": "open"
+      "status": "open",
+      "github_issue": 162
     },
     {
       "id": "bug-389",
@@ -2896,7 +2897,8 @@
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "servers_dir\\.join\\(\"common\"\\)\\.join\\(\"__init__\\.py\"\\)\\.exists\\(\\)",
       "expected": "present",
-      "status": "open"
+      "status": "open",
+      "github_issue": 163
     },
     {
       "id": "bug-390",
@@ -2908,7 +2910,8 @@
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "common_path\\.join\\(\"pyproject\\.toml\"\\)\\.exists\\(\\)",
       "expected": "present",
-      "status": "open"
+      "status": "open",
+      "github_issue": 164
     },
     {
       "id": "bug-391",
@@ -2920,7 +2923,8 @@
       "file": "crates/core/src/managers/mcp.rs",
       "pattern": "std::path::Path::new\\(&config\\.command\\)",
       "expected": "present",
-      "status": "open"
+      "status": "open",
+      "github_issue": 165
     },
     {
       "id": "bug-392",
@@ -2932,7 +2936,8 @@
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "join\\(\"mcp-servers\"\\)\\.join\\(&directory\\)",
       "expected": "present",
-      "status": "open"
+      "status": "open",
+      "github_issue": 166
     }
   ]
 }
