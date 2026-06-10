@@ -2896,9 +2896,10 @@
       "commit": "9f7f498",
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "servers_dir\\.join\\(\"common\"\\)\\.join\\(\"__init__\\.py\"\\)\\.exists\\(\\)",
-      "expected": "present",
-      "status": "open",
-      "github_issue": 163
+      "expected": "absent",
+      "status": "fixed",
+      "github_issue": 163,
+      "fix_note": "Fixed: needs_common no longer probes the legacy flat layout. All three call sites (monorepo tarball, git install, setup-wizard batch) now derive needs_common from the declared dependency alone; provisioning happens via uv pip install into the shared venv (resolve_common_source picks the nested-clone sibling or flat copy)."
     },
     {
       "id": "bug-390",
@@ -2909,9 +2910,10 @@
       "commit": "9f7f498",
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "common_path\\.join\\(\"pyproject\\.toml\"\\)\\.exists\\(\\)",
-      "expected": "present",
-      "status": "open",
-      "github_issue": 164
+      "expected": "absent",
+      "status": "fixed",
+      "github_issue": 164,
+      "fix_note": "Fixed two-sided: clotohub-servers v0.1.8 ships servers/common/pyproject.toml (setuptools package-dir mapping exposing the 'common' import package), and ClotoCore's rescue uses resolve_common_source to probe the nested git-clone sibling (<clone>/servers/common) before the legacy flat location, warning loudly instead of silently skipping when no installable tree is found."
     },
     {
       "id": "bug-391",
