@@ -125,13 +125,12 @@ All plugin functionality is delivered via **MCP (Model Context Protocol)** serve
 | `mind.cerebras` | Reasoning | Ultra-high-speed reasoning via Cerebras API |
 | `mind.claude` | Reasoning | Anthropic Claude API (native Messages API) |
 | `mind.ollama` | Reasoning | Local model inference via Ollama |
-| `cpersona` | Memory | [CPersona](https://github.com/Cloto-dev/cloto-mcp-servers/tree/main/servers/cpersona) — persistent memory with RRF hybrid search (vector + FTS5 + keyword), confidence scoring, episodic/profile memory, 16 tools (MIT) |
+| `cpersona` | Memory | [CPersona](https://github.com/Cloto-dev/CPersona) — persistent memory with RRF hybrid search (vector + FTS5 + keyword), confidence scoring, episodic/profile memory, 24 tools (MIT) |
 | `tool.terminal` | Tool | Sandboxed shell command execution |
 | `tool.agent_utils` | Tool | Deterministic utilities (time, math, UUID, hash, etc.) |
 | `tool.cron` | Tool | Stateless CRON job management via kernel REST API |
 | `tool.embedding` | Tool | Vector embedding generation (ONNX: Jina-v5-nano / MiniLM) |
 | `tool.websearch` | Tool | Web search via Tavily or SearXNG |
-| `tool.research` | Tool | Multi-engine research synthesis pipeline |
 | `tool.imagegen` | Tool | Image generation via Stable Diffusion API |
 | `vision.gaze_webcam` | Vision | Eye gaze tracking via MediaPipe |
 | `vision.capture` | Vision | Screen/image analysis via Ollama (hybrid OCR) |
@@ -139,8 +138,8 @@ All plugin functionality is delivered via **MCP (Model Context Protocol)** serve
 | `output.avatar` | Output | VRM expression, idle behavior, and VOICEVOX TTS (Rust) |
 | `io.discord` | I/O | Bidirectional Discord communication via MGP events (Rust) |
 
-MCP servers live in the [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers) repository
-and are configured via `mcp.toml`. See [MCP Plugin Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) for details.
+First-party MCP servers are maintained in the private clotohub-servers repository and
+distributed via the [ClotoHub marketplace](https://hub.cloto.dev); they are configured via `mcp.toml`. See [MCP Plugin Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) for details.
 
 **Build your own server:** [Quickstart Guide](docs/QUICKSTART_MCP_SERVER.md) — create a working MCP/MGP server in 5 minutes.
 
@@ -298,7 +297,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 
 ## Testing
 
-234 Rust tests. MCP server tests (117 Python) are in [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers).
+234 Rust tests. MCP server tests (Python) are in the private clotohub-servers repository.
 
 ```bash
 cargo test                              # all Rust tests
@@ -326,11 +325,11 @@ See [Architecture](docs/ARCHITECTURE.md) for the full security model.
 - [Project Vision](docs/PROJECT_VISION.md) — Strategic direction and roadmap
 - [Development](docs/DEVELOPMENT.md) — Coding standards, guardrails, PR process
 - [MGP Spec](docs/MGP_SPEC.md) — Multi-Agent Gateway Protocol specification
-- [MGP Guide](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_GUIDE.md) — MGP usage guide
-- [MGP Security](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_SECURITY.md) — MGP security model
-- [MGP Isolation](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_ISOLATION_DESIGN.md) — MGP isolation design
-- [MGP Communication](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_COMMUNICATION.md) — MGP communication protocol
-- [MGP Discovery](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_DISCOVERY.md) — MGP service discovery
+- [MGP Guide](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_GUIDE.md) — MGP usage guide
+- [MGP Security](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_SECURITY.md) — MGP security model
+- [MGP Isolation](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_ISOLATION_DESIGN.md) — MGP isolation design
+- [MGP Communication](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_COMMUNICATION.md) — MGP communication protocol
+- [MGP Discovery](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_DISCOVERY.md) — MGP service discovery
 - [MCP Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) — MCP server communication protocol
 - [CPersona Memory](docs/CPERSONA_MEMORY_DESIGN.md) — Memory system design
 - [Database Schema](docs/SCHEMA.md) — SQLite schema reference

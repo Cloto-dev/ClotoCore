@@ -27,12 +27,12 @@ cargo test
 npm --prefix dashboard ci
 npm --prefix dashboard run build
 
-# Python MCP servers (separate repository)
-git clone https://github.com/Cloto-dev/cloto-mcp-servers.git ../cloto-mcp-servers
-cd ../cloto-mcp-servers/servers
+# Python MCP servers (separate private repository — maintainers only)
+git clone https://github.com/Cloto-dev/clotohub-servers.git ../clotohub-servers
+cd ../clotohub-servers/servers
 python -m venv .venv
-.venv/Scripts/pip install -e cpersona -e embedding   # Windows
-# .venv/bin/pip install -e cpersona -e embedding      # Linux/macOS
+.venv/Scripts/pip install -e embedding   # Windows
+# .venv/bin/pip install -e embedding      # Linux/macOS
 cd -
 ```
 
@@ -52,8 +52,8 @@ All tests must pass before submitting a pull request:
 cargo test --workspace --exclude app
 cargo clippy --workspace --exclude app --all-targets -- -D warnings
 
-# Python MCP (117 tests) — in cloto-mcp-servers repository
-cd ../cloto-mcp-servers/servers && python -m pytest tests/ -v
+# Python MCP — in the private clotohub-servers repository (maintainers only)
+cd ../clotohub-servers/servers && python -m pytest tests/ -v
 
 # Dashboard
 cd dashboard && npm run build
@@ -70,7 +70,7 @@ cd dashboard && npm run build
 - Function length limit: 100 lines (enforced by clippy `too_many_lines`)
 
 ### Python
-- Follow existing patterns in [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers)
+- Follow existing patterns in the clotohub-servers repository (private)
 - Use `ToolRegistry` and `auto_tool()` from `common/mcp_utils.py` for new MCP servers
 - Use validators from `common/validation.py` for argument extraction
 
@@ -85,12 +85,12 @@ cd dashboard && npm run build
 
 ## Adding an MCP Server
 
-MCP servers are maintained in [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers). See that repository's `CLAUDE.md` for setup instructions.
+First-party MCP servers are maintained in the private clotohub-servers repository. Community servers are distributed through the [ClotoHub marketplace](https://hub.cloto.dev) — see the [Quickstart Guide](docs/QUICKSTART_MCP_SERVER.md) to build your own.
 
-1. Create `servers/<name>/server.py` (in cloto-mcp-servers)
+1. Create `servers/<name>/server.py` (in clotohub-servers)
 2. Use `ToolRegistry` from `common/mcp_utils.py` for tool registration
 3. Add the server entry to ClotoCore's `mcp.toml`
-4. Add tests to `servers/tests/` (in cloto-mcp-servers)
+4. Add tests to `servers/tests/` (in clotohub-servers)
 5. Register in `registry.json` and document in `README.md`
 
 See existing servers (e.g., `terminal/server.py`) for reference.

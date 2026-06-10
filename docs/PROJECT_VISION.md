@@ -120,7 +120,7 @@ No major Kernel modifications are required.
 ┌─────────────────────────────────────────────────────┐
 │  Layer 5: Frontend Experience                        │
 │  Live2D/VRM avatar, TTS/STT, streaming integration   │
-│  → MCP: output.avatar, voice.stt (cloto-mcp-servers repo) │
+│  → MCP: output.avatar, voice.stt (clotohub-servers repo) │
 ├─────────────────────────────────────────────────────┤
 │  Layer 4: Emotion & Personality Engine               │
 │  Internal emotional state, personality consistency,   │

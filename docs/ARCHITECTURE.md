@@ -353,7 +353,7 @@ MCP servers are independent processes that communicate with the Kernel via JSON-
 For full architecture details, see [MCP Plugin Architecture](MCP_PLUGIN_ARCHITECTURE.md).
 
 **Key characteristics:**
-- Servers maintained in [cloto-mcp-servers](https://github.com/Cloto-dev/cloto-mcp-servers) repository
+- Servers maintained in the private clotohub-servers repository (formerly cloto-mcp-servers)
 - Configured via `mcp.toml` with `[paths]` section for external server resolution
 - Language-agnostic: any language implementing MCP protocol
 - Process isolation: each server runs as a separate OS process
@@ -367,7 +367,7 @@ For full architecture details, see [MCP Plugin Architecture](MCP_PLUGIN_ARCHITEC
 
 ```toml
 [paths]
-servers = "C:/path/to/cloto-mcp-servers/servers"
+servers = "C:/path/to/clotohub-servers/servers"
 
 [[servers]]
 command = "python"
@@ -380,7 +380,7 @@ If `[paths]` is absent, relative paths are resolved against the project root (ba
 **Migration plan (D → C):** The current approach (D) uses file-path-based server
 resolution. The future approach (C) will use Python package-based invocation
 (`python -m cloto_mcp_servers.terminal`), eliminating path configuration entirely.
-The root `pyproject.toml` in cloto-mcp-servers is prepared for this migration.
+The root `pyproject.toml` in clotohub-servers is prepared for this migration.
 
 ### 3.2 Architecture History
 
@@ -426,4 +426,4 @@ These principles define the "correct approach" within ClotoCore. The following c
 ### Related Design Documents
 
 - [MGP_SPEC.md](MGP_SPEC.md) — Multi-Agent Gateway Protocol specification (index)
-- [MGP Isolation Design](https://github.com/Cloto-dev/cloto-mcp-servers/blob/main/docs/MGP_ISOLATION_DESIGN.md) — OS-Level isolation design (in cloto-mcp-servers repo)
+- [MGP Isolation Design](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_ISOLATION_DESIGN.md) — OS-Level isolation design (in the mgp-spec repo)
