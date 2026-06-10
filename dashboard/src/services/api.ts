@@ -68,7 +68,8 @@ async function fetchJson<T>(path: string, ctx: string, apiKey?: string, signal?:
   const headers: Record<string, string> = {};
   if (apiKey) headers['X-API-Key'] = apiKey;
   const res = await fetch(`${API_BASE}${path}`, { headers, signal: signal ?? AbortSignal.timeout(API_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`Failed to ${ctx}: ${res.statusText}`);
+  // bug-393: surface the kernel's error.message instead of the bare statusText
+  await throwIfNotOk(res, ctx);
   const body = await res.json();
   return body.data as T;
 }
@@ -87,7 +88,10 @@ async function mutate(
     signal: signal ?? AbortSignal.timeout(API_TIMEOUT_MS),
     ...(body !== undefined && { body: JSON.stringify(body) }),
   });
-  if (!res.ok) throw new Error(`Failed to ${ctx}: ${res.statusText}`);
+  // bug-393: surface the kernel's error.message instead of the bare statusText
+  // (a 400 "Server 'X' is already installed" used to reach the user as just
+  // "Bad Request", masking the actual rejection reason)
+  await throwIfNotOk(res, ctx);
   return res;
 }
 
