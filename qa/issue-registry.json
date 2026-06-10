@@ -2873,6 +2873,66 @@
       "fixed_in": "0.6.7",
       "fix_note": "Latent regression introduced when mgp-sdk renamed `EnvVarDef.key` → `EnvVarDef.name` (with `#[serde(alias = \"key\")]` covering deserialize-side backward compatibility only; serialize always emits `name`). The Rust backend forwards the catalog response verbatim through the Tauri command, so the dashboard now receives entries shaped `{name, default, description}` from ClotoHub `/api/catalog`. The dashboard's `EnvVarDef` TypeScript interface (`dashboard/src/types.ts`) and `InstallDialog.tsx` were never updated and still read `.key`, which is `undefined` for every entry. The seven `.key` references in `InstallDialog.tsx` (state init for required + optional env_vars, the `isRequired` predicate, React list key, label text, controlled input value, and the onChange propagation) all collapse to the same `undefined` slot, causing every input to render the value of whichever env_var was processed last (in CPersona's case `CPERSONA_AUTO_CALIBRATE`'s default `\"false\"`). Submitting the form posts `{server_id, env: {\"undefined\": \"false\"}, auto_start: true}`, which the kernel's marketplace handler rejects with HTTP 400. Fix replaces `key` → `name` in `dashboard/src/types.ts:259` and the seven `ev.key` / `v.key` references in `InstallDialog.tsx`. This is the TypeScript-side counterpart to the `feedback_serde_alias_pub_use_field_rename` gotcha — the Rust alias only papered over the wire mismatch on the deserialize path, not the cross-language consumer's read path. The legacy `cloto-mcp-servers/registry.json` `key` shape is still accepted on ingest by mgp-sdk's alias, but is no longer emitted on any wire the dashboard consumes.",
       "github_issue": 153
+    },
+    {
+      "id": "bug-388",
+      "summary": "HIGH: Migration 20260524010000 (rename memory.cpersona -> cpersona) is not idempotent when BOTH the legacy `memory.cpersona` row AND a marketplace-installed `cpersona` row exist in mcp_servers: the rename UPDATE collides with the PRIMARY KEY (UNIQUE constraint failed: mcp_servers.name, code 1555) and the kernel aborts at boot (FATAL: Database migration failed). Affects any pre-0.6.6 user who installed cpersona from the catalog before first booting a >=0.6.6 build. Repro 2026-06-10 on dev target/debug/data (ledger stopped at 20260524000000). Manual repair: migrate mcp_access_control grants to 'cpersona', delete legacy row, reboot (migration then no-ops).",
+      "severity": "HIGH",
+      "discovered": "2026-06-09T19:10:00Z",
+      "version": "0.6.8-alpha.3",
+      "commit": "9f7f498",
+      "file": "crates/core/migrations/20260524010000_rename_memory_cpersona_to_cpersona.sql",
+      "pattern": "UPDATE mcp_servers SET name = 'cpersona' WHERE name = 'memory.cpersona';",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-389",
+      "summary": "HIGH: needs_common detection tests the legacy flat layout location (servers_dir/common/__init__.py) which marketplace git-clone installs never populate; any pre-existing legacy copy there (or its absence) makes the check meaningless for the nested clone layout (mcp-servers/<directory>/servers/common). A stale legacy common/ silently suppresses the shared-package provisioning for new installs (observed 2026-06-10: needs_common=false for all 4 connectors despite manifest dependencies=[\"common\"]).",
+      "severity": "HIGH",
+      "discovered": "2026-06-09T19:40:00Z",
+      "version": "0.6.8-alpha.3",
+      "commit": "9f7f498",
+      "file": "crates/core/src/handlers/marketplace.rs",
+      "pattern": "servers_dir\\.join\\(\"common\"\\)\\.join\\(\"__init__\\.py\"\\)\\.exists\\(\\)",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-390",
+      "summary": "HIGH: the needs_common rescue (uv pip install of the shared 'common' package into the venv) is dead code — it requires servers_dir/common/pyproject.toml, but cloto-mcp-servers' servers/common ships as a plain package directory with no pyproject.toml (verified in working tree and tag v0.1.5/v0.1.7). Even with needs_common=true the install is silently skipped, so manifest install.dependencies=[\"common\"] is never honored; connectors without a self sys.path bootstrap die with ModuleNotFoundError: No module named 'common' (cscheduler, 2026-06-10, fixed server-side in cloto-mcp-servers#28). Fix options: ship a pyproject.toml in servers/common, or provision via PYTHONPATH/.pth instead of pip.",
+      "severity": "HIGH",
+      "discovered": "2026-06-09T19:40:00Z",
+      "version": "0.6.8-alpha.3",
+      "commit": "9f7f498",
+      "file": "crates/core/src/handlers/marketplace.rs",
+      "pattern": "common_path\\.join\\(\"pyproject\\.toml\"\\)\\.exists\\(\\)",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-391",
+      "summary": "CRITICAL: Magic Seal verification hashes config.command instead of the actual entry-point script. For every interpreter-launched server (command=\"python\", script in args[0]) Path::new(\"python\").exists() is false, so verification is skipped via the entry_point_not_a_file branch and the server is force-downgraded to Untrusted — the catalog-issued seal (which binds the server.py bytes) is never checked against anything. Observed 2026-06-10: all 4 marketplace installs (cscheduler/deepseek/terminal/websearch) logged TRUST_LEVEL_DOWNGRADED_NO_SEAL reason=entry_point_not_a_file despite valid hub seals. The seal chain is effectively disabled for all Python marketplace servers; fix should resolve the sealable file as the script path (args[0]) when command is an interpreter.",
+      "severity": "CRITICAL",
+      "discovered": "2026-06-09T19:40:00Z",
+      "version": "0.6.8-alpha.3",
+      "commit": "9f7f498",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "std::path::Path::new\\(&config\\.command\\)",
+      "expected": "present",
+      "status": "open"
+    },
+    {
+      "id": "bug-392",
+      "summary": "MEDIUM: marketplace uninstall file cleanup resolves the on-disk directory via the catalog cache (effective_install_dir) and falls back to server_id as the directory name. When the server has no current catalog entry AND its install directory differs from its id (e.g. legacy registry installs: id mind.deepseek, dir deepseek), the fallback path does not exist and remove_dir_all is silently skipped, orphaning the installed files. Observed 2026-06-10 uninstalling mind.deepseek/tool.terminal/tool.websearch — DB rows removed, flat dirs left behind.",
+      "severity": "MEDIUM",
+      "discovered": "2026-06-09T19:40:00Z",
+      "version": "0.6.8-alpha.3",
+      "commit": "9f7f498",
+      "file": "crates/core/src/handlers/marketplace.rs",
+      "pattern": "join\\(\"mcp-servers\"\\)\\.join\\(&directory\\)",
+      "expected": "present",
+      "status": "open"
     }
   ]
 }
