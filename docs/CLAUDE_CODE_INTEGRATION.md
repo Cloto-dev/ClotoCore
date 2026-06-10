@@ -16,14 +16,21 @@ Both servers run as stdio MCP processes. CPersona calls the Embedding server's
 HTTP endpoint for vector operations — Claude Code launches both, so the
 dependency resolves automatically.
 
+> **Note:** CPersona now lives in its own repository —
+> [Cloto-dev/CPersona](https://github.com/Cloto-dev/CPersona) (MIT). The
+> canonical Claude Code setup instructions are in that repository's README;
+> this document is kept as the ClotoCore-side integration reference.
+
 ## Prerequisites
 
 - Python 3.11+ with `pip`
-- `cloto-mcp-servers` repository cloned locally
+- [CPersona](https://github.com/Cloto-dev/CPersona) repository cloned locally
+- `clotohub-servers` repository (formerly `cloto-mcp-servers`; private,
+  maintainers only) cloned locally for the embedding server
 - Virtual environment with dependencies installed:
 
 ```bash
-cd C:/Users/Cycia/source/repos/cloto-mcp-servers/servers
+cd C:/Users/Cycia/source/repos/clotohub-servers/servers
 python -m venv .venv
 .venv/Scripts/activate   # Windows
 pip install -r requirements.txt
@@ -37,8 +44,8 @@ Register both MCP servers using `claude mcp add-json` (user scope):
 # Embedding server (must start before CPersona for vector operations)
 claude mcp add-json embedding '{
   "type": "stdio",
-  "command": "C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/.venv/Scripts/python.exe",
-  "args": ["C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/embedding/server.py"],
+  "command": "C:/Users/Cycia/source/repos/clotohub-servers/servers/.venv/Scripts/python.exe",
+  "args": ["C:/Users/Cycia/source/repos/clotohub-servers/servers/embedding/server.py"],
   "env": {
     "EMBEDDING_PROVIDER": "onnx_miniml",
     "EMBEDDING_HTTP_PORT": "8401"
@@ -48,8 +55,8 @@ claude mcp add-json embedding '{
 # CPersona memory server
 claude mcp add-json cpersona '{
   "type": "stdio",
-  "command": "C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/.venv/Scripts/python.exe",
-  "args": ["C:/Users/Cycia/source/repos/cloto-mcp-servers/servers/cpersona/server.py"],
+  "command": "C:/Users/Cycia/source/repos/CPersona/.venv/Scripts/python.exe",
+  "args": ["C:/Users/Cycia/source/repos/CPersona/server.py"],
   "env": {
     "CPERSONA_DB_PATH": "C:/Users/Cycia/.claude/cpersona.db",
     "CPERSONA_EMBEDDING_MODE": "http",
