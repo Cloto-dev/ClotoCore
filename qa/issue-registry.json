@@ -2944,6 +2944,19 @@
       "status": "fixed",
       "github_issue": 166,
       "fix_note": "Fixed: uninstall now probes candidates in order — catalog effective_install_dir, the directory derived from the registered entry-point args (install_dir_from_args reads mcp_servers.args BEFORE remove_server deletes the row), then server_id — removes the first that exists, and warns instead of silently no-oping when none is found."
+    },
+    {
+      "id": "bug-393",
+      "summary": "MEDIUM: dashboard fetchJson/mutate discard the kernel's JSON error body and surface only res.statusText, so a 400 ValidationError like \"Server 'cpersona' is already installed\" reaches the user as just 'Bad Request'. This masked the real rejection reason behind the long-standing «CPersona raw_url install 'Bad Request'» mystery (an earlier decision narrative) — the synchronous install_handler validations are the only Bad Request sources; the raw_url path itself reports errors via SSE StepError and was never reached. A throwIfNotOk helper with body-message extraction already existed in api.ts but neither generic path used it.",
+      "severity": "MEDIUM",
+      "discovered": "2026-06-10T05:00:00Z",
+      "version": "0.6.8-alpha.3",
+      "commit": "cc71954",
+      "file": "dashboard/src/services/api.ts",
+      "pattern": "throw new Error\\(`Failed to \\$\\{ctx\\}: \\$\\{res\\.statusText\\}`\\)",
+      "expected": "absent",
+      "status": "fixed",
+      "fix_note": "Fixed: fetchJson and mutate now route !res.ok through the existing throwIfNotOk helper, which extracts body.error.message (kernel AppError shape {error:{type,message}}) and falls back to statusText only for non-JSON bodies."
     }
   ]
 }
