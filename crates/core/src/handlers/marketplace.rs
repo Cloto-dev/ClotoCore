@@ -967,8 +967,14 @@ async fn build_and_register(
         // Install common first if needed (monorepo path only — standalone
         // connectors are expected to bundle their own utility code).
         if needs_common {
-            let common_path = servers_dir.join("common");
-            if common_path.join("pyproject.toml").exists() {
+            // bug-389/390: the shared `common` package sits flat next to the
+            // server dir for legacy monorepo-tarball extraction, or nested
+            // inside a git clone (`<clone>/servers/common`). Probe both and
+            // require build metadata (pyproject.toml ships with
+            // clotohub-servers >= v0.1.8) so `uv pip install` can place the
+            // package in the shared venv instead of silently skipping.
+            let common_src = resolve_common_source(server_path, &servers_dir);
+            if let Some(common_path) = common_src {
                 emit(
                     tx,
                     SetupProgressEvent::ServerInstall {
@@ -1005,6 +1011,15 @@ async fn build_and_register(
                     Err(_) => warn!("Common module install timed out (120s)"),
                     _ => warn!("Failed to install common dependency"),
                 }
+            } else {
+                warn!(
+                    "Connector '{}' declares a 'common' dependency but no installable \
+                     common package (with pyproject.toml) was found next to {} or in {} \
+                     — the server may fail with ModuleNotFoundError: No module named 'common'",
+                    entry.id,
+                    server_path.display(),
+                    servers_dir.display()
+                );
             }
         }
 
@@ -1324,9 +1339,9 @@ async fn install_from_monorepo_tarball(
 
     let servers_dir = resolve_servers_dir(state);
     let directory = entry.directory.clone();
-    let needs_common = !is_rust
-        && entry.dependencies.contains(&"common".to_string())
-        && !servers_dir.join("common").join("__init__.py").exists();
+    // bug-389: always provision `common` when declared — a stale flat copy on
+    // disk says nothing about whether the shared venv can import it.
+    let needs_common = !is_rust && entry.dependencies.contains(&"common".to_string());
 
     let archive_path_clone = archive_path.clone();
     let servers_dir_clone = servers_dir.clone();
@@ -1484,9 +1499,11 @@ async fn install_from_git(
         Some(subdir) => clone_dir.join(subdir),
         None => clone_dir,
     };
-    let needs_common = !is_rust
-        && entry.dependencies.contains(&"common".to_string())
-        && !servers_dir.join("common").join("__init__.py").exists();
+    // bug-389: a nested clone never has `common` at the flat location, so the
+    // old flat-layout probe always re-detected "missing"; conversely a stale
+    // flat copy must not suppress the venv install. Declared dependency is
+    // the only signal that matters.
+    let needs_common = !is_rust && entry.dependencies.contains(&"common".to_string());
 
     build_and_register(
         state,
@@ -2006,6 +2023,28 @@ fn effective_install_dir(entry: &RegistryEntry) -> &str {
     }
 }
 
+/// Locate an installable source tree for the shared `common` package
+/// (bug-389/390). Two layouts exist on disk:
+///
+/// - nested git clone: `<clone>/servers/<name>` with `common` as a sibling
+///   (`server_path.parent()/common`)
+/// - legacy flat monorepo-tarball extraction: `<servers_dir>/common`
+///
+/// Only a tree carrying `pyproject.toml` (shipped with clotohub-servers
+/// >= v0.1.8) can be `uv pip install`ed into the shared venv.
+fn resolve_common_source(
+    server_path: &std::path::Path,
+    servers_dir: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    [
+        server_path.parent().map(|p| p.join("common")),
+        Some(servers_dir.join("common")),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|p| p.join("pyproject.toml").is_file())
+}
+
 /// Validate that a destination path stays within the target directory (zip-slip prevention).
 fn validate_dest_path(target_dir: &std::path::Path, dest: &std::path::Path) -> anyhow::Result<()> {
     // Normalize both paths to catch ".." traversal
@@ -2444,8 +2483,7 @@ async fn run_batch_install(
     let directories: Vec<String> = entries.iter().map(|e| e.directory.clone()).collect();
     let needs_common = entries
         .iter()
-        .any(|e| e.runtime != "rust" && e.dependencies.contains(&"common".to_string()))
-        && !servers_dir.join("common").join("__init__.py").exists();
+        .any(|e| e.runtime != "rust" && e.dependencies.contains(&"common".to_string()));
 
     let archive_clone = archive_path.clone();
     let servers_dir_clone = servers_dir.clone();
@@ -2908,6 +2946,55 @@ mod tests {
             seal: None,
             install: None,
         }
+    }
+
+    // ── resolve_common_source (bug-389/390) ──
+
+    #[test]
+    fn common_source_prefers_nested_clone_sibling() {
+        let tmp = tempfile::tempdir().unwrap();
+        let servers_dir = tmp.path().join("mcp-servers");
+        // nested git clone: <servers_dir>/<dir>/servers/<name> + sibling common
+        let server_path = servers_dir.join("cscheduler/servers/cscheduler");
+        let nested_common = servers_dir.join("cscheduler/servers/common");
+        let flat_common = servers_dir.join("common");
+        for d in [&server_path, &nested_common, &flat_common] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(nested_common.join("pyproject.toml"), "[project]").unwrap();
+        std::fs::write(flat_common.join("pyproject.toml"), "[project]").unwrap();
+        assert_eq!(
+            resolve_common_source(&server_path, &servers_dir),
+            Some(nested_common)
+        );
+    }
+
+    #[test]
+    fn common_source_falls_back_to_flat_layout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let servers_dir = tmp.path().join("mcp-servers");
+        let server_path = servers_dir.join("terminal");
+        let flat_common = servers_dir.join("common");
+        std::fs::create_dir_all(&server_path).unwrap();
+        std::fs::create_dir_all(&flat_common).unwrap();
+        std::fs::write(flat_common.join("pyproject.toml"), "[project]").unwrap();
+        assert_eq!(
+            resolve_common_source(&server_path, &servers_dir),
+            Some(flat_common)
+        );
+    }
+
+    #[test]
+    fn common_source_requires_pyproject() {
+        let tmp = tempfile::tempdir().unwrap();
+        let servers_dir = tmp.path().join("mcp-servers");
+        let server_path = servers_dir.join("terminal");
+        let flat_common = servers_dir.join("common");
+        std::fs::create_dir_all(&server_path).unwrap();
+        std::fs::create_dir_all(&flat_common).unwrap();
+        // plain package dir without build metadata (pre-v0.1.8 layout)
+        std::fs::write(flat_common.join("__init__.py"), "").unwrap();
+        assert_eq!(resolve_common_source(&server_path, &servers_dir), None);
     }
 
     #[test]
