@@ -2956,7 +2956,8 @@
       "pattern": "throw new Error\\(`Failed to \\$\\{ctx\\}: \\$\\{res\\.statusText\\}`\\)",
       "expected": "absent",
       "status": "fixed",
-      "fix_note": "Fixed: fetchJson and mutate now route !res.ok through the existing throwIfNotOk helper, which extracts body.error.message (kernel AppError shape {error:{type,message}}) and falls back to statusText only for non-JSON bodies."
+      "fix_note": "Fixed: fetchJson and mutate now route !res.ok through the existing throwIfNotOk helper, which extracts body.error.message (kernel AppError shape {error:{type,message}}) and falls back to statusText only for non-JSON bodies.",
+      "github_issue": 172
     }
   ]
 }
