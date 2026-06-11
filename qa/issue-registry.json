@@ -2967,10 +2967,11 @@
       "version": "0.6.8-alpha.4",
       "commit": "6b7b30f",
       "file": "crates/core/src/handlers/marketplace.rs",
-      "pattern": "entry\\.seal\\.clone\\(\\)",
-      "expected": "present",
-      "status": "open",
-      "github_issue": null
+      "pattern": "^ +entry\\.seal\\.clone\\(\\),$",
+      "expected": "absent",
+      "status": "fixed",
+      "github_issue": null,
+      "fix_note": "Interim fix (b', the maintainer-approved): the hub seal is no longer passed into the local HMAC verifier. The catalog now serves the seal record's entry_point_sha256 (mgp-sdk v0.4.0 RegistryEntry field, clotohub-web PR #29); local_seal_for_install verifies the installed entry point keylessly against it and mints a LOCAL seal on match (declared tier preserved; mismatch hard-errors; absent hash registers unsealed -> §10 inv 3 untrusted). Both add_server call sites (register_server + batch) rewired. Proper fix remains roadmap item 6 (Ed25519 public-key verify). The remaining `seal: entry.seal.clone()` occurrence is the display-only catalog UI projection."
     }
   ]
 }

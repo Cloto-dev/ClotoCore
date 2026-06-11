@@ -1137,6 +1137,52 @@ async fn build_and_register(
     register_server(state, entry, command, args, env_overrides, auto_start).await
 }
 
+/// bug-394 interim (b'): the catalog seal is HMAC-signed with the *hub*
+/// master key and can never verify against this kernel's local seal
+/// key — passing it into the spawn-time check guarantees a "tampered"
+/// hard-block. When the catalog supplies the entry point's plain
+/// SHA-256, verify the installed file keylessly and mint a LOCAL seal
+/// on match, so every later spawn check verifies under the local
+/// protocol at the declared trust tier. A hash mismatch is a hard
+/// install error. Without the hash, register unsealed — §10 invariant
+/// 3 then forces the untrusted profile at spawn. The Ed25519
+/// public-key path (post-MVP roadmap item 6) supersedes this.
+fn local_seal_for_install(
+    data_dir: &std::path::Path,
+    entry: &RegistryEntry,
+    command: &str,
+    args: &[String],
+) -> anyhow::Result<Option<String>> {
+    let Some(expected) = entry
+        .entry_point_sha256
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
+        return Ok(None);
+    };
+    let entry_point = crate::managers::mcp::resolve_sealable_entry_point(command, args);
+    let data = std::fs::read(entry_point).map_err(|e| {
+        anyhow::anyhow!(
+            "read entry point for integrity check ({}): {e}",
+            entry_point.display()
+        )
+    })?;
+    let actual = {
+        use sha2::Digest;
+        hex::encode(sha2::Sha256::digest(&data))
+    };
+    if !actual.eq_ignore_ascii_case(expected) {
+        anyhow::bail!(
+            "entry point integrity check failed for '{}': catalog expects sha256 {expected}, installed file hashes to {actual}",
+            entry.id
+        );
+    }
+    let seal_key = mgp_seal::load_or_generate_seal_key(data_dir)?;
+    let seal = mgp_seal::compute_seal(entry_point, &seal_key)?;
+    Ok(Some(seal))
+}
+
 /// Step 5: register the materialized server via `add_server`, persist
 /// marketplace metadata, and honor `auto_start`. Independent of how the
 /// source was materialized.
@@ -1173,8 +1219,23 @@ async fn register_server(
     // creates ServerConfig → connect_server() (spawn + register) → save to DB.
     // The registry's trust_level is threaded through as MgpServerConfig so
     // isolation derivation at next boot picks up the correct level. The
-    // registry's `seal` flows through unchanged so the kernel can verify
-    // it at connect time (MGP_ISOLATION_DESIGN.md §8 L0).
+    // hub's seal is NOT stored (bug-394: it is unverifiable against the
+    // local seal key); instead the entry point is integrity-checked
+    // against the catalog's entry_point_sha256 and re-sealed locally.
+    let seal = match local_seal_for_install(&state.data_dir, entry, &command, &args) {
+        Ok(seal) => seal,
+        Err(e) => {
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "finalize".into(),
+                    error: e.to_string(),
+                    recoverable: false,
+                },
+            );
+            return Ok(());
+        }
+    };
     let mgp = Some(crate::managers::mcp_mgp::MgpServerConfig {
         trust_level: Some(entry.trust_level.clone()),
     });
@@ -1187,7 +1248,7 @@ async fn register_server(
             None,
             Some(entry.description.clone()),
             mgp,
-            entry.seal.clone(),
+            seal,
             env_map,
         )
         .await
@@ -3023,6 +3084,16 @@ async fn run_batch_install(
             }
         }
 
+        // bug-394 interim: keyless integrity check + local re-seal (see
+        // local_seal_for_install). A failed check skips registration of
+        // this entry rather than aborting the whole batch.
+        let seal = match local_seal_for_install(&state.data_dir, entry, &command, &args) {
+            Ok(seal) => seal,
+            Err(e) => {
+                warn!("Batch: {} skipped — {e}", entry.id);
+                continue;
+            }
+        };
         let mgp = Some(crate::managers::mcp_mgp::MgpServerConfig {
             trust_level: Some(entry.trust_level.clone()),
         });
@@ -3035,7 +3106,7 @@ async fn run_batch_install(
                 None,
                 Some(entry.description.clone()),
                 mgp,
-                entry.seal.clone(),
+                seal,
                 env_map,
             )
             .await
@@ -3274,8 +3345,60 @@ mod tests {
             bin_name: None,
             changelog: None,
             seal: None,
+            entry_point_sha256: None,
             install: None,
         }
+    }
+
+    // ── local_seal_for_install (bug-394 interim) ──
+
+    #[test]
+    fn local_seal_skips_when_catalog_has_no_hash() {
+        let work = temp_dir("seal-nohash");
+        let e = entry("demo", "demo");
+        let got = local_seal_for_install(&work, &e, "python", &["x.py".into()]).unwrap();
+        assert_eq!(got, None, "no catalog hash -> register unsealed");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_seal_minted_when_hash_matches() {
+        let work = temp_dir("seal-match");
+        let script = work.join("server.py");
+        std::fs::write(&script, b"print('demo')").unwrap();
+        let mut e = entry("demo", "demo");
+        e.entry_point_sha256 = Some({
+            use sha2::Digest;
+            hex::encode(sha2::Sha256::digest(b"print('demo')"))
+        });
+
+        let got =
+            local_seal_for_install(&work, &e, "python", &[script.to_string_lossy().to_string()])
+                .unwrap()
+                .expect("matching hash must mint a local seal");
+
+        // The minted seal verifies under the LOCAL key/protocol — exactly
+        // what the spawn-time check will recompute.
+        let key = mgp_seal::load_or_generate_seal_key(&work).unwrap();
+        assert!(mgp_seal::verify_seal(&script, &got, &key).unwrap());
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_seal_blocks_on_hash_mismatch() {
+        let work = temp_dir("seal-mismatch");
+        let script = work.join("server.py");
+        std::fs::write(&script, b"print('tampered')").unwrap();
+        let mut e = entry("demo", "demo");
+        e.entry_point_sha256 = Some({
+            use sha2::Digest;
+            hex::encode(sha2::Sha256::digest(b"print('demo')"))
+        });
+
+        let err =
+            local_seal_for_install(&work, &e, "python", &[script.to_string_lossy().to_string()]);
+        assert!(err.is_err(), "hash mismatch must hard-error");
+        let _ = std::fs::remove_dir_all(&work);
     }
 
     // ── install_dir_from_args (bug-392) ──
