@@ -1687,10 +1687,29 @@ async fn install_from_raw_url(
     }
     tokio::fs::create_dir_all(&target_dir).await?;
 
+    // Goal #110: a `raw_url` source may carry a `subdir` (mgp-sdk
+    // v0.3.0) when the tarball is a whole monorepo served by the
+    // ClotoHub blob mirror. With a subdir we extract only the
+    // connector's tree (plus the sibling `common/` package when
+    // declared), preserving repo-relative paths so the on-disk layout
+    // matches a nested git clone — `resolve_common_source` and
+    // uninstall both already understand that shape. Without a subdir
+    // the tarball is standalone and extracts whole, as before.
+    let subdir = spec
+        .subdir
+        .clone()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_matches('/').to_owned());
+    let needs_common = !is_rust && entry.dependencies.contains(&"common".to_string());
+
     let archive_path_clone = archive_path.clone();
     let target_dir_clone = target_dir.clone();
-    tokio::task::spawn_blocking(move || {
-        extract_tarball_stripped(&archive_path_clone, &target_dir_clone)
+    let subdir_clone = subdir.clone();
+    tokio::task::spawn_blocking(move || match &subdir_clone {
+        Some(sub) => {
+            extract_subdir_selective(&archive_path_clone, &target_dir_clone, sub, needs_common)
+        }
+        None => extract_tarball_stripped(&archive_path_clone, &target_dir_clone),
     })
     .await??;
 
@@ -1701,13 +1720,14 @@ async fn install_from_raw_url(
         },
     );
 
-    // raw_url tarballs are expected to be standalone — they don't reach
-    // back into the monorepo's `common/` package.
-    let needs_common = false;
+    let server_path = match &subdir {
+        Some(sub) => target_dir.join(sub),
+        None => target_dir.clone(),
+    };
     let result = build_and_register(
         state,
         entry,
-        &target_dir,
+        &server_path,
         needs_common,
         env_overrides,
         auto_start,
@@ -2267,6 +2287,84 @@ fn extract_tarball_stripped(
         }
     }
 
+    Ok(())
+}
+
+/// Extract one subdirectory tree (plus, optionally, its sibling
+/// `common/` package) from a tarball, preserving repo-relative paths
+/// under `target_dir` after stripping a single shared top-level prefix
+/// (GitHub-archive-style). Used by the `raw_url` + `subdir` install
+/// path (Goal #110, mgp-sdk v0.3.0): the resulting layout
+/// (`{target_dir}/{subdir}/…` with `common` as the subdir's sibling)
+/// matches a nested git clone, so `resolve_common_source` and the
+/// uninstall directory candidates work unchanged. Zip-slip safe via
+/// [`validate_dest_path`].
+fn extract_subdir_selective(
+    archive_path: &std::path::Path,
+    target_dir: &std::path::Path,
+    subdir: &str,
+    include_common: bool,
+) -> anyhow::Result<()> {
+    // First pass: detect a shared prefix without writing any files.
+    let strip_prefix = {
+        let file = std::fs::File::open(archive_path)?;
+        let decoder = flate2::read::GzDecoder::new(file);
+        let mut archive = tar::Archive::new(decoder);
+        detect_shared_prefix(&mut archive)?
+    };
+
+    let subdir_root = std::path::PathBuf::from(subdir);
+    // Sibling `common/` package: `servers/cscheduler` → `servers/common`,
+    // a root-level `cscheduler` → `common`.
+    let common_root = match subdir_root.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.join("common"),
+        _ => std::path::PathBuf::from("common"),
+    };
+
+    let file = std::fs::File::open(archive_path)?;
+    let decoder = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(decoder);
+
+    let mut extracted_any = false;
+    for entry_result in archive.entries()? {
+        let mut entry = entry_result?;
+        let path = entry.path()?.to_path_buf();
+
+        let relative = match &strip_prefix {
+            Some(prefix) => match path.strip_prefix(prefix) {
+                Ok(p) if p.as_os_str().is_empty() => continue,
+                Ok(p) => p.to_path_buf(),
+                Err(_) => continue,
+            },
+            None => path,
+        };
+
+        let wanted = relative.starts_with(&subdir_root)
+            || (include_common && relative.starts_with(&common_root));
+        if !wanted {
+            continue;
+        }
+
+        let dest = target_dir.join(&relative);
+        validate_dest_path(target_dir, &dest)?;
+
+        if entry.header().entry_type().is_dir() {
+            std::fs::create_dir_all(&dest)?;
+        } else {
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut out = std::fs::File::create(&dest)?;
+            std::io::copy(&mut entry, &mut out)?;
+            if relative.starts_with(&subdir_root) {
+                extracted_any = true;
+            }
+        }
+    }
+
+    if !extracted_any {
+        anyhow::bail!("tarball contains no files under subdir '{subdir}'");
+    }
     Ok(())
 }
 
@@ -2983,6 +3081,101 @@ async fn run_batch_install(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build a gzip tarball at `path` from `(entry_path, bytes)` pairs,
+    /// mirroring a GitHub archive (shared top-level prefix included by
+    /// the caller in each entry path).
+    fn write_tarball(path: &std::path::Path, files: &[(&str, &[u8])]) {
+        let mut tar_buf = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_buf);
+            for (name, data) in files {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(data.len() as u64);
+                header.set_mode(0o644);
+                builder.append_data(&mut header, name, *data).unwrap();
+            }
+            builder.finish().unwrap();
+        }
+        use std::io::Write;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(&tar_buf).unwrap();
+        std::fs::write(path, gz.finish().unwrap()).unwrap();
+    }
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "clotocore-test-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    const MONOREPO_FILES: &[(&str, &[u8])] = &[
+        ("repo-v0/README.md", b"readme"),
+        ("repo-v0/servers/demo/server.py", b"print('demo')"),
+        ("repo-v0/servers/demo/pyproject.toml", b"[project]"),
+        ("repo-v0/servers/common/pyproject.toml", b"[project]"),
+        ("repo-v0/servers/common/common/__init__.py", b""),
+        ("repo-v0/servers/other/server.py", b"print('other')"),
+    ];
+
+    #[test]
+    fn extract_subdir_selective_extracts_server_and_sibling_common() {
+        let work = temp_dir("subdir-common");
+        let archive = work.join("repo.tar.gz");
+        write_tarball(&archive, MONOREPO_FILES);
+        let target = work.join("out");
+        std::fs::create_dir_all(&target).unwrap();
+
+        extract_subdir_selective(&archive, &target, "servers/demo", true).unwrap();
+
+        // Nested-git-clone layout: repo-relative paths preserved.
+        assert!(target.join("servers/demo/server.py").is_file());
+        assert!(target.join("servers/demo/pyproject.toml").is_file());
+        assert!(target.join("servers/common/pyproject.toml").is_file());
+        // Unrelated trees stay out.
+        assert!(!target.join("servers/other").exists());
+        assert!(!target.join("README.md").exists());
+        // `resolve_common_source` finds common as the server's sibling.
+        let server_path = target.join("servers/demo");
+        let found = resolve_common_source(&server_path, &target);
+        assert_eq!(found, Some(target.join("servers/common")));
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn extract_subdir_selective_skips_common_when_not_needed() {
+        let work = temp_dir("subdir-nocommon");
+        let archive = work.join("repo.tar.gz");
+        write_tarball(&archive, MONOREPO_FILES);
+        let target = work.join("out");
+        std::fs::create_dir_all(&target).unwrap();
+
+        extract_subdir_selective(&archive, &target, "servers/demo", false).unwrap();
+
+        assert!(target.join("servers/demo/server.py").is_file());
+        assert!(!target.join("servers/common").exists());
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn extract_subdir_selective_errors_when_subdir_absent() {
+        let work = temp_dir("subdir-missing");
+        let archive = work.join("repo.tar.gz");
+        write_tarball(&archive, MONOREPO_FILES);
+        let target = work.join("out");
+        std::fs::create_dir_all(&target).unwrap();
+
+        let err = extract_subdir_selective(&archive, &target, "servers/nope", true);
+        assert!(err.is_err(), "absent subdir must be a hard error");
+        let _ = std::fs::remove_dir_all(&work);
+    }
 
     fn entry(id: &str, directory: &str) -> RegistryEntry {
         RegistryEntry {
