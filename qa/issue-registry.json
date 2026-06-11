@@ -2958,6 +2958,19 @@
       "status": "fixed",
       "fix_note": "Fixed: fetchJson and mutate now route !res.ok through the existing throwIfNotOk helper, which extracts body.error.message (kernel AppError shape {error:{type,message}}) and falls back to statusText only for non-JSON bodies.",
       "github_issue": 172
+    },
+    {
+      "id": "bug-394",
+      "summary": "HIGH: marketplace installs store the catalog seal (HMAC-SHA256 of the hub's canonical message, signed with the HUB master key) into mcp_servers.seal, but spawn-time verification computes HMAC(local kernel seal.key, entry-point FILE BYTES) — two different protocols that can never match. Any fresh kernel that marketplace-installs a sealed catalog connector hard-blocks at spawn with 'Magic Seal verification failed — binary may be tampered' (SealStatus::Failed). Existing installs carry the same stored seal and hit the identical block on their next restart. Surfaced by the Goal #110 Step 4 fresh-kernel E2E (cscheduler via blob-mirrored raw_url; extraction and common provisioning succeeded — the block is purely the seal check). Proper fix is the deferred post-MVP roadmap item 6 (Ed25519 public-key verification of the hub canonical message via /api/seal/keys + plain entry_point_sha256 integrity compare); interim options are catalog-side entry_point_sha256 keyless integrity verify or not passing the hub seal into the local HMAC verifier.",
+      "severity": "HIGH",
+      "discovered": "2026-06-11T08:00:00Z",
+      "version": "0.6.8-alpha.4",
+      "commit": "6b7b30f",
+      "file": "crates/core/src/handlers/marketplace.rs",
+      "pattern": "entry\\.seal\\.clone\\(\\)",
+      "expected": "present",
+      "status": "open",
+      "github_issue": null
     }
   ]
 }
