@@ -2211,29 +2211,56 @@ fn extract_selective(
 /// the same first path component (the GitHub `archive/<ref>.tar.gz`
 /// convention), or `None` when entries are at the root or split across
 /// multiple top-level dirs.
+///
+/// Real GitHub archives begin with pax metadata pseudo-entries
+/// (`pax_global_header`) and an entry for the top-level directory
+/// itself (`<repo>-<ref>/`) — both are tolerated: pax entries are
+/// skipped outright, and a directory entry that *is* the top-level dir
+/// names the prefix without disqualifying it. Only a top-level *file*
+/// (or a second distinct top-level component) proves there is no shared
+/// prefix.
 fn detect_shared_prefix<R: std::io::Read>(
     archive: &mut tar::Archive<R>,
 ) -> anyhow::Result<Option<std::path::PathBuf>> {
     let mut prefix: Option<std::path::PathBuf> = None;
+    let mut saw_nested = false;
     for entry_result in archive.entries()? {
         let entry = entry_result?;
+        if is_pax_metadata(entry.header().entry_type()) {
+            continue;
+        }
         let path = entry.path()?.to_path_buf();
         let first = match path.components().next() {
             Some(c) => std::path::PathBuf::from(c.as_os_str()),
             None => continue,
         };
-        // An entry that is just the top-level dir itself contributes only
-        // its name; an entry that has only one component (a top-level
-        // file) means there is no shared prefix to strip.
         let has_more = path.components().count() > 1;
+        if !has_more && !entry.header().entry_type().is_dir() {
+            // A top-level file can never be stripped.
+            return Ok(None);
+        }
         match &prefix {
-            None if has_more => prefix = Some(first),
-            None => return Ok(None),
-            Some(p) if *p != first || !has_more => return Ok(None),
+            None => prefix = Some(first),
+            Some(p) if *p != first => return Ok(None),
             _ => {}
         }
+        if has_more {
+            saw_nested = true;
+        }
     }
-    Ok(prefix)
+    // A prefix is only strippable when something actually lives under it.
+    Ok(if saw_nested { prefix } else { None })
+}
+
+/// True for tar pseudo-entries carrying pax metadata rather than file
+/// content (`pax_global_header` and per-file extended headers). The
+/// `tar` crate surfaces them as ordinary entries; treating them as
+/// files corrupts both prefix detection and extraction output.
+fn is_pax_metadata(entry_type: tar::EntryType) -> bool {
+    matches!(
+        entry_type,
+        tar::EntryType::XGlobalHeader | tar::EntryType::XHeader
+    )
 }
 
 /// Extract a `.tar.gz` into `target_dir`, stripping a single shared
@@ -2258,6 +2285,9 @@ fn extract_tarball_stripped(
 
     for entry_result in archive.entries()? {
         let mut entry = entry_result?;
+        if is_pax_metadata(entry.header().entry_type()) {
+            continue;
+        }
         let path = entry.path()?.to_path_buf();
 
         let relative = match &strip_prefix {
@@ -2328,6 +2358,9 @@ fn extract_subdir_selective(
     let mut extracted_any = false;
     for entry_result in archive.entries()? {
         let mut entry = entry_result?;
+        if is_pax_metadata(entry.header().entry_type()) {
+            continue;
+        }
         let path = entry.path()?.to_path_buf();
 
         let relative = match &strip_prefix {
@@ -3083,12 +3116,30 @@ mod tests {
     use super::*;
 
     /// Build a gzip tarball at `path` from `(entry_path, bytes)` pairs,
-    /// mirroring a GitHub archive (shared top-level prefix included by
+    /// mirroring a *real* GitHub archive: a `pax_global_header`
+    /// pseudo-entry and an entry for the top-level directory itself
+    /// precede the file entries (shared top-level prefix included by
     /// the caller in each entry path).
     fn write_tarball(path: &std::path::Path, files: &[(&str, &[u8])]) {
         let mut tar_buf = Vec::new();
         {
             let mut builder = tar::Builder::new(&mut tar_buf);
+
+            let payload: &[u8] = b"52 comment=0123456789abcdef0123456789abcdef01234567\n";
+            let mut pax = tar::Header::new_gnu();
+            pax.set_entry_type(tar::EntryType::XGlobalHeader);
+            pax.set_size(payload.len() as u64);
+            pax.set_mode(0o644);
+            builder
+                .append_data(&mut pax, "pax_global_header", payload)
+                .unwrap();
+
+            let mut dir = tar::Header::new_gnu();
+            dir.set_entry_type(tar::EntryType::Directory);
+            dir.set_size(0);
+            dir.set_mode(0o755);
+            builder.append_data(&mut dir, "repo-v0/", &[][..]).unwrap();
+
             for (name, data) in files {
                 let mut header = tar::Header::new_gnu();
                 header.set_size(data.len() as u64);
@@ -3161,6 +3212,33 @@ mod tests {
 
         assert!(target.join("servers/demo/server.py").is_file());
         assert!(!target.join("servers/common").exists());
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// Regression for the an earlier decision E2E failure: real GitHub archives
+    /// open with `pax_global_header` and the top-level directory entry,
+    /// both of which made `detect_shared_prefix` give up (`None`) — so
+    /// stripped extraction kept the `<repo>-<ref>/` wrapper and subdir
+    /// extraction matched nothing.
+    #[test]
+    fn extract_tarball_stripped_strips_prefix_on_github_style_archive() {
+        let work = temp_dir("stripped-github");
+        let archive = work.join("repo.tar.gz");
+        write_tarball(&archive, MONOREPO_FILES);
+        let target = work.join("out");
+        std::fs::create_dir_all(&target).unwrap();
+
+        extract_tarball_stripped(&archive, &target).unwrap();
+
+        assert!(target.join("servers/demo/server.py").is_file());
+        assert!(
+            !target.join("repo-v0").exists(),
+            "the shared top-level prefix must be stripped"
+        );
+        assert!(
+            !target.join("pax_global_header").exists(),
+            "pax metadata must not be extracted as a file"
+        );
         let _ = std::fs::remove_dir_all(&work);
     }
 
