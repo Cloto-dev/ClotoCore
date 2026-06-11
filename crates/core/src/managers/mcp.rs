@@ -3075,7 +3075,10 @@ fn resolve_mcp_servers_dir(base_dir: &std::path::Path) -> String {
 /// Leading interpreter flags (`-u`, ...) are skipped; module launches
 /// (`-m pkg.mod`) yield no on-disk file and fall through to the caller's
 /// not-a-file handling.
-fn resolve_sealable_entry_point<'a>(command: &'a str, args: &'a [String]) -> &'a std::path::Path {
+pub(crate) fn resolve_sealable_entry_point<'a>(
+    command: &'a str,
+    args: &'a [String],
+) -> &'a std::path::Path {
     let stem = std::path::Path::new(command)
         .file_stem()
         .and_then(std::ffi::OsStr::to_str)
