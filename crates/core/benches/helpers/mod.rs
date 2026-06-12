@@ -68,6 +68,9 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         marketplace_cache: Arc::new(tokio::sync::RwLock::new(
             cloto_core::handlers::marketplace::CatalogCache::default(),
         )),
+        seal_jwks_cache: Arc::new(tokio::sync::RwLock::new(
+            cloto_core::handlers::marketplace::JwksCache::default(),
+        )),
         install_limiter: Arc::new(cloto_core::middleware::RateLimiter::new(5, 60)),
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
         provider_probe_cache: cloto_core::managers::provider_probe::ProbeCache::new(),

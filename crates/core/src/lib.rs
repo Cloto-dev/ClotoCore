@@ -188,6 +188,10 @@ pub struct AppState {
     pub setup_progress_tx: broadcast::Sender<handlers::setup::SetupProgressEvent>,
     /// In-memory cache for marketplace catalog (registry.json).
     pub marketplace_cache: Arc<tokio::sync::RwLock<handlers::marketplace::CatalogCache>>,
+    /// In-memory cache of the hub's Ed25519 seal-signing keys (JWKS),
+    /// used to verify catalog seal signatures at install time (bug-394
+    /// proper fix).
+    pub seal_jwks_cache: Arc<tokio::sync::RwLock<handlers::marketplace::JwksCache>>,
     /// Stricter rate limiter for heavy operations (install, setup).
     /// 5 req/min per IP to prevent GitHub API abuse and disk exhaustion.
     pub install_limiter: Arc<middleware::RateLimiter>,
@@ -653,6 +657,9 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         },
         marketplace_cache: Arc::new(tokio::sync::RwLock::new(
             handlers::marketplace::CatalogCache::default(),
+        )),
+        seal_jwks_cache: Arc::new(tokio::sync::RwLock::new(
+            handlers::marketplace::JwksCache::default(),
         )),
         install_limiter: install_limiter.clone(),
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
