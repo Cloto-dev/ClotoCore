@@ -76,6 +76,126 @@ fn catalog_url() -> String {
     std::env::var("CLOTO_CATALOG_URL").unwrap_or_else(|_| DEFAULT_CATALOG_URL.to_string())
 }
 
+// ── Hub seal JWKS cache (bug-394 proper fix) ────────────────────────
+
+/// In-memory cache of the hub's Ed25519 signing keys, fetched from its
+/// JWKS endpoint (`/api/seal/keys`) and keyed by `kid`. Used at install
+/// time to verify a catalog entry's `signature_payload.ed25519` offline.
+///
+/// In-memory only (re-fetched after restart): the JWKS is public and
+/// cheap to retrieve, and a persistent copy would lag key rotation.
+#[derive(Debug, Default)]
+pub struct JwksCache {
+    pub keys: HashMap<String, mgp_seal::ed25519::PublicKey>,
+    pub fetched_at: Option<tokio::time::Instant>,
+}
+
+const JWKS_CACHE_TTL: Duration = Duration::from_hours(1);
+
+/// Timeout for fetching the hub JWKS. Tiny payload; a stall past this
+/// means the network is down and the caller takes the benign
+/// `jwks_unavailable` path (register unsealed → untrusted at spawn).
+const SEAL_JWKS_FETCH_TIMEOUT_SECS: u64 = 15;
+
+/// Resolve the hub JWKS URL. `CLOTO_SEAL_JWKS_URL` overrides explicitly
+/// (e.g. a dev hub); otherwise it is derived from the catalog URL by
+/// swapping the `/api/catalog` suffix for `/api/seal/keys`. A catalog
+/// override that is not hub-shaped (e.g. the legacy GitHub-served
+/// registry) yields `None` — there is no JWKS to fetch, and entries
+/// verify down the unsigned path.
+fn seal_jwks_url() -> Option<String> {
+    if let Ok(v) = std::env::var("CLOTO_SEAL_JWKS_URL") {
+        let v = v.trim().to_string();
+        return (!v.is_empty()).then_some(v);
+    }
+    catalog_url()
+        .strip_suffix("/api/catalog")
+        .map(|base| format!("{base}/api/seal/keys"))
+}
+
+/// Fetch and parse the hub JWKS into a `kid → PublicKey` map. Retired
+/// (revoked-annotated) keys are kept: a seal signed before a rotation
+/// still verifies under the key that signed it, and revocation policy
+/// is a separate concern from signature math. Individual keys that
+/// fail to parse are skipped, not fatal.
+async fn fetch_jwks(url: &str) -> anyhow::Result<HashMap<String, mgp_seal::ed25519::PublicKey>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(SEAL_JWKS_FETCH_TIMEOUT_SECS))
+        .build()?;
+    let resp = client.get(url).send().await?;
+    if !resp.status().is_success() {
+        anyhow::bail!("JWKS fetch failed: HTTP {}", resp.status());
+    }
+    let body: serde_json::Value = resp.json().await?;
+    let mut keys = HashMap::new();
+    for jwk in body
+        .get("keys")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        match mgp_seal::ed25519::public_key_from_jwk(jwk) {
+            Ok((pk, kid)) => {
+                keys.insert(kid.as_str().to_string(), pk);
+            }
+            Err(e) => warn!("Skipping unparseable JWK in hub JWKS: {e}"),
+        }
+    }
+    Ok(keys)
+}
+
+/// Resolve the hub signing key for `kid`, fetching / re-fetching the
+/// JWKS as needed. Returns `None` when the JWKS is unreachable, not
+/// configured, or does not contain `kid` even after a forced re-fetch
+/// (rotation lag) — callers treat that as the benign `jwks_unavailable`
+/// outcome, never as tampering.
+async fn hub_signing_key(state: &AppState, kid: &str) -> Option<mgp_seal::ed25519::PublicKey> {
+    // Fast path: fresh cache that already knows this kid.
+    {
+        let cache = state.seal_jwks_cache.read().await;
+        if let Some(at) = cache.fetched_at {
+            if at.elapsed() < JWKS_CACHE_TTL {
+                if let Some(pk) = cache.keys.get(kid) {
+                    return Some(*pk);
+                }
+                // Fresh but kid-miss: fall through to one forced re-fetch
+                // so a just-rotated key is picked up without waiting out
+                // the TTL.
+            }
+        }
+    }
+
+    let url = seal_jwks_url()?;
+    match fetch_jwks(&url).await {
+        Ok(keys) => {
+            let mut cache = state.seal_jwks_cache.write().await;
+            cache.keys = keys;
+            cache.fetched_at = Some(tokio::time::Instant::now());
+            cache.keys.get(kid).copied()
+        }
+        Err(e) => {
+            warn!(url = %url, "Hub JWKS unreachable: {e}");
+            // Stale cache beats nothing: an old key set can still verify
+            // seals signed before the outage.
+            let cache = state.seal_jwks_cache.read().await;
+            cache.keys.get(kid).copied()
+        }
+    }
+}
+
+/// Extract the `kid` of the Ed25519 signature riding on a catalog entry,
+/// if any. Used to resolve the signing key before the (sync) seal
+/// decision in [`local_seal_for_install`].
+fn entry_signature_kid(entry: &RegistryEntry) -> Option<String> {
+    entry
+        .signature_payload
+        .as_ref()?
+        .get("ed25519")?
+        .get("key_id")?
+        .as_str()
+        .map(str::to_owned)
+}
+
 /// Resolve the tarball download URL for a given git ref, honoring
 /// `CLOTO_TARBALL_URL_TEMPLATE` if set. The template must contain `{ref}`,
 /// which is replaced with `ref_name`.
@@ -1137,30 +1257,63 @@ async fn build_and_register(
     register_server(state, entry, command, args, env_overrides, auto_start).await
 }
 
-/// bug-394 interim (b'): the catalog seal is HMAC-signed with the *hub*
-/// master key and can never verify against this kernel's local seal
-/// key — passing it into the spawn-time check guarantees a "tampered"
-/// hard-block. When the catalog supplies the entry point's plain
-/// SHA-256, verify the installed file keylessly and mint a LOCAL seal
-/// on match, so every later spawn check verifies under the local
-/// protocol at the declared trust tier. A hash mismatch is a hard
-/// install error. Without the hash, register unsealed — §10 invariant
-/// 3 then forces the untrusted profile at spawn. The Ed25519
-/// public-key path (post-MVP roadmap item 6) supersedes this.
+/// bug-394 proper fix: decide the install-time seal from the catalog
+/// entry's cryptographic evidence (D2 bifurcation — see
+/// `project_clotohub_ed25519_seal_verification.md` §5).
+///
+/// The catalog seal is HMAC-signed with the *hub* master key and can
+/// never verify against this kernel's local seal key, so it is never
+/// passed to the spawn-time check. Instead:
+///
+/// - **Verified** — the entry carries an Ed25519 signature whose key we
+///   resolved from the hub JWKS, the signature validates over
+///   `canonical_message(id, version, entry_point_sha256)`, and the
+///   installed entry point hashes to that `entry_point_sha256` → mint a
+///   LOCAL seal (declared trust tier preserved; every later spawn check
+///   verifies under the local protocol).
+/// - **Benign non-verification** (`Ok(None)` → register unsealed; MGP
+///   §10 invariant 3 forces the untrusted profile at spawn): no
+///   signature (pre-Ed25519 catalog), malformed signature block, or
+///   JWKS unreachable / kid unknown (offline, rotation lag).
+/// - **Tamper suspect** (`Err` → install hard-blocks, loud audit log):
+///   a resolvable, well-formed signature that fails verification
+///   (the signed identity does not match the served entry), or an
+///   entry-point hash mismatch (the delivered bytes do not match what
+///   was signed / recorded).
+///
+/// `hub_key` is the signing key pre-resolved for the entry's `kid` via
+/// [`hub_signing_key`]; `None` means the JWKS path is unavailable.
 fn local_seal_for_install(
     data_dir: &std::path::Path,
     entry: &RegistryEntry,
     command: &str,
     args: &[String],
+    hub_key: Option<&mgp_seal::ed25519::PublicKey>,
 ) -> anyhow::Result<Option<String>> {
+    let ed25519_block = entry
+        .signature_payload
+        .as_ref()
+        .and_then(|p| p.get("ed25519"));
+
     let Some(expected) = entry
         .entry_point_sha256
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
     else {
+        if ed25519_block.is_some() {
+            warn!(
+                "{}: catalog entry carries a signature but no entry_point_sha256 — \
+                 cannot verify; registering unsealed (untrusted at spawn)",
+                entry.id
+            );
+        }
         return Ok(None);
     };
+
+    // Keyless integrity check first: a hash mismatch is the strongest
+    // tamper signal regardless of signature state, and hard-blocks
+    // (unchanged from the interim fix).
     let entry_point = crate::managers::mcp::resolve_sealable_entry_point(command, args);
     let data = std::fs::read(entry_point).map_err(|e| {
         anyhow::anyhow!(
@@ -1173,13 +1326,76 @@ fn local_seal_for_install(
         hex::encode(sha2::Sha256::digest(&data))
     };
     if !actual.eq_ignore_ascii_case(expected) {
+        error!(
+            "{}: TAMPER SUSPECT (integrity_mismatch) — catalog records sha256 {expected}, \
+             installed entry point hashes to {actual}",
+            entry.id
+        );
         anyhow::bail!(
             "entry point integrity check failed for '{}': catalog expects sha256 {expected}, installed file hashes to {actual}",
             entry.id
         );
     }
+
+    // Ed25519 layer: upgrade the trust anchor from "HTTPS to the
+    // catalog" to "the hub's signing key".
+    let Some(block) = ed25519_block else {
+        info!(
+            "{}: no Ed25519 signature on catalog entry — registering unsealed \
+             (untrusted at spawn)",
+            entry.id
+        );
+        return Ok(None);
+    };
+    let (Some(sig_b64), Some(kid_str)) = (
+        block.get("sig").and_then(serde_json::Value::as_str),
+        block.get("key_id").and_then(serde_json::Value::as_str),
+    ) else {
+        warn!(
+            "{}: malformed ed25519 block in signature_payload — registering unsealed",
+            entry.id
+        );
+        return Ok(None);
+    };
+    let (Ok(sig), Ok(kid)) = (
+        mgp_seal::ed25519::Signature::from_base64(sig_b64),
+        mgp_seal::ed25519::KeyId::new(kid_str),
+    ) else {
+        warn!(
+            "{}: undecodable Ed25519 signature or key id — registering unsealed",
+            entry.id
+        );
+        return Ok(None);
+    };
+    let Some(pk) = hub_key else {
+        warn!(
+            "{}: hub JWKS unavailable or key '{kid_str}' unknown — cannot verify seal \
+             signature; registering unsealed (untrusted at spawn)",
+            entry.id
+        );
+        return Ok(None);
+    };
+
+    let canonical = mgp_seal::canonical_message(&entry.id, &entry.version, expected);
+    if !mgp_seal::ed25519::verify(pk, &kid, &canonical, &sig) {
+        error!(
+            "{}: TAMPER SUSPECT (signature_invalid) — Ed25519 signature under hub key \
+             '{kid_str}' does not match the entry's (id, version, entry_point_sha256)",
+            entry.id
+        );
+        anyhow::bail!(
+            "Ed25519 seal verification failed for '{}': the catalog's signature does not match its (id, version, entry_point_sha256) under hub key '{kid_str}' — refusing install",
+            entry.id
+        );
+    }
+
     let seal_key = mgp_seal::load_or_generate_seal_key(data_dir)?;
     let seal = mgp_seal::compute_seal(entry_point, &seal_key)?;
+    info!(
+        "{}: Ed25519 seal verified under hub key '{kid_str}'; minted local seal at \
+         declared tier '{}'",
+        entry.id, entry.trust_level
+    );
     Ok(Some(seal))
 }
 
@@ -1220,22 +1436,28 @@ async fn register_server(
     // The registry's trust_level is threaded through as MgpServerConfig so
     // isolation derivation at next boot picks up the correct level. The
     // hub's seal is NOT stored (bug-394: it is unverifiable against the
-    // local seal key); instead the entry point is integrity-checked
-    // against the catalog's entry_point_sha256 and re-sealed locally.
-    let seal = match local_seal_for_install(&state.data_dir, entry, &command, &args) {
-        Ok(seal) => seal,
-        Err(e) => {
-            emit(
-                tx,
-                SetupProgressEvent::StepError {
-                    step: "finalize".into(),
-                    error: e.to_string(),
-                    recoverable: false,
-                },
-            );
-            return Ok(());
-        }
+    // local seal key); instead the entry's Ed25519 signature is verified
+    // against the hub JWKS, the entry point is integrity-checked against
+    // the signed entry_point_sha256, and a local seal is minted on success.
+    let hub_key = match entry_signature_kid(entry) {
+        Some(kid) => hub_signing_key(state, &kid).await,
+        None => None,
     };
+    let seal =
+        match local_seal_for_install(&state.data_dir, entry, &command, &args, hub_key.as_ref()) {
+            Ok(seal) => seal,
+            Err(e) => {
+                emit(
+                    tx,
+                    SetupProgressEvent::StepError {
+                        step: "finalize".into(),
+                        error: e.to_string(),
+                        recoverable: false,
+                    },
+                );
+                return Ok(());
+            }
+        };
     let mgp = Some(crate::managers::mcp_mgp::MgpServerConfig {
         trust_level: Some(entry.trust_level.clone()),
     });
@@ -3084,16 +3306,23 @@ async fn run_batch_install(
             }
         }
 
-        // bug-394 interim: keyless integrity check + local re-seal (see
-        // local_seal_for_install). A failed check skips registration of
-        // this entry rather than aborting the whole batch.
-        let seal = match local_seal_for_install(&state.data_dir, entry, &command, &args) {
-            Ok(seal) => seal,
-            Err(e) => {
-                warn!("Batch: {} skipped — {e}", entry.id);
-                continue;
-            }
+        // bug-394: Ed25519 verify + keyless integrity check + local
+        // re-seal (see local_seal_for_install). A tamper-suspect failure
+        // skips registration of this entry rather than aborting the
+        // whole batch.
+        let hub_key = match entry_signature_kid(entry) {
+            Some(kid) => hub_signing_key(state, &kid).await,
+            None => None,
         };
+        let seal =
+            match local_seal_for_install(&state.data_dir, entry, &command, &args, hub_key.as_ref())
+            {
+                Ok(seal) => seal,
+                Err(e) => {
+                    warn!("Batch: {} skipped — {e}", entry.id);
+                    continue;
+                }
+            };
         let mgp = Some(crate::managers::mcp_mgp::MgpServerConfig {
             trust_level: Some(entry.trust_level.clone()),
         });
@@ -3346,41 +3575,70 @@ mod tests {
             changelog: None,
             seal: None,
             entry_point_sha256: None,
+            signature_payload: None,
             install: None,
         }
     }
 
-    // ── local_seal_for_install (bug-394 interim) ──
+    // ── local_seal_for_install (bug-394, D2 bifurcation) ──
+
+    fn sha256_hex(data: &[u8]) -> String {
+        use sha2::Digest;
+        hex::encode(sha2::Sha256::digest(data))
+    }
+
+    /// Build a hub-side identity + a correctly signed entry for `script_body`.
+    fn signed_entry(
+        id: &str,
+        script_body: &[u8],
+    ) -> (
+        RegistryEntry,
+        mgp_seal::ed25519::PublicKey,
+        mgp_seal::ed25519::KeyId,
+    ) {
+        let (sk, pk) = mgp_seal::ed25519::generate_keypair(&mut rand::rngs::OsRng);
+        let kid = mgp_seal::ed25519::KeyId::new("clotohub-master-test").unwrap();
+        let mut e = entry(id, id);
+        let hash = sha256_hex(script_body);
+        let canonical = mgp_seal::canonical_message(&e.id, &e.version, &hash);
+        let sig = mgp_seal::ed25519::sign(&sk, &kid, &canonical);
+        e.entry_point_sha256 = Some(hash);
+        e.signature_payload = Some(serde_json::json!({
+            "hmac": "ab".repeat(32),
+            "ed25519": { "sig": sig.to_base64(), "key_id": kid.as_str() }
+        }));
+        (e, pk, kid)
+    }
 
     #[test]
     fn local_seal_skips_when_catalog_has_no_hash() {
         let work = temp_dir("seal-nohash");
         let e = entry("demo", "demo");
-        let got = local_seal_for_install(&work, &e, "python", &["x.py".into()]).unwrap();
+        let got = local_seal_for_install(&work, &e, "python", &["x.py".into()], None).unwrap();
         assert_eq!(got, None, "no catalog hash -> register unsealed");
         let _ = std::fs::remove_dir_all(&work);
     }
 
     #[test]
-    fn local_seal_minted_when_hash_matches() {
-        let work = temp_dir("seal-match");
+    fn local_seal_unsealed_when_hash_matches_but_unsigned() {
+        // Hash-only match no longer grants the declared tier: without an
+        // Ed25519 signature the trust anchor would be the transport, which
+        // is exactly what the proper fix retires. Register unsealed.
+        let work = temp_dir("seal-unsigned");
         let script = work.join("server.py");
         std::fs::write(&script, b"print('demo')").unwrap();
         let mut e = entry("demo", "demo");
-        e.entry_point_sha256 = Some({
-            use sha2::Digest;
-            hex::encode(sha2::Sha256::digest(b"print('demo')"))
-        });
+        e.entry_point_sha256 = Some(sha256_hex(b"print('demo')"));
 
-        let got =
-            local_seal_for_install(&work, &e, "python", &[script.to_string_lossy().to_string()])
-                .unwrap()
-                .expect("matching hash must mint a local seal");
-
-        // The minted seal verifies under the LOCAL key/protocol — exactly
-        // what the spawn-time check will recompute.
-        let key = mgp_seal::load_or_generate_seal_key(&work).unwrap();
-        assert!(mgp_seal::verify_seal(&script, &got, &key).unwrap());
+        let got = local_seal_for_install(
+            &work,
+            &e,
+            "python",
+            &[script.to_string_lossy().to_string()],
+            None,
+        )
+        .unwrap();
+        assert_eq!(got, None, "unsigned entry -> register unsealed");
         let _ = std::fs::remove_dir_all(&work);
     }
 
@@ -3390,15 +3648,142 @@ mod tests {
         let script = work.join("server.py");
         std::fs::write(&script, b"print('tampered')").unwrap();
         let mut e = entry("demo", "demo");
-        e.entry_point_sha256 = Some({
-            use sha2::Digest;
-            hex::encode(sha2::Sha256::digest(b"print('demo')"))
-        });
+        e.entry_point_sha256 = Some(sha256_hex(b"print('demo')"));
 
-        let err =
-            local_seal_for_install(&work, &e, "python", &[script.to_string_lossy().to_string()]);
+        let err = local_seal_for_install(
+            &work,
+            &e,
+            "python",
+            &[script.to_string_lossy().to_string()],
+            None,
+        );
         assert!(err.is_err(), "hash mismatch must hard-error");
         let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_seal_minted_when_signature_verifies() {
+        let work = temp_dir("seal-ed25519-ok");
+        let body = b"print('demo')";
+        let script = work.join("server.py");
+        std::fs::write(&script, body).unwrap();
+        let (e, pk, _kid) = signed_entry("demo", body);
+
+        let got = local_seal_for_install(
+            &work,
+            &e,
+            "python",
+            &[script.to_string_lossy().to_string()],
+            Some(&pk),
+        )
+        .unwrap()
+        .expect("verified signature + matching hash must mint a local seal");
+
+        // The minted seal verifies under the LOCAL key/protocol — exactly
+        // what the spawn-time check will recompute.
+        let key = mgp_seal::load_or_generate_seal_key(&work).unwrap();
+        assert!(mgp_seal::verify_seal(&script, &got, &key).unwrap());
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_seal_blocks_on_invalid_signature() {
+        // Resolvable key + well-formed signature that does not verify =
+        // the signed identity does not match the served entry. Tamper
+        // suspect: hard-block.
+        let work = temp_dir("seal-ed25519-bad");
+        let body = b"print('demo')";
+        let script = work.join("server.py");
+        std::fs::write(&script, body).unwrap();
+        let (mut e, pk, _kid) = signed_entry("demo", body);
+        e.version = "9.9.9".into(); // breaks the signed canonical message
+
+        let err = local_seal_for_install(
+            &work,
+            &e,
+            "python",
+            &[script.to_string_lossy().to_string()],
+            Some(&pk),
+        );
+        assert!(err.is_err(), "invalid signature must hard-block");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_seal_unsealed_when_jwks_unavailable() {
+        // Signature present but no key to check it with (hub down, kid
+        // unknown after rotation). Benign: register unsealed, never block.
+        let work = temp_dir("seal-ed25519-nokey");
+        let body = b"print('demo')";
+        let script = work.join("server.py");
+        std::fs::write(&script, body).unwrap();
+        let (e, _pk, _kid) = signed_entry("demo", body);
+
+        let got = local_seal_for_install(
+            &work,
+            &e,
+            "python",
+            &[script.to_string_lossy().to_string()],
+            None,
+        )
+        .unwrap();
+        assert_eq!(got, None, "jwks unavailable -> register unsealed");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_seal_unsealed_on_malformed_signature_block() {
+        // Undecodable signature material is indistinguishable from catalog
+        // corruption — benign untrusted, not a tamper verdict.
+        let work = temp_dir("seal-ed25519-malformed");
+        let body = b"print('demo')";
+        let script = work.join("server.py");
+        std::fs::write(&script, body).unwrap();
+        let (mut e, pk, _kid) = signed_entry("demo", body);
+        e.signature_payload = Some(serde_json::json!({
+            "ed25519": { "sig": "!!!not-base64!!!", "key_id": "clotohub-master-test" }
+        }));
+
+        let got = local_seal_for_install(
+            &work,
+            &e,
+            "python",
+            &[script.to_string_lossy().to_string()],
+            Some(&pk),
+        )
+        .unwrap();
+        assert_eq!(got, None, "malformed signature -> register unsealed");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_seal_mismatch_beats_valid_signature() {
+        // Even with a valid signature, delivered bytes that do not hash to
+        // the signed entry_point_sha256 are the strongest tamper signal.
+        let work = temp_dir("seal-ed25519-swap");
+        let script = work.join("server.py");
+        std::fs::write(&script, b"print('swapped')").unwrap();
+        let (e, pk, _kid) = signed_entry("demo", b"print('demo')");
+
+        let err = local_seal_for_install(
+            &work,
+            &e,
+            "python",
+            &[script.to_string_lossy().to_string()],
+            Some(&pk),
+        );
+        assert!(
+            err.is_err(),
+            "hash mismatch must hard-block even when signed"
+        );
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn entry_signature_kid_extracts_from_payload() {
+        let (e, _pk, kid) = signed_entry("demo", b"x");
+        assert_eq!(entry_signature_kid(&e).as_deref(), Some(kid.as_str()));
+        assert_eq!(entry_signature_kid(&entry("demo", "demo")), None);
     }
 
     // ── install_dir_from_args (bug-392) ──
