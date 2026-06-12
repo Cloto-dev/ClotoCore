@@ -80,10 +80,17 @@ rebuilt via Setup Wizard + API re-registration + grants union.
 
 ## Bug Verification (Anti-Hallucination)
 
-> Inherits: `../CLAUDE.md` — "Mandatory: Issue Registry Verification" section.
-> MUST run `bash scripts/verify-issues.sh` when adding / fixing / claiming a fix for
-> entries in `qa/issue-registry.json`. PostToolUse hook auto-runs on edits;
-> `.githooks/pre-commit` blocks commits with `[STALE]` / `[UNFIXED]`.
+`qa/issue-registry.json` + `scripts/verify-issues.sh` mechanically detect hallucinated AI bug reports. MUST run `bash scripts/verify-issues.sh` in each of these cases:
+
+1. **After adding a new bug entry** — expect `[VERIFIED]` (grep confirms the pattern actually exists in the file)
+2. **After marking an entry fixed** (`"status": "fixed"`, `"expected": "absent"`) — expect `[FIXED]`
+3. **Before claiming a fix** in a summary / commit message / review reply — never write "this bug is fixed" unless this session's verify output shows `[FIXED]` for that issue
+
+Reading the output (exit 0 = all OK / 1 = stale or error): `[VERIFIED]` pattern present ✅ / `[FIXED]` pattern absent ✅ / `[STALE]` expected present but gone (update the registry) / `[UNFIXED]` expected absent but still present (fix incomplete) / `[ERROR]` missing file or broken JSON (investigate).
+
+Automation: a PostToolUse hook auto-runs cases (1) and (2) whenever `qa/issue-registry.json` is edited and injects the verify output; case (3) cannot be hook-detected, so it remains a text rule. `.githooks/pre-commit` blocks registry-touching commits on `[STALE]` / `[UNFIXED]` / `[ERROR]`; `--no-verify` only after deliberate review.
+
+`scripts/verify-issues.sh` is **read-only infrastructure** — do not modify it without explicit user approval.
 
 - Source of truth: `qa/issue-registry.json`
 - Scope: bugs where code-level evidence is needed (e.g., AI-discovered bugs that could be false positives). Not every fix needs an entry.
