@@ -217,6 +217,7 @@ pub async fn shutdown_handler(
     let mcp = state.mcp_manager.clone();
     let shutdown = state.shutdown.clone();
     let setup_flag = state.setup_in_progress.clone();
+    let install_task = state.install_task.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -261,6 +262,11 @@ pub async fn shutdown_handler(
             Err(e) => error!("❌ Failed to create .maintenance file: {}", e),
         }
 
+        // bug-366: abort any in-flight install task so its child uv/pip processes
+        // are reaped via kill_on_drop instead of orphaned across shutdown.
+        if let Some(h) = install_task.lock().await.take() {
+            h.abort();
+        }
         // Reset setup_in_progress flag to prevent stale lock on restart (bug-366)
         setup_flag.store(false, std::sync::atomic::Ordering::SeqCst);
 

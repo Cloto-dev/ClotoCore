@@ -273,13 +273,23 @@ export function SetupWizard({ onComplete }: Props) {
     if (installingRef.current) return;
     installingRef.current = true;
     setInstallStarted(true);
+
+    // bug-365: refuse an empty batch up front. The backend also rejects it, but
+    // guarding here shows an actionable message and avoids opening an SSE session
+    // for an install that can't proceed.
+    const servers = getActiveServers();
+    if (servers.length === 0) {
+      installingRef.current = false;
+      setInstallError(t('install_error_no_servers'));
+      return;
+    }
+
     setInstallStartTime(Date.now());
     setInstallError(null);
     setServerStatuses([]);
     setInstallSteps([]);
 
     try {
-      const servers = getActiveServers();
       await api.batchInstallMarketplaceServers({ server_ids: servers, auto_start: true });
 
       // Connect SSE for progress — close any existing connection first (bug-359)
