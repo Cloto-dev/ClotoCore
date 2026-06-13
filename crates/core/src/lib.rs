@@ -14,6 +14,7 @@ pub mod installer;
 pub mod managers;
 pub mod middleware;
 pub mod platform;
+pub mod plugins;
 pub mod test_utils;
 pub mod viseme;
 

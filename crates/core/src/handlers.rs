@@ -10,7 +10,6 @@ pub mod chat;
 pub(crate) mod command_approval;
 pub mod commands;
 pub mod cron;
-pub(crate) mod engine_routing;
 pub mod events;
 pub mod health;
 pub mod llm;
@@ -213,7 +212,10 @@ pub async fn shutdown_handler(
         error!("Failed to send shutdown notification event: {}", e);
     }
 
-    // P9: Drain all MCP servers before shutting down
+    // P9 / bug-305: Drain all MCP servers before shutting down. The drain runs in a
+    // bounded task — each server gets 5s, the whole join is capped at 10s — and only
+    // after it completes (or times out) do we notify shutdown waiters below, so the
+    // kernel never exits while servers are still being drained.
     let mcp = state.mcp_manager.clone();
     let shutdown = state.shutdown.clone();
     let setup_flag = state.setup_in_progress.clone();

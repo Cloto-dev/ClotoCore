@@ -4,6 +4,18 @@ use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+/// bug-342: run a fallible Tauri window operation, logging a warning on failure
+/// instead of silently discarding the `Result`. A discarded window-show result
+/// previously hid WebView2 data corruption — the backend kept running headless
+/// with no signal to the user that the window never appeared.
+macro_rules! with_window_log {
+    ($op:expr) => {
+        if let Err(e) = $op {
+            log::warn!("window operation `{}` failed: {e}", stringify!($op));
+        }
+    };
+}
+
 /// Holds the API key for the dashboard (auto-generated or from .env).
 static DASHBOARD_API_KEY: OnceLock<String> = OnceLock::new();
 
@@ -213,9 +225,9 @@ pub fn run() {
             |app_handle, _argv, _cwd| {
                 // Second instance detected: bring existing window to front
                 if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
+                    with_window_log!(window.show());
+                    with_window_log!(window.unminimize());
+                    with_window_log!(window.set_focus());
                 }
             },
         ))
@@ -275,8 +287,8 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                            with_window_log!(window.show());
+                            with_window_log!(window.set_focus());
                         }
                     }
                     "quit" => {
@@ -296,10 +308,10 @@ pub fn run() {
                         if event.state == ShortcutState::Pressed {
                             if let Some(window) = app_handle.get_webview_window("main") {
                                 if window.is_visible().unwrap_or(false) {
-                                    let _ = window.hide();
+                                    with_window_log!(window.hide());
                                 } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
+                                    with_window_log!(window.show());
+                                    with_window_log!(window.set_focus());
                                 }
                             }
                         }
@@ -362,7 +374,7 @@ pub fn run() {
                     // Dev mode: Vite server is already up, just show
                     std::thread::sleep(std::time::Duration::from_millis(300));
                     if let Some(window) = show_handle.get_webview_window("main") {
-                        let _ = window.show();
+                        with_window_log!(window.show());
                     }
                 } else {
                     // Release mode: WebView2 may fail initial navigation to
@@ -376,10 +388,10 @@ pub fn run() {
                             "tauri://localhost"
                         };
                         if let Ok(url) = url_str.parse() {
-                            let _ = window.navigate(url);
+                            with_window_log!(window.navigate(url));
                         }
                         std::thread::sleep(std::time::Duration::from_millis(300));
-                        let _ = window.show();
+                        with_window_log!(window.show());
                     }
                 }
             });
@@ -390,7 +402,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let _ = window.hide();
+                with_window_log!(window.hide());
             }
         })
         .build(tauri::generate_context!())

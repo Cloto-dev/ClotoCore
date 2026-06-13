@@ -212,17 +212,26 @@ pub struct RestartPolicy {
     pub backoff_max_ms: u64,
 }
 
+/// Default restart-policy values (bug-313). Single source of truth shared by the
+/// serde `#[serde(default = ...)]` helpers, `RestartPolicy::default()`, and tests,
+/// so the runtime defaults can no longer drift from each other or from the docs.
+/// Documented in `docs/ARCHITECTURE.md` (MCP Server Restart Policy).
+pub const DEFAULT_MAX_RESTARTS: u32 = 5;
+pub const DEFAULT_RESTART_WINDOW_SECS: u64 = 300;
+pub const DEFAULT_BACKOFF_BASE_MS: u64 = 1000;
+pub const DEFAULT_BACKOFF_MAX_MS: u64 = 30000;
+
 fn default_max_restarts() -> u32 {
-    5
+    DEFAULT_MAX_RESTARTS
 }
 fn default_restart_window_secs() -> u64 {
-    300
+    DEFAULT_RESTART_WINDOW_SECS
 }
 fn default_backoff_base_ms() -> u64 {
-    1000
+    DEFAULT_BACKOFF_BASE_MS
 }
 fn default_backoff_max_ms() -> u64 {
-    30000
+    DEFAULT_BACKOFF_MAX_MS
 }
 
 impl Default for RestartPolicy {

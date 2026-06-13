@@ -94,7 +94,9 @@ pub fn compose_rejection_final_response(rejections: &[(String, ToolRejection)]) 
 }
 
 use super::command_approval::{self, PendingApprovals, SessionTrustedCommands};
-use super::engine_routing::{
+// bug-293 (§1.4): engine_routing schema is owned by the in-tree routing plugin,
+// not the kernel. The handler forwards opaque metadata and consumes EngineSelection.
+use crate::plugins::routing_default::{
     evaluate_engine_routing, is_retriable_error, needs_escalation, EngineSelection,
 };
 
