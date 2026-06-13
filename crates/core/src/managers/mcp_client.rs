@@ -63,6 +63,36 @@ impl Drop for McpClient {
 impl McpClient {
     const MAX_PENDING_REQUESTS: usize = 100;
 
+    /// bug-357: upper bound for enqueueing a request into the transport channel.
+    /// The send should be near-instant; a stall means the writer/HTTP task is
+    /// wedged (bug-355/bug-356), so we fail fast instead of blocking the caller
+    /// — the response-side timeout only protects the receive path.
+    const SEND_TIMEOUT_SECS: u64 = 10;
+
+    /// Send a payload into the transport request channel with a timeout. Without
+    /// this, a wedged transport (full child stdin pipe / stalled HTTP loop)
+    /// could block the caller indefinitely, since the bounded request channel
+    /// applies back-pressure and the response timeout does not cover the send
+    /// path (bug-357).
+    async fn send_with_timeout(&self, payload: String, what: &str) -> Result<()> {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(Self::SEND_TIMEOUT_SECS),
+            self.sender.send(payload),
+        )
+        .await
+        {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => {
+                Err(anyhow::Error::new(e)
+                    .context(format!("Failed to send {what} to MCP transport")))
+            }
+            Err(_) => Err(anyhow::anyhow!(
+                "Timed out sending {what} to MCP transport ({}s)",
+                Self::SEND_TIMEOUT_SECS
+            )),
+        }
+    }
+
     /// Kill the underlying child process and wait for it to exit.
     /// Must be called before dropping the handle to avoid race conditions
     /// where the old process still holds file locks (Issue #65).
@@ -278,10 +308,10 @@ impl McpClient {
             map.insert(id, tx);
         }
 
-        self.sender
-            .send(req_str)
-            .await
-            .context("Failed to send request to MCP transport")?;
+        if let Err(e) = self.send_with_timeout(req_str, "request").await {
+            self.pending_requests.lock().await.remove(&id);
+            return Err(e);
+        }
 
         if let Ok(res) = tokio::time::timeout(
             std::time::Duration::from_secs(self.request_timeout_secs),
@@ -336,10 +366,8 @@ impl McpClient {
     pub async fn send_initialized_notification(&self) -> Result<()> {
         let notify = JsonRpcRequest::notification("notifications/initialized", None);
         let notify_str = serde_json::to_string(&notify)?;
-        self.sender
-            .send(notify_str)
+        self.send_with_timeout(notify_str, "initialized notification")
             .await
-            .context("Failed to send initialized notification")
     }
 
     pub async fn list_tools(&self) -> Result<ListToolsResult> {
@@ -472,10 +500,12 @@ impl McpClient {
             });
         }
 
-        self.sender
-            .send(req_str)
-            .await
-            .context("Failed to send streaming request to MCP transport")?;
+        if let Err(e) = self.send_with_timeout(req_str, "streaming request").await {
+            // Dropping the pending entry closes the watchdog's inner_rx, which
+            // self-cleans the stream collector registered for this id.
+            self.pending_requests.lock().await.remove(&id);
+            return Err(e);
+        }
 
         Ok((chunk_rx, result_rx))
     }
@@ -484,10 +514,7 @@ impl McpClient {
     pub async fn send_notification(&self, method: &str, params: Option<Value>) -> Result<()> {
         let request = JsonRpcRequest::notification(method, params);
         let req_str = serde_json::to_string(&request)?;
-        self.sender
-            .send(req_str)
-            .await
-            .context("Failed to send notification to MCP transport")
+        self.send_with_timeout(req_str, "notification").await
     }
 
     /// Perform cloto/handshake custom method.
