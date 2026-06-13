@@ -32,6 +32,7 @@ async fn create_test_processor(
         10,
         metrics.clone(),
         vec![],
+        "consensus:".to_string(),
         16,
         30,
         Arc::new(dashmap::DashMap::new()),

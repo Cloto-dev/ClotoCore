@@ -159,6 +159,7 @@ async fn test_vulnerability_event_forging() {
         10,
         metrics.clone(),
         vec![],
+        "consensus:".to_string(),
         16,
         30,
         Arc::new(dashmap::DashMap::new()),

@@ -12,8 +12,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-/// Named constant for the synthetic consensus agent (prevents type confusion).
-const SYSTEM_CONSENSUS_AGENT: &str = "system.consensus";
+/// Default synthetic consensus agent id (bug-282: now a configurable
+/// `ConsensusConfig` field; this is only the back-compat default).
+pub(crate) const DEFAULT_CONSENSUS_AGENT_ID: &str = "system.consensus";
 
 /// How often the background cleanup task sweeps stale consensus sessions.
 /// Independent of `session_timeout_secs` (which controls per-session TTL).
@@ -31,6 +32,10 @@ pub struct ConsensusConfig {
     pub min_proposals: usize,
     /// Session timeout in seconds.
     pub session_timeout_secs: u64,
+    /// Synthetic agent id for consensus-generated responses (bug-282).
+    /// Configurable so a deployment can rename it instead of the kernel
+    /// hard-coding the literal. Defaults to `DEFAULT_CONSENSUS_AGENT_ID`.
+    pub synthetic_agent_id: String,
 }
 
 impl Default for ConsensusConfig {
@@ -39,6 +44,7 @@ impl Default for ConsensusConfig {
             synthesizer_engine: String::new(),
             min_proposals: 2,
             session_timeout_secs: 60,
+            synthetic_agent_id: DEFAULT_CONSENSUS_AGENT_ID.to_string(),
         }
     }
 }
@@ -74,16 +80,21 @@ struct ConsensusState {
 
 pub struct ConsensusOrchestrator {
     state: RwLock<ConsensusState>,
+    /// bug-282: cached from `config.synthetic_agent_id` for lock-free reads on
+    /// the thought-response hot path.
+    synthetic_agent_id: String,
 }
 
 impl ConsensusOrchestrator {
     #[must_use]
     pub fn new(config: ConsensusConfig) -> Arc<Self> {
+        let synthetic_agent_id = config.synthetic_agent_id.clone();
         let orchestrator = Arc::new(Self {
             state: RwLock::new(ConsensusState {
                 sessions: HashMap::new(),
                 config,
             }),
+            synthetic_agent_id,
         });
         orchestrator.spawn_cleanup_task();
         orchestrator
@@ -152,7 +163,7 @@ impl ConsensusOrchestrator {
         content: &str,
     ) -> Option<ClotoEventData> {
         // Ignore responses from the consensus system itself
-        if agent_id == SYSTEM_CONSENSUS_AGENT {
+        if agent_id == self.synthetic_agent_id {
             return None;
         }
 
@@ -281,7 +292,7 @@ impl ConsensusOrchestrator {
                 )
             }
             Action::Complete { content } => Some(ClotoEventData::ThoughtResponse {
-                agent_id: SYSTEM_CONSENSUS_AGENT.to_string(),
+                agent_id: self.synthetic_agent_id.clone(),
                 engine_id: "consensus".to_string(),
                 content,
                 source_message_id: "consensus".to_string(),

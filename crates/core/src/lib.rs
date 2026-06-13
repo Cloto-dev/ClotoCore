@@ -549,6 +549,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             config.memory_context_limit,
             metrics.clone(),
             config.consensus_engines.clone(),
+            config.consensus_prefix.clone(),
             config.max_agentic_iterations,
             config.tool_execution_timeout_secs,
             pending_command_approvals.clone(),
@@ -678,6 +679,8 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     // 6. Consensus Orchestrator (kernel-level, replaces core.moderator plugin)
     let consensus_config = consensus::ConsensusConfig {
         synthesizer_engine: std::env::var("CONSENSUS_SYNTHESIZER").unwrap_or_default(),
+        synthetic_agent_id: std::env::var("CONSENSUS_AGENT_ID")
+            .unwrap_or_else(|_| consensus::DEFAULT_CONSENSUS_AGENT_ID.to_string()),
         min_proposals: std::env::var("CONSENSUS_MIN_PROPOSALS")
             .ok()
             .and_then(|v| v.parse().ok())
