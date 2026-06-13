@@ -1726,8 +1726,9 @@
       "commit": "8c09a10",
       "file": "crates/core/src/handlers/engine_routing.rs",
       "pattern": "metadata\\.get\\(\"engine_routing\"\\)",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8"
     },
     {
       "id": "bug-294",
@@ -1872,9 +1873,10 @@
       "version": "0.6.2",
       "commit": "8c09a10",
       "file": "crates/core/src/handlers.rs",
-      "pattern": "fn shutdown_handler",
+      "pattern": "bug-305",
       "expected": "present",
-      "status": "open"
+      "status": "fixed",
+      "fixed_in": "0.6.8"
     },
     {
       "id": "bug-306",
@@ -1969,10 +1971,11 @@
       "discovered": "2026-03-10T00:00:00Z",
       "version": "0.6.2",
       "commit": "8c09a10",
-      "file": "crates/core/src/managers/mcp_lifecycle.rs",
-      "pattern": "max_restarts: 3",
+      "file": "crates/core/src/managers/mcp_protocol.rs",
+      "pattern": "pub const DEFAULT_MAX_RESTARTS",
       "expected": "present",
-      "status": "open"
+      "status": "fixed",
+      "fixed_in": "0.6.8"
     },
     {
       "id": "bug-314",
@@ -2306,9 +2309,10 @@
       "version": "0.6.3-alpha.11",
       "commit": "e00a9d9",
       "file": "dashboard/src-tauri/src/lib.rs",
-      "pattern": "let _ = window.show()",
-      "expected": "present",
-      "status": "open"
+      "pattern": "let _ = window\\.show\\(\\)",
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8"
     },
     {
       "id": "bug-343",
