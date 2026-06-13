@@ -7,6 +7,29 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.8-alpha.4] — 2026-06-13
+
+Marketplace install-chain remediation + catalog seal verification. Fourth prerelease in the 0.6.8 line, published on the alpha channel (the Tauri Updater resolves `latest.json` via `/releases/latest/download/` and skips `prerelease` entries, so production `v0.6.7` stable installs receive no in-app upgrade prompt). This release lands the full ClotoCore-side fix set discovered during the 2026-06-10 live marketplace install debug (Goal #108, bug-388–392) plus the hub-mediated catalog seal verification chain (Goal #112, bug-394) and the supporting `raw_url` distribution fixes. No installer / upgrade-hook behaviour changes — only kernel marketplace, DB migration, and dashboard paths.
+
+### Fixed
+
+- **bug-391** (CRITICAL): Magic Seal verification hashed `config.command` (`"python"`) instead of the entry-point script. For interpreter-launched servers `Path::new("python").exists()` was false, so verification was skipped via the `entry_point_not_a_file` branch and every Python marketplace server was force-downgraded to Untrusted — the catalog-issued seal was never checked. Fix: resolve the sealable file as `args[0]` when the command is an interpreter (`resolve_sealable_entry_point`, `managers/mcp.rs`). (#167)
+- **bug-389 / bug-390** (HIGH): `needs_common` detection probed the legacy flat layout (`servers_dir/common/__init__.py`) which marketplace git-clone installs never populate, and the `uv pip install common` rescue was dead code (it required a `servers/common/pyproject.toml` absent from the monorepo). Connectors declaring `install.dependencies=["common"]` died with `ModuleNotFoundError: No module named 'common'`. Fix: dependency-driven common provisioning for the nested clone layout. (#168, #173)
+- **bug-388** (HIGH): migration `20260524010000` (rename `memory.cpersona` → `cpersona`) aborted kernel boot with a PRIMARY KEY collision (`UNIQUE constraint failed: mcp_servers.name`) when both the legacy row and a marketplace-installed `cpersona` row existed (any pre-0.6.6 user who installed cpersona from the catalog before first booting a ≥0.6.6 build). Fix: `repair_cpersona_rename_collision` runs before the sqlx migrations in `init_db`, merging legacy grants, dropping duplicate `plugin_configs`, and deleting the legacy `mcp_servers` row so the checksummed migration no-ops. The buggy migration file itself is intentionally unchanged (sqlx checksum). (#169)
+- **bug-392** (MEDIUM): marketplace uninstall resolved the on-disk directory via the catalog cache and fell back to `server_id`; when a server had no catalog entry and its install dir differed from its id (e.g. `mind.deepseek` → `deepseek/`), `remove_dir_all` was silently skipped, orphaning the installed files. (#170)
+- **bug-393**: the dashboard discarded kernel error response bodies, surfacing only a bare `statusText` (the long-standing "Bad Request" mystery on already-installed servers). It now surfaces the real kernel error message. (#171)
+- **Tarball shared-prefix detection** — real GitHub archives open with a `pax_global_header` + top-level dir entry, so `detect_shared_prefix` returned `None`; `extract_tarball_stripped` then kept the `<repo>-<ref>/` wrapper and subdir selection matched nothing (a latent bug affecting every `raw_url` install to date). (#174)
+
+### Added
+
+- **bug-394 catalog seal verification** (HIGH): the catalog seal is `HMAC(hub master key, canonical message)`, but the kernel spawn-check computed `HMAC(local seal.key, file bytes)` — they can never match, hard-blocking every fresh-kernel install with "Magic Seal verification failed". Landed in two steps: an interim keyless entry-point integrity check + local re-seal (#176), then the proper Ed25519 catalog-seal verification via hub JWKS with a "cannot-verify vs verification-failed" two-class model and a 1 h in-memory JWKS cache (kid-miss refetch) (#177). `raw_url` tarball transport integrity remains separately enforced via sha256. (#175, #176, #177)
+
+### Verified
+
+- All ClotoCore-side fixes confirmed by `scripts/verify-issues.sh` (bug-388 repair-guard present; bug-389–392 patterns absent) and by fresh-kernel end-to-end installs through the hub-mediated distribution chain (catalog → proxy → blob → subdir extract → common → Ed25519 seal verified → Connected with 42 tools), including the D2 three-branch matrix (verified → Connected; JWKS-unavailable → untrusted; tampered → TAMPER SUSPECT hard-block).
+
+---
+
 ## [0.6.8-alpha.3] — 2026-05-28
 
 Verify-automation hardening. Third prerelease in the 0.6.8 line, published on the alpha channel. Pure infrastructure / tooling fix discovered during the first end-to-end run of `scripts/proxmox-windows-verify.sh` after `v0.6.8-alpha.2` published. No kernel / dashboard / installer behaviour changes.
