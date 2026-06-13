@@ -180,6 +180,9 @@ pub struct AppState {
     pub max_cron_generation: Arc<AtomicU8>,
     /// Whether a bootstrap setup is currently running.
     pub setup_in_progress: Arc<AtomicBool>,
+    /// Handle to the in-flight install task (bootstrap or marketplace), tracked so
+    /// shutdown can abort it and reap orphaned child uv/pip processes (bug-366).
+    pub install_task: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
     /// Whether initial setup (venv, servers) has been completed at least once.
     /// Starts `false` on first run; set `true` when batch install finishes.
     /// Used by health monitor to suppress auto-restart before setup.
@@ -650,6 +653,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         active_cron_contexts,
         max_cron_generation,
         setup_in_progress: Arc::new(AtomicBool::new(false)),
+        install_task: Arc::new(tokio::sync::Mutex::new(None)),
         setup_done: Arc::new(AtomicBool::new(setup_json.exists() || is_dev)),
         setup_progress_tx: {
             let (tx, _) = broadcast::channel(64);

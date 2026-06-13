@@ -471,7 +471,7 @@ pub async fn install_handler(
     let env_overrides = request.env.unwrap_or_default();
     let auto_start = request.auto_start.unwrap_or(true);
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         let result = run_install(&state_clone, &entry, env_overrides, auto_start).await;
         state_clone
             .setup_in_progress
@@ -482,6 +482,9 @@ pub async fn install_handler(
         // Always emit Complete so the frontend SSE listener can close.
         emit(&state_clone.setup_progress_tx, SetupProgressEvent::Complete);
     });
+    // bug-366: track the install task so shutdown can abort it and reap any
+    // orphaned child uv/pip processes (kill_on_drop) instead of leaking them.
+    *state.install_task.lock().await = Some(handle);
 
     super::ok_data(serde_json::json!({ "started": true, "server_id": request.server_id }))
 }
@@ -678,7 +681,7 @@ pub async fn batch_install_handler(
     let state_clone = state.clone();
     let auto_start = request.auto_start.unwrap_or(true);
 
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         // Notify skipped servers not found in registry (bug-381)
         for id in &skipped_ids {
             emit(
@@ -703,6 +706,9 @@ pub async fn batch_install_handler(
             error!("Batch install failed: {e}");
         }
     });
+    // bug-366: track the install task so shutdown can abort it and reap any
+    // orphaned child uv/pip processes (kill_on_drop) instead of leaking them.
+    *state.install_task.lock().await = Some(handle);
 
     super::ok_data(serde_json::json!({
         "started": true,
@@ -1142,24 +1148,32 @@ async fn build_and_register(
                         status: "installing".into(),
                     },
                 );
+                // bug-369: drive the common install through null-stdio status()
+                // (matching the batch path) instead of a piped output(). Capturing
+                // both pipes without concurrently draining them risks a back-pressure
+                // deadlock when uv emits verbose output.
+                let mut cmd = tokio::process::Command::new(&uv_str);
+                cmd.args([
+                    "pip",
+                    "install",
+                    "--no-progress",
+                    "--python",
+                    &venv_python_str,
+                    &common_path.to_string_lossy(),
+                ])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .kill_on_drop(true); // bug-366: reap on install-task abort
+                #[cfg(windows)]
+                cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
                 let result = tokio::time::timeout(
                     Duration::from_secs(CHILD_PROCESS_TIMEOUT_SECS),
-                    tokio::process::Command::new(&uv_str)
-                        .args([
-                            "pip",
-                            "install",
-                            "--no-progress",
-                            "--python",
-                            &venv_python_str,
-                            &common_path.to_string_lossy(),
-                        ])
-                        .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::piped())
-                        .output(),
+                    cmd.status(),
                 )
                 .await;
                 match result {
-                    Ok(Ok(output)) if output.status.success() => {
+                    Ok(Ok(status)) if status.success() => {
                         emit(
                             tx,
                             SetupProgressEvent::ServerInstall {
@@ -1192,22 +1206,24 @@ async fn build_and_register(
             },
         );
 
-        let result = tokio::process::Command::new(&uv_str)
-            .args([
-                "pip",
-                "install",
-                "--no-progress",
-                "--python",
-                &venv_python_str,
-                &server_path.to_string_lossy(),
-            ])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .await;
-
-        match result {
-            Ok(output) if output.status.success() => {
+        // bug-369: stream the server install through spawn_uv_streaming, which
+        // drains stdout/stderr on dedicated tasks and enforces a timeout. The
+        // previous piped output() had no timeout and could deadlock on a full pipe.
+        let server_path_str = server_path.to_string_lossy().to_string();
+        let logs_dir = state.data_dir.join("logs");
+        let _ = tokio::fs::create_dir_all(&logs_dir).await;
+        let log_file = logs_dir.join("install.log");
+        match super::setup::spawn_uv_streaming(
+            tx,
+            &uv_str,
+            &venv_python_str,
+            &entry.name,
+            &server_path_str,
+            Some(&log_file),
+        )
+        .await
+        {
+            Ok(()) => {
                 emit(
                     tx,
                     SetupProgressEvent::ServerInstall {
@@ -1216,25 +1232,12 @@ async fn build_and_register(
                     },
                 );
             }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let last_line = stderr.lines().last().unwrap_or("unknown error");
+            Err(detail) => {
                 emit(
                     tx,
                     SetupProgressEvent::StepError {
                         step: "install_deps".into(),
-                        error: format!("uv pip install failed: {last_line}"),
-                        recoverable: true,
-                    },
-                );
-                return Ok(());
-            }
-            Err(e) => {
-                emit(
-                    tx,
-                    SetupProgressEvent::StepError {
-                        step: "install_deps".into(),
-                        error: format!("Failed to run pip: {e}"),
+                        error: format!("uv pip install failed: {detail}"),
                         recoverable: true,
                     },
                 );
@@ -1929,7 +1932,14 @@ async fn install_from_raw_url(
     if let Some(expected) = &spec.sha256 {
         let actual = hex::encode(hasher.finalize());
         if !actual.eq_ignore_ascii_case(expected) {
-            let _ = tokio::fs::remove_file(&archive_path).await;
+            // bug-367: surface cleanup failures instead of swallowing them, so a
+            // corrupted-download retry loop can't silently leak disk space.
+            if let Err(e) = tokio::fs::remove_file(&archive_path).await {
+                warn!(
+                    "Failed to cleanup archive after sha256 mismatch {}: {e}",
+                    archive_path.display()
+                );
+            }
             emit(
                 tx,
                 SetupProgressEvent::StepError {
@@ -3166,7 +3176,8 @@ async fn run_batch_install(
             ])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true); // bug-366: reap on install-task abort
             #[cfg(windows)]
             cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
             let result = tokio::time::timeout(
@@ -3891,6 +3902,40 @@ mod tests {
         assert_eq!(
             effective_install_dir(&entry("memory.cpersona", "")),
             "memory.cpersona"
+        );
+    }
+
+    /// bug-366: an in-flight install task registered in `AppState.install_task`
+    /// must be abortable by the shutdown path so its child uv/pip processes are
+    /// reaped (via kill_on_drop) instead of orphaned.
+    #[tokio::test]
+    async fn bug366_shutdown_aborts_inflight_install_task() {
+        let state = crate::test_utils::create_test_app_state(None).await;
+
+        // Mirror install_handler / batch_install_handler: a long-running task
+        // stored in the tracking slot.
+        let handle = tokio::spawn(async {
+            loop {
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+        });
+        *state.install_task.lock().await = Some(handle);
+
+        // Mirror the shutdown handler's abort path.
+        let taken = state.install_task.lock().await.take();
+        let handle = taken.expect("install_task should hold the in-flight handle");
+        handle.abort();
+
+        let join_err = handle
+            .await
+            .expect_err("an aborted task must not complete normally");
+        assert!(
+            join_err.is_cancelled(),
+            "install task should be cancelled by shutdown"
+        );
+        assert!(
+            state.install_task.lock().await.is_none(),
+            "slot is cleared after take()"
         );
     }
 }
