@@ -115,6 +115,7 @@ async fn test_event_cascading_protection() {
         10,
         metrics.clone(),
         vec![],
+        "consensus:".to_string(),
         16,
         30,
         Arc::new(dashmap::DashMap::new()),

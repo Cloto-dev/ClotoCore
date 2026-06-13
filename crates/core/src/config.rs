@@ -84,6 +84,9 @@ pub struct AppConfig {
     pub memory_context_limit: usize,
     pub admin_api_key: Option<String>,
     pub consensus_engines: Vec<String>,
+    /// Prefix that triggers consensus mode on an inbound message (bug-285:
+    /// configurable, default "consensus:"). Matched case-insensitively.
+    pub consensus_prefix: String,
     pub event_history_size: usize,
     pub event_retention_hours: u64,
     pub max_agentic_iterations: u8,
@@ -292,6 +295,10 @@ impl AppConfig {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
+
+        // bug-285: consensus trigger prefix is configurable (default "consensus:")
+        let consensus_prefix =
+            env::var("CONSENSUS_PREFIX").unwrap_or_else(|_| "consensus:".to_string());
 
         let event_history_size = env::var("EVENT_HISTORY_SIZE")
             .unwrap_or_else(|_| "1000".to_string())
@@ -609,6 +616,7 @@ impl AppConfig {
             memory_context_limit,
             admin_api_key,
             consensus_engines,
+            consensus_prefix,
             event_history_size,
             event_retention_hours,
             max_agentic_iterations,
@@ -690,6 +698,26 @@ mod tests {
         let config = AppConfig::load().unwrap();
         // P1: Default is empty (no hard-coded engines)
         assert!(config.consensus_engines.is_empty());
+    }
+
+    #[test]
+    fn test_consensus_prefix_default() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _guard = EnvGuard("CONSENSUS_PREFIX");
+
+        let config = AppConfig::load().unwrap();
+        // bug-285: default preserves the historical "consensus:" trigger
+        assert_eq!(config.consensus_prefix, "consensus:");
+    }
+
+    #[test]
+    fn test_consensus_prefix_custom() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        std::env::set_var("CONSENSUS_PREFIX", "vote:");
+        let _guard = EnvGuard("CONSENSUS_PREFIX");
+
+        let config = AppConfig::load().unwrap();
+        assert_eq!(config.consensus_prefix, "vote:");
     }
 
     #[test]

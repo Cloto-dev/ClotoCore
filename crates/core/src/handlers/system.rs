@@ -116,6 +116,7 @@ pub struct SystemHandler {
     memory_context_limit: usize,
     metrics: Arc<crate::managers::SystemMetrics>,
     consensus_engines: Vec<String>,
+    consensus_prefix: String,
     max_agentic_iterations: u8,
     tool_execution_timeout_secs: u64,
     pending_approvals: PendingApprovals,
@@ -154,6 +155,7 @@ impl SystemHandler {
         memory_context_limit: usize,
         metrics: Arc<crate::managers::SystemMetrics>,
         consensus_engines: Vec<String>,
+        consensus_prefix: String,
         max_agentic_iterations: u8,
         tool_execution_timeout_secs: u64,
         pending_approvals: PendingApprovals,
@@ -171,6 +173,7 @@ impl SystemHandler {
             memory_context_limit,
             metrics,
             consensus_engines,
+            consensus_prefix,
             max_agentic_iterations,
             tool_execution_timeout_secs,
             pending_approvals,
@@ -574,7 +577,11 @@ impl SystemHandler {
 
         let trace_id = cloto_shared::ClotoId::new_trace_id();
 
-        if msg.content.to_lowercase().starts_with("consensus:") {
+        if msg
+            .content
+            .to_lowercase()
+            .starts_with(&self.consensus_prefix.to_lowercase())
+        {
             // 合意形成モード
             let thought_event_data = cloto_shared::ClotoEventData::ConsensusRequested {
                 task: msg.content.clone(),

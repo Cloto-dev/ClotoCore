@@ -1584,8 +1584,9 @@
       "commit": "8c09a10",
       "file": "crates/core/src/consensus.rs",
       "pattern": "SYSTEM_CONSENSUS_AGENT",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed",
+      "fix_note": "Fixed in 0.6.8 (PR #4 Consensus config): the hard-coded `const SYSTEM_CONSENSUS_AGENT` was removed; the synthetic agent id is now `ConsensusConfig.synthetic_agent_id` (default DEFAULT_CONSENSUS_AGENT_ID, env CONSENSUS_AGENT_ID), cached lock-free on ConsensusOrchestrator. Pattern verifies the hard-coded const is gone (ARCHITECTURE.md 1.2)."
     },
     {
       "id": "bug-283",
@@ -1620,8 +1621,9 @@
       "commit": "8c09a10",
       "file": "crates/core/src/handlers/system.rs",
       "pattern": "\"consensus:\"",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed",
+      "fix_note": "Fixed in 0.6.8 (PR #4 Consensus config): the hard-coded 'consensus:' prefix in system.rs was replaced with the configurable AppConfig.consensus_prefix (env CONSENSUS_PREFIX, default 'consensus:' in config.rs), matched case-insensitively. Pattern verifies the literal is gone from the system handler (ARCHITECTURE.md 1.2)."
     },
     {
       "id": "bug-286",

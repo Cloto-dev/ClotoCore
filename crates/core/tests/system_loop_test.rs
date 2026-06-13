@@ -31,6 +31,7 @@ async fn test_system_handler_loop_prevention() {
         10, // memory_context_limit
         metrics,
         vec!["mind.deepseek".to_string(), "mind.cerebras".to_string()],
+        "consensus:".to_string(),
         16, // max_agentic_iterations
         30, // tool_execution_timeout_secs
         Arc::new(dashmap::DashMap::new()),
@@ -103,6 +104,7 @@ async fn build_cron_test_handler(
         10,
         metrics,
         vec![],
+        "consensus:".to_string(),
         16,
         30,
         Arc::new(dashmap::DashMap::new()),
