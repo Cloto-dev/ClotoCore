@@ -29,12 +29,22 @@ pub fn exe_dir() -> PathBuf {
 /// bug-377: under NSIS install on Windows the exe lives in `C:\Program Files\…`
 /// which is not user-writable; `create_dir_all(<exe_dir>/data)` fails with
 /// `ERROR_ACCESS_DENIED (os error 5)` and the kernel exits on boot.
+///
+/// Name of the production user-data directory under the platform data dir
+/// (`dirs::data_dir()`). Single source of truth for the path segment that was
+/// previously a bare string literal here. **Deliberately kept as `cloto-system`,
+/// not the current "ClotoCore" branding** — `installer.nsh` and the bug-386
+/// legacy-install detection preserve existing user databases at this exact path,
+/// so renaming it would orphan installed users' chat history / episodes / MCP
+/// registrations. Any future rename must ship a boot-time data-migration step.
+pub const APP_DATA_DIR_NAME: &str = "cloto-system";
+
 #[must_use]
 pub fn data_dir() -> PathBuf {
     if is_dev_layout() {
         return exe_dir().join("data");
     }
-    dirs::data_dir().map_or_else(|| exe_dir().join("data"), |d| d.join("cloto-system"))
+    dirs::data_dir().map_or_else(|| exe_dir().join("data"), |d| d.join(APP_DATA_DIR_NAME))
 }
 
 /// True when running from a Cargo workspace (`cargo run`, `cargo test`,
