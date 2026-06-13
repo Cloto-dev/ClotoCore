@@ -110,6 +110,7 @@ async fn test_dynamic_permission_elevation_flow() {
         10,
         metrics.clone(),
         vec![],
+        "consensus:".to_string(),
         16,
         30,
         Arc::new(dashmap::DashMap::new()),
