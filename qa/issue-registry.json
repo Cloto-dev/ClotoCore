@@ -1851,15 +1851,16 @@
     },
     {
       "id": "bug-304",
-      "summary": "P9: StdioTransport has no explicit Drop impl",
+      "summary": "P9: StdioTransport child cleanup on drop (explicit Drop impl + kill_on_drop)",
       "severity": "MEDIUM",
       "discovered": "2026-03-10T00:00:00Z",
       "version": "0.6.2",
       "commit": "8c09a10",
       "file": "crates/core/src/managers/mcp_transport.rs",
-      "pattern": "pub struct StdioTransport",
+      "pattern": "impl Drop for StdioTransport",
       "expected": "present",
-      "status": "open"
+      "status": "fixed",
+      "fix_note": "Verified in 0.6.8 (PR #3 Group C1): StdioTransport already carries an explicit `impl Drop` (start_kill) plus kill_on_drop(true) on the spawned Command, so the original 'no Drop impl' concern does not hold on this code. Pattern re-anchored on the Drop impl (was the meaningless struct declaration) so the check actually proves child cleanup exists."
     },
     {
       "id": "bug-305",
@@ -2461,9 +2462,10 @@
       "version": "0.6.3-beta.8",
       "commit": "ccfbc25",
       "file": "crates/core/src/managers/mcp_transport.rs",
-      "pattern": "writer\\.write_all\\(",
+      "pattern": "STDIO_WRITE_TIMEOUT_SECS",
       "expected": "present",
-      "status": "open"
+      "status": "fixed",
+      "fix_note": "Fixed in 0.6.8 (PR #3 Group C1): the stdio writer task wraps write_all/flush in tokio::time::timeout(STDIO_WRITE_TIMEOUT_SECS); a child that stops reading stdin no longer wedges the writer (it breaks, closing the channel -> is_alive()==false). Reverse-polarity: verifies the write timeout is present."
     },
     {
       "id": "bug-356",
@@ -2473,9 +2475,10 @@
       "version": "0.6.3-beta.8",
       "commit": "ccfbc25",
       "file": "crates/core/src/managers/mcp_transport.rs",
-      "pattern": "timeout\\(std::time::Duration::from_mins\\(1\\)\\)",
+      "pattern": "HTTP_PER_MESSAGE_TIMEOUT_SECS",
       "expected": "present",
-      "status": "open"
+      "status": "fixed",
+      "fix_note": "Fixed in 0.6.8 (PR #3 Group C1): the HTTP request loop wraps each request.send() in tokio::time::timeout(HTTP_PER_MESSAGE_TIMEOUT_SECS) on top of the reqwest client's global 60s timeout, so one slow message no longer blocks the serial queue. Reverse-polarity: verifies the per-message timeout is present."
     },
     {
       "id": "bug-357",
@@ -2485,9 +2488,10 @@
       "version": "0.6.3-beta.8",
       "commit": "ccfbc25",
       "file": "crates/core/src/managers/mcp_client.rs",
-      "pattern": "self\\.sender",
+      "pattern": "SEND_TIMEOUT_SECS",
       "expected": "present",
-      "status": "open"
+      "status": "fixed",
+      "fix_note": "Fixed in 0.6.8 (PR #3 Group C1): all transport sends go through send_with_timeout(SEND_TIMEOUT_SECS) (call / call_tool_streaming / send_initialized_notification / send_notification), so a wedged transport can no longer block the caller on the send path (the response timeout only covered rx). Reverse-polarity: verifies the send-path timeout is present."
     },
     {
       "id": "bug-358",
@@ -2497,9 +2501,10 @@
       "version": "0.6.3-beta.8",
       "commit": "ccfbc25",
       "file": "crates/core/src/managers/mcp_transport.rs",
-      "pattern": "start_kill\\(\\)",
+      "pattern": "SHUTDOWN_GRACE_SECS",
       "expected": "present",
-      "status": "open"
+      "status": "fixed",
+      "fix_note": "Fixed in 0.6.8 (PR #3 Group C1): kill_and_wait sends a graceful SIGTERM (Unix), waits SHUTDOWN_GRACE_SECS, then escalates to start_kill (SIGKILL) if the child refuses to exit; non-Unix goes straight to start_kill. Reverse-polarity: verifies the SIGTERM-then-SIGKILL grace path is present."
     },
     {
       "id": "bug-359",

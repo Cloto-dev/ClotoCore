@@ -57,6 +57,20 @@ const ALLOWED_COMMANDS: &[&str] = &["npx", "node", "python", "python3", "deno", 
 /// Buffer size for MCP stdio channel (request and response).
 const MCP_CHANNEL_BUFFER_SIZE: usize = 100;
 
+/// bug-355: timeout for a single write to the child's stdin pipe. Guards
+/// against a child that stops reading stdin (full pipe buffer) wedging the
+/// writer task — and, transitively, the bounded request channel upstream.
+const STDIO_WRITE_TIMEOUT_SECS: u64 = 10;
+
+/// bug-356: per-request send timeout for the HTTP transport. Bounds how long a
+/// single queued message can hold the request loop before the next one runs,
+/// on top of the reqwest client's global timeout.
+const HTTP_PER_MESSAGE_TIMEOUT_SECS: u64 = 30;
+
+/// bug-358: grace period to wait for a graceful (SIGTERM) exit before
+/// escalating to SIGKILL in `kill_and_wait`.
+const SHUTDOWN_GRACE_SECS: u64 = 3;
+
 /// If command is python/python3, resolve to venv Python if available.
 /// Returns (resolved_command, is_venv) tuple.
 fn resolve_python_command(command: &str) -> (String, bool) {
@@ -139,6 +153,34 @@ impl StdioTransport {
     /// Kill the child process and wait for it to actually exit.
     /// Ensures file locks (DB, ports) are released before returning.
     pub async fn kill_and_wait(&mut self) {
+        // bug-358: try a graceful SIGTERM first so the MCP server can flush
+        // state and release locks, then escalate to SIGKILL if it refuses to
+        // exit. SIGTERM is Unix-only; other platforms go straight to start_kill
+        // (already a forceful kill).
+        #[cfg(unix)]
+        {
+            if let Some(pid) = self.child.id() {
+                // SAFETY: sending SIGTERM to a child PID we own. libc::kill is
+                // the only way to send a non-SIGKILL signal via tokio's process API.
+                unsafe {
+                    libc::kill(pid as libc::pid_t, libc::SIGTERM);
+                }
+                if let Ok(Ok(status)) = tokio::time::timeout(
+                    std::time::Duration::from_secs(SHUTDOWN_GRACE_SECS),
+                    self.child.wait(),
+                )
+                .await
+                {
+                    debug!("Child process exited gracefully after SIGTERM: {status}");
+                    return;
+                }
+                tracing::warn!(
+                    "Child did not exit within {SHUTDOWN_GRACE_SECS}s of SIGTERM — escalating to SIGKILL"
+                );
+            }
+        }
+
+        // SIGKILL fallback (also the primary path on non-Unix targets).
         let _ = self.child.start_kill();
         match tokio::time::timeout(std::time::Duration::from_secs(5), self.child.wait()).await {
             Ok(Ok(status)) => {
@@ -148,7 +190,7 @@ impl StdioTransport {
                 debug!("Child process wait error: {e}");
             }
             Err(_) => {
-                tracing::warn!("Child process did not exit within 5s after kill signal");
+                tracing::warn!("Child process did not exit within 5s after SIGKILL");
             }
         }
     }
@@ -275,15 +317,36 @@ impl StdioTransport {
         // Writer Task
         tokio::spawn(async move {
             let mut writer = stdin;
+            // bug-355: bound each write/flush so a child that stops reading its
+            // stdin (full pipe buffer) cannot wedge this task forever. On stall
+            // we break — closing req_rx, which surfaces as is_alive()==false and
+            // lets the health monitor restart the server.
+            let write_timeout = std::time::Duration::from_secs(STDIO_WRITE_TIMEOUT_SECS);
             while let Some(msg) = req_rx.recv().await {
                 let line = format!("{}\n", msg);
-                if let Err(e) = writer.write_all(line.as_bytes()).await {
-                    error!("Failed to write to MCP server stdin: {}", e);
-                    break;
+                match tokio::time::timeout(write_timeout, writer.write_all(line.as_bytes())).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        error!("Failed to write to MCP server stdin: {}", e);
+                        break;
+                    }
+                    Err(_) => {
+                        error!(
+                            "Timed out writing to MCP server stdin ({STDIO_WRITE_TIMEOUT_SECS}s) — child stdin pipe likely full"
+                        );
+                        break;
+                    }
                 }
-                if let Err(e) = writer.flush().await {
-                    error!("Failed to flush MCP server stdin: {}", e);
-                    break;
+                match tokio::time::timeout(write_timeout, writer.flush()).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        error!("Failed to flush MCP server stdin: {}", e);
+                        break;
+                    }
+                    Err(_) => {
+                        error!("Timed out flushing MCP server stdin ({STDIO_WRITE_TIMEOUT_SECS}s)");
+                        break;
+                    }
                 }
             }
         });
@@ -424,14 +487,33 @@ impl HttpTransport {
                     request = request.header("Mcp-Session-Id", sid.clone());
                 }
 
-                let response = match request.body(msg).send().await {
-                    Ok(r) => r,
-                    Err(e) => {
+                // bug-356: bound each request so one slow message can't stall the
+                // serial request loop (and the queue behind it). This is in
+                // addition to the reqwest client's global timeout above.
+                let send_fut = request.body(msg).send();
+                let response = match tokio::time::timeout(
+                    std::time::Duration::from_secs(HTTP_PER_MESSAGE_TIMEOUT_SECS),
+                    send_fut,
+                )
+                .await
+                {
+                    Ok(Ok(r)) => r,
+                    Ok(Err(e)) => {
                         error!(url = %url_owned, error = %e, "HTTP request failed");
                         // Send JSON-RPC error so pending requests don't hang
                         let err_msg = serde_json::json!({
                             "jsonrpc": "2.0",
                             "error": {"code": -32000, "message": format!("HTTP transport error: {e}")},
+                            "id": null
+                        });
+                        let _ = res_tx.send(err_msg.to_string()).await;
+                        continue;
+                    }
+                    Err(_) => {
+                        error!(url = %url_owned, "HTTP request timed out ({HTTP_PER_MESSAGE_TIMEOUT_SECS}s)");
+                        let err_msg = serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "error": {"code": -32000, "message": format!("HTTP per-message timeout ({HTTP_PER_MESSAGE_TIMEOUT_SECS}s)")},
                             "id": null
                         });
                         let _ = res_tx.send(err_msg.to_string()).await;
