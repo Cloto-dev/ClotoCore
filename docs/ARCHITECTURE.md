@@ -377,6 +377,22 @@ args = ["${servers}/terminal/server.py"]
 Path variable values may themselves reference environment variables (`${ENV_VAR}`).
 If `[paths]` is absent, relative paths are resolved against the project root (backward compatible).
 
+### 3.1.2 Server Restart Policy
+
+When an MCP server exits or errors, the lifecycle manager (`mcp_lifecycle.rs`)
+restarts it according to a `RestartPolicy`. Unless overridden per-server in
+`mcp.toml`, the following defaults apply. These values are defined once as
+constants in `crates/core/src/managers/mcp_protocol.rs` (`DEFAULT_MAX_RESTARTS`
+et al.) and are the single source of truth for both the runtime and tests:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `strategy` | `OnFailure` | Restart only on error/unexpected exit (not on clean stop) |
+| `max_restarts` | `5` | Maximum restarts allowed within the window before giving up |
+| `restart_window_secs` | `300` | Rolling window (seconds) over which `max_restarts` is counted |
+| `backoff_base_ms` | `1000` | Base delay for exponential backoff (`base * 2^(n-1)`) |
+| `backoff_max_ms` | `30000` | Upper cap on the backoff delay |
+
 **Migration plan (D → C):** The current approach (D) uses file-path-based server
 resolution. The future approach (C) will use Python package-based invocation
 (`python -m cloto_mcp_servers.terminal`), eliminating path configuration entirely.

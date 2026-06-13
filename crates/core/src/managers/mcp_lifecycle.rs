@@ -163,10 +163,14 @@ pub(super) async fn emit_lifecycle_notification(
 mod tests {
     use super::*;
 
+    use crate::managers::mcp_protocol::DEFAULT_MAX_RESTARTS;
+
     fn test_policy(strategy: RestartStrategy) -> RestartPolicy {
+        // bug-313: source the budget from the shared default const so the test can
+        // never assert against a value that has drifted from the runtime default.
         RestartPolicy {
             strategy,
-            max_restarts: 3,
+            max_restarts: DEFAULT_MAX_RESTARTS,
             restart_window_secs: 300,
             backoff_base_ms: 100,
             backoff_max_ms: 5000,
@@ -202,12 +206,12 @@ mod tests {
     fn max_restarts_respected() {
         let lm = LifecycleManager::new();
         let policy = test_policy(RestartStrategy::Always);
-        // Use up the budget
-        for _ in 0..3 {
+        // Use up the budget (DEFAULT_MAX_RESTARTS attempts allowed).
+        for _ in 0..DEFAULT_MAX_RESTARTS {
             assert!(lm.should_restart("s1", &policy, &ServerStatus::Error("fail".into())));
             lm.calculate_backoff("s1", &policy);
         }
-        // 4th should be denied
+        // The next attempt past the budget should be denied.
         assert!(!lm.should_restart("s1", &policy, &ServerStatus::Error("fail".into())));
     }
 
@@ -242,7 +246,8 @@ mod tests {
     fn reset_counter_allows_restart_again() {
         let lm = LifecycleManager::new();
         let policy = test_policy(RestartStrategy::Always);
-        for _ in 0..3 {
+        // Exhaust the restart budget.
+        for _ in 0..DEFAULT_MAX_RESTARTS {
             lm.calculate_backoff("s1", &policy);
         }
         assert!(!lm.should_restart("s1", &policy, &ServerStatus::Error("fail".into())));
