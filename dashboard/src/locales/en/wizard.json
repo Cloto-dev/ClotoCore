@@ -51,6 +51,7 @@
   "install_elapsed": "Elapsed: {{time}}",
   "install_estimate": "Estimated: {{min}}–{{max}} min",
   "install_error_stream_disconnected": "Install progress stream disconnected. Please retry.",
+  "install_error_no_servers": "Select at least one server to install before continuing.",
   "quick_guide": "Quick Guide",
   "guide_agents": "Chat with AI agents, create new ones, and manage their settings.",
   "guide_mcp": "Connect and manage MCP server plugins for extended capabilities.",

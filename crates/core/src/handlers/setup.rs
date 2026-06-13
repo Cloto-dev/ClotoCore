@@ -405,7 +405,8 @@ pub(crate) async fn spawn_uv_streaming(
     ])
     .stdin(std::process::Stdio::null())
     .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::piped());
+    .stderr(std::process::Stdio::piped())
+    .kill_on_drop(true); // bug-366: reap the child if the install task is aborted
 
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
