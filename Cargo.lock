@@ -1160,6 +1160,7 @@ dependencies = [
  "governor",
  "hex",
  "http",
+ "libc",
  "lindera",
  "mgp-sdk",
  "mgp-seal",
