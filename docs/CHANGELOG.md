@@ -7,6 +7,29 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.8-beta.1] — 2026-06-13
+
+**Feature freeze for the 0.6.8 line.** This beta completes the P1/P2 design-violation remediation tracked under Goal #49: every remaining `ARCHITECTURE.md` §1 (Design Principles) violation in the kernel is resolved, alongside the Setup Wizard / marketplace robustness, MCP transport-timeout, and lifecycle hardening backlog. `scripts/verify-issues.sh` reports zero open HIGH/MEDIUM entries for the Goal #49 set. Published on the alpha channel (the Tauri Updater resolves `latest.json` via `/releases/latest/download/` and skips prerelease entries, so production `v0.6.7` stable installs receive no in-app upgrade prompt). No installer / upgrade-hook behaviour changes.
+
+### Fixed
+
+- **bug-365 / bug-366 / bug-367 / bug-369** (HIGH, Setup Wizard / marketplace robustness): empty-batch install now early-returns with an i18n error instead of a silent no-op (365); in-flight install tasks are tracked on `AppState` and aborted on shutdown so child `uv`/`pip` processes are reaped via `kill_on_drop` instead of orphaned (366); a sha256 tarball mismatch no longer swallows the `remove_file` error (367); `build_and_register`'s common+server pip install is unified onto the same null-stdio `status()` / streaming-spawn path as batch installs, removing a pipe-buffer deadlock risk and adding a server-install timeout (369). (#178)
+- **bug-304 / bug-355 / bug-356 / bug-357 / bug-358** (MEDIUM, MCP transport timeout & resource discipline): stdio writer `write_all`/`flush` gains a 10 s timeout (355); HTTP transport adds a 30 s per-message timeout on top of the global cap (356); every `McpClient` send goes through a 10 s `send_with_timeout` helper that cleans up `pending_requests` on failure (357); process kill escalates SIGTERM → 3 s grace → SIGKILL on Unix (358); the existing `Drop` + `kill_on_drop` resource guarantee is re-anchored and documented (304). (#179)
+- **bug-282 / bug-285** (HIGH, §1.2 Capability over Concrete Type): the consensus synthetic agent id (`SYSTEM_CONSENSUS_AGENT` const) and the `"consensus:"` trigger prefix are no longer hard-coded — they are `ConsensusConfig.synthetic_agent_id` (env `CONSENSUS_AGENT_ID`) and `AppConfig.consensus_prefix` (env `CONSENSUS_PREFIX`), both with back-compatible defaults. (#180)
+- **bug-293** (HIGH, §1.4 Data Sovereignty): the kernel no longer interprets the `engine_routing` agent metadata. The `RoutingRule` schema, its deserialization, and CFR/fallback evaluation moved from the kernel handler (`handlers/engine_routing.rs`, deleted) into an in-tree plugin (`plugins/routing_default.rs`); the handler now forwards opaque metadata via a direct in-process call with no added latency. (#181)
+- **bug-305 / bug-313 / bug-342** (MEDIUM/LOW, lifecycle & window hardening): shutdown drains all MCP servers in a bounded task (5 s/server, 10 s global) before notifying shutdown waiters (305); restart-policy defaults are consolidated into `DEFAULT_MAX_RESTARTS` et al. constants and documented in `ARCHITECTURE.md` §3.1.2 so code and docs cannot drift (313); every fallible Tauri window op (`show`/`unminimize`/`set_focus`/`hide`/`navigate`) routes through a `with_window_log!` macro that logs a warning on failure instead of discarding the `Result`, so WebView2 corruption no longer leaves the backend running headless without a signal (342). (#181)
+
+### Changed
+
+- **`config::data_dir`** — the production user-data directory segment is promoted from a bare `"cloto-system"` string literal to a single named constant `config::APP_DATA_DIR_NAME`. No behavioural change: the value is unchanged and deliberately kept as `cloto-system` (not the current "ClotoCore" branding) because `installer.nsh` and the bug-386 legacy-install detection preserve existing user databases at this exact path; renaming it would orphan installed users' data and require a boot-time migration. (#182)
+
+### Verified
+
+- `scripts/verify-issues.sh`: bug-293 / 342 `[FIXED]` (pattern absent), bug-305 / 313 `[VERIFIED]` (fix-marker present), with the full Goal #49 set (bug-282/285/304/355–358/365–369) confirmed across PRs #178–#181; 0 stale / 0 errors.
+- CI green on every PR: clippy (workspace allow-list, `--exclude app`) + fmt + workspace tests (371 passed, incl. 6 new `routing_default` tests) + `cargo check -p app`.
+
+---
+
 ## [0.6.8-alpha.4] — 2026-06-13
 
 Marketplace install-chain remediation + catalog seal verification. Fourth prerelease in the 0.6.8 line, published on the alpha channel (the Tauri Updater resolves `latest.json` via `/releases/latest/download/` and skips `prerelease` entries, so production `v0.6.7` stable installs receive no in-app upgrade prompt). This release lands the full ClotoCore-side fix set discovered during the 2026-06-10 live marketplace install debug (Goal #108, bug-388–392) plus the hub-mediated catalog seal verification chain (Goal #112, bug-394) and the supporting `raw_url` distribution fixes. No installer / upgrade-hook behaviour changes — only kernel marketplace, DB migration, and dashboard paths.
