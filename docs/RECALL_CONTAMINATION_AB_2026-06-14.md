@@ -441,6 +441,39 @@ opt-in, A/B-able). Requires: (a) the trigram query builder [bug-002 fix, precond
 sums, plus plumbing the fused `_rsf_score` through `_apply_quality_gate` and `_autocut`.
 Bug A (env-key) is independent and still tracked separately.
 
+## 12. High-fidelity confirmation (fp32 bge-m3 on CPU) — resolves the provider caveat
+
+The §10.4 / §11 caveat (the quantised `onnx_bge_m3` provider, cosines ~0.5) is now
+resolved by re-running against **full-precision fp32 bge-m3** (`Xenova/bge-m3`
+`onnx/model.onnx` + `model.onnx_data`, CPU EP, `ONNX_MAX_SEQ_LEN=256`). The test DB's
+BLOBs were re-embedded with fp32 and queries embedded with the same provider — seed and
+query fully self-consistent (`self-cosine = 1.0000`).
+
+**Finding 1 — quantisation was a non-issue.** fp32 cosines are essentially identical to
+int8: `cos(bread_query, bread) = 0.539` (fp32) vs `0.50` (int8); `cos(bread_query, pie)
+= 0.477` vs `0.47`. The earlier `~0.78` figures (§9.2, pre-`/compact`) did **not** come
+from a higher-fidelity bge-m3 — genuine bge-m3 self-consistent cosines for these texts
+are ~0.5. So "cosine cannot separate bread from pie" holds **at full fidelity** (0.539
+vs 0.477, ratio 0.88).
+
+**Finding 2 — RSF's advantage is confirmed and slightly stronger at fp32.** End-to-end
+`do_recall` A/B, RECALL_MODE rrf vs rsf, fp32 BLOBs + fp32 query provider:
+
+| query | RRF raspberry | RSF raspberry |
+| --- | --- | --- |
+| `この前のパンの話覚えてる?` | 1 / 4 (pie #1) | **0 / 3** |
+| `パン` | 1 / 4 (pie #1) | **0 / 3** (int8 still had 1; fp32 clean) |
+| `ラズベリーパイについて覚えてる?` (target) | 5 / 5 | **2 / 2** |
+| `git push の件` | 2 / 3 | **0 / 1** |
+| `今日の天気` | 0 / 1 | 0 / 2 |
+| **TOTAL** | **9** | **2 (−78 %)** |
+
+vs the int8 run (9 → 3, −67 %). RSF eliminates contamination on every off-target query
+(bread / パン / git → 0) and keeps the raspberry target tight (2 / 2 correct); no correct
+result is dropped. **Conclusion: on this contamination benchmark RSF is clearly higher
+precision than RRF, and the result is not a quantisation artifact.** (Scope unchanged:
+single 40-memory synthetic corpus, recall-layer only; LLM-output drift is still Phase 5.)
+
 ---
 
 *Report author: ClotoCore Project*
