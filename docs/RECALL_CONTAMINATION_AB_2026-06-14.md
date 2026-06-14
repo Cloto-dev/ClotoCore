@@ -411,6 +411,36 @@ Decisions taken (doctor, 2026-06-14): fix = **direction B**; register Bug A + Bu
 in a **new `cpersona/qa/issue-registry.json`**. Next: stand up that registry +
 entries, then design the magnitude-aware merge.
 
+## 11. RSF prototype validation — direction B1 confirmed (−64 % contamination)
+
+A standalone prototype (`/tmp/rsf2.out`) fuses the same channels by **relative-score
+fusion**: per-query min-max normalization of each channel's *raw* score (cosine for
+vector, −bm25 for FTS), summed — instead of RRF's rank. Both arms use the trigram
+query builder; identical `onnx_bge_m3` vector + bm25 FTS; relative-gap autocut applied.
+
+| query | RRF raspberry | RSF raspberry |
+| --- | --- | --- |
+| `この前のパンの話覚えてる?` | 1 / 4 (pie #4) | **0 / 3** (pie cut) |
+| `パン` | 3 / 10 | 2 / 5 |
+| `ラズベリーパイについて覚えてる?` (target) | 5 / 5 | 2 / 2 (tighter) |
+| `git push の件` | 2 / 3 | **0 / 1** |
+| `今日の天気` | 0 / 1 | 0 / 2 |
+| **TOTAL** | **11** | **4 (−64 %)** |
+
+RSF eliminates contamination on the bread and git queries: per-channel normalization
+preserves bm25's large margin (bread norm ≈ 1.0 vs pie ≈ 0.44 — cf. RRF's 5 % rank
+spread), and the relative-gap autocut then drops the contaminant. The residual on
+`パン` is a vector-only artifact (a 2-char query yields no trigram, so the prototype's
+keyword channel is empty; the production LIKE fallback returns bread-only and should
+remove it).
+
+**Implementation plan.** Add RSF as a new `RECALL_MODE=rsf` (rrf stays the default —
+opt-in, A/B-able). Requires: (a) the trigram query builder [bug-002 fix, precondition];
+(b) surfacing raw bm25 from the FTS searches (`_search_memories_keyword` /
+`_search_episodes_fts`); (c) a `_recall_rsf` that min-max-normalizes each channel and
+sums, plus plumbing the fused `_rsf_score` through `_apply_quality_gate` and `_autocut`.
+Bug A (env-key) is independent and still tracked separately.
+
 ---
 
 *Report author: ClotoCore Project*
