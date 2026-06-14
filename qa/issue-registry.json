@@ -2987,6 +2987,20 @@
       "status": "fixed",
       "github_issue": null,
       "fix_note": "PROPER FIX landed (Goal #112, roadmap item 6) on top of the interim (b'): the catalog serves the seal's dual-signature record (RegistryEntry.signature_payload, mgp-sdk v0.5.0, clotohub-web PR #30); local_seal_for_install verifies the Ed25519 signature over mgp_seal::canonical_message(id, version, entry_point_sha256) against the hub JWKS (/api/seal/keys, in-memory 1h-TTL cache + kid-miss refetch) and mints a LOCAL seal only on signature + hash match (declared tier preserved). D2 bifurcation: unsigned / JWKS-unavailable / malformed register unsealed (spawn forces untrusted per §10 inv 3); signature_invalid / integrity_mismatch hard-block as tamper suspects. Trust anchor upgraded from 'HTTPS to the catalog' to 'the hub's Ed25519 key'. The remaining `seal: entry.seal.clone()` occurrence is the display-only catalog UI projection. Interim history: keyless hash check + local re-seal (mgp-sdk v0.4.0, clotohub-web PR #29, ClotoCore PR #176)."
+    },
+    {
+      "id": "bug-395",
+      "summary": "HIGH: sandbox_base_dir (and therefore the Magic Seal key directory, sandbox_base_dir.parent()/seal.key) defaulted to the CWD-relative \"data/mcp-sandbox\" instead of being anchored to the absolute data_dir(). data_dir() resolves to exe_dir()/data (e.g. target/debug/data) where the install-time seal.key lives and every server seal is minted, but the relative default resolves against the process CWD. Launching the kernel from a different CWD (notably `tauri dev`, CWD = dashboard/src-tauri) makes load_or_generate_seal_key read dashboard/src-tauri/data/seal.key — a DIFFERENT key — so check_seal recomputes a non-matching HMAC and every sealed MCP server (cpersona, deepseek, cscheduler, terminal, websearch) hard-blocks at spawn with 'Magic Seal verification failed — binary may be tampered'. This is NOT bug-394 (the stored seals are valid local HMACs for the real data dir; only the key path is wrong). Proven: cpersona's stored seal HMAC-matches ONLY target/debug/data/seal.key (not dashboard/src-tauri/data/seal.key), and the running kernel (CWD=dashboard/src-tauri, no CLOTO_SANDBOX_DIR/CLOTO_SEAL_KEY set) created dashboard/src-tauri/data/mcp-sandbox.",
+      "severity": "HIGH",
+      "discovered": "2026-06-14T03:00:00Z",
+      "version": "0.6.8-beta.1",
+      "commit": "3b4bde7",
+      "file": "crates/core/src/config.rs",
+      "pattern": "PathBuf::from\\(\"data/mcp-sandbox\"\\)",
+      "expected": "absent",
+      "status": "fixed",
+      "github_issue": null,
+      "fix_note": "Fixed: the default sandbox_base_dir now resolves to data_dir().join(\"mcp-sandbox\") (absolute, exe-anchored) so sandbox_base_dir.parent() == data_dir() and the seal.key path is CWD-independent. The CLOTO_SANDBOX_DIR override path is unchanged. After the fix the kernel reads the correct target/debug/data/seal.key and sealed servers whose entry-point files are intact verify. Separate, still-open issue (not this entry): cscheduler/deepseek carry doubled install paths (mcp-servers/servers/<id>/servers/<id>/server.py) pointing at wrong/stub files, which fail seal under any key — to be tracked on its own."
     }
   ]
 }
