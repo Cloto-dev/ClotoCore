@@ -3001,6 +3001,20 @@
       "status": "fixed",
       "github_issue": null,
       "fix_note": "Fixed: the default sandbox_base_dir now resolves to data_dir().join(\"mcp-sandbox\") (absolute, exe-anchored) so sandbox_base_dir.parent() == data_dir() and the seal.key path is CWD-independent. The CLOTO_SANDBOX_DIR override path is unchanged. After the fix the kernel reads the correct target/debug/data/seal.key and sealed servers whose entry-point files are intact verify. Separate, still-open issue (not this entry): cscheduler/deepseek carry doubled install paths (mcp-servers/servers/<id>/servers/<id>/server.py) pointing at wrong/stub files, which fail seal under any key — to be tracked on its own."
+    },
+    {
+      "id": "bug-396",
+      "summary": "HIGH: Agent.default_engine_id 'mind.deepseek' is unresolvable — the agentic loop resolves an engine by EXACT server-name match (run_agentic_loop: `if mcp.has_server(engine_id).await`, system.rs ~1369, with no 'mind.' prefix/alias normalization), but the DeepSeek connector installs under the ClotoHub catalog id 'deepseek' (the catalog renamed the connector mind.deepseek -> deepseek), so its registered MCP server name is 'deepseek'. has_server(\"mind.deepseek\") is false and no Rust plugin matches, so every think / think_with_tools for an agent whose default_engine_id is 'mind.deepseek' (agent.cloto_default, agent.karin, agent.cpersona_bench) returns the literal string \"[Error] Engine 'mind.deepseek' not found\" as the response content. mind.local works only because its server name literally is 'mind.local'. Runtime-proven 2026-06-14: with the deepseek MCP server Connected (2 tools, seal verified) the Phase 5 A/B probe got the not-found error for all 14 queries until agent.cpersona_bench was repointed to default_engine_id='deepseek'. This silently corrupted the first A/B pass (the error string contains no contaminant keyword, so the heuristic classifier scored all turns 'coherent' = a false 0% drift). NOTE: the real evidence is runtime (the error string + the agents / mcp_servers DB rows); the pattern below only pins the exact-match resolution locus, so this stays expected=present until a fix changes that line.",
+      "severity": "HIGH",
+      "discovered": "2026-06-14T06:30:00Z",
+      "version": "0.6.8-beta.1",
+      "commit": "742519c",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "if mcp\\.has_server\\(engine_id\\)\\.await",
+      "expected": "present",
+      "status": "open",
+      "github_issue": null,
+      "fix_note": "Open — three fix options to decide: (a) catalog-side: restore the connector id to 'mind.deepseek' in the ClotoHub catalog (clotohub-web) so installs register the mind.* name agents already reference, matching the mind.local convention; (b) data-side: change agents' default_engine_id from 'mind.deepseek' to 'deepseek' (diverges from the mind.* convention and re-breaks if other mind.* connectors are renamed); (c) kernel-side: make engine resolution tolerant — when has_server(engine_id) misses and engine_id starts with 'mind.', retry with the bare suffix (and vice versa), bridging the catalog/agent naming gap centrally. Design-principles review (ARCHITECTURE.md §1.2 Capability over Concrete Type — 'do not branch logic by directly referencing plugin IDs or names'): (c) makes the kernel branch on the 'mind.' name convention, so it is in TENSION with §1.2 and is NOT preferred despite being the in-repo locus this entry's file/pattern anchor to. The principle-compliant fixes are data-side: prefer (a) catalog id, else (b) agent config. Interim A/B workaround only: agent.cpersona_bench.default_engine_id set to 'deepseek' directly in cloto_memories.db. See docs/RECALL_CONTAMINATION_AB_2026-06-14.md §5."
     }
   ]
 }
