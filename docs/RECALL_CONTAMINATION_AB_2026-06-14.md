@@ -322,6 +322,95 @@ re-measure on the embeddings-on bench. Environment used: kernel launched headles
 with `CPERSONA_EMBEDDING_MODE=http CPERSONA_EMBEDDING_URL=http://127.0.0.1:8401/embed
 CPERSONA_VECTOR_SEARCH_MODE=local`.
 
+## 10. Controlled re-measurement (2026-06-14, post-§9): the naive trigram-OR fix is FALSIFIED
+
+§9.4 recommended fixing Bug B by decomposing CJK query runs into overlapping
+trigram OR-terms. A prototype of exactly that was built (`_build_fts_query`,
+saved as `/tmp/cpersona_bugB_trigram_prototype.patch`) and measured. **It does
+not reduce contamination — it makes it slightly worse.**
+
+### 10.1 Method (confound removed)
+
+The §9.2 (pre-fix) and the first post-fix run used *different* embedding
+providers, so their absolute cosines (~0.78 vs ~0.50) were not comparable. This
+run holds the provider **fixed** (`onnx_bge_m3`, quantised, @ :8401, local
+cosine) and toggles **only** the FTS query builder in-process — OLD
+(`query.split()`) vs NEW (trigram-OR). 40-memory embedded DB, `agent.cpersona_bench`,
+RRF, autocut on. Metric: count of raspberry-bearing items in the final recall.
+
+### 10.2 Result
+
+| query | OLD (split) | NEW (trigram-OR) |
+| --- | --- | --- |
+| `この前のパンの話覚えてる?` | 2 / 8 | **1 / 4, but raspberry pie ranks #1** |
+| `パン` | 1 / 4 | 1 / 4 |
+| `ラズベリーパイについて覚えてる?` (correct target) | 5 / 8 | 5 / 5 |
+| `git push の件` | 0 / 1 | **2 / 3, raspberry #1** |
+| `今日の天気` | 0 / 8 | 0 / 8 |
+| **TOTAL raspberry items** | **8** | **9 (+1, worse)** |
+
+### 10.3 Mechanism — single root cause: RRF rank-flattening (bm25-measured)
+
+> **Correction.** An earlier draft of this section blamed "grammatical-trigram
+> bridges" (the query's `覚えて` matching assistant replies). **That was wrong.**
+> Direct df/bm25 measurement (`/tmp/bm25b.out`) shows every grammatical trigram
+> has **df = 0** — it matches nothing. The real, *single* root cause is RRF
+> discarding bm25 magnitude.
+
+For the bread query, only the **content** trigram fires; the glue trigrams are inert:
+
+| trigram | df | trigram | df |
+| --- | --- | --- | --- |
+| `のパン` | **6** | `覚えて` | 0 |
+| `この前` / `の前の` / `前のパ` / `パンの` | 0 | `ンの話` / `の話覚` / `話覚え` / `えてる` | 0 |
+
+The keyword channel's bm25 then ranks correctly (lower = better). The RRF
+contribution at each rank (K=60) shows the flattening that erases it:
+
+| doc | bm25 | RRF (K=60) |
+| --- | --- | --- |
+| 🥐 bread | −2.396 | 1/61 = 0.01639 |
+| 🥐 bread | −2.370 | 1/62 = 0.01613 |
+| 🥐 bread (store-ack) | −2.208 | 1/63 = 0.01587 |
+| 🍓 pie reply | −1.662 | 1/64 = 0.01562 |
+
+bm25 separates bread from pie by a **44 % margin** (−2.40 vs −1.66); RRF compresses
+it to a **5 %** gap (0.01639 vs 0.01562). The near-equal *vector* channel (pie ≈
+bread in cosine) then tips the merge to the contaminant. The `git push` case is
+identical — real git memory bm25 −7.75 vs the git-conflict reply −2.87, flattened
+to 1/61 vs 1/62. (The pie reply matches `のパン` only because the seed corpus bundles
+multi-topic assistant replies — `…先日は近所のパン屋さんのク…` — a fixture artifact, not a
+query-construction flaw.)
+
+### 10.4 Selected fix: direction B (merge-layer, magnitude-aware)
+
+The trigram-OR query builder is **not** the problem and needs no morphological
+stopword removal — the glue trigrams it emits are inert (df = 0), so direction (A)
+is unnecessary. The fix is at the **merge layer (B)**: make the merge respect bm25
+magnitude instead of pure rank, so the large, correct keyword margins survive into
+the final ranking. This is dependency-free and answers the open question "can the
+merge account for bm25/cosine magnitude?".
+
+Caveats:
+- Bug B's *query builder* fix (trigram decomposition) is still a **precondition** —
+  without it the keyword channel is empty for Japanese — but it MUST ship paired
+  with the magnitude-aware merge, never alone (alone it regresses, §10.2).
+- Bug A (env-key mismatch) is independent and still real.
+- **Provider fidelity.** The `onnx_bge_m3` provider here is quantised (cosines ~0.5
+  vs the seed BLOBs' ~0.78). The relative bread-vs-pie cosine gap is robust (so the
+  §9.2 "cosine cannot separate" conclusion stands), but a definitive end-to-end A/B
+  of the merge fix should embed seed corpus and queries with the **same
+  high-fidelity** bge-m3 provider. (The bm25 evidence above is provider-independent —
+  it is pure FTS.)
+
+### 10.5 Status
+
+Prototype reverted (canonical cpersona is clean; patch at
+`/tmp/cpersona_bugB_trigram_prototype.patch`). bm25 evidence: `/tmp/bm25b.out`.
+Decisions taken (doctor, 2026-06-14): fix = **direction B**; register Bug A + Bug B
+in a **new `cpersona/qa/issue-registry.json`**. Next: stand up that registry +
+entries, then design the magnitude-aware merge.
+
 ---
 
 *Report author: ClotoCore Project*
