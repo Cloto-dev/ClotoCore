@@ -474,6 +474,25 @@ result is dropped. **Conclusion: on this contamination benchmark RSF is clearly 
 precision than RRF, and the result is not a quantisation artifact.** (Scope unchanged:
 single 40-memory synthetic corpus, recall-layer only; LLM-output drift is still Phase 5.)
 
+## 13. Default-mode decision (2026-06-15): keep `rrf` default, `rsf` opt-in
+
+Promoting `rsf` to the *global* default was considered and **deferred**. Running the
+full cpersona suite under `CPERSONA_RECALL_MODE=rsf` regresses one test
+(`test_isolation.py::test_recall_keyword_path_gamma_filter` — 82 passed / 1 failed): a
+2-result keyword recall drops a valid second item. Root cause: RSF's min-max
+normalization maps a 2-item channel to `{1.0, 0.0}`, and relative-gap `autocut` then
+cuts the lower item — a recall-completeness regression on small / closely-scored result
+sets (the min-max small-sample weakness the literature flags). Where the 40-item
+contamination case *wants* that cut, the small-set case does not.
+
+**Decision:** `rrf` stays the default; `rsf` is opt-in (`CPERSONA_RECALL_MODE=rsf`) and
+recommended for topic-drift-prone / space-less-language (Japanese) contexts (documented
+in the cpersona README). Promoting `rsf` to default first requires hardening the
+min-max + autocut interaction (relax autocut on small result sets, a normalization that
+does not pin the minimum to 0, or DBSF / z-score) and re-validating both the
+contamination bench and the full suite — with the Phase-5 LLM-output A/B as the final
+arbiter.
+
 ---
 
 *Report author: ClotoCore Project*
