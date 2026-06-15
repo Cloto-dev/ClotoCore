@@ -64,8 +64,20 @@ jobs:
         run: cargo audit
 
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        include:
+          # Windows is the real cross-platform blind spot (CRLF / path / process
+          # spawning). Added non-blocking first (experimental) to surface divergence
+          # without holding PRs hostage; flip to blocking once green. macOS is the
+          # dev platform (continuously dogfooded) so it is intentionally omitted here.
+          - os: windows-latest
+            experimental: true
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental || false }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
 
@@ -75,9 +87,10 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
-          shared-key: ci-test
+          shared-key: ci-test-${{ matrix.os }}
 
       - name: Create dashboard dist placeholder
+        shell: bash
         run: |
           mkdir -p dashboard/dist
           echo '<html><body></body></html>' > dashboard/dist/index.html
@@ -88,6 +101,7 @@ jobs:
           RUST_LOG: warn
 
       - name: Test count ratchet
+        if: matrix.os == 'ubuntu-latest'
         run: bash scripts/check-test-count.sh
 
   verify-issues:
