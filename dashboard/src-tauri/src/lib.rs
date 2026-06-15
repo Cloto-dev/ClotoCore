@@ -201,6 +201,148 @@ fn get_auto_api_key() -> Option<String> {
     DASHBOARD_API_KEY.get().cloned()
 }
 
+/// Headless release-gate self-check, invoked by `app --smoke`.
+///
+/// Boots the **real** kernel (config load, SQLite open + migrations, plugin / MCP
+/// manager init, HTTP server bind) and then asserts the no-auth liveness route
+/// actually serves `200 {"status":"ok"}` before exiting. No Tauri event loop, no
+/// window, no display — so it runs unmodified on a headless CI runner / VM and the
+/// **exit code is the assertion** (no flaky GUI screenshotting). This is the
+/// cross-platform release gate's keystone: it proves the shipped binary *launches and
+/// wires up* on the target OS, not merely that it compiled. See
+/// `bin/docs/harness-engineering-doctrine.md` §7 (FACET 2) / §2 (tier-doctrine).
+///
+/// Hermetic by construction — and by the CLAUDE.md Destructive-DB rule, the smoke must
+/// never touch real state: it points `DATABASE_URL` at a throwaway temp DB, so it runs
+/// migrations from scratch (catching cross-platform migration breakage such as the
+/// SQLx CRLF-checksum class) and starts with zero registered MCP servers to spawn.
+///
+/// Returns a process exit code: `0` healthy; non-zero identifies the failed stage
+/// (`10` runtime, `2` kernel boot/wiring, `3` health route never OK).
+fn run_smoke() -> i32 {
+    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
+
+    // Isolate state: a fresh temp DB per run, keyed by PID. Never touch the user's
+    // real DB (2026-04-21 incident: a destructive op on the dev DB lost ~30 min of
+    // unrecoverable state). A from-scratch DB also exercises the migration path.
+    let tmp = std::env::temp_dir().join(format!("clotocore-smoke-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp);
+    let db_path = tmp.join("cloto_smoke.db");
+    std::env::set_var("DATABASE_URL", format!("sqlite:{}", db_path.display()));
+
+    // Use a smoke-specific port unless one was pinned, so a dev instance already on
+    // the default 8081 does not make the smoke bind-fail (and vice versa).
+    if std::env::var("PORT").is_err() {
+        std::env::set_var("PORT", "8097");
+    }
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8097);
+
+    // Mirror the GUI boot's key handling so admin-gated wiring initializes the same way.
+    if std::env::var("CLOTO_API_KEY").is_err() {
+        std::env::set_var("CLOTO_API_KEY", generate_api_key());
+    }
+
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("SMOKE FAIL [runtime]: could not build async runtime: {e}");
+            return 10;
+        }
+    };
+
+    let exit_code = rt.block_on(async move {
+        cloto_core::init_tracing();
+
+        let handle = match cloto_core::start_kernel().await {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("SMOKE FAIL [boot]: start_kernel returned an error: {e:#}");
+                return 2;
+            }
+        };
+
+        let deadline = std::time::Instant::now() + TIMEOUT;
+        let code = match smoke_health_check(port, deadline).await {
+            Ok(()) => {
+                println!(
+                    "SMOKE OK: kernel booted + GET /api/system/health -> 200 on 127.0.0.1:{port}"
+                );
+                0
+            }
+            Err(reason) => {
+                eprintln!("SMOKE FAIL [health]: {reason}");
+                3
+            }
+        };
+        // Best-effort graceful shutdown; process::exit follows regardless.
+        handle.shutdown.notify_one();
+        code
+    });
+
+    // Best-effort cleanup of the throwaway DB dir on success; on failure it is kept
+    // for forensics. Always safe — this is the smoke's own temp dir, never real state.
+    if exit_code == 0 {
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+    exit_code
+}
+
+/// Poll the kernel's no-auth liveness route over a raw HTTP/1.0 request until it
+/// returns `200` with a `"status":"ok"` body, or `deadline` elapses. Raw TCP (no HTTP
+/// client dependency) keeps the smoke's own surface minimal and TLS-free for what is
+/// always a loopback call.
+async fn smoke_health_check(port: u16, deadline: std::time::Instant) -> Result<(), String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let addr = format!("127.0.0.1:{port}");
+    let req = "GET /api/system/health HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+
+    loop {
+        // One self-contained attempt; its Err payload is the most recent failure reason.
+        let attempt: Result<(), String> = async {
+            let mut stream = tokio::net::TcpStream::connect(&addr)
+                .await
+                .map_err(|e| format!("connect failed: {e}"))?;
+            stream
+                .write_all(req.as_bytes())
+                .await
+                .map_err(|e| format!("write failed: {e}"))?;
+            let mut buf = Vec::new();
+            stream
+                .read_to_end(&mut buf)
+                .await
+                .map_err(|e| format!("read failed: {e}"))?;
+            let resp = String::from_utf8_lossy(&buf);
+            let status_line = resp.lines().next().unwrap_or("");
+            if status_line.contains(" 200") && resp.contains("\"status\":\"ok\"") {
+                Ok(())
+            } else {
+                Err(format!(
+                    "unexpected response (status line: {status_line:?})"
+                ))
+            }
+        }
+        .await;
+
+        match attempt {
+            Ok(()) => return Ok(()),
+            Err(last) if std::time::Instant::now() >= deadline => {
+                return Err(format!(
+                    "health route never returned 200/ok within timeout; last error: {last}"
+                ));
+            }
+            Err(_) => {}
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -219,6 +361,14 @@ pub fn run() {
         format!("{},{}", existing_cors, tauri_origins)
     };
     std::env::set_var("CORS_ORIGINS", combined);
+
+    // Headless release-gate self-check. `app --smoke` boots the kernel, asserts the
+    // liveness route serves, and exits with a status code — no window, no display.
+    // Placed AFTER the loopback BIND_ADDRESS + CORS setup above so it exercises the
+    // same environment the GUI boot would. See harness-engineering-doctrine.md §7.
+    if std::env::args().skip(1).any(|a| a == "--smoke") {
+        std::process::exit(run_smoke());
+    }
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(

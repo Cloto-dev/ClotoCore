@@ -104,6 +104,60 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: bash scripts/check-test-count.sh
 
+  smoke:
+    name: Smoke (${{ matrix.os }})
+    # Release-gate keystone (harness-engineering FACET 2): build the real `app`
+    # binary and run `app --smoke`, which boots the kernel headlessly — no window,
+    # no display, since the smoke exits before the Tauri event loop — and asserts
+    # the liveness route serves 200. The exit code IS the gate: this proves the
+    # shipped binary *launches and wires up* on each OS, not merely that it
+    # compiled. Non-blocking (experimental) until green on both, mirroring `test`;
+    # placement (per-PR vs pre-promotion) is an open item in the harness doctrine.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        include:
+          - os: windows-latest
+            experimental: true
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental || false }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          shared-key: ci-smoke-${{ matrix.os }}
+
+      # Build-time only — `app --smoke` never initializes GTK/WebKit at runtime
+      # (it exits before the Tauri builder), so no xvfb/display is needed to run it.
+      # Dep list matches release.yml so the smoke exercises the release build surface.
+      - name: Install Tauri system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libxdo-dev libpipewire-0.3-dev \
+            libgbm-dev libegl-dev libxcb1-dev
+
+      - name: Create dashboard dist placeholder
+        shell: bash
+        run: |
+          mkdir -p dashboard/dist
+          echo '<html><body></body></html>' > dashboard/dist/index.html
+
+      - name: Build app
+        run: cargo build --package app
+
+      - name: Run headless smoke (kernel boot + health 200; exit code is the gate)
+        run: cargo run --package app -- --smoke
+        env:
+          RUST_LOG: warn
+
   verify-issues:
     name: Issue Registry
     runs-on: ubuntu-latest
