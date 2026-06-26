@@ -1,0 +1,24 @@
+{
+  "_comment": "Seed memory corpus that reproduces the pan->raspberry-pie contamination scenario from docs/RECALL_CONTAMINATION_AB_2026-04-24.md. run_ab.py --seed sends each entry as a USER message (one per throwaway session) so the kernel stores it as a per-user memory. The bread/raspberry-pie pair is the key contaminant; the rest is realistic noise to build a borderline cosine neighbourhood. Japanese is intentional (JA-NLP fixture). Add more noise entries to approach the original 108-memory corpus density if desired.",
+  "memories": [
+    "今日の朝食で近所のパン屋さんのクロワッサンを買って食べた。バターが効いていて本当に美味しかった。",
+    "人生で初めてラズベリーパイを食べた。甘酸っぱいフィリングとサクサクの生地が最高だった。",
+    "Raspberry Pi 5 を購入してホームサーバーをセットアップした。Linux のセットアップが楽しい。",
+    "git push でリモートとコンフリクトして、rebase で解決するのに苦労した。",
+    "Discord の bot に新しい通知設定を追加した。メンションされた時だけ通知するようにした。",
+    "私の一番好きな食べ物は寿司です。特にマグロが好き。",
+    "朝食はいつもブラックコーヒーとトーストで簡単に済ませている。",
+    "週末に映画館で SF 映画を観た。映像がすごくて引き込まれた。",
+    "新しいメカニカルキーボードを買った。打鍵感が気持ちいい。",
+    "ランニングを始めて3週間が経った。少し体が軽くなった気がする。",
+    "仕事で大きなプレゼンがあって緊張したが、なんとかうまくいった。",
+    "猫を飼い始めた。名前はミケで、よく膝の上で寝る。",
+    "コーヒーの淹れ方をハンドドリップに変えてみた。香りが全然違う。",
+    "図書館で歴史の本を借りた。週末に読むつもり。",
+    "電車が遅延して打ち合わせに遅れそうになり焦った。",
+    "スマホを新しい機種に変えた。カメラがとても綺麗。",
+    "ベランダで家庭菜園を始めた。まずはミニトマトを植えた。",
+    "友人と居酒屋で久しぶりに飲んだ。話が弾んで楽しかった。",
+    "プログラミングで Rust を勉強し始めた。所有権の概念が難しい。"
+  ]
+}

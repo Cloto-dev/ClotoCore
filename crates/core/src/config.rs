@@ -179,7 +179,9 @@ pub struct AppConfig {
     pub allow_unsigned: bool,
     /// Master switch for OS-level isolation. Default: true.
     pub isolation_enabled: bool,
-    /// Base directory for MCP server sandboxes. Default: "data/mcp-sandbox".
+    /// Base directory for MCP server sandboxes. Default: `data_dir()/mcp-sandbox`
+    /// (absolute, exe-anchored — its parent doubles as the Magic Seal key dir,
+    /// so it must not depend on the process CWD; see bug-395).
     pub sandbox_base_dir: PathBuf,
     /// Run a quick health scan on startup. Default: true.
     pub health_scan_on_startup: bool,
@@ -663,8 +665,17 @@ impl AppConfig {
             allow_unsigned: env::var("CLOTO_ALLOW_UNSIGNED").is_ok_and(|v| v == "true" || v == "1"),
             isolation_enabled: env::var("CLOTO_ISOLATION_ENABLED")
                 .map_or(true, |v| v != "false" && v != "0"), // Default: true
+            // Anchor the default sandbox dir to the absolute `data_dir()`, NOT a
+            // CWD-relative path. The Magic Seal key lives at
+            // `sandbox_base_dir.parent()/seal.key`; if this defaulted to the
+            // relative "data/mcp-sandbox" it resolved against the process CWD,
+            // which diverges from `data_dir()` (exe-relative) whenever the kernel
+            // is launched from elsewhere (e.g. `tauri dev`, CWD = dashboard/
+            // src-tauri). That made the kernel read the wrong seal.key and fail
+            // every sealed MCP server with "Magic Seal verification failed" even
+            // though the seals were valid for the real data dir (bug-395).
             sandbox_base_dir: env::var("CLOTO_SANDBOX_DIR")
-                .map_or_else(|_| PathBuf::from("data/mcp-sandbox"), PathBuf::from),
+                .map_or_else(|_| data_dir().join("mcp-sandbox"), PathBuf::from),
             health_scan_on_startup: env::var("CLOTO_HEALTH_SCAN_ON_STARTUP")
                 .map_or(true, |v| v != "false" && v != "0"),
         })

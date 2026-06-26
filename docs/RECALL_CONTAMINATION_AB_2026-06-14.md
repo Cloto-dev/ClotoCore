@@ -1,0 +1,501 @@
+# CPersona Recall Contamination — Redesign AB Test Report (2026-06-14)
+
+> **Status:** Measurement complete. The Discord-recall redesign (session-start-gated
+> recall + per-channel episodic loop), measured same-conditions against the pre-redesign
+> baseline on DeepSeek, **regresses** topic-drift contamination (+28.5 pp severe).
+> Root cause is unchanged from the [2026-04-24 report](RECALL_CONTAMINATION_AB_2026-04-24.md)
+> §4.4: recall **precision**, not recall **timing**.
+>
+> **⚠️ CORRECTION — see §9 (added later the same day).** §2–§6 below were written
+> while CPersona embeddings were **off** (mode=none) — so the §3 numbers are an
+> FTS-only path, and the §6.2 "improve cpersona precision (RSF / MMR / gap filter)"
+> recommendation is **superseded**. Follow-up investigation (with embeddings enabled,
+> bge-m3) found the real root cause is **two concrete bugs** (env-key mismatch +
+> FTS whitespace-split); cosine-magnitude techniques (RSF/hybrid/gap) do **not** fix
+> it. §9 is authoritative for the conclusion and next steps.
+> **Scope:** ClotoCore kernel recall path (`handlers/system.rs`) + CPersona recall pipeline.
+> **Successor to:** [`RECALL_CONTAMINATION_AB_2026-04-24.md`](RECALL_CONTAMINATION_AB_2026-04-24.md)
+> (which found ~23% severe drift and identified the cosine-distribution root cause).
+
+## 1. Background
+
+### 1.1 What the redesign changed
+
+The Discord-recall redesign (an earlier decision) hypothesised that **per-turn long-term
+recall** is the contamination source, and gated it. The branches under test:
+
+- **ClotoCore** `feat/discord-recall-gating` — Phase 2a: the kernel pulls long-term
+  recall only on the **first turn** of a bridge session (`is_session_start =
+  snapshot_transcript(session_key).is_empty()`); continuing turns skip auto-recall.
+  Plus Phase 2b transcript bound, Phase 3a episode archival on Cold eviction, and
+  Phase 3c session-start episode grounding (`channel`-scoped recall, `[Episode]`-prefix
+  filtered).
+- **clotohub-servers** `feat/discord-per-channel-session` — Phase 1 (1 channel = 1
+  session) + Phase 4 operator-configurable recall discipline.
+- **cpersona** `feat/episode-channel-scoping` — `episodes.channel` column.
+
+### 1.2 Premise under test
+
+> "Per-turn recall injects recalled memories as chat-turns every turn and drives
+> topic-drift; gating recall to session-start will reduce contamination."
+
+This report tests that premise empirically and finds it **inverted** on DeepSeek.
+
+## 2. AB Test Methodology
+
+### 2.1 Fixed inputs
+
+- **Agent**: `agent.cpersona_bench` (dedicated bench agent; production agents untouched)
+- **Engine**: `deepseek` (DeepSeek API via the `deepseek` MCP connector)
+- **Memory**: `cpersona` (flat install, catalog version), embedding server up
+- **Corpus**: the 19-memory `seed_corpus.json` (pan/croissant breakfast → raspberry
+  pie → unrelated topics), the same contamination setup as 2026-04-24
+- **Query set**: 14 queries / 6 categories (`scripts/recall_ab/query_set.json`),
+  identical to 2026-04-24 (`この前のパンの話覚えてる?` … `週末の予定`)
+- **N = 3 trials per query per arm**, each trial an **accumulating** session (the
+  redesign's gate only acts on continuing turns, so a multi-turn session is required)
+- **Common baseline**: a clean post-seed (19-memory) snapshot of the kernel's
+  CPersona DB, restored before **both** arms via file snapshot/restore — never a
+  destructive delete (`scripts/recall_ab/README.md`)
+
+### 2.2 Arms
+
+| Arm | Kernel build | Recall behaviour |
+|---|---|---|
+| `old` | `master` @ 4afb050 (bug-395 seal fix only) | per-turn recall (pre-redesign) |
+| `new` | `feat/discord-recall-gating` (rebased on master) | session-start-gated recall + Phase 3 grounding |
+
+The only variable is the kernel build. Engine, corpus, query set, classifier, and
+starting memory state are identical. (`master` carries the bug-395 seal fix so the
+`deepseek` connector verifies and connects under both arms.)
+
+### 2.3 Metric
+
+`scripts/recall_ab/run_ab.py` classifies each response via the §2.3 rubric of the
+2026-04-24 report (heuristic): severe = unrelated-topic keyword present + elaboration;
+mild = present but disclaimed; coherent = otherwise. `severe%` is severe ÷
+(non-timeout, non-error) trials. The harness performs no destructive DB operations.
+
+### 2.4 Methodology caveat — a corrected first pass (bug-396)
+
+The first measurement pass reported a **false 0% drift for both arms**. Root cause:
+the bench agent's `default_engine_id` was `mind.deepseek`, but the connector installs
+under the ClotoHub catalog id `deepseek`, and the kernel resolves engines by **exact**
+server-name match (`run_agentic_loop`: `if mcp.has_server(engine_id).await`,
+`handlers/system.rs` ~L1369, no `mind.` alias). `has_server("mind.deepseek")` is false,
+so every turn returned the literal string `"[Error] Engine 'mind.deepseek' not found"`
+as its content. That string contains no contaminant keyword, so the heuristic
+classifier scored all 42 turns `coherent` — a spurious 0%. This is filed as **bug-396**
+(`qa/issue-registry.json`). The measurement below was re-run after repointing the bench
+agent to `default_engine_id=deepseek`. **Lesson: the harness should treat an
+`[Error]`/engine-error response as `error`, not `coherent`.**
+
+## 3. Results
+
+### 3.1 Aggregate (14 queries × 3 trials = 42 per arm, same clean-19 baseline)
+
+| Arm | Coherent | Mild | Severe | Timeout | Error | Sev%/Completed |
+|---|---|---|---|---|---|---|
+| `old` (per-turn recall) | 21 | 9 | 12 | 0 | 0 | **28.6%** |
+| `new` (session-start gated) | 9 | 9 | 24 | 0 | 0 | **57.1%** |
+
+**Delta (new − old): +28.5 pp — a regression.** No completion-rate cost (0 timeout /
+0 error in both arms), so this is not the L2 timeout-spike failure mode of 2026-04-24;
+it is a pure drift increase. The `old` arm's 28.6% reproduces the 2026-04-24 baseline
+(~23%) closely, validating the harness.
+
+### 3.2 Per-query × arm (3 trials per cell)
+
+`C` = coherent, `m` = mild, `S` = severe.
+
+| Query | `old` | `new` |
+|---|---|---|
+| A1 `この前のパンの話覚えてる?` | CCS | SCS |
+| A2 `昨日話したパンの件、どうなった?` | CmS | CSS |
+| B3 `ラズベリーパイについて覚えてる?` | CCC | SSS |
+| B4 `Raspberry Pi って何?` | SmS | mmS |
+| C5 `パン` | CSm | SSS |
+| C6 `朝食` | CSS | SCS |
+| C7 `ラズベリーパイ` | CCC | mSS |
+| D8 `昨日何話してたっけ` | SmS | SSS |
+| D9 `このセッションで何話した?` | mmS | mSS |
+| D10 `私の好きな食べ物は?` | mSS | mmC |
+| E11 `git push の件` | CCC | CCS |
+| E12 `Discord の話` | CCC | CCS |
+| F13 `今日の天気` | CCC | SmC |
+| F14 `週末の予定` | mmC | mmS |
+
+Notable inversions: B3/C7 (on-topic raspberry-pie queries) and E11/E12 (git/Discord
+queries unrelated to the food cluster) are clean under `old` but drift under `new`.
+
+## 4. Findings
+
+### 4.1 The redesign regresses on DeepSeek
+
+Gating recall to session-start raised severe drift from 28.6% to 57.1%. The premise
+("per-turn recall is the contamination source") is **inverted** for this engine.
+
+### 4.2 Mechanism — per-turn recall is also *corrective grounding*
+
+Reading both context-assembly paths (`old` = `master:handlers/system.rs` L442/L541;
+`new` = `feat:handlers/system.rs` L449–621):
+
+- **`old`** builds, every turn, `context = recall(current query) + T1 transcript`.
+  The per-turn recall is **query-specific**: a "git push" turn recalls git memories
+  and pulls the model back on-topic (E11 `CCC`).
+- **`new`** recalls only on turn 1; continuing turns use `context = T1 transcript`
+  alone.
+
+Both arms keep turn-1's response in the accumulating T1 transcript. The decisive
+difference is what turn 1 does and what corrects it afterward. Raw responses confirm:
+the `new` arm's turn-1 recall (triggered by the bread query A1) surfaces the loosely
+related cluster (pan/croissant/raspberry-pie/Raspberry Pi); DeepSeek fuses them into a
+"double-meaning" narrative; that narrative is pinned in the transcript and, with **no
+per-turn corrective recall**, dominates every subsequent turn — even unrelated ones
+(E11/E12, F13/F14). Per-turn recall, while it can inject off-topic memories, also
+provides per-query relevant grounding that self-corrects drift. Gating it removes the
+correction.
+
+### 4.3 Root cause is unchanged: recall *precision*, not *timing*
+
+This confirms [2026-04-24 §4.4](RECALL_CONTAMINATION_AB_2026-04-24.md): the contaminant
+(`人生で初めてラズベリーパイを食べた`, cos ≈ 0.31) sits just above the adaptive threshold
+(≈ 0.29) for the bread query, because `パン`↔`パイ` share katakana, the past-tense
+"…食べた" frame matches, and jina-v5-nano is not fine-tuned for Japanese food semantics.
+No recall *timing* policy (per-turn vs session-start) changes which memories cross that
+threshold. The 2026-04-24 L2 presentation change regressed; the 2026-06-14 timing change
+regresses. Both are downstream of a precision problem.
+
+## 5. Design-principles analysis (ARCHITECTURE.md §1, DEVELOPMENT.md §1.4)
+
+The redesign and the candidate fixes were reviewed against the architecture manifesto.
+
+- **§1.1 Core Minimalism — "the Kernel is the stage, not the actor."** Prohibits
+  hard-coding "processing logic for specific memory formats" in the kernel. The Phase 3c
+  grounding step filters recall results by the `[Episode]` content prefix **inside the
+  kernel** (`handlers/system.rs`), i.e. the kernel interprets a memory-format convention.
+  This is in tension with §1.1.
+- **§1.4 Data Sovereignty — "the Kernel holds the data but does not interpret its
+  contents."** Recall *relevance/precision* is interpretation of memory content; per the
+  principle it belongs to the Memory capability (cpersona), not the kernel.
+- **§1.2 Capability over Concrete Type — "not who it is, but what it can do."** The
+  proposed bug-396 fix (c) — a kernel-side `mind.`-prefix alias in engine resolution —
+  branches kernel logic on a name convention, which §1.2 discourages. The compliant
+  fixes are data-side: **(a)** restore the catalog connector id to `mind.deepseek`
+  (matching the `mind.local` convention agents already reference), or **(b)** update
+  agents' `default_engine_id` to `deepseek`.
+
+**Conclusion:** the principle-aligned locus for contamination work is the **CPersona
+memory plugin** (recall precision), not kernel-side recall orchestration. The kernel
+should call the Memory capability and let the plugin decide what is relevant.
+
+## 6. Recommendation
+
+1. **Do not land the recall-gating redesign as a contamination fix.** It regresses on
+   DeepSeek and adds kernel-side memory logic that is in tension with §1.1/§1.4. (Its
+   Phase 1 "1 channel = 1 session" bridge change is orthogonal and may stand on its own
+   merits; the kernel gating/grounding is what this report argues against.)
+2. **Pursue recall precision in cpersona** (the 2026-04-24 §5.3 "future work", all
+   plugin-side): threshold recalibration against the jina-v5-nano distribution; MMR /
+   diversity-aware reranking; a top-1-anchored relevance-gap filter (drop results far
+   below the top match so a 0.59 hit suppresses a 0.31 contaminant while a query whose
+   best hit is 0.30 still returns it); or a stronger / fine-tuned embedding model.
+3. **Fix bug-396 data-side** ((a) catalog id or (b) agent config), not kernel-side (c).
+4. **Harden the harness**: classify `[Error]`/engine-error responses as `error`, not
+   `coherent`, so an engine misconfiguration can never masquerade as 0% drift again.
+
+## 7. Reproducing the measurement
+
+Prerequisites: ClotoCore reachable on `http://127.0.0.1:8081`; a bench agent with a
+working reasoning engine (`default_engine_id` must equal the **registered** MCP server
+name — see bug-396) and `cpersona` memory; embedding server up; DeepSeek credits
+(~$2 for 2 × 42 trials).
+
+```bash
+# harness is branch-independent; copy out of the feat tree if checking out master:
+git archive feat/discord-recall-gating:scripts/recall_ab | tar -x -C /tmp/recall_ab
+cd /tmp/recall_ab
+export CLOTO_API_KEY=...                       # from .env
+
+# 1. seed clean-19 on whichever build is up, snapshot the kernel cpersona DB
+python run_ab.py --agent-id agent.cpersona_bench --seed
+sqlite3 <data>/cpersona.db ".backup /tmp/seed19.db"
+
+# 2. OLD arm on master (bug-395 seal fix), then restore the snapshot
+python run_ab.py --agent-id agent.cpersona_bench --arm old --trials 3
+# 3. NEW arm on feat from the same snapshot
+#    (restore /tmp/seed19.db over the kernel cpersona DB while the kernel is stopped)
+python run_ab.py --agent-id agent.cpersona_bench --arm new --trials 3
+
+# 4. compare
+python compare.py results/results_old.json results/results_new.json
+```
+
+Run via `uv run --python 3.13 --with httpx python …` (uv's default 3.14 hangs
+pytest-asyncio in this monorepo). Use `--python 3.13`.
+
+## 8. Artifacts
+
+- Harness: `scripts/recall_ab/` (query_set.json, seed_corpus.json, run_ab.py,
+  compare.py, README.md)
+- Results captured this run: `results_old.json` (28.6%), `results_new.json` (57.1%)
+- Related: **bug-396** (`qa/issue-registry.json`) — `mind.deepseek` engine unresolvable
+- Predecessor: [`RECALL_CONTAMINATION_AB_2026-04-24.md`](RECALL_CONTAMINATION_AB_2026-04-24.md)
+
+---
+
+## 9. Addendum & Correction (later 2026-06-14) — embeddings were off; two real bugs
+
+After §1–§8 were written, a pre-prototype recall measurement (per the doctor's
+request to *measure before fixing*) overturned the framing above. This section is
+authoritative.
+
+### 9.1 The §3 A/B ran with CPersona embeddings OFF
+
+Kernel log (cpersona): `Embedding disabled (mode=none), using FTS5 + keyword only`.
+`memories.embedding` was NULL for 0/79 rows. The embedding server (`tool.embedding`,
+auto_bge_m3, `:8401`) was running but cpersona was **not wired to it**. So the §3
+numbers (28.6% / 57.1%) reflect an **FTS-only** recall path, not the production
+semantic path (2026-04-24 ran with embeddings on, jina-v5-nano). The NEW-vs-OLD
+*regression* still holds mechanistically (§4.2 — it is about transcript pinning +
+loss of per-turn corrective recall, independent of recall content), but the absolute
+rates are not production-representative.
+
+### 9.2 With embeddings enabled (bge-m3, local cosine), the contaminant IS recalled — and cosine can't separate it
+
+Wired cpersona to `:8401` via `CPERSONA_EMBEDDING_MODE=http`, re-seeded, re-measured
+the bread query `この前のパンの話覚えてる?`:
+
+| cosine | memory |
+|---|---|
+| 0.783 / 0.769 / 0.762 | パン屋 / クロワッサン (correct) |
+| **0.751 / 0.747** | **ラズベリーパイ (contaminant)** |
+
+The contaminant sits ~0.01–0.03 below the correct match. No gap/ratio/RSF threshold
+separates 0.76 from 0.75 (`gap/top ≈ 0.04 ≪ autocut 0.15`; `ratio ≈ 0.96 ≫ 0.7`).
+**bge-m3 semantically conflates パン/ラズベリーパイ** (katakana + food/pie + past-tense
+frame), reproducing 2026-04-24 §4.4 even more tightly. ⇒ **cosine-magnitude techniques
+(RSF, hybrid, gap filter) cannot fix this** — there is no magnitude to exploit.
+
+### 9.3 The discriminating signal is keyword — and it is broken by two bugs
+
+The only signal that separates the two (the contaminant does **not** contain `パン`)
+is the keyword/FTS retriever. It is dead for Japanese due to:
+
+- **Bug A — embedding env-key mismatch (semantic recall silently off).** The catalog /
+  connector docs declare the generic keys `EMBEDDING_MODE` / `EMBEDDING_HTTP_URL`
+  (with "falls back to `CPERSONA_EMBEDDING_MODE`"), but `cpersona/config.py` reads
+  **only** `CPERSONA_EMBEDDING_MODE` / `CPERSONA_EMBEDDING_URL`. Setting the documented
+  generic keys is a no-op → embeddings stay `none`. (Default is `none` too.)
+  *Location:* `cpersona/config.py:10-11`; catalog `optional_env_vars` for cpersona.
+- **Bug B — FTS keyword query splits on whitespace (Japanese keyword search dead).**
+  `cpersona/memory_handlers.py::_search_memories_keyword` does
+  `words = re.sub(r"[^\w\s]","",query).split()` then `" ".join(f'"{w}"' …)`. Japanese
+  has no spaces → the whole sentence becomes **one** quoted FTS phrase → matches only
+  an exact full-sentence substring → ~0 hits. The `trigram` tokenizer (already in use —
+  `memories_fts … tokenize='trigram'`, so this is **not** a tokenizer-choice bug) is
+  wasted because the query is never broken into searchable n-grams. ASCII queries
+  (`git push`, `Discord`) split fine → keyword works → RRF discriminates → clean
+  (matches the §3.2 pattern: E11/E12 are `CCC`).
+
+### 9.4 Corrected recommendation
+
+1. **Fix Bug B** — build the FTS query for spaceless languages: split CJK runs into
+   overlapping bi-/tri-grams as separate OR terms (or per-segment terms) so the
+   `trigram` index is actually exercised. This restores the keyword retriever that
+   lets RRF separate topically-distinct-but-semantically-near memories. **Highest
+   leverage; it is what actually fixes the bread/raspberry case.**
+2. **Fix Bug A** — make cpersona read the generic `EMBEDDING_MODE` / `EMBEDDING_HTTP_URL`
+   (with `CPERSONA_*` as documented fallback), or correct the catalog/docs to the
+   `CPERSONA_*` names. Either way, ensure marketplace-installed cpersona can actually
+   enable semantic recall.
+3. **Do NOT pursue RSF / hybrid / gap-filter for this contamination** — the cosines are
+   near-equal; magnitude carries no separating signal here. (RSF may still help other
+   cases where cosine *is* discriminative; it is simply not the fix for this one.)
+4. The kernel-side recall-gating redesign remains a non-fix (§6.1).
+
+### 9.5 Status / next (pending doctor's go-ahead)
+
+Formally register Bug A + Bug B (cpersona has no `qa/issue-registry.json`; needs a
+location decision), then prototype Bug B (Japanese FTS query construction) and
+re-measure on the embeddings-on bench. Environment used: kernel launched headless
+with `CPERSONA_EMBEDDING_MODE=http CPERSONA_EMBEDDING_URL=http://127.0.0.1:8401/embed
+CPERSONA_VECTOR_SEARCH_MODE=local`.
+
+## 10. Controlled re-measurement (2026-06-14, post-§9): the naive trigram-OR fix is FALSIFIED
+
+§9.4 recommended fixing Bug B by decomposing CJK query runs into overlapping
+trigram OR-terms. A prototype of exactly that was built (`_build_fts_query`,
+saved as `/tmp/cpersona_bugB_trigram_prototype.patch`) and measured. **It does
+not reduce contamination — it makes it slightly worse.**
+
+### 10.1 Method (confound removed)
+
+The §9.2 (pre-fix) and the first post-fix run used *different* embedding
+providers, so their absolute cosines (~0.78 vs ~0.50) were not comparable. This
+run holds the provider **fixed** (`onnx_bge_m3`, quantised, @ :8401, local
+cosine) and toggles **only** the FTS query builder in-process — OLD
+(`query.split()`) vs NEW (trigram-OR). 40-memory embedded DB, `agent.cpersona_bench`,
+RRF, autocut on. Metric: count of raspberry-bearing items in the final recall.
+
+### 10.2 Result
+
+| query | OLD (split) | NEW (trigram-OR) |
+| --- | --- | --- |
+| `この前のパンの話覚えてる?` | 2 / 8 | **1 / 4, but raspberry pie ranks #1** |
+| `パン` | 1 / 4 | 1 / 4 |
+| `ラズベリーパイについて覚えてる?` (correct target) | 5 / 8 | 5 / 5 |
+| `git push の件` | 0 / 1 | **2 / 3, raspberry #1** |
+| `今日の天気` | 0 / 8 | 0 / 8 |
+| **TOTAL raspberry items** | **8** | **9 (+1, worse)** |
+
+### 10.3 Mechanism — single root cause: RRF rank-flattening (bm25-measured)
+
+> **Correction.** An earlier draft of this section blamed "grammatical-trigram
+> bridges" (the query's `覚えて` matching assistant replies). **That was wrong.**
+> Direct df/bm25 measurement (`/tmp/bm25b.out`) shows every grammatical trigram
+> has **df = 0** — it matches nothing. The real, *single* root cause is RRF
+> discarding bm25 magnitude.
+
+For the bread query, only the **content** trigram fires; the glue trigrams are inert:
+
+| trigram | df | trigram | df |
+| --- | --- | --- | --- |
+| `のパン` | **6** | `覚えて` | 0 |
+| `この前` / `の前の` / `前のパ` / `パンの` | 0 | `ンの話` / `の話覚` / `話覚え` / `えてる` | 0 |
+
+The keyword channel's bm25 then ranks correctly (lower = better). The RRF
+contribution at each rank (K=60) shows the flattening that erases it:
+
+| doc | bm25 | RRF (K=60) |
+| --- | --- | --- |
+| 🥐 bread | −2.396 | 1/61 = 0.01639 |
+| 🥐 bread | −2.370 | 1/62 = 0.01613 |
+| 🥐 bread (store-ack) | −2.208 | 1/63 = 0.01587 |
+| 🍓 pie reply | −1.662 | 1/64 = 0.01562 |
+
+bm25 separates bread from pie by a **44 % margin** (−2.40 vs −1.66); RRF compresses
+it to a **5 %** gap (0.01639 vs 0.01562). The near-equal *vector* channel (pie ≈
+bread in cosine) then tips the merge to the contaminant. The `git push` case is
+identical — real git memory bm25 −7.75 vs the git-conflict reply −2.87, flattened
+to 1/61 vs 1/62. (The pie reply matches `のパン` only because the seed corpus bundles
+multi-topic assistant replies — `…先日は近所のパン屋さんのク…` — a fixture artifact, not a
+query-construction flaw.)
+
+### 10.4 Selected fix: direction B (merge-layer, magnitude-aware)
+
+The trigram-OR query builder is **not** the problem and needs no morphological
+stopword removal — the glue trigrams it emits are inert (df = 0), so direction (A)
+is unnecessary. The fix is at the **merge layer (B)**: make the merge respect bm25
+magnitude instead of pure rank, so the large, correct keyword margins survive into
+the final ranking. This is dependency-free and answers the open question "can the
+merge account for bm25/cosine magnitude?".
+
+Caveats:
+- Bug B's *query builder* fix (trigram decomposition) is still a **precondition** —
+  without it the keyword channel is empty for Japanese — but it MUST ship paired
+  with the magnitude-aware merge, never alone (alone it regresses, §10.2).
+- Bug A (env-key mismatch) is independent and still real.
+- **Provider fidelity.** The `onnx_bge_m3` provider here is quantised (cosines ~0.5
+  vs the seed BLOBs' ~0.78). The relative bread-vs-pie cosine gap is robust (so the
+  §9.2 "cosine cannot separate" conclusion stands), but a definitive end-to-end A/B
+  of the merge fix should embed seed corpus and queries with the **same
+  high-fidelity** bge-m3 provider. (The bm25 evidence above is provider-independent —
+  it is pure FTS.)
+
+### 10.5 Status
+
+Prototype reverted (canonical cpersona is clean; patch at
+`/tmp/cpersona_bugB_trigram_prototype.patch`). bm25 evidence: `/tmp/bm25b.out`.
+Decisions taken (doctor, 2026-06-14): fix = **direction B**; register Bug A + Bug B
+in a **new `cpersona/qa/issue-registry.json`**. Next: stand up that registry +
+entries, then design the magnitude-aware merge.
+
+## 11. RSF prototype validation — direction B1 confirmed (−64 % contamination)
+
+A standalone prototype (`/tmp/rsf2.out`) fuses the same channels by **relative-score
+fusion**: per-query min-max normalization of each channel's *raw* score (cosine for
+vector, −bm25 for FTS), summed — instead of RRF's rank. Both arms use the trigram
+query builder; identical `onnx_bge_m3` vector + bm25 FTS; relative-gap autocut applied.
+
+| query | RRF raspberry | RSF raspberry |
+| --- | --- | --- |
+| `この前のパンの話覚えてる?` | 1 / 4 (pie #4) | **0 / 3** (pie cut) |
+| `パン` | 3 / 10 | 2 / 5 |
+| `ラズベリーパイについて覚えてる?` (target) | 5 / 5 | 2 / 2 (tighter) |
+| `git push の件` | 2 / 3 | **0 / 1** |
+| `今日の天気` | 0 / 1 | 0 / 2 |
+| **TOTAL** | **11** | **4 (−64 %)** |
+
+RSF eliminates contamination on the bread and git queries: per-channel normalization
+preserves bm25's large margin (bread norm ≈ 1.0 vs pie ≈ 0.44 — cf. RRF's 5 % rank
+spread), and the relative-gap autocut then drops the contaminant. The residual on
+`パン` is a vector-only artifact (a 2-char query yields no trigram, so the prototype's
+keyword channel is empty; the production LIKE fallback returns bread-only and should
+remove it).
+
+**Implementation plan.** Add RSF as a new `RECALL_MODE=rsf` (rrf stays the default —
+opt-in, A/B-able). Requires: (a) the trigram query builder [bug-002 fix, precondition];
+(b) surfacing raw bm25 from the FTS searches (`_search_memories_keyword` /
+`_search_episodes_fts`); (c) a `_recall_rsf` that min-max-normalizes each channel and
+sums, plus plumbing the fused `_rsf_score` through `_apply_quality_gate` and `_autocut`.
+Bug A (env-key) is independent and still tracked separately.
+
+## 12. High-fidelity confirmation (fp32 bge-m3 on CPU) — resolves the provider caveat
+
+The §10.4 / §11 caveat (the quantised `onnx_bge_m3` provider, cosines ~0.5) is now
+resolved by re-running against **full-precision fp32 bge-m3** (`Xenova/bge-m3`
+`onnx/model.onnx` + `model.onnx_data`, CPU EP, `ONNX_MAX_SEQ_LEN=256`). The test DB's
+BLOBs were re-embedded with fp32 and queries embedded with the same provider — seed and
+query fully self-consistent (`self-cosine = 1.0000`).
+
+**Finding 1 — quantisation was a non-issue.** fp32 cosines are essentially identical to
+int8: `cos(bread_query, bread) = 0.539` (fp32) vs `0.50` (int8); `cos(bread_query, pie)
+= 0.477` vs `0.47`. The earlier `~0.78` figures (§9.2, pre-`/compact`) did **not** come
+from a higher-fidelity bge-m3 — genuine bge-m3 self-consistent cosines for these texts
+are ~0.5. So "cosine cannot separate bread from pie" holds **at full fidelity** (0.539
+vs 0.477, ratio 0.88).
+
+**Finding 2 — RSF's advantage is confirmed and slightly stronger at fp32.** End-to-end
+`do_recall` A/B, RECALL_MODE rrf vs rsf, fp32 BLOBs + fp32 query provider:
+
+| query | RRF raspberry | RSF raspberry |
+| --- | --- | --- |
+| `この前のパンの話覚えてる?` | 1 / 4 (pie #1) | **0 / 3** |
+| `パン` | 1 / 4 (pie #1) | **0 / 3** (int8 still had 1; fp32 clean) |
+| `ラズベリーパイについて覚えてる?` (target) | 5 / 5 | **2 / 2** |
+| `git push の件` | 2 / 3 | **0 / 1** |
+| `今日の天気` | 0 / 1 | 0 / 2 |
+| **TOTAL** | **9** | **2 (−78 %)** |
+
+vs the int8 run (9 → 3, −67 %). RSF eliminates contamination on every off-target query
+(bread / パン / git → 0) and keeps the raspberry target tight (2 / 2 correct); no correct
+result is dropped. **Conclusion: on this contamination benchmark RSF is clearly higher
+precision than RRF, and the result is not a quantisation artifact.** (Scope unchanged:
+single 40-memory synthetic corpus, recall-layer only; LLM-output drift is still Phase 5.)
+
+## 13. Default-mode decision (2026-06-15): keep `rrf` default, `rsf` opt-in
+
+Promoting `rsf` to the *global* default was considered and **deferred**. Running the
+full cpersona suite under `CPERSONA_RECALL_MODE=rsf` regresses one test
+(`test_isolation.py::test_recall_keyword_path_gamma_filter` — 82 passed / 1 failed): a
+2-result keyword recall drops a valid second item. Root cause: RSF's min-max
+normalization maps a 2-item channel to `{1.0, 0.0}`, and relative-gap `autocut` then
+cuts the lower item — a recall-completeness regression on small / closely-scored result
+sets (the min-max small-sample weakness the literature flags). Where the 40-item
+contamination case *wants* that cut, the small-set case does not.
+
+**Decision:** `rrf` stays the default; `rsf` is opt-in (`CPERSONA_RECALL_MODE=rsf`) and
+recommended for topic-drift-prone / space-less-language (Japanese) contexts (documented
+in the cpersona README). Promoting `rsf` to default first requires hardening the
+min-max + autocut interaction (relax autocut on small result sets, a normalization that
+does not pin the minimum to 0, or DBSF / z-score) and re-validating both the
+contamination bench and the full suite — with the Phase-5 LLM-output A/B as the final
+arbiter.
+
+---
+
+*Report author: ClotoCore Project*
+*Measurement date: 2026-06-14*
+*Arms: `master` @ 4afb050 (old) vs `feat/discord-recall-gating` rebased (new); engine `deepseek`; agent `agent.cpersona_bench`; clean-19 common baseline; N=3.*
+*§9 correction: embeddings were off during §3; real root cause = Bug A (env-key mismatch) + Bug B (FTS whitespace-split). bge-m3 re-measurement confirms cosine cannot separate the contaminant.*
