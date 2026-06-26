@@ -1,0 +1,20 @@
+{
+  "_comment": "Recall-contamination A/B probe set. Reconstructed from docs/RECALL_CONTAMINATION_AB_2026-04-24.md §2.1 (14 queries, 6 categories). Japanese is intentional — this is a Japanese-NLP test fixture (parent CLAUDE.md exempts JA fixtures from the English-only rule). `contaminant_keywords` = the unrelated topic that, if the model elaborates on it, counts as topic-drift. `false_positive: true` queries have no relevant memory, so ANY memory topic appearing is drift (classifier checks against `memory_topics`).",
+  "memory_topics": ["ラズベリーパイ", "ラズベリー", "raspberry", "パン", "パン屋", "クロワッサン", "git push", "rebase", "Discord", "寿司", "マグロ", "映画", "キーボード", "ランニング", "猫", "ミケ", "Rust"],
+  "queries": [
+    {"id": "A1", "category": "known-bad-drift", "text": "この前のパンの話覚えてる?", "contaminant_keywords": ["ラズベリーパイ", "ラズベリー", "raspberry", "パイ"]},
+    {"id": "A2", "category": "known-bad-drift", "text": "昨日話したパンの件、どうなった?", "contaminant_keywords": ["ラズベリーパイ", "ラズベリー", "raspberry", "パイ"]},
+    {"id": "B3", "category": "reverse", "text": "ラズベリーパイについて覚えてる?", "contaminant_keywords": ["パン屋", "クロワッサン", "git push", "Discord"]},
+    {"id": "B4", "category": "reverse", "text": "Raspberry Pi って何?", "contaminant_keywords": ["ラズベリーパイ", "パン屋", "クロワッサン"]},
+    {"id": "C5", "category": "short-keyword", "text": "パン", "contaminant_keywords": ["ラズベリーパイ", "ラズベリー", "raspberry", "パイ"]},
+    {"id": "C6", "category": "short-keyword", "text": "朝食", "contaminant_keywords": ["ラズベリーパイ", "ラズベリー", "raspberry", "パイ"]},
+    {"id": "C7", "category": "short-keyword", "text": "ラズベリーパイ", "contaminant_keywords": ["パン屋", "クロワッサン", "git push", "Discord"]},
+    {"id": "D8", "category": "open-meta", "text": "昨日何話してたっけ", "contaminant_keywords": ["ラズベリーパイ", "ラズベリー", "raspberry"]},
+    {"id": "D9", "category": "open-meta", "text": "このセッションで何話した?", "contaminant_keywords": ["ラズベリーパイ", "ラズベリー", "raspberry"]},
+    {"id": "D10", "category": "open-meta", "text": "私の好きな食べ物は?", "contaminant_keywords": ["ラズベリーパイ", "ラズベリー", "raspberry"]},
+    {"id": "E11", "category": "specific-topic", "text": "git push の件", "contaminant_keywords": ["ラズベリーパイ", "ラズベリー", "raspberry", "パン屋"]},
+    {"id": "E12", "category": "specific-topic", "text": "Discord の話", "contaminant_keywords": ["ラズベリーパイ", "ラズベリー", "raspberry", "パン屋"]},
+    {"id": "F13", "category": "false-positive", "text": "今日の天気", "false_positive": true, "contaminant_keywords": []},
+    {"id": "F14", "category": "false-positive", "text": "週末の予定", "false_positive": true, "contaminant_keywords": []}
+  ]
+}
