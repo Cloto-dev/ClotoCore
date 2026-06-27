@@ -60,6 +60,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
     lock_memory: false,
     unlock_memory: false,
     set_recall_precision: false,
+    get_recall_precision: false,
   });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');

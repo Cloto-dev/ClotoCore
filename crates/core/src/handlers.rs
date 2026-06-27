@@ -537,6 +537,7 @@ pub async fn get_memories(
         "lock_memory": state.mcp_manager.has_capability_tool(cap, "lock_memory").await,
         "unlock_memory": state.mcp_manager.has_capability_tool(cap, "unlock_memory").await,
         "set_recall_precision": state.mcp_manager.has_capability_tool(cap, "set_recall_precision").await,
+        "get_recall_precision": state.mcp_manager.has_capability_tool(cap, "get_recall_precision").await,
     });
     data.as_object_mut()
         .map(|o| o.insert("capabilities".into(), capabilities));
@@ -846,6 +847,43 @@ pub async fn set_recall_precision(
     let result = state
         .mcp_manager
         .call_capability_tool(cap, "set_recall_precision", args, None)
+        .await
+        .map_err(AppError::Internal)?;
+    ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({})))
+}
+
+/// **Route:** `GET /api/agents/:id/recall-precision`
+///
+/// Read an agent's effective recall precision (an earlier decision, knob 3) — the read-back
+/// companion to [`set_recall_precision`], so the dashboard can load the current value
+/// and present the control as read-edit-save rather than write-only. Same OPTIONAL,
+/// feature-detected memory-capability contract: it routes through the capability
+/// dispatcher to whichever memory server backs the agent (no hardcoded provider) and
+/// returns 400 when the active memory server does not advertise `get_recall_precision`.
+/// Read-only — the memory server returns the resolved precision/beta without mutating
+/// state. See `docs/MEMORY_CAPABILITY_CONTRACT.md`.
+pub async fn get_recall_precision(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let cap = crate::managers::CapabilityType::Memory;
+    if !state
+        .mcp_manager
+        .has_capability_tool(cap, "get_recall_precision")
+        .await
+    {
+        return Err(AppError::Validation(
+            "The agent's memory server does not support recall precision".into(),
+        ));
+    }
+
+    let args = serde_json::json!({ "agent_id": id });
+    let result = state
+        .mcp_manager
+        .call_capability_tool(cap, "get_recall_precision", args, None)
         .await
         .map_err(AppError::Internal)?;
     ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({})))

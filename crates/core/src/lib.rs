@@ -1061,7 +1061,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         // routed to the agent's memory server via the capability dispatcher.
         .route(
             "/agents/:id/recall-precision",
-            post(handlers::set_recall_precision),
+            get(handlers::get_recall_precision).post(handlers::set_recall_precision),
         )
         .route("/speech/:filename", get(handlers::serve_speech_file))
         .route("/events/publish", post(handlers::post_event_handler))
