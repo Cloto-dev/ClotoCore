@@ -8,6 +8,16 @@ import { extractVrmThumbnail } from '../lib/vrmThumbnail';
 import type { AgentMetadata } from '../types';
 import { AvatarSection } from './AvatarSection';
 import { ProfileSection } from './ProfileSection';
+import {
+  applyRecallMetadata,
+  normalizeRecallPolicy,
+  normalizeSessionScope,
+  PRECISION_DEFAULT,
+  type PrecisionValue,
+  type RecallPolicyValue,
+  RecallSection,
+  type SessionScopeValue,
+} from './RecallSection';
 import { ServerAccessSection } from './ServerAccessSection';
 import { AlertCard } from './ui/AlertCard';
 import { VrmThumbnailDialog } from './VrmThumbnailDialog';
@@ -34,6 +44,25 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   // Profile state
   const [agentName, setAgentName] = useState(agent.name);
   const [agentDescription, setAgentDescription] = useState(agent.description);
+
+  // Recall config state (knob 1 / knob 2, an earlier decision) — deferred to Save.
+  const [recallPolicy, setRecallPolicy] = useState<RecallPolicyValue>(
+    normalizeRecallPolicy(agent.metadata?.recall_policy),
+  );
+  const [sessionScope, setSessionScope] = useState<SessionScopeValue>(
+    normalizeSessionScope(agent.metadata?.session_scope),
+  );
+  // knob 3 (precision) is owned by the memory server and has no read-back yet, so
+  // it is write-only: the pill starts at the default and only POSTs if the user
+  // touches it. `precisionSupported` is feature-detected from the memory server.
+  const [precision, setPrecision] = useState<PrecisionValue>(PRECISION_DEFAULT);
+  const [precisionDirty, setPrecisionDirty] = useState(false);
+  const [precisionSupported, setPrecisionSupported] = useState(false);
+
+  const changePrecision = (v: PrecisionValue) => {
+    setPrecision(v);
+    setPrecisionDirty(true);
+  };
 
   // Avatar state (deferred — only persisted on Save)
   const [avatarKey, _setAvatarKey] = useState(0);
@@ -68,6 +97,16 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
       })
       .finally(() => setIsLoading(false));
   }, [agent.id, api.getAgentAccess]);
+
+  // Feature-detect whether the active memory server supports recall precision (knob 3).
+  useEffect(() => {
+    api
+      .getMemories()
+      .then((res) => setPrecisionSupported(res.capabilities?.set_recall_precision ?? false))
+      .catch((e) => {
+        if (import.meta.env.DEV) console.error('Failed to load memory capabilities:', e);
+      });
+  }, [api.getMemories]);
 
   const grantServer = (serverId: string) => {
     setGrantedIds((prev) => new Set([...prev, serverId]));
@@ -121,6 +160,9 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
         delete metadata.preferred_memory;
       }
 
+      // Recall knobs (an earlier decision) — see applyRecallMetadata for the set/delete contract.
+      applyRecallMetadata(metadata, recallPolicy, sessionScope);
+
       // Step 1: updateAgent FIRST (full metadata replacement via COALESCE)
       await api.updateAgent(agent.id, {
         name: agentName !== agent.name ? agentName : undefined,
@@ -128,6 +170,12 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
         default_engine_id: engineServer?.id,
         metadata,
       });
+
+      // Step 1b: recall precision (knob 3) is applied on the memory server, not in
+      // agent metadata. Write-only — only POST when the user actually changed it.
+      if (precisionDirty && precisionSupported) {
+        await api.setRecallPrecision(agent.id, precision);
+      }
 
       // Step 2: Avatar operations AFTER updateAgent — these use json_set/json_remove
       // which do partial updates, so avatar_path survives as the final state.
@@ -314,6 +362,17 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
               onGrant={grantServer}
               onRevoke={revokeServer}
               onApplyPreset={applyPreset}
+            />
+
+            {/* Recall configuration (an earlier decision — per-agent recall knobs) */}
+            <RecallSection
+              recallPolicy={recallPolicy}
+              sessionScope={sessionScope}
+              precision={precision}
+              precisionSupported={precisionSupported}
+              onRecallPolicyChange={setRecallPolicy}
+              onSessionScopeChange={setSessionScope}
+              onPrecisionChange={changePrecision}
             />
           </>
         )}

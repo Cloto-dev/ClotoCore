@@ -536,6 +536,7 @@ pub async fn get_memories(
         "update_memory": state.mcp_manager.has_capability_tool(cap, "update_memory").await,
         "lock_memory": state.mcp_manager.has_capability_tool(cap, "lock_memory").await,
         "unlock_memory": state.mcp_manager.has_capability_tool(cap, "unlock_memory").await,
+        "set_recall_precision": state.mcp_manager.has_capability_tool(cap, "set_recall_precision").await,
     });
     data.as_object_mut()
         .map(|o| o.insert("capabilities".into(), capabilities));
@@ -802,6 +803,52 @@ pub async fn unlock_memory(
 
         ok_data(serde_json::json!({ "ok": true, "unlocked_id": id, "lock_level": "kernel" }))
     }
+}
+
+/// Request body for [`set_recall_precision`].
+#[derive(serde::Deserialize)]
+pub struct SetRecallPrecisionRequest {
+    /// `"strict" | "balanced" | "lenient"`; an empty string clears the per-agent
+    /// override and returns the agent to the memory server's default.
+    #[serde(default)]
+    pub precision: String,
+}
+
+/// **Route:** `POST /api/agents/:id/recall-precision`
+///
+/// Set an agent's recall precision (an earlier decision, knob 3). This is an OPTIONAL,
+/// feature-detected memory-capability operation: it routes through the capability
+/// dispatcher to whichever memory server backs the agent (no hardcoded provider),
+/// and returns 400 when the active memory server does not advertise
+/// `set_recall_precision`. The memory server owns the precision state (it
+/// recalibrates and persists its own quality gate); ClotoCore only forwards the
+/// request. See `docs/MEMORY_CAPABILITY_CONTRACT.md`.
+pub async fn set_recall_precision(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<SetRecallPrecisionRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let cap = crate::managers::CapabilityType::Memory;
+    if !state
+        .mcp_manager
+        .has_capability_tool(cap, "set_recall_precision")
+        .await
+    {
+        return Err(AppError::Validation(
+            "The agent's memory server does not support recall precision".into(),
+        ));
+    }
+
+    let args = serde_json::json!({ "agent_id": id, "precision": body.precision });
+    let result = state
+        .mcp_manager
+        .call_capability_tool(cap, "set_recall_precision", args, None)
+        .await
+        .map_err(AppError::Internal)?;
+    ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({})))
 }
 
 // ============================================================

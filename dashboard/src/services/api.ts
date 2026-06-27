@@ -115,7 +115,12 @@ export const api = {
     );
     return {
       memories: data.memories ?? [],
-      capabilities: data.capabilities ?? { update_memory: false, lock_memory: false, unlock_memory: false },
+      capabilities: data.capabilities ?? {
+        update_memory: false,
+        lock_memory: false,
+        unlock_memory: false,
+        set_recall_precision: false,
+      },
     };
   },
   getEpisodes: async (apiKey?: string): Promise<Episode[]> => {
@@ -138,6 +143,17 @@ export const api = {
     payload: { name?: string; description?: string; default_engine_id?: string; metadata?: Record<string, string> },
     apiKey: string,
   ) => mutate(`/agents/${id}`, 'POST', 'update agent', payload, { 'X-API-Key': apiKey }).then(() => {}),
+
+  /** Set an agent's recall precision (knob 3). Routes to the agent's memory server.
+   *  precision = 'strict' | 'balanced' | 'lenient' (empty clears the override). */
+  setRecallPrecision: (id: string, precision: string, apiKey: string) =>
+    mutate(
+      `/agents/${id}/recall-precision`,
+      'POST',
+      'set recall precision',
+      { precision },
+      { 'X-API-Key': apiKey },
+    ).then(() => {}),
 
   getPluginPermissions: async (pluginId: string, apiKey: string): Promise<string[]> => {
     const res = await fetch(`${API_BASE}/plugins/${pluginId}/permissions`, {
@@ -780,6 +796,7 @@ export function createAuthenticatedApi(apiKey: string) {
     // Agent CRUD
     createAgent: (payload: Parameters<typeof api.createAgent>[0]) => api.createAgent(payload, k),
     updateAgent: (id: string, payload: Parameters<typeof api.updateAgent>[1]) => api.updateAgent(id, payload, k),
+    setRecallPrecision: (id: string, precision: string) => api.setRecallPrecision(id, precision, k),
     deleteAgent: (agentId: string, password?: string) => api.deleteAgent(agentId, k, password),
     toggleAgentPower: (agentId: string, enabled: boolean, password?: string) =>
       api.toggleAgentPower(agentId, enabled, k, password),

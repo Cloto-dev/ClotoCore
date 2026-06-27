@@ -169,6 +169,8 @@ export interface MemoryCapabilities {
   update_memory: boolean;
   lock_memory: boolean;
   unlock_memory: boolean;
+  /** Memory server supports per-agent recall precision (knob 3). Optional, feature-detected. */
+  set_recall_precision: boolean;
 }
 
 export interface Episode {
