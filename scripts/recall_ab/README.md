@@ -135,27 +135,34 @@ is copy-paste. The scenario: one user active in two channels — `cook-general`
 single-board computer). The homophone ラズベリーパイ (dessert vs. SBC) is the
 contamination bridge; every probe runs in `cook-general`, and drift is measured
 by **unambiguous electronics vocabulary** (GPIO / SDカード / はんだ / Raspberry Pi
-OS …) that can only have come from the *other* channel's episodes. Arm A should
-leak it; arm B (per-channel separation) should not.
+OS …) that can only have come from the *other* channel. Arm A files every memory
+under one channel (cross-channel mixing → leak); arm B files each under its
+concrete channel (per-channel separation → no leak).
+
+> **Seed once per arm — NOT once total.** The channel a memory is *filed under*
+> is itself flag-dependent (the v2 fix makes store and recall use the same
+> `derive_channel`): arm A files everything under the bridge channel, arm B files
+> per concrete `channel_id`. So the corpus must be re-seeded inside each arm, and
+> the test agent reset between them — `delete_agent_data` scoped to `agent.abtest`
+> (NOT a whole-DB snapshot/restore; CPersona is agent-keyed, so agent-scoped
+> delete is the clean, production-safe reset).
 
 ```bash
 UV="uv run --python 3.13 --with httpx python"
+COMMON="--agent-id agent.abtest --source-id abtest:user1 \
+  --corpus seed_corpus_v2.json --query-set query_set_v2.json"
 
-# Seed once (per-entry channel_id plants memories across both channels), then snapshot.
-$UV run_ab.py --agent-id agent.abtest --source-id abtest:user1 \
-  --corpus seed_corpus_v2.json --query-set query_set_v2.json --seed
-#   → snapshot agent.abtest's CPersona rows (cp the DB or scoped export — never rm)
+# ---- Arm A: flag UNSET (historical default; all memories filed under one channel) ----
+# (kernel running with CLOTO_RECALL_PERUSER_CHANNEL_AXIS unset)
+$UV run_ab.py $COMMON --seed                 # seed under arm A's filing
+$UV run_ab.py $COMMON --arm old              # → results/results_old.json
+#   reset the test agent: delete_agent_data(agent.abtest) via the kernel's CPersona
 
-# Arm A — flag UNSET (historical default; episodes filed under bridge type "discord").
-CLOTO_RECALL_PERUSER_CHANNEL_AXIS= \
-  $UV run_ab.py --agent-id agent.abtest --source-id abtest:user1 \
-  --corpus seed_corpus_v2.json --query-set query_set_v2.json --arm old
-#   → results/results_old.json ; then restore the post-seed snapshot
-
-# Arm B — flag SET (episodes filed under concrete external_channel_id).
-CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true \
-  $UV run_ab.py --agent-id agent.abtest --source-id abtest:user1 \
-  --corpus seed_corpus_v2.json --query-set query_set_v2.json --arm new
+# ---- Arm B: flag SET (memories filed per concrete external_channel_id) ----
+# (restart the SAME build with CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true)
+$UV run_ab.py $COMMON --seed                 # re-seed under arm B's filing
+$UV run_ab.py $COMMON --arm new              # → results/results_new.json
+#   reset again when done: delete_agent_data(agent.abtest)
 
 python compare.py results/results_old.json results/results_new.json
 ```
@@ -163,8 +170,9 @@ python compare.py results/results_old.json results/results_new.json
 The `X*` (cross-channel-magnet) and `W*` (open-meta) probes are where A and B
 diverge most — a ラズベリーパイ question in the cooking channel should not return
 GPIO/SDカード advice. The `Y*` cooking probes guard against recall loss (arm B
-must not regress them; it never removes `cook-general`'s own episodes). `F*` are
-false-positives (any seeded topic in a weather/weekend chat is drift).
+must keep recalling `cook-general`'s own memories — they are filed under the same
+channel the probe queries). `F*` are false-positives (any seeded topic in a
+weather/weekend chat is drift).
 
 ## Reading the results
 
