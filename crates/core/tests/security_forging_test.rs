@@ -168,6 +168,7 @@ async fn test_vulnerability_event_forging() {
         Arc::new(dashmap::DashMap::new()),
         5,     // memory_timeout_secs
         false, // mcp_streaming_enabled
+        false, // recall_per_user_channel_axis
     ));
 
     let processor = EventProcessor::new(

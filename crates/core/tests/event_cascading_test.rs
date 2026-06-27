@@ -124,6 +124,7 @@ async fn test_event_cascading_protection() {
         Arc::new(dashmap::DashMap::new()),
         5,     // memory_timeout_secs
         false, // mcp_streaming_enabled
+        false, // recall_per_user_channel_axis
     ));
 
     let processor = EventProcessor::new(

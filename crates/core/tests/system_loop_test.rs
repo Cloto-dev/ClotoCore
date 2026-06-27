@@ -40,6 +40,7 @@ async fn test_system_handler_loop_prevention() {
         Arc::new(dashmap::DashMap::new()),
         5,     // memory_timeout_secs
         false, // mcp_streaming_enabled
+        false, // recall_per_user_channel_axis
     );
 
     // Test User Message → triggers handle_message (agentic loop).
@@ -113,6 +114,7 @@ async fn build_cron_test_handler(
         active_cron_contexts.clone(),
         5,
         false, // mcp_streaming_enabled
+        false, // recall_per_user_channel_axis
     );
 
     (handler, pool, active_cron_contexts, event_rx)

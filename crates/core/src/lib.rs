@@ -559,6 +559,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             active_cron_contexts.clone(),
             config.memory_timeout_secs,
             config.mcp_streaming_enabled,
+            config.recall_per_user_channel_axis,
         );
         h.set_probe_cache(probe_cache.clone());
         h.set_usage_store(last_usage_store.clone());
