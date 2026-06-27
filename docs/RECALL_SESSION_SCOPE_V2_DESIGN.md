@@ -48,13 +48,44 @@ Per-channel episode separation reduces cross-channel topic-drift **contamination
 
 ### 6.1 What landed (kernel + harness plumbing) — flip still pending
 
-The gated change is implemented and verified; **the hardcoded default has NOT flipped** — it is opt-in via env during the A/B window:
+The gated change is implemented; **the hardcoded default has NOT flipped** — it is opt-in via env during the A/B window:
 
 - **Flag:** `CLOTO_RECALL_PERUSER_CHANNEL_AXIS` (`config.rs` → `Config.recall_per_user_channel_axis` → `SystemHandler`, same wiring as `CLOTO_MCP_STREAMING_ENABLED`). Off by default. Accepts `true`/`1`/`yes`/`on`.
 - **Kernel:** `derive_recall_scope` takes `per_user_channel_axis: bool`. Arm A (flag off) reproduces v1 byte-for-byte; arm B (flag on) scopes the `PerUser` episode channel axis to `external_channel_id` (with `base_channel` fallback), keeping per-user `source_id`. `Channel` / `Thread` are unaffected. Unit tests cover both arms (`per_user_preserves_historical_scoping` = arm A, `per_user_channel_axis_scopes_episode_to_concrete_channel` + `..._falls_back_to_base_channel_without_concrete_id` = arm B).
 - **Harness plumbing** (`scripts/recall_ab/run_ab.py`): per-message `external_channel_id` emission — without it the flag's divergence point is never exercised. New flags `--channel-id` (global), per-entry `channel_id` in the corpus / query-set JSON (overrides global), and `--corpus` / `--query-set` to point at per-channel fixtures. All additive; absent `channel_id` → identical to the pre-v2 harness.
 
-**Run arms on the same build** by toggling the env var per deployment: arm A = flag unset, arm B = `CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true`. (The harness's `--arm` only labels output; behavior is whichever build/env is running — see `scripts/recall_ab/README.md`.)
+### 6.2 The store/recall asymmetry fix (REQUIRED before the A/B is valid)
+
+The §6.1 change above gated only the **recall** channel. The **store / archive** path
+(`mem.store` for the user message at `system.rs` ~1466 and the agent reply at ~1109)
+unconditionally filed every memory under the bridge type (`external_source`,
+`"discord"`/`"chat"`), ignoring `session_scope` and the flag entirely. CPersona's
+channel filter is an **exact match** (`vector.py` `WHERE … AND channel = ?`;
+`_search_episodes_fts` exact), so:
+
+- **Arm B would have produced a false win via recall *collapse*** — memories filed under
+  `"chat"` but recalled under the concrete `channel_id` never match → zero recall, which
+  the harness scores as "0 % drift" while actually returning nothing.
+- The same asymmetry **latently broke knob 2 **v1**'s opt-in `Channel` / `Thread` scopes**:
+  recall queried the concrete channel while the store filed under the bridge type, so they
+  too recalled nothing. (Untested because the kernel default is `PerUser`.)
+
+**Fix (this PR):** both sides now derive the channel from one helper,
+`SessionScope::derive_channel(base_channel, channel_id, per_user_channel_axis)`, which
+`derive_recall_scope` also calls — so store and recall can never disagree. `PerUser` with
+the flag off returns `base_channel` (the bridge type) → **arm A / the default is
+byte-for-byte unchanged**; `PerUser` + flag, and `Channel`/`Thread`, file under the concrete
+channel. The invariant is locked by `derive_channel_matches_recall_channel_for_every_scope_and_flag`.
+
+- **Scope:** **memory** store channels only. The **episode** archive (`maybe_archive_episode`,
+  `archive_args` has no `channel`) is intentionally left filing under `''` (unscoped) — adding
+  a channel there would change the *default* episode-recall behaviour (today `''` episodes are
+  excluded by any channel filter), which is out of scope for a behaviour-preserving gate. Per-channel
+  **episode** filing is a follow-up (it also needs to decide an episode's channel when it summarizes
+  memories spanning several channels). The A/B is unaffected: its signal is the seeded memories, and
+  any unscoped episodes are filtered out of both arms identically.
+
+**Run arms on the same build** by toggling the env var per deployment: arm A = flag unset, arm B = `CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true`. (The harness's `--arm` only labels output; behavior is whichever build/env is running — see `scripts/recall_ab/README.md`.) **Because the store channel is now flag-dependent, the corpus must be re-seeded inside each arm** (reset the test agent with `delete_agent_data` between arms), not seeded once — see the README "Ready-made v2 fixtures".
 
 **Still pending (the actual gate, 博士-environment):** author a multi-channel corpus (§5) where the same user/agent is active across ≥2 concrete channels, run arm A vs arm B, and flip the hardcoded default in `from_metadata`'s `PerUser` branch only if cross-channel contamination drops with no recall-quality regression. The corpus is best authored against real responses during the run rather than blind.
 

@@ -127,6 +127,53 @@ Sketch (author the multi-channel corpus against real responses):
 4. Compare: v2 wins if cross-channel contamination drops with no recall-quality
    (completion-rate) regression — then flip the hardcoded default.
 
+### Ready-made v2 fixtures
+
+`seed_corpus_v2.json` / `query_set_v2.json` implement the sketch above so the run
+is copy-paste. The scenario: one user active in two channels — `cook-general`
+(#料理, bread & desserts) and `maker-denshi` (#電子工作, Raspberry Pi the
+single-board computer). The homophone ラズベリーパイ (dessert vs. SBC) is the
+contamination bridge; every probe runs in `cook-general`, and drift is measured
+by **unambiguous electronics vocabulary** (GPIO / SDカード / はんだ / Raspberry Pi
+OS …) that can only have come from the *other* channel. Arm A files every memory
+under one channel (cross-channel mixing → leak); arm B files each under its
+concrete channel (per-channel separation → no leak).
+
+> **Seed once per arm — NOT once total.** The channel a memory is *filed under*
+> is itself flag-dependent (the v2 fix makes store and recall use the same
+> `derive_channel`): arm A files everything under the bridge channel, arm B files
+> per concrete `channel_id`. So the corpus must be re-seeded inside each arm, and
+> the test agent reset between them — `delete_agent_data` scoped to `agent.abtest`
+> (NOT a whole-DB snapshot/restore; CPersona is agent-keyed, so agent-scoped
+> delete is the clean, production-safe reset).
+
+```bash
+UV="uv run --python 3.13 --with httpx python"
+COMMON="--agent-id agent.abtest --source-id abtest:user1 \
+  --corpus seed_corpus_v2.json --query-set query_set_v2.json"
+
+# ---- Arm A: flag UNSET (historical default; all memories filed under one channel) ----
+# (kernel running with CLOTO_RECALL_PERUSER_CHANNEL_AXIS unset)
+$UV run_ab.py $COMMON --seed                 # seed under arm A's filing
+$UV run_ab.py $COMMON --arm old              # → results/results_old.json
+#   reset the test agent: delete_agent_data(agent.abtest) via the kernel's CPersona
+
+# ---- Arm B: flag SET (memories filed per concrete external_channel_id) ----
+# (restart the SAME build with CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true)
+$UV run_ab.py $COMMON --seed                 # re-seed under arm B's filing
+$UV run_ab.py $COMMON --arm new              # → results/results_new.json
+#   reset again when done: delete_agent_data(agent.abtest)
+
+python compare.py results/results_old.json results/results_new.json
+```
+
+The `X*` (cross-channel-magnet) and `W*` (open-meta) probes are where A and B
+diverge most — a ラズベリーパイ question in the cooking channel should not return
+GPIO/SDカード advice. The `Y*` cooking probes guard against recall loss (arm B
+must keep recalling `cook-general`'s own memories — they are filed under the same
+channel the probe queries). `F*` are false-positives (any seeded topic in a
+weather/weekend chat is drift).
+
 ## Reading the results
 
 Each `results_<arm>.json` has per-query verdicts (`coherent` / `mild` /
