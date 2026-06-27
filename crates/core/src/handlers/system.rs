@@ -170,6 +170,70 @@ impl RecallPolicy {
     }
 }
 
+/// Per-agent session scope (knob 2, Goal #120). Selects how an agent's
+/// long-term recall is partitioned when several users share a channel: by user,
+/// by the whole channel, or by thread. It drives the two long-term axes the
+/// kernel assembles for the recall call — the CPersona `source_id` (user axis)
+/// and `channel` (episode axis) — from the same declarative scope, so the two
+/// can no longer disagree. The short-term session_key (bridge-owned) is scoped
+/// in a later slice; the chunk lifecycle stays with the bridge for now.
+///
+/// The default ([`SessionScope::PerUser`], used for absent or unrecognized
+/// metadata) reproduces the historical scoping exactly (per-user `source_id`,
+/// bridge-type `channel`), so adding this knob changes no agent's behavior
+/// until one opts in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionScope {
+    /// Each user's long-term memory is isolated (`source_id` = the user). The
+    /// behavior-preserving default.
+    PerUser,
+    /// The whole channel shares one long-term memory: `source_id` is cleared and
+    /// the episode axis is scoped to the concrete channel id.
+    Channel,
+    /// Like `Channel`, scoped to the thread (a thread's channel id is its own).
+    Thread,
+}
+
+impl SessionScope {
+    /// Parse the `session_scope` agent-metadata value. Absent or unrecognized
+    /// falls back to [`SessionScope::PerUser`] (behavior-preserving default).
+    fn from_metadata(value: Option<&String>) -> Self {
+        match value.map(String::as_str) {
+            Some("channel") => Self::Channel,
+            Some("thread") => Self::Thread,
+            // "per_user", absent, or any unrecognized value → historical default.
+            _ => Self::PerUser,
+        }
+    }
+
+    /// Derive the `(source_id, channel)` long-term recall scoping for a message.
+    ///
+    /// `base_source_id` / `base_channel` are the historical values (the per-user
+    /// id and the bridge-type channel); `channel_id` is the concrete external
+    /// channel id when the bridge provides one.
+    ///
+    /// v1 (additive): `PerUser` reproduces the historical scoping exactly.
+    /// `Channel` / `Thread` clear `source_id` (channel-shared long-term) and
+    /// scope the episode axis to the concrete channel id. Rolling a thread up
+    /// into its parent channel under `Channel` needs the bridge to forward
+    /// `parent_channel_id`; until that later slice lands the two coincide. When
+    /// no concrete channel id is available, fall back to `base_channel`.
+    fn derive_recall_scope(
+        self,
+        base_source_id: String,
+        base_channel: String,
+        channel_id: Option<&String>,
+    ) -> (String, String) {
+        match self {
+            Self::PerUser => (base_source_id, base_channel),
+            Self::Channel | Self::Thread => {
+                let channel = channel_id.cloned().unwrap_or(base_channel);
+                (String::new(), channel)
+            }
+        }
+    }
+}
+
 pub struct SystemHandler {
     registry: Arc<PluginRegistry>,
     agent_manager: AgentManager,
@@ -567,7 +631,7 @@ impl SystemHandler {
             // is now handled below by merging T1's snapshot with the recall
             // result chronologically, so we call the simpler `recall` tool
             // instead.
-            let memory_channel = msg
+            let base_channel = msg
                 .metadata
                 .get("external_source")
                 .cloned()
@@ -576,10 +640,23 @@ impl SystemHandler {
             // For an external User message, source.id is already "{source}:{author_id}".
             // Other message kinds (Agent / System) leave source_id empty so
             // recall falls back to v2.4.19 behaviour (all-users).
-            let recall_source_id: String = match &msg.source {
+            let base_source_id: String = match &msg.source {
                 cloto_shared::MessageSource::User { id, .. } => id.clone(),
                 _ => String::new(),
             };
+
+            // knob2 (Goal #120): per-agent session scope drives the two long-term
+            // recall axes (CPersona source_id + channel) from one declarative
+            // setting, so they stay coherent. Default PerUser reproduces the
+            // historical scoping; channel / thread share long-term memory across
+            // the concrete channel. The short-term session_key (bridge-owned)
+            // is scoped in a later slice.
+            let session_scope = SessionScope::from_metadata(agent.metadata.get("session_scope"));
+            let (recall_source_id, memory_channel) = session_scope.derive_recall_scope(
+                base_source_id,
+                base_channel,
+                msg.metadata.get("external_channel_id"),
+            );
 
             let mcp_recall_payload = serde_json::json!({
                 "agent_id": agent.id,
@@ -3331,5 +3408,77 @@ mod recall_policy_tests {
             assert!(p.should_recall(SessionTier::HotActive, true));
             assert!(p.should_recall(SessionTier::Cold, true));
         }
+    }
+}
+
+#[cfg(test)]
+mod session_scope_tests {
+    //! knob2 (Goal #120) session scope. Covers metadata parsing (with the
+    //! behavior-preserving `per_user` default) and the v1 (source_id, channel)
+    //! long-term recall derivation for each scope.
+    use super::SessionScope;
+
+    fn scope(s: &str) -> SessionScope {
+        SessionScope::from_metadata(Some(&s.to_string()))
+    }
+
+    #[test]
+    fn from_metadata_parses_known_values() {
+        assert_eq!(scope("per_user"), SessionScope::PerUser);
+        assert_eq!(scope("channel"), SessionScope::Channel);
+        assert_eq!(scope("thread"), SessionScope::Thread);
+    }
+
+    #[test]
+    fn from_metadata_defaults_to_per_user() {
+        // Absent and unrecognized values preserve the historical per-user
+        // scoping — adding the knob must not change any default.
+        assert_eq!(SessionScope::from_metadata(None), SessionScope::PerUser);
+        assert_eq!(scope(""), SessionScope::PerUser);
+        assert_eq!(scope("garbage"), SessionScope::PerUser);
+        assert_eq!(scope("Channel"), SessionScope::PerUser); // case-sensitive
+    }
+
+    #[test]
+    fn per_user_preserves_historical_scoping() {
+        // PerUser returns the base values verbatim — the concrete channel id is
+        // ignored, so behavior is byte-for-byte the pre-knob2 recall scoping.
+        let cid = "discord-channel-42".to_string();
+        let (source_id, channel) = SessionScope::PerUser.derive_recall_scope(
+            "discord:user-7".to_string(),
+            "discord".to_string(),
+            Some(&cid),
+        );
+        assert_eq!(source_id, "discord:user-7");
+        assert_eq!(channel, "discord");
+    }
+
+    #[test]
+    fn channel_and_thread_share_long_term_over_concrete_channel() {
+        let cid = "discord-channel-42".to_string();
+        for sc in [SessionScope::Channel, SessionScope::Thread] {
+            let (source_id, channel) = sc.derive_recall_scope(
+                "discord:user-7".to_string(),
+                "discord".to_string(),
+                Some(&cid),
+            );
+            // source_id cleared = whole-channel shared long-term memory.
+            assert_eq!(source_id, "");
+            // episode axis scoped to the concrete channel, not the bridge type.
+            assert_eq!(channel, "discord-channel-42");
+        }
+    }
+
+    #[test]
+    fn channel_scope_falls_back_to_base_channel_without_concrete_id() {
+        // Non-bridge sources may not carry an external_channel_id; fall back to
+        // the base channel rather than emptying it.
+        let (source_id, channel) = SessionScope::Channel.derive_recall_scope(
+            "discord:user-7".to_string(),
+            "chat".to_string(),
+            None,
+        );
+        assert_eq!(source_id, "");
+        assert_eq!(channel, "chat");
     }
 }
