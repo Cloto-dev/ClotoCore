@@ -326,9 +326,19 @@ fn classify_tool(server_id: &str, tool_name: &str) -> Option<CapabilityType> {
 
     // Tool name fallback for non-standard server prefixes
     match tool_name {
-        "store" | "recall" | "list_memories" | "delete_memory" | "list_episodes"
-        | "delete_episode" | "archive_episode" | "delete_agent_data" | "update_profile"
-        | "update_memory" | "lock_memory" | "unlock_memory" => Some(CapabilityType::Memory),
+        "store"
+        | "recall"
+        | "list_memories"
+        | "delete_memory"
+        | "list_episodes"
+        | "delete_episode"
+        | "archive_episode"
+        | "delete_agent_data"
+        | "update_profile"
+        | "update_memory"
+        | "lock_memory"
+        | "unlock_memory"
+        | "set_recall_precision" => Some(CapabilityType::Memory),
         "think" | "think_with_tools" => Some(CapabilityType::Reasoning),
         "analyze_image" | "capture_screenshot" => Some(CapabilityType::Vision),
         "transcribe" => Some(CapabilityType::Stt),
@@ -400,6 +410,27 @@ mod tests {
 
         let result = dispatcher.resolve(CapabilityType::Memory, "recall").await;
         assert!(result.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_set_recall_precision_is_memory_capability() {
+        // A memory server with no `memory.` prefix (cpersona's id post bug-388)
+        // must still classify the optional `set_recall_precision` op as Memory via
+        // the tool-name whitelist, so feature detection (has_capability_tool) works.
+        let dispatcher = CapabilityDispatcher::new();
+        let tools = vec![make_tool("recall"), make_tool("set_recall_precision")];
+        dispatcher.build_from_tools("cpersona", &tools).await;
+
+        let result = dispatcher
+            .resolve(CapabilityType::Memory, "set_recall_precision")
+            .await;
+        assert!(
+            result.is_some(),
+            "set_recall_precision should resolve as Memory"
+        );
+        let (server, tool) = result.unwrap();
+        assert_eq!(server, "cpersona");
+        assert_eq!(tool, "set_recall_precision");
     }
 
     #[tokio::test]

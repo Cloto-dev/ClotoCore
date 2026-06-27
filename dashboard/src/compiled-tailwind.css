@@ -1198,6 +1198,10 @@ video {
   max-height: 16rem;
 }
 
+.max-h-80 {
+  max-height: 20rem;
+}
+
 .max-h-\[120px\] {
   max-height: 120px;
 }
@@ -1308,6 +1312,10 @@ video {
 
 .w-6 {
   width: 1.5rem;
+}
+
+.w-60 {
+  width: 15rem;
 }
 
 .w-7 {
@@ -2652,6 +2660,10 @@ video {
 .text-content-tertiary {
   --tw-text-opacity: 1;
   color: rgb(var(--text-tertiary) / var(--tw-text-opacity, 1));
+}
+
+.text-content-tertiary\/70 {
+  color: rgb(var(--text-tertiary) / 0.7);
 }
 
 .text-cyan-500\/70 {
