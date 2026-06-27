@@ -298,6 +298,13 @@ pub struct InstallRequest {
     pub env: Option<HashMap<String, String>>,
     #[serde(default)]
     pub auto_start: Option<bool>,
+    /// In-place update of an already-installed server (the marketplace "Update"
+    /// button). When false/absent, an already-installed server is rejected
+    /// (fresh-install semantics, unchanged). When true, the server is stopped,
+    /// re-vendored, and reconnected in place, preserving its DB row, grants, and
+    /// configured env. See [`reject_existing`].
+    #[serde(default)]
+    pub update: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -404,6 +411,32 @@ pub async fn catalog_handler(
     }))
 }
 
+/// Whether the install endpoint should reject an already-present server.
+///
+/// A fresh install rejects an existing server; an update (the marketplace
+/// "Update" button) re-vendors it in place, so the reject is suppressed. An
+/// update of a not-yet-installed server falls through to a normal install
+/// (idempotent — safe if the row was removed out-of-band).
+fn reject_existing(exists: bool, is_update: bool) -> bool {
+    exists && !is_update
+}
+
+/// The currently-stored env map for an installed server (empty if absent or
+/// unparseable). Used by the update path to preserve user-entered secrets that
+/// the install dialog re-sends as empty registry defaults.
+async fn existing_env(pool: &sqlx::SqlitePool, server_id: &str) -> HashMap<String, String> {
+    crate::db::mcp::load_active_mcp_servers(pool)
+        .await
+        .ok()
+        .and_then(|servers| {
+            servers
+                .into_iter()
+                .find(|s| s.name == server_id)
+                .and_then(|s| serde_json::from_str(&s.env).ok())
+        })
+        .unwrap_or_default()
+}
+
 /// POST /api/marketplace/install — install a server from the marketplace.
 pub async fn install_handler(
     ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
@@ -446,11 +479,13 @@ pub async fn install_handler(
             ))
         })?;
 
-    // Reject if server is already installed (exists in DB as active).
-    if crate::db::mcp::server_exists_in_db(&state.pool, &request.server_id)
+    // An already-installed server is rejected only for a fresh install; an
+    // update (the marketplace "Update" button) re-vendors in place instead.
+    let exists = crate::db::mcp::server_exists_in_db(&state.pool, &request.server_id)
         .await
-        .unwrap_or(false)
-    {
+        .unwrap_or(false);
+    let is_update = request.update.unwrap_or(false);
+    if reject_existing(exists, is_update) {
         return Err(AppError::Validation(format!(
             "Server '{}' is already installed",
             request.server_id
@@ -468,10 +503,37 @@ pub async fn install_handler(
     }
 
     let state_clone = state.clone();
-    let env_overrides = request.env.unwrap_or_default();
+    // On update, preserve the server's currently-stored env (e.g. API keys the
+    // install dialog re-sends as empty defaults): start from the stored env and
+    // overlay only non-empty values from the request. save_mcp_server replaces
+    // env wholesale, so without this an update would wipe configured secrets.
+    let env_overrides = {
+        let request_env = request.env.unwrap_or_default();
+        if is_update && exists {
+            let mut merged = existing_env(&state.pool, &request.server_id).await;
+            for (k, v) in request_env {
+                if !v.is_empty() {
+                    merged.insert(k, v);
+                }
+            }
+            merged
+        } else {
+            request_env
+        }
+    };
     let auto_start = request.auto_start.unwrap_or(true);
 
     let handle = tokio::spawn(async move {
+        // For an update, stop the running instance first so re-vendoring does
+        // not race a live child and so connect_server (which refuses an
+        // already-Connected handle) can replace the now-Disconnected one. The
+        // DB row and grants are untouched (unlike remove_server). A not-running
+        // server yields an ignorable error.
+        if is_update {
+            if let Err(e) = state_clone.mcp_manager.stop_server(&entry.id).await {
+                tracing::debug!("update: stop_server({}) before re-vendor: {e}", entry.id);
+            }
+        }
         let result = run_install(&state_clone, &entry, env_overrides, auto_start).await;
         state_clone
             .setup_in_progress
@@ -3937,5 +3999,122 @@ mod tests {
             state.install_task.lock().await.is_none(),
             "slot is cleared after take()"
         );
+    }
+
+    #[test]
+    fn reject_existing_only_blocks_fresh_install_of_present_server() {
+        // The only combination that rejects is an existing server with no
+        // update flag (fresh install). An update of an existing server proceeds
+        // (in-place re-vendor); install/update of an absent server proceeds.
+        assert!(
+            reject_existing(true, false),
+            "fresh install of present server is rejected"
+        );
+        assert!(
+            !reject_existing(true, true),
+            "update of present server proceeds"
+        );
+        assert!(
+            !reject_existing(false, false),
+            "fresh install of absent server proceeds"
+        );
+        assert!(
+            !reject_existing(false, true),
+            "update of absent server falls through to install"
+        );
+    }
+
+    #[tokio::test]
+    async fn existing_env_returns_stored_env_and_empty_when_absent() {
+        let state = crate::test_utils::create_test_app_state(None).await;
+
+        // Absent server → empty map.
+        assert!(existing_env(&state.pool, "nope").await.is_empty());
+
+        // Stored env (e.g. a user-entered secret) is returned verbatim.
+        let rec = crate::db::mcp::McpServerRecord {
+            name: "cpersona".into(),
+            command: "python".into(),
+            env: r#"{"SECRET_KEY":"shh","EMBEDDING_MODE":"http"}"#.into(),
+            marketplace_id: Some("cpersona".into()),
+            installed_version: Some("2.4.19".into()),
+            ..Default::default()
+        };
+        crate::db::mcp::save_mcp_server(&state.pool, &rec)
+            .await
+            .unwrap();
+
+        let env = existing_env(&state.pool, "cpersona").await;
+        assert_eq!(env.get("SECRET_KEY").map(String::as_str), Some("shh"));
+        assert_eq!(env.get("EMBEDDING_MODE").map(String::as_str), Some("http"));
+    }
+
+    #[tokio::test]
+    async fn update_upsert_preserves_grants_while_uninstall_removes_them() {
+        let state = crate::test_utils::create_test_app_state(None).await;
+        let pool = &state.pool;
+
+        // Install v1 and grant it to an agent.
+        let mut rec = crate::db::mcp::McpServerRecord {
+            name: "cpersona".into(),
+            command: "python".into(),
+            env: r#"{"SECRET_KEY":"shh"}"#.into(),
+            marketplace_id: Some("cpersona".into()),
+            installed_version: Some("2.4.19".into()),
+            ..Default::default()
+        };
+        crate::db::mcp::save_mcp_server(pool, &rec).await.unwrap();
+        crate::db::mcp::save_access_control_entry(
+            pool,
+            &crate::db::mcp::AccessControlEntry {
+                id: None,
+                entry_type: crate::db::mcp::EntryType::ServerGrant,
+                agent_id: "agent.test".into(),
+                server_id: "cpersona".into(),
+                tool_name: None,
+                permission: crate::db::mcp::PermissionLevel::Allow,
+                granted_by: Some("admin".into()),
+                granted_at: "2026-01-01T00:00:00Z".into(),
+                expires_at: None,
+                justification: None,
+                metadata: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        // In-place update = re-run the UPSERT with a bumped version. This is the
+        // path the update endpoint takes (save_mcp_server, never remove_server).
+        rec.installed_version = Some("2.4.30".into());
+        crate::db::mcp::save_mcp_server(pool, &rec).await.unwrap();
+
+        let agents = crate::db::mcp::get_agents_for_server(pool, "cpersona")
+            .await
+            .unwrap();
+        assert!(
+            agents.contains(&"agent.test".to_string()),
+            "in-place update must preserve grants"
+        );
+        let version = crate::db::mcp::load_active_mcp_servers(pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|s| s.name == "cpersona")
+            .and_then(|s| s.installed_version);
+        assert_eq!(
+            version.as_deref(),
+            Some("2.4.30"),
+            "version is bumped in place"
+        );
+
+        // Contrast: the uninstall path DELETES grants (FK ON DELETE CASCADE) —
+        // this is exactly why update must use the UPSERT path, not remove_server.
+        crate::db::mcp::delete_mcp_server(pool, "cpersona")
+            .await
+            .unwrap();
+        let after = crate::db::mcp::get_agents_for_server(pool, "cpersona")
+            .await
+            .unwrap();
+        assert!(after.is_empty(), "uninstall removes grants");
     }
 }
