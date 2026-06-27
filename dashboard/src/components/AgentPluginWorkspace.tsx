@@ -10,6 +10,7 @@ import { AvatarSection } from './AvatarSection';
 import { ProfileSection } from './ProfileSection';
 import {
   applyRecallMetadata,
+  normalizePrecision,
   normalizeRecallPolicy,
   normalizeSessionScope,
   PRECISION_DEFAULT,
@@ -52,8 +53,9 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const [sessionScope, setSessionScope] = useState<SessionScopeValue>(
     normalizeSessionScope(agent.metadata?.session_scope),
   );
-  // knob 3 (precision) is owned by the memory server and has no read-back yet, so
-  // it is write-only: the pill starts at the default and only POSTs if the user
+  // knob 3 (precision) is owned by the memory server. The pill loads the agent's
+  // current value via get_recall_precision (read-edit-save) when the server advertises
+  // read-back, else starts at the default (write-only). It only POSTs when the user
   // touches it. `precisionSupported` is feature-detected from the memory server.
   const [precision, setPrecision] = useState<PrecisionValue>(PRECISION_DEFAULT);
   const [precisionDirty, setPrecisionDirty] = useState(false);
@@ -98,15 +100,34 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
       .finally(() => setIsLoading(false));
   }, [agent.id, api.getAgentAccess]);
 
-  // Feature-detect whether the active memory server supports recall precision (knob 3).
+  // Feature-detect whether the active memory server supports recall precision (knob 3),
+  // and when it can be read back, load the agent's current value so the pill is
+  // read-edit-save rather than write-only.
   useEffect(() => {
+    let cancelled = false;
     api
       .getMemories()
-      .then((res) => setPrecisionSupported(res.capabilities?.set_recall_precision ?? false))
+      .then((res) => {
+        if (cancelled) return;
+        setPrecisionSupported(res.capabilities?.set_recall_precision ?? false);
+        if (res.capabilities?.get_recall_precision) {
+          api
+            .getRecallPrecision(agent.id)
+            .then((info) => {
+              if (!cancelled) setPrecision(normalizePrecision(info.precision));
+            })
+            .catch((e) => {
+              if (import.meta.env.DEV) console.error('Failed to load recall precision:', e);
+            });
+        }
+      })
       .catch((e) => {
         if (import.meta.env.DEV) console.error('Failed to load memory capabilities:', e);
       });
-  }, [api.getMemories]);
+    return () => {
+      cancelled = true;
+    };
+  }, [api.getMemories, api.getRecallPrecision, agent.id]);
 
   const grantServer = (serverId: string) => {
     setGrantedIds((prev) => new Set([...prev, serverId]));

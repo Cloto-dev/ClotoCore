@@ -171,6 +171,20 @@ export interface MemoryCapabilities {
   unlock_memory: boolean;
   /** Memory server supports per-agent recall precision (knob 3). Optional, feature-detected. */
   set_recall_precision: boolean;
+  /** Memory server supports reading back an agent's current precision (knob 3 read-back). Optional. */
+  get_recall_precision: boolean;
+}
+
+/** An agent's effective recall precision, read back from its memory server (knob 3). */
+export interface RecallPrecisionInfo {
+  /** Named level: 'strict' | 'balanced' | 'lenient', or 'custom' for a raw beta override. */
+  precision: string;
+  /** Resolved specificity weight. */
+  beta: number;
+  /** True when this is a per-agent override; false when it falls back to the global default. */
+  overridden: boolean;
+  /** The memory server's global default precision level. */
+  global_precision: string;
 }
 
 export interface Episode {

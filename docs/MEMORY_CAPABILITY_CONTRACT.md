@@ -26,7 +26,7 @@ A server is classified as a memory provider in one of two ways:
        "mgp": {
          "version": "0.6.3",
          "tools_for_capability": {
-           "Memory": ["store", "recall", "list_memories", "archive_episode", "set_recall_precision"]
+           "Memory": ["store", "recall", "list_memories", "archive_episode", "set_recall_precision", "get_recall_precision"]
          }
        }
      }
@@ -75,6 +75,7 @@ advertises it. A provider that omits an optional op is still fully conformant.
 | `delete_agent_data`   | Remove all data for an agent.                                  |
 | `update_profile`      | Update the agent's profile/summary.                            |
 | `set_recall_precision`| Tune the agent's recall precision (recall tuning). See below.  |
+| `get_recall_precision`| Read back the agent's current recall precision. See below.     |
 
 ### Recall tuning: `set_recall_precision`
 
@@ -96,15 +97,26 @@ provider's quality gate — on a **per-agent** basis.
   `handlers::set_recall_precision` → `call_capability_tool(Memory, "set_recall_precision", …)`.
   The endpoint returns 400 if the active memory server does not advertise the op.
 
-#### Read-back (planned)
+### Recall tuning read-back: `get_recall_precision`
 
-There is currently **no** standard read-back op, so the ClotoCore UI treats
-precision as **write-only**: the control starts at `balanced` and only sends a
-request when the operator changes it. Precision state is **not** mirrored into
-`agent.metadata` — that would put provider-owned state into kernel data the
-kernel ignores. Read-back is planned as a future **optional** op,
-`get_recall_precision(agent_id) -> { precision, beta }`, which a provider may add
-and the UI will feature-detect to switch precision to a read→edit→save control.
+The read companion to `set_recall_precision`, so the control is **read→edit→save**
+rather than write-only.
+
+- **Args**: `{ "agent_id": string }`.
+- **Returns**: `{ "precision": "strict" | "balanced" | "lenient" | "custom",
+  "beta": number, "overridden": boolean, "global_precision": string,
+  "global_beta": number }`. `precision` is the effective named level (`custom` when
+  a raw `beta` override has no named level); `overridden` distinguishes a per-agent
+  override from the provider's global default.
+- **Semantics**: **read-only** — the provider must not recalibrate or persist on
+  this call (it is not gated by no-persist pause, like `recall`). Precision state
+  is **not** mirrored into `agent.metadata` — that would put provider-owned state
+  into kernel data the kernel ignores.
+- **ClotoCore path**: `GET /api/agents/:id/recall-precision` →
+  `handlers::get_recall_precision` → `call_capability_tool(Memory, "get_recall_precision", …)`.
+  The endpoint returns 400 if the active memory server does not advertise the op.
+  The UI feature-detects it: when present, it loads the agent's current precision on
+  open; when absent, precision stays write-only (starts at `balanced`).
 
 ## Conformance checklist (third-party memory server)
 

@@ -17,6 +17,7 @@ export const PRECISION_DEFAULT: PrecisionValue = 'balanced';
 
 const RECALL_POLICY_VALUES: RecallPolicyValue[] = ['always', 'session_start+active', 'session_start', 'manual_only'];
 const SESSION_SCOPE_VALUES: SessionScopeValue[] = ['per_user', 'channel', 'thread'];
+const PRECISION_VALUES: PrecisionValue[] = ['strict', 'balanced', 'lenient'];
 
 /** Normalize an arbitrary metadata string to a known policy (unknown → default). */
 export function normalizeRecallPolicy(raw: string | undefined): RecallPolicyValue {
@@ -26,6 +27,15 @@ export function normalizeRecallPolicy(raw: string | undefined): RecallPolicyValu
 /** Normalize an arbitrary metadata string to a known scope (unknown → default). */
 export function normalizeSessionScope(raw: string | undefined): SessionScopeValue {
   return SESSION_SCOPE_VALUES.includes(raw as SessionScopeValue) ? (raw as SessionScopeValue) : SESSION_SCOPE_DEFAULT;
+}
+
+/**
+ * Normalize a read-back precision level to one of the three pills (unknown → default).
+ * The memory server may report 'custom' for a raw beta override set outside this UI; the
+ * pill has no 'custom' option, so it falls back to the default rather than misrepresenting.
+ */
+export function normalizePrecision(raw: string | undefined): PrecisionValue {
+  return PRECISION_VALUES.includes(raw as PrecisionValue) ? (raw as PrecisionValue) : PRECISION_DEFAULT;
 }
 
 /**
