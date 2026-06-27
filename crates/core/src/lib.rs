@@ -1057,6 +1057,12 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             "/agents/:id/last-usage",
             get(handlers::get_agent_last_usage),
         )
+        // Recall precision (Goal #120 knob 3) — optional memory-capability op,
+        // routed to the agent's memory server via the capability dispatcher.
+        .route(
+            "/agents/:id/recall-precision",
+            post(handlers::set_recall_precision),
+        )
         .route("/speech/:filename", get(handlers::serve_speech_file))
         .route("/events/publish", post(handlers::post_event_handler))
         // Cron job management (Layer 2: Autonomous Trigger)
