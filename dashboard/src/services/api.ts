@@ -694,7 +694,7 @@ export const api = {
   },
 
   installMarketplaceServer: (
-    payload: { server_id: string; env?: Record<string, string>; auto_start?: boolean },
+    payload: { server_id: string; env?: Record<string, string>; auto_start?: boolean; update?: boolean },
     apiKey: string,
   ) =>
     mutate('/marketplace/install', 'POST', 'install marketplace server', payload, { 'X-API-Key': apiKey })
@@ -884,8 +884,12 @@ export function createAuthenticatedApi(apiKey: string) {
     getSetupProgressUrl: () => api.getSetupProgressUrl(),
     // Marketplace
     getMarketplaceCatalog: (forceRefresh?: boolean) => api.getMarketplaceCatalog(k, forceRefresh),
-    installMarketplaceServer: (payload: { server_id: string; env?: Record<string, string>; auto_start?: boolean }) =>
-      api.installMarketplaceServer(payload, k),
+    installMarketplaceServer: (payload: {
+      server_id: string;
+      env?: Record<string, string>;
+      auto_start?: boolean;
+      update?: boolean;
+    }) => api.installMarketplaceServer(payload, k),
     batchInstallMarketplaceServers: (payload: { server_ids: string[]; auto_start?: boolean }) =>
       api.batchInstallMarketplaceServers(payload, k),
     uninstallMarketplaceServer: (serverId: string) => api.uninstallMarketplaceServer(serverId, k),

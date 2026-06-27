@@ -62,11 +62,16 @@ export function InstallDialog({ entry, onClose, onInstalled }: InstallDialogProp
     setComplete(false);
 
     try {
-      // Start installation
+      // An entry that is already installed with an update available takes the
+      // in-place update path (re-vendor + reconnect, preserving grants/env)
+      // instead of the fresh-install reject. Mirrors MarketplaceCard's isUpdate.
+      const isUpdate = entry.installed && entry.update_available;
+      // Start installation (or in-place update)
       await api.installMarketplaceServer({
         server_id: entry.id,
         env: envVars,
         auto_start: true,
+        update: isUpdate,
       });
 
       // Connect to SSE progress stream
