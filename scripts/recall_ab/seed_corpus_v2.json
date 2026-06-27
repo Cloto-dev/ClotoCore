@@ -1,0 +1,27 @@
+{
+  "_comment": "Multi-channel seed corpus for the knob2 v2 (channel-axis default unification) cross-channel A/B — docs/RECALL_SESSION_SCOPE_V2_DESIGN.md §5. The SAME user (--source-id) is active in two concrete Discord channels: 'cook-general' (#料理 — bread & desserts) and 'maker-denshi' (#電子工作 — Raspberry Pi the single-board computer). The Japanese homophone ラズベリーパイ is the contamination bridge: in cook-general it is the DESSERT (raspberry tart/pie); in maker-denshi it is the SBC (Raspberry Pi). Under arm A (CLOTO_RECALL_PERUSER_CHANNEL_AXIS unset → episode channel axis = bridge type 'discord' for both channels), a recall in cook-general can surface the maker-denshi SBC episode, so an electronics topic (GPIO / SDカード / OS) leaks into a cooking conversation = cross-channel drift. Under arm B (flag set → episode channel axis = concrete external_channel_id), the two channels' episodes are separated, so the cooking channel cannot see the electronics episodes. Plain-string entries carry no channel_id (shared/global noise, the pre-v2 behaviour). run_ab.py --seed sends each entry as a USER message in its own throwaway session so the kernel stores it as a per-user memory in the entry's channel. Japanese is intentional (JA-NLP fixture; parent CLAUDE.md exempts JA fixtures from English-only). Probe ALL queries in cook-general (see query_set_v2.json) — the divergence is whether maker-denshi's electronics topic contaminates a cooking probe.",
+  "memories": [
+    {"channel_id": "cook-general", "text": "今日は近所のパン屋さんでクロワッサンを買った。バターの層が何層も重なっていてサクサクで美味しかった。"},
+    {"channel_id": "cook-general", "text": "天然酵母でカンパーニュを焼いてみた。発酵に12時間かかったけど、外はパリッと中はもっちりに仕上がった。"},
+    {"channel_id": "cook-general", "text": "週末にラズベリーパイを焼いた。甘酸っぱいラズベリーのフィリングとサクサクのタルト生地の相性が最高だった。"},
+    {"channel_id": "cook-general", "text": "ベーグルは茹でてからオーブンで焼くのがコツ。茹で時間を長くすると皮が厚くもっちりする。"},
+    {"channel_id": "cook-general", "text": "食パンを焼くときオーブンの温度を190度から210度に上げたら、焼き色と窯伸びが良くなった。"},
+    {"channel_id": "cook-general", "text": "いちごのショートケーキを作った。生クリームの角が立つまで泡立てるのが疲れるけど楽しい。"},
+    {"channel_id": "cook-general", "text": "ガトーショコラはチョコとバターを湯煎で溶かして、メレンゲをさっくり混ぜるのが膨らみの秘訣。"},
+    {"channel_id": "cook-general", "text": "ブルーベリーのマフィンを焼いた。冷凍ブルーベリーを使うと生地が紫色に染まらず綺麗に焼ける。"},
+
+    {"channel_id": "maker-denshi", "text": "ラズベリーパイ4を買ってホームサーバーを構築した。SDカードにRaspberry Pi OSを焼いて、SSHを有効化して初期設定した。"},
+    {"channel_id": "maker-denshi", "text": "GPIOピンにLEDを繋いでPythonで点滅させた。抵抗を挟まないと焼けるので330Ωを入れた。"},
+    {"channel_id": "maker-denshi", "text": "はんだ付けで温度センサーを基板に固定した。こて先の温度が低いとイモはんだになるので注意。"},
+    {"channel_id": "maker-denshi", "text": "I2C接続で気温・湿度センサーを読み取るプログラムを書いた。アドレス衝突でハマったが解決した。"},
+    {"channel_id": "maker-denshi", "text": "ブレッドボードで回路を試作してから基板に起こす流れが定着してきた。配線ミスが減った。"},
+    {"channel_id": "maker-denshi", "text": "ラズパイのケースを3Dプリンタで自作した。GPIOのフラットケーブルを通す穴の位置決めが難しかった。"},
+    {"channel_id": "maker-denshi", "text": "Raspberry Pi OSのcronで定期的にセンサー値をログに書くようにした。可視化はGrafanaでやる予定。"},
+    {"channel_id": "maker-denshi", "text": "micro:bitと比べるとラズパイはLinuxが動くぶん自由度が高いが、消費電力と起動時間では負ける。"},
+
+    "私の一番好きな食べ物は寿司です。特にマグロの赤身が好き。",
+    "猫を飼い始めた。名前はミケで、よく膝の上で寝てくる。",
+    "ランニングを始めて3週間が経った。少し体が軽くなった気がする。",
+    "プログラミングでRustを勉強し始めた。所有権と借用の概念が難しい。"
+  ]
+}

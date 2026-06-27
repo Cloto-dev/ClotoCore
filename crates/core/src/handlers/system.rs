@@ -235,19 +235,41 @@ impl SessionScope {
         channel_id: Option<&String>,
         per_user_channel_axis: bool,
     ) -> (String, String) {
+        let channel = self.derive_channel(base_channel, channel_id, per_user_channel_axis);
+        let source_id = match self {
+            // PerUser keeps the per-user axis; Channel / Thread clear it to
+            // share long-term memory across the whole concrete channel.
+            Self::PerUser => base_source_id,
+            Self::Channel | Self::Thread => String::new(),
+        };
+        (source_id, channel)
+    }
+
+    /// The episode `channel` axis a memory is **filed under** (store / archive)
+    /// and **recalled by** — derived from the same scope so the write and read
+    /// sides can never disagree. `recall` historically called
+    /// [`Self::derive_recall_scope`] while the store/archive paths hard-coded
+    /// the bridge type (`external_source`); that asymmetry meant `Channel` /
+    /// `Thread` (and `PerUser` under the v2 flag) recalled a concrete channel
+    /// while episodes were filed under `"discord"`, so the exact-match channel
+    /// filter in CPersona returned nothing. Routing both sides through this
+    /// helper fixes it. `PerUser` with the flag off returns `base_channel`
+    /// (the bridge type), i.e. byte-for-byte the historical default.
+    fn derive_channel(
+        self,
+        base_channel: String,
+        channel_id: Option<&String>,
+        per_user_channel_axis: bool,
+    ) -> String {
         match self {
             Self::PerUser => {
-                let channel = if per_user_channel_axis {
+                if per_user_channel_axis {
                     channel_id.cloned().unwrap_or(base_channel)
                 } else {
                     base_channel
-                };
-                (base_source_id, channel)
+                }
             }
-            Self::Channel | Self::Thread => {
-                let channel = channel_id.cloned().unwrap_or(base_channel);
-                (String::new(), channel)
-            }
+            Self::Channel | Self::Thread => channel_id.cloned().unwrap_or(base_channel),
         }
     }
 }
@@ -1084,11 +1106,21 @@ impl SystemHandler {
                         let mcp_clone = mcp.clone();
                         let server_id_clone = server_id.clone();
                         let agent_id_clone = agent.id.clone();
-                        let resp_channel = msg
+                        // Same derived channel as the user-message store, so the
+                        // agent's reply is filed alongside it. Default PerUser
+                        // (flag off) → the bridge type, i.e. unchanged.
+                        let resp_session_scope =
+                            SessionScope::from_metadata(agent.metadata.get("session_scope"));
+                        let resp_base_channel = msg
                             .metadata
                             .get("external_source")
                             .cloned()
                             .unwrap_or_else(|| "chat".into());
+                        let resp_channel = resp_session_scope.derive_channel(
+                            resp_base_channel,
+                            msg.metadata.get("external_channel_id"),
+                            self.recall_per_user_channel_axis,
+                        );
                         let resp_session_id = msg
                             .metadata
                             .get("external_session_id")
@@ -1463,11 +1495,21 @@ impl SystemHandler {
             // MCP Memory Store: store user message via MCP server
             let agent_id = agent.id.clone();
             let metrics = self.metrics.clone();
-            let store_channel = msg
+            // File the memory under the SAME channel axis recall will query
+            // (derive_channel), so store and recall never disagree. Default
+            // PerUser (flag off) → the bridge type, i.e. unchanged.
+            let store_session_scope =
+                SessionScope::from_metadata(agent.metadata.get("session_scope"));
+            let base_store_channel = msg
                 .metadata
                 .get("external_source")
                 .cloned()
                 .unwrap_or_else(|| "chat".into());
+            let store_channel = store_session_scope.derive_channel(
+                base_store_channel,
+                msg.metadata.get("external_channel_id"),
+                self.recall_per_user_channel_axis,
+            );
             let store_session_id = msg
                 .metadata
                 .get("external_session_id")
@@ -3514,6 +3556,73 @@ mod session_scope_tests {
         );
         assert_eq!(source_id, "discord:user-7");
         assert_eq!(channel, "chat");
+    }
+
+    #[test]
+    fn derive_channel_matches_recall_channel_for_every_scope_and_flag() {
+        // The store/archive side must file a memory under the exact channel
+        // recall will query, or CPersona's exact-match channel filter returns
+        // nothing. Guard the invariant across all scopes × flag states.
+        let cid = "discord-channel-42".to_string();
+        for sc in [
+            SessionScope::PerUser,
+            SessionScope::Channel,
+            SessionScope::Thread,
+        ] {
+            for flag in [false, true] {
+                for channel_id in [Some(&cid), None] {
+                    let (_, recall_channel) = sc.derive_recall_scope(
+                        "discord:user-7".to_string(),
+                        "discord".to_string(),
+                        channel_id,
+                        flag,
+                    );
+                    let store_channel = sc.derive_channel("discord".to_string(), channel_id, flag);
+                    assert_eq!(
+                        store_channel, recall_channel,
+                        "store/recall channel disagree for scope={sc:?} flag={flag} cid={channel_id:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn derive_channel_per_user_flag_off_preserves_bridge_type() {
+        // Default (PerUser, flag off) files under the bridge type — byte-for-byte
+        // the historical store channel, so arm A is unchanged.
+        let cid = "discord-channel-42".to_string();
+        assert_eq!(
+            SessionScope::PerUser.derive_channel("discord".to_string(), Some(&cid), false),
+            "discord"
+        );
+    }
+
+    #[test]
+    fn derive_channel_per_user_flag_on_scopes_to_concrete_channel() {
+        // Arm B (flag on) files under the concrete channel, so a recall scoped
+        // to that channel actually finds the memory (per-channel separation).
+        let cid = "discord-channel-42".to_string();
+        assert_eq!(
+            SessionScope::PerUser.derive_channel("discord".to_string(), Some(&cid), true),
+            "discord-channel-42"
+        );
+    }
+
+    #[test]
+    fn derive_channel_channel_thread_file_under_concrete_channel() {
+        // Channel / Thread file under the concrete channel regardless of the
+        // v2 flag — this is the latent v1 fix (store previously hard-coded the
+        // bridge type while recall used the concrete channel → empty recall).
+        let cid = "discord-channel-42".to_string();
+        for sc in [SessionScope::Channel, SessionScope::Thread] {
+            for flag in [false, true] {
+                assert_eq!(
+                    sc.derive_channel("discord".to_string(), Some(&cid), flag),
+                    "discord-channel-42"
+                );
+            }
+        }
     }
 
     #[test]
