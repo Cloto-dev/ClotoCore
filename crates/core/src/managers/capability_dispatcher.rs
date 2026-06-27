@@ -338,7 +338,8 @@ fn classify_tool(server_id: &str, tool_name: &str) -> Option<CapabilityType> {
         | "update_memory"
         | "lock_memory"
         | "unlock_memory"
-        | "set_recall_precision" => Some(CapabilityType::Memory),
+        | "set_recall_precision"
+        | "get_recall_precision" => Some(CapabilityType::Memory),
         "think" | "think_with_tools" => Some(CapabilityType::Reasoning),
         "analyze_image" | "capture_screenshot" => Some(CapabilityType::Vision),
         "transcribe" => Some(CapabilityType::Stt),
@@ -431,6 +432,26 @@ mod tests {
         let (server, tool) = result.unwrap();
         assert_eq!(server, "cpersona");
         assert_eq!(tool, "set_recall_precision");
+    }
+
+    #[tokio::test]
+    async fn test_get_recall_precision_is_memory_capability() {
+        // The read-back companion classifies as Memory via the same whitelist, so the
+        // dashboard can feature-detect it and load an agent's current precision.
+        let dispatcher = CapabilityDispatcher::new();
+        let tools = vec![make_tool("recall"), make_tool("get_recall_precision")];
+        dispatcher.build_from_tools("cpersona", &tools).await;
+
+        let result = dispatcher
+            .resolve(CapabilityType::Memory, "get_recall_precision")
+            .await;
+        assert!(
+            result.is_some(),
+            "get_recall_precision should resolve as Memory"
+        );
+        let (server, tool) = result.unwrap();
+        assert_eq!(server, "cpersona");
+        assert_eq!(tool, "get_recall_precision");
     }
 
     #[tokio::test]

@@ -15,6 +15,7 @@ import type {
   MemoryCapabilities,
   Metrics,
   PermissionRequest,
+  RecallPrecisionInfo,
   SetupStatus,
   StrictSystemEvent,
 } from '../types';
@@ -120,6 +121,7 @@ export const api = {
         lock_memory: false,
         unlock_memory: false,
         set_recall_precision: false,
+        get_recall_precision: false,
       },
     };
   },
@@ -154,6 +156,11 @@ export const api = {
       { precision },
       { 'X-API-Key': apiKey },
     ).then(() => {}),
+
+  /** Read back an agent's current recall precision (knob 3). Read-only companion to
+   *  setRecallPrecision so the control can be read-edit-save instead of write-only. */
+  getRecallPrecision: (id: string, apiKey: string) =>
+    fetchJson<RecallPrecisionInfo>(`/agents/${id}/recall-precision`, 'fetch recall precision', apiKey),
 
   getPluginPermissions: async (pluginId: string, apiKey: string): Promise<string[]> => {
     const res = await fetch(`${API_BASE}/plugins/${pluginId}/permissions`, {
@@ -797,6 +804,7 @@ export function createAuthenticatedApi(apiKey: string) {
     createAgent: (payload: Parameters<typeof api.createAgent>[0]) => api.createAgent(payload, k),
     updateAgent: (id: string, payload: Parameters<typeof api.updateAgent>[1]) => api.updateAgent(id, payload, k),
     setRecallPrecision: (id: string, precision: string) => api.setRecallPrecision(id, precision, k),
+    getRecallPrecision: (id: string) => api.getRecallPrecision(id, k),
     deleteAgent: (agentId: string, password?: string) => api.deleteAgent(agentId, k, password),
     toggleAgentPower: (agentId: string, enabled: boolean, password?: string) =>
       api.toggleAgentPower(agentId, enabled, k, password),

@@ -7,7 +7,13 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }));
 
-import { applyRecallMetadata, normalizeRecallPolicy, normalizeSessionScope, RecallSection } from '../RecallSection';
+import {
+  applyRecallMetadata,
+  normalizePrecision,
+  normalizeRecallPolicy,
+  normalizeSessionScope,
+  RecallSection,
+} from '../RecallSection';
 
 describe('normalizeRecallPolicy', () => {
   it('passes through known values', () => {
@@ -29,6 +35,19 @@ describe('normalizeSessionScope', () => {
   it('falls back to per_user for unknown/absent', () => {
     expect(normalizeSessionScope(undefined)).toBe('per_user');
     expect(normalizeSessionScope('nope')).toBe('per_user');
+  });
+});
+
+describe('normalizePrecision', () => {
+  it('passes through the three named levels', () => {
+    expect(normalizePrecision('strict')).toBe('strict');
+    expect(normalizePrecision('balanced')).toBe('balanced');
+    expect(normalizePrecision('lenient')).toBe('lenient');
+  });
+  it('falls back to balanced for custom/unknown/absent', () => {
+    expect(normalizePrecision('custom')).toBe('balanced');
+    expect(normalizePrecision(undefined)).toBe('balanced');
+    expect(normalizePrecision('bogus')).toBe('balanced');
   });
 });
 
