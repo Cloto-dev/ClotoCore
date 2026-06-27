@@ -127,6 +127,45 @@ Sketch (author the multi-channel corpus against real responses):
 4. Compare: v2 wins if cross-channel contamination drops with no recall-quality
    (completion-rate) regression — then flip the hardcoded default.
 
+### Ready-made v2 fixtures
+
+`seed_corpus_v2.json` / `query_set_v2.json` implement the sketch above so the run
+is copy-paste. The scenario: one user active in two channels — `cook-general`
+(#料理, bread & desserts) and `maker-denshi` (#電子工作, Raspberry Pi the
+single-board computer). The homophone ラズベリーパイ (dessert vs. SBC) is the
+contamination bridge; every probe runs in `cook-general`, and drift is measured
+by **unambiguous electronics vocabulary** (GPIO / SDカード / はんだ / Raspberry Pi
+OS …) that can only have come from the *other* channel's episodes. Arm A should
+leak it; arm B (per-channel separation) should not.
+
+```bash
+UV="uv run --python 3.13 --with httpx python"
+
+# Seed once (per-entry channel_id plants memories across both channels), then snapshot.
+$UV run_ab.py --agent-id agent.abtest --source-id abtest:user1 \
+  --corpus seed_corpus_v2.json --query-set query_set_v2.json --seed
+#   → snapshot agent.abtest's CPersona rows (cp the DB or scoped export — never rm)
+
+# Arm A — flag UNSET (historical default; episodes filed under bridge type "discord").
+CLOTO_RECALL_PERUSER_CHANNEL_AXIS= \
+  $UV run_ab.py --agent-id agent.abtest --source-id abtest:user1 \
+  --corpus seed_corpus_v2.json --query-set query_set_v2.json --arm old
+#   → results/results_old.json ; then restore the post-seed snapshot
+
+# Arm B — flag SET (episodes filed under concrete external_channel_id).
+CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true \
+  $UV run_ab.py --agent-id agent.abtest --source-id abtest:user1 \
+  --corpus seed_corpus_v2.json --query-set query_set_v2.json --arm new
+
+python compare.py results/results_old.json results/results_new.json
+```
+
+The `X*` (cross-channel-magnet) and `W*` (open-meta) probes are where A and B
+diverge most — a ラズベリーパイ question in the cooking channel should not return
+GPIO/SDカード advice. The `Y*` cooking probes guard against recall loss (arm B
+must not regress them; it never removes `cook-general`'s own episodes). `F*` are
+false-positives (any seeded topic in a weather/weekend chat is drift).
+
 ## Reading the results
 
 Each `results_<arm>.json` has per-query verdicts (`coherent` / `mild` /
