@@ -99,6 +99,34 @@ To also exercise the per-agent recall-instructions knob or the Discord channel
 path, set `--channel discord` and/or configure the test agent's
 `recall_instructions` in the agent settings, then add more arms.
 
+## Cross-channel (knob2 v2) A/B
+
+The default topic-drift experiment above is single-channel. The knob2 v2 change
+(`docs/RECALL_SESSION_SCOPE_V2_DESIGN.md`) only diverges when the **same user is
+active across several concrete channels**, so it needs a multi-channel corpus and
+the concrete-channel plumbing:
+
+- **Arms are the same build, toggled by env** — arm A = `CLOTO_RECALL_PERUSER_CHANNEL_AXIS`
+  unset, arm B = `CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true`. (`--arm` still only labels
+  output.)
+- **Concrete channel id** is sent as `external_channel_id` via `--channel-id`, or
+  per-entry `channel_id` in the corpus / query-set JSON (which overrides the global
+  flag). Absent → omitted, i.e. the pre-v2 behavior. `--corpus` / `--query-set`
+  point at per-channel fixtures.
+
+Sketch (author the multi-channel corpus against real responses):
+
+1. Seed a corpus where the same `--source-id` has memories in ≥2 channels — either
+   one corpus with per-entry `channel_id`, or two `--seed` passes with different
+   `--channel-id`. Snapshot the post-seed CPersona rows.
+2. **Arm A:** run the kernel with the flag unset; probe in one channel
+   (`--channel-id <A>` or per-query `channel_id`) and measure how often memories
+   from the *other* channel contaminate. Restore the snapshot.
+3. **Arm B:** restart the same build with `CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true`;
+   run the identical probe.
+4. Compare: v2 wins if cross-channel contamination drops with no recall-quality
+   (completion-rate) regression — then flip the hardcoded default.
+
 ## Reading the results
 
 Each `results_<arm>.json` has per-query verdicts (`coherent` / `mild` /

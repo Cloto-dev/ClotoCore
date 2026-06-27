@@ -69,7 +69,16 @@ def load_config() -> argparse.Namespace:
     p.add_argument("--source-id", default=os.environ.get("CLOTO_AB_SOURCE_ID", "abtest:user1"),
                    help="source.id for User messages (must match between seed and probe)")
     p.add_argument("--channel", default=os.environ.get("CLOTO_AB_CHANNEL", "chat"),
-                   help="external_source value (memory channel): chat | discord")
+                   help="external_source value (the bridge TYPE; memory channel under v1): chat | discord")
+    p.add_argument("--channel-id", default=os.environ.get("CLOTO_AB_CHANNEL_ID", ""),
+                   help="concrete external_channel_id sent with every message (empty = omit). "
+                        "This is the axis knob2 v2 scopes PerUser episodes to; set distinct ids per "
+                        "channel to exercise the cross-channel A/B. Per-entry channel_id in the corpus / "
+                        "query-set JSON overrides this.")
+    p.add_argument("--corpus", default=os.environ.get("CLOTO_AB_CORPUS", str(HERE / "seed_corpus.json")),
+                   help="seed corpus JSON (for --seed); supply a per-channel corpus for the v2 A/B")
+    p.add_argument("--query-set", default=os.environ.get("CLOTO_AB_QUERY_SET", str(HERE / "query_set.json")),
+                   help="probe query-set JSON")
     p.add_argument("--trials", type=int, default=int(os.environ.get("CLOTO_AB_TRIALS", "3")))
     p.add_argument("--response-timeout", type=float,
                    default=float(os.environ.get("CLOTO_AB_RESPONSE_TIMEOUT", "90")))
@@ -175,19 +184,27 @@ def send_and_wait(
     content: str,
     session_id: str,
     timeout: float,
+    channel_id: str = "",
 ) -> str | None:
     msg_id = f"abtest-{uuid.uuid4().hex}"
+    metadata = {
+        "external_session_id": session_id,
+        "external_source": cfg.channel,
+        "target_agent_id": cfg.agent_id,
+    }
+    # Concrete channel id — the axis knob2 v2 (CLOTO_RECALL_PERUSER_CHANNEL_AXIS)
+    # scopes PerUser episodes to. Omitted when empty so arm A behaves exactly as
+    # before. The kernel reads it as msg.metadata["external_channel_id"].
+    resolved_channel_id = channel_id or cfg.channel_id
+    if resolved_channel_id:
+        metadata["external_channel_id"] = resolved_channel_id
     body = {
         "id": msg_id,
         "source": {"type": "User", "id": cfg.source_id, "name": "ABTester"},
         "target_agent": cfg.agent_id,
         "content": content,
         "timestamp": _now_iso(),
-        "metadata": {
-            "external_session_id": session_id,
-            "external_source": cfg.channel,
-            "target_agent_id": cfg.agent_id,
-        },
+        "metadata": metadata,
     }
     headers = {"X-API-Key": cfg.api_key} if cfg.api_key else {}
     r = client.post(f"{cfg.base_url.rstrip('/')}/api/chat", json=body, headers=headers, timeout=30.0)
@@ -226,20 +243,31 @@ def classify(resp: str | None, q: dict, memory_topics: list[str]) -> str:
 # Phases
 # --------------------------------------------------------------------------- #
 def do_seed(client: httpx.Client, bus: ResponseBus, cfg: argparse.Namespace) -> None:
-    corpus = json.loads((HERE / "seed_corpus.json").read_text(encoding="utf-8"))["memories"]
+    corpus = json.loads(Path(cfg.corpus).read_text(encoding="utf-8"))["memories"]
     print(f"Seeding {len(corpus)} memories into '{cfg.agent_id}' (source_id={cfg.source_id}) ...")
-    for i, mem in enumerate(corpus):
+    for i, entry in enumerate(corpus):
+        # An entry is either a plain string (no channel) or {text, channel_id}
+        # so a single corpus can plant memories across several channels for the
+        # knob2 v2 cross-channel A/B. A per-entry channel_id overrides --channel-id.
+        if isinstance(entry, dict):
+            mem = entry["text"]
+            channel_id = entry.get("channel_id", "")
+        else:
+            mem = entry
+            channel_id = ""
         sess = f"abtest-seed-{i}-{uuid.uuid4().hex[:8]}"
-        resp = send_and_wait(client, bus, cfg, mem, sess, timeout=cfg.response_timeout)
+        resp = send_and_wait(client, bus, cfg, mem, sess,
+                             timeout=cfg.response_timeout, channel_id=channel_id)
         status = "ok" if resp is not None else "no-reply(stored anyway)"
-        print(f"  [{i + 1}/{len(corpus)}] {status}: {mem[:32]}...")
+        chan = f" ch={channel_id or cfg.channel_id}" if (channel_id or cfg.channel_id) else ""
+        print(f"  [{i + 1}/{len(corpus)}]{chan} {status}: {mem[:32]}...")
     # The store call is spawned during handling; give it a moment to flush.
     time.sleep(3.0)
     print("Seeding complete. Snapshot the agent's CPersona rows now, then run each arm.")
 
 
 def do_probe(client: httpx.Client, bus: ResponseBus, cfg: argparse.Namespace) -> dict:
-    spec = json.loads((HERE / "query_set.json").read_text(encoding="utf-8"))
+    spec = json.loads(Path(cfg.query_set).read_text(encoding="utf-8"))
     queries = spec["queries"]
     memory_topics = spec["memory_topics"]
     cells: dict[str, list[str]] = {q["id"]: [] for q in queries}
@@ -248,7 +276,10 @@ def do_probe(client: httpx.Client, bus: ResponseBus, cfg: argparse.Namespace) ->
         session_id = f"abtest-probe-{cfg.arm}-t{trial}-{uuid.uuid4().hex[:8]}"
         print(f"\n--- trial {trial + 1}/{cfg.trials}  session={session_id} ---")
         for q in queries:
-            resp = send_and_wait(client, bus, cfg, q["text"], session_id, timeout=cfg.response_timeout)
+            # A per-query channel_id (overriding --channel-id) lets a probe run
+            # in a specific channel for the v2 cross-channel A/B.
+            resp = send_and_wait(client, bus, cfg, q["text"], session_id,
+                                 timeout=cfg.response_timeout, channel_id=q.get("channel_id", ""))
             verdict = classify(resp, q, memory_topics)
             cells[q["id"]].append(verdict)
             print(f"  {q['id']:>3} [{verdict:<8}] {q['text']}")
@@ -267,6 +298,7 @@ def summarize(cfg: argparse.Namespace, queries: list[dict], cells: dict[str, lis
         "arm": cfg.arm,
         "agent_id": cfg.agent_id,
         "channel": cfg.channel,
+        "channel_id": cfg.channel_id,
         "trials": cfg.trials,
         "generated_at": _now_iso(),
         "counts": counts,

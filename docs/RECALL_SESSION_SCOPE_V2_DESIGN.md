@@ -46,6 +46,18 @@ Per-channel episode separation reduces cross-channel topic-drift **contamination
 - During the A/B window, gate the change behind a flag (env or per-deployment) so A and B can be compared on the same build before flipping the hardcoded default.
 - Tests: update the `per_user_preserves_historical_scoping` unit test to reflect the new channel axis once the default flips; no new derivation surface.
 
+### 6.1 What landed (kernel + harness plumbing) — flip still pending
+
+The gated change is implemented and verified; **the hardcoded default has NOT flipped** — it is opt-in via env during the A/B window:
+
+- **Flag:** `CLOTO_RECALL_PERUSER_CHANNEL_AXIS` (`config.rs` → `Config.recall_per_user_channel_axis` → `SystemHandler`, same wiring as `CLOTO_MCP_STREAMING_ENABLED`). Off by default. Accepts `true`/`1`/`yes`/`on`.
+- **Kernel:** `derive_recall_scope` takes `per_user_channel_axis: bool`. Arm A (flag off) reproduces v1 byte-for-byte; arm B (flag on) scopes the `PerUser` episode channel axis to `external_channel_id` (with `base_channel` fallback), keeping per-user `source_id`. `Channel` / `Thread` are unaffected. Unit tests cover both arms (`per_user_preserves_historical_scoping` = arm A, `per_user_channel_axis_scopes_episode_to_concrete_channel` + `..._falls_back_to_base_channel_without_concrete_id` = arm B).
+- **Harness plumbing** (`scripts/recall_ab/run_ab.py`): per-message `external_channel_id` emission — without it the flag's divergence point is never exercised. New flags `--channel-id` (global), per-entry `channel_id` in the corpus / query-set JSON (overrides global), and `--corpus` / `--query-set` to point at per-channel fixtures. All additive; absent `channel_id` → identical to the pre-v2 harness.
+
+**Run arms on the same build** by toggling the env var per deployment: arm A = flag unset, arm B = `CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true`. (The harness's `--arm` only labels output; behavior is whichever build/env is running — see `scripts/recall_ab/README.md`.)
+
+**Still pending (the actual gate, the maintainer-environment):** author a multi-channel corpus (§5) where the same user/agent is active across ≥2 concrete channels, run arm A vs arm B, and flip the hardcoded default in `from_metadata`'s `PerUser` branch only if cross-channel contamination drops with no recall-quality regression. The corpus is best authored against real responses during the run rather than blind.
+
 ## 7. Relationship to other deferred slices (independent of v2)
 
 - **Short-term `session_key` scoping** (bridge-owned; chunk lifecycle stays with the bridge for now) — independent of v2.
@@ -54,6 +66,8 @@ Per-channel episode separation reduces cross-channel topic-drift **contamination
 
 ## 8. Next-session entry point
 
-- **Code:** `derive_recall_scope` in `crates/core/src/handlers/system.rs` (after PR #193 merges to `master`).
-- **A/B harness:** `scripts/recall_ab/`.
+The kernel change + harness plumbing have landed (§6.1); the remaining work is the A/B run and the default flip:
+
+- **Flip point:** `from_metadata`'s `PerUser` branch / the `recall_per_user_channel_axis` default in `config.rs` — flip only after the gate passes, then remove the flag.
+- **A/B run:** deploy the same build twice (arm A flag off, arm B `CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true`); author a multi-channel corpus and run `scripts/recall_ab/` with `--channel-id` / per-entry `channel_id` (see its README "Cross-channel (knob2 v2) A/B").
 - **Context:** CPersona memory `goal120-knob2-v1-pr193-20260627`; this doc; an earlier decision.
