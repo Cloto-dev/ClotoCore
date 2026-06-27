@@ -311,6 +311,20 @@ All development within this system must adhere to the following nine design prin
 **"Even if it dies, it resurrects and keeps moving forward."**
 - **Design guideline**: External runtimes (AI Containers) must not only be physically isolated from the Kernel but also possess the ability to autonomously reset and recover upon anomalies.
 
+### Operating Core Minimalism: When Kernel Extension Is Justified
+
+§1.1 is a guardrail, not a wall (§1.6). It biases toward a minimal kernel and pushing functionality into plugins, but it does not forbid kernel extension outright — periodically a concern genuinely belongs in the kernel rather than a plugin. A change earns a place in the kernel when it satisfies these five tests; the more it satisfies, the stronger the case:
+
+1. **Cross-cutting reach** — the concern applies uniformly across multiple plugins, all agents, or multiple backends, so the kernel is the only natural convergence point. Distributing it across plugins would duplicate it or let independent copies drift out of sync. (§1.3)
+2. **Binding to kernel-owned machinery** — it is inseparable from data or a lifecycle the kernel already owns (e.g. `SessionManager` / the short-term transcript, the event bus, persistence). Deriving that data is the owner's responsibility. (§1.1 kernel responsibilities)
+3. **Format-agnostic abstraction** — *this is the boundary line.* §1.1 forbids hard-coding *a specific plugin's internal format*. A capability-level, generic intent may live in the kernel; a plugin's implementation detail may not. The kernel may hold the abstraction; the plugin keeps the interpretation.
+4. **Universality and stability** — a stable, universal abstraction is worth lifting into the kernel; a fluid experiment stays in a plugin until it settles. (§1.6)
+5. **Replacement cost** — if distributing the concern across plugins produces duplication, wiring complexity, or incoherence, kernel consolidation wins on simplicity. (§1.1 goal)
+
+**The boundary line (test 3) in practice.** The kernel may resolve an opaque `metadata` setting and derive a generic, capability-level value from it; it must not encode how a specific plugin interprets that value. The canonical pattern is `engine_routing`: the routing plugin owns the schema, and the kernel only forwards the opaque metadata and consumes the result (`EngineSelection`). Equivalently, the kernel may resolve an agent's *session scope* into a generic `(session_key, source-identity)` pair and hand it to the Memory capability — while *how* a memory plugin interprets that identity (for example, a prefix match over stored sources) stays inside the plugin.
+
+When a change fails these tests — it is one plugin's concern, it depends on a plugin's internal format, or it is still experimental — keep it in the plugin.
+
 ---
 
 ## 2. Security and Governance Framework
