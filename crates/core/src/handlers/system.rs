@@ -96,6 +96,7 @@ pub fn compose_rejection_final_response(rejections: &[(String, ToolRejection)]) 
 use super::command_approval::{self, PendingApprovals, SessionTrustedCommands};
 // bug-293 (§1.4): engine_routing schema is owned by the in-tree routing plugin,
 // not the kernel. The handler forwards opaque metadata and consumes EngineSelection.
+use crate::managers::session_manager::SessionTier;
 use crate::plugins::routing_default::{
     evaluate_engine_routing, is_retriable_error, needs_escalation, EngineSelection,
 };
@@ -108,6 +109,65 @@ use crate::plugins::routing_default::{
 enum HandleOutcome {
     Executed,
     Skipped(String),
+}
+
+/// Per-agent recall timing policy (knob 1, an earlier decision). Selects *when* the
+/// kernel issues a long-term memory recall, gating it on the session tier so a
+/// redundant plugin call is skipped whenever the kernel-owned short-term
+/// transcript (T1) already covers the context.
+///
+/// The tier stands in for "does T1 hold short-term history": `tier == Cold`
+/// means the session is not resident — brand-new, or evicted after the Warm TTL
+/// — so there is nothing to fall back on. The T1 merge downstream runs
+/// unconditionally, so a skipped recall still surfaces any in-flight history.
+///
+/// The default ([`RecallPolicy::Always`], used for absent or unrecognized
+/// metadata) reproduces the historical every-message recall exactly, so adding
+/// this knob changes no agent's behavior until one opts in. Flipping the
+/// recommended default to `session_start+active` is a separate, A/B-gated
+/// decision, kept out of this purely additive change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecallPolicy {
+    /// Recall on every message (historical behavior).
+    Always,
+    /// Recall on session start and on re-engagement after the hot window
+    /// (`tier != HotActive`); skip only back-to-back turns inside a hot burst,
+    /// where T1 already carries the immediately preceding turns.
+    SessionStartActive,
+    /// Recall only when the session has no resident transcript (`tier == Cold`):
+    /// once at the start of a session, then rely on T1 until it is evicted.
+    SessionStart,
+    /// Never recall automatically; an explicit `force_recall` override still wins.
+    ManualOnly,
+}
+
+impl RecallPolicy {
+    /// Parse the `recall_policy` agent-metadata value. Absent or unrecognized
+    /// falls back to [`RecallPolicy::Always`] (behavior-preserving default).
+    fn from_metadata(value: Option<&String>) -> Self {
+        match value.map(String::as_str) {
+            Some("session_start+active") => Self::SessionStartActive,
+            Some("session_start") => Self::SessionStart,
+            Some("manual_only") => Self::ManualOnly,
+            // "always", absent, or any unrecognized value → historical default.
+            _ => Self::Always,
+        }
+    }
+
+    /// Whether to issue a long-term recall for a message whose session sits at
+    /// `tier`. `force` (the message's `force_recall` flag) overrides every
+    /// policy, including `ManualOnly`.
+    fn should_recall(self, tier: SessionTier, force: bool) -> bool {
+        if force {
+            return true;
+        }
+        match self {
+            Self::Always => true,
+            Self::SessionStartActive => tier != SessionTier::HotActive,
+            Self::SessionStart => tier == SessionTier::Cold,
+            Self::ManualOnly => false,
+        }
+    }
 }
 
 pub struct SystemHandler {
@@ -439,7 +499,27 @@ impl SystemHandler {
             None
         };
 
-        let context = if let Some(ref plugin) = memory_plugin {
+        // knob1 (an earlier decision): per-agent recall timing policy. Gate the long-term
+        // recall on the session tier so any policy other than `always` skips the
+        // plugin call when T1 already covers the context. `force_recall` (set by
+        // a bridge / UI / cron) overrides the policy, including `manual_only`.
+        // The T1 merge further below runs unconditionally, so a skipped recall
+        // still surfaces in-flight short-term history.
+        let recall_policy = RecallPolicy::from_metadata(agent.metadata.get("recall_policy"));
+        let force_recall = msg
+            .metadata
+            .get("force_recall")
+            .is_some_and(|v| v == "true");
+        let recall_tier = self.session_manager.tier_of(&session_key);
+        let context = if !recall_policy.should_recall(recall_tier, force_recall) {
+            tracing::debug!(
+                agent_id = %agent.id,
+                ?recall_policy,
+                ?recall_tier,
+                "⏭️  Long-term recall skipped by recall_policy"
+            );
+            vec![]
+        } else if let Some(ref plugin) = memory_plugin {
             if let Some(mem) = plugin.as_memory() {
                 // 🔐 Check MemoryRead permission before recall
                 let manifest = plugin.manifest();
@@ -3160,5 +3240,96 @@ mod phase_c_rejection_helpers_tests {
         ]);
         // Dedup + sorted by BTreeSet.
         assert!(text.contains("mgp.access.grant, mgp.access.query"));
+    }
+}
+
+#[cfg(test)]
+mod recall_policy_tests {
+    //! knob1 (an earlier decision) recall-timing gate. Covers metadata parsing (with the
+    //! behavior-preserving `always` default) and the per-tier `should_recall`
+    //! truth table, including the `force_recall` override.
+    use super::{RecallPolicy, SessionTier};
+
+    fn policy(s: &str) -> RecallPolicy {
+        RecallPolicy::from_metadata(Some(&s.to_string()))
+    }
+
+    #[test]
+    fn from_metadata_parses_known_values() {
+        assert_eq!(policy("always"), RecallPolicy::Always);
+        assert_eq!(
+            policy("session_start+active"),
+            RecallPolicy::SessionStartActive
+        );
+        assert_eq!(policy("session_start"), RecallPolicy::SessionStart);
+        assert_eq!(policy("manual_only"), RecallPolicy::ManualOnly);
+    }
+
+    #[test]
+    fn from_metadata_defaults_to_always() {
+        // Absent metadata and unrecognized values both preserve the historical
+        // every-message recall — adding the knob must not change any default.
+        assert_eq!(RecallPolicy::from_metadata(None), RecallPolicy::Always);
+        assert_eq!(policy(""), RecallPolicy::Always);
+        assert_eq!(policy("garbage"), RecallPolicy::Always);
+        assert_eq!(policy("Session_Start"), RecallPolicy::Always); // case-sensitive
+    }
+
+    #[test]
+    fn always_recalls_in_every_tier() {
+        for tier in [
+            SessionTier::HotActive,
+            SessionTier::HotStashed,
+            SessionTier::Warm,
+            SessionTier::Cold,
+        ] {
+            assert!(RecallPolicy::Always.should_recall(tier, false));
+        }
+    }
+
+    #[test]
+    fn session_start_active_skips_only_hot_active_bursts() {
+        let p = RecallPolicy::SessionStartActive;
+        assert!(!p.should_recall(SessionTier::HotActive, false)); // back-to-back burst
+        assert!(p.should_recall(SessionTier::HotStashed, false)); // re-engagement
+        assert!(p.should_recall(SessionTier::Warm, false));
+        assert!(p.should_recall(SessionTier::Cold, false)); // new / evicted
+    }
+
+    #[test]
+    fn session_start_recalls_only_when_cold() {
+        let p = RecallPolicy::SessionStart;
+        assert!(p.should_recall(SessionTier::Cold, false)); // no resident T1
+        assert!(!p.should_recall(SessionTier::Warm, false));
+        assert!(!p.should_recall(SessionTier::HotStashed, false));
+        assert!(!p.should_recall(SessionTier::HotActive, false));
+    }
+
+    #[test]
+    fn manual_only_never_recalls_without_force() {
+        let p = RecallPolicy::ManualOnly;
+        for tier in [
+            SessionTier::HotActive,
+            SessionTier::HotStashed,
+            SessionTier::Warm,
+            SessionTier::Cold,
+        ] {
+            assert!(!p.should_recall(tier, false));
+        }
+    }
+
+    #[test]
+    fn force_recall_overrides_every_policy() {
+        // The `force_recall` message flag wins over every policy, including the
+        // ones that would otherwise skip — the trigger for `manual_only`.
+        for p in [
+            RecallPolicy::Always,
+            RecallPolicy::SessionStartActive,
+            RecallPolicy::SessionStart,
+            RecallPolicy::ManualOnly,
+        ] {
+            assert!(p.should_recall(SessionTier::HotActive, true));
+            assert!(p.should_recall(SessionTier::Cold, true));
+        }
     }
 }
