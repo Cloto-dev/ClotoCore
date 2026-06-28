@@ -624,7 +624,7 @@ pub async fn get_mcp_server_settings(
         sqlx::query_as::<_, McpServerRecord>(
             "SELECT name, command, args, env, transport, directory, display_name, auto_restart, \
              script_content, description, default_policy, marketplace_id, installed_version, \
-             trust_level, is_active, created_at, updated_at \
+             trust_level, seal, is_active, created_at, updated_at \
              FROM mcp_servers WHERE name = ?",
         )
         .bind(name)
@@ -738,4 +738,61 @@ pub async fn update_marketplace_server_version(
 /// Delegates to delete_mcp_server (which handles access control cleanup).
 pub async fn delete_marketplace_server(pool: &SqlitePool, name: &str) -> anyhow::Result<()> {
     delete_mcp_server(pool, name).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_record(name: &str, seal: Option<String>) -> McpServerRecord {
+        McpServerRecord {
+            name: name.to_string(),
+            command: "python".to_string(),
+            args: "[\"server.py\"]".to_string(),
+            env: "{}".to_string(),
+            transport: "stdio".to_string(),
+            directory: None,
+            display_name: None,
+            auto_restart: true,
+            script_content: None,
+            description: None,
+            default_policy: "opt-in".to_string(),
+            marketplace_id: None,
+            installed_version: None,
+            trust_level: Some("standard".to_string()),
+            seal,
+            is_active: true,
+            created_at: 0,
+            updated_at: None,
+        }
+    }
+
+    /// Regression for the "Failed to get server settings: Internal Server Error"
+    /// 500: the get_mcp_server_settings SELECT omitted the `seal` column while
+    /// McpServerRecord declares it, so sqlx FromRow failed with ColumnNotFound
+    /// for every server. Both seal=Some and seal=NULL must decode.
+    #[tokio::test]
+    async fn get_mcp_server_settings_selects_seal_column() {
+        let state = crate::test_utils::create_test_app_state(None).await;
+        let pool = &state.pool;
+
+        save_mcp_server(pool, &sample_record("sealed", Some("sha256:deadbeef".to_string())))
+            .await
+            .unwrap();
+        save_mcp_server(pool, &sample_record("unsealed", None))
+            .await
+            .unwrap();
+
+        let sealed = get_mcp_server_settings(pool, "sealed")
+            .await
+            .expect("settings query must not error")
+            .expect("server row must exist");
+        assert_eq!(sealed.seal.as_deref(), Some("sha256:deadbeef"));
+
+        let unsealed = get_mcp_server_settings(pool, "unsealed")
+            .await
+            .expect("settings query must not error (seal NULL)")
+            .expect("server row must exist");
+        assert_eq!(unsealed.seal, None);
+    }
 }

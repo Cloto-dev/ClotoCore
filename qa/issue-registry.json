@@ -3022,6 +3022,20 @@
       "github_issue": null,
       "fix_note": "run_agentic_loop engine resolver now tries exact MCP server match first, then falls back to the `mind.`-stripped id (e.g. mind.deepseek -> deepseek) and rebinds engine_id to the actual server name so every downstream call_kind_at/has_kind_at targets the right server. This binds connectors that the ClotoHub catalog renamed by dropping the `mind.` namespace prefix. Pattern repointed to the fallback check (has_server(stripped)) as a regression guard: its absence now signals the alias fallback was removed.",
       "fixed_in": "0.6.8-beta.1"
+    },
+    {
+      "id": "bug-397",
+      "summary": "HIGH: GET /api/mcp/servers/:name/settings returns 500 'Internal Server Error' for every MCP server. db::get_mcp_server_settings's SELECT omitted the `seal` column (added by migration 20260508000000_add_mcp_server_seal) while McpServerRecord declares `seal: Option<String>`, so sqlx FromRow fails with ColumnNotFound and the handler maps it to AppError::Internal (HTTP 500). The sibling query load_active_mcp_servers selects seal correctly — this query was missed when the column was introduced, so the server-list and config panel render (list endpoint) while the settings tab shows 'Failed to get server settings: Internal Server Error'. Surfaced 2026-06-29 on cpersona (running, 27 tools) but affects all servers regardless of seal value.",
+      "severity": "HIGH",
+      "discovered": "2026-06-29T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "commit": "5281e90",
+      "file": "crates/core/src/db/mcp.rs",
+      "pattern": "get_mcp_server_settings_selects_seal_column",
+      "expected": "present",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "Added `seal` to the get_mcp_server_settings SELECT column list to match McpServerRecord and the sibling load_active_mcp_servers query. Guarded by the db::mcp::tests::get_mcp_server_settings_selects_seal_column regression test (covers seal=Some and seal=NULL decode); the pattern pins that test name."
     }
   ]
 }
