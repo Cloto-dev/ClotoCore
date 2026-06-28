@@ -1553,22 +1553,32 @@ impl SystemHandler {
         trace_id: ClotoId,
         session_key: &crate::managers::session_manager::SessionKey,
     ) -> anyhow::Result<String> {
-        // Engine Resolver: try Rust plugin first, then fall back to MCP server
+        // Engine Resolver: try Rust plugin first, then fall back to MCP server.
+        // The agent's default_engine_id may carry the legacy `mind.` namespace
+        // prefix (e.g. `mind.deepseek`) while the ClotoHub catalog registers the
+        // connector under the de-prefixed id (`deepseek`). Resolve both forms so
+        // a renamed connector still binds, and rebind `engine_id` to the actual
+        // server name so every downstream MCP call targets the right server.
+        // (bug-396)
         let engine_plugin = self.registry.get_engine(engine_id).await;
-        let mcp_engine = if engine_plugin.is_none() {
-            // Check if an MCP server with this engine ID exists
-            if let Some(ref mcp) = self.registry.mcp_manager {
+        let (mcp_engine, engine_id): (Option<Arc<McpClientManager>>, &str) =
+            if engine_plugin.is_some() {
+                (None, engine_id)
+            } else if let Some(ref mcp) = self.registry.mcp_manager {
                 if mcp.has_server(engine_id).await {
-                    Some(mcp.clone())
+                    (Some(mcp.clone()), engine_id)
+                } else if let Some(stripped) = engine_id.strip_prefix("mind.") {
+                    if mcp.has_server(stripped).await {
+                        (Some(mcp.clone()), stripped)
+                    } else {
+                        (None, engine_id)
+                    }
                 } else {
-                    None
+                    (None, engine_id)
                 }
             } else {
-                None
-            }
-        } else {
-            None
-        };
+                (None, engine_id)
+            };
 
         if engine_plugin.is_none() && mcp_engine.is_none() {
             return Err(anyhow::anyhow!("Engine '{}' not found", engine_id));

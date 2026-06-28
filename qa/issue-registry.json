@@ -1524,7 +1524,8 @@
       "file": "crates/core/src/handlers/system.rs",
       "pattern": "\\.get\\(\"preferred_memory\"\\)",
       "expected": "present",
-      "status": "open"
+      "status": "obsolete",
+      "fix_note": "Re-triaged 2026-06-29: superseded by the 0.6.6 memory-decouple design reversal. The 2026-03-10 audit (an earlier decision) flagged the kernel reading/owning preferred_memory as a §1 violation, but the modern design (config.rs:158-171, marketplace.rs:1569-1605) deliberately makes agent.metadata.preferred_memory the single source of truth for per-agent memory selection (kernel reads it as capability discovery, user/marketplace owns the value). Kernel reading preferred_memory in handlers::system::recall is now the intended mechanism, not a violation."
     },
     {
       "id": "bug-278",
@@ -1610,7 +1611,8 @@
       "file": "crates/core/src/managers/registry.rs",
       "pattern": "fn find_memory",
       "expected": "present",
-      "status": "open"
+      "status": "obsolete",
+      "fix_note": "Re-triaged 2026-06-29: superseded by the 0.6.6 memory-decouple design reversal. The 2026-03-10 audit (an earlier decision) flagged the kernel reading/owning preferred_memory as a §1 violation, but the modern design (config.rs:158-171, marketplace.rs:1569-1605) deliberately makes agent.metadata.preferred_memory the single source of truth for per-agent memory selection (kernel reads it as capability discovery, user/marketplace owns the value). registry.find_memory() is documented (config.rs:162) as part of the modern capability-discovery fallback chain; it harmlessly returns None when no Rust memory plugin is registered (the common case) and MCP CapabilityType::Memory takes over. Not a coupling bug."
     },
     {
       "id": "bug-285",
@@ -1662,8 +1664,10 @@
       "commit": "8c09a10",
       "file": "crates/core/src/handlers/agents.rs",
       "pattern": "\"delete_agent_data\"",
-      "expected": "present",
-      "status": "open"
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "Pattern-C (an earlier decision): replaced the hard-coded \"delete_agent_data\" literal in delete_agent (handlers/agents.rs) with ToolKind::DeleteAgentData via call_kind_at. Added new ToolKind::DeleteAgentData variant (Memory capability) in capability_dispatcher.rs (name/capability/from_name). Sibling of bug-289/bug-290 (H2-10 in ARCHITECTURE_COMPLIANCE_AUDIT)."
     },
     {
       "id": "bug-289",
@@ -1752,7 +1756,8 @@
       "file": "crates/core/migrations/20260309200000_fix_agent_metadata_ks22.sql",
       "pattern": "preferred_memory.*memory\\.cpersona",
       "expected": "present",
-      "status": "open"
+      "status": "obsolete",
+      "fix_note": "Re-triaged 2026-06-29: superseded by the 0.6.6 memory-decouple design reversal. The 2026-03-10 audit (an earlier decision) flagged the kernel reading/owning preferred_memory as a §1 violation, but the modern design (config.rs:158-171, marketplace.rs:1569-1605) deliberately makes agent.metadata.preferred_memory the single source of truth for per-agent memory selection (kernel reads it as capability discovery, user/marketplace owns the value). This was a one-time, sqlx-checksum-immutable migration that fixed the ks22->cpersona rename. The modern equivalent (marketplace.rs bind_default_memory_if_unset + the idempotent unset-only backfill migration) is the accepted pattern; the historical migration cannot and should not be rewritten."
     },
     {
       "id": "bug-296",
@@ -2738,7 +2743,8 @@
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "to_string_lossy",
       "expected": "present",
-      "status": "open"
+      "status": "wontfix",
+      "fix_note": "Re-triaged 2026-06-29 (wontfix): most to_string_lossy() calls in marketplace.rs are necessary because the spawn command is persisted as a String (MgpServerConfig.command / mcp_servers.command DB column), so PathBuf cannot replace them. The remaining Command::new roundtrips are behavior-neutral micro-optimizations, and the registry pattern (to_string_lossy, 27 matches) cannot be driven absent. Not worth the churn for a LOW cosmetic item."
     },
     {
       "id": "bug-377",
@@ -3010,11 +3016,40 @@
       "version": "0.6.8-beta.1",
       "commit": "742519c",
       "file": "crates/core/src/handlers/system.rs",
-      "pattern": "if mcp\\.has_server\\(engine_id\\)\\.await",
+      "pattern": "mcp\\.has_server\\(stripped\\)\\.await",
       "expected": "present",
-      "status": "open",
+      "status": "fixed",
       "github_issue": null,
-      "fix_note": "Open — three fix options to decide: (a) catalog-side: restore the connector id to 'mind.deepseek' in the ClotoHub catalog (clotohub-web) so installs register the mind.* name agents already reference, matching the mind.local convention; (b) data-side: change agents' default_engine_id from 'mind.deepseek' to 'deepseek' (diverges from the mind.* convention and re-breaks if other mind.* connectors are renamed); (c) kernel-side: make engine resolution tolerant — when has_server(engine_id) misses and engine_id starts with 'mind.', retry with the bare suffix (and vice versa), bridging the catalog/agent naming gap centrally. Design-principles review (ARCHITECTURE.md §1.2 Capability over Concrete Type — 'do not branch logic by directly referencing plugin IDs or names'): (c) makes the kernel branch on the 'mind.' name convention, so it is in TENSION with §1.2 and is NOT preferred despite being the in-repo locus this entry's file/pattern anchor to. The principle-compliant fixes are data-side: prefer (a) catalog id, else (b) agent config. Interim A/B workaround only: agent.cpersona_bench.default_engine_id set to 'deepseek' directly in cloto_memories.db. See docs/RECALL_CONTAMINATION_AB_2026-06-14.md §5."
+      "fix_note": "run_agentic_loop engine resolver now tries exact MCP server match first, then falls back to the `mind.`-stripped id (e.g. mind.deepseek -> deepseek) and rebinds engine_id to the actual server name so every downstream call_kind_at/has_kind_at targets the right server. This binds connectors that the ClotoHub catalog renamed by dropping the `mind.` namespace prefix. Pattern repointed to the fallback check (has_server(stripped)) as a regression guard: its absence now signals the alias fallback was removed.",
+      "fixed_in": "0.6.8-beta.1"
+    },
+    {
+      "id": "bug-397",
+      "summary": "HIGH: GET /api/mcp/servers/:name/settings returns 500 'Internal Server Error' for every MCP server. db::get_mcp_server_settings's SELECT omitted the `seal` column (added by migration 20260508000000_add_mcp_server_seal) while McpServerRecord declares `seal: Option<String>`, so sqlx FromRow fails with ColumnNotFound and the handler maps it to AppError::Internal (HTTP 500). The sibling query load_active_mcp_servers selects seal correctly — this query was missed when the column was introduced, so the server-list and config panel render (list endpoint) while the settings tab shows 'Failed to get server settings: Internal Server Error'. Surfaced 2026-06-29 on cpersona (running, 27 tools) but affects all servers regardless of seal value.",
+      "severity": "HIGH",
+      "discovered": "2026-06-29T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "commit": "5281e90",
+      "file": "crates/core/src/db/mcp.rs",
+      "pattern": "get_mcp_server_settings_selects_seal_column",
+      "expected": "present",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "Added `seal` to the get_mcp_server_settings SELECT column list to match McpServerRecord and the sibling load_active_mcp_servers query. Guarded by the db::mcp::tests::get_mcp_server_settings_selects_seal_column regression test (covers seal=Some and seal=NULL decode); the pattern pins that test name."
+    },
+    {
+      "id": "bug-398",
+      "summary": "MEDIUM: interpreter-launched MCP servers were spawned without verifying the entry-point script exists, so a stale/missing entry-point failed opaquely. When a server's recorded args path goes stale (observed on cscheduler/terminal/websearch, whose rows carried a doubled install path mcp-servers/servers/<name>/servers/<name>/server.py from a past server-side catalog directory bug, with the files no longer on disk), the kernel ran `python <missing>/server.py`; python exits immediately and the failure surfaced only as 'error, 0 tools' in the dashboard with no indication of the cause. Robustness fix for an earlier decision; the root install-path doubling was a clotohub-servers catalog issue (directory field = 'servers/<name>') since corrected to flat names.",
+      "severity": "MEDIUM",
+      "discovered": "2026-06-29T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "commit": "d009eb7",
+      "file": "crates/core/src/managers/mcp_transport.rs",
+      "pattern": "validate_entry_point_exists",
+      "expected": "present",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "Added validate_entry_point_exists() called in StdioTransport::start before spawn: resolves the entry-point via resolve_sealable_entry_point and, only for absolute paths, bails with 'entry-point not found — reinstall this server from the marketplace' when it is missing. Skips `python -m module` (bare module name) and relative scripts (cwd-dependent) to avoid false negatives; also covers missing Rust binaries. Guarded by 4 unit tests (managers::mcp_transport::tests::entry_point_*)."
     }
   ]
 }

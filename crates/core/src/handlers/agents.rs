@@ -336,7 +336,11 @@ pub async fn delete_agent(
         let args = serde_json::json!({ "agent_id": id });
         match state
             .mcp_manager
-            .call_server_tool(mem_server, "delete_agent_data", args)
+            .call_kind_at(
+                mem_server,
+                &crate::managers::ToolKind::DeleteAgentData,
+                args,
+            )
             .await
         {
             Ok(result) => {
