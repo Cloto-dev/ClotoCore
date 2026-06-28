@@ -59,13 +59,14 @@ impl FromStr for CapabilityType {
 /// that don't fit a well-known capability (e.g. `get_profile` at single use sites).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ToolKind {
-    // Memory (6)
+    // Memory (7)
     Store,
     Recall,
     ListMemories,
     ListEpisodes,
     ArchiveEpisode,
     UpdateProfile,
+    DeleteAgentData,
     // Reasoning (2)
     Think,
     ThinkWithTools,
@@ -92,6 +93,7 @@ impl ToolKind {
             ToolKind::ListEpisodes => "list_episodes",
             ToolKind::ArchiveEpisode => "archive_episode",
             ToolKind::UpdateProfile => "update_profile",
+            ToolKind::DeleteAgentData => "delete_agent_data",
             ToolKind::Think => "think",
             ToolKind::ThinkWithTools => "think_with_tools",
             ToolKind::AnalyzeImage => "analyze_image",
@@ -111,7 +113,8 @@ impl ToolKind {
             | ToolKind::ListMemories
             | ToolKind::ListEpisodes
             | ToolKind::ArchiveEpisode
-            | ToolKind::UpdateProfile => Some(CapabilityType::Memory),
+            | ToolKind::UpdateProfile
+            | ToolKind::DeleteAgentData => Some(CapabilityType::Memory),
             ToolKind::Think | ToolKind::ThinkWithTools => Some(CapabilityType::Reasoning),
             ToolKind::AnalyzeImage => Some(CapabilityType::Vision),
             ToolKind::Transcribe => Some(CapabilityType::Stt),
@@ -131,6 +134,7 @@ impl ToolKind {
             "list_episodes" => ToolKind::ListEpisodes,
             "archive_episode" => ToolKind::ArchiveEpisode,
             "update_profile" => ToolKind::UpdateProfile,
+            "delete_agent_data" => ToolKind::DeleteAgentData,
             "think" => ToolKind::Think,
             "think_with_tools" => ToolKind::ThinkWithTools,
             "analyze_image" => ToolKind::AnalyzeImage,
