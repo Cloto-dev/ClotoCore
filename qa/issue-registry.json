@@ -3035,7 +3035,8 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "Added `seal` to the get_mcp_server_settings SELECT column list to match McpServerRecord and the sibling load_active_mcp_servers query. Guarded by the db::mcp::tests::get_mcp_server_settings_selects_seal_column regression test (covers seal=Some and seal=NULL decode); the pattern pins that test name."
+      "fix_note": "Added `seal` to the get_mcp_server_settings SELECT column list to match McpServerRecord and the sibling load_active_mcp_servers query. Guarded by the db::mcp::tests::get_mcp_server_settings_selects_seal_column regression test (covers seal=Some and seal=NULL decode); the pattern pins that test name.",
+      "github_issue": 205
     },
     {
       "id": "bug-398",
@@ -3049,7 +3050,8 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "Added validate_entry_point_exists() called in StdioTransport::start before spawn: resolves the entry-point via resolve_sealable_entry_point and, only for absolute paths, bails with 'entry-point not found — reinstall this server from the marketplace' when it is missing. Skips `python -m module` (bare module name) and relative scripts (cwd-dependent) to avoid false negatives; also covers missing Rust binaries. Guarded by 4 unit tests (managers::mcp_transport::tests::entry_point_*)."
+      "fix_note": "Added validate_entry_point_exists() called in StdioTransport::start before spawn: resolves the entry-point via resolve_sealable_entry_point and, only for absolute paths, bails with 'entry-point not found — reinstall this server from the marketplace' when it is missing. Skips `python -m module` (bare module name) and relative scripts (cwd-dependent) to avoid false negatives; also covers missing Rust binaries. Guarded by 4 unit tests (managers::mcp_transport::tests::entry_point_*).",
+      "github_issue": 206
     }
   ]
 }
