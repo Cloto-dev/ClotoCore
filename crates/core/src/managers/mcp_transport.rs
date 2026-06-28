@@ -135,6 +135,29 @@ pub fn validate_command(command: &str) -> Result<String> {
     Ok(command.to_string())
 }
 
+/// Pre-spawn validation: reject a stale or incomplete install whose entry-point
+/// file no longer exists on disk, so the server fails with a clear, actionable
+/// error instead of an opaque interpreter / spawn failure (e.g. python printing
+/// "can't open file '…server.py'" then exiting, surfaced only as "error, 0
+/// tools"). This guards against a recorded entry-point that has gone stale —
+/// e.g. a past marketplace install-path bug, or a removed install directory.
+///
+/// Only **absolute** paths are checked: a module invocation (`python -m
+/// module`) resolves to a bare module name, and a relative script depends on the
+/// child's working directory — neither is a filesystem path we can verify here,
+/// so both are skipped to avoid false negatives.
+fn validate_entry_point_exists(command: &str, args: &[String]) -> Result<()> {
+    let entry = crate::managers::mcp::resolve_sealable_entry_point(command, args);
+    if entry.is_absolute() && !entry.exists() {
+        bail!(
+            "MCP server entry-point not found: {} — the install is stale or \
+             incomplete. Reinstall this server from the marketplace.",
+            entry.display()
+        );
+    }
+    Ok(())
+}
+
 pub struct StdioTransport {
     child: Child,
     request_tx: mpsc::Sender<String>,
@@ -228,6 +251,10 @@ impl StdioTransport {
         } else {
             validate_command(command).context("Command validation failed")?
         };
+
+        // Fail fast with a clear message if the entry-point script/binary is
+        // missing, instead of letting the interpreter exit opaquely.
+        validate_entry_point_exists(&final_command, args)?;
 
         let mut cmd = Command::new(&final_command);
         cmd.args(args)
@@ -714,5 +741,53 @@ mod tests {
     #[test]
     fn test_resolve_env_value_missing() {
         assert_eq!(resolve_env_value("${NONEXISTENT_CLOTO_VAR_12345}"), "");
+    }
+
+    // ── validate_entry_point_exists (bug-398 / Task #105 robustness) ──
+
+    #[test]
+    fn entry_point_missing_absolute_script_is_rejected() {
+        // The doubled-path install bug left rows like
+        // …/mcp-servers/servers/cscheduler/servers/cscheduler/server.py that no
+        // longer exist on disk; this must be caught before spawn. Build the path
+        // from the crate dir so it is platform-absolute (a Unix-style `/…` path
+        // is not absolute on Windows and would be skipped).
+        let missing = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("definitely_not_here")
+            .join("servers")
+            .join("x")
+            .join("server.py");
+        let args = vec![missing.to_string_lossy().to_string()];
+        let err = validate_entry_point_exists("python", &args)
+            .expect_err("a missing absolute entry-point must be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("entry-point not found"), "got: {msg}");
+        assert!(
+            msg.contains("Reinstall"),
+            "message should be actionable: {msg}"
+        );
+    }
+
+    #[test]
+    fn entry_point_existing_absolute_script_is_accepted() {
+        // A real file (this crate's Cargo.toml) standing in for a present
+        // entry-point: an interpreter invocation pointing at it must pass.
+        let existing = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml").to_string();
+        assert!(validate_entry_point_exists("python", &[existing]).is_ok());
+    }
+
+    #[test]
+    fn entry_point_module_invocation_is_skipped() {
+        // `python -m cpersona` (PyPI install) resolves to the bare module name
+        // "cpersona", which is not a filesystem path — must not be rejected.
+        let args = vec!["-m".to_string(), "cpersona".to_string()];
+        assert!(validate_entry_point_exists("python", &args).is_ok());
+    }
+
+    #[test]
+    fn entry_point_relative_script_is_skipped() {
+        // Relative scripts depend on the child cwd; not checkable here.
+        let args = vec!["server.py".to_string()];
+        assert!(validate_entry_point_exists("python", &args).is_ok());
     }
 }
