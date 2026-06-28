@@ -3052,6 +3052,20 @@
       "fixed_in": "0.6.8-beta.1",
       "fix_note": "Added validate_entry_point_exists() called in StdioTransport::start before spawn: resolves the entry-point via resolve_sealable_entry_point and, only for absolute paths, bails with 'entry-point not found — reinstall this server from the marketplace' when it is missing. Skips `python -m module` (bare module name) and relative scripts (cwd-dependent) to avoid false negatives; also covers missing Rust binaries. Guarded by 4 unit tests (managers::mcp_transport::tests::entry_point_*).",
       "github_issue": 206
+    },
+    {
+      "id": "bug-399",
+      "summary": "HIGH: marketplace install writes a DOUBLED on-disk path for monorepo connectors, so the server fails to launch. effective_install_dir returned the catalog `directory` verbatim, and the install/extract/register/uninstall sites join it with the source `subdir`. When the (hub-served) catalog `directory` carries the monorepo-relative path 'servers/<name>' AND `subdir` is the same 'servers/<name>', target_dir = mcp-servers/servers/<name> and server_path = target_dir/servers/<name> → entry-point mcp-servers/servers/<name>/servers/<name>/server.py, which does not exist → 'error, 0 tools'. Reproduced after a reinstall on 2026-06-29 (cscheduler/terminal/deepseek error; websearch only worked because its files happened to land at the doubled path). The local cloto-mcp-servers/registry.json already has the flat directory ('websearch' etc.), so the deployed hub catalog is stale — but the kernel should not double regardless. Continuation of Task #105 / bug-398 (which only clarified the resulting error).",
+      "severity": "HIGH",
+      "discovered": "2026-06-29T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "commit": "9d311a3",
+      "file": "crates/core/src/handlers/marketplace.rs",
+      "pattern": "effective_install_dir_collapses_monorepo_relative_directory",
+      "expected": "present",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "effective_install_dir now collapses a multi-segment value to its final path component (trim slashes + rsplit on '/'\\\\'), so a malformed catalog directory='servers/<name>' becomes the flat install dir '<name>'; target_dir/subdir then stays single-nested (mcp-servers/<name>/servers/<name>/server.py, matching a nested git clone). Well-formed flat directories and dotted ids (memory.cpersona) are unchanged; all three lock-step sites (extract/register/uninstall) use this fn so they stay consistent. Upstream follow-up: republish the hub catalog from the corrected registry.json. Guarded by effective_install_dir_collapses_monorepo_relative_directory."
     }
   ]
 }
