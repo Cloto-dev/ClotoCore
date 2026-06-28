@@ -3000,44 +3000,71 @@ impl SystemHandler {
             return;
         }
 
-        // 4. Archive
-        let history: Vec<serde_json::Value> = unarchived
-            .iter()
-            .map(|m| {
-                serde_json::json!({
-                    "content": m.get("content"),
-                    "source": m.get("source"),
-                    "timestamp": m.get("timestamp"),
-                })
-            })
-            .collect();
-
-        // Pre-compute summary, keywords, resolved via CFR engine (mind server)
-        let formatted = Self::format_history_for_llm(&history);
+        // 4. Group unarchived memories by channel and archive one episode per
+        //    channel (knob2 v2 per-channel archival): each episode is filed
+        //    under the channel its memories belong to, so per-channel recall
+        //    surfaces the right episodes. The archival cursor (last episode
+        //    time) is global, and every channel present in this window is
+        //    archived in the same event, so no channel's memories are stranded
+        //    behind an advancing cursor. The user profile is agent-level and is
+        //    updated once afterwards across all archived channels.
         let think_timeout = Duration::from_secs(AGENTIC_THINK_TIMEOUT_SECS);
 
-        let summary = tokio::time::timeout(
-            think_timeout,
-            Self::call_engine_think_simple(
-                mcp,
-                engine_id,
-                &format!(
-                    "Summarize the following conversation concisely (800-1200 characters).\n\
-                     Preserve proper nouns, dates, decisions, and key technical details.\n\n{}",
-                    formatted
-                ),
-                "You are a conversation summarizer.",
-            ),
-        )
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+        let mut by_channel: std::collections::BTreeMap<String, Vec<&serde_json::Value>> =
+            std::collections::BTreeMap::new();
+        for m in &unarchived {
+            let ch = m
+                .get("channel")
+                .and_then(|c| c.as_str())
+                .unwrap_or("")
+                .to_string();
+            by_channel.entry(ch).or_default().push(m);
+        }
 
-        let keywords = if summary.is_empty() {
-            String::new()
-        } else {
-            tokio::time::timeout(
+        let mut archived_any = false;
+        for (channel, group) in &by_channel {
+            let history: Vec<serde_json::Value> = group
+                .iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "content": m.get("content"),
+                        "source": m.get("source"),
+                        "timestamp": m.get("timestamp"),
+                    })
+                })
+                .collect();
+
+            // Pre-compute summary, keywords, resolved via CFR engine (mind server)
+            let formatted = Self::format_history_for_llm(&history);
+
+            let summary = tokio::time::timeout(
+                think_timeout,
+                Self::call_engine_think_simple(
+                    mcp,
+                    engine_id,
+                    &format!(
+                        "Summarize the following conversation concisely (800-1200 characters).\n\
+                         Preserve proper nouns, dates, decisions, and key technical details.\n\n{}",
+                        formatted
+                    ),
+                    "You are a conversation summarizer.",
+                ),
+            )
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+
+            if summary.is_empty() {
+                warn!(
+                    agent_id = %agent_id,
+                    channel = %channel,
+                    "⚠️ Episode summary empty — channel skipped"
+                );
+                continue;
+            }
+
+            let keywords = tokio::time::timeout(
                 think_timeout,
                 Self::call_engine_think_simple(
                     mcp,
@@ -3053,13 +3080,9 @@ impl SystemHandler {
             .await
             .ok()
             .flatten()
-            .unwrap_or_default()
-        };
+            .unwrap_or_default();
 
-        let resolved = if summary.is_empty() {
-            None
-        } else {
-            tokio::time::timeout(
+            let resolved = tokio::time::timeout(
                 think_timeout,
                 Self::call_engine_think_simple(
                     mcp,
@@ -3075,97 +3098,125 @@ impl SystemHandler {
             .await
             .ok()
             .flatten()
-            .map(|r| r.trim().to_lowercase() == "true")
-        };
+            .map(|r| r.trim().to_lowercase() == "true");
 
-        // Archive episode with pre-computed values
-        let mut archive_args = serde_json::json!({
-            "agent_id": agent_id,
-            "history": history,
-            "summary": summary,
-            "keywords": keywords,
-        });
-        if let Some(r) = resolved {
-            archive_args["resolved"] = serde_json::json!(r);
-        }
+            // Archive episode with pre-computed values, filed under this channel
+            // (omitted when empty so CPersona stores '' = global / unscoped).
+            let mut archive_args = serde_json::json!({
+                "agent_id": agent_id,
+                "history": history,
+                "summary": summary,
+                "keywords": keywords,
+            });
+            if !channel.is_empty() {
+                archive_args["channel"] = serde_json::json!(channel);
+            }
+            if let Some(r) = resolved {
+                archive_args["resolved"] = serde_json::json!(r);
+            }
 
-        match mcp
-            .call_kind_at(
-                server_id,
-                &crate::managers::ToolKind::ArchiveEpisode,
-                archive_args,
-            )
-            .await
-        {
-            Ok(_) => {
-                info!(
-                    agent_id = %agent_id,
-                    message_count = unarchived.len(),
-                    "📚 Auto-archived episode"
-                );
-
-                // Pre-compute profile update via CFR engine
-                let existing_profile = mcp
-                    .call_kind_at(
-                        server_id,
-                        &crate::managers::ToolKind::Custom("get_profile".to_string()),
-                        serde_json::json!({"agent_id": agent_id}),
-                    )
-                    .await
-                    .ok()
-                    .and_then(|r| Self::extract_tool_json(&r))
-                    .and_then(|j| j.get("profile")?.as_str().map(String::from))
-                    .unwrap_or_default();
-
-                let new_profile = tokio::time::timeout(
-                    think_timeout,
-                    Self::call_engine_think_simple(
-                        mcp,
-                        engine_id,
-                        &format!(
-                            "Extract facts about the user from the following conversation.\n\
-                             Output a concise profile in bullet-point format.\n\
-                             MERGE with existing facts — keep all existing information \
-                             unless explicitly contradicted.\n\n\
-                             Existing profile:\n{}\n\n\
-                             Conversation:\n{}",
-                            if existing_profile.is_empty() {
-                                "(none)".to_string()
-                            } else {
-                                existing_profile
-                            },
-                            formatted
-                        ),
-                        "You are a memory extraction assistant.",
-                    ),
+            match mcp
+                .call_kind_at(
+                    server_id,
+                    &crate::managers::ToolKind::ArchiveEpisode,
+                    archive_args,
                 )
                 .await
-                .ok()
-                .flatten();
-
-                if let Some(profile) = new_profile {
-                    match mcp
-                        .call_kind_at(
-                            server_id,
-                            &crate::managers::ToolKind::UpdateProfile,
-                            serde_json::json!({"agent_id": agent_id, "profile": profile}),
-                        )
-                        .await
-                    {
-                        Ok(_) => {
-                            info!(agent_id = %agent_id, "📝 Auto-updated user profile");
-                        }
-                        Err(e) => {
-                            warn!(agent_id = %agent_id, error = %e, "⚠️ Profile update failed");
-                        }
-                    }
-                } else {
-                    warn!(agent_id = %agent_id, "⚠️ Profile extraction via engine failed — skipped");
+            {
+                Ok(_) => {
+                    archived_any = true;
+                    info!(
+                        agent_id = %agent_id,
+                        channel = %channel,
+                        message_count = group.len(),
+                        "📚 Auto-archived episode"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        agent_id = %agent_id,
+                        channel = %channel,
+                        error = %e,
+                        "⚠️ Episode archival failed"
+                    );
                 }
             }
-            Err(e) => {
-                warn!(agent_id = %agent_id, error = %e, "⚠️ Episode archival failed");
+        }
+
+        // 5. Update the user profile once across all archived channels (the
+        //    profile is agent-level, not per-channel).
+        if !archived_any {
+            return;
+        }
+
+        let all_history: Vec<serde_json::Value> = unarchived
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "content": m.get("content"),
+                    "source": m.get("source"),
+                    "timestamp": m.get("timestamp"),
+                })
+            })
+            .collect();
+        let formatted = Self::format_history_for_llm(&all_history);
+
+        let existing_profile = mcp
+            .call_kind_at(
+                server_id,
+                &crate::managers::ToolKind::Custom("get_profile".to_string()),
+                serde_json::json!({"agent_id": agent_id}),
+            )
+            .await
+            .ok()
+            .and_then(|r| Self::extract_tool_json(&r))
+            .and_then(|j| j.get("profile")?.as_str().map(String::from))
+            .unwrap_or_default();
+
+        let new_profile = tokio::time::timeout(
+            think_timeout,
+            Self::call_engine_think_simple(
+                mcp,
+                engine_id,
+                &format!(
+                    "Extract facts about the user from the following conversation.\n\
+                     Output a concise profile in bullet-point format.\n\
+                     MERGE with existing facts — keep all existing information \
+                     unless explicitly contradicted.\n\n\
+                     Existing profile:\n{}\n\n\
+                     Conversation:\n{}",
+                    if existing_profile.is_empty() {
+                        "(none)".to_string()
+                    } else {
+                        existing_profile
+                    },
+                    formatted
+                ),
+                "You are a memory extraction assistant.",
+            ),
+        )
+        .await
+        .ok()
+        .flatten();
+
+        if let Some(profile) = new_profile {
+            match mcp
+                .call_kind_at(
+                    server_id,
+                    &crate::managers::ToolKind::UpdateProfile,
+                    serde_json::json!({"agent_id": agent_id, "profile": profile}),
+                )
+                .await
+            {
+                Ok(_) => {
+                    info!(agent_id = %agent_id, "📝 Auto-updated user profile");
+                }
+                Err(e) => {
+                    warn!(agent_id = %agent_id, error = %e, "⚠️ Profile update failed");
+                }
             }
+        } else {
+            warn!(agent_id = %agent_id, "⚠️ Profile extraction via engine failed — skipped");
         }
     }
 
