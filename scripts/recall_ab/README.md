@@ -101,6 +101,12 @@ path, set `--channel discord` and/or configure the test agent's
 
 ## Cross-channel (knob2 v2) A/B
 
+> **Historical (2026-06-28):** this A/B has run and the default flipped — the
+> `CLOTO_RECALL_PERUSER_CHANNEL_AXIS` flag below is **removed** from the kernel,
+> so arm A / arm B can no longer be toggled on one build. This section is kept as
+> the record of how the gate was validated; see
+> `docs/RECALL_SESSION_SCOPE_V2_DESIGN.md` §8 for the outcome.
+
 The default topic-drift experiment above is single-channel. The knob2 v2 change
 (`docs/RECALL_SESSION_SCOPE_V2_DESIGN.md`) only diverges when the **same user is
 active across several concrete channels**, so it needs a multi-channel corpus and
