@@ -749,15 +749,23 @@ mod tests {
     fn entry_point_missing_absolute_script_is_rejected() {
         // The doubled-path install bug left rows like
         // …/mcp-servers/servers/cscheduler/servers/cscheduler/server.py that no
-        // longer exist on disk; this must be caught before spawn.
-        let args = vec![
-            "/definitely/not/here/servers/x/servers/x/server.py".to_string(),
-        ];
+        // longer exist on disk; this must be caught before spawn. Build the path
+        // from the crate dir so it is platform-absolute (a Unix-style `/…` path
+        // is not absolute on Windows and would be skipped).
+        let missing = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("definitely_not_here")
+            .join("servers")
+            .join("x")
+            .join("server.py");
+        let args = vec![missing.to_string_lossy().to_string()];
         let err = validate_entry_point_exists("python", &args)
             .expect_err("a missing absolute entry-point must be rejected");
         let msg = err.to_string();
         assert!(msg.contains("entry-point not found"), "got: {msg}");
-        assert!(msg.contains("Reinstall"), "message should be actionable: {msg}");
+        assert!(
+            msg.contains("Reinstall"),
+            "message should be actionable: {msg}"
+        );
     }
 
     #[test]

@@ -776,9 +776,12 @@ mod tests {
         let state = crate::test_utils::create_test_app_state(None).await;
         let pool = &state.pool;
 
-        save_mcp_server(pool, &sample_record("sealed", Some("sha256:deadbeef".to_string())))
-            .await
-            .unwrap();
+        save_mcp_server(
+            pool,
+            &sample_record("sealed", Some("sha256:deadbeef".to_string())),
+        )
+        .await
+        .unwrap();
         save_mcp_server(pool, &sample_record("unsealed", None))
             .await
             .unwrap();
