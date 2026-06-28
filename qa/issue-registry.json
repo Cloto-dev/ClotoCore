@@ -3036,6 +3036,20 @@
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
       "fix_note": "Added `seal` to the get_mcp_server_settings SELECT column list to match McpServerRecord and the sibling load_active_mcp_servers query. Guarded by the db::mcp::tests::get_mcp_server_settings_selects_seal_column regression test (covers seal=Some and seal=NULL decode); the pattern pins that test name."
+    },
+    {
+      "id": "bug-398",
+      "summary": "MEDIUM: interpreter-launched MCP servers were spawned without verifying the entry-point script exists, so a stale/missing entry-point failed opaquely. When a server's recorded args path goes stale (observed on cscheduler/terminal/websearch, whose rows carried a doubled install path mcp-servers/servers/<name>/servers/<name>/server.py from a past server-side catalog directory bug, with the files no longer on disk), the kernel ran `python <missing>/server.py`; python exits immediately and the failure surfaced only as 'error, 0 tools' in the dashboard with no indication of the cause. Robustness fix for Task #105; the root install-path doubling was a clotohub-servers catalog issue (directory field = 'servers/<name>') since corrected to flat names.",
+      "severity": "MEDIUM",
+      "discovered": "2026-06-29T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "commit": "d009eb7",
+      "file": "crates/core/src/managers/mcp_transport.rs",
+      "pattern": "validate_entry_point_exists",
+      "expected": "present",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "Added validate_entry_point_exists() called in StdioTransport::start before spawn: resolves the entry-point via resolve_sealable_entry_point and, only for absolute paths, bails with 'entry-point not found — reinstall this server from the marketplace' when it is missing. Skips `python -m module` (bare module name) and relative scripts (cwd-dependent) to avoid false negatives; also covers missing Rust binaries. Guarded by 4 unit tests (managers::mcp_transport::tests::entry_point_*)."
     }
   ]
 }
