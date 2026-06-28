@@ -199,6 +199,22 @@ not a substitute for human judgement on borderline cases. The raw responses are
 not stored by default; add a dump if you want manual re-grading, or wire an
 LLM judge that scores each response against the rubric for higher fidelity.
 
+**Known false-positive blind spot (`F*` probes).** A `false_positive` query
+scores against the *entire* `memory_topics` list (`classify()` line ~228), which
+includes everyday cooking words (パン / クロワッサン / ケーキ / 発酵 / オーブン …),
+not just the cross-channel electronics terms. `elaborated` also trips on a single
+`?` / `？` (line ~238). Because the probe runs as one accumulating session with
+`F11`/`F12` last — right after the cooking conversation — a perfectly coherent
+reply such as "週末はパンでも焼いてみては？" hits `パン` + `？` and is graded
+**severe**. This is a measurement artifact, not memory contamination: it is
+channel-axis-independent (both arms score `F12` 3/3 severe), whereas genuine
+cross-channel drift is captured by the `X*`/`W*` probes via electronics-only
+vocabulary (0/9 on the per-channel arm). The historical "~23% severe baseline"
+was produced by the same classifier and likely carried this artifact, so treat
+it as an upper bound. To tighten: drop everyday words from `memory_topics` for
+`false_positive` probes, require an electronics-specific hit, or make the `?`
+elaboration test stricter — or replace the heuristic with an LLM judge.
+
 ## Cost
 
 One LLM call per turn: ~19 (seed, once) + 14 × `trials` per arm. At `trials=3`
