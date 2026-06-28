@@ -132,15 +132,6 @@ pub struct AppConfig {
     /// preserve the non-streaming path; flip to true with
     /// `CLOTO_MCP_STREAMING_ENABLED=true`.
     pub mcp_streaming_enabled: bool,
-    /// knob2 v2 A/B gate (an earlier decision). When enabled, the `PerUser` session scope
-    /// scopes its long-term episode `channel` axis to the concrete channel id
-    /// instead of the bridge type, giving per-channel episode separation without
-    /// opting into `channel` / `thread` scope. Off by default to preserve v1
-    /// behavior byte-for-byte (arm A); deploy with
-    /// `CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true` for arm B during the A/B window.
-    /// The hardcoded default flips only after validation
-    /// (`docs/RECALL_SESSION_SCOPE_V2_DESIGN.md`).
-    pub recall_per_user_channel_axis: bool,
     /// MCP health check interval in seconds.
     pub mcp_health_interval_secs: u64,
     /// LLM proxy HTTP client timeout in seconds.
@@ -459,9 +450,6 @@ impl AppConfig {
         let mcp_streaming_enabled = env::var("CLOTO_MCP_STREAMING_ENABLED")
             .is_ok_and(|v| matches!(v.as_str(), "true" | "1" | "yes" | "on"));
 
-        let recall_per_user_channel_axis = env::var("CLOTO_RECALL_PERUSER_CHANNEL_AXIS")
-            .is_ok_and(|v| matches!(v.as_str(), "true" | "1" | "yes" | "on"));
-
         let mcp_health_interval_secs = env::var("CLOTO_MCP_HEALTH_INTERVAL_SECS")
             .unwrap_or_else(|_| "10".to_string())
             .parse::<u64>()
@@ -657,7 +645,6 @@ impl AppConfig {
             mcp_request_timeout_secs,
             mcp_stream_idle_timeout_secs,
             mcp_streaming_enabled,
-            recall_per_user_channel_axis,
             mcp_health_interval_secs,
             llm_proxy_timeout_secs,
             rate_limit_per_sec,
