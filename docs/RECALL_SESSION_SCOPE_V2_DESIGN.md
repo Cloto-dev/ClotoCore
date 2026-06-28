@@ -1,8 +1,11 @@
 # Recall Session Scope — v2 Design (channel-axis default unification)
 
-**Status:** Deferred design, for next-session pickup. A/B-gated **default change** — not an additive knob. Follows knob 2 v1 (per-agent `session_scope`, ClotoCore PR #193) under Goal #120.
-
-This document is self-contained: it is the entry point for implementing v2 in a later session.
+**Status:** **Landed.** The A/B passed (2026-06-28) and the default flipped — the
+`PerUser` episode channel axis now files under the concrete channel for every
+agent, and the `CLOTO_RECALL_PERUSER_CHANNEL_AXIS` gate flag has been removed.
+This document is kept as the design record; the "deferred / gated" framing below
+describes the path taken. Follows knob 2 v1 (per-agent `session_scope`, ClotoCore
+PR #193) under Goal #120.
 
 ## 1. Background — what knob 2 v1 landed (PR #193)
 
@@ -46,9 +49,14 @@ Per-channel episode separation reduces cross-channel topic-drift **contamination
 - During the A/B window, gate the change behind a flag (env or per-deployment) so A and B can be compared on the same build before flipping the hardcoded default.
 - Tests: update the `per_user_preserves_historical_scoping` unit test to reflect the new channel axis once the default flips; no new derivation surface.
 
-### 6.1 What landed (kernel + harness plumbing) — flip still pending
+### 6.1 What landed (kernel + harness plumbing) — flip DONE
 
-The gated change is implemented; **the hardcoded default has NOT flipped** — it is opt-in via env during the A/B window:
+The gate flag (`CLOTO_RECALL_PERUSER_CHANNEL_AXIS`) below was used for the A/B
+window and is **now removed**: the default flipped (2026-06-28) so the `PerUser`
+episode channel axis files under the concrete channel for every agent. The
+channel axis is now scope-independent (every scope files per concrete channel,
+bridge-type fallback); the scope only differentiates the `source_id` axis. The
+description below is the historical gated state:
 
 - **Flag:** `CLOTO_RECALL_PERUSER_CHANNEL_AXIS` (`config.rs` → `Config.recall_per_user_channel_axis` → `SystemHandler`, same wiring as `CLOTO_MCP_STREAMING_ENABLED`). Off by default. Accepts `true`/`1`/`yes`/`on`.
 - **Kernel:** `derive_recall_scope` takes `per_user_channel_axis: bool`. Arm A (flag off) reproduces v1 byte-for-byte; arm B (flag on) scopes the `PerUser` episode channel axis to `external_channel_id` (with `base_channel` fallback), keeping per-user `source_id`. `Channel` / `Thread` are unaffected. Unit tests cover both arms (`per_user_preserves_historical_scoping` = arm A, `per_user_channel_axis_scopes_episode_to_concrete_channel` + `..._falls_back_to_base_channel_without_concrete_id` = arm B).
@@ -95,10 +103,11 @@ channel. The invariant is locked by `derive_channel_matches_recall_channel_for_e
 - **Channel-vs-Thread parent rollup** — folding a thread into its parent channel under `Channel` scope needs the bridge to forward `parent_channel_id` (currently inside `thread_info`, not forwarded to the kernel). Independent of v2; until it lands, `Channel` and `Thread` coincide.
 - v2 is **only** the long-term channel-axis default.
 
-## 8. Next-session entry point
+## 8. Outcome
 
-The kernel change + harness plumbing have landed (§6.1); the remaining work is the A/B run and the default flip:
+The line is **complete**:
 
-- **Flip point:** `from_metadata`'s `PerUser` branch / the `recall_per_user_channel_axis` default in `config.rs` — flip only after the gate passes, then remove the flag.
-- **A/B run:** deploy the same build twice (arm A flag off, arm B `CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true`); author a multi-channel corpus and run `scripts/recall_ab/` with `--channel-id` / per-entry `channel_id` (see its README "Cross-channel (knob2 v2) A/B").
-- **Context:** CPersona memory `goal120-knob2-v1-pr193-20260627`; this doc; Goal #120.
+- **A/B (2026-06-28):** arm A (flag off) severe 22.2% → arm B (flag on) 11.1%, cross-channel electronics-vocab leak in the `X*` magnet probes eliminated, on-topic recall non-regressed, timeouts 0/0. Gate (contamination drop, no recall-quality regression) **passed**.
+- **Flip:** the `PerUser` default now files the episode channel axis under `external_channel_id` (bridge-type fallback) for every agent; the `CLOTO_RECALL_PERUSER_CHANNEL_AXIS` flag, `Config.recall_per_user_channel_axis`, and the `derive_recall_scope` / `derive_channel` flag parameter are removed.
+- **Companion CPersona changes (v2.4.31):** `''`=global recall (a stored channel of `''` matches every channel-scoped recall, so old/global memories are not orphaned), per-channel episode archival (kernel `maybe_archive_episode`), `migrate_channel_axis` tool, and `list_memories` returning `channel`.
+- **Context:** Goal #120; CPersona memory `goal120-knob2-v1-pr193-20260627`; this doc.

@@ -212,30 +212,23 @@ impl SessionScope {
     /// id and the bridge-type channel); `channel_id` is the concrete external
     /// channel id when the bridge provides one.
     ///
-    /// v1 (additive): `PerUser` reproduces the historical scoping exactly.
-    /// `Channel` / `Thread` clear `source_id` (channel-shared long-term) and
-    /// scope the episode axis to the concrete channel id. Rolling a thread up
+    /// Every scope files episodes under the concrete channel (knob2 v2, Goal
+    /// #120 — the default flipped to per-channel after A/B validation; see
+    /// `docs/RECALL_SESSION_SCOPE_V2_DESIGN.md`), so the `channel` axis is
+    /// scope-independent. The scopes differ only on the `source_id` axis:
+    /// `PerUser` keeps the per-user id, `Channel` / `Thread` clear it to share
+    /// long-term memory across the whole concrete channel. (Rolling a thread up
     /// into its parent channel under `Channel` needs the bridge to forward
-    /// `parent_channel_id`; until that later slice lands the two coincide. When
-    /// no concrete channel id is available, fall back to `base_channel`.
-    ///
-    /// v2 (A/B-gated default change): when `per_user_channel_axis` is set, the
-    /// `PerUser` default *also* scopes its episode `channel` axis to the
-    /// concrete `channel_id` (with `base_channel` fallback) instead of the
-    /// bridge type, giving per-channel episode separation without opting into
-    /// `Channel` / `Thread`. `source_id` stays per-user. The flag is off by
-    /// default — arm A reproduces v1 byte-for-byte, arm B (flag on) is the
-    /// candidate default. The hardcoded default flips only after A/B validation
-    /// (see `docs/RECALL_SESSION_SCOPE_V2_DESIGN.md`). `Channel` / `Thread` are
-    /// unaffected by the flag.
+    /// `parent_channel_id`; until that later slice lands the two coincide.) When
+    /// no concrete channel id is available, the channel falls back to
+    /// `base_channel`.
     fn derive_recall_scope(
         self,
         base_source_id: String,
         base_channel: String,
         channel_id: Option<&String>,
-        per_user_channel_axis: bool,
     ) -> (String, String) {
-        let channel = self.derive_channel(base_channel, channel_id, per_user_channel_axis);
+        let channel = Self::derive_channel(base_channel, channel_id);
         let source_id = match self {
             // PerUser keeps the per-user axis; Channel / Thread clear it to
             // share long-term memory across the whole concrete channel.
@@ -246,31 +239,16 @@ impl SessionScope {
     }
 
     /// The episode `channel` axis a memory is **filed under** (store / archive)
-    /// and **recalled by** — derived from the same scope so the write and read
-    /// sides can never disagree. `recall` historically called
-    /// [`Self::derive_recall_scope`] while the store/archive paths hard-coded
-    /// the bridge type (`external_source`); that asymmetry meant `Channel` /
-    /// `Thread` (and `PerUser` under the v2 flag) recalled a concrete channel
-    /// while episodes were filed under `"discord"`, so the exact-match channel
-    /// filter in CPersona returned nothing. Routing both sides through this
-    /// helper fixes it. `PerUser` with the flag off returns `base_channel`
-    /// (the bridge type), i.e. byte-for-byte the historical default.
-    fn derive_channel(
-        self,
-        base_channel: String,
-        channel_id: Option<&String>,
-        per_user_channel_axis: bool,
-    ) -> String {
-        match self {
-            Self::PerUser => {
-                if per_user_channel_axis {
-                    channel_id.cloned().unwrap_or(base_channel)
-                } else {
-                    base_channel
-                }
-            }
-            Self::Channel | Self::Thread => channel_id.cloned().unwrap_or(base_channel),
-        }
+    /// and **recalled by** — the concrete external channel id when the bridge
+    /// provides one, else the bridge-type fallback (`base_channel`). Both the
+    /// store/archive and recall paths derive the channel through this single
+    /// helper so they can never disagree (CPersona's channel filter is an exact
+    /// match, so a store/recall mismatch silently empties recall). The channel
+    /// is scope-independent since the knob2 v2 flip — every scope files per
+    /// concrete channel; the scope only affects the `source_id` axis (see
+    /// [`Self::derive_recall_scope`]).
+    fn derive_channel(base_channel: String, channel_id: Option<&String>) -> String {
+        channel_id.cloned().unwrap_or(base_channel)
     }
 }
 
@@ -304,13 +282,6 @@ pub struct SystemHandler {
     /// calls through `call_tool_streaming` and emits `AgentTokenStream`
     /// events. Controlled by `CLOTO_MCP_STREAMING_ENABLED`.
     mcp_streaming_enabled: bool,
-    /// knob2 v2 A/B gate (Goal #120). When true the `PerUser` session scope
-    /// scopes its long-term episode `channel` axis to the concrete channel id
-    /// instead of the bridge type — per-channel separation without opting into
-    /// `Channel` / `Thread`. Off by default (behavior-preserving v1); the
-    /// hardcoded default flips only after A/B validation. Controlled by
-    /// `CLOTO_RECALL_PERUSER_CHANNEL_AXIS`.
-    recall_per_user_channel_axis: bool,
     /// In-memory per-`(agent_id, bridge_session_id)` conversation state
     /// (T1, v0.6.3+). Wired via [`Self::set_session_manager`] from `AppState`.
     /// Defaults to an orphan store so tests don't need to construct one; the
@@ -337,7 +308,6 @@ impl SystemHandler {
         active_cron_contexts: crate::ActiveCronContexts,
         memory_timeout_secs: u64,
         mcp_streaming_enabled: bool,
-        recall_per_user_channel_axis: bool,
     ) -> Self {
         Self {
             registry,
@@ -358,7 +328,6 @@ impl SystemHandler {
             memory_timeout_secs,
             probe_cache: crate::managers::provider_probe::ProbeCache::new(),
             mcp_streaming_enabled,
-            recall_per_user_channel_axis,
             session_manager: Arc::new(crate::managers::session_manager::SessionManager::new()),
         }
     }
@@ -696,16 +665,16 @@ impl SystemHandler {
 
             // knob2 (Goal #120): per-agent session scope drives the two long-term
             // recall axes (CPersona source_id + channel) from one declarative
-            // setting, so they stay coherent. Default PerUser reproduces the
-            // historical scoping; channel / thread share long-term memory across
-            // the concrete channel. The short-term session_key (bridge-owned)
-            // is scoped in a later slice.
+            // setting, so they stay coherent. Every scope files episodes per
+            // concrete channel; the default PerUser keeps the per-user source_id
+            // while channel / thread share long-term memory across the whole
+            // channel. The short-term session_key (bridge-owned) is scoped in a
+            // later slice.
             let session_scope = SessionScope::from_metadata(agent.metadata.get("session_scope"));
             let (recall_source_id, memory_channel) = session_scope.derive_recall_scope(
                 base_source_id,
                 base_channel,
                 msg.metadata.get("external_channel_id"),
-                self.recall_per_user_channel_axis,
             );
 
             let mcp_recall_payload = serde_json::json!({
@@ -1107,19 +1076,17 @@ impl SystemHandler {
                         let server_id_clone = server_id.clone();
                         let agent_id_clone = agent.id.clone();
                         // Same derived channel as the user-message store, so the
-                        // agent's reply is filed alongside it. Default PerUser
-                        // (flag off) → the bridge type, i.e. unchanged.
-                        let resp_session_scope =
-                            SessionScope::from_metadata(agent.metadata.get("session_scope"));
+                        // agent's reply is filed alongside it (the concrete
+                        // channel, bridge-type fallback). Channel is
+                        // scope-independent, so the scope is not needed here.
                         let resp_base_channel = msg
                             .metadata
                             .get("external_source")
                             .cloned()
                             .unwrap_or_else(|| "chat".into());
-                        let resp_channel = resp_session_scope.derive_channel(
+                        let resp_channel = SessionScope::derive_channel(
                             resp_base_channel,
                             msg.metadata.get("external_channel_id"),
-                            self.recall_per_user_channel_axis,
                         );
                         let resp_session_id = msg
                             .metadata
@@ -1496,19 +1463,17 @@ impl SystemHandler {
             let agent_id = agent.id.clone();
             let metrics = self.metrics.clone();
             // File the memory under the SAME channel axis recall will query
-            // (derive_channel), so store and recall never disagree. Default
-            // PerUser (flag off) → the bridge type, i.e. unchanged.
-            let store_session_scope =
-                SessionScope::from_metadata(agent.metadata.get("session_scope"));
+            // (derive_channel), so store and recall never disagree. The channel
+            // is the concrete external channel (bridge-type fallback) for every
+            // scope, so the scope is not needed here.
             let base_store_channel = msg
                 .metadata
                 .get("external_source")
                 .cloned()
                 .unwrap_or_else(|| "chat".into());
-            let store_channel = store_session_scope.derive_channel(
+            let store_channel = SessionScope::derive_channel(
                 base_store_channel,
                 msg.metadata.get("external_channel_id"),
-                self.recall_per_user_channel_axis,
             );
             let store_session_id = msg
                 .metadata
@@ -3535,8 +3500,10 @@ mod recall_policy_tests {
 #[cfg(test)]
 mod session_scope_tests {
     //! knob2 (Goal #120) session scope. Covers metadata parsing (with the
-    //! behavior-preserving `per_user` default) and the v1 (source_id, channel)
-    //! long-term recall derivation for each scope.
+    //! `per_user` default) and the (source_id, channel) long-term recall
+    //! derivation for each scope after the v2 flip — every scope files episodes
+    //! under the concrete channel; the scope only differentiates the source_id
+    //! axis (PerUser per-user, Channel / Thread channel-shared).
     use super::SessionScope;
 
     fn scope(s: &str) -> SessionScope {
@@ -3561,138 +3528,92 @@ mod session_scope_tests {
     }
 
     #[test]
-    fn per_user_preserves_historical_scoping() {
-        // PerUser with the v2 flag OFF (arm A) returns the base values verbatim
-        // — the concrete channel id is ignored, so behavior is byte-for-byte
-        // the pre-knob2 recall scoping.
-        let cid = "discord-channel-42".to_string();
-        let (source_id, channel) = SessionScope::PerUser.derive_recall_scope(
-            "discord:user-7".to_string(),
-            "discord".to_string(),
-            Some(&cid),
-            false,
-        );
-        assert_eq!(source_id, "discord:user-7");
-        assert_eq!(channel, "discord");
-    }
-
-    #[test]
-    fn per_user_channel_axis_scopes_episode_to_concrete_channel() {
-        // knob2 v2 (arm B): with the flag ON, PerUser keeps the per-user
-        // source_id but scopes the episode channel axis to the concrete channel
-        // id instead of the bridge type — per-channel separation without opting
+    fn per_user_files_under_concrete_channel_keeping_per_user_source() {
+        // After the v2 flip the default PerUser scope keeps the per-user
+        // source_id but files the episode channel axis under the concrete
+        // channel, not the bridge type — per-channel separation without opting
         // into Channel / Thread.
         let cid = "discord-channel-42".to_string();
         let (source_id, channel) = SessionScope::PerUser.derive_recall_scope(
             "discord:user-7".to_string(),
             "discord".to_string(),
             Some(&cid),
-            true,
         );
         // source_id stays per-user (unlike Channel / Thread, which clear it).
         assert_eq!(source_id, "discord:user-7");
-        // episode axis now the concrete channel, not the bridge type.
+        // episode axis is the concrete channel, not the bridge type.
         assert_eq!(channel, "discord-channel-42");
     }
 
     #[test]
-    fn per_user_channel_axis_falls_back_to_base_channel_without_concrete_id() {
-        // Arm B with no concrete channel id (non-bridge source) falls back to
-        // the base channel rather than emptying it, keeping source_id per-user.
+    fn per_user_falls_back_to_base_channel_without_concrete_id() {
+        // No concrete channel id (non-bridge source) falls back to the base
+        // channel rather than emptying it, keeping source_id per-user.
         let (source_id, channel) = SessionScope::PerUser.derive_recall_scope(
             "discord:user-7".to_string(),
             "chat".to_string(),
             None,
-            true,
         );
         assert_eq!(source_id, "discord:user-7");
         assert_eq!(channel, "chat");
     }
 
     #[test]
-    fn derive_channel_matches_recall_channel_for_every_scope_and_flag() {
+    fn derive_channel_matches_recall_channel_for_every_scope() {
         // The store/archive side must file a memory under the exact channel
         // recall will query, or CPersona's exact-match channel filter returns
-        // nothing. Guard the invariant across all scopes × flag states.
+        // nothing. Guard the invariant across all scopes.
         let cid = "discord-channel-42".to_string();
         for sc in [
             SessionScope::PerUser,
             SessionScope::Channel,
             SessionScope::Thread,
         ] {
-            for flag in [false, true] {
-                for channel_id in [Some(&cid), None] {
-                    let (_, recall_channel) = sc.derive_recall_scope(
-                        "discord:user-7".to_string(),
-                        "discord".to_string(),
-                        channel_id,
-                        flag,
-                    );
-                    let store_channel = sc.derive_channel("discord".to_string(), channel_id, flag);
-                    assert_eq!(
-                        store_channel, recall_channel,
-                        "store/recall channel disagree for scope={sc:?} flag={flag} cid={channel_id:?}"
-                    );
-                }
+            for channel_id in [Some(&cid), None] {
+                let (_, recall_channel) = sc.derive_recall_scope(
+                    "discord:user-7".to_string(),
+                    "discord".to_string(),
+                    channel_id,
+                );
+                let store_channel = SessionScope::derive_channel("discord".to_string(), channel_id);
+                assert_eq!(
+                    store_channel, recall_channel,
+                    "store/recall channel disagree for scope={sc:?} cid={channel_id:?}"
+                );
             }
         }
     }
 
     #[test]
-    fn derive_channel_per_user_flag_off_preserves_bridge_type() {
-        // Default (PerUser, flag off) files under the bridge type — byte-for-byte
-        // the historical store channel, so arm A is unchanged.
+    fn derive_channel_uses_concrete_channel_with_bridge_fallback() {
+        // The channel is scope-independent: the concrete channel id when the
+        // bridge provides one, else the bridge-type fallback.
         let cid = "discord-channel-42".to_string();
         assert_eq!(
-            SessionScope::PerUser.derive_channel("discord".to_string(), Some(&cid), false),
+            SessionScope::derive_channel("discord".to_string(), Some(&cid)),
+            "discord-channel-42"
+        );
+        assert_eq!(
+            SessionScope::derive_channel("discord".to_string(), None),
             "discord"
         );
     }
 
     #[test]
-    fn derive_channel_per_user_flag_on_scopes_to_concrete_channel() {
-        // Arm B (flag on) files under the concrete channel, so a recall scoped
-        // to that channel actually finds the memory (per-channel separation).
-        let cid = "discord-channel-42".to_string();
-        assert_eq!(
-            SessionScope::PerUser.derive_channel("discord".to_string(), Some(&cid), true),
-            "discord-channel-42"
-        );
-    }
-
-    #[test]
-    fn derive_channel_channel_thread_file_under_concrete_channel() {
-        // Channel / Thread file under the concrete channel regardless of the
-        // v2 flag — this is the latent v1 fix (store previously hard-coded the
-        // bridge type while recall used the concrete channel → empty recall).
-        let cid = "discord-channel-42".to_string();
-        for sc in [SessionScope::Channel, SessionScope::Thread] {
-            for flag in [false, true] {
-                assert_eq!(
-                    sc.derive_channel("discord".to_string(), Some(&cid), flag),
-                    "discord-channel-42"
-                );
-            }
-        }
-    }
-
-    #[test]
     fn channel_and_thread_share_long_term_over_concrete_channel() {
-        // Channel / Thread are unaffected by the v2 flag (tested both ways).
+        // Channel / Thread clear source_id (whole-channel shared long-term) and
+        // file under the concrete channel.
         let cid = "discord-channel-42".to_string();
         for sc in [SessionScope::Channel, SessionScope::Thread] {
-            for per_user_channel_axis in [false, true] {
-                let (source_id, channel) = sc.derive_recall_scope(
-                    "discord:user-7".to_string(),
-                    "discord".to_string(),
-                    Some(&cid),
-                    per_user_channel_axis,
-                );
-                // source_id cleared = whole-channel shared long-term memory.
-                assert_eq!(source_id, "");
-                // episode axis scoped to the concrete channel, not the bridge type.
-                assert_eq!(channel, "discord-channel-42");
-            }
+            let (source_id, channel) = sc.derive_recall_scope(
+                "discord:user-7".to_string(),
+                "discord".to_string(),
+                Some(&cid),
+            );
+            // source_id cleared = whole-channel shared long-term memory.
+            assert_eq!(source_id, "");
+            // episode axis scoped to the concrete channel, not the bridge type.
+            assert_eq!(channel, "discord-channel-42");
         }
     }
 
@@ -3704,7 +3625,6 @@ mod session_scope_tests {
             "discord:user-7".to_string(),
             "chat".to_string(),
             None,
-            false,
         );
         assert_eq!(source_id, "");
         assert_eq!(channel, "chat");
