@@ -3256,7 +3256,8 @@
       "pattern": "\"agent_id\": \"\", \"limit\": 100",
       "expected": "absent",
       "status": "fixed",
-      "notes": "Fixed by per-agent scoping. Backend: get_memories/get_episodes read an agent_id query param and pass it to list_memories/list_episodes (empty = global 'All' view). Frontend: api.getMemories/getEpisodes take an agentId and append ?agent_id=; MemoryCore.fetchData scopes the fetch to selectedAgent and re-fetches on change, and agentTabs is derived from the global getAgents() list (unioned with agent_ids in the data) so scoping no longer collapses the filter tabs."
+      "notes": "Fixed by per-agent scoping. Backend: get_memories/get_episodes read an agent_id query param and pass it to list_memories/list_episodes (empty = global 'All' view). Frontend: api.getMemories/getEpisodes take an agentId and append ?agent_id=; MemoryCore.fetchData scopes the fetch to selectedAgent and re-fetches on change, and agentTabs is derived from the global getAgents() list (unioned with agent_ids in the data) so scoping no longer collapses the filter tabs.",
+      "github_issue": 226
     }
   ]
 }
