@@ -611,6 +611,14 @@ impl HttpTransport {
     }
 }
 
+/// Maximum bytes buffered for a single SSE line before a terminating newline.
+///
+/// bug-410: a server that streams a large `text/event-stream` body without any
+/// newline would otherwise grow the assembly buffer without bound → memory
+/// exhaustion. An unbroken run past this limit is treated as a protocol
+/// violation and aborts the stream.
+const MAX_SSE_LINE_BYTES: usize = 1024 * 1024; // 1 MiB
+
 /// Parse an SSE (Server-Sent Events) stream, forwarding `data:` lines to the channel.
 async fn parse_sse_stream(
     response: reqwest::Response,
@@ -624,20 +632,38 @@ async fn parse_sse_stream(
         let chunk = chunk.context("SSE stream chunk error")?;
         buffer.extend_from_slice(&chunk);
 
-        // Process complete lines from the buffer
-        while let Some(newline_pos) = buffer.iter().position(|&b| b == b'\n') {
-            let line_bytes = buffer[..newline_pos].to_vec();
-            buffer = buffer[newline_pos + 1..].to_vec();
-
-            let line = String::from_utf8_lossy(&line_bytes);
-            let line = line.trim_end_matches('\r');
-
-            if let Some(data) = line.strip_prefix("data: ") {
-                if !data.is_empty() {
-                    let _ = res_tx.send(data.to_string()).await;
-                }
+        // Process complete lines from the buffer. Track how many bytes are
+        // consumed and drain them once per chunk instead of reallocating the
+        // whole buffer per line (the old `buffer = buffer[pos+1..].to_vec()` was
+        // O(n^2)).
+        let mut consumed = 0;
+        while let Some(rel) = buffer[consumed..].iter().position(|&b| b == b'\n') {
+            let line_end = consumed + rel;
+            // Scope the borrow of `buffer` so it is released before the await.
+            let to_send = {
+                let line = String::from_utf8_lossy(&buffer[consumed..line_end]);
+                let line = line.trim_end_matches('\r');
+                line.strip_prefix("data: ")
+                    .filter(|d| !d.is_empty())
+                    .map(str::to_string)
+            };
+            consumed = line_end + 1;
+            if let Some(data) = to_send {
+                let _ = res_tx.send(data).await;
             }
             // Skip event:, id:, retry:, and comment (:) lines
+        }
+        if consumed > 0 {
+            buffer.drain(..consumed);
+        }
+
+        // bug-410: bound the unterminated remainder so a newline-less stream
+        // cannot exhaust memory.
+        if buffer.len() > MAX_SSE_LINE_BYTES {
+            anyhow::bail!(
+                "SSE line exceeded {} bytes without a newline — aborting stream",
+                MAX_SSE_LINE_BYTES
+            );
         }
     }
 

@@ -604,6 +604,19 @@ pub async fn uninstall_handler(
         ));
     }
 
+    // bug-400: `server_id` arrives unvalidated from the request path and is
+    // used below as a deletion candidate joined onto `servers_root`. Reject any
+    // value that could escape the servers root *before* it reaches the join +
+    // remove_dir_all, otherwise `DELETE /api/marketplace/servers/..` resolves
+    // `servers_root.join("..")` to the data dir itself and recursively wipes the
+    // SQLite DB, access grants, embeddings, cron jobs and audit logs. (The
+    // catalog/args-derived candidates are already collapsed to a single path
+    // component; this guards the raw `server_id` fallback. A containment check
+    // below backstops every candidate.)
+    if server_id.contains('/') || server_id.contains('\\') || server_id.contains("..") {
+        return Err(AppError::Validation("Invalid server id".to_string()));
+    }
+
     // bug-392: capture the registered args before remove_server deletes the
     // DB row — the entry-point path is the ground truth for where the
     // install lives on disk (the catalog entry may be gone, and install
@@ -651,11 +664,29 @@ pub async fn uninstall_handler(
         }
     }
 
+    // bug-400 defense-in-depth: the catalog `directory` is hub-served (and the
+    // deployed catalog can be stale/malicious), so backstop every candidate with
+    // a canonicalized containment check — the resolved target must live strictly
+    // under `servers_root` and must not be `servers_root` itself.
+    let canonical_root = servers_root.canonicalize().ok();
     let mut removed = false;
     for directory in &candidates {
         let server_dir = servers_root.join(directory);
         if !server_dir.is_dir() {
             continue;
+        }
+        match (canonical_root.as_ref(), server_dir.canonicalize()) {
+            (Some(root), Ok(target)) if target.starts_with(root) && target != *root => {}
+            _ => {
+                warn!(
+                    "Refusing to uninstall '{}': candidate '{}' resolves outside {} \
+                     (path traversal blocked)",
+                    server_id,
+                    directory,
+                    servers_root.display()
+                );
+                continue;
+            }
         }
         if let Err(e) = tokio::fs::remove_dir_all(&server_dir).await {
             warn!(

@@ -32,7 +32,12 @@ fn resolve_project_root() -> Option<PathBuf> {
 #[must_use]
 pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
     // 1. Production: {data_dir}/mcp-servers
-    let data_servers = crate::config::exe_dir().join("data").join("mcp-servers");
+    // bug-404: must use config::data_dir(), not exe_dir()/data. In an installed
+    // build data_dir() is the platform user-data dir (dirs::data_dir()/cloto-system)
+    // — where the marketplace actually installs servers and creates the shared
+    // venv — whereas exe_dir()/data points into the read-only app bundle. In dev
+    // layout the two are byte-identical, so this only changes installed builds.
+    let data_servers = crate::config::data_dir().join("mcp-servers");
     if data_servers.is_dir() {
         return Some(data_servers);
     }
@@ -61,11 +66,12 @@ pub fn resolve_servers_dir_from_config() -> Option<PathBuf> {
 /// Fallback: dev project root, then `CLOTO_MCP_SERVERS`.
 #[must_use]
 pub fn resolve_venv_dir() -> Option<PathBuf> {
-    // Primary: production data dir
-    let data_venv = crate::config::exe_dir()
-        .join("data")
-        .join("mcp-servers")
-        .join(".venv");
+    // Primary: production data dir (bug-404: config::data_dir(), not
+    // exe_dir()/data — see resolve_servers_dir_from_config). This is where the
+    // marketplace creates the shared venv in installed builds; the old
+    // exe_dir()/data anchor never matched it, so installed builds silently fell
+    // back to the system `python` without the installed deps.
+    let data_venv = crate::config::data_dir().join("mcp-servers").join(".venv");
     if data_venv.join("pyvenv.cfg").exists() {
         return Some(data_venv);
     }
