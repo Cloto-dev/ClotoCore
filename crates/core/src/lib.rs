@@ -1020,109 +1020,109 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .route("/health/repair", post(handlers::health::repair_handler))
         .route("/system/shutdown", post(handlers::shutdown_handler))
         .route("/plugins/apply", post(handlers::apply_plugin_settings))
-        .route("/plugins/:id/config", post(handlers::update_plugin_config))
+        .route("/plugins/{id}/config", post(handlers::update_plugin_config))
         .route(
-            "/plugins/:id/permissions",
+            "/plugins/{id}/permissions",
             get(handlers::get_plugin_permissions).delete(handlers::revoke_permission_handler),
         )
         .route(
-            "/plugins/:id/permissions/grant",
+            "/plugins/{id}/permissions/grant",
             post(handlers::grant_permission_handler),
         )
         .route("/agents", post(handlers::create_agent))
         .route(
-            "/agents/:id",
+            "/agents/{id}",
             post(handlers::update_agent).delete(handlers::delete_agent),
         )
-        .route("/agents/:id/power", post(handlers::power_toggle))
+        .route("/agents/{id}/power", post(handlers::power_toggle))
         .route(
-            "/agents/:id/avatar",
+            "/agents/{id}/avatar",
             get(handlers::get_avatar)
                 .post(handlers::upload_avatar)
                 .delete(handlers::delete_avatar),
         )
         .route(
-            "/agents/:id/vrm",
+            "/agents/{id}/vrm",
             get(handlers::get_vrm)
                 .post(handlers::upload_vrm)
                 .delete(handlers::delete_vrm),
         )
-        .route("/agents/:id/visemes", post(handlers::generate_visemes))
+        .route("/agents/{id}/visemes", post(handlers::generate_visemes))
         // Agent-centric bulk MCP access update (batch replacement of server_grant entries)
         .route(
-            "/agents/:id/mcp-access",
+            "/agents/{id}/mcp-access",
             axum::routing::put(handlers::put_agent_mcp_access),
         )
         .route(
-            "/agents/:id/last-usage",
+            "/agents/{id}/last-usage",
             get(handlers::get_agent_last_usage),
         )
         // Recall precision (an earlier decision knob 3) — optional memory-capability op,
         // routed to the agent's memory server via the capability dispatcher.
         .route(
-            "/agents/:id/recall-precision",
+            "/agents/{id}/recall-precision",
             get(handlers::get_recall_precision).post(handlers::set_recall_precision),
         )
-        .route("/speech/:filename", get(handlers::serve_speech_file))
+        .route("/speech/{filename}", get(handlers::serve_speech_file))
         .route("/events/publish", post(handlers::post_event_handler))
         // Cron job management (Layer 2: Autonomous Trigger)
         .route(
             "/cron/jobs",
             get(handlers::list_cron_jobs).post(handlers::create_cron_job),
         )
-        .route("/cron/jobs/:id", delete(handlers::delete_cron_job))
-        .route("/cron/jobs/:id/toggle", post(handlers::toggle_cron_job))
-        .route("/cron/jobs/:id/run", post(handlers::run_cron_job_now))
+        .route("/cron/jobs/{id}", delete(handlers::delete_cron_job))
+        .route("/cron/jobs/{id}/toggle", post(handlers::toggle_cron_job))
+        .route("/cron/jobs/{id}/run", post(handlers::run_cron_job_now))
         // LLM Provider management (MGP §13.4 — centralized key management)
         .route("/llm/providers", get(handlers::list_llm_providers))
         .route(
-            "/llm/providers/:id/key",
+            "/llm/providers/{id}/key",
             post(handlers::set_llm_provider_key).delete(handlers::delete_llm_provider_key),
         )
         .route(
-            "/llm/providers/:id/model",
+            "/llm/providers/{id}/model",
             post(handlers::set_llm_provider_model),
         )
         .route(
-            "/llm/providers/:id/models",
+            "/llm/providers/{id}/models",
             get(handlers::list_provider_models),
         )
         .route(
-            "/llm/providers/:id/context-length",
+            "/llm/providers/{id}/context-length",
             post(handlers::set_llm_provider_context_length),
         )
         .route(
-            "/llm/providers/:id/thinking-mode",
+            "/llm/providers/{id}/thinking-mode",
             post(handlers::set_llm_provider_thinking_mode),
         )
         .route(
-            "/llm/providers/:id/test",
+            "/llm/providers/{id}/test",
             post(handlers::test_provider_connection),
         )
         .route(
-            "/permissions/:id/approve",
+            "/permissions/{id}/approve",
             post(handlers::approve_permission),
         )
-        .route("/permissions/:id/deny", post(handlers::deny_permission))
+        .route("/permissions/{id}/deny", post(handlers::deny_permission))
         // Command approval endpoints
-        .route("/commands/:id/approve", post(handlers::approve_command))
-        .route("/commands/:id/trust", post(handlers::trust_command))
-        .route("/commands/:id/deny", post(handlers::deny_command))
+        .route("/commands/{id}/approve", post(handlers::approve_command))
+        .route("/commands/{id}/trust", post(handlers::trust_command))
+        .route("/commands/{id}/deny", post(handlers::deny_command))
         // M-08: chat_handler moved here to apply rate limiting
         .route("/chat", post(handlers::chat_handler))
         // Chat persistence endpoints
         .route(
-            "/chat/:agent_id/messages",
+            "/chat/{agent_id}/messages",
             get(handlers::chat::get_messages)
                 .post(handlers::chat::post_message)
                 .delete(handlers::chat::delete_messages),
         )
         .route(
-            "/chat/:agent_id/messages/:message_id/retry",
+            "/chat/{agent_id}/messages/{message_id}/retry",
             post(handlers::chat::retry_response),
         )
         .route(
-            "/chat/attachments/:attachment_id",
+            "/chat/attachments/{attachment_id}",
             get(handlers::chat::get_attachment),
         )
         // MCP dynamic server management
@@ -1131,25 +1131,28 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             get(handlers::list_mcp_servers).post(handlers::create_mcp_server),
         )
         .route(
-            "/mcp/servers/:name",
+            "/mcp/servers/{name}",
             axum::routing::delete(handlers::delete_mcp_server),
         )
         // MCP server settings & access control (MCP_SERVER_UI_DESIGN.md §4)
         .route(
-            "/mcp/servers/:name/settings",
+            "/mcp/servers/{name}/settings",
             get(handlers::get_mcp_server_settings).put(handlers::update_mcp_server_settings),
         )
         .route(
-            "/mcp/servers/:name/access",
+            "/mcp/servers/{name}/access",
             get(handlers::get_mcp_server_access).put(handlers::put_mcp_server_access),
         )
         // MCP server lifecycle
         .route(
-            "/mcp/servers/:name/restart",
+            "/mcp/servers/{name}/restart",
             post(handlers::restart_mcp_server),
         )
-        .route("/mcp/servers/:name/start", post(handlers::start_mcp_server))
-        .route("/mcp/servers/:name/stop", post(handlers::stop_mcp_server))
+        .route(
+            "/mcp/servers/{name}/start",
+            post(handlers::start_mcp_server),
+        )
+        .route("/mcp/servers/{name}/stop", post(handlers::stop_mcp_server))
         // Direct tool call for coordinator-pattern servers (MGP §5.6, §19.1)
         .route("/mcp/call", post(handlers::call_mcp_tool))
         // Settings
@@ -1171,7 +1174,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             post(handlers::batch_install_handler),
         )
         .route(
-            "/marketplace/servers/:id",
+            "/marketplace/servers/{id}",
             delete(handlers::uninstall_handler),
         );
 
@@ -1192,16 +1195,16 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .route("/metrics", get(handlers::get_metrics))
         .route("/memories", get(handlers::get_memories))
         .route(
-            "/memories/:id",
+            "/memories/{id}",
             delete(handlers::delete_memory).put(handlers::update_memory),
         )
-        .route("/memories/:id/lock", post(handlers::lock_memory))
-        .route("/memories/:id/unlock", post(handlers::unlock_memory))
+        .route("/memories/{id}/lock", post(handlers::lock_memory))
+        .route("/memories/{id}/unlock", post(handlers::unlock_memory))
         .route("/episodes", get(handlers::get_episodes))
-        .route("/episodes/:id", delete(handlers::delete_episode))
+        .route("/episodes/{id}", delete(handlers::delete_episode))
         .route("/memories/import", post(handlers::import_memories))
         .route("/plugins", get(handlers::get_plugins))
-        .route("/plugins/:id/config", get(handlers::get_plugin_config))
+        .route("/plugins/{id}/config", get(handlers::get_plugin_config))
         .route("/agents", get(handlers::get_agents))
         .route(
             "/permissions/pending",
@@ -1209,7 +1212,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         )
         // MCP access control (public/read)
         .route(
-            "/mcp/access/by-agent/:agent_id",
+            "/mcp/access/by-agent/{agent_id}",
             get(handlers::get_agent_access),
         )
         .merge(admin_routes)
@@ -1221,7 +1224,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
 
     let app = Router::new()
         .nest("/api", api_routes.with_state(app_state.clone()))
-        .route("/api/plugin/*path", any(dynamic_proxy_handler))
+        .route("/api/plugin/{*path}", any(dynamic_proxy_handler))
         .with_state(app_state.clone())
         .fallback(handlers::assets::static_handler)
         .layer(

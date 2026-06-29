@@ -15,22 +15,22 @@ fn create_test_router(state: Arc<AppState>) -> axum::Router {
 
     let admin_routes = axum::Router::new()
         .route("/agents", post(handlers::create_agent))
-        .route("/agents/:id", post(handlers::update_agent))
+        .route("/agents/{id}", post(handlers::update_agent))
         .route(
-            "/agents/:id/mcp-access",
+            "/agents/{id}/mcp-access",
             put(handlers::put_agent_mcp_access),
         )
         .route("/cron/jobs", post(handlers::create_cron_job))
-        .route("/plugins/:id/config", post(handlers::update_plugin_config))
+        .route("/plugins/{id}/config", post(handlers::update_plugin_config))
         .route(
-            "/permissions/:id/approve",
+            "/permissions/{id}/approve",
             post(handlers::approve_permission),
         );
 
     let api_routes = axum::Router::new()
         .route("/chat", post(handlers::chat_handler))
         .route("/agents", get(handlers::get_agents))
-        .route("/plugins/:id/config", get(handlers::get_plugin_config))
+        .route("/plugins/{id}/config", get(handlers::get_plugin_config))
         .merge(admin_routes)
         .with_state(state);
 
