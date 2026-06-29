@@ -3079,7 +3079,8 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "uninstall_handler now (1) rejects any server_id containing '/', '\\\\' or '..' up front with AppError::Validation, and (2) backstops every deletion candidate (catalog/args/id) with a canonicalized containment check — the resolved target must start_with the canonicalized servers_root and must not be servers_root itself — before remove_dir_all. Catalog/args candidates were already collapsed to a single path component; the raw server_id fallback was the live traversal vector. Marker: the 'path traversal blocked' warn message."
+      "fix_note": "uninstall_handler now (1) rejects any server_id containing '/', '\\\\' or '..' up front with AppError::Validation, and (2) backstops every deletion candidate (catalog/args/id) with a canonicalized containment check — the resolved target must start_with the canonicalized servers_root and must not be servers_root itself — before remove_dir_all. Catalog/args candidates were already collapsed to a single path component; the raw server_id fallback was the live traversal vector. Marker: the 'path traversal blocked' warn message.",
+      "github_issue": 210
     },
     {
       "id": "bug-401",
@@ -3092,7 +3093,8 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "Replaced the byte slice with char-safe truncation `line.chars().take(200).collect::<String>()` so a multibyte boundary can no longer panic the response loop."
+      "fix_note": "Replaced the byte slice with char-safe truncation `line.chars().take(200).collect::<String>()` so a multibyte boundary can no longer panic the response loop.",
+      "github_issue": 211
     },
     {
       "id": "bug-402",
@@ -3105,7 +3107,8 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "Both sites now use char-safe truncation `response_body.chars().take(500).collect::<String>()`. Guarded by two regression tests (llm::tests::parse_invalid_json_with_multibyte_body_does_not_panic and parse_missing_choices_with_multibyte_body_does_not_panic) that place a 3-byte char across byte 500; the pattern pins the first test name."
+      "fix_note": "Both sites now use char-safe truncation `response_body.chars().take(500).collect::<String>()`. Guarded by two regression tests (llm::tests::parse_invalid_json_with_multibyte_body_does_not_panic and parse_missing_choices_with_multibyte_body_does_not_panic) that place a 3-byte char across byte 500; the pattern pins the first test name.",
+      "github_issue": 212
     },
     {
       "id": "bug-403",
@@ -3118,7 +3121,8 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "The V6 arm now (1) recurses into the V4 rules for v6.to_ipv4_mapped() addresses, and (2) adds fe80::/10 link-local ((seg0 & 0xffc0) == 0xfe80). Guarded by regression tests test_is_restricted_addr_ipv6_link_local and test_is_restricted_addr_ipv6_mapped_ipv4 (::ffff:127.0.0.1 / ::ffff:169.254.169.254 / ::ffff:10.0.0.1 blocked, ::ffff:8.8.8.8 allowed). Note: the DNS-rebinding TOCTOU (validated IP discarded, reqwest re-resolves the hostname) is tracked separately and still open."
+      "fix_note": "The V6 arm now (1) recurses into the V4 rules for v6.to_ipv4_mapped() addresses, and (2) adds fe80::/10 link-local ((seg0 & 0xffc0) == 0xfe80). Guarded by regression tests test_is_restricted_addr_ipv6_link_local and test_is_restricted_addr_ipv6_mapped_ipv4 (::ffff:127.0.0.1 / ::ffff:169.254.169.254 / ::ffff:10.0.0.1 blocked, ::ffff:8.8.8.8 allowed). Note: the DNS-rebinding TOCTOU (validated IP discarded, reqwest re-resolves the hostname) is tracked separately and still open.",
+      "github_issue": 213
     },
     {
       "id": "bug-404",
@@ -3131,7 +3135,8 @@
       "expected": "absent",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "resolve_servers_dir_from_config and resolve_venv_dir now use crate::config::data_dir().join('mcp-servers'){/.venv} — the same anchor the marketplace and ensure_mcp_venv write to. In dev layout the two paths are byte-identical so dev is unchanged; only installed builds are fixed. Verified by absence of the old exe_dir().join(\"data\") form in the file. Note: not runtime-verifiable in dev (prod-only path); change is behavior-preserving in dev."
+      "fix_note": "resolve_servers_dir_from_config and resolve_venv_dir now use crate::config::data_dir().join('mcp-servers'){/.venv} — the same anchor the marketplace and ensure_mcp_venv write to. In dev layout the two paths are byte-identical so dev is unchanged; only installed builds are fixed. Verified by absence of the old exe_dir().join(\"data\") form in the file. Note: not runtime-verifiable in dev (prod-only path); change is behavior-preserving in dev.",
+      "github_issue": 214
     },
     {
       "id": "bug-405",
@@ -3144,7 +3149,8 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "Added MAX_INTERVAL_SECS (1 year) + MIN_INTERVAL_SECS consts. calculate_initial_next_run now rejects intervals > MAX_INTERVAL_SECS; calculate_next_run clamps the parsed value to [MIN,MAX] and both use saturating_add/saturating_mul so next_run_at can never wrap into the past. Guarded by 4 tests (managers::scheduler::tests::initial_interval_* and recurring_interval_clamps_oversized_value)."
+      "fix_note": "Added MAX_INTERVAL_SECS (1 year) + MIN_INTERVAL_SECS consts. calculate_initial_next_run now rejects intervals > MAX_INTERVAL_SECS; calculate_next_run clamps the parsed value to [MIN,MAX] and both use saturating_add/saturating_mul so next_run_at can never wrap into the past. Guarded by 4 tests (managers::scheduler::tests::initial_interval_* and recurring_interval_clamps_oversized_value).",
+      "github_issue": 215
     },
     {
       "id": "bug-406",
@@ -3157,7 +3163,8 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "The tool_hint path now force-overwrites agent_id with args_map.insert('agent_id', json!(agent.id)) — matching the main loop's anti-spoofing — instead of entry().or_insert(). A bridge-supplied agent_id can no longer survive."
+      "fix_note": "The tool_hint path now force-overwrites agent_id with args_map.insert('agent_id', json!(agent.id)) — matching the main loop's anti-spoofing — instead of entry().or_insert(). A bridge-supplied agent_id can no longer survive.",
+      "github_issue": 216
     },
     {
       "id": "bug-407",
@@ -3169,7 +3176,8 @@
       "pattern": "let _ip = target_ip",
       "expected": "present",
       "status": "open",
-      "notes": "Fix: pin the connection to the validated IP — build a per-request reqwest client with .resolve(host, validated_socketaddr) (preserves Host/SNI), or connect to https://<ip>:<port> with an explicit Host header. Needs care to avoid TLS/SNI regressions on legitimate multi-IP HTTPS hosts; deferred from the 2026-06-29 audit batch for that reason. Pairs with bug-403 (IPv6 restricted-addr gaps, fixed)."
+      "notes": "Fix: pin the connection to the validated IP — build a per-request reqwest client with .resolve(host, validated_socketaddr) (preserves Host/SNI), or connect to https://<ip>:<port> with an explicit Host header. Needs care to avoid TLS/SNI regressions on legitimate multi-IP HTTPS hosts; deferred from the 2026-06-29 audit batch for that reason. Pairs with bug-403 (IPv6 restricted-addr gaps, fixed).",
+      "github_issue": 217
     },
     {
       "id": "bug-408",
@@ -3181,7 +3189,8 @@
       "pattern": "Synthesis complete via",
       "expected": "present",
       "status": "open",
-      "notes": "Fix: record the expected synthesizer identity (agent_id or a freshly minted synthesis request id) in SessionState::Synthesizing and only accept the matching response as Complete; ignore/aggregate non-matching late proposals."
+      "notes": "Fix: record the expected synthesizer identity (agent_id or a freshly minted synthesis request id) in SessionState::Synthesizing and only accept the matching response as Complete; ignore/aggregate non-matching late proposals.",
+      "github_issue": 218
     },
     {
       "id": "bug-409",
@@ -3194,7 +3203,8 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "record_chunk now caps the forward gap at MAX_STREAM_GAP (1024): a larger jump is logged and dropped (return None) instead of materializing up to ~4.2B entries under the trackers mutex, and all expected_index/received_count increments use saturating_add so index==u32::MAX no longer overflows. Guarded by managers::mcp_streaming::tests::assembler_caps_implausible_gap and assembler_max_index_no_overflow."
+      "fix_note": "record_chunk now caps the forward gap at MAX_STREAM_GAP (1024): a larger jump is logged and dropped (return None) instead of materializing up to ~4.2B entries under the trackers mutex, and all expected_index/received_count increments use saturating_add so index==u32::MAX no longer overflows. Guarded by managers::mcp_streaming::tests::assembler_caps_implausible_gap and assembler_max_index_no_overflow.",
+      "github_issue": 219
     },
     {
       "id": "bug-410",
@@ -3207,7 +3217,8 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "parse_sse_stream now bounds the unterminated remainder at MAX_SSE_LINE_BYTES (1 MiB) and aborts the stream past it, so a newline-less body can't exhaust memory. Also replaced the per-line `buffer = buffer[pos+1..].to_vec()` (O(n^2)) with a single drain(..consumed) per chunk, and scoped the line borrow so it is released before the await."
+      "fix_note": "parse_sse_stream now bounds the unterminated remainder at MAX_SSE_LINE_BYTES (1 MiB) and aborts the stream past it, so a newline-less body can't exhaust memory. Also replaced the per-line `buffer = buffer[pos+1..].to_vec()` (O(n^2)) with a single drain(..consumed) per chunk, and scoped the line borrow so it is released before the await.",
+      "github_issue": 220
     },
     {
       "id": "bug-411",
@@ -3219,7 +3230,8 @@
       "pattern": "Uses sender channel state",
       "expected": "present",
       "status": "open",
-      "notes": "Fix: track real liveness — have the response loop set an Arc<AtomicBool> false on EOF/termination (it already detects this) and have is_alive() read that flag; or have the manager set status=Error when the response task ends. Don't rely on the writer task's receiver."
+      "notes": "Fix: track real liveness — have the response loop set an Arc<AtomicBool> false on EOF/termination (it already detects this) and have is_alive() read that flag; or have the manager set status=Error when the response task ends. Don't rely on the writer task's receiver.",
+      "github_issue": 221
     },
     {
       "id": "bug-412",
@@ -3231,7 +3243,8 @@
       "pattern": "Single transaction: fetch previous hash",
       "expected": "present",
       "status": "open",
-      "notes": "Fix: acquire the write lock up front — BEGIN IMMEDIATE for this tx (sqlx 0.8 custom begin), or serialize audit writes through a single-connection writer."
+      "notes": "Fix: acquire the write lock up front — BEGIN IMMEDIATE for this tx (sqlx 0.8 custom begin), or serialize audit writes through a single-connection writer.",
+      "github_issue": 222
     }
   ]
 }
