@@ -3065,7 +3065,8 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "effective_install_dir now collapses a multi-segment value to its final path component (trim slashes + rsplit on '/'\\\\'), so a malformed catalog directory='servers/<name>' becomes the flat install dir '<name>'; target_dir/subdir then stays single-nested (mcp-servers/<name>/servers/<name>/server.py, matching a nested git clone). Well-formed flat directories and dotted ids (memory.cpersona) are unchanged; all three lock-step sites (extract/register/uninstall) use this fn so they stay consistent. Upstream follow-up: republish the hub catalog from the corrected registry.json. Guarded by effective_install_dir_collapses_monorepo_relative_directory."
+      "fix_note": "effective_install_dir now collapses a multi-segment value to its final path component (trim slashes + rsplit on '/'\\\\'), so a malformed catalog directory='servers/<name>' becomes the flat install dir '<name>'; target_dir/subdir then stays single-nested (mcp-servers/<name>/servers/<name>/server.py, matching a nested git clone). Well-formed flat directories and dotted ids (memory.cpersona) are unchanged; all three lock-step sites (extract/register/uninstall) use this fn so they stay consistent. Upstream follow-up: republish the hub catalog from the corrected registry.json. Guarded by effective_install_dir_collapses_monorepo_relative_directory.",
+      "github_issue": 208
     }
   ]
 }
