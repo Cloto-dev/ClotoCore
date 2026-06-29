@@ -3174,8 +3174,10 @@
       "version": "0.6.8-beta.1",
       "file": "crates/core/src/capabilities.rs",
       "pattern": "let _ip = target_ip",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "send_http_request no longer discards the validated address. It collects all resolved SocketAddrs, rejects the request if ANY is restricted, then builds a per-request reqwest client pinned to exactly that validated set via ClientBuilder::resolve_to_addrs(host, &resolved). reqwest can no longer perform a second DNS resolution at connect time, so a whitelisted domain cannot rebind to 127.0.0.1 / 169.254.169.254 between check and connect. SNI and the Host header keep using the hostname (only the IP lookup is overridden), so multi-IP / HTTPS hosts do not regress. The long-lived reqwest::Client field was removed from SafeHttpClient. Guarded by capabilities::tests::test_send_http_request_blocks_whitelisted_host_resolving_to_loopback and test_send_http_request_rejects_non_whitelisted_host. Pairs with bug-403 (IPv6 restricted-addr gaps, fixed).",
       "notes": "Fix: pin the connection to the validated IP — build a per-request reqwest client with .resolve(host, validated_socketaddr) (preserves Host/SNI), or connect to https://<ip>:<port> with an explicit Host header. Needs care to avoid TLS/SNI regressions on legitimate multi-IP HTTPS hosts; deferred from the 2026-06-29 audit batch for that reason. Pairs with bug-403 (IPv6 restricted-addr gaps, fixed).",
       "github_issue": 217
     },
