@@ -108,9 +108,14 @@ export const api = {
     fetchJson<PermissionRequest[]>('/permissions/pending', 'fetch pending permissions', apiKey),
   getVersion: () => fetchJson<{ version: string; build_target: string }>('/system/version', 'fetch version'),
   getMetrics: (apiKey?: string) => fetchJson<Metrics>('/metrics', 'fetch metrics', apiKey),
-  getMemories: async (apiKey?: string): Promise<{ memories: Memory[]; capabilities: MemoryCapabilities }> => {
+  getMemories: async (
+    apiKey?: string,
+    agentId?: string,
+  ): Promise<{ memories: Memory[]; capabilities: MemoryCapabilities }> => {
+    // Scope to one agent when selected; omit for the global "All" view.
+    const path = agentId ? `/memories?agent_id=${encodeURIComponent(agentId)}` : '/memories';
     const data = await fetchJson<{ memories: Memory[]; count: number; capabilities?: MemoryCapabilities }>(
-      '/memories',
+      path,
       'fetch memories',
       apiKey,
     );
@@ -125,8 +130,10 @@ export const api = {
       },
     };
   },
-  getEpisodes: async (apiKey?: string): Promise<Episode[]> => {
-    const data = await fetchJson<{ episodes: Episode[]; count: number }>('/episodes', 'fetch episodes', apiKey);
+  getEpisodes: async (apiKey?: string, agentId?: string): Promise<Episode[]> => {
+    // Scope to one agent when selected; omit for the global "All" view.
+    const path = agentId ? `/episodes?agent_id=${encodeURIComponent(agentId)}` : '/episodes';
+    const data = await fetchJson<{ episodes: Episode[]; count: number }>(path, 'fetch episodes', apiKey);
     return data.episodes ?? [];
   },
   getHistory: (apiKey?: string) => fetchJson<StrictSystemEvent[]>('/history', 'fetch history', apiKey),
@@ -791,8 +798,8 @@ export function createAuthenticatedApi(apiKey: string) {
     getAgents: () => api.getAgents(k),
     getPendingPermissions: () => api.getPendingPermissions(k),
     getMetrics: () => api.getMetrics(k),
-    getMemories: () => api.getMemories(k),
-    getEpisodes: () => api.getEpisodes(k),
+    getMemories: (agentId?: string) => api.getMemories(k, agentId),
+    getEpisodes: (agentId?: string) => api.getEpisodes(k, agentId),
     getHistory: () => api.getHistory(k),
     getPlugins: () => api.getPlugins(k),
     getAgentAccess: (agentId: string) => api.getAgentAccess(agentId, k),
