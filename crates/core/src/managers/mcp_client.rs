@@ -14,7 +14,7 @@ use super::mcp_transport::{HttpTransport, McpTransport, StdioTransport};
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex, Notify};
 use tracing::{debug, error, info};
@@ -41,6 +41,14 @@ pub struct McpClient {
     sender: mpsc::Sender<String>,
     pending_requests: Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>>,
     next_id: Arc<AtomicI64>,
+    /// bug-411: true while the response loop is running. The loop only exits
+    /// when the transport read side reaches EOF (the child process is gone), so
+    /// this flips to false the moment the server dies — even while idle, before
+    /// any tool call observes the failure. `is_alive()` reads this directly so
+    /// the health monitor can restart a dead-but-idle server instead of waiting
+    /// for the next request to hang/fail. `sender.is_closed()` alone misses this:
+    /// it only tracks the writer task's receiver, not the read path.
+    alive: Arc<AtomicBool>,
     response_task: Option<tokio::task::JoinHandle<()>>,
     notification_tx: mpsc::Sender<McpNotification>,
     request_timeout_secs: u64,
@@ -130,6 +138,7 @@ impl McpClient {
             sender,
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicI64::new(1)),
+            alive: Arc::new(AtomicBool::new(true)),
             response_task: None,
             notification_tx,
             request_timeout_secs,
@@ -160,6 +169,7 @@ impl McpClient {
             sender,
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicI64::new(1)),
+            alive: Arc::new(AtomicBool::new(true)),
             response_task: None,
             notification_tx,
             request_timeout_secs,
@@ -182,6 +192,7 @@ impl McpClient {
         let notif_tx = self.notification_tx.clone();
         let stream_collectors = self.stream_collectors.clone();
         let server_id_owned = server_id.to_string();
+        let alive = self.alive.clone();
 
         let handle = tokio::spawn(async move {
             loop {
@@ -291,6 +302,11 @@ impl McpClient {
                     break;
                 }
             }
+
+            // bug-411: the loop only exits on transport EOF (child process gone).
+            // Mark the client dead so is_alive()/the health monitor can restart it
+            // immediately, rather than waiting for the next tool call to fail.
+            alive.store(false, Ordering::SeqCst);
         });
         self.response_task = Some(handle);
     }
@@ -545,9 +561,88 @@ impl McpClient {
     }
 
     /// Check if the underlying transport process is still alive.
-    /// Uses sender channel state to avoid contending with the response loop's Mutex.
+    ///
+    /// Reads two lock-free signals (never contends with the response loop's
+    /// transport Mutex): the bug-411 `alive` flag (cleared when the response
+    /// loop exits on transport EOF — catches an idle server dying), and
+    /// `sender.is_closed()` (the writer task's receiver dropped). Either being
+    /// dead means the client is dead.
     #[must_use]
     pub fn is_alive(&self) -> bool {
-        !self.sender.is_closed()
+        self.alive.load(Ordering::SeqCst) && !self.sender.is_closed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// bug-411: when the server process dies (transport EOF) while idle, the
+    /// response loop exits and `is_alive()` must flip to false promptly —
+    /// without waiting for a tool call to fail. A tiny mock MCP server answers
+    /// the `initialize` handshake and then exits, closing its stdout (EOF). The
+    /// pre-fix `is_alive()` (only `!sender.is_closed()`) stayed true here.
+    #[tokio::test]
+    async fn is_alive_flips_false_when_server_exits_idle() {
+        // Mock MCP server: answer `initialize`, then exit (EOF on stdout).
+        // readline() (not `for line in sys.stdin`) avoids stdin read-ahead
+        // buffering so the response is emitted immediately.
+        const MOCK: &str = "import sys, json\n\
+while True:\n\
+\x20   line = sys.stdin.readline()\n\
+\x20   if not line:\n\
+\x20       break\n\
+\x20   line = line.strip()\n\
+\x20   if not line:\n\
+\x20       continue\n\
+\x20   try:\n\
+\x20       req = json.loads(line)\n\
+\x20   except Exception:\n\
+\x20       continue\n\
+\x20   if req.get('method') == 'initialize':\n\
+\x20       sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': req.get('id'), 'result': {}}) + '\\n')\n\
+\x20       sys.stdout.flush()\n\
+\x20       break\n";
+
+        // Skip cleanly if python3 is unavailable (keeps minimal envs green).
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("skipping is_alive_flips_false_when_server_exits_idle: python3 not found");
+            return;
+        }
+
+        let (notif_tx, _notif_rx) = mpsc::channel(8);
+        let (client, _caps) = McpClient::connect(
+            "mock-bug411",
+            "python3",
+            &["-c".to_string(), MOCK.to_string()],
+            &HashMap::new(),
+            notif_tx,
+            5,
+            5,
+            None,
+            0,
+            &[],
+        )
+        .await
+        .expect("mock server should complete the initialize handshake");
+
+        // The mock exits right after responding, so the transport reaches EOF
+        // and the response loop sets alive=false. Poll briefly for the flip.
+        let mut became_dead = false;
+        for _ in 0..50 {
+            if !client.is_alive() {
+                became_dead = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(
+            became_dead,
+            "is_alive() must become false after the server process exits (EOF)"
+        );
     }
 }

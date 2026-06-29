@@ -3232,8 +3232,10 @@
       "version": "0.6.8-beta.1",
       "file": "crates/core/src/managers/mcp_client.rs",
       "pattern": "Uses sender channel state",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "McpClient now holds an alive: Arc<AtomicBool> (init true). The response loop clones it and stores false once the loop exits — which only happens on transport EOF (child gone), so an idle death is observed immediately. is_alive() reads `self.alive.load(SeqCst) && !self.sender.is_closed()` (both lock-free, no transport Mutex contention), so the health monitor (mcp_health.rs) restarts a dead-but-idle server without waiting for the next tool call to hang. The old 'Uses sender channel state' doc-comment (the bug anchor) is gone. Guarded by managers::mcp_client::tests::is_alive_flips_false_when_server_exits_idle (a mock MCP server answers initialize then exits → EOF). Compounded bug-401's wedge.",
       "notes": "Fix: track real liveness — have the response loop set an Arc<AtomicBool> false on EOF/termination (it already detects this) and have is_alive() read that flag; or have the manager set status=Error when the response task ends. Don't rely on the writer task's receiver.",
       "github_issue": 221
     },
