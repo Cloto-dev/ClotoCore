@@ -401,40 +401,58 @@ mod tests {
     }
 
     /// bug-415: cancelling an audit write mid-transaction must NOT poison the
-    /// pool. `write_audit_log` runs under a tokio timeout; if it cancels between
-    /// BEGIN IMMEDIATE and COMMIT, the sqlx `Transaction` Drop must roll back so
-    /// the connection returns to the pool without holding the write lock. Pre-fix
-    /// (manual acquire + raw BEGIN IMMEDIATE) the connection was returned still
-    /// in a transaction, wedging every later write. Here we cancel many writes at
-    /// a 1ns timeout, then assert normal writes still succeed and persist.
+    /// pool. When `write_audit_log`'s tokio timeout cancels mid-write, the future
+    /// is dropped, which drops its sqlx `Transaction`. That Drop MUST roll back so
+    /// the connection returns to the pool with no open transaction and no held
+    /// write lock — otherwise (the pre-fix manual acquire + raw BEGIN IMMEDIATE,
+    /// which had no Transaction to drop) the connection is recycled still holding
+    /// the WAL write lock and every later audit write wedges (~30min blackout).
+    ///
+    /// We model the cancellation deterministically: open the exact BEGIN IMMEDIATE
+    /// write transaction the audit path uses, INSERT a row, then drop it WITHOUT
+    /// committing — identical to what dropping the cancelled future does to its tx.
+    /// (A timing-based test using a tiny timeout is non-deterministic: the future
+    /// may be cancelled before it ever begins the transaction, exercising nothing.)
+    /// Cycling more times than the pool has connections proves none is left wedged,
+    /// and the final row count proves the dropped writes rolled back.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn cancelled_write_does_not_poison_pool() {
+    async fn dropped_audit_tx_rolls_back_and_frees_pool() {
         let (pool, path) = wal_pool("bug415").await;
 
-        // Force cancellation mid-write: a 1ns timeout fires almost immediately,
-        // dropping write_audit_log_inner's future (often after BEGIN, before
-        // COMMIT). Repeat to make a hung write lock near-certain if Drop didn't
-        // roll back.
-        for i in 0..20 {
-            let _ = tokio::time::timeout(
-                Duration::from_nanos(1),
-                write_audit_log(&pool, entry(&format!("cancel-{i}"))),
+        // 12 > max_connections (8): each iteration takes the write lock via
+        // BEGIN IMMEDIATE, writes, then drops uncommitted. If Drop did not roll
+        // back, after 8 iterations every pooled connection would be stuck in a
+        // transaction and the next begin_with would error / hang.
+        for i in 0..12 {
+            let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
+            sqlx::query(
+                "INSERT INTO audit_logs (timestamp, event_type, result, reason, chain_hash)
+                 VALUES (?, ?, ?, ?, ?)",
             )
-            .await;
+            .bind(Utc::now().to_rfc3339())
+            .bind(format!("DROPPED_{i}"))
+            .bind("SUCCESS")
+            .bind("rolled-back")
+            .bind("deadbeef")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+            drop(tx); // no commit -> RAII rollback releases the write lock
         }
 
-        // The pool must still be usable: a normal write succeeds and persists.
-        // If a cancelled write had left an open transaction, this would block on
-        // the write lock and fail (or time out via the inner db timeout).
-        write_audit_log(&pool, entry("after-cancel"))
+        // The pool is not wedged: a normal audit write succeeds promptly.
+        write_audit_log(&pool, entry("after-drops"))
             .await
-            .expect("write after cancelled writes must succeed (pool not poisoned)");
+            .expect("dropped transactions must not poison the pool");
 
+        // Only the committed write persisted; all 12 dropped inserts rolled back.
         let logs = query_audit_logs(&pool, 1000).await.unwrap();
-        assert!(
-            logs.iter().any(|l| l.event_type == "EVT_after-cancel"),
-            "the post-cancellation write must be durably persisted"
+        assert_eq!(
+            logs.len(),
+            1,
+            "dropped (uncommitted) audit transactions must roll back, leaving only the committed write"
         );
+        assert_eq!(logs[0].event_type, "EVT_after-drops");
 
         cleanup(pool, path).await;
     }
