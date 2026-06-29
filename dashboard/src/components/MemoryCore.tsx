@@ -76,13 +76,17 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
     return m;
   }, [agents]);
 
-  // Unique agent IDs that have memories or episodes
+  // Filter tabs: every configured agent, plus any agent_id present in the current
+  // data (covers legacy/orphaned memories whose agent is no longer configured).
+  // Derived from the global agent list (not just the fetched memory set) so the
+  // tab list stays stable when the fetch is scoped to a single selected agent.
   const agentTabs = useMemo(() => {
     const ids = new Set<string>();
+    for (const a of agents) ids.add(a.id);
     for (const mem of memories) ids.add(mem.agent_id);
     for (const ep of episodes) ids.add(ep.agent_id);
     return Array.from(ids).sort();
-  }, [memories, episodes]);
+  }, [agents, memories, episodes]);
 
   // Filtered data
   const filteredMemories = useMemo(
@@ -96,7 +100,16 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
 
   const fetchData = useCallback(async () => {
     try {
-      const [memResult, episodes, agents] = await Promise.all([api.getMemories(), api.getEpisodes(), api.getAgents()]);
+      // Scope memory/episode fetch to the selected agent (null = global "All" view)
+      // so an agent whose memories aren't among the global most-recent set is still
+      // shown in full. The agent list is fetched globally to keep every filter tab
+      // visible regardless of the active scope.
+      const scope = selectedAgent ?? undefined;
+      const [memResult, episodes, agents] = await Promise.all([
+        api.getMemories(scope),
+        api.getEpisodes(scope),
+        api.getAgents(),
+      ]);
       setMemories(memResult.memories);
       setCapabilities(memResult.capabilities);
       setEpisodes(episodes);
@@ -104,7 +117,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
     } catch (error) {
       if (import.meta.env.DEV) console.error('Failed to fetch data', error);
     }
-  }, [api.getAgents, api.getEpisodes, api.getMemories]);
+  }, [api.getAgents, api.getEpisodes, api.getMemories, selectedAgent]);
 
   // H-18: Debounce fetchData to prevent cascading API calls on rapid events
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
