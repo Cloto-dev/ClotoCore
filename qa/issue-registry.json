@@ -3246,9 +3246,11 @@
       "discovered": "2026-06-29T00:00:00Z",
       "version": "0.6.8-beta.1",
       "file": "crates/core/src/db/audit.rs",
-      "pattern": "Single transaction: fetch previous hash",
+      "pattern": "BEGIN IMMEDIATE",
       "expected": "present",
-      "status": "open",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "write_audit_log_inner now acquires a pool connection and issues BEGIN IMMEDIATE (write lock taken at transaction start) instead of pool.begin() (BEGIN DEFERRED). Concurrent audit writers therefore serialize on the write lock — waiting out busy_timeout — instead of both taking a read snapshot and having the second fail its read->write upgrade with the un-retried SQLITE_BUSY_SNAPSHOT. SELECT+INSERT run on that connection, then COMMIT; an error path issues a best-effort ROLLBACK so the connection returns to the pool clean. Pattern anchor is the new BEGIN IMMEDIATE. Guarded by db::audit::tests::concurrent_audit_writes_all_persist (24 concurrent writers against a WAL file db, all rows must persist).",
       "notes": "Fix: acquire the write lock up front — BEGIN IMMEDIATE for this tx (sqlx 0.8 custom begin), or serialize audit writes through a single-connection writer.",
       "github_issue": 222
     },

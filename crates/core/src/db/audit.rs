@@ -82,37 +82,63 @@ async fn write_audit_log_inner(pool: &SqlitePool, entry: AuditLogEntry) -> anyho
     let metadata_str = entry.metadata.as_ref().map(ToString::to_string);
     let data = canonical_data(&timestamp, &entry);
 
-    // Single transaction: fetch previous hash + insert with new hash
-    let mut tx = pool.begin().await?;
+    // Single transaction: fetch previous hash + insert with new hash.
+    //
+    // bug-412: take the write lock up front with BEGIN IMMEDIATE. The default
+    // `pool.begin()` issues BEGIN DEFERRED, which starts read-only — the SELECT
+    // below takes a read snapshot and the INSERT then upgrades read->write. Two
+    // concurrent audit writers both snapshot the same tail, and the second's
+    // upgrade fails with SQLITE_BUSY_SNAPSHOT: a snapshot conflict that
+    // `busy_timeout` does NOT retry (it only waits out lock contention, not a
+    // lost snapshot), so the row is silently dropped — the mechanism behind the
+    // "audit silent for 14h" incident. BEGIN IMMEDIATE acquires the write lock
+    // at transaction start, so concurrent writers serialize (waiting out
+    // busy_timeout) instead of racing a read->write upgrade.
+    let mut conn = pool.acquire().await?;
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
 
-    let prev_hash: Option<String> =
-        sqlx::query_scalar("SELECT chain_hash FROM audit_logs ORDER BY id DESC LIMIT 1")
-            .fetch_optional(&mut *tx)
-            .await?
-            .flatten();
+    let result = async {
+        let prev_hash: Option<String> =
+            sqlx::query_scalar("SELECT chain_hash FROM audit_logs ORDER BY id DESC LIMIT 1")
+                .fetch_optional(&mut *conn)
+                .await?
+                .flatten();
 
-    let chain_hash = compute_chain_hash(prev_hash.as_deref(), &data);
+        let chain_hash = compute_chain_hash(prev_hash.as_deref(), &data);
 
-    sqlx::query(
-        "INSERT INTO audit_logs (timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id, chain_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&timestamp)
-    .bind(&entry.event_type)
-    .bind(&entry.actor_id)
-    .bind(&entry.target_id)
-    .bind(&entry.permission)
-    .bind(&entry.result)
-    .bind(&entry.reason)
-    .bind(&metadata_str)
-    .bind(&entry.trace_id)
-    .bind(&chain_hash)
-    .execute(&mut *tx)
-    .await?;
+        sqlx::query(
+            "INSERT INTO audit_logs (timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id, chain_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&timestamp)
+        .bind(&entry.event_type)
+        .bind(&entry.actor_id)
+        .bind(&entry.target_id)
+        .bind(&entry.permission)
+        .bind(&entry.result)
+        .bind(&entry.reason)
+        .bind(&metadata_str)
+        .bind(&entry.trace_id)
+        .bind(&chain_hash)
+        .execute(&mut *conn)
+        .await?;
 
-    tx.commit().await?;
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
 
-    Ok(())
+    match result {
+        Ok(()) => {
+            sqlx::query("COMMIT").execute(&mut *conn).await?;
+            Ok(())
+        }
+        Err(e) => {
+            // Best-effort rollback so the connection returns to the pool without
+            // a dangling transaction; surface the original error.
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            Err(e)
+        }
+    }
 }
 
 /// Spawn a background task to write an audit log entry with retry.
@@ -286,4 +312,80 @@ pub async fn query_audit_logs(pool: &SqlitePool, limit: i64) -> anyhow::Result<V
     }
 
     Ok(logs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    fn entry(tag: &str) -> AuditLogEntry {
+        AuditLogEntry {
+            timestamp: Utc::now(),
+            event_type: format!("EVT_{tag}"),
+            actor_id: Some("actor".into()),
+            target_id: Some("target".into()),
+            permission: Some("Perm".into()),
+            result: "SUCCESS".into(),
+            reason: "test".into(),
+            metadata: None,
+            trace_id: Some(format!("trace-{tag}")),
+        }
+    }
+
+    /// bug-412: concurrent audit writes must all persist. Pre-fix, BEGIN
+    /// DEFERRED let two writers snapshot the same tail and the second's
+    /// read->write upgrade failed with SQLITE_BUSY_SNAPSHOT (which busy_timeout
+    /// does not retry), silently dropping rows. BEGIN IMMEDIATE serializes
+    /// writers so every row lands. Uses a temp FILE db (sqlx defaults SQLite to
+    /// WAL) so the multiple pool connections share one database under real
+    /// concurrency.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_audit_writes_all_persist() {
+        static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let uniq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "cloto_audit_bug412_{}_{}.db",
+            std::process::id(),
+            uniq
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        let opts = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(8)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        crate::db::init_db(&pool, "test", None).await.unwrap();
+
+        const WRITERS: usize = 24;
+        let mut handles = Vec::new();
+        for i in 0..WRITERS {
+            let pool = pool.clone();
+            handles.push(tokio::spawn(async move {
+                write_audit_log(&pool, entry(&format!("{i}"))).await
+            }));
+        }
+        for h in handles {
+            h.await
+                .unwrap()
+                .expect("each concurrent audit write must succeed");
+        }
+
+        let logs = query_audit_logs(&pool, 1000).await.unwrap();
+        assert_eq!(
+            logs.len(),
+            WRITERS,
+            "all concurrent audit writes must persist (none lost to BUSY_SNAPSHOT)"
+        );
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+    }
 }
