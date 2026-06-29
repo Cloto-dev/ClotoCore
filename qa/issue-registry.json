@@ -3174,10 +3174,26 @@
       "version": "0.6.8-beta.1",
       "file": "crates/core/src/capabilities.rs",
       "pattern": "let _ip = target_ip",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "Closes SAME-HOST connect-time rebind only. send_http_request no longer discards the validated address: it collects all resolved SocketAddrs, rejects the request if ANY is restricted, then builds a per-request reqwest client pinned to exactly that validated set via ClientBuilder::resolve_to_addrs(host, &resolved), so reqwest cannot re-resolve the ORIGINAL hostname to an unvalidated IP at connect time. SNI/Host keep using the hostname; multi-IP/HTTPS hosts do not regress; the long-lived reqwest::Client field was removed. NOTE: this does NOT close the redirect vector — a whitelisted host can 302 to a different host/IP that is re-resolved without the guard; that is tracked and fixed separately as bug-414 (redirects disabled). Guarded by capabilities::tests::test_send_http_request_blocks_whitelisted_host_resolving_to_loopback and test_send_http_request_rejects_non_whitelisted_host. Pairs with bug-403 (IPv6 restricted-addr gaps) and bug-414 (redirect bypass).",
       "notes": "Fix: pin the connection to the validated IP — build a per-request reqwest client with .resolve(host, validated_socketaddr) (preserves Host/SNI), or connect to https://<ip>:<port> with an explicit Host header. Needs care to avoid TLS/SNI regressions on legitimate multi-IP HTTPS hosts; deferred from the 2026-06-29 audit batch for that reason. Pairs with bug-403 (IPv6 restricted-addr gaps, fixed).",
       "github_issue": 217
+    },
+    {
+      "id": "bug-414",
+      "summary": "HIGH: SSRF via redirect bypasses the SafeHttpClient whitelist + IP pin. capabilities.rs SafeHttpClient::send_http_request whitelists the host, resolves it, rejects restricted IPs, and (bug-407) pins the per-request reqwest client to the validated addresses — but reqwest follows up to 10 redirects by default and resolve_to_addrs only overrides DNS for the ORIGINAL hostname. A whitelisted host the attacker controls can answer `302 Location: http://169.254.169.254/latest/meta-data/` (or any internal host/IP); reqwest follows it WITHOUT re-entering send_http_request, so the redirect target skips the whitelist check, skips is_restricted_addr, and has no IP pin — full SSRF to cloud-metadata / loopback in one hop. Pre-existing in the old shared-client design too; surfaced while reviewing the bug-407 fix.",
+      "severity": "HIGH",
+      "discovered": "2026-06-30T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "file": "crates/core/src/capabilities.rs",
+      "pattern": "Policy::none",
+      "expected": "present",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "The per-request client is built with .redirect(reqwest::redirect::Policy::none()), so reqwest no longer transparently follows 3xx responses to an unvalidated host/IP; a redirect is returned to the caller as-is. Capability HTTP probes do not need transparent redirect-following. This closes the one-hop SSRF that the bug-407 pin (same-host only) left open. Pairs with bug-407 (same-host connect-time rebind).",
+      "notes": "Alternative considered: a custom redirect::Policy that re-validates each hop's host against the whitelist and re-resolves+checks its IPs; rejected as more code for no benefit since capability probes don't need redirects."
     },
     {
       "id": "bug-408",
@@ -3189,7 +3205,7 @@
       "pattern": "Synthesis complete via",
       "expected": "present",
       "status": "open",
-      "notes": "Fix: record the expected synthesizer identity (agent_id or a freshly minted synthesis request id) in SessionState::Synthesizing and only accept the matching response as Complete; ignore/aggregate non-matching late proposals.",
+      "notes": "Fix: record the expected synthesizer identity (agent_id or a freshly minted synthesis request id) in SessionState::Synthesizing and only accept the matching response as Complete; ignore/aggregate non-matching late proposals. DEFERRED (2026-06-30): an attempted fix (commit 481279c, matching agent_id == 'agent.synthesizer') was reverted. It depends on an out-of-repo contract — that the external MGP/SSE mind-bridge echoes the dispatched AgentMetadata.id ('agent.synthesizer') verbatim into ThoughtResponse.agent_id. ThoughtRequested has no in-repo consumer (the Rust Plugin SDK was removed in 85e36cb), so the contract is unverifiable here; if the bridge stamps a different id the match never completes and consensus breaks entirely (worse than this bug). Re-attempt only with an e2e test against the real mind-bridge asserting the synthesis ThoughtResponse.agent_id, plus a fail-safe so a never-matching response cannot hang a session past the cleanup timeout.",
       "github_issue": 218
     },
     {
@@ -3228,8 +3244,10 @@
       "version": "0.6.8-beta.1",
       "file": "crates/core/src/managers/mcp_client.rs",
       "pattern": "Uses sender channel state",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "McpClient now holds an alive: Arc<AtomicBool> (init true). The response loop clones it and stores false once the loop exits — which only happens on transport EOF (child gone), so an idle death is observed immediately. is_alive() reads `self.alive.load(SeqCst) && !self.sender.is_closed()` (both lock-free, no transport Mutex contention), so the health monitor (mcp_health.rs) restarts a dead-but-idle server without waiting for the next tool call to hang. The old 'Uses sender channel state' doc-comment (the bug anchor) is gone. Guarded by managers::mcp_client::tests::is_alive_flips_false_when_server_exits_idle (a mock MCP server answers initialize then exits → EOF). Compounded bug-401's wedge.",
       "notes": "Fix: track real liveness — have the response loop set an Arc<AtomicBool> false on EOF/termination (it already detects this) and have is_alive() read that flag; or have the manager set status=Error when the response task ends. Don't rely on the writer task's receiver.",
       "github_issue": 221
     },
@@ -3240,11 +3258,27 @@
       "discovered": "2026-06-29T00:00:00Z",
       "version": "0.6.8-beta.1",
       "file": "crates/core/src/db/audit.rs",
-      "pattern": "Single transaction: fetch previous hash",
+      "pattern": "BEGIN IMMEDIATE",
       "expected": "present",
-      "status": "open",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "write_audit_log_inner now opens the transaction with pool.begin_with(\"BEGIN IMMEDIATE\") (write lock taken at transaction start) instead of pool.begin() (BEGIN DEFERRED). Concurrent audit writers therefore serialize on the write lock — waiting out busy_timeout — instead of both taking a read snapshot and having the second fail its read->write upgrade with the un-retried SQLITE_BUSY_SNAPSHOT. begin_with returns a sqlx Transaction (RAII rollback on drop/cancel — see bug-415). Pattern anchor is the BEGIN IMMEDIATE string. Guarded by db::audit::tests::concurrent_audit_writes_all_persist (24 concurrent writers against a WAL file db, all rows must persist).",
       "notes": "Fix: acquire the write lock up front — BEGIN IMMEDIATE for this tx (sqlx 0.8 custom begin), or serialize audit writes through a single-connection writer.",
       "github_issue": 222
+    },
+    {
+      "id": "bug-415",
+      "summary": "CRITICAL: audit write cancellation poisons the pool — regression introduced by the bug-412 fix (commit 95397e1, on branch fix/tier2-bug-backlog-137, not merged). The bug-412 fix replaced pool.begin() with a manual pool.acquire() + raw sqlx::query(\"BEGIN IMMEDIATE\") + match { Ok => COMMIT, Err => ROLLBACK }, dropping sqlx's Transaction RAII rollback guard. write_audit_log wraps write_audit_log_inner in tokio::time::timeout (default 10s); if it cancels AFTER BEGIN IMMEDIATE but before COMMIT, the future is dropped and the PoolConnection returns to the pool with an OPEN write transaction — sqlx 0.8's SQLite pool release only pings, it does not roll back. The connection holds the WAL write lock; every subsequent audit writer blocks → SQLITE_BUSY → the retry ladder exhausts → permanent audit blackout until max_lifetime (~30min) recycles the connection. Strictly worse than bug-412 (the very 'audit silent' class it was meant to cure). The COMMIT-error path had the same defect (returned Err without rolling back).",
+      "severity": "CRITICAL",
+      "discovered": "2026-06-30T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "file": "crates/core/src/db/audit.rs",
+      "pattern": "begin_with",
+      "expected": "present",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "Replaced the manual acquire + raw BEGIN IMMEDIATE + match(COMMIT/ROLLBACK) with `let mut tx = pool.begin_with(\"BEGIN IMMEDIATE\").await?;` … SELECT/INSERT on &mut *tx … `tx.commit().await?;`. begin_with (sqlx 0.8 Pool::begin_with) still takes the write lock up front (satisfying bug-412) but returns a sqlx Transaction whose Drop queues a ROLLBACK, so a cancelled or COMMIT-failed write returns the connection to the pool clean — no dangling write lock, no blackout. Guarded by db::audit::tests::dropped_audit_tx_rolls_back_and_frees_pool (deterministically open BEGIN IMMEDIATE, write, drop uncommitted more times than the pool has connections, then assert a normal write still succeeds and only the committed row persists) and concurrent_audit_writes_all_persist (now on a WAL + 10s busy_timeout pool mirroring lib.rs). Regression introduced by the bug-412 fix; cross-ref bug-412.",
+      "notes": "Caught pre-merge by the post-fix adversarial review (2026-06-30). The earlier bug-412 test ran in DELETE-journal mode (sqlx 0.8 does not default to WAL) so it neither reproduced bug-412 nor caught this regression; the test pool now forces WAL + busy_timeout."
     },
     {
       "id": "bug-413",
@@ -3258,6 +3292,20 @@
       "status": "fixed",
       "notes": "Fixed by per-agent scoping. Backend: get_memories/get_episodes read an agent_id query param and pass it to list_memories/list_episodes (empty = global 'All' view). Frontend: api.getMemories/getEpisodes take an agentId and append ?agent_id=; MemoryCore.fetchData scopes the fetch to selectedAgent and re-fetches on change, and agentTabs is derived from the global getAgents() list (unioned with agent_ids in the data) so scoping no longer collapses the filter tabs.",
       "github_issue": 226
+    },
+    {
+      "id": "bug-416",
+      "summary": "LOW: MemoryCore renders an un-scopable empty-string ('') agent tab — narrow recurrence of bug-413. agentTabs unions agent ids found in the data, so a global-pool memory/episode carrying agent_id='' adds an empty-label tab. The backend cannot distinguish agent_id='' from 'all agents' (get_memories maps both an absent and an empty agent_id param to the global most-recent view), so selecting the '' tab fetches the unscoped global top-N and then client-filters to agent_id='' — for '' rows outside the top-100/50 window that is exactly the bug-413 under-display, reappearing for the global-pool bucket. Frontend-only; discovered by the post-bug-413 adversarial review.",
+      "severity": "LOW",
+      "discovered": "2026-06-30T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "file": "dashboard/src/components/MemoryCore.tsx",
+      "pattern": "ids.delete",
+      "expected": "present",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "agentTabs now removes the empty-string id (ids.delete('')), so no '' tab is offered; global-pool ('') rows are shown under 'All' (which maps to agent_id='' at the backend anyway). fetchData also treats both null and '' as the unscoped view (scope = selectedAgent || undefined), so a concrete agent id is the only thing that scopes the fetch. Cross-ref bug-413.",
+      "notes": "The backend can't separate '' from 'all' without an API change; excluding the '' tab is the minimal correct fix since '' rows are already visible under 'All'. A backend distinction (e.g. a sentinel for global-pool-only) was considered out of scope for a LOW edge."
     }
   ]
 }
