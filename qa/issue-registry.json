@@ -3188,9 +3188,11 @@
       "discovered": "2026-06-29T00:00:00Z",
       "version": "0.6.8-beta.1",
       "file": "crates/core/src/consensus.rs",
-      "pattern": "Synthesis complete via",
+      "pattern": "synthesizer_agent_id",
       "expected": "present",
-      "status": "open",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "SessionState::Synthesizing now carries synthesizer_agent_id (set to SYNTHESIZER_AGENT_ID = 'agent.synthesizer', the id the synthesis request is dispatched under and therefore the agent_id its ThoughtResponse returns). In the Synthesizing arm, only a response whose agent_id matches completes the session (Action::Complete); a late raw proposal from a proposing engine returns Action::None and leaves the session intact, so it can never be returned as the consensus nor silently drop the real synthesis reply. Pattern anchor is the new field (the original 'Synthesis complete via' log line is retained). Guarded by consensus::tests::late_proposal_during_synthesis_is_ignored_not_completed and synthesizer_response_completes_session.",
       "notes": "Fix: record the expected synthesizer identity (agent_id or a freshly minted synthesis request id) in SessionState::Synthesizing and only accept the matching response as Complete; ignore/aggregate non-matching late proposals.",
       "github_issue": 218
     },
