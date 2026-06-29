@@ -812,9 +812,11 @@ impl SystemHandler {
                 .and_then(|a| serde_json::from_str(a).ok())
                 .unwrap_or(serde_json::json!({}));
             let mut args_map = tool_args.as_object().cloned().unwrap_or_default();
-            args_map
-                .entry("agent_id".to_string())
-                .or_insert(serde_json::json!(agent.id));
+            // 🔐 Anti-spoofing: force agent_id, matching the main agentic loop
+            // (insert, not entry().or_insert()). bug-406: a bridge-supplied
+            // `tool_args` carrying its own "agent_id" would otherwise execute the
+            // tool under another agent's identity, defeating per-agent scoping.
+            args_map.insert("agent_id".to_string(), serde_json::json!(agent.id));
             // For backward compat: speak requires "text" from message content
             if crate::managers::ToolKind::from_name(&tool_name) == crate::managers::ToolKind::Speak
             {

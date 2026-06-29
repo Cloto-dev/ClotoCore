@@ -77,7 +77,7 @@ pub fn parse_chat_think_result(
             "{} API response is not valid JSON: {} | body: {}",
             provider_name,
             e,
-            &response_body[..response_body.len().min(500)]
+            response_body.chars().take(500).collect::<String>()
         )
     })?;
 
@@ -109,7 +109,7 @@ pub fn parse_chat_think_result(
             anyhow::anyhow!(
                 "Invalid {} API response: missing choices[0] | body: {}",
                 provider_name,
-                &response_body[..response_body.len().min(500)]
+                response_body.chars().take(500).collect::<String>()
             )
         })?;
     let message_obj = choice
@@ -156,4 +156,32 @@ pub fn parse_chat_think_result(
         .ok_or_else(|| anyhow::anyhow!("Invalid API response: missing content"))?
         .to_string();
     Ok(ThinkResult::Final(content))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_invalid_json_with_multibyte_body_does_not_panic() {
+        // bug-402: the error path truncated the body with `&body[..body.len().min(500)]`,
+        // which panics when a multibyte UTF-8 codepoint straddles byte 500. Build a
+        // non-JSON body where a 3-byte char lands exactly on the boundary.
+        let body = format!("{}\u{3042}invalid", "x".repeat(499)); // 'あ' starts at byte 499
+        let err = parse_chat_think_result(&body, "test-provider")
+            .expect_err("non-JSON body must return Err");
+        assert!(err.to_string().contains("not valid JSON"));
+    }
+
+    #[test]
+    fn parse_missing_choices_with_multibyte_body_does_not_panic() {
+        // Same boundary hazard on the missing-choices[0] path. The prefix
+        // `{"unexpected":"` is 15 bytes, so 484 filler bytes place the 3-byte
+        // 'あ' across byte 500 of the full body.
+        let filler = "x".repeat(484);
+        let body = format!("{{\"unexpected\":\"{filler}\u{3042}padding\"}}");
+        let err = parse_chat_think_result(&body, "test-provider")
+            .expect_err("missing choices[0] must return Err");
+        assert!(err.to_string().contains("missing choices[0]"));
+    }
 }

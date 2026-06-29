@@ -13,6 +13,17 @@ use cloto_shared::{ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, MessageSou
 use crate::db::{self, CronJobRow};
 use crate::EnvelopedEvent;
 
+/// Upper bound for an `interval` cron schedule, in seconds (1 year).
+///
+/// bug-405: without a cap, a large `schedule_value` makes `interval_secs * 1000`
+/// overflow `i64`, wrapping `next_run_at` to a past/garbage value so the job is
+/// perpetually "due" and re-dispatches a full agentic loop every tick (a
+/// self-inflicted availability/cost DoS).
+const MAX_INTERVAL_SECS: u64 = 365 * 24 * 60 * 60;
+
+/// Minimum interval between recurring runs, in seconds.
+const MIN_INTERVAL_SECS: u64 = 60;
+
 /// Spawn the cron scheduler background task.
 ///
 /// Every `check_interval_secs` seconds, queries `cron_jobs` for due jobs
@@ -197,8 +208,14 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
 fn calculate_next_run(job: &CronJobRow, now_ms: i64) -> (i64, bool) {
     match job.schedule_type.as_str() {
         "interval" => {
-            let interval_secs: u64 = job.schedule_value.parse().unwrap_or(3600);
-            let next = now_ms + (interval_secs.cast_signed() * 1000);
+            // bug-405: clamp + saturating arithmetic so a malformed/oversized
+            // stored interval can't wrap `next_run_at` into the past.
+            let interval_secs = job
+                .schedule_value
+                .parse::<u64>()
+                .unwrap_or(3600)
+                .clamp(MIN_INTERVAL_SECS, MAX_INTERVAL_SECS);
+            let next = now_ms.saturating_add(interval_secs.cast_signed().saturating_mul(1000));
             (next, true)
         }
         "once" => {
@@ -237,10 +254,17 @@ pub fn calculate_initial_next_run(
             let interval_secs: u64 = schedule_value
                 .parse()
                 .map_err(|_| anyhow::anyhow!("Invalid interval: must be seconds (integer)"))?;
-            if interval_secs < 60 {
+            if interval_secs < MIN_INTERVAL_SECS {
                 return Err(anyhow::anyhow!("Minimum interval is 60 seconds"));
             }
-            Ok(now_ms + (interval_secs.cast_signed() * 1000))
+            // bug-405: reject oversized intervals up front so `* 1000` can't
+            // overflow i64 and produce a perpetually-due job.
+            if interval_secs > MAX_INTERVAL_SECS {
+                return Err(anyhow::anyhow!(
+                    "Maximum interval is {MAX_INTERVAL_SECS} seconds (1 year)"
+                ));
+            }
+            Ok(now_ms.saturating_add(interval_secs.cast_signed().saturating_mul(1000)))
         }
         "once" => {
             let dt = chrono::DateTime::parse_from_rfc3339(schedule_value)
@@ -262,5 +286,68 @@ pub fn calculate_initial_next_run(
         _ => Err(anyhow::anyhow!(
             "Unknown schedule_type: must be 'interval', 'cron', or 'once'"
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn interval_job(value: &str) -> CronJobRow {
+        CronJobRow {
+            id: "job-1".to_string(),
+            agent_id: "agent.test".to_string(),
+            name: "t".to_string(),
+            enabled: true,
+            schedule_type: "interval".to_string(),
+            schedule_value: value.to_string(),
+            engine_id: None,
+            message: String::new(),
+            next_run_at: 0,
+            last_run_at: None,
+            last_status: None,
+            last_error: None,
+            max_iterations: None,
+            created_at: String::new(),
+            hide_prompt: false,
+            cron_generation: 0,
+            source_type: "user".to_string(),
+            creator_user_id: None,
+            creator_user_name: None,
+        }
+    }
+
+    #[test]
+    fn initial_interval_rejects_oversized_value() {
+        // bug-405: an interval whose `* 1000` would overflow i64 must be rejected,
+        // not wrapped into a perpetually-due past timestamp.
+        let err = calculate_initial_next_run("interval", "99999999999999999")
+            .expect_err("oversized interval must be rejected");
+        assert!(err.to_string().contains("Maximum interval"));
+    }
+
+    #[test]
+    fn initial_interval_rejects_too_small() {
+        assert!(calculate_initial_next_run("interval", "30").is_err());
+    }
+
+    #[test]
+    fn initial_interval_accepts_valid() {
+        let now = Utc::now().timestamp_millis();
+        let next = calculate_initial_next_run("interval", "3600").unwrap();
+        assert!(next > now, "next run must be in the future");
+    }
+
+    #[test]
+    fn recurring_interval_clamps_oversized_value() {
+        // bug-405: even if a row with an oversized/garbage interval reaches the
+        // recurring path, the next run must stay strictly in the future.
+        let now = Utc::now().timestamp_millis();
+        let (next, enabled) = calculate_next_run(&interval_job("99999999999999999"), now);
+        assert!(enabled);
+        assert!(
+            next > now,
+            "clamped next run must be in the future, got {next}"
+        );
     }
 }

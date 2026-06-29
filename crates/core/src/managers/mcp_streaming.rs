@@ -9,6 +9,15 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use tracing::{debug, warn};
 
+/// Maximum plausible gap between the expected and a received chunk index.
+///
+/// bug-409: a streaming server can send an attacker-controlled `index` (u32, up
+/// to `u32::MAX`). Without a cap, the gap-fill loop would iterate up to ~4.2
+/// billion times and allocate ~16 GB into `gaps`/`gap_indices` while holding the
+/// `trackers` mutex → OOM/hang blocking all stream tracking. A jump larger than
+/// this is treated as a malformed stream: the gap is not materialized.
+const MAX_STREAM_GAP: u32 = 1024;
+
 /// Tracks per-request stream state for gap detection.
 pub(super) struct StreamAssembler {
     trackers: Mutex<HashMap<(String, i64), StreamTracker>>,
@@ -41,19 +50,37 @@ impl StreamAssembler {
             gaps: Vec::new(),
         });
 
-        tracker.received_count += 1;
+        tracker.received_count = tracker.received_count.saturating_add(1);
 
         if index == tracker.expected_index {
-            tracker.expected_index = index + 1;
+            tracker.expected_index = index.saturating_add(1);
             None
         } else {
+            // bug-409: bound the gap before materializing it. `index < expected`
+            // yields gap 0 (duplicate/late chunk → empty range → None, preserving
+            // the prior behavior); an implausibly large forward jump is dropped
+            // rather than allocating billions of entries under the mutex.
+            let gap = index.saturating_sub(tracker.expected_index);
+            if gap > MAX_STREAM_GAP {
+                warn!(
+                    server_id,
+                    request_id,
+                    gap,
+                    expected = tracker.expected_index,
+                    received = index,
+                    "stream chunk index jumped beyond MAX_STREAM_GAP — treating as \
+                     malformed, not materializing the gap"
+                );
+                tracker.expected_index = index.saturating_add(1);
+                return None;
+            }
             // Record gap: all indices between expected and received
             let mut gap_indices = Vec::new();
             for i in tracker.expected_index..index {
                 tracker.gaps.push(i);
                 gap_indices.push(i);
             }
-            tracker.expected_index = index + 1;
+            tracker.expected_index = index.saturating_add(1);
             if gap_indices.is_empty() {
                 None // duplicate (index < expected)
             } else {
@@ -218,5 +245,31 @@ mod tests {
         asm.remove("s1", 1);
         // After remove, should start fresh
         assert!(asm.record_chunk("s1", 1, 0).is_none());
+    }
+
+    #[test]
+    fn assembler_caps_implausible_gap() {
+        // bug-409: a huge forward jump must NOT materialize ~4.2B entries.
+        // It returns None (gap dropped) and completes promptly without OOM.
+        let asm = StreamAssembler::new();
+        assert!(asm.record_chunk("s1", 1, 0).is_none());
+        assert!(asm.record_chunk("s1", 1, u32::MAX).is_none());
+        // A gap exactly at the cap boundary is still materialized.
+        let asm2 = StreamAssembler::new();
+        let gaps = asm2.record_chunk("s2", 1, MAX_STREAM_GAP);
+        assert_eq!(gaps.map(|g| g.len()), Some(MAX_STREAM_GAP as usize));
+    }
+
+    #[test]
+    fn assembler_max_index_no_overflow() {
+        // bug-409: `expected = index + 1` overflowed at u32::MAX (debug panic).
+        let asm = StreamAssembler::new();
+        // In-order receipt of the max index must not panic.
+        for i in 0..3u32 {
+            asm.record_chunk("s1", 1, i);
+        }
+        // Jump near the top then to MAX; saturating_add keeps it sane.
+        assert!(asm.record_chunk("s1", 2, 0).is_none());
+        let _ = asm.record_chunk("s1", 2, u32::MAX); // capped, must not panic
     }
 }

@@ -260,8 +260,13 @@ impl McpClient {
                         Err(e) => {
                             debug!(
                                 error = %e,
+                                // char-safe truncation: byte-slicing `&line[..200]`
+                                // panics when a multibyte UTF-8 codepoint straddles
+                                // byte 200 (e.g. a long non-JSON diagnostic line),
+                                // which would abort this response loop and wedge the
+                                // server.
                                 "Received unparseable message: {}",
-                                &line[..line.len().min(200)]
+                                line.chars().take(200).collect::<String>()
                             );
                         }
                     }
