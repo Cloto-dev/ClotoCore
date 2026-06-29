@@ -462,12 +462,20 @@ async fn call_memory_tool_with_fallback(
 /// **Route:** `GET /api/memories`
 ///
 /// Returns recent memories enriched with lock status and server capabilities.
+#[allow(clippy::implicit_hasher)]
 pub async fn get_memories(
     State(state): State<Arc<AppState>>,
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-    let args = serde_json::json!({ "agent_id": "", "limit": 100 });
+    // Per-agent scoping: when the dashboard selects an agent it passes `agent_id`,
+    // and we scope `list_memories` to that agent so its full recent set is returned.
+    // An empty `agent_id` keeps the global most-recent view for the "All" tab.
+    // Without this, the global top-N fetch was filtered client-side, hiding any
+    // agent whose memories were not among the N most recent across all agents.
+    let agent_id = query.get("agent_id").map_or("", String::as_str);
+    let args = serde_json::json!({ "agent_id": agent_id, "limit": 100 });
 
     // Fetch memories from MCP server
     let mut data = match state
@@ -549,12 +557,16 @@ pub async fn get_memories(
 ///
 /// # Response
 /// Returns recent episodes from CPersona memory server.
+#[allow(clippy::implicit_hasher)]
 pub async fn get_episodes(
     State(state): State<Arc<AppState>>,
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-    let args = serde_json::json!({ "agent_id": "", "limit": 50 });
+    // Per-agent scoping (see `get_memories`): empty `agent_id` = global "All" view.
+    let agent_id = query.get("agent_id").map_or("", String::as_str);
+    let args = serde_json::json!({ "agent_id": agent_id, "limit": 50 });
     call_memory_tool_with_fallback(
         &state,
         "list_episodes",

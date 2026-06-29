@@ -3245,6 +3245,18 @@
       "status": "open",
       "notes": "Fix: acquire the write lock up front — BEGIN IMMEDIATE for this tx (sqlx 0.8 custom begin), or serialize audit writes through a single-connection writer.",
       "github_issue": 222
+    },
+    {
+      "id": "bug-413",
+      "summary": "MEDIUM: Memory dashboard (MemoryCore) under-displays an agent's memories. The /memories and /episodes endpoints fetched a GLOBAL most-recent top-N (agent_id='' , limit 100/50) and the UI filtered by agent client-side, so any agent whose memories are not among the N most recent across ALL agents shows an incomplete or empty set. Observed: agent.karin had 9 memories in the DB but only its 2 most-recent rows were shown because 133 newer memories from other agents pushed the rest out of the top-100 window; the empty episode stream had the same cause.",
+      "severity": "MEDIUM",
+      "discovered": "2026-06-29T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "file": "crates/core/src/handlers.rs",
+      "pattern": "\"agent_id\": \"\", \"limit\": 100",
+      "expected": "absent",
+      "status": "fixed",
+      "notes": "Fixed by per-agent scoping. Backend: get_memories/get_episodes read an agent_id query param and pass it to list_memories/list_episodes (empty = global 'All' view). Frontend: api.getMemories/getEpisodes take an agentId and append ?agent_id=; MemoryCore.fetchData scopes the fetch to selectedAgent and re-fetches on change, and agentTabs is derived from the global getAgents() list (unioned with agent_ids in the data) so scoping no longer collapses the filter tabs."
     }
   ]
 }
