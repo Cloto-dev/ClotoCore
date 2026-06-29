@@ -3193,7 +3193,8 @@
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
       "fix_note": "The per-request client is built with .redirect(reqwest::redirect::Policy::none()), so reqwest no longer transparently follows 3xx responses to an unvalidated host/IP; a redirect is returned to the caller as-is. Capability HTTP probes do not need transparent redirect-following. This closes the one-hop SSRF that the bug-407 pin (same-host only) left open. Pairs with bug-407 (same-host connect-time rebind).",
-      "notes": "Alternative considered: a custom redirect::Policy that re-validates each hop's host against the whitelist and re-resolves+checks its IPs; rejected as more code for no benefit since capability probes don't need redirects."
+      "notes": "Alternative considered: a custom redirect::Policy that re-validates each hop's host against the whitelist and re-resolves+checks its IPs; rejected as more code for no benefit since capability probes don't need redirects.",
+      "github_issue": 228
     },
     {
       "id": "bug-408",
@@ -3305,7 +3306,8 @@
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
       "fix_note": "agentTabs now removes the empty-string id (ids.delete('')), so no '' tab is offered; global-pool ('') rows are shown under 'All' (which maps to agent_id='' at the backend anyway). fetchData also treats both null and '' as the unscoped view (scope = selectedAgent || undefined), so a concrete agent id is the only thing that scopes the fetch. Cross-ref bug-413.",
-      "notes": "The backend can't separate '' from 'all' without an API change; excluding the '' tab is the minimal correct fix since '' rows are already visible under 'All'. A backend distinction (e.g. a sentinel for global-pool-only) was considered out of scope for a LOW edge."
+      "notes": "The backend can't separate '' from 'all' without an API change; excluding the '' tab is the minimal correct fix since '' rows are already visible under 'All'. A backend distinction (e.g. a sentinel for global-pool-only) was considered out of scope for a LOW edge.",
+      "github_issue": 229
     }
   ]
 }
