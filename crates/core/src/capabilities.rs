@@ -156,10 +156,20 @@ impl NetworkCapability for SafeHttpClient {
 
         // 3. Build a per-request client pinned to the validated addresses, then
         //    send. The connection can only reach the IPs we checked above.
+        //
+        // bug-414: redirects are DISABLED. reqwest follows up to 10 redirects by
+        // default, and `resolve_to_addrs` only pins the ORIGINAL hostname — a
+        // redirect target is re-resolved through the system resolver and never
+        // re-runs the whitelist / is_restricted_addr guard. So a whitelisted host
+        // the attacker controls could answer `302 Location: http://169.254.169.254/`
+        // and reqwest would follow it straight to cloud-metadata / loopback,
+        // bypassing every check in one hop. Capability HTTP probes don't need
+        // transparent redirect-following; a 3xx is returned to the caller as-is.
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(
                 CAPABILITY_HTTP_PROBE_TIMEOUT_SECS,
             ))
+            .redirect(reqwest::redirect::Policy::none())
             .resolve_to_addrs(host, &resolved)
             .build()?;
 

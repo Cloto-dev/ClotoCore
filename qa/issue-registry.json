@@ -3177,9 +3177,23 @@
       "expected": "absent",
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
-      "fix_note": "send_http_request no longer discards the validated address. It collects all resolved SocketAddrs, rejects the request if ANY is restricted, then builds a per-request reqwest client pinned to exactly that validated set via ClientBuilder::resolve_to_addrs(host, &resolved). reqwest can no longer perform a second DNS resolution at connect time, so a whitelisted domain cannot rebind to 127.0.0.1 / 169.254.169.254 between check and connect. SNI and the Host header keep using the hostname (only the IP lookup is overridden), so multi-IP / HTTPS hosts do not regress. The long-lived reqwest::Client field was removed from SafeHttpClient. Guarded by capabilities::tests::test_send_http_request_blocks_whitelisted_host_resolving_to_loopback and test_send_http_request_rejects_non_whitelisted_host. Pairs with bug-403 (IPv6 restricted-addr gaps, fixed).",
+      "fix_note": "Closes SAME-HOST connect-time rebind only. send_http_request no longer discards the validated address: it collects all resolved SocketAddrs, rejects the request if ANY is restricted, then builds a per-request reqwest client pinned to exactly that validated set via ClientBuilder::resolve_to_addrs(host, &resolved), so reqwest cannot re-resolve the ORIGINAL hostname to an unvalidated IP at connect time. SNI/Host keep using the hostname; multi-IP/HTTPS hosts do not regress; the long-lived reqwest::Client field was removed. NOTE: this does NOT close the redirect vector — a whitelisted host can 302 to a different host/IP that is re-resolved without the guard; that is tracked and fixed separately as bug-414 (redirects disabled). Guarded by capabilities::tests::test_send_http_request_blocks_whitelisted_host_resolving_to_loopback and test_send_http_request_rejects_non_whitelisted_host. Pairs with bug-403 (IPv6 restricted-addr gaps) and bug-414 (redirect bypass).",
       "notes": "Fix: pin the connection to the validated IP — build a per-request reqwest client with .resolve(host, validated_socketaddr) (preserves Host/SNI), or connect to https://<ip>:<port> with an explicit Host header. Needs care to avoid TLS/SNI regressions on legitimate multi-IP HTTPS hosts; deferred from the 2026-06-29 audit batch for that reason. Pairs with bug-403 (IPv6 restricted-addr gaps, fixed).",
       "github_issue": 217
+    },
+    {
+      "id": "bug-414",
+      "summary": "HIGH: SSRF via redirect bypasses the SafeHttpClient whitelist + IP pin. capabilities.rs SafeHttpClient::send_http_request whitelists the host, resolves it, rejects restricted IPs, and (bug-407) pins the per-request reqwest client to the validated addresses — but reqwest follows up to 10 redirects by default and resolve_to_addrs only overrides DNS for the ORIGINAL hostname. A whitelisted host the attacker controls can answer `302 Location: http://169.254.169.254/latest/meta-data/` (or any internal host/IP); reqwest follows it WITHOUT re-entering send_http_request, so the redirect target skips the whitelist check, skips is_restricted_addr, and has no IP pin — full SSRF to cloud-metadata / loopback in one hop. Pre-existing in the old shared-client design too; surfaced while reviewing the bug-407 fix.",
+      "severity": "HIGH",
+      "discovered": "2026-06-30T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "file": "crates/core/src/capabilities.rs",
+      "pattern": "Policy::none",
+      "expected": "present",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "The per-request client is built with .redirect(reqwest::redirect::Policy::none()), so reqwest no longer transparently follows 3xx responses to an unvalidated host/IP; a redirect is returned to the caller as-is. Capability HTTP probes do not need transparent redirect-following. This closes the one-hop SSRF that the bug-407 pin (same-host only) left open. Pairs with bug-407 (same-host connect-time rebind).",
+      "notes": "Alternative considered: a custom redirect::Policy that re-validates each hop's host against the whitelist and re-resolves+checks its IPs; rejected as more code for no benefit since capability probes don't need redirects."
     },
     {
       "id": "bug-408",
