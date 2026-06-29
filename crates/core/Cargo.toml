@@ -52,7 +52,7 @@ tar = "0.4"
 zip = "2"
 unicode-normalization = "0.1"
 lindera = { version = "2.3", features = ["embed-ipadic"] }
-dirs = "5"
+dirs = "6"
 
 # bug-358: graceful SIGTERM (before SIGKILL) for MCP child shutdown. Unix only —
 # tokio's process API can only send SIGKILL.
