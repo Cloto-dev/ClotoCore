@@ -42,7 +42,10 @@ impl SafeHttpClient {
     }
 
     /// IPアドレスベースでの制限チェック (Principle #5: Strict Permission Isolation)
-    #[allow(clippy::unused_self)]
+    // The IPv6 arm recurses into the V4 rules for IPv4-mapped addresses; `self`
+    // is otherwise unused, but keeping it a method preserves the existing call
+    // sites and the `client.is_restricted_addr(..)` test surface.
+    #[allow(clippy::self_only_used_in_recursion)]
     fn is_restricted_addr(&self, ip: IpAddr) -> bool {
         match ip {
             IpAddr::V4(v4) => {
@@ -55,9 +58,17 @@ impl SafeHttpClient {
                     || v4.octets()[0] == 0
             }
             IpAddr::V6(v6) => {
+                // IPv4-mapped addresses (::ffff:a.b.c.d) must be checked against
+                // the IPv4 rules — otherwise ::ffff:127.0.0.1 / ::ffff:169.254.169.254
+                // bypass the loopback / link-local / cloud-metadata guards that the
+                // V4 branch enforces.
+                if let Some(v4) = v6.to_ipv4_mapped() {
+                    return self.is_restricted_addr(IpAddr::V4(v4));
+                }
                 v6.is_loopback()
                     || v6.is_unspecified()
-                    || (v6.segments()[0] & 0xfe00 == 0xfc00)
+                    || (v6.segments()[0] & 0xfe00) == 0xfc00 // fc00::/7 unique-local
+                    || (v6.segments()[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
                     || v6.is_multicast()
             }
         }
@@ -438,6 +449,37 @@ mod tests {
         assert!(!client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(
             0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888
         )))); // Google DNS
+    }
+
+    #[test]
+    fn test_is_restricted_addr_ipv6_link_local() {
+        // bug-403: fe80::/10 link-local was previously not blocked on the V6 arm.
+        let client = SafeHttpClient::new(vec![]).unwrap();
+        assert!(client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1))));
+        assert!(client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(0xfebf, 0, 0, 0, 0, 0, 0, 1))));
+    }
+
+    #[test]
+    fn test_is_restricted_addr_ipv6_mapped_ipv4() {
+        // bug-403: ::ffff:a.b.c.d must be checked against the IPv4 rules, otherwise
+        // ::ffff:127.0.0.1 / ::ffff:169.254.169.254 reach loopback / cloud metadata.
+        let client = SafeHttpClient::new(vec![]).unwrap();
+        // ::ffff:127.0.0.1
+        assert!(client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(
+            0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x0001
+        ))));
+        // ::ffff:169.254.169.254 (cloud metadata endpoint)
+        assert!(client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(
+            0, 0, 0, 0, 0, 0xffff, 0xa9fe, 0xa9fe
+        ))));
+        // ::ffff:10.0.0.1 (private)
+        assert!(client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(
+            0, 0, 0, 0, 0, 0xffff, 0x0a00, 0x0001
+        ))));
+        // ::ffff:8.8.8.8 (public) must remain allowed
+        assert!(!client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(
+            0, 0, 0, 0, 0, 0xffff, 0x0808, 0x0808
+        ))));
     }
 
     #[test]
