@@ -16,7 +16,6 @@ const CAPABILITY_HTTP_PROBE_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Clone)]
 pub struct SafeHttpClient {
-    client: reqwest::Client,
     /// L5: Dynamic whitelist wrapped in Arc<RwLock> for runtime host addition
     allowed_hosts: Arc<RwLock<HashSet<String>>>,
 }
@@ -26,17 +25,18 @@ impl SafeHttpClient {
         // P1: Hosts are now fully config-driven (no hard-coded defaults)
         // The caller passes default_allowed_api_hosts from AppConfig,
         // which includes the same defaults unless overridden via env var.
+        //
+        // bug-407: the outbound client is built per request inside
+        // `send_http_request` (pinned to the validated IPs via
+        // `resolve_to_addrs`) rather than once here, so a shared client cannot
+        // re-resolve a whitelisted hostname to an unvalidated address at connect
+        // time. No long-lived `reqwest::Client` is held on the struct.
         let hosts: HashSet<String> = allowed_hosts
             .into_iter()
             .map(|h| h.to_lowercase())
             .collect();
 
         Ok(Self {
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(
-                    CAPABILITY_HTTP_PROBE_TIMEOUT_SECS,
-                ))
-                .build()?,
             allowed_hosts: Arc::new(RwLock::new(hosts)),
         })
     }
@@ -121,12 +121,26 @@ impl NetworkCapability for SafeHttpClient {
             ));
         }
 
-        // 2. DNS名前解決とIPベースの検証 (DNS Rebinding対策)
-        // lookup_host はシステムのリゾルバを使用して非同期に解決する
-        let addrs = lookup_host(format!("{}:{}", host, port)).await?;
-        let mut target_ip = None;
+        // 2. DNS resolution + IP validation, then PIN the connection to the
+        //    validated addresses (DNS-rebinding / TOCTOU defense — bug-407).
+        //
+        //    Previously the resolved IP was validated and then discarded, and
+        //    the request was issued against the hostname — so reqwest performed
+        //    its OWN second DNS resolution at connect time. A whitelisted domain
+        //    the attacker controls could answer with a public IP at check time
+        //    and 127.0.0.1 / 169.254.169.254 at connect time, defeating the
+        //    guard. We now reject if ANY resolved address is restricted, then
+        //    pin the client to exactly the addresses we validated. SNI and the
+        //    Host header keep using the hostname (reqwest only overrides the IP
+        //    lookup), so legitimate multi-IP / HTTPS hosts do not regress.
+        let resolved: Vec<std::net::SocketAddr> =
+            lookup_host(format!("{host}:{port}")).await?.collect();
 
-        for addr in addrs {
+        if resolved.is_empty() {
+            return Err(anyhow::anyhow!("Failed to resolve host: {host}"));
+        }
+
+        for addr in &resolved {
             if self.is_restricted_addr(addr.ip()) {
                 warn!(
                     "🚫 Security Violation: Host '{}' resolved to a restricted IP: {}",
@@ -138,16 +152,29 @@ impl NetworkCapability for SafeHttpClient {
                     host
                 ));
             }
-            if target_ip.is_none() {
-                target_ip = Some(addr.ip());
-            }
         }
 
-        let _ip = target_ip.ok_or_else(|| anyhow::anyhow!("Failed to resolve host: {}", host))?;
+        // 3. Build a per-request client pinned to the validated addresses, then
+        //    send. The connection can only reach the IPs we checked above.
+        //
+        // bug-414: redirects are DISABLED. reqwest follows up to 10 redirects by
+        // default, and `resolve_to_addrs` only pins the ORIGINAL hostname — a
+        // redirect target is re-resolved through the system resolver and never
+        // re-runs the whitelist / is_restricted_addr guard. So a whitelisted host
+        // the attacker controls could answer `302 Location: http://169.254.169.254/`
+        // and reqwest would follow it straight to cloud-metadata / loopback,
+        // bypassing every check in one hop. Capability HTTP probes don't need
+        // transparent redirect-following; a 3xx is returned to the caller as-is.
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(
+                CAPABILITY_HTTP_PROBE_TIMEOUT_SECS,
+            ))
+            .redirect(reqwest::redirect::Policy::none())
+            .resolve_to_addrs(host, &resolved)
+            .build()?;
 
-        // 3. 実際のリクエスト送信
         let method = request.method.parse::<reqwest::Method>()?;
-        let mut builder = self.client.request(method, url);
+        let mut builder = client.request(method, url);
 
         for (k, v) in request.headers {
             builder = builder.header(k, v);
@@ -310,6 +337,7 @@ impl ProcessCapability for AllowedProcessCapability {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     #[test]
@@ -508,5 +536,41 @@ mod tests {
         assert!(client.is_whitelisted_host("host500.example.com"));
         assert!(client.is_whitelisted_host("host999.example.com"));
         assert!(!client.is_whitelisted_host("host1000.example.com"));
+    }
+
+    #[tokio::test]
+    async fn test_send_http_request_rejects_non_whitelisted_host() {
+        // The whitelist gate fires before any DNS resolution.
+        let client = SafeHttpClient::new(vec!["allowed.example".to_string()]).unwrap();
+        let req = HttpRequest {
+            method: "GET".to_string(),
+            url: "http://evil.example/".to_string(),
+            headers: HashMap::new(),
+            body: None,
+        };
+        let err = client.send_http_request(req).await.unwrap_err().to_string();
+        assert!(err.contains("Not Whitelisted"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_send_http_request_blocks_whitelisted_host_resolving_to_loopback() {
+        // bug-407 regression: being whitelisted is not sufficient — the send
+        // path MUST resolve the host and reject restricted IPs (then pin the
+        // connection to the validated set so reqwest cannot re-resolve to an
+        // unvalidated address at connect time). `localhost` resolves to loopback
+        // on every platform, which is_restricted_addr rejects, so the request is
+        // denied before any connection is attempted.
+        let client = SafeHttpClient::new(vec!["localhost".to_string()]).unwrap();
+        let req = HttpRequest {
+            method: "GET".to_string(),
+            url: "http://localhost/".to_string(),
+            headers: HashMap::new(),
+            body: None,
+        };
+        let err = client.send_http_request(req).await.unwrap_err().to_string();
+        assert!(
+            err.contains("restricted IP range detected"),
+            "expected restricted-IP denial, got: {err}"
+        );
     }
 }

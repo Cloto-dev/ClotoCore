@@ -85,6 +85,12 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
     for (const a of agents) ids.add(a.id);
     for (const mem of memories) ids.add(mem.agent_id);
     for (const ep of episodes) ids.add(ep.agent_id);
+    // bug-416: never offer an empty-string ("") tab. The backend cannot
+    // distinguish agent_id="" from "all agents" — both map to the global
+    // most-recent view (see get_memories) — so a "" tab could not be correctly
+    // scoped and selecting it would re-trigger bug-413 for global-pool rows
+    // outside the top-N window. Those rows are shown under "All" instead.
+    ids.delete('');
     return Array.from(ids).sort();
   }, [agents, memories, episodes]);
 
@@ -104,7 +110,10 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
       // so an agent whose memories aren't among the global most-recent set is still
       // shown in full. The agent list is fetched globally to keep every filter tab
       // visible regardless of the active scope.
-      const scope = selectedAgent ?? undefined;
+      // bug-416: treat both null and "" as the unscoped "All" view — the backend
+      // maps agent_id="" to the global view anyway, so only a concrete (non-empty)
+      // agent id scopes the fetch.
+      const scope = selectedAgent || undefined;
       const [memResult, episodes, agents] = await Promise.all([
         api.getMemories(scope),
         api.getEpisodes(scope),

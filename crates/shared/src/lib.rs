@@ -168,12 +168,34 @@ pub struct HttpRequest {
     pub body: Option<String>,
 }
 
+/// Response from a capability HTTP request.
+///
+/// Carries only the status code and body — there is no `headers` field, so a
+/// caller cannot read a `Location` header. Combined with the no-redirect
+/// contract below, this means a 3xx response is terminal from the caller's
+/// point of view: it sees `status` in the 3xx range and an empty/short `body`,
+/// and cannot follow the redirect itself.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpResponse {
     pub status: u16,
     pub body: String,
 }
 
+/// Sandboxed outbound HTTP capability, injected only when `NetworkAccess` is granted.
+///
+/// # Security contract (implementations MUST uphold)
+/// - The target host MUST pass an allow-list check, and every resolved IP MUST
+///   be rejected if it falls in a restricted range (loopback, link-local,
+///   private, cloud-metadata, etc.). The connection MUST be pinned to the
+///   validated addresses so DNS cannot be re-resolved to an unvalidated IP at
+///   connect time (DNS-rebinding / TOCTOU defense — bug-407).
+/// - **Redirects are NOT followed** (bug-414). Transparent redirect-following
+///   would let a whitelisted host `302` to an internal IP that is re-resolved
+///   without the allow-list / restricted-IP guard, bypassing every check in one
+///   hop. A 3xx is therefore returned to the caller as-is (see `HttpResponse`),
+///   not followed. Callers that need to act on a redirect must re-issue the
+///   request against the (separately validated) target themselves; they cannot
+///   read the `Location` header from `HttpResponse`.
 #[async_trait]
 pub trait NetworkCapability: Send + Sync {
     async fn send_http_request(&self, request: HttpRequest) -> anyhow::Result<HttpResponse>;

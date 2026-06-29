@@ -82,8 +82,27 @@ async fn write_audit_log_inner(pool: &SqlitePool, entry: AuditLogEntry) -> anyho
     let metadata_str = entry.metadata.as_ref().map(ToString::to_string);
     let data = canonical_data(&timestamp, &entry);
 
-    // Single transaction: fetch previous hash + insert with new hash
-    let mut tx = pool.begin().await?;
+    // Single transaction: fetch previous hash + insert with new hash.
+    //
+    // bug-412: take the write lock up front with BEGIN IMMEDIATE. The default
+    // `pool.begin()` issues BEGIN DEFERRED, which starts read-only — the SELECT
+    // below takes a read snapshot and the INSERT then upgrades read->write. Two
+    // concurrent audit writers both snapshot the same tail, and the second's
+    // upgrade fails with SQLITE_BUSY_SNAPSHOT: a snapshot conflict that
+    // `busy_timeout` does NOT retry (it only waits out lock contention, not a
+    // lost snapshot), so the row is silently dropped — the mechanism behind the
+    // "audit silent for 14h" incident. BEGIN IMMEDIATE acquires the write lock
+    // at transaction start, so concurrent writers serialize (waiting out
+    // busy_timeout) instead of racing a read->write upgrade.
+    //
+    // bug-415: this MUST stay a sqlx `Transaction` (via begin_with), not a raw
+    // `BEGIN IMMEDIATE` on a manually-acquired connection. `write_audit_log`
+    // wraps this in a tokio timeout; if it cancels between BEGIN and COMMIT, the
+    // Transaction's Drop queues a ROLLBACK so the connection returns to the pool
+    // clean. A manual connection would be returned still holding the write lock
+    // (sqlx's SQLite pool release does not roll back), wedging every later audit
+    // write — exactly the blackout this code is meant to prevent.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
 
     let prev_hash: Option<String> =
         sqlx::query_scalar("SELECT chain_hash FROM audit_logs ORDER BY id DESC LIMIT 1")
@@ -286,4 +305,179 @@ pub async fn query_audit_logs(pool: &SqlitePool, limit: i64) -> anyhow::Result<V
     }
 
     Ok(logs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+    use std::time::Duration;
+
+    /// Build a temp FILE-backed pool that mirrors the production SQLite config
+    /// (`lib.rs`): WAL journal + 10s busy_timeout. WAL is required to exercise
+    /// the SQLITE_BUSY_SNAPSHOT path bug-412 targets — sqlx 0.8 does NOT default
+    /// SQLite to WAL, so a plain pool would run in DELETE-journal mode where the
+    /// bug cannot reproduce and the test would pass on unfixed code too. A FILE
+    /// db (not `:memory:`) lets the multiple pool connections share one database.
+    /// Returns `(pool, path)`; caller must `cleanup(pool, path)` when done.
+    async fn wal_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
+        static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let uniq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "cloto_audit_{}_{}_{}.db",
+            tag,
+            std::process::id(),
+            uniq
+        ));
+        // Remove any stale db + WAL sidecars from a prior run that panicked
+        // before cleanup (a leaked -wal/-shm paired with a fresh db would corrupt
+        // isolation). Mirror `cleanup`'s three-file removal.
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+        let opts = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(10));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(8)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        crate::db::init_db(&pool, "test", None).await.unwrap();
+        (pool, path)
+    }
+
+    async fn cleanup(pool: SqlitePool, path: std::path::PathBuf) {
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+    }
+
+    fn entry(tag: &str) -> AuditLogEntry {
+        AuditLogEntry {
+            timestamp: Utc::now(),
+            event_type: format!("EVT_{tag}"),
+            actor_id: Some("actor".into()),
+            target_id: Some("target".into()),
+            permission: Some("Perm".into()),
+            result: "SUCCESS".into(),
+            reason: "test".into(),
+            metadata: None,
+            trace_id: Some(format!("trace-{tag}")),
+        }
+    }
+
+    /// bug-412: concurrent audit writes must all persist. Pre-fix, BEGIN
+    /// DEFERRED let two writers snapshot the same tail and the second's
+    /// read->write upgrade failed with SQLITE_BUSY_SNAPSHOT (which busy_timeout
+    /// does not retry), silently dropping rows. BEGIN IMMEDIATE serializes
+    /// writers so every row lands. Runs against a WAL file db (see `wal_pool`)
+    /// so the bug's WAL-only snapshot path is actually exercised.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_audit_writes_all_persist() {
+        let (pool, path) = wal_pool("bug412").await;
+
+        const WRITERS: usize = 24;
+        let mut handles = Vec::new();
+        for i in 0..WRITERS {
+            let pool = pool.clone();
+            handles.push(tokio::spawn(async move {
+                write_audit_log(&pool, entry(&format!("{i}"))).await
+            }));
+        }
+        for h in handles {
+            h.await
+                .unwrap()
+                .expect("each concurrent audit write must succeed");
+        }
+
+        let logs = query_audit_logs(&pool, 1000).await.unwrap();
+        assert_eq!(
+            logs.len(),
+            WRITERS,
+            "all concurrent audit writes must persist (none lost to BUSY_SNAPSHOT)"
+        );
+
+        cleanup(pool, path).await;
+    }
+
+    /// bug-415: cancelling an audit write mid-transaction must NOT poison the
+    /// pool. When `write_audit_log`'s tokio timeout cancels mid-write, the future
+    /// is dropped, which drops its sqlx `Transaction`. That Drop MUST roll back so
+    /// the connection returns to the pool with no open transaction and no held
+    /// write lock — otherwise (the pre-fix manual acquire + raw BEGIN IMMEDIATE,
+    /// which had no Transaction to drop) the connection is recycled still holding
+    /// the WAL write lock and every later audit write wedges (~30min blackout).
+    ///
+    /// This test characterizes the mechanism the fix RELIES ON — that dropping a
+    /// `pool.begin_with("BEGIN IMMEDIATE")` transaction rolls back and frees the
+    /// write lock — deterministically: open the exact transaction the audit path
+    /// uses, INSERT a row, then drop it WITHOUT committing (identical to what
+    /// dropping the cancelled future does to its tx). Cycling more times than the
+    /// pool has connections proves none is left wedged, and the final row count
+    /// proves the dropped writes rolled back. (It does NOT itself drive
+    /// `write_audit_log_inner` — see the coverage-boundary note after this test;
+    /// the bug-415 registry anchor `begin_with` guards against reverting the
+    /// production fn to the manual non-rollback form.)
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn dropped_audit_tx_rolls_back_and_frees_pool() {
+        let (pool, path) = wal_pool("bug415").await;
+
+        // 12 > max_connections (8): each iteration takes the write lock via
+        // BEGIN IMMEDIATE, writes, then drops uncommitted. If Drop did not roll
+        // back, after 8 iterations every pooled connection would be stuck in a
+        // transaction and the next begin_with would error / hang.
+        for i in 0..12 {
+            let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
+            sqlx::query(
+                "INSERT INTO audit_logs (timestamp, event_type, result, reason, chain_hash)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(Utc::now().to_rfc3339())
+            .bind(format!("DROPPED_{i}"))
+            .bind("SUCCESS")
+            .bind("rolled-back")
+            .bind("deadbeef")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+            drop(tx); // no commit -> RAII rollback releases the write lock
+        }
+
+        // The pool is not wedged: a normal audit write succeeds promptly.
+        write_audit_log(&pool, entry("after-drops"))
+            .await
+            .expect("dropped transactions must not poison the pool");
+
+        // Only the committed write persisted; all 12 dropped inserts rolled back.
+        let logs = query_audit_logs(&pool, 1000).await.unwrap();
+        assert_eq!(
+            logs.len(),
+            1,
+            "dropped (uncommitted) audit transactions must roll back, leaving only the committed write"
+        );
+        assert_eq!(logs[0].event_type, "EVT_after-drops");
+
+        cleanup(pool, path).await;
+    }
+
+    // NOTE on coverage boundary (bug-415): the test above deterministically
+    // covers the PRODUCTION cancellation scenario — a timeout firing AFTER
+    // begin_with returns the Transaction but before commit — because dropping a
+    // constructed Transaction is exactly what dropping the cancelled future does.
+    // We intentionally do NOT add a test that fires write_audit_log under a
+    // sub-millisecond timeout: that cancels DURING begin_with (before the
+    // Transaction exists, so there is nothing to RAII-roll-back), which can
+    // transiently poison a connection — but that window never occurs in
+    // production (write_audit_log's timeout is db_timeout_secs, default 10s, and
+    // begin_with completes in microseconds). Such a test reproduces a
+    // non-production failure mode and flakes (observed: ~282s hang then fail when
+    // a cancel landed inside begin_with). Revert protection for the production fn
+    // itself is provided by the bug-415 registry anchor (pattern `begin_with`):
+    // replacing it with the manual non-rollback form makes verify-issues STALE
+    // and the pre-commit hook blocks.
 }
