@@ -94,51 +94,44 @@ async fn write_audit_log_inner(pool: &SqlitePool, entry: AuditLogEntry) -> anyho
     // "audit silent for 14h" incident. BEGIN IMMEDIATE acquires the write lock
     // at transaction start, so concurrent writers serialize (waiting out
     // busy_timeout) instead of racing a read->write upgrade.
-    let mut conn = pool.acquire().await?;
-    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+    //
+    // bug-415: this MUST stay a sqlx `Transaction` (via begin_with), not a raw
+    // `BEGIN IMMEDIATE` on a manually-acquired connection. `write_audit_log`
+    // wraps this in a tokio timeout; if it cancels between BEGIN and COMMIT, the
+    // Transaction's Drop queues a ROLLBACK so the connection returns to the pool
+    // clean. A manual connection would be returned still holding the write lock
+    // (sqlx's SQLite pool release does not roll back), wedging every later audit
+    // write — exactly the blackout this code is meant to prevent.
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
 
-    let result = async {
-        let prev_hash: Option<String> =
-            sqlx::query_scalar("SELECT chain_hash FROM audit_logs ORDER BY id DESC LIMIT 1")
-                .fetch_optional(&mut *conn)
-                .await?
-                .flatten();
+    let prev_hash: Option<String> =
+        sqlx::query_scalar("SELECT chain_hash FROM audit_logs ORDER BY id DESC LIMIT 1")
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
 
-        let chain_hash = compute_chain_hash(prev_hash.as_deref(), &data);
+    let chain_hash = compute_chain_hash(prev_hash.as_deref(), &data);
 
-        sqlx::query(
-            "INSERT INTO audit_logs (timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id, chain_hash)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&timestamp)
-        .bind(&entry.event_type)
-        .bind(&entry.actor_id)
-        .bind(&entry.target_id)
-        .bind(&entry.permission)
-        .bind(&entry.result)
-        .bind(&entry.reason)
-        .bind(&metadata_str)
-        .bind(&entry.trace_id)
-        .bind(&chain_hash)
-        .execute(&mut *conn)
-        .await?;
+    sqlx::query(
+        "INSERT INTO audit_logs (timestamp, event_type, actor_id, target_id, permission, result, reason, metadata, trace_id, chain_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&timestamp)
+    .bind(&entry.event_type)
+    .bind(&entry.actor_id)
+    .bind(&entry.target_id)
+    .bind(&entry.permission)
+    .bind(&entry.result)
+    .bind(&entry.reason)
+    .bind(&metadata_str)
+    .bind(&entry.trace_id)
+    .bind(&chain_hash)
+    .execute(&mut *tx)
+    .await?;
 
-        Ok::<(), anyhow::Error>(())
-    }
-    .await;
+    tx.commit().await?;
 
-    match result {
-        Ok(()) => {
-            sqlx::query("COMMIT").execute(&mut *conn).await?;
-            Ok(())
-        }
-        Err(e) => {
-            // Best-effort rollback so the connection returns to the pool without
-            // a dangling transaction; surface the original error.
-            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
-            Err(e)
-        }
-    }
+    Ok(())
 }
 
 /// Spawn a background task to write an audit log entry with retry.
@@ -318,7 +311,46 @@ pub async fn query_audit_logs(pool: &SqlitePool, limit: i64) -> anyhow::Result<V
 mod tests {
     use super::*;
     use chrono::Utc;
-    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+    use std::time::Duration;
+
+    /// Build a temp FILE-backed pool that mirrors the production SQLite config
+    /// (`lib.rs`): WAL journal + 10s busy_timeout. WAL is required to exercise
+    /// the SQLITE_BUSY_SNAPSHOT path bug-412 targets — sqlx 0.8 does NOT default
+    /// SQLite to WAL, so a plain pool would run in DELETE-journal mode where the
+    /// bug cannot reproduce and the test would pass on unfixed code too. A FILE
+    /// db (not `:memory:`) lets the multiple pool connections share one database.
+    /// Returns `(pool, path)`; caller must `cleanup(pool, path)` when done.
+    async fn wal_pool(tag: &str) -> (SqlitePool, std::path::PathBuf) {
+        static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let uniq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "cloto_audit_{}_{}_{}.db",
+            tag,
+            std::process::id(),
+            uniq
+        ));
+        let _ = std::fs::remove_file(&path);
+        let opts = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(10));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(8)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        crate::db::init_db(&pool, "test", None).await.unwrap();
+        (pool, path)
+    }
+
+    async fn cleanup(pool: SqlitePool, path: std::path::PathBuf) {
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+    }
 
     fn entry(tag: &str) -> AuditLogEntry {
         AuditLogEntry {
@@ -338,29 +370,11 @@ mod tests {
     /// DEFERRED let two writers snapshot the same tail and the second's
     /// read->write upgrade failed with SQLITE_BUSY_SNAPSHOT (which busy_timeout
     /// does not retry), silently dropping rows. BEGIN IMMEDIATE serializes
-    /// writers so every row lands. Uses a temp FILE db (sqlx defaults SQLite to
-    /// WAL) so the multiple pool connections share one database under real
-    /// concurrency.
+    /// writers so every row lands. Runs against a WAL file db (see `wal_pool`)
+    /// so the bug's WAL-only snapshot path is actually exercised.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn concurrent_audit_writes_all_persist() {
-        static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let uniq = SEQ.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "cloto_audit_bug412_{}_{}.db",
-            std::process::id(),
-            uniq
-        ));
-        let _ = std::fs::remove_file(&path);
-
-        let opts = SqliteConnectOptions::new()
-            .filename(&path)
-            .create_if_missing(true);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(8)
-            .connect_with(opts)
-            .await
-            .unwrap();
-        crate::db::init_db(&pool, "test", None).await.unwrap();
+        let (pool, path) = wal_pool("bug412").await;
 
         const WRITERS: usize = 24;
         let mut handles = Vec::new();
@@ -383,9 +397,45 @@ mod tests {
             "all concurrent audit writes must persist (none lost to BUSY_SNAPSHOT)"
         );
 
-        pool.close().await;
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
-        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+        cleanup(pool, path).await;
+    }
+
+    /// bug-415: cancelling an audit write mid-transaction must NOT poison the
+    /// pool. `write_audit_log` runs under a tokio timeout; if it cancels between
+    /// BEGIN IMMEDIATE and COMMIT, the sqlx `Transaction` Drop must roll back so
+    /// the connection returns to the pool without holding the write lock. Pre-fix
+    /// (manual acquire + raw BEGIN IMMEDIATE) the connection was returned still
+    /// in a transaction, wedging every later write. Here we cancel many writes at
+    /// a 1ns timeout, then assert normal writes still succeed and persist.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn cancelled_write_does_not_poison_pool() {
+        let (pool, path) = wal_pool("bug415").await;
+
+        // Force cancellation mid-write: a 1ns timeout fires almost immediately,
+        // dropping write_audit_log_inner's future (often after BEGIN, before
+        // COMMIT). Repeat to make a hung write lock near-certain if Drop didn't
+        // roll back.
+        for i in 0..20 {
+            let _ = tokio::time::timeout(
+                Duration::from_nanos(1),
+                write_audit_log(&pool, entry(&format!("cancel-{i}"))),
+            )
+            .await;
+        }
+
+        // The pool must still be usable: a normal write succeeds and persists.
+        // If a cancelled write had left an open transaction, this would block on
+        // the write lock and fail (or time out via the inner db timeout).
+        write_audit_log(&pool, entry("after-cancel"))
+            .await
+            .expect("write after cancelled writes must succeed (pool not poisoned)");
+
+        let logs = query_audit_logs(&pool, 1000).await.unwrap();
+        assert!(
+            logs.iter().any(|l| l.event_type == "EVT_after-cancel"),
+            "the post-cancellation write must be durably persisted"
+        );
+
+        cleanup(pool, path).await;
     }
 }
