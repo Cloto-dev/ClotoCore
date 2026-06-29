@@ -2431,11 +2431,25 @@ fn resolve_servers_dir(state: &AppState) -> PathBuf {
 /// for every empty-directory entry, and worse: lets uninstall
 /// `remove_dir_all` walk the parent).
 fn effective_install_dir(entry: &RegistryEntry) -> &str {
-    if entry.directory.is_empty() {
+    let raw = if entry.directory.is_empty() {
         entry.id.as_str()
     } else {
         entry.directory.as_str()
-    }
+    };
+    // The install directory is a single path component under mcp-servers. A
+    // catalog `directory` that carries the monorepo-relative path (e.g.
+    // "servers/websearch") would otherwise be joined with the source `subdir`
+    // (also "servers/websearch") at the extract / register / uninstall sites,
+    // doubling the on-disk path to
+    // mcp-servers/servers/<name>/servers/<name>/server.py — the launch then
+    // fails because no server.py exists there (bug-399, an earlier decision). Collapse to
+    // the final path component so a malformed multi-segment value stays flat;
+    // well-formed ids (incl. dotted "memory.cpersona") pass through unchanged.
+    raw.trim_matches('/')
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(raw)
 }
 
 /// Derive the on-disk install directory from a registered server's `args`
@@ -3964,6 +3978,28 @@ mod tests {
         assert_eq!(
             effective_install_dir(&entry("memory.cpersona", "")),
             "memory.cpersona"
+        );
+    }
+
+    #[test]
+    fn effective_install_dir_collapses_monorepo_relative_directory() {
+        // bug-399 / an earlier decision: a stale catalog `directory` carrying the
+        // monorepo-relative path must not double with the source `subdir`. Only
+        // the final component is used as the on-disk install dir, so
+        // mcp-servers/<dir>/<subdir> stays single-nested instead of
+        // mcp-servers/servers/<name>/servers/<name>.
+        assert_eq!(
+            effective_install_dir(&entry("tool.websearch", "servers/websearch")),
+            "websearch"
+        );
+        assert_eq!(
+            effective_install_dir(&entry("tool.cscheduler", "servers/cscheduler/")),
+            "cscheduler"
+        );
+        // Well-formed flat directories and ids are unchanged.
+        assert_eq!(
+            effective_install_dir(&entry("tool.websearch", "websearch")),
+            "websearch"
         );
     }
 
