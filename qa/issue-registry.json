@@ -3292,6 +3292,20 @@
       "status": "fixed",
       "notes": "Fixed by per-agent scoping. Backend: get_memories/get_episodes read an agent_id query param and pass it to list_memories/list_episodes (empty = global 'All' view). Frontend: api.getMemories/getEpisodes take an agentId and append ?agent_id=; MemoryCore.fetchData scopes the fetch to selectedAgent and re-fetches on change, and agentTabs is derived from the global getAgents() list (unioned with agent_ids in the data) so scoping no longer collapses the filter tabs.",
       "github_issue": 226
+    },
+    {
+      "id": "bug-416",
+      "summary": "LOW: MemoryCore renders an un-scopable empty-string ('') agent tab — narrow recurrence of bug-413. agentTabs unions agent ids found in the data, so a global-pool memory/episode carrying agent_id='' adds an empty-label tab. The backend cannot distinguish agent_id='' from 'all agents' (get_memories maps both an absent and an empty agent_id param to the global most-recent view), so selecting the '' tab fetches the unscoped global top-N and then client-filters to agent_id='' — for '' rows outside the top-100/50 window that is exactly the bug-413 under-display, reappearing for the global-pool bucket. Frontend-only; discovered by the post-bug-413 adversarial review.",
+      "severity": "LOW",
+      "discovered": "2026-06-30T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "file": "dashboard/src/components/MemoryCore.tsx",
+      "pattern": "ids.delete",
+      "expected": "present",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "agentTabs now removes the empty-string id (ids.delete('')), so no '' tab is offered; global-pool ('') rows are shown under 'All' (which maps to agent_id='' at the backend anyway). fetchData also treats both null and '' as the unscoped view (scope = selectedAgent || undefined), so a concrete agent id is the only thing that scopes the fetch. Cross-ref bug-413.",
+      "notes": "The backend can't separate '' from 'all' without an API change; excluding the '' tab is the minimal correct fix since '' rows are already visible under 'All'. A backend distinction (e.g. a sentinel for global-pool-only) was considered out of scope for a LOW edge."
     }
   ]
 }
