@@ -330,7 +330,12 @@ mod tests {
             std::process::id(),
             uniq
         ));
+        // Remove any stale db + WAL sidecars from a prior run that panicked
+        // before cleanup (a leaked -wal/-shm paired with a fresh db would corrupt
+        // isolation). Mirror `cleanup`'s three-file removal.
         let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
         let opts = SqliteConnectOptions::new()
             .filename(&path)
             .create_if_missing(true)
@@ -408,13 +413,16 @@ mod tests {
     /// which had no Transaction to drop) the connection is recycled still holding
     /// the WAL write lock and every later audit write wedges (~30min blackout).
     ///
-    /// We model the cancellation deterministically: open the exact BEGIN IMMEDIATE
-    /// write transaction the audit path uses, INSERT a row, then drop it WITHOUT
-    /// committing — identical to what dropping the cancelled future does to its tx.
-    /// (A timing-based test using a tiny timeout is non-deterministic: the future
-    /// may be cancelled before it ever begins the transaction, exercising nothing.)
-    /// Cycling more times than the pool has connections proves none is left wedged,
-    /// and the final row count proves the dropped writes rolled back.
+    /// This test characterizes the mechanism the fix RELIES ON — that dropping a
+    /// `pool.begin_with("BEGIN IMMEDIATE")` transaction rolls back and frees the
+    /// write lock — deterministically: open the exact transaction the audit path
+    /// uses, INSERT a row, then drop it WITHOUT committing (identical to what
+    /// dropping the cancelled future does to its tx). Cycling more times than the
+    /// pool has connections proves none is left wedged, and the final row count
+    /// proves the dropped writes rolled back. (It does NOT itself drive
+    /// `write_audit_log_inner` — see the coverage-boundary note after this test;
+    /// the bug-415 registry anchor `begin_with` guards against reverting the
+    /// production fn to the manual non-rollback form.)
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn dropped_audit_tx_rolls_back_and_frees_pool() {
         let (pool, path) = wal_pool("bug415").await;
@@ -456,4 +464,20 @@ mod tests {
 
         cleanup(pool, path).await;
     }
+
+    // NOTE on coverage boundary (bug-415): the test above deterministically
+    // covers the PRODUCTION cancellation scenario — a timeout firing AFTER
+    // begin_with returns the Transaction but before commit — because dropping a
+    // constructed Transaction is exactly what dropping the cancelled future does.
+    // We intentionally do NOT add a test that fires write_audit_log under a
+    // sub-millisecond timeout: that cancels DURING begin_with (before the
+    // Transaction exists, so there is nothing to RAII-roll-back), which can
+    // transiently poison a connection — but that window never occurs in
+    // production (write_audit_log's timeout is db_timeout_secs, default 10s, and
+    // begin_with completes in microseconds). Such a test reproduces a
+    // non-production failure mode and flakes (observed: ~282s hang then fail when
+    // a cancel landed inside begin_with). Revert protection for the production fn
+    // itself is provided by the bug-415 registry anchor (pattern `begin_with`):
+    // replacing it with the manual non-rollback form makes verify-issues STALE
+    // and the pre-commit hook blocks.
 }
