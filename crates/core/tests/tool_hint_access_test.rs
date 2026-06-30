@@ -111,8 +111,19 @@ async fn tool_hint_denies_ungranted_tool() {
         found.expect("tool_hint execution must surface an ExternalAction result")
     };
 
+    // Post bug-421: the tool_hint path routes through the central capability
+    // gate inside execute_tool_internal under Caller::Agent. An ungranted /
+    // unavailable tool is refused BEFORE execution and surfaces as an `Error:`
+    // — here `secret_tool` is on no connected server, so resolution fails
+    // ("not found") before any dispatch; a connected-but-ungranted server would
+    // surface "not granted" from the gate. Either way the tool never runs.
+    // (The gate's connected-but-ungranted denial is covered end-to-end by
+    // engine_access_gate_test.rs.)
     assert!(
-        response.contains("not available to this agent"),
-        "an ungranted tool_hint must be refused by the access gate before execution, got: {response}"
+        response.starts_with("Error")
+            && (response.contains("not found")
+                || response.contains("not granted")
+                || response.contains("not available")),
+        "an ungranted/unavailable tool_hint must be refused before execution, got: {response}"
     );
 }

@@ -510,12 +510,21 @@ pub async fn delete_access_entry(
 
 /// Resolve tool access for an agent.
 /// Priority: tool_grant > server_grant > default_policy
-pub async fn resolve_tool_access(
+/// Resolve only the **explicit** grant for `(agent, server, tool)` — the
+/// `tool_grant > server_grant` precedence — *without* falling back to the
+/// server's `default_policy`. Returns `None` when no explicit entry exists, so
+/// the caller decides the default.
+///
+/// Used by (a) [`resolve_tool_access`] for the data axis (which then applies
+/// `default_policy`), and (b) the kernel-native Deny-only RBAC, which must treat
+/// the *absence* of an explicit deny as Allow — never inheriting a server's
+/// opt-in `default_policy` as a deny (bug-421 kernel special-case).
+pub async fn resolve_explicit_permission(
     pool: &SqlitePool,
     agent_id: &str,
     server_id: &str,
     tool_name: &str,
-) -> anyhow::Result<PermissionLevel> {
+) -> anyhow::Result<Option<PermissionLevel>> {
     // 1. Check for explicit tool_grant
     let tool_grant = db_timeout(
         sqlx::query_scalar::<_, String>(
@@ -532,10 +541,11 @@ pub async fn resolve_tool_access(
     .await?;
 
     if let Some(ref perm) = tool_grant {
-        if perm == "allow" {
-            return Ok(PermissionLevel::Allow);
-        }
-        return Ok(PermissionLevel::Deny);
+        return Ok(Some(if perm == "allow" {
+            PermissionLevel::Allow
+        } else {
+            PermissionLevel::Deny
+        }));
     }
 
     // 2. Check for server_grant
@@ -553,10 +563,25 @@ pub async fn resolve_tool_access(
     .await?;
 
     if let Some(ref perm) = server_grant {
-        if perm == "allow" {
-            return Ok(PermissionLevel::Allow);
-        }
-        return Ok(PermissionLevel::Deny);
+        return Ok(Some(if perm == "allow" {
+            PermissionLevel::Allow
+        } else {
+            PermissionLevel::Deny
+        }));
+    }
+
+    Ok(None)
+}
+
+pub async fn resolve_tool_access(
+    pool: &SqlitePool,
+    agent_id: &str,
+    server_id: &str,
+    tool_name: &str,
+) -> anyhow::Result<PermissionLevel> {
+    // 1+2. Explicit tool_grant / server_grant take precedence.
+    if let Some(perm) = resolve_explicit_permission(pool, agent_id, server_id, tool_name).await? {
+        return Ok(perm);
     }
 
     // 3. Fall back to server default_policy

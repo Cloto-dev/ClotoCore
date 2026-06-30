@@ -1,6 +1,6 @@
 # MCP Capability Gate — Unified Per-Agent Access Enforcement
 
-Status: **Proposed** (design only; not yet implemented)
+Status: **Accepted** — implementing (§6 policy decided 2026-06-30: global opt-in)
 Scope: ClotoCore kernel access control (`crates/core`)
 Related bugs: bug-419 (consensus engines), bug-420 (tool_hint bypass), engine-not-gated (LM Studio repro)
 
@@ -61,14 +61,40 @@ separate permission system; an engine is just an MCP server that today is not
 enforced. The fix is to route **all** execution through one gate that consults
 the existing `resolve_tool_access`.
 
-## 3. Design: a single deterministic chokepoint
+## 3. Design: a shared gate at the (two) execution chokepoints
 
-All execution — tools, engine `think` / `think_with_tools`, delegation,
-tool_hint, `/api/mcp/call` — ultimately flows through
-`McpClientManager::call_server_tool` (and its streaming sibling
-`call_server_tool_streaming`). These are the **single lowest chokepoint** and,
-critically, they already hold the resolved `server_id` — the exact key
-`resolve_tool_access` needs.
+> **Correction (2026-07-01 investigation, code-verified):** there is **no
+> single** lowest chokepoint. Exactly **three** transport call sites reach
+> `McpClient::call_tool[_streaming]`, funneling into **two** manager-level
+> paths:
+> - **PATH 1** — `call_server_tool` (`mcp.rs:2191`) + `call_server_tool_streaming`
+>   (`mcp.rs:2218`), both via `resolve_tool_call_target` (`mcp.rs:2053`).
+> - **PATH 2** — `execute_tool_internal` (`mcp.rs:1808` → `client.call_tool` at
+>   `mcp.rs:1951`), an independent sibling that does **not** go through
+>   `call_server_tool` or `resolve_tool_call_target`.
+>
+> Critically, the **main agentic loop tool execution** (`system.rs:2516-2527`)
+> and **tool_hint** use PATH 2. A gate only on `call_server_tool` would miss the
+> highest-value agent paths. The fix is therefore a single shared gate function
+> installed at **both** chokepoints (see §3.1), not one point.
+
+Both paths already hold the resolved `server_id` — the exact key
+`resolve_tool_access` needs — so a uniform gate is still achievable; it just
+needs two insertion points sharing one enforcement function.
+
+The shared gate `enforce_caller_grant(caller, server_id, tool_name)` is installed:
+
+- **PATH 1**: at `resolve_tool_call_target` entry. `server_id` is final on entry
+  (no rewrite occurs across `mcp.rs:2053-2179`), so it covers streaming and
+  non-streaming identically. The §5.6.1 delegation intersection
+  (`mcp.rs:2099-2120`) remains a **separate ordered stage after** the caller gate.
+- **PATH 2**: inside `execute_tool_internal`, **after** the kernel-native match
+  (`mcp.rs:1814-1898`) and `server_id` resolution (`mcp.rs:1901-1922`) but
+  **before** the validator (`mcp.rs:1925`) / `call_tool` (`mcp.rs:1951`). This
+  preserves the kernel-native early-return, the TOOL_EXECUTED / TOOL_ERROR /
+  TOOL_BLOCKED audit (`mcp.rs:1927-1987`), and the `CallToolResult → Value`
+  flattening that `call_server_tool` lacks. (Re-pointing PATH 2 onto
+  `call_server_tool` is therefore **rejected** — it would lose audit + flattening.)
 
 ### 3.1 Caller identity
 
@@ -149,41 +175,127 @@ Once the chokepoint enforces uniformly, these collapse:
 
 ## 5. Caller threading & exemptions
 
-- **Agentic loop / normal message path / tool_hint / consensus engines**:
-  `Caller::Agent(agent.id)`.
-- **Consensus synthesizer** (`agent.synthesizer`, system agent): `Caller::System`
-  (it is a kernel-internal merge step, not a user agent).
-- **Kernel-native tools** (`mgp.*`, `gui.*`): keep the existing `server_id="kernel"`
-  RBAC (Deny-only) — represented as a `System`/kernel path or a dedicated kernel
-  gate; do not route through `resolve_tool_access` server grants.
-- **`/api/mcp/call` coordinator endpoint**: already auth-gated; map the
-  authenticated caller to `Caller::System` (or a coordinator agent id if one is
-  carried), preserving today's behavior.
+- **Agentic loop / normal message path / tool_hint / consensus proposal engines**:
+  `Caller::Agent(agent.id)`. Derive once from the in-scope `AgentMetadata`.
+- **Consensus synthesizer**: `Caller::System`. **Discriminator MUST be
+  `agent.agent_type == "system"`** (`system.rs:1929`), **not** the id — the
+  synthesizer's `id` is `"agent.synthesizer"` (`system.rs:1920`) while
+  `cfg.synthetic_agent_id` is `"system.consensus"` (`consensus.rs:23`, used only
+  for the session_key at `system.rs:1936`); they do not match, so keying on an id
+  would misclassify.
+- **Kernel-native tools** (`mgp.*`, `gui.*`): keep the dedicated
+  `server_id="kernel"` RBAC, evaluated on the kernel-native early-return path
+  **before** the central gate; do not route through `resolve_tool_access` server
+  grants. **Decision (博士 2026-07-01): the kernel gate special-cases the default
+  to Allow (Deny-only RBAC).** This fixes a **confirmed live defect** — the live
+  `kernel` row is `opt-in`, so `resolve_tool_access(...,"kernel",...)` currently
+  returns Deny for every agent without an explicit kernel grant; today only
+  `agent.cloto_default` can use `mgp.agent.ask`. No migration row is added (the
+  global opt-in flip in §6 must **not** make kernel deny-by-default for everyone).
+- **`/api/mcp/call` coordinator endpoint** (`handlers/mcp.rs:877/889`): already
+  admin-auth-gated; map to `Caller::System`. Per-agent scoping for this endpoint
+  flows only through `_mgp.delegation` (`original_actor`), not a body agent_id.
+- **switch_model relay** (`handlers/llm.rs:119`), **ollama post-connect sync**
+  (`mcp.rs:1480`), **DeleteAgentData** (`agents.rs:339`): `Caller::System`.
+- **Background memory ops** (`system.rs:703/1113/1294/1506/3550+`):
+  `Caller::Agent(agent_id)`.
+- **Default-proceed (AI, 2026-07-01, 事後 override 可)**: media preprocessing
+  (`AnalyzeImage` `system.rs:3092`, `Transcribe` `system.rs:3202`) → `System`
+  (kernel preprocessing, not agent-initiated); episode-archival summarizer
+  (`system.rs:3863`) → `Agent(message-agent)`.
 
-## 6. Open decision: `default_policy = opt-out`
+## 6. Decision: `default_policy = opt-in` everywhere (deny-by-default)
 
-Migration `20260301000000_default_policy_opt_out.sql` set all servers'
+Migration `20260301000000_default_policy_opt_out.sql` had set all servers'
 `default_policy` to `opt-out` (allow-all). With that default, **revoking a grant
 (deleting the `server_grant` row) falls back to allow** — so revoke does not
-actually deny. This is a **policy default**, separate from the enforcement
-unification. To make revoke effective, choose one:
+actually deny, and an agent that was *never* granted an engine still runs it
+(the LM Studio repro). This is a **policy default**, separate from the
+enforcement unification.
 
-- (a) Engines / sensitive servers default to `opt-in` (deny-by-default), or
-- (b) "Reject" writes an explicit `Deny` entry rather than deleting the grant, or
-- (c) Both.
+**Decision (博士, 2026-06-30): flip every server back to `opt-in`
+(deny-by-default) globally.** Rationale — the simplest, most predictable mental
+model: `grant ⇒ allow`, `no grant ⇒ deny`, `revoke = delete ⇒ deny` falls out
+for free. This makes both the zero-grant case (LM Studio) and the
+revoke-staleness case deny correctly with no special-casing.
 
-This decision is independent of the chokepoint work and should be made
-deliberately (it changes existing deployments' effective access).
+The accepted cost is the **largest blast radius**: every server an agent was
+implicitly relying on under `opt-out` now denies unless it has an explicit
+`server_grant`. This **mandates a comprehensive backfill** (§7) so well-formed
+agents — those configured through SetupWizard / AgentConsole, which already
+write `server_grant` rows — keep working. Agents with **no** matching grant
+(the bug being fixed) correctly lose access.
+
+Considered and rejected: (a) opt-in for engines only — leaves non-engine
+revoke-staleness under opt-out; (b) keep opt-out, write an explicit `Deny` on
+revoke — does not fix the zero-grant (never-granted) engine case, so the
+headline bug survives. The global opt-in flip subsumes both.
 
 ## 7. Rollout / behavior change
 
-Enforcing the engine grant is a **behavior change**: an agent with no granted
-engine stops responding. Agents created through SetupWizard always grant their
-chosen engine, so well-formed agents are unaffected; agents created by other
-paths (tests, raw API) that set `default_engine_id` without a grant will need a
-grant. Consider a one-time backfill (grant each agent's current
-`default_engine_id` as a `server_grant`) and/or a clear "no engine assigned"
-error surfaced to chat.
+Two coupled behavior changes ship together:
+
+1. **The gate** enforces `resolve_tool_access` at the chokepoint for every
+   `Caller::Agent` path (engine, tool, delegation, tool_hint).
+2. **The opt-in flip** (§6) makes any server without an explicit grant deny.
+
+Net effect: an agent with no granted engine stops responding, and an agent can
+no longer reach a server it was never granted. Agents created through
+SetupWizard / AgentConsole already write `server_grant` rows for their engine
+and assigned servers, so well-formed agents are unaffected.
+
+**Real blast radius (code-verified):** the flip is small in live data — only
+`github-bridge`, `mind.local`, `x-browser` are `opt-out` (3/18). `20260301000000`
+ran its `UPDATE ... WHERE default_policy='opt-in'` against a near-empty table, and
+servers registered afterward already default to `opt-in` (`db/mcp.rs:128`). The
+flip's real value is making revoke-staleness deny correctly + converting
+implicit engine access to explicit, auditable grants.
+
+**Migration (one file, timestamp after the real tail `20260524010000`; CRLF-convert
+before any build per the SQLx rule).** Hard constraints (verified):
+`mcp_access_control.server_id REFERENCES mcp_servers(name)` and the kernel opens
+SQLite with `PRAGMA foreign_keys=ON` (`lib.rs:442-447`) — a dangling-engine INSERT
+**aborts the migration → FATAL boot**, so the `EXISTS(mcp_servers)` guard is
+mandatory; `granted_at` is `NOT NULL` with no default and must be supplied.
+
+1. **Global opt-in flip:** `UPDATE mcp_servers SET default_policy='opt-in' WHERE
+   default_policy='opt-out'`. Will **not** touch the `kernel` row (already opt-in;
+   its default is special-cased in code per §5).
+2. **Engine backfill (FK-safe, non-clobbering):** grant each agent's
+   `default_engine_id` as a `server_grant` **only** where the engine row exists
+   and no prior server_grant exists:
+   ```sql
+   INSERT INTO mcp_access_control (entry_type, agent_id, server_id, permission, granted_by, granted_at)
+   SELECT 'server_grant', a.id, a.default_engine_id, 'allow', 'migration:capability-gate', datetime('now')
+   FROM agents a
+   WHERE a.default_engine_id IS NOT NULL AND a.default_engine_id != ''
+     AND a.id != 'agent.テスト用'                                    -- §decision 3: repro agent excluded
+     AND EXISTS (SELECT 1 FROM mcp_servers s WHERE s.name = a.default_engine_id)
+     AND NOT EXISTS (SELECT 1 FROM mcp_access_control ac
+                     WHERE ac.agent_id = a.id AND ac.server_id = a.default_engine_id
+                       AND ac.entry_type = 'server_grant' AND ac.tool_name IS NULL);
+   ```
+   The `NOT EXISTS` also matches `permission='deny'` rows, so existing explicit
+   DENYs (e.g. `cpersona_bench`) are preserved.
+
+**Decisions (博士, 2026-07-01) — strict enforcement, consistent with global opt-in:**
+
+- **Engine backfill grants only `default_engine_id`** (not routing /
+  `escalate_to` / `fallback` / `engine_override` — 0 live rows; reached engines
+  surface the "engine not granted" error below). It deliberately grants only what
+  an agent demonstrably owns; it does **not** re-grant every active server.
+- **Repro agent `agent.テスト用` is EXCLUDED** from the backfill (the `a.id !=`
+  guard above), so it is genuinely denied after the flip — this validates the
+  reported "grant-0 agent still responds" bug on the real agent. (For all other
+  agents the bug is fixed for future never-granted agents + revoke semantics.)
+- **Opt-out tool servers `x-browser` / `github-bridge` are NOT preserved**
+  (intentional drop). They lose implicit allow-all access; agents that need them
+  must be re-granted explicitly.
+
+**UX (required):** surface a clear chat error instead of a silent non-response —
+**"no engine assigned"** when an agent's engine resolves to `Deny`, **and** a
+per-tool **"tool not granted"** signal when a tool server resolves to `Deny`
+(the latter is required because the tool-server drop above is otherwise invisible).
 
 ## 8. Test plan
 

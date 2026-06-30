@@ -334,9 +334,13 @@ pub async fn delete_agent(
     // Clean up CPersona memory data (best-effort, don't fail the delete)
     if let Some(ref mem_server) = memory_server_id {
         let args = serde_json::json!({ "agent_id": id });
+        // Kernel cleanup of a now-deleted agent's memory: the agent row (and its
+        // grants) are gone after `delete_agent` above, so this must run as System
+        // — a `Caller::Agent(id)` check would resolve to Deny and skip cleanup.
         match state
             .mcp_manager
             .call_kind_at(
+                &crate::managers::Caller::System,
                 mem_server,
                 &crate::managers::ToolKind::DeleteAgentData,
                 args,
@@ -498,7 +502,7 @@ pub async fn upload_avatar(
         // Graceful degradation: bounded wait for vision model load + inference.
         if let Ok(result) = tokio::time::timeout(
             std::time::Duration::from_secs(AVATAR_ANALYSIS_TIMEOUT_SECS),
-            analyze_avatar(&state, &avatar_path_str),
+            analyze_avatar(&state, &id, &avatar_path_str),
         )
         .await
         {
@@ -526,7 +530,10 @@ pub async fn upload_avatar(
 
 /// Analyze avatar image via Vision capability MCP server.
 /// Returns None if vision server is unavailable or analysis fails.
-async fn analyze_avatar(state: &AppState, avatar_path: &str) -> Option<String> {
+/// `agent_id` is the avatar's owning agent; the call runs under its identity so
+/// the central capability gate enforces the same per-agent Vision grant that the
+/// caller pre-flighted via `resolve_tool_access`.
+async fn analyze_avatar(state: &AppState, agent_id: &str, avatar_path: &str) -> Option<String> {
     let abs_path = std::env::current_dir()
         .ok()?
         .join(avatar_path)
@@ -544,6 +551,7 @@ async fn analyze_avatar(state: &AppState, avatar_path: &str) -> Option<String> {
     match state
         .mcp_manager
         .call_capability_tool(
+            &crate::managers::Caller::Agent(agent_id.to_string()),
             crate::managers::CapabilityType::Vision,
             "analyze_image",
             args,

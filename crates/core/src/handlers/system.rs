@@ -701,6 +701,7 @@ impl SystemHandler {
             match tokio::time::timeout(
                 Duration::from_secs(self.memory_timeout_secs),
                 mcp.call_kind_at(
+                    &crate::managers::Caller::Agent(agent.id.clone()),
                     server_id,
                     &crate::managers::ToolKind::Recall,
                     mcp_recall_payload,
@@ -811,48 +812,38 @@ impl SystemHandler {
             );
 
             if let Some(ref mcp) = self.registry.mcp_manager {
-                // 🔐 Per-agent access control. `tool_hint` is supplied by an
-                // external I/O bridge, and `execute_tool_internal` resolves the
-                // tool via the global tool_index — so without this gate an agent
-                // could invoke a tool on any connected server, including ones it was
-                // never granted. Enforce the same mcp_access_control check the
-                // agentic loop applies (`execute_tool_for_agent` → check_tool_access):
-                // anything but an explicit Allow (Deny, or tool/server unknown) is
-                // refused before execution.
-                let access_allowed = matches!(
-                    mcp.check_tool_access(&agent.id, &tool_name).await,
-                    Ok(crate::db::mcp::PermissionLevel::Allow)
-                );
-                let result = if access_allowed {
-                    match tokio::time::timeout(
-                        Duration::from_secs(self.tool_execution_timeout_secs),
-                        mcp.execute_tool_internal(&tool_name, final_args),
-                    )
-                    .await
-                    {
-                        Ok(Ok(val)) => {
-                            info!(agent_id = %agent.id, tool = %tool_name, "✅ Direct tool completed");
-                            match val {
-                                serde_json::Value::String(s) => s,
-                                other => serde_json::to_string_pretty(&other).unwrap_or_default(),
-                            }
-                        }
-                        Ok(Err(e)) => {
-                            error!(agent_id = %agent.id, tool = %tool_name, error = %e, "❌ Direct tool failed");
-                            format!("Error: {e}")
-                        }
-                        Err(_) => {
-                            error!(agent_id = %agent.id, tool = %tool_name, "⏱️ Direct tool timed out");
-                            "Error: Tool execution timed out".into()
+                // 🔐 Per-agent capability gate (bug-420 / bug-421). `tool_hint`
+                // is supplied by an external I/O bridge and bypasses the agentic
+                // loop, but it now runs through the SAME central gate inside
+                // `execute_tool_internal` under `Caller::Agent(agent.id)` — an
+                // ungranted tool/server is refused before execution, identically
+                // to the agentic loop. The previous bug-420 bolt-on
+                // `check_tool_access` is removed (subsumed by the chokepoint).
+                let result = match tokio::time::timeout(
+                    Duration::from_secs(self.tool_execution_timeout_secs),
+                    mcp.execute_tool_internal(
+                        &crate::managers::Caller::Agent(agent.id.clone()),
+                        &tool_name,
+                        final_args,
+                    ),
+                )
+                .await
+                {
+                    Ok(Ok(val)) => {
+                        info!(agent_id = %agent.id, tool = %tool_name, "✅ Direct tool completed");
+                        match val {
+                            serde_json::Value::String(s) => s,
+                            other => serde_json::to_string_pretty(&other).unwrap_or_default(),
                         }
                     }
-                } else {
-                    warn!(
-                        agent_id = %agent.id,
-                        tool = %tool_name,
-                        "🚫 Direct tool denied: agent is not granted this tool's server"
-                    );
-                    format!("Error: tool '{tool_name}' is not available to this agent")
+                    Ok(Err(e)) => {
+                        warn!(agent_id = %agent.id, tool = %tool_name, error = %e, "🚫 Direct tool refused/failed");
+                        format!("Error: {e}")
+                    }
+                    Err(_) => {
+                        error!(agent_id = %agent.id, tool = %tool_name, "⏱️ Direct tool timed out");
+                        "Error: Tool execution timed out".into()
+                    }
                 };
 
                 // Route result back via callback if this is an external action
@@ -1111,6 +1102,7 @@ impl SystemHandler {
                             let _ = tokio::time::timeout(
                                 mem_timeout2,
                                 mcp_clone.call_kind_at(
+                                    &crate::managers::Caller::Agent(agent_id_clone.clone()),
                                     &server_id_clone,
                                     &crate::managers::ToolKind::Store,
                                     store_args,
@@ -1290,8 +1282,11 @@ impl SystemHandler {
                             tokio::spawn(async move {
                                 match tokio::time::timeout(
                                     Duration::from_secs(timeout_secs),
-                                    mcp_clone
-                                        .call_kind(&crate::managers::ToolKind::Speak, speak_args),
+                                    mcp_clone.call_kind(
+                                        &crate::managers::Caller::Agent(agent_id_clone.clone()),
+                                        &crate::managers::ToolKind::Speak,
+                                        speak_args,
+                                    ),
                                 )
                                 .await
                                 {
@@ -1496,6 +1491,7 @@ impl SystemHandler {
             let memory_timeout = Duration::from_secs(self.memory_timeout_secs);
 
             tokio::spawn(async move {
+                let store_caller = crate::managers::Caller::Agent(agent_id.clone());
                 let store_args = serde_json::json!({
                     "agent_id": agent_id,
                     "message": msg_json,
@@ -1503,7 +1499,12 @@ impl SystemHandler {
                 });
                 match tokio::time::timeout(
                     memory_timeout,
-                    mcp.call_kind_at(&server_id, &crate::managers::ToolKind::Store, store_args),
+                    mcp.call_kind_at(
+                        &store_caller,
+                        &server_id,
+                        &crate::managers::ToolKind::Store,
+                        store_args,
+                    ),
                 )
                 .await
                 {
@@ -2510,22 +2511,21 @@ impl SystemHandler {
                             );
                         }
 
+                        // Single gated path (bug-421): always route through
+                        // execute_tool_for_agent. The previous
+                        // `if agent_plugin_ids.is_empty()` branch fell back to the
+                        // UNGATED registry.execute_tool; the collapse closes that
+                        // hole — Rust plugins are filtered by allowed_plugin_ids
+                        // and the MCP fallback is gated by Caller::Agent(agent.id)
+                        // inside the central chokepoint.
                         let tool_result = tokio::time::timeout(
                             Duration::from_secs(self.tool_execution_timeout_secs),
-                            async {
-                                if agent_plugin_ids.is_empty() {
-                                    self.registry.execute_tool(&call.name, safe_args).await
-                                } else {
-                                    self.registry
-                                        .execute_tool_for_agent(
-                                            agent_plugin_ids,
-                                            &agent.id,
-                                            &call.name,
-                                            safe_args,
-                                        )
-                                        .await
-                                }
-                            },
+                            self.registry.execute_tool_for_agent(
+                                agent_plugin_ids,
+                                &agent.id,
+                                &call.name,
+                                safe_args,
+                            ),
                         )
                         .await;
 
@@ -2713,6 +2713,20 @@ impl SystemHandler {
 
     // ── Engine Dispatch Helpers (Rust Plugin / MCP Dual Dispatch) ──
 
+    /// Map an agent to its capability-gate [`Caller`] (bug-421). System agents
+    /// — currently only the consensus synthesizer (`agent_type == "system"`,
+    /// `system.rs` synth_agent) — are trusted kernel-internal callers and bypass
+    /// the per-agent grant gate; every real agent is gated as `Agent(id)`. The
+    /// discriminator is `agent_type`, NOT the id (the synthesizer's id
+    /// `agent.synthesizer` differs from `cfg.synthetic_agent_id`).
+    fn caller_for(agent: &AgentMetadata) -> crate::managers::Caller {
+        if agent.agent_type == "system" {
+            crate::managers::Caller::System
+        } else {
+            crate::managers::Caller::Agent(agent.id.clone())
+        }
+    }
+
     /// Call engine's think() — routes to either Rust plugin or MCP server.
     async fn engine_think(
         &self,
@@ -2749,7 +2763,12 @@ impl SystemHandler {
                 "context": context_val,
             });
             let result = mcp
-                .call_kind_at(engine_id, &crate::managers::ToolKind::Think, args)
+                .call_kind_at(
+                    &Self::caller_for(agent),
+                    engine_id,
+                    &crate::managers::ToolKind::Think,
+                    args,
+                )
                 .await?;
             self.maybe_record_usage(&agent.id, engine_id, &result).await;
             return Self::extract_mcp_think_content(&result);
@@ -2829,7 +2848,12 @@ impl SystemHandler {
                 "tool_history": tool_history,
             });
             let result = mcp
-                .call_kind_at(engine_id, &crate::managers::ToolKind::ThinkWithTools, args)
+                .call_kind_at(
+                    &Self::caller_for(agent),
+                    engine_id,
+                    &crate::managers::ToolKind::ThinkWithTools,
+                    args,
+                )
                 .await?;
             self.maybe_record_usage(&agent.id, engine_id, &result).await;
             return Self::parse_mcp_think_result(&result);
@@ -2885,7 +2909,12 @@ impl SystemHandler {
         });
 
         let (mut chunk_rx, result_rx) = mcp
-            .call_kind_streaming_at(engine_id, &crate::managers::ToolKind::ThinkWithTools, args)
+            .call_kind_streaming_at(
+                &Self::caller_for(agent),
+                engine_id,
+                &crate::managers::ToolKind::ThinkWithTools,
+                args,
+            )
             .await?;
 
         // Fan chunk deltas onto the event bus as `AgentTokenStream`. The
@@ -3088,8 +3117,14 @@ impl SystemHandler {
                 )
             });
 
+            // Kernel-side media preprocessing of an inbound message (not an
+            // agent-initiated tool call) → System.
             match mcp
-                .call_kind(&crate::managers::ToolKind::AnalyzeImage, args)
+                .call_kind(
+                    &crate::managers::Caller::System,
+                    &crate::managers::ToolKind::AnalyzeImage,
+                    args,
+                )
                 .await
             {
                 Ok(result) => {
@@ -3198,8 +3233,14 @@ impl SystemHandler {
                 "file_path": abs_path,
             });
 
+            // Kernel-side media preprocessing of an inbound message (not an
+            // agent-initiated tool call) → System.
             match mcp
-                .call_kind(&crate::managers::ToolKind::Transcribe, args)
+                .call_kind(
+                    &crate::managers::Caller::System,
+                    &crate::managers::ToolKind::Transcribe,
+                    args,
+                )
                 .await
             {
                 Ok(result) => {
@@ -3544,10 +3585,15 @@ impl SystemHandler {
         engine_id: &str,
         memory_timeout: Duration,
     ) {
+        // All memory/episode/profile/engine calls below operate on this agent's
+        // own data and run under its identity (bug-421).
+        let caller = crate::managers::Caller::Agent(agent_id.to_string());
+
         // 1. Fetch recent memories
         let Ok(Ok(mem_result)) = tokio::time::timeout(
             memory_timeout,
             mcp.call_kind_at(
+                &caller,
                 server_id,
                 &crate::managers::ToolKind::ListMemories,
                 serde_json::json!({"agent_id": agent_id, "limit": TOOL_USAGE_THRESHOLD + 5}),
@@ -3570,6 +3616,7 @@ impl SystemHandler {
         let Ok(Ok(ep_result)) = tokio::time::timeout(
             memory_timeout,
             mcp.call_kind_at(
+                &caller,
                 server_id,
                 &crate::managers::ToolKind::ListEpisodes,
                 serde_json::json!({"agent_id": agent_id, "limit": 1}),
@@ -3646,6 +3693,7 @@ impl SystemHandler {
                 think_timeout,
                 Self::call_engine_think_simple(
                     mcp,
+                    &caller,
                     engine_id,
                     &format!(
                         "Summarize the following conversation concisely (800-1200 characters).\n\
@@ -3673,6 +3721,7 @@ impl SystemHandler {
                 think_timeout,
                 Self::call_engine_think_simple(
                     mcp,
+                    &caller,
                     engine_id,
                     &format!(
                         "Extract 5-10 search keywords from this summary. \
@@ -3691,6 +3740,7 @@ impl SystemHandler {
                 think_timeout,
                 Self::call_engine_think_simple(
                     mcp,
+                    &caller,
                     engine_id,
                     &format!(
                         "Based on this conversation summary, was the main task completed? \
@@ -3722,6 +3772,7 @@ impl SystemHandler {
 
             match mcp
                 .call_kind_at(
+                    &caller,
                     server_id,
                     &crate::managers::ToolKind::ArchiveEpisode,
                     archive_args,
@@ -3768,6 +3819,7 @@ impl SystemHandler {
 
         let existing_profile = mcp
             .call_kind_at(
+                &caller,
                 server_id,
                 &crate::managers::ToolKind::Custom("get_profile".to_string()),
                 serde_json::json!({"agent_id": agent_id}),
@@ -3782,6 +3834,7 @@ impl SystemHandler {
             think_timeout,
             Self::call_engine_think_simple(
                 mcp,
+                &caller,
                 engine_id,
                 &format!(
                     "Extract facts about the user from the following conversation.\n\
@@ -3807,6 +3860,7 @@ impl SystemHandler {
         if let Some(profile) = new_profile {
             match mcp
                 .call_kind_at(
+                    &caller,
                     server_id,
                     &crate::managers::ToolKind::UpdateProfile,
                     serde_json::json!({"agent_id": agent_id, "profile": profile}),
@@ -3840,8 +3894,12 @@ impl SystemHandler {
 
     /// Call a mind engine's `think` tool with a simple prompt (no agent context).
     /// Used for background tasks like profile extraction and episode summarization.
+    /// `caller` carries the owning agent's identity so the engine think is gated
+    /// by that agent's grant (bug-421) — background maintenance still runs under
+    /// the agent whose episodes are being summarized.
     async fn call_engine_think_simple(
         mcp: &Arc<McpClientManager>,
+        caller: &crate::managers::Caller,
         engine_id: &str,
         prompt: &str,
         system_desc: &str,
@@ -3860,7 +3918,7 @@ impl SystemHandler {
             "context": [],
         });
         match mcp
-            .call_kind_at(engine_id, &crate::managers::ToolKind::Think, args)
+            .call_kind_at(caller, engine_id, &crate::managers::ToolKind::Think, args)
             .await
         {
             Ok(result) => Self::extract_mcp_think_content(&result).ok(),
