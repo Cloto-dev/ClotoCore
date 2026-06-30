@@ -261,6 +261,12 @@ pub struct SystemHandler {
     metrics: Arc<crate::managers::SystemMetrics>,
     consensus_engines: Vec<String>,
     consensus_prefix: String,
+    /// Consensus knobs (min proposals, synthesizer engine, per-phase timeout,
+    /// synthetic agent id). Defaults to `ConsensusConfig::default()` for tests;
+    /// production wires the env-derived config via [`Self::set_consensus_config`]
+    /// right after construction. Consumed by the in-kernel orchestrator
+    /// [`Self::run_consensus`].
+    consensus_config: crate::consensus::ConsensusConfig,
     max_agentic_iterations: u8,
     tool_execution_timeout_secs: u64,
     pending_approvals: PendingApprovals,
@@ -318,6 +324,7 @@ impl SystemHandler {
             metrics,
             consensus_engines,
             consensus_prefix,
+            consensus_config: crate::consensus::ConsensusConfig::default(),
             max_agentic_iterations,
             tool_execution_timeout_secs,
             pending_approvals,
@@ -330,6 +337,13 @@ impl SystemHandler {
             mcp_streaming_enabled,
             session_manager: Arc::new(crate::managers::session_manager::SessionManager::new()),
         }
+    }
+
+    /// Wire the env-derived consensus configuration into this handler.
+    /// Production code calls this right after construction; tests leave it
+    /// defaulted to [`crate::consensus::ConsensusConfig::default`].
+    pub fn set_consensus_config(&mut self, config: crate::consensus::ConsensusConfig) {
+        self.consensus_config = config;
     }
 
     /// Wire the shared `AppState::session_manager` into this handler.
@@ -760,49 +774,13 @@ impl SystemHandler {
             .to_lowercase()
             .starts_with(&self.consensus_prefix.to_lowercase())
         {
-            // 合意形成モード
-            let thought_event_data = cloto_shared::ClotoEventData::ConsensusRequested {
-                task: msg.content.clone(),
-                engine_ids: self.consensus_engines.clone(),
-            };
-
-            let envelope = crate::EnvelopedEvent {
-                event: Arc::new(cloto_shared::ClotoEvent::with_trace(
-                    trace_id,
-                    thought_event_data,
-                )),
-                issuer: None,
-                correlation_id: None,
-                depth: 0,
-            };
-            if let Err(e) = self.sender.send(envelope).await {
-                error!("Failed to dispatch ConsensusRequested: {}", e);
-            }
-
-            // 各エンジンにも個別にThoughtRequestedを投げる (Moderatorが拾うため)
-            for engine in &self.consensus_engines {
-                let inner_thought = cloto_shared::ClotoEventData::ThoughtRequested {
-                    agent: agent.clone(),
-                    engine_id: engine.clone(),
-                    message: msg.clone(),
-                    context: context.clone(),
-                };
-                let env = crate::EnvelopedEvent {
-                    event: Arc::new(cloto_shared::ClotoEvent::with_trace(
-                        trace_id,
-                        inner_thought,
-                    )),
-                    issuer: None,
-                    correlation_id: Some(trace_id),
-                    depth: 1,
-                };
-                if let Err(e) = self.sender.send(env).await {
-                    error!(
-                        "Failed to dispatch ThoughtRequested for engine {}: {}",
-                        engine, e
-                    );
-                }
-            }
+            // Consensus mode — orchestrated in-kernel (Goal #138). Every engine
+            // runs through the same `run_agentic_loop` the normal path uses; the
+            // kernel collects the proposals, runs the synthesizer in-kernel, and
+            // emits one final ThoughtResponse stamped with the synthetic agent id.
+            // See docs/CONSENSUS_REVIVAL_DESIGN.md.
+            self.run_consensus(&agent, &msg, context, &granted_server_ids, trace_id)
+                .await;
         } else if let Some(tool_name) = msg.metadata.get("tool_hint").cloned() {
             // ── Direct tool execution: bypass agentic loop ──
             // Used by I/O bridges (Discord backtick commands) and internal hints (speak).
@@ -1540,6 +1518,219 @@ impl SystemHandler {
         // active_cron_contexts cleanup is handled by the `handle_message` wrapper.
 
         Ok(HandleOutcome::Executed)
+    }
+
+    // ── Consensus (in-kernel orchestration, Goal #138) ──
+
+    /// Run a consensus session entirely in-kernel.
+    ///
+    /// Every configured engine runs concurrently through the same
+    /// [`Self::run_agentic_loop`] the normal message path uses (so engine
+    /// resolution, per-agent tool access, and fallback all behave identically);
+    /// the kernel collects their proposals, then runs the synthesizer engine
+    /// in-kernel over the combined views and emits **exactly one** terminal
+    /// `ThoughtResponse` stamped with the synthetic agent id.
+    ///
+    /// Because collection and synthesis are sequential awaits in one task — not
+    /// events matched by arrival order — a late proposal can never be mistaken
+    /// for the synthesis result. This is what subsumes bug-408; the reverted
+    /// standalone guard (`481279c`) is unnecessary. Every terminal branch emits
+    /// a response (success or error) so the caller never waits on a silent
+    /// timeout. See `docs/CONSENSUS_REVIVAL_DESIGN.md`.
+    async fn run_consensus(
+        &self,
+        agent: &AgentMetadata,
+        msg: &ClotoMessage,
+        context: Vec<ClotoMessage>,
+        granted_server_ids: &[String],
+        trace_id: ClotoId,
+    ) {
+        let cfg = &self.consensus_config;
+        let engines = &self.consensus_engines;
+        let min_proposals = cfg.min_proposals;
+        let phase_timeout = Duration::from_secs(cfg.session_timeout_secs);
+
+        info!(
+            trace_id = %trace_id,
+            engines = engines.len(),
+            min_proposals,
+            "🤝 Consensus (in-kernel) started"
+        );
+
+        // Fail-safe: not enough engines configured to ever reach quorum.
+        if engines.len() < min_proposals {
+            let detail = format!(
+                "Consensus needs at least {min_proposals} proposals but only {} engine(s) are configured (CONSENSUS_ENGINES).",
+                engines.len()
+            );
+            warn!(trace_id = %trace_id, "{detail}");
+            self.emit_consensus_response(
+                format!("[Consensus unavailable] {detail}"),
+                &msg.id,
+                trace_id,
+            )
+            .await;
+            return;
+        }
+
+        // 1. Collect proposals — run every engine concurrently, in-kernel. Each
+        //    engine gets a throwaway per-engine session key so the proposals
+        //    never pollute the user's real T1 transcript or each other's.
+        let proposal_keys: Vec<_> = engines
+            .iter()
+            .map(|e| {
+                crate::managers::session_manager::SessionKey::new(
+                    &agent.id,
+                    format!("consensus:{trace_id}:{e}"),
+                )
+            })
+            .collect();
+        let proposal_futs = engines.iter().zip(&proposal_keys).map(|(engine, key)| {
+            let ctx = context.clone();
+            async move {
+                let r = tokio::time::timeout(
+                    phase_timeout,
+                    self.run_agentic_loop(
+                        agent,
+                        engine,
+                        msg,
+                        ctx,
+                        granted_server_ids,
+                        trace_id,
+                        key,
+                    ),
+                )
+                .await;
+                (engine.clone(), r)
+            }
+        });
+        let results = futures::future::join_all(proposal_futs).await;
+
+        let mut proposals: Vec<String> = Vec::new();
+        for (engine, r) in results {
+            match r {
+                Ok(Ok(text)) => {
+                    info!(trace_id = %trace_id, engine = %engine, "📥 Consensus proposal collected");
+                    proposals.push(text);
+                }
+                Ok(Err(e)) => {
+                    warn!(trace_id = %trace_id, engine = %engine, error = %e, "⚠️ Consensus engine errored — dropping its proposal");
+                }
+                Err(_) => {
+                    warn!(trace_id = %trace_id, engine = %engine, "⏱️ Consensus engine timed out — dropping its proposal");
+                }
+            }
+        }
+
+        // Fail-safe: quorum not reached after errors / timeouts.
+        if proposals.len() < min_proposals {
+            let detail = format!(
+                "Consensus collected only {}/{min_proposals} proposals (engines errored or timed out).",
+                proposals.len()
+            );
+            warn!(trace_id = %trace_id, "{detail}");
+            self.emit_consensus_response(format!("[Consensus failed] {detail}"), &msg.id, trace_id)
+                .await;
+            return;
+        }
+
+        // 2. Synthesize — run the synthesizer engine in-kernel over the combined
+        //    views. A pure text merge → no tools (empty grant list → plain think).
+        let combined = crate::consensus::combine_views(&proposals);
+        let synthesizer_engine = if cfg.synthesizer_engine.is_empty() {
+            engines[0].clone()
+        } else {
+            cfg.synthesizer_engine.clone()
+        };
+        let synth_agent = AgentMetadata {
+            id: "agent.synthesizer".to_string(),
+            name: "Synthesizer".to_string(),
+            description: "Consensus moderator".to_string(),
+            enabled: true,
+            last_seen: 0,
+            status: "online".to_string(),
+            default_engine_id: Some(synthesizer_engine.clone()),
+            required_capabilities: vec![],
+            metadata: std::collections::HashMap::new(),
+            agent_type: "system".to_string(),
+        };
+        let synth_msg = ClotoMessage::new(
+            cloto_shared::MessageSource::System,
+            crate::consensus::synthesis_prompt(&combined),
+        );
+        let synth_key = crate::managers::session_manager::SessionKey::new(
+            &cfg.synthetic_agent_id,
+            format!("consensus-synth:{trace_id}"),
+        );
+
+        info!(
+            trace_id = %trace_id,
+            synthesizer = %synthesizer_engine,
+            proposals = proposals.len(),
+            "⚗️ Consensus synthesis started"
+        );
+
+        let synth_result = tokio::time::timeout(
+            phase_timeout,
+            self.run_agentic_loop(
+                &synth_agent,
+                &synthesizer_engine,
+                &synth_msg,
+                vec![],
+                &[],
+                trace_id,
+                &synth_key,
+            ),
+        )
+        .await;
+
+        let content = match synth_result {
+            Ok(Ok(text)) => {
+                info!(trace_id = %trace_id, "🏁 Consensus synthesis complete");
+                text
+            }
+            Ok(Err(e)) => {
+                error!(trace_id = %trace_id, error = %e, "❌ Consensus synthesis failed — returning raw proposals");
+                format!(
+                    "[Consensus synthesis failed: {e}. Individual proposals below.]\n\n{combined}"
+                )
+            }
+            Err(_) => {
+                error!(trace_id = %trace_id, "⏱️ Consensus synthesis timed out — returning raw proposals");
+                format!(
+                    "[Consensus synthesis timed out. Individual proposals below.]\n\n{combined}"
+                )
+            }
+        };
+        self.emit_consensus_response(content, &msg.id, trace_id)
+            .await;
+    }
+
+    /// Emit the single terminal consensus `ThoughtResponse`, stamped with the
+    /// configured synthetic agent id. Mirrors the normal path's emission so
+    /// downstream (`events.rs`) treats it like any other agent response.
+    async fn emit_consensus_response(
+        &self,
+        content: String,
+        source_message_id: &str,
+        trace_id: ClotoId,
+    ) {
+        let response = ClotoEventData::ThoughtResponse {
+            agent_id: self.consensus_config.synthetic_agent_id.clone(),
+            engine_id: "consensus".to_string(),
+            content,
+            source_message_id: source_message_id.to_string(),
+            auto_spoken: false,
+        };
+        let envelope = crate::EnvelopedEvent {
+            event: Arc::new(ClotoEvent::with_trace(trace_id, response)),
+            issuer: None,
+            correlation_id: None,
+            depth: 0,
+        };
+        if let Err(e) = self.sender.send(envelope).await {
+            error!(trace_id = %trace_id, error = %e, "❌ Failed to send consensus ThoughtResponse");
+        }
     }
 
     // ── Agentic Loop ──
