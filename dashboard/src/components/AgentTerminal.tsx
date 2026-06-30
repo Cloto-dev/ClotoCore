@@ -20,6 +20,7 @@ import { useEventStream } from '../hooks/useEventStream';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { agentColor } from '../lib/agentIdentity';
 import { displayServerId } from '../lib/format';
+import { isEngineServer, isMemoryServer } from '../lib/serverCategory';
 import { EVENTS_URL } from '../services/api';
 import type { AccessControlEntry, AgentMetadata } from '../types';
 import { AgentConsole } from './AgentConsole';
@@ -65,8 +66,8 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
   // MCP-based engine/memory discovery (mind.* = reasoning engines, memory.* = memory backends)
   // Must be called before any conditional returns to satisfy React's Rules of Hooks
   const { servers: mcpServers } = useMcpServers();
-  const mcpEngines = mcpServers.filter((s) => s.id.startsWith('mind.') && s.status === 'Connected');
-  const mcpMemories = mcpServers.filter((s) => s.id.startsWith('memory.') && s.status === 'Connected');
+  const mcpEngines = mcpServers.filter((s) => isEngineServer(s) && s.status === 'Connected');
+  const mcpMemories = mcpServers.filter((s) => isMemoryServer(s) && s.status === 'Connected');
 
   const DEFAULT_AGENT_ID = 'agent.cloto_default';
 

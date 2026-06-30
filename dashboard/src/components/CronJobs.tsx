@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApi } from '../hooks/useApi';
 import { useMcpServers } from '../hooks/useMcpServers';
+import { isEngineServer } from '../lib/serverCategory';
 import type { AgentMetadata, CronJob } from '../types';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 
@@ -32,7 +33,7 @@ export const CronJobs = memo(function CronJobs() {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [agents, setAgents] = useState<AgentMetadata[]>([]);
   const { servers: mcpServers } = useMcpServers();
-  const mcpEngines = mcpServers.filter((s) => s.id.startsWith('mind.') && s.status === 'Connected');
+  const mcpEngines = mcpServers.filter((s) => isEngineServer(s) && s.status === 'Connected');
   const [showForm, setShowForm] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
