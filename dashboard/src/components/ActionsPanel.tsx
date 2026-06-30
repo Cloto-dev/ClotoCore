@@ -1,7 +1,8 @@
 import { ChevronLeft, PanelRightClose } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { ActionCategory, Artifact, DialogueTab, ExternalActionTab } from '../hooks/useActions';
+import type { ActionCategory, Artifact, ConsensusRoundTab, DialogueTab, ExternalActionTab } from '../hooks/useActions';
 import { CodeBlock } from './CodeBlock';
+import { ConsensusCard } from './ConsensusCard';
 import { DialogueCard } from './DialogueCard';
 import { ExternalActionCard } from './ExternalActionCard';
 
@@ -13,13 +14,16 @@ interface ActionsPanelProps {
   onCategoryChange: (cat: ActionCategory) => void;
   hasDialogues: boolean;
   hasExternalActions: boolean;
+  hasConsensus: boolean;
   artifacts: Artifact[];
   activeArtifactIndex: number;
   onArtifactTabChange: (index: number) => void;
   dialogues: DialogueTab[];
   externalActions: ExternalActionTab[];
+  consensusRounds: ConsensusRoundTab[];
   unreadDialogueCount: number;
   unreadExternalCount: number;
+  unreadConsensusCount: number;
   totalCount: number;
 }
 
@@ -39,21 +43,24 @@ export function ActionsPanel({
   onCategoryChange,
   hasDialogues,
   hasExternalActions,
+  hasConsensus,
   artifacts,
   activeArtifactIndex,
   onArtifactTabChange,
   dialogues,
   externalActions,
+  consensusRounds,
   unreadDialogueCount,
   unreadExternalCount,
+  unreadConsensusCount,
   totalCount,
 }: ActionsPanelProps) {
   const { t } = useTranslation('actions');
   if (totalCount === 0) return null;
 
   const active = artifacts[activeArtifactIndex] || artifacts[0];
-  const showCategoryBar = hasDialogues || hasExternalActions;
-  const totalUnread = unreadDialogueCount + unreadExternalCount;
+  const showCategoryBar = hasDialogues || hasExternalActions || hasConsensus;
+  const totalUnread = unreadDialogueCount + unreadExternalCount + unreadConsensusCount;
 
   // Collapsed state
   if (!isOpen) {
@@ -141,6 +148,22 @@ export function ActionsPanel({
               )}
             </button>
           )}
+          {hasConsensus && (
+            <button
+              onClick={() => onCategoryChange('consensus')}
+              className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2 relative ${
+                activeCategory === 'consensus'
+                  ? 'border-brand text-content-primary'
+                  : 'border-transparent text-content-tertiary hover:text-content-secondary'
+              }`}
+            >
+              {t('tabs.consensus')}
+              <span className="ml-1.5 text-[9px] font-mono opacity-60">{consensusRounds.length}</span>
+              {unreadConsensusCount > 0 && activeCategory !== 'consensus' && (
+                <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
+              )}
+            </button>
+          )}
         </div>
       )}
 
@@ -197,6 +220,15 @@ export function ActionsPanel({
         <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-3">
           {[...externalActions].reverse().map((tab) => (
             <ExternalActionCard key={tab.action.action_id} action={tab.action} />
+          ))}
+        </div>
+      )}
+
+      {/* Content: Consensus — one card per deliberation, newest first */}
+      {activeCategory === 'consensus' && consensusRounds.length > 0 && (
+        <div className="flex-1 overflow-y-auto no-scrollbar p-3 space-y-3">
+          {[...consensusRounds].reverse().map((tab) => (
+            <ConsensusCard key={tab.round.consensus_id} round={tab.round} />
           ))}
         </div>
       )}

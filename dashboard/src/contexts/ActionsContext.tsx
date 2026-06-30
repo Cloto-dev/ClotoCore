@@ -62,8 +62,27 @@ export function ActionsProvider({ children }: { children: ReactNode }) {
           timestamp: Date.now(),
         });
       }
+
+      if (event.type === 'ConsensusProgress') {
+        const d = event.data as {
+          consensus_id: string;
+          agent_id: string;
+          agent_name: string;
+          prompt: string;
+          phase: string;
+          engine_id: string;
+          response: string | null;
+          status: string;
+          mgp_error_code?: number;
+          retryable?: boolean;
+        };
+        actions.addOrUpdateConsensus({
+          ...d,
+          status: d.status as 'pending' | 'success' | 'error',
+        });
+      }
     },
-    [actions.addOrUpdateDialogue, actions.addOrUpdateExternalAction],
+    [actions.addOrUpdateDialogue, actions.addOrUpdateExternalAction, actions.addOrUpdateConsensus],
   );
 
   useEventStream(EVENTS_URL, handleEvent, apiKey);

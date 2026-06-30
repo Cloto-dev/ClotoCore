@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { AgentDialogue, ExternalAction } from '../types';
+import type { AgentDialogue, ConsensusProgressEvent, ConsensusRound, ExternalAction } from '../types';
 
 // ── Storage Keys ──
 
@@ -7,6 +7,7 @@ const ARTIFACTS_KEY = 'cloto-actions';
 const OPEN_KEY = 'cloto-actions-open';
 const DIALOGUES_KEY = 'cloto-dialogues';
 const EXTERNAL_ACTIONS_KEY = 'cloto-external-actions';
+const CONSENSUS_KEY = 'cloto-consensus-rounds';
 
 // Legacy migration
 const LEGACY_ARTIFACTS_KEY = 'cloto-artifacts';
@@ -14,7 +15,7 @@ const LEGACY_OPEN_KEY = 'cloto-artifacts-open';
 
 // ── Types ──
 
-export type ActionCategory = 'code' | 'dialogues' | 'external';
+export type ActionCategory = 'code' | 'dialogues' | 'external' | 'consensus';
 
 export interface Artifact {
   id: string;
@@ -33,6 +34,11 @@ export interface ExternalActionTab {
   unread: boolean;
 }
 
+export interface ConsensusRoundTab {
+  round: ConsensusRound;
+  unread: boolean;
+}
+
 export interface UseActionsResult {
   // Panel state
   isOpen: boolean;
@@ -44,6 +50,7 @@ export interface UseActionsResult {
   setActiveCategory: (cat: ActionCategory) => void;
   hasDialogues: boolean;
   hasExternalActions: boolean;
+  hasConsensus: boolean;
 
   // Artifacts (code)
   artifacts: Artifact[];
@@ -65,10 +72,17 @@ export interface UseActionsResult {
   externalActions: ExternalActionTab[];
   addOrUpdateExternalAction: (action: ExternalAction) => void;
 
+  // Consensus
+  consensusRounds: ConsensusRoundTab[];
+  activeConsensusIndex: number;
+  setActiveConsensusIndex: (index: number) => void;
+  addOrUpdateConsensus: (ev: ConsensusProgressEvent) => void;
+
   // Counts
   totalCount: number;
   unreadDialogueCount: number;
   unreadExternalCount: number;
+  unreadConsensusCount: number;
 }
 
 // ── Persistence Helpers ──
@@ -167,12 +181,43 @@ function saveExternalActions(actions: ExternalActionTab[]) {
   }
 }
 
+// ── Consensus Rounds Persistence ──
+
+function loadConsensusRounds(): ConsensusRoundTab[] {
+  try {
+    const raw = localStorage.getItem(CONSENSUS_KEY);
+    if (!raw) return [];
+    const parsed: ConsensusRoundTab[] = JSON.parse(raw);
+    const cutoff = Date.now() - MAX_DIALOGUE_AGE_MS;
+    const fresh = parsed.filter((r) => r.round.timestamp >= cutoff);
+    const pruned = fresh.length > MAX_DIALOGUES ? fresh.slice(-MAX_DIALOGUES) : fresh;
+    if (pruned.length !== parsed.length) saveConsensusRounds(pruned);
+    return pruned;
+  } catch {
+    return [];
+  }
+}
+
+function saveConsensusRounds(rounds: ConsensusRoundTab[]) {
+  try {
+    if (rounds.length === 0) {
+      localStorage.removeItem(CONSENSUS_KEY);
+    } else {
+      localStorage.setItem(CONSENSUS_KEY, JSON.stringify(rounds));
+    }
+  } catch {
+    /* localStorage full — ignore */
+  }
+}
+
 // ── Hook ──
 
 export function useActions(): UseActionsResult {
   const [artifacts, setArtifacts] = useState<Artifact[]>(loadArtifacts);
   const [dialogues, setDialogues] = useState<DialogueTab[]>(loadDialogues);
   const [externalActions, setExternalActions] = useState<ExternalActionTab[]>(loadExternalActions);
+  const [consensusRounds, setConsensusRounds] = useState<ConsensusRoundTab[]>(loadConsensusRounds);
+  const [activeConsensusIndex, setActiveConsensusIndex] = useState(0);
   const [isOpen, setIsOpen] = useState(() => {
     const saved = loadArtifacts();
     return saved.length > 0 && sessionStorage.getItem(OPEN_KEY) !== 'closed';
@@ -231,6 +276,9 @@ export function useActions(): UseActionsResult {
     saveDialogues([]);
     setExternalActions([]);
     saveExternalActions([]);
+    setConsensusRounds([]);
+    setActiveConsensusIndex(0);
+    saveConsensusRounds([]);
     setActiveCategory('code');
     setIsOpen(false);
     sessionStorage.setItem(OPEN_KEY, 'closed');
@@ -290,6 +338,64 @@ export function useActions(): UseActionsResult {
     sessionStorage.removeItem(OPEN_KEY);
   }, []);
 
+  // ── Consensus ──
+
+  const addOrUpdateConsensus = useCallback((ev: ConsensusProgressEvent) => {
+    setConsensusRounds((prev) => {
+      const step = {
+        phase: ev.phase,
+        engine_id: ev.engine_id,
+        response: ev.response,
+        status: ev.status,
+        mgp_error_code: ev.mgp_error_code,
+        retryable: ev.retryable,
+      };
+      const roundIndex = prev.findIndex((r) => r.round.consensus_id === ev.consensus_id);
+      if (roundIndex >= 0) {
+        // Existing round — update the matching step (same phase + engine) in place,
+        // or append it if this is the step's first event.
+        const round = prev[roundIndex].round;
+        const stepIndex = round.steps.findIndex((s) => s.phase === ev.phase && s.engine_id === ev.engine_id);
+        const steps = stepIndex >= 0 ? round.steps.map((s, i) => (i === stepIndex ? step : s)) : [...round.steps, step];
+        const next = [...prev];
+        next[roundIndex] = { round: { ...round, steps }, unread: true };
+        saveConsensusRounds(next);
+        return next;
+      }
+      // First event of a new consensus round → auto-select the Consensus category.
+      if (prev.length === 0) setActiveCategory('consensus');
+      const next = [
+        ...prev,
+        {
+          round: {
+            consensus_id: ev.consensus_id,
+            agent_id: ev.agent_id,
+            agent_name: ev.agent_name,
+            prompt: ev.prompt,
+            steps: [step],
+            timestamp: Date.now(),
+          },
+          unread: true,
+        },
+      ];
+      saveConsensusRounds(next);
+      return next;
+    });
+    setIsOpen(true);
+    sessionStorage.removeItem(OPEN_KEY);
+  }, []);
+
+  const handleConsensusTabChange = useCallback((index: number) => {
+    setActiveConsensusIndex(index);
+    setConsensusRounds((prev) => {
+      if (!prev[index]?.unread) return prev;
+      const next = [...prev];
+      next[index] = { ...next[index], unread: false };
+      saveConsensusRounds(next);
+      return next;
+    });
+  }, []);
+
   const handleDialogueTabChange = useCallback(
     (index: number) => {
       setActiveDialogueIndex(index);
@@ -318,9 +424,11 @@ export function useActions(): UseActionsResult {
 
   const hasDialogues = dialogues.length > 0;
   const hasExternalActions = externalActions.length > 0;
+  const hasConsensus = consensusRounds.length > 0;
   const unreadDialogueCount = dialogues.filter((d) => d.unread).length;
   const unreadExternalCount = externalActions.filter((e) => e.unread).length;
-  const totalCount = artifacts.length + dialogues.length + externalActions.length;
+  const unreadConsensusCount = consensusRounds.filter((r) => r.unread).length;
+  const totalCount = artifacts.length + dialogues.length + externalActions.length + consensusRounds.length;
 
   return {
     isOpen,
@@ -330,6 +438,7 @@ export function useActions(): UseActionsResult {
     setActiveCategory,
     hasDialogues,
     hasExternalActions,
+    hasConsensus,
     artifacts,
     activeArtifactIndex,
     addArtifact,
@@ -343,8 +452,13 @@ export function useActions(): UseActionsResult {
     markDialogueRead,
     externalActions,
     addOrUpdateExternalAction,
+    consensusRounds,
+    activeConsensusIndex,
+    setActiveConsensusIndex: handleConsensusTabChange,
+    addOrUpdateConsensus,
     totalCount,
     unreadDialogueCount,
     unreadExternalCount,
+    unreadConsensusCount,
   };
 }

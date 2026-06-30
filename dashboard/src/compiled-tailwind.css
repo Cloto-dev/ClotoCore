@@ -630,6 +630,40 @@ video {
   --canvas-text: rgba(226, 232, 240, 0.8);
 }
 
+.container {
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .container {
+    max-width: 640px;
+  }
+}
+
+@media (min-width: 768px) {
+  .container {
+    max-width: 768px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container {
+    max-width: 1024px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .container {
+    max-width: 1280px;
+  }
+}
+
+@media (min-width: 1536px) {
+  .container {
+    max-width: 1536px;
+  }
+}
+
 /* A-group: solid semi-transparent card surface for primary content
    * (agent cards, memory cards, marketplace cards, chat header controls).
    * Callers add their own border color, padding, rounded-*, and hover color. */
@@ -2034,6 +2068,10 @@ video {
   background-color: rgb(var(--brand-primary) / 0.1);
 }
 
+.bg-brand\/15 {
+  background-color: rgb(var(--brand-primary) / 0.15);
+}
+
 .bg-brand\/20 {
   background-color: rgb(var(--brand-primary) / 0.2);
 }
@@ -2438,6 +2476,10 @@ video {
 
 .text-right {
   text-align: right;
+}
+
+.align-middle {
+  vertical-align: middle;
 }
 
 .align-text-bottom {
