@@ -811,27 +811,48 @@ impl SystemHandler {
             );
 
             if let Some(ref mcp) = self.registry.mcp_manager {
-                let result = match tokio::time::timeout(
-                    Duration::from_secs(self.tool_execution_timeout_secs),
-                    mcp.execute_tool_internal(&tool_name, final_args),
-                )
-                .await
-                {
-                    Ok(Ok(val)) => {
-                        info!(agent_id = %agent.id, tool = %tool_name, "✅ Direct tool completed");
-                        match val {
-                            serde_json::Value::String(s) => s,
-                            other => serde_json::to_string_pretty(&other).unwrap_or_default(),
+                // 🔐 Per-agent access control. `tool_hint` is supplied by an
+                // external I/O bridge, and `execute_tool_internal` resolves the
+                // tool via the global tool_index — so without this gate an agent
+                // could invoke a tool on any connected server, including ones it was
+                // never granted. Enforce the same mcp_access_control check the
+                // agentic loop applies (`execute_tool_for_agent` → check_tool_access):
+                // anything but an explicit Allow (Deny, or tool/server unknown) is
+                // refused before execution.
+                let access_allowed = matches!(
+                    mcp.check_tool_access(&agent.id, &tool_name).await,
+                    Ok(crate::db::mcp::PermissionLevel::Allow)
+                );
+                let result = if access_allowed {
+                    match tokio::time::timeout(
+                        Duration::from_secs(self.tool_execution_timeout_secs),
+                        mcp.execute_tool_internal(&tool_name, final_args),
+                    )
+                    .await
+                    {
+                        Ok(Ok(val)) => {
+                            info!(agent_id = %agent.id, tool = %tool_name, "✅ Direct tool completed");
+                            match val {
+                                serde_json::Value::String(s) => s,
+                                other => serde_json::to_string_pretty(&other).unwrap_or_default(),
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            error!(agent_id = %agent.id, tool = %tool_name, error = %e, "❌ Direct tool failed");
+                            format!("Error: {e}")
+                        }
+                        Err(_) => {
+                            error!(agent_id = %agent.id, tool = %tool_name, "⏱️ Direct tool timed out");
+                            "Error: Tool execution timed out".into()
                         }
                     }
-                    Ok(Err(e)) => {
-                        error!(agent_id = %agent.id, tool = %tool_name, error = %e, "❌ Direct tool failed");
-                        format!("Error: {e}")
-                    }
-                    Err(_) => {
-                        error!(agent_id = %agent.id, tool = %tool_name, "⏱️ Direct tool timed out");
-                        "Error: Tool execution timed out".into()
-                    }
+                } else {
+                    warn!(
+                        agent_id = %agent.id,
+                        tool = %tool_name,
+                        "🚫 Direct tool denied: agent is not granted this tool's server"
+                    );
+                    format!("Error: tool '{tool_name}' is not available to this agent")
                 };
 
                 // Route result back via callback if this is an external action
