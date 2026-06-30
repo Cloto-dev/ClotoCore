@@ -36,6 +36,11 @@ function StepRow({ step, defaultLines }: { step: ConsensusStep; defaultLines: nu
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-content-secondary truncate">
             {step.engine_id.replace('mind.', '')}
           </span>
+          {step.sample_index > 1 && (
+            <span className="text-[9px] font-mono text-content-tertiary shrink-0">
+              · {t('consensusCard.sample')} {step.sample_index}
+            </span>
+          )}
         </div>
         {isError && step.mgp_error_code != null && (
           <span className="text-[9px] font-mono text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded shrink-0">
@@ -93,7 +98,7 @@ export function ConsensusCard({ round }: ConsensusCardProps) {
           </span>
         </div>
         <span className="text-[9px] font-mono text-content-tertiary bg-surface-secondary px-1.5 py-0.5 rounded shrink-0">
-          {proposals.length} {t('consensusCard.engines')}
+          {new Set(proposals.map((s) => s.engine_id)).size} {t('consensusCard.engines')}
         </span>
       </div>
 
@@ -111,7 +116,7 @@ export function ConsensusCard({ round }: ConsensusCardProps) {
           </div>
           <div className="space-y-1.5 mb-2">
             {proposals.map((s) => (
-              <StepRow key={`proposal-${s.engine_id}`} step={s} defaultLines={3} />
+              <StepRow key={`proposal-${s.engine_id}-${s.sample_index}`} step={s} defaultLines={3} />
             ))}
           </div>
         </>

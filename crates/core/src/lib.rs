@@ -558,6 +558,15 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             .and_then(|v| v.parse().ok())
             .unwrap_or(60)
             .max(10),
+        // Default on: re-sample a working engine to reach quorum when too few
+        // distinct engines are available, rather than hard-failing.
+        engine_reuse: match std::env::var("CONSENSUS_ENGINE_REUSE") {
+            Ok(v) => !matches!(
+                v.trim().to_lowercase().as_str(),
+                "0" | "false" | "off" | "no"
+            ),
+            Err(_) => true,
+        },
     };
 
     let system_handler = {

@@ -71,6 +71,7 @@ export function ActionsProvider({ children }: { children: ReactNode }) {
           prompt: string;
           phase: string;
           engine_id: string;
+          sample_index: number;
           response: string | null;
           status: string;
           mgp_error_code?: number;

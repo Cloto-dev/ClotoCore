@@ -38,6 +38,11 @@ pub struct ConsensusConfig {
     /// Configurable so a deployment can rename it instead of the kernel
     /// hard-coding the literal. Defaults to `DEFAULT_CONSENSUS_AGENT_ID`.
     pub synthetic_agent_id: String,
+    /// Fallback for when fewer distinct engines succeed than `min_proposals`
+    /// (e.g. only one of two configured engines is registered): re-sample a
+    /// working engine in an isolated session, through a varied framing, to reach
+    /// quorum instead of hard-failing. Default on. (`CONSENSUS_ENGINE_REUSE`)
+    pub engine_reuse: bool,
 }
 
 impl Default for ConsensusConfig {
@@ -47,8 +52,32 @@ impl Default for ConsensusConfig {
             min_proposals: 2,
             session_timeout_secs: 60,
             synthetic_agent_id: DEFAULT_CONSENSUS_AGENT_ID.to_string(),
+            engine_reuse: true,
         }
     }
+}
+
+/// Answer-neutral reasoning lenses used to re-frame a re-sampled proposal so the
+/// same engine explores a different reasoning path instead of collapsing to an
+/// identical answer (which low-temperature sampling would otherwise produce).
+const REUSE_FRAMINGS: &[&str] = &[
+    "Reason from first principles, then answer:",
+    "Carefully weigh edge cases and caveats, then answer:",
+    "Consider alternative viewpoints, then answer:",
+    "Be precise and direct, then answer:",
+];
+
+/// Build the prompt for the `sample_index`-th sample of an engine. Sample 1 is
+/// the original, un-framed proposal. Samples >= 2 are reuse fallbacks: the same
+/// question re-asked through a rotating reasoning lens so re-sampled proposals
+/// diverge instead of duplicating. The lenses are answer-neutral — they change
+/// the reasoning path, not the requested answer.
+pub(crate) fn framed_prompt(content: &str, sample_index: u32) -> String {
+    if sample_index <= 1 {
+        return content.to_string();
+    }
+    let lens = REUSE_FRAMINGS[(sample_index as usize - 2) % REUSE_FRAMINGS.len()];
+    format!("{lens}\n\n{content}")
 }
 
 // ============================================================
@@ -102,5 +131,32 @@ mod tests {
         let p = synthesis_prompt("## Opinion 1:\nx");
         assert!(p.contains("wise moderator"));
         assert!(p.ends_with("## Opinion 1:\nx"));
+    }
+
+    #[test]
+    fn framed_prompt_first_sample_is_unframed() {
+        assert_eq!(framed_prompt("what is X?", 1), "what is X?");
+        assert_eq!(framed_prompt("what is X?", 0), "what is X?");
+    }
+
+    #[test]
+    fn framed_prompt_reuse_samples_diverge_but_keep_question() {
+        let s2 = framed_prompt("what is X?", 2);
+        let s3 = framed_prompt("what is X?", 3);
+        // Both still carry the original question…
+        assert!(s2.ends_with("what is X?"));
+        assert!(s3.ends_with("what is X?"));
+        // …but through different lenses, so re-samples don't duplicate.
+        assert_ne!(s2, s3);
+        assert_ne!(s2, "what is X?");
+    }
+
+    #[test]
+    fn framed_prompt_lenses_rotate() {
+        // 4 lenses → sample 2 and sample 6 reuse the same lens (wrap-around).
+        assert_eq!(
+            framed_prompt("q", 2),
+            framed_prompt("q", 2 + REUSE_FRAMINGS.len() as u32)
+        );
     }
 }

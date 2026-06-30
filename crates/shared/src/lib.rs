@@ -753,6 +753,12 @@ pub enum ClotoEventData {
         phase: String,
         /// The engine producing this step (e.g. "mind.deepseek").
         engine_id: String,
+        /// Which sample of this engine produced the step. 1 = the first (primary)
+        /// proposal; >= 2 = a reuse fallback re-sampling the same engine (through a
+        /// varied framing) to reach quorum when too few distinct engines are
+        /// available. Always 1 for synthesis.
+        #[serde(default = "default_sample_index")]
+        sample_index: u32,
         /// None while pending; Some(text) on success, Some(error message) on error.
         response: Option<String>,
         /// "pending", "success", "error".
@@ -806,6 +812,10 @@ pub struct AgentMetadata {
 
 fn default_agent_type() -> String {
     "agent".to_string()
+}
+
+fn default_sample_index() -> u32 {
+    1
 }
 
 impl AgentMetadata {
