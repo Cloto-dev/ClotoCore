@@ -367,3 +367,40 @@ export interface ExternalAction {
   callback_id: string;
   timestamp: number;
 }
+
+/** A single step (one engine's proposal, or the synthesis) of a consensus round.
+ * Emitted by the kernel as a `ConsensusProgress` event. */
+export interface ConsensusProgressEvent {
+  consensus_id: string;
+  agent_id: string;
+  agent_name: string;
+  prompt: string;
+  /** 'proposal' (one engine's contribution) or 'synthesis' (the merge). */
+  phase: string;
+  engine_id: string;
+  response: string | null;
+  status: 'pending' | 'success' | 'error';
+  /** MGP §14 error code when status='error' and the engine is an MGP server. */
+  mgp_error_code?: number;
+  retryable?: boolean;
+}
+
+export interface ConsensusStep {
+  phase: string;
+  engine_id: string;
+  response: string | null;
+  status: 'pending' | 'success' | 'error';
+  mgp_error_code?: number;
+  retryable?: boolean;
+}
+
+/** One consensus deliberation, aggregating every per-engine proposal step and
+ * the synthesis step under a single `consensus_id`. */
+export interface ConsensusRound {
+  consensus_id: string;
+  agent_id: string;
+  agent_name: string;
+  prompt: string;
+  steps: ConsensusStep[];
+  timestamp: number;
+}

@@ -733,6 +733,39 @@ pub enum ClotoEventData {
         /// "pending", "success", "error"
         status: String,
     },
+    /// Consensus deliberation progress: one entry per engine proposal and one
+    /// for the synthesis, emitted by `SystemHandler::run_consensus` so the
+    /// dashboard's dedicated "Consensus" actions tab can show the multi-engine
+    /// deliberation live. Emitted at dispatch (`response = None`, status
+    /// "pending") and at completion (status "success"/"error"). The final
+    /// synthesized answer is ALSO delivered to the originating agent's chat as a
+    /// normal `ThoughtResponse`; this event is the per-step visualization only.
+    ConsensusProgress {
+        /// Groups every step of one consensus session (= the request trace id).
+        consensus_id: String,
+        /// Originating agent the `consensus:` message was sent to.
+        agent_id: String,
+        agent_name: String,
+        /// The user's question (without the consensus prefix is acceptable; the
+        /// raw prompt is fine — the tab shows it once per session).
+        prompt: String,
+        /// "proposal" (one engine's contribution) or "synthesis" (the merge).
+        phase: String,
+        /// The engine producing this step (e.g. "mind.deepseek").
+        engine_id: String,
+        /// None while pending; Some(text) on success, Some(error message) on error.
+        response: Option<String>,
+        /// "pending", "success", "error".
+        status: String,
+        /// MGP §14 error code when `status = "error"` and the failing engine is
+        /// an MGP server (e.g. 2000 SERVER_NOT_READY, 3003 TIMEOUT, 5000
+        /// UPSTREAM_ERROR). None for non-MGP/internal failures.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mgp_error_code: Option<i64>,
+        /// Whether the MGP error is retryable (from the error's recovery hints).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retryable: Option<bool>,
+    },
 }
 
 impl ClotoEvent {

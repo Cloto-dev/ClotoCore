@@ -3308,6 +3308,32 @@
       "fix_note": "agentTabs now removes the empty-string id (ids.delete('')), so no '' tab is offered; global-pool ('') rows are shown under 'All' (which maps to agent_id='' at the backend anyway). fetchData also treats both null and '' as the unscoped view (scope = selectedAgent || undefined), so a concrete agent id is the only thing that scopes the fetch. Cross-ref bug-413.",
       "notes": "The backend can't separate '' from 'all' without an API change; excluding the '' tab is the minimal correct fix since '' rows are already visible under 'All'. A backend distinction (e.g. a sentinel for global-pool-only) was considered out of scope for a LOW edge.",
       "github_issue": 229
+    },
+    {
+      "id": "bug-417",
+      "summary": "HIGH: Consensus terminal response is never delivered to the originating chat — silent hang. SystemHandler::run_consensus produces the synthesized (or fail-safe error) text and calls emit_consensus_response, which ONLY sends a ThoughtResponse event stamped agent_id=consensus_config.synthetic_agent_id ('system.consensus') and never calls save_chat_message_reliable. The normal agentic path (system.rs ~1119-1137) persists the agent response under agent_id=agent.id with parent_id/branch threading before emitting; the consensus path has no persistence at all. Consequence: a 'consensus:'-prefixed message to agent.cloto_default leaves the user's chat with the user message and no response (GET /api/chat/agent.cloto_default/messages returns only the user turn; /api/chat/system.consensus/messages is empty), so the dashboard sits on thinking forever. This holds for BOTH the happy path AND every fail-safe branch ('[Consensus unavailable]', '[Consensus failed] N/min proposals', synthesis timeout), so the design guarantee in section 5.2 'the user never waits on a silent timeout' is violated — it merely becomes a silent error. Unit/integration tests only assert the ThoughtResponse event is emitted, never end-to-end chat visibility, so they pass while consensus is unusable in the chat UI. Live-reproduced 2026-06-30 (trace f98b7db4) on dev kernel :8081.",
+      "severity": "HIGH",
+      "discovered": "2026-06-30T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "synthetic_agent_id\\.clone\\(\\)",
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "run_consensus now delivers the terminal answer (and every fail-safe error) via deliver_consensus_result: it persists the response under the ORIGINATING agent.id with save_chat_message_reliable (mirroring the normal path's parent_id/branch_index threading) and emits the ThoughtResponse stamped agent_id=agent.id (engine_id='consensus', metadata.consensus=true) — so it lands in the chat where the user asked and survives reload. The old emit_consensus_response (which stamped synthetic_agent_id and never persisted) is removed; the synthetic id is retained only as a metadata label, so the 'synthetic_agent_id.clone()' stamping pattern is gone. Per-step ConsensusProgress events feed the new dashboard Consensus tab. Covered by consensus_test.rs (terminal response under originating id + chat persistence + ConsensusProgress + MGP error code). bug-408 stays fixed (in-kernel synchronous orchestration stamps deterministically regardless of the chosen agent_id).",
+      "notes": "Carried in by the consensus revival (PR #230, Goal #138); root-caused via live verification (trace f98b7db4). The synthetic_agent_id ('system.consensus') is now a display label in chat metadata, not the routing key. Cross-ref docs/CONSENSUS_REVIVAL_DESIGN.md sections 5.1/5.2."
+    },
+    {
+      "id": "bug-418",
+      "summary": "LOW: The shipped CONSENSUS_ENGINES example references an engine that is not auto-registered, so consensus fails out of the box. installer.rs writes a commented '# CONSENSUS_ENGINES=mind.deepseek,mind.cerebras' example, but only providers wired as a runtime mind.* engine server resolve in run_agentic_loop (engine_resolver: get_engine OR mcp.has_server(id) OR has_server(strip 'mind.')). On the dev kernel only 'deepseek' (an active agent's default engine) and 'mind.local' are registered engine servers; 'cerebras' exists in the llm_providers table but is not registered, so 'mind.cerebras' resolves to Err('Engine not found'), the engine is dropped, and a 2-engine config collects only 1 of min 2 proposals → quorum fail. The example thus produces a guaranteed failure for a user who copies it. Live-reproduced 2026-06-30 (trace f98b7db4: deepseek ok, mind.cerebras 'not found').",
+      "severity": "LOW",
+      "discovered": "2026-06-30T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "file": "crates/core/src/installer.rs",
+      "pattern": "CONSENSUS_ENGINES=mind\\.deepseek,mind\\.cerebras",
+      "expected": "present",
+      "status": "open",
+      "notes": "Belongs with Task #114 (config defaults/docs/marketing). Fix options: (a) change the example to two reliably-registered engines, (b) document that CONSENSUS_ENGINES entries must be registered mind.* engine servers and how to register a provider as one, and/or (c) emit a clearer boot/runtime warning when a CONSENSUS_ENGINES id has no resolvable engine server. Surfacing the dropped-engine reason to the user also depends on bug-417 (right now even the '[Consensus failed] 1/2' message is invisible)."
     }
   ]
 }

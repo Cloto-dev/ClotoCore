@@ -162,14 +162,33 @@ speculative (YAGNI); no other feature needs it today.
 
 ### 5.1 Agent-id stamping convention (Task #111b)
 
-- **Proposal**: stamped with the proposing engine's identity. Use the inbound
-  `agent` as the base and tag the engine, so each proposal is attributable
-  (e.g. `agent_id = agent.id`, distinguished by `engine_id`). The kernel sets
-  this; engines never self-declare it (consistent with the anti-spoofing rule at
+> **Revised 2026-06-30 (bug-417).** The original convention stamped the final
+> answer with `config.synthetic_agent_id` (`system.consensus`) and never
+> persisted it. In the running app that routed the answer to a detached
+> identity the user's chat does not subscribe to, **and** skipped chat
+> persistence entirely — so a `consensus:` message hung on "thinking…" forever
+> (every fail-safe branch was equally invisible, violating §5.2's "no silent
+> timeout" guarantee). The convention below is the shipped behavior.
+
+- **Per-engine proposals & synthesis progress** are NOT delivered as chat
+  `ThoughtResponse`s. They are emitted as `ConsensusProgress` events
+  (`consensus_id`, `phase` ∈ {`proposal`,`synthesis`}, `engine_id`, `status` ∈
+  {`pending`,`success`,`error`}, optional `mgp_error_code`) for the dashboard's
+  dedicated **Consensus** actions tab (see §7). The kernel sets every field;
+  engines never self-declare them (consistent with the anti-spoofing rule at
   system.rs ~L819).
-- **Synthesis / final answer**: `agent_id = config.synthetic_agent_id` (default
-  `system.consensus`), `engine_id = "consensus"`. This is the only
-  `ThoughtResponse` delivered to the user/chat.
+- **Final answer (and every fail-safe error message)**: delivered via
+  `deliver_consensus_result`, which (1) **persists** the text to the
+  **originating** agent's chat history (`agent_id = agent.id`, `source =
+  "agent"`, mirroring the normal path's `parent_id`/`branch_index` threading)
+  and (2) emits one `ThoughtResponse` stamped `agent_id = agent.id`,
+  `engine_id = "consensus"`. So it lands in the chat where the user asked and
+  survives reload. `config.synthetic_agent_id` is retained only as a display
+  label in the persisted message metadata (`{"consensus": true,
+  "synthetic_agent_id": …}`), not as the routing key.
+- **bug-408 stays fixed**: the in-kernel synchronous orchestration stamps the
+  response deterministically regardless of which `agent_id` value is chosen, so
+  using the originating id does not reintroduce the synthesis-identity race.
 
 ### 5.2 Fail-safe matrix (Task #111d, G4)
 
@@ -216,14 +235,27 @@ No new config keys. Defaults already additive: `CONSENSUS_ENGINES` empty →
 consensus never triggers (G6). Documentation of the keys and a recommended
 multi-engine example belongs to Task #114 (distribution/docs).
 
-## 7. Dashboard visibility hook (forward note for Task #113)
+## 7. Dashboard visibility — Consensus tab (implemented 2026-06-30)
 
-Because Option A no longer puts per-proposal events on the bus, live
-visualization (each engine's proposal, Collecting/Synthesizing state) needs the
-consensus branch to emit explicit progress events (e.g. a `ConsensusProgress`
-SSE payload) at: session start, each proposal collected, synthesis start, and
-completion. This is out of scope for the implementation task (#112) but the
-branch should be structured so these emit points are trivial to add.
+Live visualization of the deliberation is delivered through a dedicated
+**Consensus** tab in the Actions panel (alongside Code / Dialogues / External),
+not by overloading the External (I/O-bridge) semantics. `run_consensus` emits a
+`ConsensusProgress` event at each step:
+
+- **pending** for every engine before the concurrent fan-out, and for the
+  synthesizer before synthesis;
+- **success** with the proposal/synthesis text as each step completes;
+- **error** with an MGP §14 `mgp_error_code` (+ `retryable`) when an engine
+  fails to resolve / errors / times out.
+
+All steps of one deliberation share a `consensus_id` so the dashboard
+(`useActions` → `ActionsContext` → `ActionsPanel` → `ConsensusCard`) aggregates
+them into a single card showing each engine's proposal and the final synthesis.
+The events are display-only; the final answer is delivered to chat separately
+(§5.1). MGP-server engine errors carry a spec-defined code: an unresolved engine
+surfaces `SERVER_NOT_READY` (2000); a timeout surfaces `TIMEOUT` (3003). The
+kernel's `MgpError` codes are a faithful port of `mgp-spec` §14.3 (the `mgp-py`
+SDK provides the matching `ErrorData{code, message, data._mgp}` envelope).
 
 ## 8. Test plan (for the implementation task #112)
 

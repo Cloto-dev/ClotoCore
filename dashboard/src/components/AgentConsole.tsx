@@ -1074,13 +1074,16 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
           onCategoryChange={actions.setActiveCategory}
           hasDialogues={actions.hasDialogues}
           hasExternalActions={actions.hasExternalActions}
+          hasConsensus={actions.hasConsensus}
           artifacts={actions.artifacts}
           activeArtifactIndex={actions.activeArtifactIndex}
           onArtifactTabChange={actions.setActiveArtifactIndex}
           dialogues={actions.dialogues}
           externalActions={actions.externalActions}
+          consensusRounds={actions.consensusRounds}
           unreadDialogueCount={actions.unreadDialogueCount}
           unreadExternalCount={actions.unreadExternalCount}
+          unreadConsensusCount={actions.unreadConsensusCount}
           totalCount={actions.totalCount}
         />
       </div>
