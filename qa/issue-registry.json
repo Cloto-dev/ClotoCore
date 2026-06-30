@@ -3348,7 +3348,8 @@
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
       "fix_note": "run_consensus now sources engines from the agent's own granted engine servers via agent_engine_servers() (filtering get_granted_server_ids by is_engine_server — mind.* prefix OR get_engine OR think/think_with_tools tool surface, matching dashboard serverCategory.ts isEngineServer / #234). The global CONSENSUS_ENGINES is demoted to an optional filter (filter_consensus_engines): empty = use all of the agent's engines, non-empty = intersect (mind. prefix normalized), never adding an engine the agent is not assigned. The direct `let engines = &self.consensus_engines;` is removed. Covered by consensus_engine_filter_tests (unit: empty passthrough / intersection / mind-prefix normalization / no-overlap) and consensus_ignores_global_engines_not_granted_to_agent (integration regression: a global list with engines the agent is not granted runs nothing).",
-      "notes": "User-reported 2026-06-30 ('consensus supports engines not configured on the agent'). Fix direction ratified by user: engines sourced from agent grants, CONSENSUS_ENGINES as filter (empty = all agent engines). Behavior note: with CONSENSUS_ENGINES empty, an agent granted >= min_proposals engine servers can now activate consensus on the 'consensus:' prefix (the prior additive-default G6 'empty = off' is intentionally relaxed). Cross-ref bug-417 (delivery) / bug-418 (unregistered-engine example) / docs/CONSENSUS_REVIVAL_DESIGN.md."
+      "notes": "User-reported 2026-06-30 ('consensus supports engines not configured on the agent'). Fix direction ratified by user: engines sourced from agent grants, CONSENSUS_ENGINES as filter (empty = all agent engines). Behavior note: with CONSENSUS_ENGINES empty, an agent granted >= min_proposals engine servers can now activate consensus on the 'consensus:' prefix (the prior additive-default G6 'empty = off' is intentionally relaxed). Cross-ref bug-417 (delivery) / bug-418 (unregistered-engine example) / docs/CONSENSUS_REVIVAL_DESIGN.md.",
+      "github_issue": 238
     },
     {
       "id": "bug-420",
@@ -3362,7 +3363,8 @@
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
       "fix_note": "The tool_hint path now calls mcp.check_tool_access(&agent.id, &tool_name) before execute_tool_internal and refuses anything but an explicit Allow (Deny, or tool/server unknown) with 'tool not available to this agent' — mirroring the agentic loop's execute_tool_for_agent -> check_tool_access gate. Covered by tests/tool_hint_access_test.rs (ungranted tool_hint denied before execution). Granted/allowed path is exercised against the live app and by the agentic loop's existing permission tests.",
-      "notes": "User-reported 2026-06-30 ('an agent can use an MCP server it is not registered/granted for'); confirmed path = tool_hint direct execution. Related: bug-419 (consensus engines), bug-173/174 (kernel-side tool validation / anti-spoofing). Follow-up (separate, not time-based): the mgp.agent.ask delegation loop (run_mgp_agent_ask_loop, mcp_kernel_tool.rs ~1824) executes engine tool calls via call_server_tool without a per-agent check_tool_access — tracked for a future hardening pass."
+      "notes": "User-reported 2026-06-30 ('an agent can use an MCP server it is not registered/granted for'); confirmed path = tool_hint direct execution. Related: bug-419 (consensus engines), bug-173/174 (kernel-side tool validation / anti-spoofing). Follow-up (separate, not time-based): the mgp.agent.ask delegation loop (run_mgp_agent_ask_loop, mcp_kernel_tool.rs ~1824) executes engine tool calls via call_server_tool without a per-agent check_tool_access — tracked for a future hardening pass.",
+      "github_issue": 239
     }
   ]
 }
