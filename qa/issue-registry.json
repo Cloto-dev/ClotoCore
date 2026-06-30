@@ -3335,6 +3335,20 @@
       "status": "open",
       "notes": "Belongs with Task #114 (config defaults/docs/marketing). Fix options: (a) change the example to two reliably-registered engines, (b) document that CONSENSUS_ENGINES entries must be registered mind.* engine servers and how to register a provider as one, and/or (c) emit a clearer boot/runtime warning when a CONSENSUS_ENGINES id has no resolvable engine server. Surfacing the dropped-engine reason to the user also depends on bug-417 (right now even the '[Consensus failed] 1/2' message is invisible).",
       "github_issue": 233
+    },
+    {
+      "id": "bug-419",
+      "summary": "MEDIUM: Consensus ran the global CONSENSUS_ENGINES list on every agent, ignoring per-agent engine configuration, so it executed engines the requesting agent was never assigned. SystemHandler::run_consensus took `let engines = &self.consensus_engines;` directly — a kernel-wide Vec<String> from the CONSENSUS_ENGINES env (config.rs) wired once in lib.rs — and ran each via run_agentic_loop under the originating agent, with engine resolution only checking global registration (get_engine / mcp.has_server), never whether the engine is one of the agent's granted engine servers. An agent assigned engines A+B would still have unrelated global engine C run under its identity, and the #232 engine-reuse fallback could mask a misconfigured/unregistered global engine. Decoupled from the dashboard's per-agent engine model (SetupWizard always grants the chosen engine; AgentConsole lists an agent's engines as its granted engine servers).",
+      "severity": "MEDIUM",
+      "discovered": "2026-06-30T13:00:41Z",
+      "version": "0.6.8-beta.1",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "let engines = &self\\.consensus_engines;",
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "run_consensus now sources engines from the agent's own granted engine servers via agent_engine_servers() (filtering get_granted_server_ids by is_engine_server — mind.* prefix OR get_engine OR think/think_with_tools tool surface, matching dashboard serverCategory.ts isEngineServer / #234). The global CONSENSUS_ENGINES is demoted to an optional filter (filter_consensus_engines): empty = use all of the agent's engines, non-empty = intersect (mind. prefix normalized), never adding an engine the agent is not assigned. The direct `let engines = &self.consensus_engines;` is removed. Covered by consensus_engine_filter_tests (unit: empty passthrough / intersection / mind-prefix normalization / no-overlap) and consensus_ignores_global_engines_not_granted_to_agent (integration regression: a global list with engines the agent is not granted runs nothing).",
+      "notes": "User-reported 2026-06-30 ('consensus supports engines not configured on the agent'). Fix direction ratified by user: engines sourced from agent grants, CONSENSUS_ENGINES as filter (empty = all agent engines). Behavior note: with CONSENSUS_ENGINES empty, an agent granted >= min_proposals engine servers can now activate consensus on the 'consensus:' prefix (the prior additive-default G6 'empty = off' is intentionally relaxed). Cross-ref bug-417 (delivery) / bug-418 (unregistered-engine example) / docs/CONSENSUS_REVIVAL_DESIGN.md."
     }
   ]
 }
