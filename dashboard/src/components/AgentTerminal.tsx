@@ -384,7 +384,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
               onClick={() => importRef.current?.click()}
               disabled={pendingImport !== null || isImporting}
               aria-label={t('import_config')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload size={14} /> {t('import_config')}
             </button>
@@ -515,14 +515,10 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                     </div>
 
                     {/* Divider + Actions */}
-                    <div className="mt-2 pt-2 border-t border-edge-subtle flex items-center justify-between">
-                      <span className="text-[9px] text-content-tertiary font-mono">
-                        {agent.metadata?.has_power_password === 'true' && <Lock size={8} className="inline mr-1" />}
-                        {agent.id}
-                      </span>
-                      <div className="flex items-center gap-2">
+                    <div className="mt-2 pt-2 border-t border-edge-subtle flex items-center gap-x-3 gap-y-2 flex-wrap">
+                      <div className="flex items-center gap-1 flex-wrap ml-auto justify-end">
                         <button
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-brand hover:bg-brand/10 transition-all"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-brand hover:bg-brand/10 transition-all"
                           aria-label={t('chat')}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -533,7 +529,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                         </button>
                         {agent.id !== DEFAULT_AGENT_ID && (
                           <button
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
                             aria-label={t('export_config')}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -544,7 +540,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                           </button>
                         )}
                         <button
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
                           aria-label={t('config')}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -556,7 +552,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                         </button>
                         {agent.id !== DEFAULT_AGENT_ID && (
                           <button
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-content-tertiary hover:text-red-500 hover:bg-red-500/10 transition-all"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 transition-all"
                             aria-label={tc('delete')}
                             onClick={(e) => {
                               e.stopPropagation();

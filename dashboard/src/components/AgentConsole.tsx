@@ -2,6 +2,7 @@ import {
   Activity,
   ArrowLeft,
   Box,
+  Lock,
   Pencil,
   RotateCcw as RetryIcon,
   RotateCcw,
@@ -792,8 +793,13 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
             <h2 className="text-xl font-black text-content-primary tracking-tighter uppercase">{agent.name}</h2>
             <div className="flex items-center gap-2">
               <StatusDot status={agent.enabled ? 'online' : 'offline'} size="sm" />
-              <span className="text-[10px] font-mono text-content-tertiary uppercase tracking-[0.2em]">
+              <span className="text-[11px] font-mono text-content-tertiary uppercase tracking-[0.2em]">
                 {agent.enabled ? t('console.connected') : t('console.offline')}
+              </span>
+              <span className="text-[11px] text-content-tertiary">·</span>
+              <span className="flex items-center gap-1 text-[11px] font-mono text-content-tertiary tracking-wider">
+                {agent.metadata?.has_power_password === 'true' && <Lock size={9} />}
+                {agent.id}
               </span>
             </div>
           </div>
