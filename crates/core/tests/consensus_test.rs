@@ -33,8 +33,16 @@ use tokio::sync::mpsc;
 /// detached synthetic id.
 const ORIGINATING_AGENT_ID: &str = "agent.test";
 
+/// Build a consensus handler whose engine set is driven by **the agent's own
+/// grants**, the way production resolves it. `granted_engines` are engine server
+/// ids granted to the originating agent (each becomes a `server_grant` row, so
+/// `run_consensus` discovers them via `get_granted_server_ids` and classifies
+/// them as engines — `mind.*` ids qualify by prefix without a live MCP server).
+/// `global_filter` is the `CONSENSUS_ENGINES` env value, now only a *filter* over
+/// that per-agent set (empty = no filter).
 async fn build_handler(
-    engines: Vec<String>,
+    granted_engines: Vec<String>,
+    global_filter: Vec<String>,
 ) -> (
     SystemHandler,
     mpsc::Receiver<cloto_core::EnvelopedEvent>,
@@ -52,6 +60,26 @@ async fn build_handler(
         .await
         .unwrap();
 
+    // Grant the requested engine servers to the agent (the per-agent engine
+    // assignment consensus now sources from). The server row must exist first —
+    // `mcp_access_control.server_id` is a FK onto `mcp_servers(name)`.
+    for engine in &granted_engines {
+        sqlx::query("INSERT INTO mcp_servers (name, command, created_at) VALUES (?, 'noop', 0)")
+            .bind(engine)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO mcp_access_control (entry_type, agent_id, server_id, permission, granted_at) \
+             VALUES ('server_grant', ?, ?, 'allow', 't0')",
+        )
+        .bind(agent_id)
+        .bind(engine)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
     let registry = Arc::new(PluginRegistry::new(5, 10, 50));
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
     let (event_tx, event_rx) = mpsc::channel(64);
@@ -64,7 +92,7 @@ async fn build_handler(
         event_tx,
         10, // memory_context_limit
         metrics,
-        engines,
+        global_filter,
         "consensus:".to_string(),
         16, // max_agentic_iterations
         30, // tool_execution_timeout_secs
@@ -160,11 +188,11 @@ async fn assert_response_persisted(pool: &SqlitePool, expected_substring: &str) 
     );
 }
 
-/// Fewer engines configured than `min_proposals` (default 2) → immediate
-/// fail-safe response, no engine ever runs, no ConsensusProgress steps.
+/// The agent is assigned fewer engines than `min_proposals` (default 2) →
+/// immediate fail-safe response, no engine ever runs, no ConsensusProgress steps.
 #[tokio::test]
 async fn consensus_too_few_engines_emits_single_failsafe_persisted() {
-    let (handler, mut rx, pool) = build_handler(vec!["mind.alpha".to_string()]).await;
+    let (handler, mut rx, pool) = build_handler(vec!["mind.alpha".to_string()], vec![]).await;
 
     handler.handle_message(consensus_msg()).await.unwrap();
 
@@ -184,14 +212,18 @@ async fn consensus_too_few_engines_emits_single_failsafe_persisted() {
     assert_response_persisted(&pool, "[Consensus unavailable]").await;
 }
 
-/// Enough engines configured but none are registered/resolvable → every
-/// proposal loop errors → quorum is not reached → fail-safe response. Proves
-/// the kernel never hangs, each engine surfaces a ConsensusProgress step with an
-/// MGP §14 error code (SERVER_NOT_READY), and the error is delivered to chat.
+/// The agent is assigned enough engines but none are registered/resolvable →
+/// every proposal loop errors → quorum is not reached → fail-safe response.
+/// Proves the kernel never hangs, each engine surfaces a ConsensusProgress step
+/// with an MGP §14 error code (SERVER_NOT_READY), and the error is delivered to
+/// chat.
 #[tokio::test]
 async fn consensus_all_engines_unavailable_quorum_failsafe_mgp_errors() {
-    let (handler, mut rx, pool) =
-        build_handler(vec!["mind.alpha".to_string(), "mind.beta".to_string()]).await;
+    let (handler, mut rx, pool) = build_handler(
+        vec!["mind.alpha".to_string(), "mind.beta".to_string()],
+        vec![],
+    )
+    .await;
 
     handler.handle_message(consensus_msg()).await.unwrap();
 
@@ -246,4 +278,38 @@ async fn consensus_all_engines_unavailable_quorum_failsafe_mgp_errors() {
     }
 
     assert_response_persisted(&pool, "[Consensus failed]").await;
+}
+
+/// Regression (the fix): a non-empty global `CONSENSUS_ENGINES` whose engines the
+/// agent is **not** granted must NOT run. Previously the global list ran on every
+/// agent regardless of its configuration; now engines are sourced from the
+/// agent's own grants, with the global list acting only as a filter. With no
+/// engine grants the agent has zero consensus engines → immediate
+/// `[Consensus unavailable]`, and crucially **no engine ever runs** (no
+/// ConsensusProgress steps), proving the global list alone can no longer drive a
+/// proposal under an agent that was never assigned those engines.
+#[tokio::test]
+async fn consensus_ignores_global_engines_not_granted_to_agent() {
+    let (handler, mut rx, pool) = build_handler(
+        vec![],                                                  // agent is granted no engines
+        vec!["mind.alpha".to_string(), "mind.beta".to_string()], // but the global env lists two
+    )
+    .await;
+
+    handler.handle_message(consensus_msg()).await.unwrap();
+
+    let events = drain(&mut rx);
+    let content = assert_single_terminal_response(&events);
+    assert!(
+        content.contains("[Consensus unavailable]"),
+        "an agent with no engine grants must get the unavailable fail-safe even when \
+         CONSENSUS_ENGINES is set, got: {content}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, ClotoEventData::ConsensusProgress { .. })),
+        "no engine may run for an agent that was not granted any consensus engine"
+    );
+    assert_response_persisted(&pool, "[Consensus unavailable]").await;
 }

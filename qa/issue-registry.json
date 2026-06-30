@@ -3335,6 +3335,34 @@
       "status": "open",
       "notes": "Belongs with an earlier decision (config defaults/docs/marketing). Fix options: (a) change the example to two reliably-registered engines, (b) document that CONSENSUS_ENGINES entries must be registered mind.* engine servers and how to register a provider as one, and/or (c) emit a clearer boot/runtime warning when a CONSENSUS_ENGINES id has no resolvable engine server. Surfacing the dropped-engine reason to the user also depends on bug-417 (right now even the '[Consensus failed] 1/2' message is invisible).",
       "github_issue": 233
+    },
+    {
+      "id": "bug-419",
+      "summary": "MEDIUM: Consensus ran the global CONSENSUS_ENGINES list on every agent, ignoring per-agent engine configuration, so it executed engines the requesting agent was never assigned. SystemHandler::run_consensus took `let engines = &self.consensus_engines;` directly — a kernel-wide Vec<String> from the CONSENSUS_ENGINES env (config.rs) wired once in lib.rs — and ran each via run_agentic_loop under the originating agent, with engine resolution only checking global registration (get_engine / mcp.has_server), never whether the engine is one of the agent's granted engine servers. An agent assigned engines A+B would still have unrelated global engine C run under its identity, and the #232 engine-reuse fallback could mask a misconfigured/unregistered global engine. Decoupled from the dashboard's per-agent engine model (SetupWizard always grants the chosen engine; AgentConsole lists an agent's engines as its granted engine servers).",
+      "severity": "MEDIUM",
+      "discovered": "2026-06-30T13:00:41Z",
+      "version": "0.6.8-beta.1",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "let engines = &self\\.consensus_engines;",
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "run_consensus now sources engines from the agent's own granted engine servers via agent_engine_servers() (filtering get_granted_server_ids by is_engine_server — mind.* prefix OR get_engine OR think/think_with_tools tool surface, matching dashboard serverCategory.ts isEngineServer / #234). The global CONSENSUS_ENGINES is demoted to an optional filter (filter_consensus_engines): empty = use all of the agent's engines, non-empty = intersect (mind. prefix normalized), never adding an engine the agent is not assigned. The direct `let engines = &self.consensus_engines;` is removed. Covered by consensus_engine_filter_tests (unit: empty passthrough / intersection / mind-prefix normalization / no-overlap) and consensus_ignores_global_engines_not_granted_to_agent (integration regression: a global list with engines the agent is not granted runs nothing).",
+      "notes": "User-reported 2026-06-30 ('consensus supports engines not configured on the agent'). Fix direction ratified by user: engines sourced from agent grants, CONSENSUS_ENGINES as filter (empty = all agent engines). Behavior note: with CONSENSUS_ENGINES empty, an agent granted >= min_proposals engine servers can now activate consensus on the 'consensus:' prefix (the prior additive-default G6 'empty = off' is intentionally relaxed). Cross-ref bug-417 (delivery) / bug-418 (unregistered-engine example) / docs/CONSENSUS_REVIVAL_DESIGN.md."
+    },
+    {
+      "id": "bug-420",
+      "summary": "HIGH: The tool_hint direct-execution path bypassed per-agent MCP access control — an agent could invoke a tool on any connected server, including ones it was never granted. An external I/O bridge (e.g. a Discord backtick command) supplies metadata.tool_hint; SystemHandler::handle_message ran it via mcp.execute_tool_internal(tool_name, args) WITHOUT a check_tool_access / resolve_tool_access gate. execute_tool_internal resolves the tool through the GLOBAL tool_index, so any connected server's tool is reachable by name regardless of the requesting agent's mcp_access_control grants. The agentic loop gates tool calls (tool_names membership + execute_tool_for_agent -> check_tool_access), but the tool_hint bypass did not — so an agent could use an ungranted MCP server via a bridge-supplied tool_hint.",
+      "severity": "HIGH",
+      "discovered": "2026-06-30T13:21:13Z",
+      "version": "0.6.8-beta.1",
+      "file": "crates/core/src/handlers/system.rs",
+      "pattern": "check_tool_access\\(&agent\\.id, &tool_name\\)",
+      "expected": "present",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "The tool_hint path now calls mcp.check_tool_access(&agent.id, &tool_name) before execute_tool_internal and refuses anything but an explicit Allow (Deny, or tool/server unknown) with 'tool not available to this agent' — mirroring the agentic loop's execute_tool_for_agent -> check_tool_access gate. Covered by tests/tool_hint_access_test.rs (ungranted tool_hint denied before execution). Granted/allowed path is exercised against the live app and by the agentic loop's existing permission tests.",
+      "notes": "User-reported 2026-06-30 ('an agent can use an MCP server it is not registered/granted for'); confirmed path = tool_hint direct execution. Related: bug-419 (consensus engines), bug-173/174 (kernel-side tool validation / anti-spoofing). Follow-up (separate, not time-based): the mgp.agent.ask delegation loop (run_mgp_agent_ask_loop, mcp_kernel_tool.rs ~1824) executes engine tool calls via call_server_tool without a per-agent check_tool_access — tracked for a future hardening pass."
     }
   ]
 }
