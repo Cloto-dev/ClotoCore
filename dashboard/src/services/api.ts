@@ -85,7 +85,14 @@ async function mutate(
 ): Promise<Response> {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    // Only advertise a JSON body when one is actually sent. axum's
+    // `Option<Json<..>>` extractor treats the body as present whenever the
+    // Content-Type header is `application/json`, so pairing it with an empty
+    // body makes optional-body handlers reject with 400 (see deleteAgent).
+    headers: {
+      ...(body !== undefined && { 'Content-Type': 'application/json' }),
+      ...extraHeaders,
+    },
     signal: signal ?? AbortSignal.timeout(API_TIMEOUT_MS),
     ...(body !== undefined && { body: JSON.stringify(body) }),
   });
@@ -241,9 +248,17 @@ export const api = {
       { 'X-API-Key': apiKey },
     ).then(() => {}),
   async deleteAgent(agentId: string, apiKey: string, password?: string): Promise<void> {
+    // Only send a JSON body (and its Content-Type) when a password is supplied.
+    // The backend handler extracts `Option<Json<..>>`, but axum only treats the
+    // body as absent when the Content-Type header is missing entirely — sending
+    // `application/json` with an empty body makes it try (and fail) to parse the
+    // body, rejecting passwordless deletes with 400 before the handler runs.
     const res = await fetch(`${API_BASE}/agents/${agentId}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      headers: {
+        'X-API-Key': apiKey,
+        ...(password ? { 'Content-Type': 'application/json' } : {}),
+      },
       ...(password ? { body: JSON.stringify({ password }) } : {}),
     });
     await throwIfNotOk(res, 'delete agent');
