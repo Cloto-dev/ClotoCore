@@ -541,6 +541,25 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     // Cold sessions and clears stale tool_history on the Warm tier boundary.
     let session_manager = Arc::new(managers::session_manager::SessionManager::new());
 
+    // Consensus knobs (kernel-level; replaces the retired core.moderator plugin).
+    // The orchestration runs in-kernel inside SystemHandler::run_consensus —
+    // see docs/CONSENSUS_REVIVAL_DESIGN.md.
+    let consensus_config = consensus::ConsensusConfig {
+        synthesizer_engine: std::env::var("CONSENSUS_SYNTHESIZER").unwrap_or_default(),
+        synthetic_agent_id: std::env::var("CONSENSUS_AGENT_ID")
+            .unwrap_or_else(|_| consensus::DEFAULT_CONSENSUS_AGENT_ID.to_string()),
+        min_proposals: std::env::var("CONSENSUS_MIN_PROPOSALS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2)
+            .max(2),
+        session_timeout_secs: std::env::var("CONSENSUS_SESSION_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60)
+            .max(10),
+    };
+
     let system_handler = {
         let mut h = SystemHandler::new(
             registry_arc.clone(),
@@ -563,6 +582,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         h.set_probe_cache(probe_cache.clone());
         h.set_usage_store(last_usage_store.clone());
         h.set_session_manager(session_manager.clone());
+        h.set_consensus_config(consensus_config);
         Arc::new(h)
     };
 
@@ -677,24 +697,6 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     // Wire up kernel event bus to MCP manager (for PermissionRequested emission)
     mcp_manager.set_kernel_event_tx(event_tx.clone()).await;
 
-    // 6. Consensus Orchestrator (kernel-level, replaces core.moderator plugin)
-    let consensus_config = consensus::ConsensusConfig {
-        synthesizer_engine: std::env::var("CONSENSUS_SYNTHESIZER").unwrap_or_default(),
-        synthetic_agent_id: std::env::var("CONSENSUS_AGENT_ID")
-            .unwrap_or_else(|_| consensus::DEFAULT_CONSENSUS_AGENT_ID.to_string()),
-        min_proposals: std::env::var("CONSENSUS_MIN_PROPOSALS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(2)
-            .max(2),
-        session_timeout_secs: std::env::var("CONSENSUS_SESSION_TIMEOUT_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(60)
-            .max(10),
-    };
-    let consensus_orchestrator = consensus::ConsensusOrchestrator::new(consensus_config);
-
     // 6a. Event Loop
     let processor = Arc::new(EventProcessor::new(
         registry_arc.clone(),
@@ -705,7 +707,6 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         metrics,
         config.event_history_size,
         config.event_retention_hours,
-        Some(consensus_orchestrator),
         system_handler,
         config.max_event_history,
         config.hal_rate_limit_per_sec,

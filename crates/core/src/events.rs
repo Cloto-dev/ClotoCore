@@ -50,7 +50,6 @@ pub struct EventProcessor {
     metrics: Arc<crate::managers::SystemMetrics>,
     max_history_size: usize,
     event_retention_hours: u64, // M-10: Configurable retention period
-    consensus: Option<Arc<crate::consensus::ConsensusOrchestrator>>,
     /// Per-plugin rate limiter for InputControl actions (bug-143: Guardrail 1.6)
     action_rate_limiter: Arc<dashmap::DashMap<String, governor::DefaultDirectRateLimiter>>,
     /// Configured HAL rate limit (actions/sec/requester).
@@ -76,7 +75,6 @@ impl EventProcessor {
         metrics: Arc<crate::managers::SystemMetrics>,
         max_history_size: usize,
         event_retention_hours: u64, // M-10: Configurable retention period
-        consensus: Option<Arc<crate::consensus::ConsensusOrchestrator>>,
         system_handler: Arc<SystemHandler>,
         max_event_history: usize,
         hal_rate_limit_per_sec: u32,
@@ -91,7 +89,6 @@ impl EventProcessor {
             metrics,
             max_history_size,
             event_retention_hours,
-            consensus,
             action_rate_limiter: Arc::new(dashmap::DashMap::new()),
             hal_rate_limit_per_sec,
             hal_rate_limit_burst,
@@ -269,23 +266,11 @@ impl EventProcessor {
                 .dispatch_event(envelope.clone(), &event_tx)
                 .await;
 
-            // ── (4) Consensus Orchestrator ──
-            if let Some(ref consensus) = self.consensus {
-                if let Some(response_data) = consensus.handle_event(&event).await {
-                    let response_event = Arc::new(ClotoEvent::with_trace(trace_id, response_data));
-                    let response_envelope = crate::EnvelopedEvent {
-                        event: response_event,
-                        issuer: None,
-                        correlation_id: Some(trace_id),
-                        depth: envelope.depth + 1,
-                    };
-                    if let Err(e) = event_tx.send(response_envelope).await {
-                        error!("Failed to send consensus response event: {}", e);
-                    }
-                }
-            }
-
-            // ── (5) イベント固有の後処理 ──
+            // ── (4) イベント固有の後処理 ──
+            // (Consensus is now orchestrated in-kernel inside
+            //  SystemHandler::run_consensus — see docs/CONSENSUS_REVIVAL_DESIGN.md.
+            //  It no longer rides the event bus, so there is no orchestrator hook
+            //  here.)
             match &event.data {
                 cloto_shared::ClotoEventData::ThoughtResponse {
                     agent_id,

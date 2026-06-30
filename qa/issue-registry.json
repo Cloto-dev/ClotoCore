@@ -3204,9 +3204,9 @@
       "version": "0.6.8-beta.1",
       "file": "crates/core/src/consensus.rs",
       "pattern": "Synthesis complete via",
-      "expected": "present",
-      "status": "open",
-      "notes": "Fix: record the expected synthesizer identity (agent_id or a freshly minted synthesis request id) in SessionState::Synthesizing and only accept the matching response as Complete; ignore/aggregate non-matching late proposals. DEFERRED (2026-06-30): an attempted fix (commit 481279c, matching agent_id == 'agent.synthesizer') was reverted. It depends on an out-of-repo contract — that the external MGP/SSE mind-bridge echoes the dispatched AgentMetadata.id ('agent.synthesizer') verbatim into ThoughtResponse.agent_id. ThoughtRequested has no in-repo consumer (the Rust Plugin SDK was removed in 85e36cb), so the contract is unverifiable here; if the bridge stamps a different id the match never completes and consensus breaks entirely (worse than this bug). Re-attempt only with an e2e test against the real mind-bridge asserting the synthesis ThoughtResponse.agent_id, plus a fail-safe so a never-matching response cannot hang a session past the cleanup timeout.",
+      "expected": "absent",
+      "status": "fixed",
+      "notes": "FIXED (2026-06-30, an earlier decision): eliminated by the in-kernel consensus redesign rather than guarded. The event-driven ConsensusOrchestrator.on_thought_response (whose 'Synthesis complete via' branch accepted the first arriving ThoughtResponse for the trace_id as the synthesis — the race) was removed entirely; consensus.rs is now config + prompt helpers only. Consensus is orchestrated synchronously in SystemHandler::run_consensus: it collects all proposals, then runs the synthesizer in-kernel and stamps the synthetic agent id on the single terminal ThoughtResponse. Because collection and synthesis are sequential awaits in one task — not events matched by arrival order — a late proposal can never be mistaken for the synthesis result, and the out-of-repo agent_id-echo contract the reverted guard (481279c) needed is gone. Per-phase timeouts give the fail-safe (never a hung session). See docs/CONSENSUS_REVIVAL_DESIGN.md. HISTORY: an earlier standalone guard (commit 481279c, matching agent_id == 'agent.synthesizer') was reverted because it depended on the external MGP/SSE mind-bridge echoing AgentMetadata.id verbatim, which is unverifiable in-repo.",
       "github_issue": 218
     },
     {
