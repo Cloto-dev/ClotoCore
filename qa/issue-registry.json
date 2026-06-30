@@ -3333,7 +3333,8 @@
       "pattern": "CONSENSUS_ENGINES=mind\\.deepseek,mind\\.cerebras",
       "expected": "present",
       "status": "open",
-      "notes": "Belongs with Task #114 (config defaults/docs/marketing). Fix options: (a) change the example to two reliably-registered engines, (b) document that CONSENSUS_ENGINES entries must be registered mind.* engine servers and how to register a provider as one, and/or (c) emit a clearer boot/runtime warning when a CONSENSUS_ENGINES id has no resolvable engine server. Surfacing the dropped-engine reason to the user also depends on bug-417 (right now even the '[Consensus failed] 1/2' message is invisible)."
+      "notes": "Belongs with Task #114 (config defaults/docs/marketing). Fix options: (a) change the example to two reliably-registered engines, (b) document that CONSENSUS_ENGINES entries must be registered mind.* engine servers and how to register a provider as one, and/or (c) emit a clearer boot/runtime warning when a CONSENSUS_ENGINES id has no resolvable engine server. Surfacing the dropped-engine reason to the user also depends on bug-417 (right now even the '[Consensus failed] 1/2' message is invisible).",
+      "github_issue": 233
     }
   ]
 }
