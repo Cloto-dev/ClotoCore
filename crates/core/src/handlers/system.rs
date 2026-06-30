@@ -1564,9 +1564,10 @@ impl SystemHandler {
                 engines.len()
             );
             warn!(trace_id = %trace_id, "{detail}");
-            self.emit_consensus_response(
+            self.deliver_consensus_result(
+                agent,
+                msg,
                 format!("[Consensus unavailable] {detail}"),
-                &msg.id,
                 trace_id,
             )
             .await;
@@ -1576,6 +1577,8 @@ impl SystemHandler {
         // 1. Collect proposals — run every engine concurrently, in-kernel. Each
         //    engine gets a throwaway per-engine session key so the proposals
         //    never pollute the user's real T1 transcript or each other's.
+        //    Per-engine ConsensusProgress events feed the dashboard's Consensus
+        //    tab (pending → success/error); MGP-server failures carry a §14 code.
         let proposal_keys: Vec<_> = engines
             .iter()
             .map(|e| {
@@ -1585,6 +1588,20 @@ impl SystemHandler {
                 )
             })
             .collect();
+        for engine in engines {
+            self.emit_consensus_progress(
+                trace_id,
+                agent,
+                &msg.content,
+                "proposal",
+                engine,
+                None,
+                "pending",
+                None,
+                None,
+            )
+            .await;
+        }
         let proposal_futs = engines.iter().zip(&proposal_keys).map(|(engine, key)| {
             let ctx = context.clone();
             async move {
@@ -1601,6 +1618,53 @@ impl SystemHandler {
                     ),
                 )
                 .await;
+                // Emit the per-engine completion as soon as this engine finishes
+                // so the Consensus tab updates live (not after the slowest).
+                match &r {
+                    Ok(Ok(text)) => {
+                        self.emit_consensus_progress(
+                            trace_id,
+                            agent,
+                            &msg.content,
+                            "proposal",
+                            engine,
+                            Some(text.clone()),
+                            "success",
+                            None,
+                            None,
+                        )
+                        .await;
+                    }
+                    Ok(Err(e)) => {
+                        let (code, retryable, message) = Self::classify_engine_error(e);
+                        self.emit_consensus_progress(
+                            trace_id,
+                            agent,
+                            &msg.content,
+                            "proposal",
+                            engine,
+                            Some(message),
+                            "error",
+                            code,
+                            retryable,
+                        )
+                        .await;
+                    }
+                    Err(_) => {
+                        self.emit_consensus_progress(
+                            trace_id,
+                            agent,
+                            &msg.content,
+                            "proposal",
+                            engine,
+                            Some("Engine timed out".to_string()),
+                            "error",
+                            Some(crate::managers::mcp_mgp::MGP_ERR_TIMEOUT),
+                            Some(true),
+                        )
+                        .await;
+                    }
+                }
                 (engine.clone(), r)
             }
         });
@@ -1629,8 +1693,13 @@ impl SystemHandler {
                 proposals.len()
             );
             warn!(trace_id = %trace_id, "{detail}");
-            self.emit_consensus_response(format!("[Consensus failed] {detail}"), &msg.id, trace_id)
-                .await;
+            self.deliver_consensus_result(
+                agent,
+                msg,
+                format!("[Consensus failed] {detail}"),
+                trace_id,
+            )
+            .await;
             return;
         }
 
@@ -1669,6 +1738,18 @@ impl SystemHandler {
             proposals = proposals.len(),
             "⚗️ Consensus synthesis started"
         );
+        self.emit_consensus_progress(
+            trace_id,
+            agent,
+            &msg.content,
+            "synthesis",
+            &synthesizer_engine,
+            None,
+            "pending",
+            None,
+            None,
+        )
+        .await;
 
         let synth_result = tokio::time::timeout(
             phase_timeout,
@@ -1687,39 +1768,168 @@ impl SystemHandler {
         let content = match synth_result {
             Ok(Ok(text)) => {
                 info!(trace_id = %trace_id, "🏁 Consensus synthesis complete");
+                self.emit_consensus_progress(
+                    trace_id,
+                    agent,
+                    &msg.content,
+                    "synthesis",
+                    &synthesizer_engine,
+                    Some(text.clone()),
+                    "success",
+                    None,
+                    None,
+                )
+                .await;
                 text
             }
             Ok(Err(e)) => {
                 error!(trace_id = %trace_id, error = %e, "❌ Consensus synthesis failed — returning raw proposals");
+                let (code, retryable, message) = Self::classify_engine_error(&e);
+                self.emit_consensus_progress(
+                    trace_id,
+                    agent,
+                    &msg.content,
+                    "synthesis",
+                    &synthesizer_engine,
+                    Some(message),
+                    "error",
+                    code,
+                    retryable,
+                )
+                .await;
                 format!(
                     "[Consensus synthesis failed: {e}. Individual proposals below.]\n\n{combined}"
                 )
             }
             Err(_) => {
                 error!(trace_id = %trace_id, "⏱️ Consensus synthesis timed out — returning raw proposals");
+                self.emit_consensus_progress(
+                    trace_id,
+                    agent,
+                    &msg.content,
+                    "synthesis",
+                    &synthesizer_engine,
+                    Some("Synthesis timed out".to_string()),
+                    "error",
+                    Some(crate::managers::mcp_mgp::MGP_ERR_TIMEOUT),
+                    Some(true),
+                )
+                .await;
                 format!(
                     "[Consensus synthesis timed out. Individual proposals below.]\n\n{combined}"
                 )
             }
         };
-        self.emit_consensus_response(content, &msg.id, trace_id)
+        self.deliver_consensus_result(agent, msg, content, trace_id)
             .await;
     }
 
-    /// Emit the single terminal consensus `ThoughtResponse`, stamped with the
-    /// configured synthetic agent id. Mirrors the normal path's emission so
-    /// downstream (`events.rs`) treats it like any other agent response.
-    async fn emit_consensus_response(
+    /// Map an engine error to MGP §14 fields for the Consensus tab. When the
+    /// underlying error is a typed [`MgpError`](crate::managers::mcp_mgp::MgpError)
+    /// (e.g. an unresolved engine server → `SERVER_NOT_READY`), surface its
+    /// spec-defined code + retryable hint and a `MGP-<code>: <message>` string;
+    /// otherwise fall back to a plain message with no code.
+    fn classify_engine_error(e: &anyhow::Error) -> (Option<i64>, Option<bool>, String) {
+        if let Some(mgp) = e.downcast_ref::<crate::managers::mcp_mgp::MgpError>() {
+            let retryable = mgp.recovery.as_ref().map(|r| r.retryable);
+            (
+                Some(mgp.code),
+                retryable,
+                format!("MGP-{}: {}", mgp.code, mgp.message),
+            )
+        } else {
+            (None, None, e.to_string())
+        }
+    }
+
+    /// Emit one `ConsensusProgress` step (per-engine proposal or synthesis) for
+    /// the dashboard's dedicated Consensus actions tab. Display-only; the final
+    /// answer is delivered separately via [`Self::deliver_consensus_result`].
+    #[allow(clippy::too_many_arguments)]
+    async fn emit_consensus_progress(
         &self,
+        consensus_id: ClotoId,
+        agent: &AgentMetadata,
+        prompt: &str,
+        phase: &str,
+        engine_id: &str,
+        response: Option<String>,
+        status: &str,
+        mgp_error_code: Option<i64>,
+        retryable: Option<bool>,
+    ) {
+        let data = ClotoEventData::ConsensusProgress {
+            consensus_id: consensus_id.to_string(),
+            agent_id: agent.id.clone(),
+            agent_name: agent.name.clone(),
+            prompt: prompt.to_string(),
+            phase: phase.to_string(),
+            engine_id: engine_id.to_string(),
+            response,
+            status: status.to_string(),
+            mgp_error_code,
+            retryable,
+        };
+        let envelope = crate::EnvelopedEvent {
+            event: Arc::new(ClotoEvent::with_trace(consensus_id, data)),
+            issuer: None,
+            correlation_id: None,
+            depth: 0,
+        };
+        if let Err(e) = self.sender.send(envelope).await {
+            warn!(error = %e, "Failed to send ConsensusProgress event");
+        }
+    }
+
+    /// Deliver the terminal consensus result to the ORIGINATING agent's chat:
+    /// persist it under `agent.id` (so it appears where the user asked and
+    /// survives reload) AND emit a `ThoughtResponse` stamped with `agent.id` so
+    /// the live chat unblocks. `engine_id = "consensus"` + metadata mark it for
+    /// the UI. Fixes bug-417: the previous synthetic-agent-id stamping (and the
+    /// missing persistence) made every consensus answer/error invisible, leaving
+    /// the chat hung on "thinking…". Mirrors the normal path's persist-then-emit.
+    async fn deliver_consensus_result(
+        &self,
+        agent: &AgentMetadata,
+        msg: &ClotoMessage,
         content: String,
-        source_message_id: &str,
         trace_id: ClotoId,
     ) {
+        let resp_id = format!("{}-resp", msg.id);
+        let response_parent = msg
+            .metadata
+            .get("parent_id")
+            .cloned()
+            .unwrap_or_else(|| msg.id.clone());
+        let resp_branch = crate::db::get_next_branch_index(&self.pool, &response_parent)
+            .await
+            .unwrap_or(0);
+        let chat_msg = crate::db::ChatMessageRow {
+            id: resp_id,
+            agent_id: agent.id.clone(),
+            user_id: Self::extract_user_id(msg).to_string(),
+            source: "agent".to_string(),
+            content: serde_json::to_string(
+                &serde_json::json!([{"type": "text", "text": &content}]),
+            )
+            .unwrap_or_default(),
+            metadata: serde_json::to_string(&serde_json::json!({
+                "consensus": true,
+                "synthetic_agent_id": self.consensus_config.synthetic_agent_id,
+            }))
+            .ok(),
+            created_at: chrono::Utc::now().timestamp_millis(),
+            parent_id: Some(response_parent),
+            branch_index: resp_branch,
+        };
+        if let Err(e) = crate::db::save_chat_message_reliable(&self.pool, &chat_msg).await {
+            error!(trace_id = %trace_id, error = %e, "Consensus chat persist DROPPED");
+        }
         let response = ClotoEventData::ThoughtResponse {
-            agent_id: self.consensus_config.synthetic_agent_id.clone(),
+            agent_id: agent.id.clone(),
             engine_id: "consensus".to_string(),
             content,
-            source_message_id: source_message_id.to_string(),
+            source_message_id: msg.id.clone(),
             auto_spoken: false,
         };
         let envelope = crate::EnvelopedEvent {
@@ -1774,7 +1984,15 @@ impl SystemHandler {
             };
 
         if engine_plugin.is_none() && mcp_engine.is_none() {
-            return Err(anyhow::anyhow!("Engine '{}' not found", engine_id));
+            // MGP §14: an unresolved engine is a lifecycle condition — the engine
+            // server is not registered/connected. Surface it as a typed MgpError
+            // (SERVER_NOT_READY, retryable) so MGP-server failures carry a
+            // spec-defined code/recovery instead of an opaque string.
+            return Err(anyhow::Error::new(
+                crate::managers::mcp_mgp::MgpError::server_not_ready(format!(
+                    "Engine '{engine_id}' is not a registered/connected engine server"
+                )),
+            ));
         }
 
         // Determine tool support
@@ -2326,7 +2544,11 @@ impl SystemHandler {
             return Self::extract_mcp_think_content(&result);
         }
 
-        Err(anyhow::anyhow!("Engine '{}' not found", engine_id))
+        Err(anyhow::Error::new(
+            crate::managers::mcp_mgp::MgpError::server_not_ready(format!(
+                "Engine '{engine_id}' is not a registered/connected engine server"
+            )),
+        ))
     }
 
     /// Call engine's think_with_tools() — routes to either Rust plugin or MCP server.
@@ -2402,7 +2624,11 @@ impl SystemHandler {
             return Self::parse_mcp_think_result(&result);
         }
 
-        Err(anyhow::anyhow!("Engine '{}' not found", engine_id))
+        Err(anyhow::Error::new(
+            crate::managers::mcp_mgp::MgpError::server_not_ready(format!(
+                "Engine '{engine_id}' is not a registered/connected engine server"
+            )),
+        ))
     }
 
     /// Drive a streaming `think_with_tools` call (Phase C).

@@ -6,6 +6,16 @@
   "tabs": {
     "code": "Code",
     "dialogues": "Dialogues",
-    "external": "External"
+    "external": "External",
+    "consensus": "Consensus"
+  },
+  "consensusCard": {
+    "engines": "engines",
+    "proposals": "Proposals",
+    "synthesis": "Synthesis",
+    "thinking": "Thinking…",
+    "retryable": "retryable",
+    "expand": "Expand",
+    "collapse": "Collapse"
   }
 }
