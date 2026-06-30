@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useApi } from '../hooks/useApi';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
+import { isEngineServer, isMemoryServer } from '../lib/serverCategory';
 import { extractVrmThumbnail } from '../lib/vrmThumbnail';
 import type { AgentMetadata } from '../types';
 import { AvatarSection } from './AvatarSection';
@@ -143,8 +144,12 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
 
   const applyPreset = (presetServerIds: string[]) => {
     setGrantedIds((prev) => {
-      // Keep existing mind.* engines, replace everything else with preset
-      const engines = [...prev].filter((id) => id.startsWith('mind.'));
+      // Keep existing engines (legacy mind.* or de-prefixed catalog engines),
+      // replace everything else with preset.
+      const engines = [...prev].filter((id) => {
+        const server = servers.find((s) => s.id === id);
+        return server ? isEngineServer(server) : id.startsWith('mind.');
+      });
       return new Set([...engines, ...presetServerIds]);
     });
   };
@@ -162,8 +167,8 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
 
       // Derive default_engine_id and preferred_memory from granted servers
       const grantedServers = servers.filter((s) => grantedIds.has(s.id));
-      const engineServer = grantedServers.find((s) => s.id.startsWith('mind.'));
-      const memoryServer = grantedServers.find((s) => s.id.startsWith('memory.'));
+      const engineServer = grantedServers.find(isEngineServer);
+      const memoryServer = grantedServers.find(isMemoryServer);
 
       const metadata: Record<string, string> = { ...agent.metadata };
       // Remove fields managed by dedicated APIs (avatar, VRM, password).

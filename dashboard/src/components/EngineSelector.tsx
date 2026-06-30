@@ -2,6 +2,7 @@ import { ChevronDown, Zap } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { displayServerId } from '../lib/format';
+import { isEngineServer } from '../lib/serverCategory';
 import type { McpServerInfo } from '../types';
 
 interface EngineSelectorProps {
@@ -23,7 +24,7 @@ export function EngineSelector({ servers, selectedEngine, onSelect, disabled }: 
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
 
-  const mindServers = servers.filter((s) => s.id.startsWith('mind.'));
+  const mindServers = servers.filter(isEngineServer);
   const selected = selectedEngine ? mindServers.find((s) => s.id === selectedEngine) : null;
 
   const pillLabel = selected ? resolveDisplayName(selected) : 'Auto';
