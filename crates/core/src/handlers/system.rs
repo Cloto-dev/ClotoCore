@@ -811,27 +811,48 @@ impl SystemHandler {
             );
 
             if let Some(ref mcp) = self.registry.mcp_manager {
-                let result = match tokio::time::timeout(
-                    Duration::from_secs(self.tool_execution_timeout_secs),
-                    mcp.execute_tool_internal(&tool_name, final_args),
-                )
-                .await
-                {
-                    Ok(Ok(val)) => {
-                        info!(agent_id = %agent.id, tool = %tool_name, "✅ Direct tool completed");
-                        match val {
-                            serde_json::Value::String(s) => s,
-                            other => serde_json::to_string_pretty(&other).unwrap_or_default(),
+                // 🔐 Per-agent access control. `tool_hint` is supplied by an
+                // external I/O bridge, and `execute_tool_internal` resolves the
+                // tool via the global tool_index — so without this gate an agent
+                // could invoke a tool on any connected server, including ones it was
+                // never granted. Enforce the same mcp_access_control check the
+                // agentic loop applies (`execute_tool_for_agent` → check_tool_access):
+                // anything but an explicit Allow (Deny, or tool/server unknown) is
+                // refused before execution.
+                let access_allowed = matches!(
+                    mcp.check_tool_access(&agent.id, &tool_name).await,
+                    Ok(crate::db::mcp::PermissionLevel::Allow)
+                );
+                let result = if access_allowed {
+                    match tokio::time::timeout(
+                        Duration::from_secs(self.tool_execution_timeout_secs),
+                        mcp.execute_tool_internal(&tool_name, final_args),
+                    )
+                    .await
+                    {
+                        Ok(Ok(val)) => {
+                            info!(agent_id = %agent.id, tool = %tool_name, "✅ Direct tool completed");
+                            match val {
+                                serde_json::Value::String(s) => s,
+                                other => serde_json::to_string_pretty(&other).unwrap_or_default(),
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            error!(agent_id = %agent.id, tool = %tool_name, error = %e, "❌ Direct tool failed");
+                            format!("Error: {e}")
+                        }
+                        Err(_) => {
+                            error!(agent_id = %agent.id, tool = %tool_name, "⏱️ Direct tool timed out");
+                            "Error: Tool execution timed out".into()
                         }
                     }
-                    Ok(Err(e)) => {
-                        error!(agent_id = %agent.id, tool = %tool_name, error = %e, "❌ Direct tool failed");
-                        format!("Error: {e}")
-                    }
-                    Err(_) => {
-                        error!(agent_id = %agent.id, tool = %tool_name, "⏱️ Direct tool timed out");
-                        "Error: Tool execution timed out".into()
-                    }
+                } else {
+                    warn!(
+                        agent_id = %agent.id,
+                        tool = %tool_name,
+                        "🚫 Direct tool denied: agent is not granted this tool's server"
+                    );
+                    format!("Error: tool '{tool_name}' is not available to this agent")
                 };
 
                 // Route result back via callback if this is an external action
@@ -1522,6 +1543,58 @@ impl SystemHandler {
 
     // ── Consensus (in-kernel orchestration, Goal #138) ──
 
+    /// The engine servers this agent is actually assigned — i.e. its granted MCP
+    /// servers that are reasoning engines. This mirrors the dashboard's per-agent
+    /// engine model: `SetupWizard` always adds the chosen engine to the agent's
+    /// server grants, `AgentPluginWorkspace` derives `default_engine_id` from the
+    /// granted engine servers, and `AgentConsole` lists an agent's engines as its
+    /// granted engine servers. Classification matches `serverCategory.ts`
+    /// `isEngineServer` (#234): an engine is a Rust engine plugin, a legacy
+    /// `mind.*` server, or any server exposing the `think` / `think_with_tools`
+    /// tool surface.
+    async fn agent_engine_servers(&self, granted_server_ids: &[String]) -> Vec<String> {
+        let mut engines = Vec::new();
+        for id in granted_server_ids {
+            if self.is_engine_server(id).await {
+                engines.push(id.clone());
+            }
+        }
+        engines
+    }
+
+    /// True when `id` is a reasoning engine (see [`Self::agent_engine_servers`]).
+    async fn is_engine_server(&self, id: &str) -> bool {
+        if id.starts_with("mind.") || self.registry.get_engine(id).await.is_some() {
+            return true;
+        }
+        if let Some(ref mcp) = self.registry.mcp_manager {
+            return mcp
+                .has_kind_at(id, &crate::managers::ToolKind::ThinkWithTools)
+                .await
+                || mcp.has_kind_at(id, &crate::managers::ToolKind::Think).await;
+        }
+        false
+    }
+
+    /// Apply the global `CONSENSUS_ENGINES` list as a *filter* over the agent's
+    /// own engines. Empty list → pass through unchanged (consensus uses all of
+    /// the agent's engines). Non-empty → keep only agent engines whose id (modulo
+    /// the legacy `mind.` prefix, so `mind.deepseek` and `deepseek` match) appears
+    /// in the list. It can only ever *narrow* the agent's engine set — it never
+    /// adds an engine the agent was not assigned, which is what stops consensus
+    /// from running engines configured globally but not on the agent.
+    fn filter_consensus_engines(agent_engines: Vec<String>, global: &[String]) -> Vec<String> {
+        if global.is_empty() {
+            return agent_engines;
+        }
+        let norm = |s: &str| s.strip_prefix("mind.").unwrap_or(s).to_string();
+        let allow: std::collections::HashSet<String> = global.iter().map(|s| norm(s)).collect();
+        agent_engines
+            .into_iter()
+            .filter(|id| allow.contains(&norm(id)))
+            .collect()
+    }
+
     /// Run a consensus session entirely in-kernel.
     ///
     /// Every configured engine runs concurrently through the same
@@ -1546,7 +1619,14 @@ impl SystemHandler {
         trace_id: ClotoId,
     ) {
         let cfg = &self.consensus_config;
-        let engines = &self.consensus_engines;
+        // Engines are sourced from *this agent's* assigned engine servers, not the
+        // global `CONSENSUS_ENGINES` env. The global list, when set, only filters
+        // that per-agent set down (see `filter_consensus_engines`). Previously the
+        // global list ran on every agent regardless of its configuration, so
+        // consensus could run engines the agent was never assigned.
+        let agent_engines = self.agent_engine_servers(granted_server_ids).await;
+        let engines_owned = Self::filter_consensus_engines(agent_engines, &self.consensus_engines);
+        let engines = &engines_owned;
         let min_proposals = cfg.min_proposals;
         let phase_timeout = Duration::from_secs(cfg.session_timeout_secs);
 
@@ -1560,7 +1640,7 @@ impl SystemHandler {
         // Fail-safe: not enough engines configured to ever reach quorum.
         if engines.len() < min_proposals {
             let detail = format!(
-                "Consensus needs at least {min_proposals} proposals but only {} engine(s) are configured (CONSENSUS_ENGINES).",
+                "Consensus needs at least {min_proposals} engines assigned to this agent but only {} is/are available (grant more engine servers, or widen the CONSENSUS_ENGINES filter).",
                 engines.len()
             );
             warn!(trace_id = %trace_id, "{detail}");
@@ -3822,6 +3902,66 @@ impl SystemHandler {
         if let Err(e) = self.sender.send(envelope).await {
             warn!("⚠️ Failed to emit observability event: {}", e);
         }
+    }
+}
+
+#[cfg(test)]
+mod consensus_engine_filter_tests {
+    //! Unit tests for the global `CONSENSUS_ENGINES` filter over an agent's own
+    //! engine set. The agent-engine *discovery* (`agent_engine_servers` /
+    //! `is_engine_server`) depends on the live registry / MCP manager and is
+    //! exercised end-to-end in `tests/consensus_test.rs`; here we pin the pure
+    //! filtering / normalization logic.
+    use super::*;
+
+    fn ids(xs: &[&str]) -> Vec<String> {
+        xs.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn empty_global_passes_agent_engines_through() {
+        let agent = ids(&["deepseek", "mind.local"]);
+        assert_eq!(
+            SystemHandler::filter_consensus_engines(agent.clone(), &[]),
+            agent,
+            "an empty CONSENSUS_ENGINES means: use all of the agent's engines"
+        );
+    }
+
+    #[test]
+    fn global_intersects_and_drops_non_agent_engines() {
+        // Agent is assigned deepseek + mind.local; the global list also names an
+        // engine the agent is NOT assigned (cerebras) — it must be dropped, not
+        // run. This is the core of the fix.
+        let agent = ids(&["deepseek", "mind.local"]);
+        let global = ids(&["mind.deepseek", "mind.cerebras"]);
+        assert_eq!(
+            SystemHandler::filter_consensus_engines(agent, &global),
+            ids(&["deepseek"]),
+            "only the agent's own engines that also appear in the global list survive"
+        );
+    }
+
+    #[test]
+    fn normalizes_mind_prefix_on_both_sides() {
+        // `mind.deepseek` (global) ↔ `deepseek` (granted) and `mind.local` ↔
+        // `mind.local` must both match.
+        let agent = ids(&["deepseek", "mind.local"]);
+        let global = ids(&["mind.deepseek", "mind.local"]);
+        assert_eq!(
+            SystemHandler::filter_consensus_engines(agent.clone(), &global),
+            agent
+        );
+    }
+
+    #[test]
+    fn global_with_no_overlap_yields_empty() {
+        let agent = ids(&["deepseek"]);
+        let global = ids(&["mind.cerebras"]);
+        assert!(
+            SystemHandler::filter_consensus_engines(agent, &global).is_empty(),
+            "a global filter that names none of the agent's engines selects nothing"
+        );
     }
 }
 
