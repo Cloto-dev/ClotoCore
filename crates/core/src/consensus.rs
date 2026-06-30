@@ -1,24 +1,26 @@
-//! Consensus Orchestrator — kernel-level collective intelligence.
+//! Consensus configuration + prompt helpers.
 //!
-//! Ported from `plugins/moderator/src/lib.rs` (~150 lines of state machine).
-//! Manages multi-engine consensus sessions: collecting proposals from engines,
-//! then synthesizing a unified response via a designated synthesizer engine.
-
-use cloto_shared::{
-    AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, MessageSource,
-};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use tracing::{info, warn};
+//! Consensus is a multi-engine deliberation mode: a `consensus:`-prefixed
+//! message is sent to every configured engine, each returns an independent
+//! proposal, and a designated synthesizer engine merges them into one answer.
+//!
+//! Since Goal #138 the orchestration runs **in-kernel**, synchronously, inside
+//! `handlers/system.rs::run_consensus` — it fans the engines out through the
+//! same `run_agentic_loop` the normal message path uses, collects the
+//! proposals, then runs the synthesizer in-kernel. The kernel stamps the
+//! `agent_id` on the synthesized response directly, so identity is structural
+//! rather than inferred from event arrival order (this is what subsumes
+//! bug-408; the reverted standalone guard `481279c` is no longer needed).
+//!
+//! This module is therefore reduced to the pieces the in-kernel path reuses:
+//! the [`ConsensusConfig`] knobs and the two prompt builders. The former
+//! event-driven `ConsensusOrchestrator` (sessions map + cleanup task +
+//! `ThoughtRequested`/`ThoughtResponse` matching) was retired with the
+//! redesign; see `docs/CONSENSUS_REVIVAL_DESIGN.md`.
 
 /// Default synthetic consensus agent id (bug-282: now a configurable
 /// `ConsensusConfig` field; this is only the back-compat default).
 pub(crate) const DEFAULT_CONSENSUS_AGENT_ID: &str = "system.consensus";
-
-/// How often the background cleanup task sweeps stale consensus sessions.
-/// Independent of `session_timeout_secs` (which controls per-session TTL).
-const SESSION_CLEANUP_INTERVAL_SECS: u64 = 30;
 
 // ============================================================
 // Configuration
@@ -26,11 +28,11 @@ const SESSION_CLEANUP_INTERVAL_SECS: u64 = 30;
 
 #[derive(Clone)]
 pub struct ConsensusConfig {
-    /// Engine ID used for synthesis. Empty = use first engine from ConsensusRequested.
+    /// Engine ID used for synthesis. Empty = use the first configured engine.
     pub synthesizer_engine: String,
     /// Minimum proposals required before synthesis starts.
     pub min_proposals: usize,
-    /// Session timeout in seconds.
+    /// Per-phase timeout in seconds (proposal collection and synthesis each).
     pub session_timeout_secs: u64,
     /// Synthetic agent id for consensus-generated responses (bug-282).
     /// Configurable so a deployment can rename it instead of the kernel
@@ -50,288 +52,55 @@ impl Default for ConsensusConfig {
 }
 
 // ============================================================
-// Session State Machine
+// Prompt builders (reused by the in-kernel orchestrator)
 // ============================================================
 
-struct Proposal {
-    content: String,
+/// Format the collected proposals into a single combined-views block for the
+/// synthesizer prompt.
+pub(crate) fn combine_views(proposals: &[String]) -> String {
+    proposals
+        .iter()
+        .enumerate()
+        .map(|(i, p)| format!("## Opinion {}:\n{}", i + 1, p))
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
-enum SessionState {
-    /// Collecting proposals from engines.
-    Collecting {
-        proposals: Vec<Proposal>,
-        fallback_engine: String,
-        created_at: std::time::Instant,
-    },
-    /// Waiting for the synthesizer to produce a final response.
-    Synthesizing { created_at: std::time::Instant },
+/// Build the synthesizer prompt from a combined-views block.
+pub(crate) fn synthesis_prompt(combined_views: &str) -> String {
+    format!(
+        "You are a wise moderator. Synthesize the following opinions into a single, coherent conclusion.\n\n{combined_views}"
+    )
 }
 
-// ============================================================
-// ConsensusOrchestrator
-// ============================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// G1.3: Unified state — single RwLock avoids fragmented locking.
-struct ConsensusState {
-    sessions: HashMap<ClotoId, SessionState>,
-    config: ConsensusConfig,
-}
-
-pub struct ConsensusOrchestrator {
-    state: RwLock<ConsensusState>,
-    /// bug-282: cached from `config.synthetic_agent_id` for lock-free reads on
-    /// the thought-response hot path.
-    synthetic_agent_id: String,
-}
-
-impl ConsensusOrchestrator {
-    #[must_use]
-    pub fn new(config: ConsensusConfig) -> Arc<Self> {
-        let synthetic_agent_id = config.synthetic_agent_id.clone();
-        let orchestrator = Arc::new(Self {
-            state: RwLock::new(ConsensusState {
-                sessions: HashMap::new(),
-                config,
-            }),
-            synthetic_agent_id,
-        });
-        orchestrator.spawn_cleanup_task();
-        orchestrator
+    #[test]
+    fn config_default_preserves_back_compat() {
+        let c = ConsensusConfig::default();
+        assert_eq!(c.synthetic_agent_id, DEFAULT_CONSENSUS_AGENT_ID);
+        assert_eq!(c.min_proposals, 2);
+        assert!(c.synthesizer_engine.is_empty());
+        assert_eq!(c.session_timeout_secs, 60);
     }
 
-    /// Update configuration at runtime (e.g., from ConfigUpdated event).
-    pub async fn update_config(&self, config: ConsensusConfig) {
-        self.state.write().await.config = config;
+    #[test]
+    fn combine_views_numbers_each_opinion() {
+        let combined = combine_views(&["alpha".to_string(), "beta".to_string()]);
+        assert_eq!(combined, "## Opinion 1:\nalpha\n\n## Opinion 2:\nbeta");
     }
 
-    /// Handle a consensus-related event. Returns an optional response event.
-    pub async fn handle_event(&self, event: &ClotoEvent) -> Option<ClotoEventData> {
-        match &event.data {
-            ClotoEventData::ConsensusRequested {
-                task: _,
-                engine_ids,
-            } => {
-                self.on_consensus_requested(event.trace_id, engine_ids)
-                    .await
-            }
-
-            ClotoEventData::ThoughtResponse {
-                agent_id, content, ..
-            } => {
-                self.on_thought_response(event.trace_id, agent_id, content)
-                    .await
-            }
-
-            _ => None,
-        }
+    #[test]
+    fn combine_views_empty_is_empty() {
+        assert_eq!(combine_views(&[]), "");
     }
 
-    // ── Event Handlers ──
-
-    async fn on_consensus_requested(
-        &self,
-        trace_id: ClotoId,
-        engine_ids: &[String],
-    ) -> Option<ClotoEventData> {
-        info!(
-            trace_id = %trace_id,
-            "🤝 Consensus process started for {} engines",
-            engine_ids.len()
-        );
-
-        let fallback_engine = engine_ids.first().cloned().unwrap_or_default();
-
-        let mut state = self.state.write().await;
-        state.sessions.insert(
-            trace_id,
-            SessionState::Collecting {
-                proposals: Vec::new(),
-                fallback_engine,
-                created_at: std::time::Instant::now(),
-            },
-        );
-
-        None
-    }
-
-    #[allow(clippy::too_many_lines)]
-    async fn on_thought_response(
-        &self,
-        trace_id: ClotoId,
-        agent_id: &str,
-        content: &str,
-    ) -> Option<ClotoEventData> {
-        // Ignore responses from the consensus system itself
-        if agent_id == self.synthetic_agent_id {
-            return None;
-        }
-
-        // Determine action under a single write lock, then release before synthesis
-        enum Action {
-            None,
-            NeedsSynthesis {
-                combined_views: String,
-                synthesizer: String,
-            },
-            Complete {
-                content: String,
-            },
-        }
-
-        let action = {
-            let mut state = self.state.write().await;
-            let min_proposals = state.config.min_proposals;
-            let synthesizer_engine = state.config.synthesizer_engine.clone();
-
-            let session = state.sessions.get_mut(&trace_id)?;
-
-            match session {
-                SessionState::Collecting {
-                    proposals,
-                    fallback_engine,
-                    created_at,
-                } => {
-                    proposals.push(Proposal {
-                        content: content.to_string(),
-                    });
-
-                    info!(
-                        trace_id = %trace_id,
-                        "📥 Collected proposal from {} ({}/{})",
-                        agent_id,
-                        proposals.len(),
-                        min_proposals,
-                    );
-
-                    if proposals.len() >= min_proposals {
-                        let combined_views = proposals
-                            .iter()
-                            .enumerate()
-                            .map(|(i, p)| format!("## Opinion {}:\n{}", i + 1, p.content))
-                            .collect::<Vec<_>>()
-                            .join("\n\n");
-
-                        let fallback = fallback_engine.clone();
-                        let created = *created_at;
-
-                        let synthesizer = if synthesizer_engine.is_empty() {
-                            fallback
-                        } else {
-                            synthesizer_engine
-                        };
-
-                        *session = SessionState::Synthesizing {
-                            created_at: created,
-                        };
-
-                        Action::NeedsSynthesis {
-                            combined_views,
-                            synthesizer,
-                        }
-                    } else {
-                        Action::None
-                    }
-                }
-
-                SessionState::Synthesizing { .. } => {
-                    info!(
-                        trace_id = %trace_id,
-                        "🏁 Synthesis complete via {}",
-                        agent_id
-                    );
-                    state.sessions.remove(&trace_id);
-                    Action::Complete {
-                        content: content.to_string(),
-                    }
-                }
-            }
-        }; // state lock dropped here
-
-        match action {
-            Action::None => None,
-            Action::NeedsSynthesis {
-                combined_views,
-                synthesizer,
-            } => {
-                info!(
-                    trace_id = %trace_id,
-                    synthesizer = %synthesizer,
-                    "⚗️ Starting synthesis phase...",
-                );
-
-                let synthesis_prompt = format!(
-                    "You are a wise moderator. Synthesize the following opinions into a single, coherent conclusion.\n\n{}",
-                    combined_views
-                );
-
-                let synthesizer_agent = AgentMetadata {
-                    id: "agent.synthesizer".to_string(),
-                    name: "Synthesizer".to_string(),
-                    description: "AI Moderator".to_string(),
-                    enabled: true,
-                    last_seen: 0,
-                    status: "online".to_string(),
-                    default_engine_id: Some(synthesizer.clone()),
-                    required_capabilities: vec![],
-                    metadata: HashMap::new(),
-                    agent_type: "system".to_string(),
-                };
-
-                Some(
-                    ClotoEvent::with_trace(
-                        trace_id,
-                        ClotoEventData::ThoughtRequested {
-                            agent: synthesizer_agent,
-                            engine_id: synthesizer,
-                            message: ClotoMessage::new(MessageSource::System, synthesis_prompt),
-                            context: vec![],
-                        },
-                    )
-                    .data,
-                )
-            }
-            Action::Complete { content } => Some(ClotoEventData::ThoughtResponse {
-                agent_id: self.synthetic_agent_id.clone(),
-                engine_id: "consensus".to_string(),
-                content,
-                source_message_id: "consensus".to_string(),
-                auto_spoken: false,
-            }),
-        }
-    }
-
-    fn spawn_cleanup_task(self: &Arc<Self>) {
-        let this = Arc::downgrade(self);
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(
-                    SESSION_CLEANUP_INTERVAL_SECS,
-                ))
-                .await;
-                let Some(orchestrator) = this.upgrade() else {
-                    break; // Orchestrator dropped, stop cleanup
-                };
-                let mut state = orchestrator.state.write().await;
-                let timeout_secs = state.config.session_timeout_secs;
-                let before = state.sessions.len();
-                state.sessions.retain(|trace_id, session| {
-                    let created_at = match session {
-                        SessionState::Collecting { created_at, .. }
-                        | SessionState::Synthesizing { created_at } => *created_at,
-                    };
-                    if created_at.elapsed().as_secs() > timeout_secs {
-                        warn!(trace_id = %trace_id, "🕐 Consensus session timed out, removing");
-                        false
-                    } else {
-                        true
-                    }
-                });
-                let removed = before - state.sessions.len();
-                if removed > 0 {
-                    info!("🧹 Cleaned up {} stale consensus sessions", removed);
-                }
-            }
-        });
+    #[test]
+    fn synthesis_prompt_embeds_views() {
+        let p = synthesis_prompt("## Opinion 1:\nx");
+        assert!(p.contains("wise moderator"));
+        assert!(p.ends_with("## Opinion 1:\nx"));
     }
 }

@@ -179,7 +179,6 @@ async fn test_vulnerability_event_forging() {
         metrics,
         1000, // max_history_size
         24,   // event_retention_hours
-        None, // consensus
         sys_handler,
         10_000, // max_event_history
         10,     // hal_rate_limit_per_sec
