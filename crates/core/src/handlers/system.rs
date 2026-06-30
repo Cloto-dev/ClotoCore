@@ -1595,6 +1595,7 @@ impl SystemHandler {
                 &msg.content,
                 "proposal",
                 engine,
+                1,
                 None,
                 "pending",
                 None,
@@ -1628,6 +1629,7 @@ impl SystemHandler {
                             &msg.content,
                             "proposal",
                             engine,
+                            1,
                             Some(text.clone()),
                             "success",
                             None,
@@ -1643,6 +1645,7 @@ impl SystemHandler {
                             &msg.content,
                             "proposal",
                             engine,
+                            1,
                             Some(message),
                             "error",
                             code,
@@ -1657,6 +1660,7 @@ impl SystemHandler {
                             &msg.content,
                             "proposal",
                             engine,
+                            1,
                             Some("Engine timed out".to_string()),
                             "error",
                             Some(crate::managers::mcp_mgp::MGP_ERR_TIMEOUT),
@@ -1671,11 +1675,13 @@ impl SystemHandler {
         let results = futures::future::join_all(proposal_futs).await;
 
         let mut proposals: Vec<String> = Vec::new();
+        let mut success_engines: Vec<String> = Vec::new();
         for (engine, r) in results {
             match r {
                 Ok(Ok(text)) => {
                     info!(trace_id = %trace_id, engine = %engine, "📥 Consensus proposal collected");
                     proposals.push(text);
+                    success_engines.push(engine);
                 }
                 Ok(Err(e)) => {
                     warn!(trace_id = %trace_id, engine = %engine, error = %e, "⚠️ Consensus engine errored — dropping its proposal");
@@ -1686,7 +1692,120 @@ impl SystemHandler {
             }
         }
 
-        // Fail-safe: quorum not reached after errors / timeouts.
+        // Fallback (CONSENSUS_ENGINE_REUSE, default on): too few *distinct*
+        // engines succeeded to reach quorum, but at least one works → re-sample
+        // the working engine(s) in fresh isolated sessions, each through a
+        // different reasoning lens (so the samples diverge instead of
+        // duplicating), until we reach `min_proposals`. Graceful degradation
+        // (e.g. only one of two configured engines is registered) instead of a
+        // hard fail. Only engines that succeeded in pass 1 are re-sampled; failed
+        // (unregistered/broken) engines are not retried. A safety cap bounds the
+        // total reuse attempts so a flaky engine can't loop forever.
+        if cfg.engine_reuse && proposals.len() < min_proposals && !success_engines.is_empty() {
+            let mut sample_counts: std::collections::HashMap<String, u32> =
+                success_engines.iter().map(|e| (e.clone(), 1u32)).collect();
+            let max_reuse_attempts = min_proposals.saturating_mul(3);
+            let mut attempts = 0usize;
+            let mut rr = 0usize;
+            while proposals.len() < min_proposals && attempts < max_reuse_attempts {
+                attempts += 1;
+                let engine = success_engines[rr % success_engines.len()].clone();
+                rr += 1;
+                let sample = {
+                    let c = sample_counts.entry(engine.clone()).or_insert(1);
+                    *c += 1;
+                    *c
+                };
+                let key = crate::managers::session_manager::SessionKey::new(
+                    &agent.id,
+                    format!("consensus:{trace_id}:{engine}#{sample}"),
+                );
+                let framed = ClotoMessage::new(
+                    msg.source.clone(),
+                    crate::consensus::framed_prompt(&msg.content, sample),
+                );
+                self.emit_consensus_progress(
+                    trace_id,
+                    agent,
+                    &msg.content,
+                    "proposal",
+                    &engine,
+                    sample,
+                    None,
+                    "pending",
+                    None,
+                    None,
+                )
+                .await;
+                let r = tokio::time::timeout(
+                    phase_timeout,
+                    self.run_agentic_loop(
+                        agent,
+                        &engine,
+                        &framed,
+                        context.clone(),
+                        granted_server_ids,
+                        trace_id,
+                        &key,
+                    ),
+                )
+                .await;
+                match r {
+                    Ok(Ok(text)) => {
+                        info!(trace_id = %trace_id, engine = %engine, sample, "📥 Consensus reuse proposal collected");
+                        self.emit_consensus_progress(
+                            trace_id,
+                            agent,
+                            &msg.content,
+                            "proposal",
+                            &engine,
+                            sample,
+                            Some(text.clone()),
+                            "success",
+                            None,
+                            None,
+                        )
+                        .await;
+                        proposals.push(text);
+                    }
+                    Ok(Err(e)) => {
+                        let (code, retryable, message) = Self::classify_engine_error(&e);
+                        warn!(trace_id = %trace_id, engine = %engine, error = %e, "⚠️ Consensus reuse sample errored");
+                        self.emit_consensus_progress(
+                            trace_id,
+                            agent,
+                            &msg.content,
+                            "proposal",
+                            &engine,
+                            sample,
+                            Some(message),
+                            "error",
+                            code,
+                            retryable,
+                        )
+                        .await;
+                    }
+                    Err(_) => {
+                        warn!(trace_id = %trace_id, engine = %engine, "⏱️ Consensus reuse sample timed out");
+                        self.emit_consensus_progress(
+                            trace_id,
+                            agent,
+                            &msg.content,
+                            "proposal",
+                            &engine,
+                            sample,
+                            Some("Engine timed out".to_string()),
+                            "error",
+                            Some(crate::managers::mcp_mgp::MGP_ERR_TIMEOUT),
+                            Some(true),
+                        )
+                        .await;
+                    }
+                }
+            }
+        }
+
+        // Fail-safe: quorum not reached after errors / timeouts (and reuse).
         if proposals.len() < min_proposals {
             let detail = format!(
                 "Consensus collected only {}/{min_proposals} proposals (engines errored or timed out).",
@@ -1706,10 +1825,16 @@ impl SystemHandler {
         // 2. Synthesize — run the synthesizer engine in-kernel over the combined
         //    views. A pure text merge → no tools (empty grant list → plain think).
         let combined = crate::consensus::combine_views(&proposals);
-        let synthesizer_engine = if cfg.synthesizer_engine.is_empty() {
-            engines[0].clone()
-        } else {
+        // Pick the synthesizer: an explicit config wins; otherwise prefer a
+        // proven-working engine from this run (so the synthesis doesn't fail just
+        // because the first *configured* engine was the unregistered one), then
+        // fall back to the first configured engine.
+        let synthesizer_engine = if !cfg.synthesizer_engine.is_empty() {
             cfg.synthesizer_engine.clone()
+        } else if let Some(first_ok) = success_engines.first() {
+            first_ok.clone()
+        } else {
+            engines[0].clone()
         };
         let synth_agent = AgentMetadata {
             id: "agent.synthesizer".to_string(),
@@ -1744,6 +1869,7 @@ impl SystemHandler {
             &msg.content,
             "synthesis",
             &synthesizer_engine,
+            1,
             None,
             "pending",
             None,
@@ -1774,6 +1900,7 @@ impl SystemHandler {
                     &msg.content,
                     "synthesis",
                     &synthesizer_engine,
+                    1,
                     Some(text.clone()),
                     "success",
                     None,
@@ -1791,6 +1918,7 @@ impl SystemHandler {
                     &msg.content,
                     "synthesis",
                     &synthesizer_engine,
+                    1,
                     Some(message),
                     "error",
                     code,
@@ -1809,6 +1937,7 @@ impl SystemHandler {
                     &msg.content,
                     "synthesis",
                     &synthesizer_engine,
+                    1,
                     Some("Synthesis timed out".to_string()),
                     "error",
                     Some(crate::managers::mcp_mgp::MGP_ERR_TIMEOUT),
@@ -1853,6 +1982,7 @@ impl SystemHandler {
         prompt: &str,
         phase: &str,
         engine_id: &str,
+        sample_index: u32,
         response: Option<String>,
         status: &str,
         mgp_error_code: Option<i64>,
@@ -1865,6 +1995,7 @@ impl SystemHandler {
             prompt: prompt.to_string(),
             phase: phase.to_string(),
             engine_id: engine_id.to_string(),
+            sample_index,
             response,
             status: status.to_string(),
             mgp_error_code,

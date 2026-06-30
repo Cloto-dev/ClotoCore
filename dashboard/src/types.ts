@@ -378,6 +378,9 @@ export interface ConsensusProgressEvent {
   /** 'proposal' (one engine's contribution) or 'synthesis' (the merge). */
   phase: string;
   engine_id: string;
+  /** Which sample of this engine: 1 = primary; >= 2 = reuse fallback re-sampling
+   * the same engine through a varied framing to reach quorum. */
+  sample_index: number;
   response: string | null;
   status: 'pending' | 'success' | 'error';
   /** MGP §14 error code when status='error' and the engine is an MGP server. */
@@ -388,6 +391,7 @@ export interface ConsensusProgressEvent {
 export interface ConsensusStep {
   phase: string;
   engine_id: string;
+  sample_index: number;
   response: string | null;
   status: 'pending' | 'success' | 'error';
   mgp_error_code?: number;

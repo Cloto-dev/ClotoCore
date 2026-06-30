@@ -231,9 +231,31 @@ and the fail-safe branching. No new engine-call primitive is introduced (G2).
 
 ## 6. Config and defaults
 
-No new config keys. Defaults already additive: `CONSENSUS_ENGINES` empty →
-consensus never triggers (G6). Documentation of the keys and a recommended
-multi-engine example belongs to an earlier decision (distribution/docs).
+`CONSENSUS_ENGINES` empty → consensus never triggers (G6, additive default).
+Documentation of all keys and a recommended multi-engine example belongs to
+an earlier decision (distribution/docs).
+
+### 6.1 Engine-reuse fallback (`CONSENSUS_ENGINE_REUSE`, default on)
+
+When fewer **distinct** engines succeed than `min_proposals` (e.g. only one of
+two configured engines is registered), consensus does not hard-fail: it
+re-samples the working engine(s) in fresh isolated sessions to reach quorum.
+Each re-sample (`sample_index >= 2`) re-asks the same question through a
+rotating, answer-neutral reasoning lens (`consensus::framed_prompt`) so the
+proposals diverge instead of collapsing to an identical answer (which
+low-temperature sampling would otherwise produce — the fallback is
+self-consistency sampling, not true cross-engine diversity, and its value
+depends on the engine's sampling variance). Only engines that succeeded in
+pass 1 are re-sampled; failed (unregistered/broken) engines are not retried. A
+safety cap (`min_proposals * 3` attempts) bounds the work so a flaky engine
+cannot loop forever. The Consensus tab labels re-samples as
+"<engine> · sample N" so the reuse is transparent, never silent. Set
+`CONSENSUS_ENGINE_REUSE=0|false|off|no` to require distinct engines and
+hard-fail instead.
+
+The §5.2 fail-safe matrix's "collected < min_proposals → error" row applies
+only **after** reuse has run (or when no engine succeeded at all / reuse is
+disabled).
 
 ## 7. Dashboard visibility — Consensus tab (implemented 2026-06-30)
 

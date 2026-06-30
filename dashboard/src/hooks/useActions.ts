@@ -342,9 +342,11 @@ export function useActions(): UseActionsResult {
 
   const addOrUpdateConsensus = useCallback((ev: ConsensusProgressEvent) => {
     setConsensusRounds((prev) => {
+      const sampleIndex = ev.sample_index ?? 1;
       const step = {
         phase: ev.phase,
         engine_id: ev.engine_id,
+        sample_index: sampleIndex,
         response: ev.response,
         status: ev.status,
         mgp_error_code: ev.mgp_error_code,
@@ -352,10 +354,13 @@ export function useActions(): UseActionsResult {
       };
       const roundIndex = prev.findIndex((r) => r.round.consensus_id === ev.consensus_id);
       if (roundIndex >= 0) {
-        // Existing round — update the matching step (same phase + engine) in place,
-        // or append it if this is the step's first event.
+        // Existing round — update the matching step (same phase + engine + sample)
+        // in place, or append it. The sample index keeps reuse re-samples of the
+        // same engine as distinct steps.
         const round = prev[roundIndex].round;
-        const stepIndex = round.steps.findIndex((s) => s.phase === ev.phase && s.engine_id === ev.engine_id);
+        const stepIndex = round.steps.findIndex(
+          (s) => s.phase === ev.phase && s.engine_id === ev.engine_id && s.sample_index === sampleIndex,
+        );
         const steps = stepIndex >= 0 ? round.steps.map((s, i) => (i === stepIndex ? step : s)) : [...round.steps, step];
         const next = [...prev];
         next[roundIndex] = { round: { ...round, steps }, unread: true };
