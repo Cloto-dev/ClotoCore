@@ -3393,7 +3393,8 @@
       "status": "fixed",
       "fixed_in": "0.6.8-beta.1",
       "fix_note": "deliver_consensus_result now resolves the memory target the same way the normal path does (preferred_memory -> native plugin, else capability-resolved MCP memory server gated by mcp_access_control) and fire-and-forgets the store via a new shared spawn_store_agent_response helper. The helper is extracted from the normal agentic path's inline store block, so ordinary replies and consensus answers now go through one code path; the consensus answer is filed under the originating agent.id with the derived channel, matching the normal reply's memory record.",
-      "notes": "User-reported 2026-06-30 (consensus answers not recalled in later turns). MEDIUM: memory-continuity gap, not data loss — chat_messages persistence (bug-417 fix) is unaffected. Task #118 / Goal #138. Cross-ref bug-417 (chat delivery), docs/CONSENSUS_REVIVAL_DESIGN.md. Registered as bug-422 because bug-419 — the id named in the original task write-up — was already assigned to the consensus-engine-grants issue."
+      "notes": "User-reported 2026-06-30 (consensus answers not recalled in later turns). MEDIUM: memory-continuity gap, not data loss — chat_messages persistence (bug-417 fix) is unaffected. Task #118 / Goal #138. Cross-ref bug-417 (chat delivery), docs/CONSENSUS_REVIVAL_DESIGN.md. Registered as bug-422 because bug-419 — the id named in the original task write-up — was already assigned to the consensus-engine-grants issue.",
+      "github_issue": 243
     }
   ]
 }
