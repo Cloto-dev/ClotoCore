@@ -27,6 +27,29 @@ pub struct McpNotification {
     pub params: Option<Value>,
 }
 
+/// Kernel-internal pseudo-notification method used to carry a child-process
+/// stderr line through the existing notification channel. The notification
+/// consumer converts it to a `ClotoEventData::McpServerLog { source: Stderr }`
+/// (it is not a real wire method — it lives in the `notifications/cloto.*`
+/// kernel namespace). See `docs/MCP_SERVER_LOGS_DESIGN.md` §6.
+pub const CLOTO_STDERR_LOG_METHOD: &str = "notifications/cloto.stderr";
+
+/// Bounded buffer for the per-server stderr→log forwarding channel. Logs are
+/// best-effort (dropped on overflow — tracing still has them), so a modest
+/// buffer is enough to smooth bursts without holding memory.
+const MCP_STDERR_CHANNEL_BUFFER: usize = 128;
+
+/// Extract the log line carried by a [`CLOTO_STDERR_LOG_METHOD`] pseudo-notification
+/// (`params.line`). Empty string if the shape is unexpected. The notification
+/// consumer uses this to build a `McpServerLog{source:Stderr}`.
+pub fn stderr_line_from_params(params: Option<&Value>) -> String {
+    params
+        .and_then(|p| p.get("line"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
 /// A single streaming request's dispatch state. `sender` forwards chunks to
 /// the caller's `mpsc::Receiver`; `activity` is pulsed on each chunk so that
 /// the per-request watchdog in `call_tool_streaming` can reset its idle
@@ -122,6 +145,31 @@ impl McpClient {
         llm_proxy_port: u16,
         sensitive_env_keys: &[String],
     ) -> Result<(Self, Option<MgpServerCapabilities>)> {
+        // stderr → dashboard: the transport forwards raw stderr lines here; the
+        // task below tags them with server_id and pushes them through the same
+        // notification channel as a kernel-internal pseudo-notification, which
+        // the consumer turns into a McpServerLog{source:Stderr} event.
+        // docs/MCP_SERVER_LOGS_DESIGN.md §6.
+        let (stderr_tx, mut stderr_rx) = mpsc::channel::<String>(MCP_STDERR_CHANNEL_BUFFER);
+        {
+            let notif_tx = notification_tx.clone();
+            let sid = server_id.to_string();
+            tokio::spawn(async move {
+                while let Some(line) = stderr_rx.recv().await {
+                    if notif_tx
+                        .try_send(McpNotification {
+                            server_id: sid.clone(),
+                            method: CLOTO_STDERR_LOG_METHOD.to_string(),
+                            params: Some(serde_json::json!({ "line": line })),
+                        })
+                        .is_err()
+                    {
+                        debug!("stderr log channel full/closed, dropping line");
+                    }
+                }
+            });
+        }
+
         let stdio = StdioTransport::start(
             command,
             args,
@@ -129,6 +177,7 @@ impl McpClient {
             isolation,
             llm_proxy_port,
             sensitive_env_keys,
+            Some(stderr_tx),
         )
         .await?;
         let sender = stdio.sender();
@@ -643,6 +692,98 @@ while True:\n\
         assert!(
             became_dead,
             "is_alive() must become false after the server process exits (EOF)"
+        );
+    }
+
+    #[test]
+    fn stderr_line_from_params_extracts_line() {
+        assert_eq!(
+            stderr_line_from_params(Some(&serde_json::json!({ "line": "boot ok" }))),
+            "boot ok"
+        );
+        // Unexpected shapes degrade to empty, never panic.
+        assert_eq!(stderr_line_from_params(None), "");
+        assert_eq!(stderr_line_from_params(Some(&serde_json::json!({}))), "");
+        assert_eq!(
+            stderr_line_from_params(Some(&serde_json::json!({ "line": 42 }))),
+            ""
+        );
+    }
+
+    /// Source A (bug-422 sibling / Goal #141): a child's stderr line is
+    /// forwarded — tagged with the server_id — through the notification channel
+    /// as the kernel-internal CLOTO_STDERR_LOG_METHOD pseudo-notification, which
+    /// the consumer turns into McpServerLog{source:Stderr}. This pins the
+    /// transport→client half (server_id tagging + method + params.line).
+    #[tokio::test]
+    async fn stderr_lines_are_forwarded_as_pseudo_notifications() {
+        // Mock MCP server: emit one stderr line, answer initialize, stay alive
+        // (keep reading stdin) so the notification can be observed.
+        const MOCK: &str = "import sys, json\n\
+sys.stderr.write('hello from stderr\\n')\n\
+sys.stderr.flush()\n\
+while True:\n\
+\x20   line = sys.stdin.readline()\n\
+\x20   if not line:\n\
+\x20       break\n\
+\x20   line = line.strip()\n\
+\x20   if not line:\n\
+\x20       continue\n\
+\x20   try:\n\
+\x20       req = json.loads(line)\n\
+\x20   except Exception:\n\
+\x20       continue\n\
+\x20   if req.get('method') == 'initialize':\n\
+\x20       sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': req.get('id'), 'result': {}}) + '\\n')\n\
+\x20       sys.stdout.flush()\n";
+
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!(
+                "skipping stderr_lines_are_forwarded_as_pseudo_notifications: python3 not found"
+            );
+            return;
+        }
+
+        let (notif_tx, mut notif_rx) = mpsc::channel(8);
+        let (_client, _caps) = McpClient::connect(
+            "mock-stderr",
+            "python3",
+            &["-c".to_string(), MOCK.to_string()],
+            &HashMap::new(),
+            notif_tx,
+            5,
+            5,
+            None,
+            0,
+            &[],
+        )
+        .await
+        .expect("mock server should complete the initialize handshake");
+
+        // Poll for the stderr bridge notification (ignore any others).
+        let mut got = None;
+        for _ in 0..50 {
+            match tokio::time::timeout(std::time::Duration::from_millis(100), notif_rx.recv()).await
+            {
+                Ok(Some(n)) if n.method == CLOTO_STDERR_LOG_METHOD => {
+                    got = Some(n);
+                    break;
+                }
+                Ok(Some(_)) => continue, // some other notification, keep looking
+                Ok(None) => break,       // channel closed
+                Err(_) => continue,      // timeout tick
+            }
+        }
+
+        let n = got.expect("a stderr line must be forwarded as a pseudo-notification");
+        assert_eq!(n.server_id, "mock-stderr", "must be tagged with server_id");
+        assert_eq!(
+            stderr_line_from_params(n.params.as_ref()),
+            "hello from stderr"
         );
     }
 }
