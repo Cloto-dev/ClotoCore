@@ -96,6 +96,9 @@ pub struct McpClientManager {
     allow_unsigned: bool,
     /// Base directory for per-server sandboxes.
     sandbox_base_dir: std::path::PathBuf,
+    /// Default minimum severity sent via `logging/setLevel` to servers that
+    /// advertise the MCP `logging` capability (design §7).
+    mcp_default_log_level: String,
 }
 
 impl McpClientManager {
@@ -131,6 +134,7 @@ impl McpClientManager {
             isolation_enabled: true,
             allow_unsigned: false,
             sandbox_base_dir: std::path::PathBuf::from("data/mcp-sandbox"),
+            mcp_default_log_level: super::mcp_client::DEFAULT_MCP_LOG_LEVEL.to_string(),
         }
     }
 
@@ -141,6 +145,7 @@ impl McpClientManager {
         self.allow_unsigned = config.allow_unsigned;
         self.sandbox_base_dir = config.sandbox_base_dir.clone();
         self.yolo_exceptions = config.yolo_exceptions.clone();
+        self.mcp_default_log_level = config.mcp_log_level.clone();
         // Derive sensitive env keys from LLM provider env mappings.
         self.sensitive_env_keys = config
             .llm_provider_env_mappings
@@ -1084,6 +1089,7 @@ impl McpClientManager {
                         self.notification_tx.clone(),
                         self.mcp_request_timeout_secs,
                         self.mcp_stream_idle_timeout_secs,
+                        &self.mcp_default_log_level,
                     )
                     .await
                 } else {
@@ -1105,6 +1111,7 @@ impl McpClientManager {
                         isolation_profile.as_ref(),
                         self.llm_proxy_port,
                         &self.sensitive_env_keys,
+                        &self.mcp_default_log_level,
                     )
                     .await
                 };
