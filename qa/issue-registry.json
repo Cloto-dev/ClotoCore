@@ -13,7 +13,8 @@
       "pattern": "e\\.server_id\\.startsWith\\('mind\\.'\\)",
       "expected": "absent",
       "status": "fixed",
-      "notes": "FIXED 2026-07-01: AgentConsole engine-grant resolution now filters granted servers by isEngineServer(mcpServers lookup) instead of the mind. prefix, matching AgentTerminal/AgentPluginWorkspace. presets.ts detectPreset(grantedIds, servers) now excludes engines via isEngineServer (falls back to prefix when server unknown); ServerAccessSection passes grantedServers. Related same-class holdout NOT changed: AgentConsole.tsx thinking-viz event filter uses engine_id?.startsWith(mind.) — left as-is (broadening risks cross-agent event leakage; de-prefixed engine thinking events for THIS agent are still caught by the agent_id clause). Root: bug-388/396 de-prefixed catalog server ids; canonical engine test = lib/serverCategory.ts isEngineServer."
+      "notes": "FIXED 2026-07-01: AgentConsole engine-grant resolution now filters granted servers by isEngineServer(mcpServers lookup) instead of the mind. prefix, matching AgentTerminal/AgentPluginWorkspace. presets.ts detectPreset(grantedIds, servers) now excludes engines via isEngineServer (falls back to prefix when server unknown); ServerAccessSection passes grantedServers. Related same-class holdout NOT changed: AgentConsole.tsx thinking-viz event filter uses engine_id?.startsWith(mind.) — left as-is (broadening risks cross-agent event leakage; de-prefixed engine thinking events for THIS agent are still caught by the agent_id clause). Root: bug-388/396 de-prefixed catalog server ids; canonical engine test = lib/serverCategory.ts isEngineServer.",
+      "github_issue": 246
     },
     {
       "id": "bug-139",
