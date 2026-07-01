@@ -55,6 +55,42 @@ function formatTimestamp(value: unknown): string {
   return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(11, 19) : date.toISOString().slice(11, 19);
 }
 
+// Map a kernel event (live SSE or history) to a log entry for this server, or
+// null if it is not a log-bearing event for it. Kernel events carry their
+// fields under `event.data` (adjacent-tag serde contract) and the discriminant
+// is mixed-case `Mcp…` — reading `event.payload` / matching `includes('MCP')`
+// were bug-423 / bug-424.
+function eventToLogEntry(
+  event: { type?: string; data?: unknown; timestamp?: unknown },
+  serverId: string,
+): LogEntry | null {
+  const data = (event.data ?? {}) as Record<string, unknown>;
+  if (data.server_id !== serverId) return null;
+
+  if (event.type === 'McpServerLog') {
+    const log = data as unknown as McpServerLogData;
+    return {
+      timestamp: formatTimestamp(log.timestamp ?? event.timestamp),
+      source: log.source,
+      level: log.level,
+      logger: log.logger,
+      label: log.source === 'mcp_logging' ? 'MCP' : 'stderr',
+      message: String(log.message ?? ''),
+    };
+  }
+  if (event.type === 'McpNotification') {
+    // MGP notifications are surfaced too, without a source/level badge.
+    return {
+      timestamp: formatTimestamp(event.timestamp),
+      label: String((data.method as string | undefined) ?? 'notify'),
+      message: JSON.stringify(data.params ?? {}).slice(0, 200),
+    };
+  }
+  return null;
+}
+
+const MAX_LOG_LINES = 200;
+
 export function McpServerLogsTab({ server }: Props) {
   const api = useApi();
   const { t } = useTranslation('mcp');
@@ -63,41 +99,39 @@ export function McpServerLogsTab({ server }: Props) {
 
   const handleEvent = useCallback(
     (event: any) => {
-      // Kernel SSE events carry their fields under `event.data` (adjacent-tag
-      // serde contract), and the discriminant is mixed-case `Mcp…` — reading
-      // `event.payload` / matching `includes('MCP')` were bug-423 / bug-424.
-      const data = (event.data ?? {}) as Record<string, unknown>;
-      if (data.server_id !== server.id) return;
-
-      if (event.type === 'McpServerLog') {
-        const log = data as unknown as McpServerLogData;
-        setLogs((prev) => [
-          ...prev.slice(-199),
-          {
-            timestamp: formatTimestamp(log.timestamp ?? event.timestamp),
-            source: log.source,
-            level: log.level,
-            logger: log.logger,
-            label: log.source === 'mcp_logging' ? 'MCP' : 'stderr',
-            message: String(log.message ?? ''),
-          },
-        ]);
-      } else if (event.type === 'McpNotification') {
-        // MGP notifications are surfaced too, without a source/level badge.
-        setLogs((prev) => [
-          ...prev.slice(-199),
-          {
-            timestamp: formatTimestamp(event.timestamp),
-            label: String((data.method as string | undefined) ?? 'notify'),
-            message: JSON.stringify(data.params ?? {}).slice(0, 200),
-          },
-        ]);
-      }
+      const entry = eventToLogEntry(event, server.id);
+      if (entry) setLogs((prev) => [...prev.slice(-(MAX_LOG_LINES - 1)), entry]);
     },
     [server.id],
   );
 
   useEventStream(EVENTS_URL, handleEvent, api.apiKey);
+
+  // Seed from the kernel event-history ring buffer so opening the tab shows the
+  // server's recent logs immediately, instead of an empty "waiting" state until
+  // the next line arrives (the SSE stream only live-tails from mount and does
+  // not replay history on a fresh connection). See MCP_SERVER_LOGS_DESIGN.md §7.
+  const getHistory = api.getHistory;
+  useEffect(() => {
+    let cancelled = false;
+    getHistory()
+      .then((events) => {
+        if (cancelled) return;
+        const seeded = (events ?? [])
+          .map((e) => eventToLogEntry(e, server.id))
+          .filter((e): e is LogEntry => e !== null)
+          .slice(-MAX_LOG_LINES);
+        // Prepend seed only if live events haven't already populated the list,
+        // then cap — avoids clobbering lines that arrived during the fetch.
+        setLogs((prev) => (prev.length === 0 ? seeded : [...seeded, ...prev].slice(-MAX_LOG_LINES)));
+      })
+      .catch(() => {
+        /* history may be unavailable */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [server.id, getHistory]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
