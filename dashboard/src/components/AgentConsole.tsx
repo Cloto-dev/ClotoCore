@@ -21,6 +21,7 @@ import { useMcpServers } from '../hooks/useMcpServers';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { findBranchPoints, flattenConversation } from '../lib/conversationTree';
 import { sendNativeNotification } from '../lib/notifications';
+import { isEngineServer } from '../lib/serverCategory';
 import { openVrmWindow } from '../lib/tauri';
 import { EVENTS_URL } from '../services/api';
 import type {
@@ -174,19 +175,20 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
   const displayMessages = useMemo(() => flattenConversation(messages, activeBranches), [messages, activeBranches]);
   const branchPoints = useMemo(() => findBranchPoints(messages, activeBranches), [messages, activeBranches]);
 
-  // Resolve agent's granted mind.* servers for engine selector
+  // Resolve the agent's granted engine servers for the engine selector.
   useEffect(() => {
     api
       .getAgentAccess(agent.id)
       .then(({ entries }) => {
-        const grantedMindIds = new Set(
-          entries
-            .filter(
-              (e) => e.entry_type === 'server_grant' && e.permission === 'allow' && e.server_id.startsWith('mind.'),
-            )
-            .map((e) => e.server_id),
+        const grantedServerIds = new Set(
+          entries.filter((e) => e.entry_type === 'server_grant' && e.permission === 'allow').map((e) => e.server_id),
         );
-        setAgentEngines(mcpServers.filter((s) => grantedMindIds.has(s.id)));
+        // Keep any granted server the kernel treats as an engine — including
+        // de-prefixed ClotoHub catalog engines (e.g. `deepseek`) that lack the
+        // legacy `mind.` prefix (bug-388/396). The old prefix-only filter
+        // dropped them, so catalog engines showed as "not connected" here even
+        // when granted. Mirror AgentTerminal / AgentPluginWorkspace.
+        setAgentEngines(mcpServers.filter((s) => grantedServerIds.has(s.id) && isEngineServer(s)));
       })
       .catch(() => {
         /* engine list may be unavailable */

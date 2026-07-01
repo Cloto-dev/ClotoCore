@@ -1,6 +1,8 @@
 /** Server preset definitions shared between SetupWizard and AgentConfig. */
 
 import { Box, Layers, type LucideIcon, Shield, Zap } from 'lucide-react';
+import type { McpServerInfo } from '../types';
+import { isEngineServer } from './serverCategory';
 
 export const MINIMAL_SERVERS = ['cpersona', 'tool.agent_utils'];
 
@@ -25,11 +27,20 @@ export const SERVER_PRESETS: PresetInfo[] = [
 ];
 
 /**
- * Detect which preset matches the current granted set (ignoring mind.* engines).
+ * Detect which preset matches the current granted set (ignoring engines).
  * Returns the preset id or null if no exact match.
+ *
+ * Engines are excluded via `isEngineServer` so de-prefixed ClotoHub catalog
+ * engines (e.g. `deepseek`, which lacks the legacy `mind.` prefix — bug-388/396)
+ * are not counted as preset servers. Falls back to prefix matching when a
+ * granted id has no known server object.
  */
-export function detectPreset(grantedIds: Set<string>): string | null {
-  const nonEngine = [...grantedIds].filter((id) => !id.startsWith('mind.'));
+export function detectPreset(grantedIds: Set<string>, servers: McpServerInfo[] = []): string | null {
+  const isEngine = (id: string): boolean => {
+    const server = servers.find((s) => s.id === id);
+    return server ? isEngineServer(server) : id.startsWith('mind.');
+  };
+  const nonEngine = [...grantedIds].filter((id) => !isEngine(id));
   const sorted = nonEngine.sort().join(',');
   for (const preset of SERVER_PRESETS) {
     if (preset.servers.sort().join(',') === sorted) return preset.id;
