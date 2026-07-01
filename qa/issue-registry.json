@@ -3395,6 +3395,30 @@
       "fix_note": "deliver_consensus_result now resolves the memory target the same way the normal path does (preferred_memory -> native plugin, else capability-resolved MCP memory server gated by mcp_access_control) and fire-and-forgets the store via a new shared spawn_store_agent_response helper. The helper is extracted from the normal agentic path's inline store block, so ordinary replies and consensus answers now go through one code path; the consensus answer is filed under the originating agent.id with the derived channel, matching the normal reply's memory record.",
       "notes": "User-reported 2026-06-30 (consensus answers not recalled in later turns). MEDIUM: memory-continuity gap, not data loss — chat_messages persistence (bug-417 fix) is unaffected. Task #118 / Goal #138. Cross-ref bug-417 (chat delivery), docs/CONSENSUS_REVIVAL_DESIGN.md. Registered as bug-422 because bug-419 — the id named in the original task write-up — was already assigned to the consensus-engine-grants issue.",
       "github_issue": 243
+    },
+    {
+      "id": "bug-423",
+      "summary": "LOW (latent): McpServerLogsTab reads the SSE event's server_id from event.payload.server_id, but kernel SSE events carry their fields under event.data (every other consumer reads event.data.* — useVrmAvatar.ts:21, AgentConsole.tsx:360). So payload is always undefined, serverId is always undefined, and the `serverId === server.id` branch of the filter at McpServerLogsTab.tsx:32 can never match. Currently harmless because the kernel emits no per-server MCP log events yet, but it will fully break the per-server log tab once the Goal #141 backend (McpServerLog events) lands. Found via investigation 2026-07-01.",
+      "severity": "LOW",
+      "discovered": "2026-07-01T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "file": "dashboard/src/components/mcp/McpServerLogsTab.tsx",
+      "pattern": "payload\\?\\.server_id",
+      "expected": "present",
+      "status": "open",
+      "notes": "Latent filter bug 1 of 2 (see bug-424); together they make the log-tab filter never true, so it is stuck on the logs.waiting empty state. Fix under Goal #141 Task #125: read event.data.server_id. Correct pattern precedent: useVrmAvatar.ts:21 / AgentConsole.tsx:360 (event.data.agent_id)."
+    },
+    {
+      "id": "bug-424",
+      "summary": "LOW (latent): McpServerLogsTab's fallback filter at McpServerLogsTab.tsx:32 uses event.type?.includes('MCP') (uppercase), but the kernel's MCP event discriminants are mixed-case 'Mcp' — McpNotification (frontend VrmViewerPage.tsx:143, backend crates/core/src/lib.rs:868) and McpCallbackRequested. 'McpNotification'.includes('MCP') === false, so this branch never fires. Combined with bug-423 the filter can never be true for any real event, so the log tab is permanently stuck on logs.waiting. Currently harmless (no log events flow); breaks the feature once Goal #141 lands. Found 2026-07-01.",
+      "severity": "LOW",
+      "discovered": "2026-07-01T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "file": "dashboard/src/components/mcp/McpServerLogsTab.tsx",
+      "pattern": "event\\.type\\?\\.includes\\('MCP'\\)",
+      "expected": "present",
+      "status": "open",
+      "notes": "Latent filter bug 2 of 2 (see bug-423). Fix under Goal #141 Task #125: match the real discriminant (McpNotification / the new McpServerLog type). Correct precedent: VrmViewerPage.tsx:143 (event.type === 'McpNotification')."
     }
   ]
 }
