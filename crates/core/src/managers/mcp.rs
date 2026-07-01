@@ -25,6 +25,27 @@ use tracing::{debug, error, info, warn};
 /// Approver identity used for YOLO-mode auto-approved permissions.
 const YOLO_APPROVER_ID: &str = "YOLO";
 
+/// Identity of the caller requesting a tool / engine execution, threaded into
+/// the two execution chokepoints (PATH 1 = [`McpClientManager::resolve_tool_call_target`],
+/// PATH 2 = [`McpClientManager::execute_tool_internal`]) so the per-agent
+/// capability gate ([`McpClientManager::enforce_caller_grant`]) is enforced
+/// uniformly (bug-421).
+///
+/// There is deliberately **no `Default` impl**: every execution site must make
+/// an explicit, reviewed choice between [`Caller::Agent`] and [`Caller::System`].
+/// A site that forgets to thread a caller fails to compile — that compile error
+/// is the safety net against a silent access-control bypass.
+#[derive(Debug, Clone)]
+pub enum Caller {
+    /// A user agent — subject to per-agent access control via
+    /// [`crate::db::resolve_tool_access`]. The `String` is the `agent_id`.
+    Agent(String),
+    /// A trusted kernel-internal caller (kernel-native tool dispatch, the
+    /// consensus synthesizer, the coordinator `/api/mcp/call` endpoint,
+    /// post-connect model syncs). Bypasses the per-agent grant gate.
+    System,
+}
+
 // ============================================================
 // McpClientManager — kernel-level MCP server orchestrator
 // ============================================================
@@ -1478,6 +1499,7 @@ impl McpClientManager {
                     let model = provider.model_id.clone();
                     match self
                         .call_server_tool(
+                            &Caller::System,
                             "mind.ollama",
                             "switch_model",
                             serde_json::json!({ "model": model }),
@@ -1687,7 +1709,12 @@ impl McpClientManager {
         let state = self.state.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
             // L2: Filter kernel tools by per-agent RBAC (server_id="kernel").
-            // Default is Allow; only explicit Deny entries block a tool.
+            // Default is Allow; only an EXPLICIT Deny grant blocks a tool. This
+            // MUST use resolve_explicit_permission (NOT resolve_tool_access),
+            // matching enforce_kernel_rbac (bug-421): resolve_tool_access would
+            // fall back to the 'kernel' row's default_policy (opt-in → Deny),
+            // which would diverge from enforcement and hide kernel tools the gate
+            // actually allows.
             let mut filtered = Vec::new();
             for schema in super::mcp_kernel_tool::kernel_tool_schemas() {
                 let name = schema
@@ -1696,8 +1723,9 @@ impl McpClientManager {
                     .and_then(|n| n.as_str())
                     .unwrap_or("");
                 let denied = matches!(
-                    crate::db::resolve_tool_access(&self.pool, agent_id, "kernel", name).await,
-                    Ok(crate::db::mcp::PermissionLevel::Deny)
+                    crate::db::resolve_explicit_permission(&self.pool, agent_id, "kernel", name)
+                        .await,
+                    Ok(Some(crate::db::mcp::PermissionLevel::Deny))
                 );
                 if !denied {
                     filtered.push(schema);
@@ -1783,18 +1811,16 @@ impl McpClientManager {
         crate::db::resolve_tool_access(&self.pool, agent_id, &server_id, tool_name).await
     }
 
-    /// Execute a tool by name with optional caller context for audit/permission logging.
-    /// Delegates to `execute_tool_internal` after recording the caller.
+    /// Execute a tool by name under the given [`Caller`]. Thin wrapper over
+    /// [`Self::execute_tool_internal`] (which applies the capability gate).
     pub async fn execute_tool(
         &self,
+        caller: &Caller,
         tool_name: &str,
         args: Value,
-        caller: Option<&str>,
     ) -> std::result::Result<Value, ToolFailure> {
-        if let Some(agent_id) = caller {
-            debug!(tool = %tool_name, caller = %agent_id, "Tool execution requested");
-        }
-        self.execute_tool_internal(tool_name, args).await
+        debug!(tool = %tool_name, ?caller, "Tool execution requested");
+        self.execute_tool_internal(caller, tool_name, args).await
     }
 
     /// Execute a tool by name, routing to the correct MCP server (kernel-internal).
@@ -1807,9 +1833,20 @@ impl McpClientManager {
     #[allow(clippy::too_many_lines)]
     pub(crate) async fn execute_tool_internal(
         &self,
+        caller: &Caller,
         tool_name: &str,
         args: Value,
     ) -> std::result::Result<Value, ToolFailure> {
+        // ──── Capability gate (bug-421, PATH 2) ────
+        // Kernel-native tools (mgp.*/gui.*) use Deny-only RBAC (default Allow);
+        // the non-kernel per-agent grant gate runs after server_id resolution
+        // below (it needs the resolved server_id). System bypasses both.
+        if Self::is_kernel_native_tool(tool_name) {
+            self.enforce_kernel_rbac(caller, tool_name)
+                .await
+                .map_err(ToolFailure::from)?;
+        }
+
         // Kernel-native tools
         match tool_name {
             "mgp.kernel.create_mcp_server" => {
@@ -1920,6 +1957,14 @@ impl McpClientManager {
             })?;
             (server_id, client)
         };
+
+        // ──── Per-agent capability gate (bug-421, PATH 2, non-kernel) ────
+        // Reached only for non-kernel MCP tools (kernel-native tools early-return
+        // in the match above). `server_id` is now resolved, so gate before the
+        // validator / dispatch. System bypasses.
+        self.enforce_caller_grant(caller, &server_id, tool_name)
+            .await
+            .map_err(ToolFailure::from)?;
 
         // ──── Kernel-side Validation (A): Validate tool arguments before forwarding ────
         if let Some(validator_name) = super::mcp_tool_validator::get_kernel_validator(tool_name) {
@@ -2042,20 +2087,116 @@ impl McpClientManager {
         }
     }
 
+    /// Per-agent capability gate (bug-421) — the single enforcement of the
+    /// grant/access axis, shared by both execution chokepoints (PATH 1 =
+    /// [`Self::resolve_tool_call_target`], PATH 2 = [`Self::execute_tool_internal`]).
+    ///
+    /// [`Caller::System`] is a trusted kernel-internal caller and bypasses the
+    /// gate. [`Caller::Agent`]`(id)` is checked against
+    /// `resolve_tool_access(id, server_id, tool_name)`; anything but an explicit
+    /// `Allow` (i.e. `Deny`, or a resolution error) is refused **before**
+    /// execution. Because the check keys on `server_id`, reasoning engines
+    /// (`mind.*` and bare-named MCP servers), tools, and memory servers are all
+    /// gated uniformly — there is no separate "engine config" permission concept.
+    async fn enforce_caller_grant(
+        &self,
+        caller: &Caller,
+        server_id: &str,
+        tool_name: &str,
+    ) -> Result<()> {
+        let agent_id = match caller {
+            Caller::System => return Ok(()),
+            Caller::Agent(id) => id,
+        };
+        match crate::db::resolve_tool_access(&self.pool, agent_id, server_id, tool_name).await {
+            Ok(crate::db::mcp::PermissionLevel::Allow) => Ok(()),
+            Ok(crate::db::mcp::PermissionLevel::Deny) => {
+                warn!(
+                    agent_id = %agent_id,
+                    server = %server_id,
+                    tool = %tool_name,
+                    "🔒 capability gate: access denied (bug-421)"
+                );
+                Err(mcp_mgp::MgpError::access_denied(format!(
+                    "Access denied: agent '{agent_id}' is not granted '{tool_name}' on server '{server_id}'"
+                ))
+                .into())
+            }
+            Err(e) => {
+                warn!(
+                    agent_id = %agent_id,
+                    server = %server_id,
+                    tool = %tool_name,
+                    error = %e,
+                    "🔒 capability gate: access check failed (bug-421)"
+                );
+                Err(mcp_mgp::MgpError::access_denied(format!(
+                    "Access check failed for agent '{agent_id}' on '{server_id}.{tool_name}': {e}"
+                ))
+                .into())
+            }
+        }
+    }
+
+    /// Whether `tool_name` is a kernel-native tool (dispatched by the
+    /// `mgp.` / `gui.` prefix inside [`Self::execute_tool_internal`]).
+    fn is_kernel_native_tool(tool_name: &str) -> bool {
+        tool_name.starts_with("mgp.") || tool_name.starts_with("gui.")
+    }
+
+    /// Kernel-native RBAC (bug-421). Kernel-internal tools (`mgp.*` / `gui.*`)
+    /// default to **Allow** and are blocked only by an EXPLICIT `Deny` grant on
+    /// the synthetic `"kernel"` server — the server's `default_policy` is never
+    /// consulted (via [`crate::db::resolve_explicit_permission`]), so the §6
+    /// global opt-in flip cannot turn kernel tools into deny-by-default. This is
+    /// the code-level "kernel default-Allow special-case" (the maintainer decision
+    /// 2026-07-01). [`Caller::System`] bypasses.
+    async fn enforce_kernel_rbac(&self, caller: &Caller, tool_name: &str) -> Result<()> {
+        let agent_id = match caller {
+            Caller::System => return Ok(()),
+            Caller::Agent(id) => id,
+        };
+        if matches!(
+            crate::db::resolve_explicit_permission(&self.pool, agent_id, "kernel", tool_name)
+                .await?,
+            Some(crate::db::mcp::PermissionLevel::Deny)
+        ) {
+            warn!(
+                agent_id = %agent_id,
+                tool = %tool_name,
+                "🔒 kernel RBAC: explicit deny (bug-421)"
+            );
+            return Err(mcp_mgp::MgpError::access_denied(format!(
+                "Access denied: agent '{agent_id}' cannot use kernel tool '{tool_name}'"
+            ))
+            .into());
+        }
+        Ok(())
+    }
+
     /// Execute a tool on a specific server by server ID and tool name.
-    /// Applies kernel-side validation (A) and delegation checks (§5.6)
-    /// before forwarding to the MCP server.
+    /// Applies the per-agent capability gate (bug-421), kernel-side validation
+    /// (A), and delegation checks (§5.6) before forwarding to the MCP server.
     #[allow(clippy::too_many_lines)]
     /// Resolve the target McpClient for a tool call and run all pre-dispatch
-    /// gating (§5.6 delegation chain, handle lookup, kernel-side arg
-    /// validation). Shared by the non-streaming and streaming call paths so
-    /// that both enforce identical security policy.
+    /// gating (caller capability gate, §5.6 delegation chain, handle lookup,
+    /// kernel-side arg validation). Shared by the non-streaming and streaming
+    /// call paths so that both enforce identical security policy.
     async fn resolve_tool_call_target(
         &self,
+        caller: &Caller,
         server_id: &str,
         tool_name: &str,
         args: &Value,
     ) -> Result<Arc<McpClient>> {
+        // ──── Per-agent capability gate (bug-421, PATH 1) ────
+        // `server_id` is final on entry (no rewrite occurs below), so gating
+        // here covers both call_server_tool and call_server_tool_streaming.
+        // Runs BEFORE the §5.6 delegation intersection, which is a distinct,
+        // orthogonal stage keyed on `original_actor` (not the immediate caller).
+        self.enforce_caller_grant(caller, server_id, tool_name)
+            .await?;
+
         // ──── §5.6 Delegation Check ────
         // If _mgp.delegation is present, verify chain depth ≤ 3, actor validity,
         // anti-spoofing (§5.6.3), and permission intersection (§5.6.1).
@@ -2181,12 +2322,13 @@ impl McpClientManager {
 
     pub async fn call_server_tool(
         &self,
+        caller: &Caller,
         server_id: &str,
         tool_name: &str,
         args: Value,
     ) -> Result<super::mcp_protocol::CallToolResult> {
         let client = self
-            .resolve_tool_call_target(server_id, tool_name, &args)
+            .resolve_tool_call_target(caller, server_id, tool_name, &args)
             .await?;
         client.call_tool(tool_name, args).await
     }
@@ -2205,6 +2347,7 @@ impl McpClientManager {
     /// is identical between the two paths.
     pub async fn call_server_tool_streaming(
         &self,
+        caller: &Caller,
         server_id: &str,
         tool_name: &str,
         args: Value,
@@ -2213,7 +2356,7 @@ impl McpClientManager {
         tokio::sync::oneshot::Receiver<Result<super::mcp_protocol::CallToolResult>>,
     )> {
         let client = self
-            .resolve_tool_call_target(server_id, tool_name, &args)
+            .resolve_tool_call_target(caller, server_id, tool_name, &args)
             .await?;
         client.call_tool_streaming(tool_name, args).await
     }
@@ -2483,6 +2626,7 @@ impl McpClientManager {
     /// it takes precedence over automatic resolution.
     pub async fn call_capability_tool(
         &self,
+        caller: &Caller,
         capability: super::capability_dispatcher::CapabilityType,
         tool_name: &str,
         args: Value,
@@ -2503,7 +2647,8 @@ impl McpClientManager {
                     )
                 })?
         };
-        self.call_server_tool(&server_id, tool_name, args).await
+        self.call_server_tool(caller, &server_id, tool_name, args)
+            .await
     }
 
     // ============================================================
@@ -2519,13 +2664,15 @@ impl McpClientManager {
     /// [`call_kind_at`] with an explicit `server_id` instead.
     pub async fn call_kind(
         &self,
+        caller: &Caller,
         kind: &super::capability_dispatcher::ToolKind,
         args: Value,
     ) -> Result<super::mcp_protocol::CallToolResult> {
         let (server_id, _) = self.dispatcher.resolve_kind(kind).await.ok_or_else(|| {
             anyhow::anyhow!("No server provides ToolKind for tool '{}'", kind.name())
         })?;
-        self.call_server_tool(&server_id, kind.name(), args).await
+        self.call_server_tool(caller, &server_id, kind.name(), args)
+            .await
     }
 
     /// Call a [`ToolKind`] against an explicit `server_id`. Use when the
@@ -2533,16 +2680,19 @@ impl McpClientManager {
     /// dispatching a `Custom` variant.
     pub async fn call_kind_at(
         &self,
+        caller: &Caller,
         server_id: &str,
         kind: &super::capability_dispatcher::ToolKind,
         args: Value,
     ) -> Result<super::mcp_protocol::CallToolResult> {
-        self.call_server_tool(server_id, kind.name(), args).await
+        self.call_server_tool(caller, server_id, kind.name(), args)
+            .await
     }
 
     /// Streaming counterpart of [`call_kind`].
     pub async fn call_kind_streaming(
         &self,
+        caller: &Caller,
         kind: &super::capability_dispatcher::ToolKind,
         args: Value,
     ) -> Result<(
@@ -2552,13 +2702,14 @@ impl McpClientManager {
         let (server_id, _) = self.dispatcher.resolve_kind(kind).await.ok_or_else(|| {
             anyhow::anyhow!("No server provides ToolKind for tool '{}'", kind.name())
         })?;
-        self.call_server_tool_streaming(&server_id, kind.name(), args)
+        self.call_server_tool_streaming(caller, &server_id, kind.name(), args)
             .await
     }
 
     /// Streaming counterpart of [`call_kind_at`].
     pub async fn call_kind_streaming_at(
         &self,
+        caller: &Caller,
         server_id: &str,
         kind: &super::capability_dispatcher::ToolKind,
         args: Value,
@@ -2566,7 +2717,7 @@ impl McpClientManager {
         tokio::sync::mpsc::Receiver<Value>,
         tokio::sync::oneshot::Receiver<Result<super::mcp_protocol::CallToolResult>>,
     )> {
-        self.call_server_tool_streaming(server_id, kind.name(), args)
+        self.call_server_tool_streaming(caller, server_id, kind.name(), args)
             .await
     }
 

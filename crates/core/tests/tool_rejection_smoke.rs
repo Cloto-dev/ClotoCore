@@ -33,7 +33,15 @@ async fn setup_manager(yolo: bool) -> McpClientManager {
 }
 
 async fn call(mgr: &McpClientManager, tool: &str, args: Value) -> Result<Value, ToolFailure> {
-    mgr.execute_tool(tool, args, Some("agent.demo")).await
+    // Kernel-native tools route through enforce_kernel_rbac (Deny-only, default
+    // Allow) under an agent caller; with no explicit deny for agent.demo the
+    // YOLO / delegation rejection logic below still fires as before (bug-421).
+    mgr.execute_tool(
+        &cloto_core::managers::Caller::Agent("agent.demo".to_string()),
+        tool,
+        args,
+    )
+    .await
 }
 
 fn print_outcome(label: &str, tool_name: &str, result: Result<Value, ToolFailure>) {

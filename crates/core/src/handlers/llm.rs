@@ -117,6 +117,7 @@ pub async fn set_llm_provider_model(
         tokio::spawn(async move {
             match mcp_mgr
                 .call_server_tool(
+                    &crate::managers::Caller::System,
                     &server_id,
                     &tool_name,
                     serde_json::json!({ "model": model_owned }),

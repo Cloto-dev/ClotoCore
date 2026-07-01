@@ -3358,13 +3358,27 @@
       "discovered": "2026-06-30T13:21:13Z",
       "version": "0.6.8-beta.1",
       "file": "crates/core/src/handlers/system.rs",
-      "pattern": "check_tool_access\\(&agent\\.id, &tool_name\\)",
+      "pattern": "bug-420",
       "expected": "present",
       "status": "fixed",
-      "fixed_in": "0.6.8-beta.1",
-      "fix_note": "The tool_hint path now calls mcp.check_tool_access(&agent.id, &tool_name) before execute_tool_internal and refuses anything but an explicit Allow (Deny, or tool/server unknown) with 'tool not available to this agent' — mirroring the agentic loop's execute_tool_for_agent -> check_tool_access gate. Covered by tests/tool_hint_access_test.rs (ungranted tool_hint denied before execution). Granted/allowed path is exercised against the live app and by the agentic loop's existing permission tests.",
-      "notes": "User-reported 2026-06-30 ('an agent can use an MCP server it is not registered/granted for'); confirmed path = tool_hint direct execution. Related: bug-419 (consensus engines), bug-173/174 (kernel-side tool validation / anti-spoofing). Follow-up (separate, not time-based): the mgp.agent.ask delegation loop (run_mgp_agent_ask_loop, mcp_kernel_tool.rs ~1824) executes engine tool calls via call_server_tool without a per-agent check_tool_access — tracked for a future hardening pass.",
+      "fixed_in": "0.6.8",
+      "fix_note": "Originally fixed (PR #237) with a tool_hint-local bolt-on mcp.check_tool_access(&agent.id, &tool_name) before execute_tool_internal. That bolt-on is now REMOVED and SUBSUMED by the single capability gate (bug-421): the tool_hint path calls mcp.execute_tool_internal(&Caller::Agent(agent.id), ..), and the central gate (enforce_caller_grant, PATH 2) refuses any non-Allow before execution — identically to the agentic loop, which also routes through the same gate. Anchored on the 'bug-420' marker comment in the tool_hint block. Covered by tests/tool_hint_access_test.rs (ungranted/unavailable tool_hint refused before execution).",
+      "notes": "User-reported 2026-06-30 ('an agent can use an MCP server it is not registered/granted for'); confirmed path = tool_hint direct execution. Related: bug-419 (consensus engines), bug-173/174 (kernel-side tool validation / anti-spoofing). Follow-up (separate, not time-based): the mgp.agent.ask delegation loop (run_mgp_agent_ask_loop, mcp_kernel_tool.rs ~1824) executes engine tool calls via call_server_tool without a per-agent check_tool_access — tracked for a future hardening pass. | 2026-07-01: bolt-on superseded by the unified capability gate (bug-421).",
       "github_issue": 239
+    },
+    {
+      "id": "bug-421",
+      "summary": "HIGH: Per-agent MCP access enforcement was fragmented and non-deterministic, and reasoning ENGINES were never access-checked. Engine think/think_with_tools resolved globally (get_engine / has_server / call_kind_at) with no grant check, so an agent with ZERO grants still ran its engine and responded (LM Studio repro). The agentic-loop empty-grant branch fell back to the ungated registry.execute_tool, delegation (run_mgp_agent_ask_loop) executed engine/tool calls via call_server_tool with no per-agent check, and tool_hint used a separate bolt-on. The permission DATA model (mcp_access_control + resolve_tool_access) was already unified, but enforcement was scattered across call sites with inconsistent logic. Compounded by default_policy=opt-out (allow-all from migration 20260301), which also made revoking a grant ineffective (revoke-staleness).",
+      "severity": "HIGH",
+      "discovered": "2026-07-01T00:00:00Z",
+      "version": "0.6.8",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "bug-421",
+      "expected": "present",
+      "status": "fixed",
+      "fixed_in": "0.6.8",
+      "fix_note": "Single capability gate threaded as Caller{Agent(id)|System} (no Default impl, so a missed site fails to compile) into BOTH manager-level execution chokepoints: PATH 1 = resolve_tool_call_target (call_server_tool/_streaming), PATH 2 = execute_tool_internal (the agentic loop + tool_hint path, which does NOT go through call_server_tool). enforce_caller_grant() consults resolve_tool_access(id, server_id, tool) once — covering engines (mind.* and bare-named MCP servers), tools, and memory uniformly. Kernel-native tools (mgp.*/gui.*) use enforce_kernel_rbac(): Deny-only on EXPLICIT deny entries via resolve_explicit_permission (default Allow), so the opt-in flip does not deny-by-default kernel tools. System callers (synthesizer via agent_type=='system', /api/mcp/call, switch_model, kernel cleanup, media preprocessing) bypass. The agentic-loop two-branch is collapsed onto execute_tool_for_agent (the empty-grant ungated branch is gone); execute_tool_for_agent's inline check_tool_access and the tool_hint bolt-on are removed (subsumed). Ships with migration 20260701000000: global opt-in flip + FK-safe non-clobbering engine backfill (default_engine_id -> server_grant). Anchored on the 'bug-421' markers in mcp.rs. Covered by db/mcp.rs resolve_tool_access unit tests, tests/engine_access_gate_test.rs (zero-grant agent denied engine; granted -> passes gate), and tests/tool_hint_access_test.rs.",
+      "notes": "User-reported 2026-06-30 (LM Studio agent with no assignments still responds). Investigation (2026-07-01) refuted the design's single-chokepoint claim (two paths exist) and confirmed kernel deny-by-default as a separate live defect (fixed via enforce_kernel_rbac). Design: docs/MCP_CAPABILITY_GATE_DESIGN.md. Subsumes bug-419 (consensus engines) and bug-420 (tool_hint). the maintainer decisions 2026-07-01: kernel default-Allow special-case; x-browser/github-bridge dropped (not preserved); opt-in flip global."
     }
   ]
 }

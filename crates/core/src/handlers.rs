@@ -448,7 +448,13 @@ async fn call_memory_tool_with_fallback(
 ) -> AppResult<Json<serde_json::Value>> {
     match state
         .mcp_manager
-        .call_capability_tool(crate::managers::CapabilityType::Memory, tool, args, None)
+        .call_capability_tool(
+            &crate::managers::Caller::System,
+            crate::managers::CapabilityType::Memory,
+            tool,
+            args,
+            None,
+        )
         .await
     {
         Ok(result) => ok_data(parse_mcp_tool_result(&result).unwrap_or(fallback)),
@@ -481,6 +487,7 @@ pub async fn get_memories(
     let mut data = match state
         .mcp_manager
         .call_capability_tool(
+            &crate::managers::Caller::System,
             crate::managers::CapabilityType::Memory,
             "list_memories",
             args,
@@ -595,6 +602,7 @@ pub async fn delete_memory(
     let result = state
         .mcp_manager
         .call_capability_tool(
+            &crate::managers::Caller::System,
             crate::managers::CapabilityType::Memory,
             "delete_memory",
             args,
@@ -616,6 +624,7 @@ pub async fn delete_episode(
     let result = state
         .mcp_manager
         .call_capability_tool(
+            &crate::managers::Caller::System,
             crate::managers::CapabilityType::Memory,
             "delete_episode",
             args,
@@ -662,6 +671,7 @@ pub async fn import_memories(
     let result = state
         .mcp_manager
         .call_capability_tool(
+            &crate::managers::Caller::System,
             crate::managers::CapabilityType::Memory,
             "import_memories",
             args,
@@ -723,6 +733,7 @@ pub async fn update_memory(
     let result = state
         .mcp_manager
         .call_capability_tool(
+            &crate::managers::Caller::System,
             crate::managers::CapabilityType::Memory,
             "update_memory",
             args,
@@ -753,7 +764,13 @@ pub async fn lock_memory(
         let args = serde_json::json!({ "memory_id": id });
         let result = state
             .mcp_manager
-            .call_capability_tool(cap, "lock_memory", args, None)
+            .call_capability_tool(
+                &crate::managers::Caller::System,
+                cap,
+                "lock_memory",
+                args,
+                None,
+            )
             .await
             .map_err(AppError::Internal)?;
         let mut data = parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({}));
@@ -799,7 +816,13 @@ pub async fn unlock_memory(
         let args = serde_json::json!({ "memory_id": id });
         let result = state
             .mcp_manager
-            .call_capability_tool(cap, "unlock_memory", args, None)
+            .call_capability_tool(
+                &crate::managers::Caller::System,
+                cap,
+                "unlock_memory",
+                args,
+                None,
+            )
             .await
             .map_err(AppError::Internal)?;
         let mut data = parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({}));
@@ -858,7 +881,13 @@ pub async fn set_recall_precision(
     let args = serde_json::json!({ "agent_id": id, "precision": body.precision });
     let result = state
         .mcp_manager
-        .call_capability_tool(cap, "set_recall_precision", args, None)
+        .call_capability_tool(
+            &crate::managers::Caller::System,
+            cap,
+            "set_recall_precision",
+            args,
+            None,
+        )
         .await
         .map_err(AppError::Internal)?;
     ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({})))
@@ -895,7 +924,13 @@ pub async fn get_recall_precision(
     let args = serde_json::json!({ "agent_id": id });
     let result = state
         .mcp_manager
-        .call_capability_tool(cap, "get_recall_precision", args, None)
+        .call_capability_tool(
+            &crate::managers::Caller::System,
+            cap,
+            "get_recall_precision",
+            args,
+            None,
+        )
         .await
         .map_err(AppError::Internal)?;
     ok_data(parse_mcp_tool_result(&result).unwrap_or(serde_json::json!({})))
