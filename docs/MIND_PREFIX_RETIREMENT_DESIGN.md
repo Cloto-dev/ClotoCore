@@ -120,34 +120,73 @@ until the catalog re-adds them.
 
 ## 5. Backend changes (Task #127)
 
-**Built-in registration → bare.** Register the local / ollama engines as `local`
-/ `ollama`. Update the hard-coded id checks:
+> **Revised after implementation (2026-07-01).** A full audit of the `mind.`
+> surface (43 sites) showed the task is *not* "delete a handful of no-op strip
+> shims". The load-bearing work is **converting prefix classifiers to a
+> tool-surface test**, plus fixing two prefix-gated helpers and one prefix
+> *producer* the first draft missed. A naive de-prefix without these conversions
+> regresses: engine-internal `think` / `think_with_tools` leak into agent-facing
+> tool schemas, engine routing silently stops, model-sync and streaming die.
+> Several `mind.`-strip shims are **kept** as harmless back-compat, not deleted.
 
-- `crates/core/src/managers/mcp.rs:1503` — `id == "mind.ollama"` (post-connect
-  `OLLAMA_MODEL` sync) → `"ollama"`.
-- `crates/core/src/handlers/mcp.rs:1041` — `mind.local` reference.
-- `crates/core/src/handlers/llm.rs` — the `mind.ollama` model relay comment/paths
-  (`:64,108`).
-- `crates/core/src/handlers/system.rs` tests referencing `mind.local` /
-  `mind.deepseek` (`:4048,4061,4062,4074,4075,4085`).
+**Canonical engine test = tool surface, not prefix.** Add
+`ENGINE_TOOL_NAMES = ["think", "think_with_tools"]`, `tools_expose_reasoning()`,
+and `McpServerHandle::is_reasoning_engine()` to `managers/mcp_types.rs`. This is
+the id-agnostic replacement for `id.starts_with("mind.")` and, unlike the prefix,
+also correctly classifies the already-bare catalog engines (`deepseek`).
 
-**Delete the `mind.`-strip shims.** After unification these are no-ops (a bare id
-`strip_prefix("mind.")` yields `None` → `unwrap_or(id)` returns the id unchanged),
-so removing them is behaviour-preserving cleanup:
+**Convert the prefix classifiers (fixes the think-tool leak).** Each of these was
+prefix-only with no fallback; bare built-ins would slip through and leak:
 
-- `crates/core/src/managers/mcp.rs:2985`
-- `crates/core/src/handlers/system.rs:1527` (grant-match `norm`)
-- `crates/core/src/handlers/system.rs:2252` (engine-server resolution)
-- `crates/core/src/handlers/system.rs:3061,3401` (LLM-proxy `provider_id`)
+- `managers/mcp.rs:1401` — tool_index / rich_tool_index registration skip →
+  `!tools_expose_reasoning(&tools)`.
+- `managers/mcp.rs:1677` / `1762` — `collect_tool_schemas` /
+  `collect_tool_schemas_for_agent` skip → `handle.is_reasoning_engine()`.
+- `managers/mcp.rs:1608` — `list_connected_mind_servers` (consumed by engine
+  routing) → tool-surface filter.
+- `managers/mcp_discovery.rs:196` — `mgp.discovery.list` skip → tool-surface.
 
-Each removal must be paired with a test asserting the bare id flows straight
-through (the resolution / gate / provider-routing paths keep working with bare
-ids only).
+`capability_dispatcher.rs::classify_tool` needs **no** change — it already falls
+through to a `"think"|"think_with_tools"` tool-name arm, so bare ids classify
+identically.
 
-**Consensus config.** `CONSENSUS_ENGINES` is env-driven with no hard-coded
-default (`crates/core/src/config.rs:308`), so there is no in-code default to
-change; update the example strings in `crates/core/src/installer.rs:59` (and any
-docs) from `mind.deepseek,mind.cerebras` to bare.
+**Fix the prefix-gated helpers (they early-return / exact-match on `mind.`).**
+
+- `managers/mcp.rs:2985` `augment_mind_env` → `augment_engine_env`: drop the
+  `strip_prefix("mind.")` gate and key `{ID}_MODEL` off the bare id; a missing
+  `llm_providers` row is the "not an engine" signal (ordinary servers no-op).
+- `managers/mcp.rs:1503` — `id == "mind.ollama"` → `"ollama"`, **and** the
+  `switch_model` target on the next line.
+- `handlers/system.rs:362` `should_stream_engine` → gate on
+  `mcp_streaming_enabled` alone (the caller is already inside the resolved-MCP
+  branch; the stream hint degrades gracefully for any engine).
+- `handlers/system.rs:3401` `preflight_token_budget` → replace the
+  `strip_prefix …else return` gate with
+  `strip_prefix("mind.").unwrap_or(engine_id)` (mirrors `:3061`); otherwise it
+  becomes a universal no-op and drops the overflow guard.
+
+**Fix the prefix producer (missed by the first draft).**
+`handlers/llm.rs:115` builds `format!("mind.{}", provider_id)` as the live
+`switch_model` relay target — after bare-ing it addresses a nonexistent server
+and the relay silently fails. Change to `provider_id.clone()`.
+
+**Keep these `mind.` shims as back-compat (do NOT delete):**
+
+- `handlers/system.rs:1527` `filter_consensus_engines` — `CONSENSUS_ENGINES` is
+  an **env** var with no migration, so a `mind.*` value must still match bare.
+- `handlers/system.rs:2252` (engine resolver) / `:3061` (usage) — one-line
+  `strip_prefix.unwrap_or` identities on bare ids; harmless legacy safety nets.
+- `handlers/system.rs:1504` `is_engine_server` — the `mind.` shortcut is
+  **load-bearing**: it classifies an *offline* engine grant (tool-surface needs a
+  live connection), which the consensus path relies on. Kept as back-compat.
+
+**Consensus config example.** `CONSENSUS_ENGINES` parsing is prefix-agnostic; only
+the `.env` example in `installer.rs:59` changes to bare.
+
+**Tests.** `mcp_types.rs` unit test for `tools_expose_reasoning`; a bare-id case
+added to the `consensus_engine_filter_tests`; the migration integration tests
+(§6). The `switch_model` relay is fire-and-forget (no mock server) — covered
+structurally by the producer edit, as with the other relay paths.
 
 ---
 
@@ -158,11 +197,25 @@ A one-shot, idempotent rename modelled on the bug-388 repair
 
 **Targets** (all three storage sites for an engine id):
 
-1. `mcp_servers.name` — `mind.local` → `local`, `mind.ollama` → `ollama`.
-2. `mcp_access_control.server_id` — same rename on `server_grant` / `tool_grant`
-   rows.
+1. `mcp_servers.name` — the built-in engine rows `mind.local` → `local`,
+   `mind.ollama` → `ollama` (plus any orphan `mind.*` alias row, merged into its
+   bare twin).
+2. `mcp_access_control.server_id` — **every** `mind.%` grant, de-prefixed. This
+   covers not just the built-ins but the wizard-persisted aliases
+   (`mind.deepseek`, `mind.cerebras`, …) that scenario B writes, which must
+   collapse onto the already-bare catalog server. `tool_grant` rows keep their
+   `tool_name`.
 3. `agents.default_engine_id` — this is a **column** (confirmed
-   `PRAGMA table_info(agents)`), not metadata JSON, so a direct `UPDATE`.
+   `PRAGMA table_info(agents)`), not metadata JSON, so a direct `UPDATE` over all
+   `mind.%` values.
+
+**Implemented** as `migrations/20260701120000_retire_mind_prefix.sql` using the
+bug-388 **detach → rename → re-attach** shape (temp-table the grants, rename the
+FK parent, re-insert deduped), so it is FK-correct at every statement boundary
+and does **not** depend on `defer_foreign_keys` — it is safe whether sqlx runs it
+in a transaction or in autocommit. Validated against an in-memory SQLite with
+`foreign_keys=ON` for built-in rename, wizard-alias merge, idempotency, and
+`foreign_key_check` consistency.
 
 **Requirements:**
 

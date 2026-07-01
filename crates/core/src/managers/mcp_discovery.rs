@@ -192,8 +192,10 @@ pub(super) async fn execute_discovery_list(
                 continue;
             }
 
-            // Skip mind.* (engine-internal)
-            if handle.id.starts_with("mind.") {
+            // Skip reasoning engines (think/think_with_tools are engine-internal).
+            // Detected by tool surface, not id prefix, so bare-id engines are all
+            // hidden (Goal #142).
+            if handle.is_reasoning_engine() {
                 continue;
             }
 

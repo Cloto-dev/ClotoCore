@@ -284,7 +284,7 @@ pub struct SystemHandler {
     /// tests don't need to wire anything; production wires the `AppState` one
     /// via [`Self::set_usage_store`] right after construction.
     last_usage: crate::managers::usage_tracker::UsageStore,
-    /// Phase C opt-in gate — when true the agentic loop routes `mind.*` engine
+    /// Phase C opt-in gate — when true the agentic loop routes MCP engine
     /// calls through `call_tool_streaming` and emits `AgentTokenStream`
     /// events. Controlled by `CLOTO_MCP_STREAMING_ENABLED`.
     mcp_streaming_enabled: bool,
@@ -356,10 +356,14 @@ impl SystemHandler {
         self.session_manager = sm;
     }
 
-    /// Gate for Phase C streaming: only `mind.*` engines, and only when the
-    /// `CLOTO_MCP_STREAMING_ENABLED` env var opted in.
-    fn should_stream_engine(&self, engine_id: &str) -> bool {
-        self.mcp_streaming_enabled && engine_id.starts_with("mind.")
+    /// Gate for Phase C streaming: enabled when the `CLOTO_MCP_STREAMING_ENABLED`
+    /// env var opted in. The only caller is inside the resolved-MCP-engine branch
+    /// of `engine_think_with_tools`, so this need not re-test that the target is an
+    /// engine. The stream hint is soft (`_mgp.stream`): an engine that ignores it
+    /// still returns its final result, so this is safe for every MCP engine
+    /// regardless of id (Goal #142 — no `mind.` prefix consulted).
+    fn should_stream_engine(&self) -> bool {
+        self.mcp_streaming_enabled
     }
 
     /// Get the default agent ID for message routing.
@@ -1486,9 +1490,9 @@ impl SystemHandler {
     /// server grants, `AgentPluginWorkspace` derives `default_engine_id` from the
     /// granted engine servers, and `AgentConsole` lists an agent's engines as its
     /// granted engine servers. Classification matches `serverCategory.ts`
-    /// `isEngineServer` (#234): an engine is a Rust engine plugin, a legacy
-    /// `mind.*` server, or any server exposing the `think` / `think_with_tools`
-    /// tool surface.
+    /// `isEngineServer` (#234): an engine is a Rust engine plugin, a server
+    /// exposing the `think` / `think_with_tools` tool surface, or a legacy
+    /// `mind.*` grant (Goal #142 back-compat — see [`Self::is_engine_server`]).
     async fn agent_engine_servers(&self, granted_server_ids: &[String]) -> Vec<String> {
         let mut engines = Vec::new();
         for id in granted_server_ids {
@@ -1500,6 +1504,12 @@ impl SystemHandler {
     }
 
     /// True when `id` is a reasoning engine (see [`Self::agent_engine_servers`]).
+    ///
+    /// The `mind.` prefix is retained here as a back-compat classifier for any
+    /// un-migrated legacy engine grant (Goal #142): unlike the tool-surface
+    /// fallback below, it recognises an engine grant that is *not currently
+    /// connected* (tool discovery requires a live server), which the consensus
+    /// path relies on to count an agent's assigned-but-offline engines.
     async fn is_engine_server(&self, id: &str) -> bool {
         if id.starts_with("mind.") || self.registry.get_engine(id).await.is_some() {
             return true;
@@ -2874,11 +2884,11 @@ impl SystemHandler {
         }
 
         if let Some(mcp) = mcp_engine {
-            // Phase C: route mind.* engines through call_tool_streaming when
-            // CLOTO_MCP_STREAMING_ENABLED=true. Chunk deltas are emitted as
+            // Phase C: route the resolved MCP engine through call_tool_streaming
+            // when CLOTO_MCP_STREAMING_ENABLED=true. Chunk deltas are emitted as
             // AgentTokenStream events while the final CallToolResult flows
             // through the same parser as the non-streaming path.
-            if self.should_stream_engine(engine_id) {
+            if self.should_stream_engine() {
                 let result = self
                     .collect_streaming_think_result(
                         mcp,
@@ -3389,7 +3399,9 @@ impl SystemHandler {
     /// `context_length` configured (opt-in feature — NULL means "skip").
     /// Returns a structured error mapped through `format_engine_error` with the
     /// `context_overflow` code when the estimated input wouldn't leave room for
-    /// a response. Zero cost for non-MCP engines (engine_id must start with `mind.`).
+    /// a response. The `engine_id` (bare, or a legacy `mind.`-prefixed alias)
+    /// must resolve to an `llm_providers` row; non-MCP / unknown engines are
+    /// cheap no-ops via the `get_llm_provider` miss below (Goal #142).
     async fn preflight_token_budget(
         &self,
         engine_id: &str,
@@ -3398,9 +3410,9 @@ impl SystemHandler {
         tools: &serde_json::Value,
         message: &serde_json::Value,
     ) -> anyhow::Result<()> {
-        let Some(provider_id) = engine_id.strip_prefix("mind.") else {
-            return Ok(());
-        };
+        // Tolerate a legacy `mind.`-prefixed id but key on the bare provider id
+        // (providers are keyed bare). Mirrors the usage-recording idiom below.
+        let provider_id = engine_id.strip_prefix("mind.").unwrap_or(engine_id);
         let Ok(provider) = crate::db::get_llm_provider(&self.pool, provider_id).await else {
             return Ok(());
         };
@@ -4076,6 +4088,18 @@ mod consensus_engine_filter_tests {
         assert_eq!(
             SystemHandler::filter_consensus_engines(agent.clone(), &global),
             agent
+        );
+    }
+
+    #[test]
+    fn matches_bare_ids_post_prefix_retirement() {
+        // Goal #142 world: every id is bare on both sides. The retained
+        // `mind.`-normalization is a no-op here and bare-vs-bare still matches.
+        let agent = ids(&["local", "ollama", "deepseek"]);
+        let global = ids(&["local", "deepseek"]);
+        assert_eq!(
+            SystemHandler::filter_consensus_engines(agent, &global),
+            ids(&["local", "deepseek"]),
         );
     }
 

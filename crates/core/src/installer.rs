@@ -56,7 +56,7 @@ DATABASE_URL=sqlite:{db_path}
 # --- Consensus (Principle #8: Dynamic Intelligence Orchestration) ---
 # Comma-separated reasoning engine IDs for consensus: mode.
 # Messages prefixed with "consensus:" are routed to all listed engines.
-# CONSENSUS_ENGINES=mind.deepseek,mind.cerebras
+# CONSENSUS_ENGINES=deepseek,cerebras
 
 # --- Agent ---
 # DEFAULT_AGENT_ID=agent.cloto_default
