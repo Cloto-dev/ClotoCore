@@ -4,6 +4,18 @@
   "description": "Mechanical verification registry for documented issues. Source of truth for bug existence proof.",
   "issues": [
     {
+      "id": "bug-425",
+      "summary": "MEDIUM: AgentConsole engine selector resolved the agent's granted engines with a prefix-only filter (e.server_id.startsWith('mind.')), so de-prefixed ClotoHub catalog engines (e.g. deepseek — bug-388/396 de-prefixing drops the legacy mind. namespace) were excluded from agentEngines. A deepseek engine granted to an agent therefore appeared as not connected in the chat console, even though AgentTerminal/AgentPluginWorkspace (which use isEngineServer) recognised it correctly. Same de-prefix holdout class also affected preset detection (presets.ts detectPreset counted a granted de-prefixed engine as a non-engine server, breaking active-preset match). Reported by user 2026-07-01.",
+      "severity": "MEDIUM",
+      "discovered": "2026-07-01T00:00:00Z",
+      "version": "0.6.8-beta.1",
+      "file": "dashboard/src/components/AgentConsole.tsx",
+      "pattern": "e\\.server_id\\.startsWith\\('mind\\.'\\)",
+      "expected": "absent",
+      "status": "fixed",
+      "notes": "FIXED 2026-07-01: AgentConsole engine-grant resolution now filters granted servers by isEngineServer(mcpServers lookup) instead of the mind. prefix, matching AgentTerminal/AgentPluginWorkspace. presets.ts detectPreset(grantedIds, servers) now excludes engines via isEngineServer (falls back to prefix when server unknown); ServerAccessSection passes grantedServers. Related same-class holdout NOT changed: AgentConsole.tsx thinking-viz event filter uses engine_id?.startsWith(mind.) — left as-is (broadening risks cross-agent event leakage; de-prefixed engine thinking events for THIS agent are still caught by the agent_id clause). Root: bug-388/396 de-prefixed catalog server ids; canonical engine test = lib/serverCategory.ts isEngineServer."
+    },
+    {
       "id": "bug-139",
       "summary": "PluginManifest/PluginCast traits in shared crate — legacy but used by tests",
       "severity": "LOW",

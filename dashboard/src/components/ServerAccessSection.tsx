@@ -41,7 +41,7 @@ export function ServerAccessSection({
   onApplyPreset,
 }: Props) {
   const { t } = useTranslation('agents');
-  const activePreset = detectPreset(grantedIds);
+  const activePreset = detectPreset(grantedIds, grantedServers);
 
   return (
     <>
