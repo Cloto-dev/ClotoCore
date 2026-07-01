@@ -37,7 +37,9 @@ const TOTAL_STEPS = 7;
 
 import { SERVER_PRESETS, STANDARD_SERVERS } from '../lib/presets';
 
-const ENGINE_IDS = ['mind.cerebras', 'mind.groq', 'mind.deepseek', 'mind.claude', 'mind.local', 'mind.ollama'] as const;
+// Engine ids are bare (Goal #142 — the `mind.` prefix is retired). Catalog
+// engines were already bare; built-ins (local/ollama) are now bare too.
+const ENGINE_IDS = ['cerebras', 'groq', 'deepseek', 'claude', 'local', 'ollama'] as const;
 
 const ALL_SELECTABLE_SERVER_IDS = [
   'cpersona',
@@ -58,7 +60,8 @@ function serverTKey(id: string): string {
   return `server_${id.replace('.', '_')}`;
 }
 
-/** Map engine ID → translation key (e.g., "mind.cerebras" → "engine_cerebras") */
+/** Map engine ID → translation key (e.g., "cerebras" → "engine_cerebras"). The
+ *  `mind.` strip is a harmless no-op on bare ids, kept for any legacy caller. */
 function engineTKey(id: string): string {
   return `engine_${id.replace('mind.', '')}`;
 }
@@ -98,7 +101,7 @@ export function SetupWizard({ onComplete }: Props) {
 
   // Preset state
   const [selectedPreset, setSelectedPreset] = useState<string>('advanced');
-  const [selectedEngine, setSelectedEngine] = useState('mind.deepseek');
+  const [selectedEngine, setSelectedEngine] = useState('deepseek');
   const [customServers, setCustomServers] = useState<Set<string>>(new Set(STANDARD_SERVERS));
   const [applying, setApplying] = useState(false);
   const [presetError, setPresetError] = useState(false);

@@ -19,8 +19,8 @@ pub struct ProviderQuirks {
     /// Overrides the OpenAI-compat `.../models` derivation when set.
     #[serde(default)]
     pub models_endpoint_path: Option<String>,
-    /// MCP tool name on `mind.<provider_id>` to relay a live model switch,
-    /// for providers whose mind server binds the model name at startup.
+    /// MCP tool name on the bare engine server (`<provider_id>`) to relay a live
+    /// model switch, for providers whose engine binds the model name at startup.
     #[serde(default)]
     pub switch_model_tool: Option<String>,
 }
