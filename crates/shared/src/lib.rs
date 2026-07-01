@@ -539,6 +539,33 @@ pub struct GazeData {
     pub fixated: bool, // 一定時間留まっているか
 }
 
+/// Where an [`ClotoEventData::McpServerLog`] line originated. Shown as a badge
+/// in the dashboard Log tab so operators can tell raw process output apart from
+/// structured protocol logs. See `docs/MCP_SERVER_LOGS_DESIGN.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum McpLogSource {
+    /// Raw line from the child process's stderr.
+    Stderr,
+    /// MCP `notifications/message` (the server's `logging` capability).
+    McpLogging,
+}
+
+/// RFC 5424 / MCP log severity. Present for MCP-logging lines; absent for raw
+/// stderr (which carries no reliable structure).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum McpLogLevel {
+    Debug,
+    Info,
+    Notice,
+    Warning,
+    Error,
+    Critical,
+    Alert,
+    Emergency,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 #[allow(clippy::large_enum_variant)]
@@ -680,6 +707,23 @@ pub enum ClotoEventData {
         options: Option<Vec<String>>,
         /// Bridge-specific metadata (e.g., channel_id, author_name for Discord).
         metadata: Option<serde_json::Value>,
+    },
+    /// A log line from an MCP/MGP server, surfaced to the dashboard Log tab.
+    /// Unifies two sources (child stderr and the MCP `logging` capability),
+    /// distinguished by `source`. See `docs/MCP_SERVER_LOGS_DESIGN.md`.
+    McpServerLog {
+        server_id: String,
+        /// Where the line came from — rendered as a badge in the UI.
+        source: McpLogSource,
+        /// RFC 5424 severity. Present for MCP-logging lines; `None` for stderr.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        level: Option<McpLogLevel>,
+        /// Optional logger/category name (MCP logging `logger` field).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        logger: Option<String>,
+        message: String,
+        /// RFC3339: kernel receive time (stderr) or notification time (MCP logging).
+        timestamp: String,
     },
     /// Terminal commands require human approval before execution (batch).
     CommandApprovalRequested {
@@ -1006,6 +1050,59 @@ mod tool_rejection_tests {
                 assert!(details.is_some());
             }
             _ => panic!("expected ToolRejected variant"),
+        }
+    }
+
+    #[test]
+    fn mcp_server_log_stderr_wire_contract() {
+        // The dashboard Log tab reads fields from event.data and switches on
+        // event.type (adjacent tag). A stderr line has no level/logger, which
+        // must be elided. See docs/MCP_SERVER_LOGS_DESIGN.md §2/§5.
+        let event = ClotoEventData::McpServerLog {
+            server_id: "mind.local".to_string(),
+            source: McpLogSource::Stderr,
+            level: None,
+            logger: None,
+            message: "listening on stdio".to_string(),
+            timestamp: "2026-07-01T07:12:00+00:00".to_string(),
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(v["type"], json!("McpServerLog"));
+        assert_eq!(v["data"]["server_id"], json!("mind.local"));
+        assert_eq!(v["data"]["source"], json!("stderr"));
+        assert_eq!(v["data"]["message"], json!("listening on stdio"));
+        // Absent for stderr (skip_serializing_if None) — the UI shows no level badge.
+        assert!(v["data"].get("level").is_none());
+        assert!(v["data"].get("logger").is_none());
+    }
+
+    #[test]
+    fn mcp_server_log_mcplogging_levels_serialize_lowercase() {
+        // MCP-logging lines carry an RFC 5424 level + optional logger, both
+        // rendered as badges. Levels serialize lowercase to match the spec.
+        let event = ClotoEventData::McpServerLog {
+            server_id: "cpersona".to_string(),
+            source: McpLogSource::McpLogging,
+            level: Some(McpLogLevel::Warning),
+            logger: Some("db".to_string()),
+            message: "slow query".to_string(),
+            timestamp: "2026-07-01T07:12:00+00:00".to_string(),
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
+        assert_eq!(v["data"]["source"], json!("mcp_logging"));
+        assert_eq!(v["data"]["level"], json!("warning"));
+        assert_eq!(v["data"]["logger"], json!("db"));
+
+        // Round-trip back to the typed variant.
+        let parsed: ClotoEventData = serde_json::from_value(v).unwrap();
+        match parsed {
+            ClotoEventData::McpServerLog { source, level, .. } => {
+                assert_eq!(source, McpLogSource::McpLogging);
+                assert_eq!(level, Some(McpLogLevel::Warning));
+            }
+            _ => panic!("expected McpServerLog variant"),
         }
     }
 }

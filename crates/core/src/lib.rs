@@ -856,6 +856,54 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
                             // Fall through to normal notification forwarding
                         }
 
+                        // Child stderr, bridged as a kernel-internal pseudo-notification
+                        // → McpServerLog{source:Stderr} for the dashboard Log tab. Must
+                        // precede the notifications/cloto.* whitelist below (which would
+                        // otherwise re-forward it as a plain McpNotification).
+                        // docs/MCP_SERVER_LOGS_DESIGN.md §6.
+                        if notif.method == managers::mcp_client::CLOTO_STDERR_LOG_METHOD {
+                            let message = managers::mcp_client::stderr_line_from_params(
+                                notif.params.as_ref(),
+                            );
+                            let event_data = cloto_shared::ClotoEventData::McpServerLog {
+                                server_id: notif.server_id,
+                                source: cloto_shared::McpLogSource::Stderr,
+                                level: None,
+                                logger: None,
+                                message,
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            };
+                            let envelope = EnvelopedEvent::system(event_data);
+                            if let Err(e) = notif_event_tx.send(envelope).await {
+                                tracing::warn!("Failed to forward MCP stderr log: {}", e);
+                            }
+                            continue;
+                        }
+
+                        // Standard MCP logging capability: a server's
+                        // `notifications/message` ({level, logger?, data}) →
+                        // McpServerLog{source:McpLogging}. Additive to the
+                        // mgp.*/cloto.* whitelist below (this method does not
+                        // match it, so it would otherwise be dropped).
+                        // docs/MCP_SERVER_LOGS_DESIGN.md §7.
+                        if notif.method == "notifications/message" {
+                            let (level, logger, message) =
+                                managers::mcp_client::mcp_log_from_params(notif.params.as_ref());
+                            let event_data = cloto_shared::ClotoEventData::McpServerLog {
+                                server_id: notif.server_id,
+                                source: cloto_shared::McpLogSource::McpLogging,
+                                level,
+                                logger,
+                                message,
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            };
+                            let envelope = EnvelopedEvent::system(event_data);
+                            if let Err(e) = notif_event_tx.send(envelope).await {
+                                tracing::warn!("Failed to forward MCP logging notification: {}", e);
+                            }
+                            continue;
+                        }
+
                         // Method-based filtering: MGP notifications → event bus, others → log only
                         if notif.method.starts_with("notifications/mgp.")
                             || notif.method.starts_with("notifications/cloto.")

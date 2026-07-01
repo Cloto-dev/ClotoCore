@@ -241,6 +241,7 @@ impl StdioTransport {
         isolation: Option<&IsolationProfile>,
         llm_proxy_port: u16,
         sensitive_env_keys: &[String],
+        stderr_tx: Option<mpsc::Sender<String>>,
     ) -> Result<Self> {
         info!("Starting MCP Server: {} {:?}", command, args);
 
@@ -401,12 +402,23 @@ impl StdioTransport {
             warn!("MCP Server stdout closed.");
         });
 
-        // Logger Task (Stderr) — warn level so it's visible in release builds
+        // Logger Task (Stderr) — dual sink: kernel tracing (warn! so it is
+        // visible in release builds and post-mortem logs, independent of any
+        // dashboard) AND, if a stderr_tx is provided, the raw line is forwarded
+        // to the owning client which tags it with server_id and turns it into a
+        // McpServerLog event for the dashboard Log tab. See
+        // docs/MCP_SERVER_LOGS_DESIGN.md §6.
         let cmd_display = command.to_string();
         tokio::spawn(async move {
             let mut reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 warn!("[MCP:{}] {}", cmd_display, line);
+                if let Some(ref tx) = stderr_tx {
+                    // Best-effort: if the consumer is gone or the buffer is full,
+                    // drop the line (tracing already captured it). Never block
+                    // the reader on log delivery.
+                    let _ = tx.try_send(line);
+                }
             }
         });
 

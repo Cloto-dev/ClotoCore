@@ -3404,9 +3404,9 @@
       "version": "0.6.8-beta.1",
       "file": "dashboard/src/components/mcp/McpServerLogsTab.tsx",
       "pattern": "payload\\?\\.server_id",
-      "expected": "present",
-      "status": "open",
-      "notes": "Latent filter bug 1 of 2 (see bug-424); together they make the log-tab filter never true, so it is stuck on the logs.waiting empty state. Fix under an earlier decision an earlier decision: read event.data.server_id. Correct pattern precedent: useVrmAvatar.ts:21 / AgentConsole.tsx:360 (event.data.agent_id)."
+      "expected": "absent",
+      "status": "fixed",
+      "notes": "Latent filter bug 1 of 2 (see bug-424); together they make the log-tab filter never true, so it is stuck on the logs.waiting empty state. Fix under an earlier decision an earlier decision: read event.data.server_id. Correct pattern precedent: useVrmAvatar.ts:21 / AgentConsole.tsx:360 (event.data.agent_id). FIXED 2026-07-01 (an earlier decision, commit pending): McpServerLogsTab now reads event.data.server_id and matches event.type==='McpServerLog' (+McpNotification), with source/level badges. Both buggy patterns removed."
     },
     {
       "id": "bug-424",
@@ -3416,9 +3416,9 @@
       "version": "0.6.8-beta.1",
       "file": "dashboard/src/components/mcp/McpServerLogsTab.tsx",
       "pattern": "event\\.type\\?\\.includes\\('MCP'\\)",
-      "expected": "present",
-      "status": "open",
-      "notes": "Latent filter bug 2 of 2 (see bug-423). Fix under an earlier decision an earlier decision: match the real discriminant (McpNotification / the new McpServerLog type). Correct precedent: VrmViewerPage.tsx:143 (event.type === 'McpNotification')."
+      "expected": "absent",
+      "status": "fixed",
+      "notes": "Latent filter bug 2 of 2 (see bug-423). Fix under an earlier decision an earlier decision: match the real discriminant (McpNotification / the new McpServerLog type). Correct precedent: VrmViewerPage.tsx:143 (event.type === 'McpNotification'). FIXED 2026-07-01 (an earlier decision, commit pending): McpServerLogsTab now reads event.data.server_id and matches event.type==='McpServerLog' (+McpNotification), with source/level badges. Both buggy patterns removed."
     }
   ]
 }
