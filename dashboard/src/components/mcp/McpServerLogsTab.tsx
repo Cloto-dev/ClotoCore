@@ -7,14 +7,52 @@ import { displayServerId } from '../../lib/format';
 import { EVENTS_URL } from '../../services/api';
 import type { McpServerInfo } from '../../types';
 
+// Where a log line originated (kernel `McpLogSource`, snake_case on the wire).
+type LogSource = 'stderr' | 'mcp_logging';
+
+// Wire shape of a `ClotoEventData::McpServerLog` event's `data` (see
+// docs/MCP_SERVER_LOGS_DESIGN.md §5). Fields live under `event.data` per the
+// adjacent-tag serde contract — reading `event.payload` was bug-423.
+interface McpServerLogData {
+  server_id: string;
+  source: LogSource;
+  level?: string;
+  logger?: string;
+  message: string;
+  timestamp?: string;
+}
+
 interface LogEntry {
   timestamp: string;
-  type: string;
+  // Present for McpServerLog lines; absent for plain MGP notifications.
+  source?: LogSource;
+  level?: string;
+  logger?: string;
+  // Badge text: 'stderr' / 'MCP' for logs, or the notification method.
+  label: string;
   message: string;
 }
 
 interface Props {
   server: McpServerInfo;
+}
+
+// Severity → text color for the level badge (RFC 5424 order). Only the classes
+// below are used, so they stay in the pre-compiled Tailwind bundle.
+const LEVEL_COLOR: Record<string, string> = {
+  debug: 'text-content-tertiary',
+  info: 'text-brand',
+  notice: 'text-brand',
+  warning: 'text-amber-500',
+  error: 'text-red-500',
+  critical: 'text-red-500',
+  alert: 'text-red-500',
+  emergency: 'text-red-500',
+};
+
+function formatTimestamp(value: unknown): string {
+  const date = new Date((value as string | number | undefined) ?? Date.now());
+  return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(11, 19) : date.toISOString().slice(11, 19);
 }
 
 export function McpServerLogsTab({ server }: Props) {
@@ -25,17 +63,33 @@ export function McpServerLogsTab({ server }: Props) {
 
   const handleEvent = useCallback(
     (event: any) => {
-      const payload = event.payload as Record<string, unknown> | undefined;
-      const serverId = payload?.server_id as string | undefined;
+      // Kernel SSE events carry their fields under `event.data` (adjacent-tag
+      // serde contract), and the discriminant is mixed-case `Mcp…` — reading
+      // `event.payload` / matching `includes('MCP')` were bug-423 / bug-424.
+      const data = (event.data ?? {}) as Record<string, unknown>;
+      if (data.server_id !== server.id) return;
 
-      // Filter for events related to this server
-      if (serverId === server.id || event.type?.includes('MCP')) {
+      if (event.type === 'McpServerLog') {
+        const log = data as unknown as McpServerLogData;
         setLogs((prev) => [
           ...prev.slice(-199),
           {
-            timestamp: new Date(event.timestamp ?? Date.now()).toISOString().slice(11, 19),
-            type: event.type ?? 'unknown',
-            message: JSON.stringify(payload ?? event.data ?? {}).slice(0, 200),
+            timestamp: formatTimestamp(log.timestamp ?? event.timestamp),
+            source: log.source,
+            level: log.level,
+            logger: log.logger,
+            label: log.source === 'mcp_logging' ? 'MCP' : 'stderr',
+            message: String(log.message ?? ''),
+          },
+        ]);
+      } else if (event.type === 'McpNotification') {
+        // MGP notifications are surfaced too, without a source/level badge.
+        setLogs((prev) => [
+          ...prev.slice(-199),
+          {
+            timestamp: formatTimestamp(event.timestamp),
+            label: String((data.method as string | undefined) ?? 'notify'),
+            message: JSON.stringify(data.params ?? {}).slice(0, 200),
           },
         ]);
       }
@@ -70,9 +124,28 @@ export function McpServerLogsTab({ server }: Props) {
       <div className="flex-1 overflow-y-auto p-2 font-mono text-[10px] bg-black/5 dark:bg-white/5">
         {logs.length === 0 && <div className="text-content-tertiary text-center py-8">{t('logs.waiting')}</div>}
         {logs.map((log, i) => (
-          <div key={`${log.timestamp}-${log.type}-${i}`} className="flex gap-2 py-0.5 hover:bg-glass rounded px-1">
+          <div
+            key={`${log.timestamp}-${log.label}-${i}`}
+            className="flex items-baseline gap-2 py-0.5 hover:bg-glass rounded px-1"
+          >
             <span className="text-content-tertiary flex-shrink-0">{log.timestamp}</span>
-            <span className="text-brand flex-shrink-0">[{log.type}]</span>
+            {/* Source badge — the required stderr vs MCP-logging distinction. */}
+            <span
+              className={`flex-shrink-0 px-1 rounded bg-glass ${
+                log.source === 'mcp_logging' ? 'text-brand' : 'text-content-tertiary'
+              }`}
+            >
+              {log.label}
+            </span>
+            {/* Level badge — MCP-logging lines only. */}
+            {log.level && (
+              <span
+                className={`flex-shrink-0 uppercase text-[9px] ${LEVEL_COLOR[log.level] ?? 'text-content-tertiary'}`}
+              >
+                {log.level}
+              </span>
+            )}
+            {log.logger && <span className="text-content-tertiary flex-shrink-0">{log.logger}</span>}
             <span className="text-content-secondary truncate">{log.message}</span>
           </div>
         ))}
