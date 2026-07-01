@@ -1040,77 +1040,13 @@ impl SystemHandler {
                         .append_message(&session_key, assistant_resp);
 
                     // エージェント返答もメモリに保存 (user messageと対で保存)
-                    if let Some(plugin) = &memory_plugin {
-                        let plugin_clone = plugin.clone();
-                        let agent_resp_msg = ClotoMessage {
-                            id: format!("{}-resp", msg.id),
-                            source: cloto_shared::MessageSource::Agent {
-                                id: agent.id.clone(),
-                            },
-                            target_agent: Some(agent.id.clone()),
-                            content: content.clone(),
-                            timestamp: Utc::now(),
-                            metadata: std::collections::HashMap::new(),
-                        };
-                        let agent_id_clone = agent.id.clone();
-                        let mem_timeout = Duration::from_secs(self.memory_timeout_secs);
-                        tokio::spawn(async move {
-                            if let Some(mem) = plugin_clone.as_memory() {
-                                let _ = tokio::time::timeout(
-                                    mem_timeout,
-                                    mem.store(agent_id_clone, agent_resp_msg),
-                                )
-                                .await;
-                            }
-                        });
-                    } else if let Some((ref mcp, ref server_id)) = mcp_memory {
-                        let mcp_clone = mcp.clone();
-                        let server_id_clone = server_id.clone();
-                        let agent_id_clone = agent.id.clone();
-                        // Same derived channel as the user-message store, so the
-                        // agent's reply is filed alongside it (the concrete
-                        // channel, bridge-type fallback). Channel is
-                        // scope-independent, so the scope is not needed here.
-                        let resp_base_channel = msg
-                            .metadata
-                            .get("external_source")
-                            .cloned()
-                            .unwrap_or_else(|| "chat".into());
-                        let resp_channel = SessionScope::derive_channel(
-                            resp_base_channel,
-                            msg.metadata.get("external_channel_id"),
-                        );
-                        let resp_session_id = msg
-                            .metadata
-                            .get("external_session_id")
-                            .cloned()
-                            .unwrap_or_default();
-                        let resp_msg_json = serde_json::json!({
-                            "id": format!("{}-resp", msg.id),
-                            "content": content.clone(),
-                            "source": { "type": "Agent", "id": agent.id },
-                            "timestamp": Utc::now().to_rfc3339(),
-                            "metadata": { "session_id": resp_session_id },
-                        });
-                        let mem_timeout2 = Duration::from_secs(self.memory_timeout_secs);
-                        tokio::spawn(async move {
-                            let store_args = serde_json::json!({
-                                "agent_id": agent_id_clone,
-                                "message": resp_msg_json,
-                                "channel": resp_channel,
-                            });
-                            let _ = tokio::time::timeout(
-                                mem_timeout2,
-                                mcp_clone.call_kind_at(
-                                    &crate::managers::Caller::Agent(agent_id_clone.clone()),
-                                    &server_id_clone,
-                                    &crate::managers::ToolKind::Store,
-                                    store_args,
-                                ),
-                            )
-                            .await;
-                        });
-                    }
+                    self.spawn_store_agent_response(
+                        &agent.id,
+                        &msg,
+                        &content,
+                        memory_plugin.as_ref(),
+                        mcp_memory.as_ref(),
+                    );
 
                     // External actions: skip chat persistence and ThoughtResponse
                     // (ExternalAction events handle display in the Actions panel)
@@ -2100,6 +2036,96 @@ impl SystemHandler {
     /// the UI. Fixes bug-417: the previous synthetic-agent-id stamping (and the
     /// missing persistence) made every consensus answer/error invisible, leaving
     /// the chat hung on "thinking…". Mirrors the normal path's persist-then-emit.
+    /// Fire-and-forget persist of an agent response into the agent's memory —
+    /// native Rust plugin (`mem.store`) or MCP memory server (`ToolKind::Store`
+    /// with the derived channel). Mirrors the normal agentic path so both
+    /// ordinary replies and consensus (合議) answers reach long-term memory.
+    /// Consensus delivery previously wrote only chat history, so合議 answers
+    /// were never recalled later (bug-419).
+    ///
+    /// `memory_plugin` / `mcp_memory` are the already-resolved memory targets
+    /// (native plugin takes precedence; the MCP fallback is gated by
+    /// `mcp_access_control` at resolution time).
+    fn spawn_store_agent_response(
+        &self,
+        agent_id: &str,
+        msg: &ClotoMessage,
+        content: &str,
+        memory_plugin: Option<&Arc<dyn cloto_shared::Plugin>>,
+        mcp_memory: Option<&(Arc<McpClientManager>, String)>,
+    ) {
+        if let Some(plugin) = memory_plugin {
+            let plugin_clone = plugin.clone();
+            let agent_resp_msg = ClotoMessage {
+                id: format!("{}-resp", msg.id),
+                source: cloto_shared::MessageSource::Agent {
+                    id: agent_id.to_string(),
+                },
+                target_agent: Some(agent_id.to_string()),
+                content: content.to_string(),
+                timestamp: Utc::now(),
+                metadata: std::collections::HashMap::new(),
+            };
+            let agent_id_clone = agent_id.to_string();
+            let mem_timeout = Duration::from_secs(self.memory_timeout_secs);
+            tokio::spawn(async move {
+                if let Some(mem) = plugin_clone.as_memory() {
+                    let _ = tokio::time::timeout(
+                        mem_timeout,
+                        mem.store(agent_id_clone, agent_resp_msg),
+                    )
+                    .await;
+                }
+            });
+        } else if let Some((mcp, server_id)) = mcp_memory {
+            let mcp_clone = mcp.clone();
+            let server_id_clone = server_id.clone();
+            let agent_id_clone = agent_id.to_string();
+            // Same derived channel as the user-message store, so the agent's
+            // reply is filed alongside it (concrete channel, bridge-type
+            // fallback). Channel is scope-independent, so no scope is needed.
+            let resp_base_channel = msg
+                .metadata
+                .get("external_source")
+                .cloned()
+                .unwrap_or_else(|| "chat".into());
+            let resp_channel = SessionScope::derive_channel(
+                resp_base_channel,
+                msg.metadata.get("external_channel_id"),
+            );
+            let resp_session_id = msg
+                .metadata
+                .get("external_session_id")
+                .cloned()
+                .unwrap_or_default();
+            let resp_msg_json = serde_json::json!({
+                "id": format!("{}-resp", msg.id),
+                "content": content.to_string(),
+                "source": { "type": "Agent", "id": agent_id.to_string() },
+                "timestamp": Utc::now().to_rfc3339(),
+                "metadata": { "session_id": resp_session_id },
+            });
+            let mem_timeout2 = Duration::from_secs(self.memory_timeout_secs);
+            tokio::spawn(async move {
+                let store_args = serde_json::json!({
+                    "agent_id": agent_id_clone,
+                    "message": resp_msg_json,
+                    "channel": resp_channel,
+                });
+                let _ = tokio::time::timeout(
+                    mem_timeout2,
+                    mcp_clone.call_kind_at(
+                        &crate::managers::Caller::Agent(agent_id_clone.clone()),
+                        &server_id_clone,
+                        &crate::managers::ToolKind::Store,
+                        store_args,
+                    ),
+                )
+                .await;
+            });
+        }
+    }
+
     async fn deliver_consensus_result(
         &self,
         agent: &AgentMetadata,
@@ -2137,6 +2163,47 @@ impl SystemHandler {
         if let Err(e) = crate::db::save_chat_message_reliable(&self.pool, &chat_msg).await {
             error!(trace_id = %trace_id, error = %e, "Consensus chat persist DROPPED");
         }
+
+        // bug-419: the consensus answer must also reach long-term memory, not
+        // just chat history. Resolve the memory target the same way the normal
+        // agentic path does (preferred_memory → native plugin, else a
+        // capability-resolved MCP memory server gated by mcp_access_control)
+        // and fire-and-forget the store under the originating agent's id.
+        let memory_plugin = if let Some(preferred_id) = agent.metadata.get("preferred_memory") {
+            self.registry.get_engine(preferred_id).await
+        } else {
+            self.registry.find_memory().await
+        };
+        let mcp_memory: Option<(Arc<McpClientManager>, String)> = if memory_plugin.is_none() {
+            if let Some(ref mcp) = self.registry.mcp_manager {
+                let granted = self
+                    .agent_manager
+                    .get_granted_server_ids(&agent.id)
+                    .await
+                    .unwrap_or_default();
+                mcp.resolve_capability_server(crate::managers::CapabilityType::Memory)
+                    .await
+                    .and_then(|server_id| {
+                        if granted.contains(&server_id) {
+                            Some((mcp.clone(), server_id))
+                        } else {
+                            None
+                        }
+                    })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        self.spawn_store_agent_response(
+            &agent.id,
+            msg,
+            &content,
+            memory_plugin.as_ref(),
+            mcp_memory.as_ref(),
+        );
+
         let response = ClotoEventData::ThoughtResponse {
             agent_id: agent.id.clone(),
             engine_id: "consensus".to_string(),
