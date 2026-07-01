@@ -91,16 +91,6 @@ impl PluginRegistry {
         self.mcp_manager = Some(mcp_manager);
     }
 
-    /// Check if a tool name belongs to the kernel-native tool set.
-    /// Kernel-native tools are dispatched by the `mgp.` / `gui.` prefix; no
-    /// per-name allowlist is consulted (see comment on the deleted
-    /// `KERNEL_NATIVE_TOOLS` constant above). Access control still flows
-    /// through `resolve_tool_access(..., "kernel", ...)` in
-    /// `execute_tool_for_agent`.
-    fn is_kernel_native_tool(tool_name: &str) -> bool {
-        tool_name.starts_with("mgp.") || tool_name.starts_with("gui.")
-    }
-
     pub async fn update_effective_permissions(&self, plugin_id: ClotoId, permission: Permission) {
         let mut state = self.state.write().await;
         let perms = state.effective_permissions.entry(plugin_id).or_default();
@@ -181,6 +171,7 @@ impl PluginRegistry {
     /// Dual Dispatch: tries Rust plugins first, then falls back to MCP servers.
     pub async fn execute_tool(
         &self,
+        caller: &crate::managers::Caller,
         tool_name: &str,
         args: serde_json::Value,
     ) -> std::result::Result<serde_json::Value, cloto_shared::ToolFailure> {
@@ -202,9 +193,9 @@ impl PluginRegistry {
             }
         }
 
-        // 2. Fall back to MCP servers
+        // 2. Fall back to MCP servers (gated by the central capability gate).
         if let Some(ref mcp) = self.mcp_manager {
-            return mcp.execute_tool_internal(tool_name, args).await;
+            return mcp.execute_tool_internal(caller, tool_name, args).await;
         }
 
         Err(anyhow::anyhow!("Tool '{}' not found", tool_name).into())
@@ -214,6 +205,7 @@ impl PluginRegistry {
     /// Dual Dispatch: tries Rust plugins first, then falls back to MCP servers.
     pub async fn execute_tool_for(
         &self,
+        caller: &crate::managers::Caller,
         allowed_plugin_ids: &[String],
         tool_name: &str,
         args: serde_json::Value,
@@ -250,7 +242,7 @@ impl PluginRegistry {
                     == Some(tool_name)
             });
             if has_tool {
-                return mcp.execute_tool_internal(tool_name, args).await;
+                return mcp.execute_tool_internal(caller, tool_name, args).await;
             }
         }
 
@@ -322,47 +314,20 @@ impl PluginRegistry {
             }
         }
 
-        // 2. MCP servers: check access via resolve_tool_access, then execute
+        // 2. MCP servers: the per-agent capability gate — including the
+        //    kernel-native Deny-only RBAC — is now enforced centrally inside
+        //    `execute_tool_internal` (bug-421, PATH 2). No inline
+        //    `check_tool_access` here: "shown" (presentation-layer filtering)
+        //    and "allowed" (enforcement) are decoupled, single-sourced at the
+        //    chokepoint.
         if let Some(ref mcp) = self.mcp_manager {
-            // Kernel-native tools use server_id="kernel" for RBAC.
-            // Default policy is Allow (no entries = permitted).
-            // Administrators can add Deny entries to restrict specific agents.
-            if Self::is_kernel_native_tool(tool_name) {
-                if let Ok(crate::db::mcp::PermissionLevel::Deny) =
-                    crate::db::resolve_tool_access(mcp.pool(), agent_id, "kernel", tool_name).await
-                {
-                    return Err(anyhow::anyhow!(
-                        "Access denied: agent '{}' cannot use kernel tool '{}'",
-                        agent_id,
-                        tool_name
-                    )
-                    .into());
-                }
-                return mcp.execute_tool_internal(tool_name, args).await;
-            }
-
-            let access = mcp.check_tool_access(agent_id, tool_name).await;
-            match access {
-                Ok(crate::db::mcp::PermissionLevel::Allow) => {
-                    return mcp.execute_tool_internal(tool_name, args).await;
-                }
-                Ok(crate::db::mcp::PermissionLevel::Deny) => {
-                    return Err(anyhow::anyhow!(
-                        "Access denied: agent '{}' cannot use tool '{}'",
-                        agent_id,
-                        tool_name
-                    )
-                    .into());
-                }
-                Err(e) => {
-                    return Err(anyhow::anyhow!(
-                        "Access check failed for tool '{}': {}",
-                        tool_name,
-                        e
-                    )
-                    .into());
-                }
-            }
+            return mcp
+                .execute_tool_internal(
+                    &crate::managers::Caller::Agent(agent_id.to_string()),
+                    tool_name,
+                    args,
+                )
+                .await;
         }
 
         Err(anyhow::anyhow!(

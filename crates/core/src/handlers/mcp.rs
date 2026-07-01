@@ -884,9 +884,17 @@ pub async fn call_mcp_tool(
         )));
     }
 
+    // Admin-authenticated coordinator endpoint → System. Per-agent scoping for
+    // this path flows only through an `_mgp.delegation` envelope (original_actor),
+    // handled inside resolve_tool_call_target, not a body agent_id.
     let result = state
         .mcp_manager
-        .call_server_tool(&body.server_id, &body.tool_name, body.arguments)
+        .call_server_tool(
+            &crate::managers::Caller::System,
+            &body.server_id,
+            &body.tool_name,
+            body.arguments,
+        )
         .await
         .map_err(
             |e| match e.downcast::<crate::managers::mcp_mgp::MgpError>() {

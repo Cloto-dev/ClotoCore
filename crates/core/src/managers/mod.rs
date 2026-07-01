@@ -32,6 +32,6 @@ pub mod usage_tracker;
 
 pub use agents::AgentManager;
 pub use capability_dispatcher::{CapabilityDispatcher, CapabilityType, ToolKind};
-pub use mcp::McpClientManager;
+pub use mcp::{Caller, McpClientManager};
 pub use plugin::PluginManager;
 pub use registry::{PluginRegistry, PluginSetting, SystemMetrics};

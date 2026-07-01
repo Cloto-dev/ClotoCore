@@ -1490,49 +1490,55 @@ pub(super) async fn execute_mgp_agent_ask(
         vec![]
     };
 
-    let response =
-        match run_mgp_agent_ask_loop(manager, &engine_id, &think_args, &tools, target_agent_id)
-            .await
-        {
-            Ok(content) => content,
-            Err(e) => {
-                // Emit AgentDialogue "error" event
-                manager
-                    .emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
-                        dialogue_id: dialogue_id.clone(),
-                        caller_agent_id: caller_agent_id.to_string(),
-                        caller_agent_name: caller_agent_name.clone(),
-                        target_agent_id: target_agent_id.to_string(),
-                        target_agent_name: agent_meta.name.clone(),
-                        prompt: prompt.to_string(),
-                        engine_id: engine_id.clone(),
-                        response: Some(format!("Engine call failed: {}", e)),
-                        chain_depth,
-                        status: "error".to_string(),
-                    })
-                    .await;
-                // Audit: delegation failed
-                manager
-                    .broadcast_audit_event(&crate::db::AuditLogEntry {
-                        timestamp: chrono::Utc::now(),
-                        event_type: "DELEGATION_FAILED".to_string(),
-                        actor_id: Some(caller_agent_id.to_string()),
-                        target_id: Some(target_agent_id.to_string()),
-                        permission: None,
-                        result: "error".to_string(),
-                        reason: e.to_string(),
-                        metadata: None,
-                        trace_id: None,
-                    })
-                    .await;
-                return Ok(serde_json::json!({
-                    "status": "error",
-                    "reason": format!("Engine call failed: {}", e),
-                    "source_agent": caller_agent_id,
-                    "target_agent": target_agent_id,
-                }));
-            }
-        };
+    let response = match run_mgp_agent_ask_loop(
+        manager,
+        &engine_id,
+        &think_args,
+        &tools,
+        target_agent_id,
+        caller_agent_id,
+    )
+    .await
+    {
+        Ok(content) => content,
+        Err(e) => {
+            // Emit AgentDialogue "error" event
+            manager
+                .emit_kernel_event(cloto_shared::ClotoEventData::AgentDialogue {
+                    dialogue_id: dialogue_id.clone(),
+                    caller_agent_id: caller_agent_id.to_string(),
+                    caller_agent_name: caller_agent_name.clone(),
+                    target_agent_id: target_agent_id.to_string(),
+                    target_agent_name: agent_meta.name.clone(),
+                    prompt: prompt.to_string(),
+                    engine_id: engine_id.clone(),
+                    response: Some(format!("Engine call failed: {}", e)),
+                    chain_depth,
+                    status: "error".to_string(),
+                })
+                .await;
+            // Audit: delegation failed
+            manager
+                .broadcast_audit_event(&crate::db::AuditLogEntry {
+                    timestamp: chrono::Utc::now(),
+                    event_type: "DELEGATION_FAILED".to_string(),
+                    actor_id: Some(caller_agent_id.to_string()),
+                    target_id: Some(target_agent_id.to_string()),
+                    permission: None,
+                    result: "error".to_string(),
+                    reason: e.to_string(),
+                    metadata: None,
+                    trace_id: None,
+                })
+                .await;
+            return Ok(serde_json::json!({
+                "status": "error",
+                "reason": format!("Engine call failed: {}", e),
+                "source_agent": caller_agent_id,
+                "target_agent": target_agent_id,
+            }));
+        }
+    };
 
     // Emit AgentDialogue "success" event
     manager
@@ -1741,11 +1747,26 @@ async fn run_mgp_agent_ask_loop(
     think_args: &Value,
     tools: &[Value],
     target_agent_id: &str,
+    caller_agent_id: &str,
 ) -> anyhow::Result<String> {
+    // Delegated execution runs under the TARGET agent's identity (bug-421): the
+    // delegated engine think and every tool the target's engine requests are
+    // gated by the target's own grants (Caller::Agent(target)), closing the
+    // previously-ungated delegation path.
+    //
+    // Delegated TOOL calls additionally enforce the MGP §5.6.1 caller∩target
+    // intersection: before execution we explicitly check that the delegating
+    // caller (original_actor) is ALSO granted the tool. Effective access =
+    // caller ∩ target, closing the confused-deputy gap (A delegating to B must
+    // not let A reach a server only B holds). The engine think itself is the
+    // target's own engine (not a delegated tool), so it is gated by
+    // Caller::Agent(target) only.
+    let caller = crate::managers::Caller::Agent(target_agent_id.to_string());
+
     // No tools available → plain think (single inference)
     if tools.is_empty() {
         let result = manager
-            .call_server_tool(engine_id, "think", think_args.clone())
+            .call_server_tool(&caller, engine_id, "think", think_args.clone())
             .await?;
         return Ok(extract_think_response(&result));
     }
@@ -1768,7 +1789,7 @@ async fn run_mgp_agent_ask_loop(
         }
 
         let result = manager
-            .call_server_tool(engine_id, "think_with_tools", loop_args.clone())
+            .call_server_tool(&caller, engine_id, "think_with_tools", loop_args.clone())
             .await?;
 
         match parse_think_result(&result)? {
@@ -1819,11 +1840,26 @@ async fn run_mgp_agent_ask_loop(
                     // Resolve tool name → server ID (avoids recursive async through execute_tool_internal)
                     let server_id = manager.resolve_tool_server(&call.name).await;
                     let tool_result = if let Some(sid) = server_id {
-                        tokio::time::timeout(
-                            std::time::Duration::from_secs(MGP_AGENT_ASK_TOOL_TIMEOUT_SECS),
-                            manager.call_server_tool(&sid, &call.name, safe_args),
-                        )
-                        .await
+                        // §5.6.1 caller∩target: the delegating caller must ALSO be
+                        // granted this tool (the target side is gated by
+                        // Caller::Agent(target) inside call_server_tool). Refuse
+                        // before execution otherwise — confused-deputy fix.
+                        if matches!(
+                            manager.check_tool_access(caller_agent_id, &call.name).await,
+                            Ok(crate::db::mcp::PermissionLevel::Allow)
+                        ) {
+                            tokio::time::timeout(
+                                std::time::Duration::from_secs(MGP_AGENT_ASK_TOOL_TIMEOUT_SECS),
+                                manager.call_server_tool(&caller, &sid, &call.name, safe_args),
+                            )
+                            .await
+                        } else {
+                            Ok(Err(anyhow::anyhow!(
+                                "Delegation denied: caller '{}' is not granted tool '{}' (MGP §5.6.1 caller∩target)",
+                                caller_agent_id,
+                                call.name
+                            )))
+                        }
                     } else {
                         Ok(Err(anyhow::anyhow!(
                             "Tool '{}' not found in any connected server",
