@@ -669,13 +669,12 @@ pub enum ClotoEventData {
         content: String,
         iteration: u8,
     },
-    /// Per-token streaming delta from a `mind.*` engine using MGP §12 streaming
-    /// (Phase C). Consumers concatenate deltas in `index` order to reconstruct
-    /// the text generated so far. Only emitted when
-    /// `CLOTO_MCP_STREAMING_ENABLED=true` and the engine_id starts with
-    /// `mind.`. The final result still arrives as `ThoughtResponse` /
-    /// `AgenticLoopCompleted` so consumers that ignore this variant stay
-    /// functional.
+    /// Per-token streaming delta from an MCP reasoning engine using MGP §12
+    /// streaming (Phase C). Consumers concatenate deltas in `index` order to
+    /// reconstruct the text generated so far. Only emitted when
+    /// `CLOTO_MCP_STREAMING_ENABLED=true`. The final result still arrives as
+    /// `ThoughtResponse` / `AgenticLoopCompleted` so consumers that ignore this
+    /// variant stay functional.
     AgentTokenStream {
         agent_id: String,
         engine_id: String,
@@ -795,7 +794,7 @@ pub enum ClotoEventData {
         prompt: String,
         /// "proposal" (one engine's contribution) or "synthesis" (the merge).
         phase: String,
-        /// The engine producing this step (e.g. "mind.deepseek").
+        /// The engine producing this step (e.g. "deepseek").
         engine_id: String,
         /// Which sample of this engine produced the step. 1 = the first (primary)
         /// proposal; >= 2 = a reuse fallback re-sampling the same engine (through a

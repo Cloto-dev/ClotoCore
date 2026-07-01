@@ -19,11 +19,12 @@ export interface PresetInfo {
   defaultEngine: string;
 }
 
+// Engine ids are bare (an earlier decision — the `mind.` prefix is retired).
 export const SERVER_PRESETS: PresetInfo[] = [
-  { id: 'standard', icon: Layers, defaultEngine: 'mind.cerebras', servers: STANDARD_SERVERS },
-  { id: 'advanced', icon: Zap, defaultEngine: 'mind.deepseek', servers: ADVANCED_SERVERS },
-  { id: 'expert', icon: Shield, defaultEngine: 'mind.deepseek', servers: EXPERT_SERVERS },
-  { id: 'minimal', icon: Box, defaultEngine: 'mind.cerebras', servers: MINIMAL_SERVERS },
+  { id: 'standard', icon: Layers, defaultEngine: 'cerebras', servers: STANDARD_SERVERS },
+  { id: 'advanced', icon: Zap, defaultEngine: 'deepseek', servers: ADVANCED_SERVERS },
+  { id: 'expert', icon: Shield, defaultEngine: 'deepseek', servers: EXPERT_SERVERS },
+  { id: 'minimal', icon: Box, defaultEngine: 'cerebras', servers: MINIMAL_SERVERS },
 ];
 
 /**

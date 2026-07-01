@@ -61,8 +61,8 @@ pub async fn set_llm_provider_key(
 /// POST /api/llm/providers/:id/model
 ///
 /// Updates the `model_id` for a provider, recording the change in
-/// `llm_provider_model_history`. For `mind.ollama`, also relays the change to
-/// the running MCP server's `switch_model` tool so the active model updates
+/// `llm_provider_model_history`. For the `ollama` engine, also relays the change
+/// to the running MCP server's `switch_model` tool so the active model updates
 /// without a kernel restart.
 pub async fn set_llm_provider_model(
     State(state): State<Arc<AppState>>,
@@ -104,15 +104,17 @@ pub async fn set_llm_provider_model(
         .await
         .map_err(|e| AppError::Validation(e.to_string()))?;
 
-    // Providers whose mind server binds the model name at startup need a live
-    // relay (e.g. `mind.ollama` reads OLLAMA_MODEL only on spawn). Declared
+    // Providers whose engine server binds the model name at startup need a live
+    // relay (e.g. the `ollama` engine reads OLLAMA_MODEL only on spawn). Declared
     // in `llm_providers.quirks.switch_model_tool` instead of a hard-coded
     // provider_id branch. Failure here is non-fatal (DB is already updated;
     // post-connect sync will catch up on the next (re)start).
     if let Some(tool_name) = quirks.switch_model_tool.clone() {
         let mcp_mgr = state.mcp_manager.clone();
         let model_owned = model_id.to_string();
-        let server_id = format!("mind.{}", provider_id);
+        // Engine server ids are bare and equal their provider id (an earlier decision):
+        // the running server is registered as e.g. `ollama`, not `mind.ollama`.
+        let server_id = provider_id.clone();
         let provider_id_audit = provider_id.clone();
         tokio::spawn(async move {
             match mcp_mgr

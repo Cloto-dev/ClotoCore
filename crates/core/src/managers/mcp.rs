@@ -1093,13 +1093,14 @@ impl McpClientManager {
                     )
                     .await
                 } else {
-                    // For mind.* engines, surface the DB-configured model_id
+                    // For reasoning engines, surface the DB-configured model_id
                     // as `{PREFIX}_MODEL` so the server can auto-detect
                     // reasoning/thinking behavior from the actual upstream
                     // model (see common/llm_provider.py::_model_suggests_reasoning).
                     // Only injected when the user hasn't already set the var
-                    // via mcp.toml or DB env.
-                    let augmented_env = self.augment_mind_env(&id, &config.env).await;
+                    // via mcp.toml or DB env. Non-engine servers are left
+                    // untouched (no matching llm_providers row).
+                    let augmented_env = self.augment_engine_env(&id, &config.env).await;
                     McpClient::connect(
                         &id,
                         &config.command,
@@ -1392,13 +1393,15 @@ impl McpClientManager {
         };
 
         // Register in servers map + update tool routing index under single lock.
-        // Skip mind.* servers — their tools (think, think_with_tools) are engine-internal
-        // and called directly via call_server_tool(engine_id, ...), not through tool_index.
+        // Skip reasoning engines — their tools (think, think_with_tools) are
+        // engine-internal and called directly via call_server_tool(engine_id, ...),
+        // not through tool_index. Detected by tool surface, not id prefix, so
+        // bare-id engines (local, ollama, deepseek, …) are all recognised (an earlier decision).
         {
             let mut state = self.state.write().await;
             state.servers.insert(id.clone(), handle);
 
-            if !id.starts_with("mind.") {
+            if !tools_expose_reasoning(&tools) {
                 for tool in &tools {
                     // §1.6.3: Reject tools with reserved mgp.* namespace
                     if tool.name.starts_with("mgp.") {
@@ -1496,18 +1499,18 @@ impl McpClientManager {
         )
         .await;
 
-        // mind.ollama reads OLLAMA_MODEL only at startup. On connect, sync its
-        // active model from the DB so Dashboard model selections survive a
-        // kernel or mind.ollama restart. Failure is non-fatal — the user can
+        // The ollama engine reads OLLAMA_MODEL only at startup. On connect, sync
+        // its active model from the DB so Dashboard model selections survive a
+        // kernel or ollama restart. Failure is non-fatal — the user can
         // still switch via the Dashboard or the switch_model tool.
-        if id == "mind.ollama" {
+        if id == "ollama" {
             match crate::db::get_llm_provider(&self.pool, "ollama").await {
                 Ok(provider) if !provider.model_id.is_empty() => {
                     let model = provider.model_id.clone();
                     match self
                         .call_server_tool(
                             &Caller::System,
-                            "mind.ollama",
+                            "ollama",
                             "switch_model",
                             serde_json::json!({ "model": model }),
                         )
@@ -1515,11 +1518,11 @@ impl McpClientManager {
                     {
                         Ok(_) => info!(
                             model = %model,
-                            "mind.ollama active model synced from DB on connect"
+                            "ollama active model synced from DB on connect"
                         ),
                         Err(e) => warn!(
                             error = %e,
-                            "mind.ollama post-connect switch_model sync failed"
+                            "ollama post-connect switch_model sync failed"
                         ),
                     }
                 }
@@ -1599,13 +1602,16 @@ impl McpClientManager {
             .collect()
     }
 
-    /// Return IDs of connected mind.* servers (reasoning engines).
+    /// Return IDs of connected reasoning engines (servers exposing the
+    /// think / think_with_tools tool surface). Detected by tool surface, not id
+    /// prefix, so bare-id engines (local, ollama, deepseek, …) are all included
+    /// (an earlier decision).
     pub async fn list_connected_mind_servers(&self) -> Vec<String> {
         let state = self.state.read().await;
         state
             .servers
             .iter()
-            .filter(|(id, h)| id.starts_with("mind.") && h.status == ServerStatus::Connected)
+            .filter(|(_, h)| h.is_reasoning_engine() && h.status == ServerStatus::Connected)
             .map(|(id, _)| id.clone())
             .collect()
     }
@@ -1673,8 +1679,9 @@ impl McpClientManager {
             if handle.status != ServerStatus::Connected {
                 continue;
             }
-            // Skip mind.* — engine-internal tools, not agent-facing
-            if handle.id.starts_with("mind.") {
+            // Skip reasoning engines — think/think_with_tools are engine-internal,
+            // not agent-facing. Detected by tool surface, not id prefix (an earlier decision).
+            if handle.is_reasoning_engine() {
                 continue;
             }
             for tool in &handle.tools {
@@ -1758,8 +1765,9 @@ impl McpClientManager {
             if handle.status != ServerStatus::Connected {
                 continue;
             }
-            // Skip mind.* — engine-internal tools, not agent-facing
-            if server_id.starts_with("mind.") {
+            // Skip reasoning engines — think/think_with_tools are engine-internal,
+            // not agent-facing. Detected by tool surface, not id prefix (an earlier decision).
+            if handle.is_reasoning_engine() {
                 continue;
             }
             for tool in &handle.tools {
@@ -2103,8 +2111,8 @@ impl McpClientManager {
     /// `resolve_tool_access(id, server_id, tool_name)`; anything but an explicit
     /// `Allow` (i.e. `Deny`, or a resolution error) is refused **before**
     /// execution. Because the check keys on `server_id`, reasoning engines
-    /// (`mind.*` and bare-named MCP servers), tools, and memory servers are all
-    /// gated uniformly — there is no separate "engine config" permission concept.
+    /// (bare-named MCP servers), tools, and memory servers are all gated
+    /// uniformly — there is no separate "engine config" permission concept.
     async fn enforce_caller_grant(
         &self,
         caller: &Caller,
@@ -2966,30 +2974,33 @@ impl McpClientManager {
         self.start_server(id).await
     }
 
-    /// For `mind.<name>` servers, inject `{NAME}_MODEL` derived from the
-    /// `llm_providers` DB row (keyed on the `<name>` portion of the id) when
-    /// the user hasn't already supplied that env var via mcp.toml / DB env.
+    /// For reasoning-engine servers, inject `{ID}_MODEL` derived from the
+    /// `llm_providers` DB row (keyed on the bare engine id) when the user
+    /// hasn't already supplied that env var via mcp.toml / DB env.
     ///
-    /// This exists because mind.* servers usually receive their model via the
+    /// Engines are identified by having a matching `llm_providers` row — an
+    /// ordinary MCP server (cpersona, github-bridge, …) has none, so the DB
+    /// lookup misses and the env is returned untouched. This replaces the
+    /// retired `mind.` prefix classifier (an earlier decision): engine ids are bare
+    /// (`local`, `ollama`, `deepseek`, …) and equal their provider id.
+    ///
+    /// This exists because engine servers usually receive their model via the
     /// kernel LLM proxy overriding the `model` field in the forwarded body,
     /// so the server subprocess never sees the active model in its own env.
     /// The server-side reasoning/thinking auto-detection
     /// (`common/llm_provider.py::_model_suggests_reasoning`) wants that
     /// signal at startup — this helper bridges the gap.
-    async fn augment_mind_env(
+    async fn augment_engine_env(
         &self,
         id: &str,
         base_env: &HashMap<String, String>,
     ) -> HashMap<String, String> {
         let mut env = base_env.clone();
-        let Some(name) = id.strip_prefix("mind.") else {
-            return env;
-        };
-        let key = format!("{}_MODEL", name.to_uppercase());
+        let key = format!("{}_MODEL", id.to_uppercase());
         if env.contains_key(&key) {
             return env;
         }
-        match crate::db::get_llm_provider(&self.pool, name).await {
+        match crate::db::get_llm_provider(&self.pool, id).await {
             Ok(provider) if !provider.model_id.is_empty() => {
                 env.insert(key, provider.model_id);
                 // Translate user intent (thinking_mode) to the mechanism the
@@ -2998,7 +3009,7 @@ impl McpClientManager {
                 //   * thinking on  → do NOT prefill (let the model think)
                 //   * thinking off → DO prefill (suppress thinking)
                 //   * auto         → leave env unset so the heuristic decides
-                let prefill_key = format!("{}_REASONING_PREFILL", name.to_uppercase());
+                let prefill_key = format!("{}_REASONING_PREFILL", id.to_uppercase());
                 match provider.thinking_mode.as_str() {
                     "on" => {
                         env.insert(prefill_key, "false".to_string());

@@ -130,7 +130,7 @@ pub struct AppConfig {
     /// MCP servers that advertise the `logging` capability (design §7). One of
     /// the RFC 5424 levels; default `info`. Override with `CLOTO_MCP_LOG_LEVEL`.
     pub mcp_log_level: String,
-    /// Opt-in gate for routing `mind.*` engine calls through
+    /// Opt-in gate for routing MCP engine calls through
     /// `call_tool_streaming`. When enabled, the agentic loop emits
     /// `ClotoEventData::AgentTokenStream` for each chunk. Default off to
     /// preserve the non-streaming path; flip to true with

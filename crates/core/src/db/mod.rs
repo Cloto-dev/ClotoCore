@@ -549,6 +549,140 @@ mod tests {
         repair_cpersona_rename_collision(&pool).await.unwrap();
     }
 
+    // ── 20260701120000_retire_mind_prefix (an earlier decision / an earlier decision) ──
+
+    const MIND_PREFIX_MIGRATION: &str =
+        include_str!("../../migrations/20260701120000_retire_mind_prefix.sql");
+
+    /// Minimal shapes of the three tables the mind.-prefix migration touches,
+    /// with the same `mcp_access_control.server_id → mcp_servers(name)` FK
+    /// (ON DELETE CASCADE) that constrains the real rename.
+    async fn create_mind_prefix_tables(pool: &SqlitePool) {
+        sqlx::raw_sql(
+            "CREATE TABLE mcp_servers (name TEXT PRIMARY KEY, command TEXT); \
+             CREATE TABLE mcp_access_control ( \
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, \
+                 entry_type TEXT NOT NULL, \
+                 agent_id TEXT NOT NULL, \
+                 server_id TEXT NOT NULL REFERENCES mcp_servers(name) ON DELETE CASCADE, \
+                 tool_name TEXT, \
+                 permission TEXT NOT NULL DEFAULT 'allow', \
+                 granted_by TEXT, \
+                 granted_at TEXT NOT NULL, \
+                 expires_at TEXT, \
+                 justification TEXT, \
+                 metadata TEXT); \
+             CREATE TABLE agents (id TEXT PRIMARY KEY, default_engine_id TEXT NOT NULL);",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn mind_prefix_migration_renames_builtins_and_merges_aliases() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        create_mind_prefix_tables(&pool).await;
+        // Built-in mind.local/mind.ollama servers; catalog deepseek already bare;
+        // an orphan wizard-alias server row (mind.deepseek) that shadows deepseek.
+        sqlx::raw_sql(
+            "INSERT INTO mcp_servers (name, command) VALUES \
+               ('mind.local','x'),('mind.ollama','x'),('deepseek','x'), \
+               ('cpersona','x'),('mind.deepseek','config-loaded'); \
+             INSERT INTO mcp_access_control (entry_type, agent_id, server_id, tool_name, granted_at) VALUES \
+               ('server_grant','agentA','mind.local',NULL,'t'), \
+               ('server_grant','agentA','mind.deepseek',NULL,'t'), \
+               ('server_grant','agentB','deepseek',NULL,'t'), \
+               ('server_grant','agentB','mind.deepseek',NULL,'t'), \
+               ('tool_grant','agentB','mind.local','think','t'), \
+               ('server_grant','agentC','cpersona',NULL,'t'); \
+             INSERT INTO agents (id, default_engine_id) VALUES \
+               ('agentA','mind.deepseek'),('agentB','deepseek'),('agentC','mind.ollama');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Applying twice must be idempotent.
+        for _ in 0..2 {
+            sqlx::raw_sql(MIND_PREFIX_MIGRATION)
+                .execute(&pool)
+                .await
+                .expect("mind-prefix migration must apply cleanly");
+        }
+
+        let servers: Vec<String> = sqlx::query_scalar("SELECT name FROM mcp_servers ORDER BY name")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(servers, vec!["cpersona", "deepseek", "local", "ollama"]);
+
+        // mind.* grants de-prefixed; the duplicate mind.deepseek→deepseek merged
+        // into the existing bare deepseek grant; the tool_grant kept its tool_name;
+        // the non-engine cpersona grant is untouched.
+        let grants: Vec<(String, String, Option<String>)> = sqlx::query_as(
+            "SELECT agent_id, server_id, tool_name FROM mcp_access_control \
+             ORDER BY agent_id, server_id, IFNULL(tool_name,'')",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            grants,
+            vec![
+                ("agentA".into(), "deepseek".into(), None),
+                ("agentA".into(), "local".into(), None),
+                ("agentB".into(), "deepseek".into(), None),
+                ("agentB".into(), "local".into(), Some("think".into())),
+                ("agentC".into(), "cpersona".into(), None),
+            ]
+        );
+
+        let engines: Vec<(String, String)> =
+            sqlx::query_as("SELECT id, default_engine_id FROM agents ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            engines,
+            vec![
+                ("agentA".into(), "deepseek".into()),
+                ("agentB".into(), "deepseek".into()),
+                ("agentC".into(), "ollama".into()),
+            ]
+        );
+
+        // No dangling FK references after the rename.
+        let fk_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(fk_violations.is_empty(), "FK must stay consistent");
+    }
+
+    #[tokio::test]
+    async fn mind_prefix_migration_tolerates_fresh_database() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        create_mind_prefix_tables(&pool).await;
+        sqlx::raw_sql(
+            "INSERT INTO mcp_servers (name, command) VALUES ('deepseek','x'); \
+             INSERT INTO agents (id, default_engine_id) VALUES ('a','deepseek');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(MIND_PREFIX_MIGRATION)
+            .execute(&pool)
+            .await
+            .expect("no-op on a DB with no mind.* rows");
+        let servers: Vec<String> = sqlx::query_scalar("SELECT name FROM mcp_servers ORDER BY name")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(servers, vec!["deepseek"]);
+    }
+
     #[tokio::test]
     async fn test_audit_log_roundtrip() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();

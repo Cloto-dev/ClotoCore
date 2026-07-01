@@ -27,6 +27,34 @@ pub struct McpServerHandle {
     pub isolation_profile: Option<super::mcp_isolation::IsolationProfile>,
 }
 
+/// Tool names that mark a server as a reasoning engine. These are
+/// engine-internal (invoked directly via `call_server_tool(engine_id, …)`),
+/// not agent-facing, so classifiers use this tool surface — not an id prefix —
+/// to recognise an engine. This is the id-prefix-agnostic replacement for the
+/// retired `mind.` prefix (an earlier decision: engine ids are bare, e.g. `local`,
+/// `ollama`, `deepseek`).
+pub const ENGINE_TOOL_NAMES: [&str; 2] = ["think", "think_with_tools"];
+
+/// True when a tool list exposes the reasoning-engine tool surface
+/// (`think` / `think_with_tools`).
+#[must_use]
+pub fn tools_expose_reasoning(tools: &[McpTool]) -> bool {
+    tools
+        .iter()
+        .any(|t| ENGINE_TOOL_NAMES.contains(&t.name.as_str()))
+}
+
+impl McpServerHandle {
+    /// True when this server is a reasoning engine (exposes the
+    /// `think` / `think_with_tools` tool surface). Replaces the legacy
+    /// `id.starts_with("mind.")` classifier (an earlier decision) so bare-id engines
+    /// (`local`, `ollama`, `deepseek`, …) are recognised uniformly.
+    #[must_use]
+    pub fn is_reasoning_engine(&self) -> bool {
+        tools_expose_reasoning(&self.tools)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerStatus {
     Registered,    // config loaded, not started
@@ -104,4 +132,35 @@ pub fn mcp_tool_schema(tool: &McpTool, security: Option<&ToolSecurityMetadata>) 
         schema["security"] = serde_json::to_value(sec).unwrap_or_default();
     }
     schema
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool(name: &str) -> McpTool {
+        McpTool {
+            name: name.to_string(),
+            description: None,
+            input_schema: serde_json::json!({}),
+            annotations: None,
+        }
+    }
+
+    #[test]
+    fn tools_expose_reasoning_keys_on_think_surface_not_id() {
+        // A reasoning engine is recognised by its think / think_with_tools tool
+        // surface regardless of id — bare `local`/`ollama`/`deepseek` all qualify
+        // (an earlier decision), replacing the retired `mind.` prefix classifier.
+        assert!(tools_expose_reasoning(&[tool("think")]));
+        assert!(tools_expose_reasoning(&[
+            tool("switch_model"),
+            tool("think_with_tools"),
+        ]));
+        // Ordinary MCP servers (memory, tools) are not engines.
+        assert!(!tools_expose_reasoning(&[tool("store"), tool("recall")]));
+        assert!(!tools_expose_reasoning(&[]));
+        // A tool merely containing "think" as a substring is not the surface.
+        assert!(!tools_expose_reasoning(&[tool("rethink_plan")]));
+    }
 }
