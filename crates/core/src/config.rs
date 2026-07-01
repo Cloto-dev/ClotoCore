@@ -126,6 +126,10 @@ pub struct AppConfig {
     /// streaming tool call when no chunk arrives within this window, bounded
     /// above by `mcp_request_timeout_secs`. bug-351.
     pub mcp_stream_idle_timeout_secs: u64,
+    /// Default minimum severity the kernel requests via `logging/setLevel` from
+    /// MCP servers that advertise the `logging` capability (design §7). One of
+    /// the RFC 5424 levels; default `info`. Override with `CLOTO_MCP_LOG_LEVEL`.
+    pub mcp_log_level: String,
     /// Opt-in gate for routing `mind.*` engine calls through
     /// `call_tool_streaming`. When enabled, the agentic loop emits
     /// `ClotoEventData::AgentTokenStream` for each chunk. Default off to
@@ -447,6 +451,26 @@ impl AppConfig {
             );
         }
 
+        let mcp_log_level = env::var("CLOTO_MCP_LOG_LEVEL")
+            .unwrap_or_else(|_| "info".to_string())
+            .to_lowercase();
+        const MCP_LOG_LEVELS: [&str; 8] = [
+            "debug",
+            "info",
+            "notice",
+            "warning",
+            "error",
+            "critical",
+            "alert",
+            "emergency",
+        ];
+        if !MCP_LOG_LEVELS.contains(&mcp_log_level.as_str()) {
+            anyhow::bail!(
+                "CLOTO_MCP_LOG_LEVEL must be one of debug|info|notice|warning|error|critical|alert|emergency (got {})",
+                mcp_log_level
+            );
+        }
+
         let mcp_streaming_enabled = env::var("CLOTO_MCP_STREAMING_ENABLED")
             .is_ok_and(|v| matches!(v.as_str(), "true" | "1" | "yes" | "on"));
 
@@ -644,6 +668,7 @@ impl AppConfig {
             heartbeat_threshold_ms,
             mcp_request_timeout_secs,
             mcp_stream_idle_timeout_secs,
+            mcp_log_level,
             mcp_streaming_enabled,
             mcp_health_interval_secs,
             llm_proxy_timeout_secs,

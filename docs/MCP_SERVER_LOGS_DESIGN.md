@@ -101,8 +101,11 @@ what bug-423 / bug-424 get wrong).
 
 **Non-goals**
 
-- Persisting logs across kernel restarts (the tab is a live tail; ring-buffered
-  in-memory on the client, last 200 lines — matches current `slice(-199)`).
+- Persisting logs across kernel **restarts** (the tab is a live tail; last 200
+  lines in-memory on the client). On open it *does* seed from the kernel's
+  in-session event-history ring buffer (§8.6) so an already-running server isn't
+  shown as empty — that is current-session backfill, not cross-restart
+  persistence.
 - A global/aggregate log viewer (this is per-server).
 - An MGP-native logging protocol extension.
 - `logging/setLevel` UI controls beyond an optional kernel-set default (see §6).
@@ -258,6 +261,15 @@ logging-capable servers. The config key SHOULD allow overriding the default
 6. Update the `logs.waiting` copy (English canonical + external language-pack
    key) away from "Coming soon…" to a live empty state (e.g. "No log output
    yet.").
+7. **Seed from history on open (§8.6).** The SSE stream only live-tails from the
+   moment the tab mounts and does **not** replay history on a fresh connection
+   (`sse_handler` replays only for a `Last-Event-ID` reconnect), so opening the
+   Log tab on an already-running server showed nothing until the next line —
+   even though the server had already logged. On mount, fetch `GET /api/history`
+   (the kernel's in-memory event-history ring buffer), map each entry through the
+   same `eventToLogEntry(event, server.id)` used for live events, and seed the
+   list (capped at 200). Live tailing continues on top. Shared mapping keeps the
+   history and live paths byte-identical.
 
 UI rules (`dashboard`): min text `text-[9px]`, badges follow existing
 color/`bg-glass` conventions; no new Tailwind classes without regenerating

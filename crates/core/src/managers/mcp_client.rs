@@ -27,6 +27,57 @@ pub struct McpNotification {
     pub params: Option<Value>,
 }
 
+/// Kernel-internal pseudo-notification method used to carry a child-process
+/// stderr line through the existing notification channel. The notification
+/// consumer converts it to a `ClotoEventData::McpServerLog { source: Stderr }`
+/// (it is not a real wire method — it lives in the `notifications/cloto.*`
+/// kernel namespace). See `docs/MCP_SERVER_LOGS_DESIGN.md` §6.
+pub const CLOTO_STDERR_LOG_METHOD: &str = "notifications/cloto.stderr";
+
+/// Bounded buffer for the per-server stderr→log forwarding channel. Logs are
+/// best-effort (dropped on overflow — tracing still has them), so a modest
+/// buffer is enough to smooth bursts without holding memory.
+const MCP_STDERR_CHANNEL_BUFFER: usize = 128;
+
+/// Extract the log line carried by a [`CLOTO_STDERR_LOG_METHOD`] pseudo-notification
+/// (`params.line`). Empty string if the shape is unexpected. The notification
+/// consumer uses this to build a `McpServerLog{source:Stderr}`.
+pub fn stderr_line_from_params(params: Option<&Value>) -> String {
+    params
+        .and_then(|p| p.get("line"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// Default minimum severity sent via `logging/setLevel` when a server advertises
+/// the MCP `logging` capability but the kernel config supplies no override.
+/// See `docs/MCP_SERVER_LOGS_DESIGN.md` §7.
+pub const DEFAULT_MCP_LOG_LEVEL: &str = "info";
+
+/// Extract `(level, logger, message)` from an MCP `notifications/message` params
+/// object (`{ level, logger?, data }`). The notification consumer uses this to
+/// build a `McpServerLog{source:McpLogging}`. An unknown/absent `level`
+/// deserializes to `None`; non-string `data` is rendered as compact JSON.
+/// See `docs/MCP_SERVER_LOGS_DESIGN.md` §7.
+pub fn mcp_log_from_params(
+    params: Option<&Value>,
+) -> (Option<cloto_shared::McpLogLevel>, Option<String>, String) {
+    let Some(p) = params else {
+        return (None, None, String::new());
+    };
+    let level = p.get("level").and_then(Value::as_str).and_then(|s| {
+        serde_json::from_value::<cloto_shared::McpLogLevel>(serde_json::json!(s)).ok()
+    });
+    let logger = p.get("logger").and_then(Value::as_str).map(str::to_string);
+    let message = match p.get("data") {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => other.to_string(),
+        None => String::new(),
+    };
+    (level, logger, message)
+}
+
 /// A single streaming request's dispatch state. `sender` forwards chunks to
 /// the caller's `mpsc::Receiver`; `activity` is pulsed on each chunk so that
 /// the per-request watchdog in `call_tool_streaming` can reset its idle
@@ -121,7 +172,33 @@ impl McpClient {
         isolation: Option<&super::mcp_isolation::IsolationProfile>,
         llm_proxy_port: u16,
         sensitive_env_keys: &[String],
+        default_log_level: &str,
     ) -> Result<(Self, Option<MgpServerCapabilities>)> {
+        // stderr → dashboard: the transport forwards raw stderr lines here; the
+        // task below tags them with server_id and pushes them through the same
+        // notification channel as a kernel-internal pseudo-notification, which
+        // the consumer turns into a McpServerLog{source:Stderr} event.
+        // docs/MCP_SERVER_LOGS_DESIGN.md §6.
+        let (stderr_tx, mut stderr_rx) = mpsc::channel::<String>(MCP_STDERR_CHANNEL_BUFFER);
+        {
+            let notif_tx = notification_tx.clone();
+            let sid = server_id.to_string();
+            tokio::spawn(async move {
+                while let Some(line) = stderr_rx.recv().await {
+                    if notif_tx
+                        .try_send(McpNotification {
+                            server_id: sid.clone(),
+                            method: CLOTO_STDERR_LOG_METHOD.to_string(),
+                            params: Some(serde_json::json!({ "line": line })),
+                        })
+                        .is_err()
+                    {
+                        debug!("stderr log channel full/closed, dropping line");
+                    }
+                }
+            });
+        }
+
         let stdio = StdioTransport::start(
             command,
             args,
@@ -129,6 +206,7 @@ impl McpClient {
             isolation,
             llm_proxy_port,
             sensitive_env_keys,
+            Some(stderr_tx),
         )
         .await?;
         let sender = stdio.sender();
@@ -147,7 +225,7 @@ impl McpClient {
         };
 
         client.start_response_loop(server_id);
-        let mgp_caps = client.initialize().await?;
+        let mgp_caps = client.initialize(default_log_level).await?;
 
         Ok((client, mgp_caps))
     }
@@ -160,6 +238,7 @@ impl McpClient {
         notification_tx: mpsc::Sender<McpNotification>,
         request_timeout_secs: u64,
         stream_idle_timeout_secs: u64,
+        default_log_level: &str,
     ) -> Result<(Self, Option<MgpServerCapabilities>)> {
         let http = HttpTransport::start(url, auth_token).await?;
         let sender = http.sender();
@@ -178,7 +257,7 @@ impl McpClient {
         };
 
         client.start_response_loop(server_id);
-        let mgp_caps = client.initialize().await?;
+        let mgp_caps = client.initialize(default_log_level).await?;
 
         Ok((client, mgp_caps))
     }
@@ -348,7 +427,7 @@ impl McpClient {
         }
     }
 
-    async fn initialize(&self) -> Result<Option<MgpServerCapabilities>> {
+    async fn initialize(&self, default_log_level: &str) -> Result<Option<MgpServerCapabilities>> {
         let params = InitializeParams {
             protocol_version: "2024-11-05".to_string(),
             capabilities: ClientCapabilities {
@@ -377,6 +456,23 @@ impl McpClient {
                     .or_else(|| caps.get("experimental").and_then(|exp| exp.get("mgp")))
             })
             .and_then(|mgp| serde_json::from_value::<MgpServerCapabilities>(mgp.clone()).ok());
+
+        // MCP logging capability (design §7): a server that advertises
+        // `capabilities.logging` only emits `notifications/message` after the
+        // client sets a minimum severity. Send `logging/setLevel` once, right
+        // after initialize, with the config-driven default. Best-effort — a
+        // failure here must never abort the connection.
+        let advertises_logging = result
+            .get("capabilities")
+            .and_then(|caps| caps.get("logging"))
+            .is_some();
+        if advertises_logging {
+            let params = serde_json::json!({ "level": default_log_level });
+            match self.call("logging/setLevel", Some(params)).await {
+                Ok(_) => info!("logging/setLevel={} sent to MCP server", default_log_level),
+                Err(e) => debug!("logging/setLevel failed (non-fatal): {}", e),
+            }
+        }
 
         Ok(mgp_server_caps)
     }
@@ -626,6 +722,7 @@ while True:\n\
             None,
             0,
             &[],
+            DEFAULT_MCP_LOG_LEVEL,
         )
         .await
         .expect("mock server should complete the initialize handshake");
@@ -643,6 +740,212 @@ while True:\n\
         assert!(
             became_dead,
             "is_alive() must become false after the server process exits (EOF)"
+        );
+    }
+
+    #[test]
+    fn stderr_line_from_params_extracts_line() {
+        assert_eq!(
+            stderr_line_from_params(Some(&serde_json::json!({ "line": "boot ok" }))),
+            "boot ok"
+        );
+        // Unexpected shapes degrade to empty, never panic.
+        assert_eq!(stderr_line_from_params(None), "");
+        assert_eq!(stderr_line_from_params(Some(&serde_json::json!({}))), "");
+        assert_eq!(
+            stderr_line_from_params(Some(&serde_json::json!({ "line": 42 }))),
+            ""
+        );
+    }
+
+    /// Source A (bug-422 sibling / Goal #141): a child's stderr line is
+    /// forwarded — tagged with the server_id — through the notification channel
+    /// as the kernel-internal CLOTO_STDERR_LOG_METHOD pseudo-notification, which
+    /// the consumer turns into McpServerLog{source:Stderr}. This pins the
+    /// transport→client half (server_id tagging + method + params.line).
+    #[tokio::test]
+    async fn stderr_lines_are_forwarded_as_pseudo_notifications() {
+        // Mock MCP server: emit one stderr line, answer initialize, stay alive
+        // (keep reading stdin) so the notification can be observed.
+        const MOCK: &str = "import sys, json\n\
+sys.stderr.write('hello from stderr\\n')\n\
+sys.stderr.flush()\n\
+while True:\n\
+\x20   line = sys.stdin.readline()\n\
+\x20   if not line:\n\
+\x20       break\n\
+\x20   line = line.strip()\n\
+\x20   if not line:\n\
+\x20       continue\n\
+\x20   try:\n\
+\x20       req = json.loads(line)\n\
+\x20   except Exception:\n\
+\x20       continue\n\
+\x20   if req.get('method') == 'initialize':\n\
+\x20       sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': req.get('id'), 'result': {}}) + '\\n')\n\
+\x20       sys.stdout.flush()\n";
+
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!(
+                "skipping stderr_lines_are_forwarded_as_pseudo_notifications: python3 not found"
+            );
+            return;
+        }
+
+        let (notif_tx, mut notif_rx) = mpsc::channel(8);
+        let (_client, _caps) = McpClient::connect(
+            "mock-stderr",
+            "python3",
+            &["-c".to_string(), MOCK.to_string()],
+            &HashMap::new(),
+            notif_tx,
+            5,
+            5,
+            None,
+            0,
+            &[],
+            DEFAULT_MCP_LOG_LEVEL,
+        )
+        .await
+        .expect("mock server should complete the initialize handshake");
+
+        // Poll for the stderr bridge notification (ignore any others).
+        let mut got = None;
+        for _ in 0..50 {
+            match tokio::time::timeout(std::time::Duration::from_millis(100), notif_rx.recv()).await
+            {
+                Ok(Some(n)) if n.method == CLOTO_STDERR_LOG_METHOD => {
+                    got = Some(n);
+                    break;
+                }
+                Ok(Some(_)) => continue, // some other notification, keep looking
+                Ok(None) => break,       // channel closed
+                Err(_) => continue,      // timeout tick
+            }
+        }
+
+        let n = got.expect("a stderr line must be forwarded as a pseudo-notification");
+        assert_eq!(n.server_id, "mock-stderr", "must be tagged with server_id");
+        assert_eq!(
+            stderr_line_from_params(n.params.as_ref()),
+            "hello from stderr"
+        );
+    }
+
+    /// Source B (Goal #141 backend-B): `mcp_log_from_params` extracts
+    /// `(level, logger, message)` from an MCP `notifications/message` params
+    /// object, tolerating missing/unknown fields and non-string `data`.
+    #[test]
+    fn mcp_log_from_params_extracts_fields() {
+        let params = serde_json::json!({
+            "level": "warning", "logger": "db", "data": "connection lost"
+        });
+        let (level, logger, message) = mcp_log_from_params(Some(&params));
+        assert_eq!(level, Some(cloto_shared::McpLogLevel::Warning));
+        assert_eq!(logger.as_deref(), Some("db"));
+        assert_eq!(message, "connection lost");
+
+        // Non-string `data` → compact JSON; missing level/logger → None.
+        let structured = serde_json::json!({ "data": {"k": 1} });
+        let (level2, logger2, message2) = mcp_log_from_params(Some(&structured));
+        assert_eq!(level2, None);
+        assert_eq!(logger2, None);
+        assert_eq!(message2, "{\"k\":1}");
+
+        // Unknown level string → None (tolerated, not an error).
+        let unknown = serde_json::json!({ "level": "verbose", "data": "x" });
+        assert_eq!(mcp_log_from_params(Some(&unknown)).0, None);
+
+        // Absent params.
+        assert_eq!(mcp_log_from_params(None), (None, None, String::new()));
+    }
+
+    /// Source B end-to-end (client half): a server advertising
+    /// `capabilities.logging` receives `logging/setLevel` with the default
+    /// `info` right after initialize, then its `notifications/message` reaches
+    /// the notification channel intact (level/logger/data). The mock echoes the
+    /// received level back inside the notification's `data`, so one assertion
+    /// pins both the setLevel send and the message forwarding.
+    #[tokio::test]
+    async fn logging_capability_gets_setlevel_and_forwards_message() {
+        const MOCK: &str = "import sys, json\n\
+def emit(obj):\n\
+\x20   sys.stdout.write(json.dumps(obj) + '\\n'); sys.stdout.flush()\n\
+while True:\n\
+\x20   line = sys.stdin.readline()\n\
+\x20   if not line:\n\
+\x20       break\n\
+\x20   line = line.strip()\n\
+\x20   if not line:\n\
+\x20       continue\n\
+\x20   try:\n\
+\x20       req = json.loads(line)\n\
+\x20   except Exception:\n\
+\x20       continue\n\
+\x20   m = req.get('method')\n\
+\x20   if m == 'initialize':\n\
+\x20       emit({'jsonrpc': '2.0', 'id': req.get('id'), 'result': {'capabilities': {'logging': {}}}})\n\
+\x20   elif m == 'logging/setLevel':\n\
+\x20       lvl = req.get('params', {}).get('level')\n\
+\x20       emit({'jsonrpc': '2.0', 'id': req.get('id'), 'result': {}})\n\
+\x20       emit({'jsonrpc': '2.0', 'method': 'notifications/message', 'params': {'level': 'warning', 'logger': 'test', 'data': 'setlevel=' + str(lvl)}})\n";
+
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!(
+                "skipping logging_capability_gets_setlevel_and_forwards_message: python3 not found"
+            );
+            return;
+        }
+
+        let (notif_tx, mut notif_rx) = mpsc::channel(8);
+        let (_client, _caps) = McpClient::connect(
+            "mock-logging",
+            "python3",
+            &["-c".to_string(), MOCK.to_string()],
+            &HashMap::new(),
+            notif_tx,
+            5,
+            5,
+            None,
+            0,
+            &[],
+            DEFAULT_MCP_LOG_LEVEL,
+        )
+        .await
+        .expect("mock server should complete the initialize handshake");
+
+        // Poll for the notifications/message triggered by our setLevel.
+        let mut got = None;
+        for _ in 0..50 {
+            match tokio::time::timeout(std::time::Duration::from_millis(100), notif_rx.recv()).await
+            {
+                Ok(Some(n)) if n.method == "notifications/message" => {
+                    got = Some(n);
+                    break;
+                }
+                Ok(Some(_)) => continue,
+                Ok(None) => break,
+                Err(_) => continue,
+            }
+        }
+
+        let n = got.expect("a logging notification must be forwarded");
+        assert_eq!(n.server_id, "mock-logging", "must be tagged with server_id");
+        let (level, logger, message) = mcp_log_from_params(n.params.as_ref());
+        assert_eq!(level, Some(cloto_shared::McpLogLevel::Warning));
+        assert_eq!(logger.as_deref(), Some("test"));
+        // Proves setLevel was sent with the default `info`.
+        assert_eq!(
+            message, "setlevel=info",
+            "kernel must send logging/setLevel with the default level"
         );
     }
 }
