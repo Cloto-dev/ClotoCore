@@ -166,9 +166,22 @@ pub struct StdioTransport {
 
 impl Drop for StdioTransport {
     fn drop(&mut self) {
-        // P9: Ensure child process is killed on transport drop
+        // P9 + orphan-leak fix: the child is spawned as its own process-group
+        // leader (`process_group(0)` in `start`), so kill the whole group — not
+        // just the direct PID — otherwise a dropped transport strands any helper
+        // processes the server forked (grandchildren). Best-effort and
+        // synchronous: Drop can't await, and `kill_on_drop(true)` still reaps the
+        // direct child. Prefer explicit `kill_and_wait()` wherever an async
+        // context is available.
+        #[cfg(unix)]
+        if let Some(pid) = self.child.id() {
+            // SAFETY: forceful kill of a process group we created and own.
+            unsafe {
+                libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+            }
+        }
         let _ = self.child.start_kill();
-        debug!("StdioTransport dropped — child process kill signal sent");
+        debug!("StdioTransport dropped — child process group kill signal sent");
     }
 }
 
@@ -176,17 +189,23 @@ impl StdioTransport {
     /// Kill the child process and wait for it to actually exit.
     /// Ensures file locks (DB, ports) are released before returning.
     pub async fn kill_and_wait(&mut self) {
-        // bug-358: try a graceful SIGTERM first so the MCP server can flush
-        // state and release locks, then escalate to SIGKILL if it refuses to
-        // exit. SIGTERM is Unix-only; other platforms go straight to start_kill
-        // (already a forceful kill).
+        // bug-358 + orphan-leak fix: the child is spawned as its own
+        // process-group leader (`process_group(0)` in `start`), so signalling the
+        // negative pid (== pgid) delivers to the server AND every helper process
+        // it forked, reaping the whole subtree instead of leaking grandchildren.
+        // Try a graceful SIGTERM first so the server can flush state and release
+        // locks, then escalate to SIGKILL. Unix-only; other platforms go straight
+        // to start_kill (single-PID — subtree containment there needs a Job
+        // Object, tracked for the cross-platform harness).
         #[cfg(unix)]
         {
             if let Some(pid) = self.child.id() {
-                // SAFETY: sending SIGTERM to a child PID we own. libc::kill is
-                // the only way to send a non-SIGKILL signal via tokio's process API.
+                let pgid = pid as libc::pid_t;
+                // SAFETY: signalling a process group we created and own (the child
+                // is its own group leader). A stray pgid at worst no-ops (ESRCH),
+                // and the start_kill fallback below still reaps the direct child.
                 unsafe {
-                    libc::kill(pid as libc::pid_t, libc::SIGTERM);
+                    libc::kill(-pgid, libc::SIGTERM);
                 }
                 if let Ok(Ok(status)) = tokio::time::timeout(
                     std::time::Duration::from_secs(SHUTDOWN_GRACE_SECS),
@@ -194,16 +213,21 @@ impl StdioTransport {
                 )
                 .await
                 {
-                    debug!("Child process exited gracefully after SIGTERM: {status}");
+                    debug!("Child process group exited gracefully after SIGTERM: {status}");
                     return;
                 }
                 tracing::warn!(
-                    "Child did not exit within {SHUTDOWN_GRACE_SECS}s of SIGTERM — escalating to SIGKILL"
+                    "Child did not exit within {SHUTDOWN_GRACE_SECS}s of SIGTERM — escalating to SIGKILL (process group)"
                 );
+                // SAFETY: same owned process group, forceful kill of the subtree.
+                unsafe {
+                    libc::kill(-pgid, libc::SIGKILL);
+                }
             }
         }
 
-        // SIGKILL fallback (also the primary path on non-Unix targets).
+        // SIGKILL fallback for the direct child (also the primary path on non-Unix
+        // targets) + reap so we never leave a zombie of our own child.
         let _ = self.child.start_kill();
         match tokio::time::timeout(std::time::Duration::from_secs(5), self.child.wait()).await {
             Ok(Ok(status)) => {
@@ -263,6 +287,17 @@ impl StdioTransport {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+
+        // Orphan-leak fix: put each MCP server in its own process group so the
+        // child becomes the group leader (pgid == child pid). On restart/shutdown
+        // we signal the whole group (see `kill_and_wait` / `Drop`), reaping any
+        // helper processes the server forks (a launcher → real server, a bridge →
+        // workers) as a unit instead of orphaning them with a bare single-PID
+        // kill. Unix-only; Windows subtree containment needs a Job Object (TODO,
+        // tracked for the cross-platform harness) — the CREATE_NO_WINDOW path
+        // below is unchanged there.
+        #[cfg(unix)]
+        cmd.process_group(0);
 
         // Windows: prevent console windows from appearing for child processes
         #[cfg(windows)]
@@ -827,5 +862,80 @@ mod tests {
         // Relative scripts depend on the child cwd; not checkable here.
         let args = vec!["server.py".to_string()];
         assert!(validate_entry_point_exists("python", &args).is_ok());
+    }
+
+    // ── process-group reaping (orphan-leak fix, Step 3) ──
+
+    /// Poll `kill(pid, 0)` until the process is gone (reaped by init) or the
+    /// deadline elapses. Returns true if it terminated.
+    #[cfg(unix)]
+    async fn wait_gone(pid: libc::pid_t, within: std::time::Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + within;
+        loop {
+            // SAFETY: signal 0 only probes existence/permission, sends nothing.
+            if unsafe { libc::kill(pid, 0) } != 0 {
+                return true; // ESRCH — process no longer exists
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+
+    /// The core RC3 guarantee: a helper process the server forks (a grandchild)
+    /// must be reaped when the server is killed. Because each server is spawned as
+    /// its own process-group leader and `kill_and_wait` signals the whole group,
+    /// the grandchild dies too — a bare single-PID kill would leave it orphaned.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn kill_and_wait_reaps_the_whole_process_group() {
+        // python launcher that forks a long-lived `sleep 600` grandchild, prints
+        // its PID to stderr, then idles. Killing only the direct (python) PID
+        // would strand the sleep; the process-group kill must take it out.
+        let script = "import sys,subprocess,time;\
+                      p=subprocess.Popen(['sleep','600']);\
+                      sys.stderr.write(str(p.pid)+chr(10));sys.stderr.flush();\
+                      time.sleep(600)";
+        let (tx, mut rx) = mpsc::channel::<String>(16);
+        let started = StdioTransport::start(
+            "python3",
+            &["-c".to_string(), script.to_string()],
+            &HashMap::new(),
+            None,
+            0,
+            &[],
+            Some(tx),
+        )
+        .await;
+        // Skip gracefully where python3 is unavailable rather than fail spuriously.
+        let Ok(mut transport) = started else {
+            eprintln!("skipping: python3 unavailable for process-group test");
+            return;
+        };
+
+        // First stderr line is the grandchild PID.
+        let line = match tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await {
+            Ok(Some(l)) => l,
+            _ => {
+                eprintln!("skipping: no grandchild PID line from python3");
+                return;
+            }
+        };
+        let grandchild: libc::pid_t = line.trim().parse().expect("grandchild pid");
+
+        // Precondition: the grandchild is alive before we kill.
+        assert_eq!(
+            unsafe { libc::kill(grandchild, 0) },
+            0,
+            "grandchild {grandchild} should be alive before kill_and_wait"
+        );
+
+        transport.kill_and_wait().await;
+
+        assert!(
+            wait_gone(grandchild, std::time::Duration::from_secs(5)).await,
+            "grandchild {grandchild} survived kill_and_wait — process-group reap failed (orphan leak)"
+        );
     }
 }

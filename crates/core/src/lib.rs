@@ -315,6 +315,10 @@ pub type AppResult<T> = Result<T, AppError>;
 pub struct KernelHandle {
     /// Notify to trigger graceful shutdown of the HTTP server and background tasks.
     pub shutdown: Arc<Notify>,
+    /// The MCP client manager, exposed so an embedder (e.g. Tauri) can drain and
+    /// reap MCP subprocesses on app exit instead of orphaning them
+    /// (orphan-leak fix, Step 4). Use `mcp_manager.drain_all(...)` before exit.
+    pub mcp_manager: Arc<managers::McpClientManager>,
     /// Join handle for the HTTP server task.
     _server_task: tokio::task::JoinHandle<()>,
 }
@@ -1329,6 +1333,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
 
     Ok(KernelHandle {
         shutdown: shutdown_handle,
+        mcp_manager: app_state.mcp_manager.clone(),
         _server_task: server_task,
     })
 }
