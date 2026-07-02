@@ -522,6 +522,9 @@ export const api = {
       enabled: boolean;
       context_length: number | null;
       thinking_mode: 'auto' | 'on' | 'off';
+      engine_status: 'connected' | 'disconnected' | 'uninstalled' | 'catalog_only';
+      configured: boolean;
+      model_placeholder: string | null;
     }>;
   }> =>
     fetch(`${API_BASE}/llm/providers`, { headers: { 'X-API-Key': apiKey } }).then((r) => {
