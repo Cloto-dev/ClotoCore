@@ -223,35 +223,10 @@ pub async fn shutdown_handler(
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        // Drain all MCP servers concurrently (5s per server, 10s global cap)
-        let server_ids: Vec<String> = {
-            let state = mcp.state.read().await;
-            state.servers.keys().cloned().collect()
-        };
-        let drain_futures: Vec<_> = server_ids
-            .iter()
-            .map(|sid| {
-                let mcp = mcp.clone();
-                let sid = sid.clone();
-                async move {
-                    if let Err(e) = mcp.drain_server(&sid, "kernel shutdown", 5000).await {
-                        tracing::warn!(server = %sid, error = %e, "MCP drain failed during shutdown");
-                    }
-                }
-            })
-            .collect();
-        if tokio::time::timeout(
-            Duration::from_secs(10),
-            futures::future::join_all(drain_futures),
-        )
-        .await
-        .is_err()
-        {
-            tracing::error!(
-                "MCP shutdown drain timed out after 10s — {} server(s) may not have shut down cleanly",
-                server_ids.len()
-            );
-        }
+        // Drain all MCP servers (5s per server, 10s global cap), reaping each
+        // child's process group. Shared with the Tauri app-exit path via
+        // McpClientManager::drain_all (orphan-leak fix, Step 4).
+        mcp.drain_all("kernel shutdown", 5000, 10).await;
 
         // 🚧 Signal maintenance mode (atomic write to prevent symlink attacks)
         let maint = crate::config::exe_dir().join(".maintenance");

@@ -19,6 +19,41 @@ macro_rules! with_window_log {
 /// Holds the API key for the dashboard (auto-generated or from .env).
 static DASHBOARD_API_KEY: OnceLock<String> = OnceLock::new();
 
+/// The running kernel handle, captured once `start_kernel` succeeds. Kept alive
+/// here (the kernel task runs regardless) and used by the app-exit path to drain
+/// and reap MCP subprocesses instead of orphaning them (orphan-leak fix, Step 4).
+static KERNEL_HANDLE: OnceLock<cloto_core::KernelHandle> = OnceLock::new();
+
+/// Guard so the MCP drain runs at most once across the tray-quit and
+/// `RunEvent::ExitRequested` paths.
+static MCP_DRAINED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Drain and reap all MCP subprocesses before the process exits.
+///
+/// Runs at most once (guarded). `app.exit()` / `std::process::exit` skip Rust
+/// destructors, so `kill_on_drop` and transport `Drop` never fire on a normal
+/// quit — the drain must be explicit. The async drain is spawned on the
+/// Tauri/tokio runtime and the calling (GUI) thread blocks until it completes or
+/// a hard cap elapses, so quit stays responsive even if a server ignores SIGTERM.
+fn drain_mcp_before_exit() {
+    use std::sync::atomic::Ordering;
+    if MCP_DRAINED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let Some(handle) = KERNEL_HANDLE.get() else {
+        return;
+    };
+    let mcp = handle.mcp_manager.clone();
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    tauri::async_runtime::spawn(async move {
+        // 2s graceful drain per server, 6s global cap; the recv timeout below is
+        // the hard ceiling on how long quit may block.
+        mcp.drain_all("app exit", 2000, 6).await;
+        let _ = tx.send(());
+    });
+    let _ = rx.recv_timeout(std::time::Duration::from_secs(8));
+}
+
 /// Generate a cryptographically random API key (64 hex chars).
 fn generate_api_key() -> String {
     use rand::rngs::OsRng;
@@ -442,6 +477,10 @@ pub fn run() {
                         }
                     }
                     "quit" => {
+                        // Reap MCP subprocesses before exiting (orphan-leak fix,
+                        // Step 4). app.exit skips destructors, so this explicit
+                        // drain is the only reliable reap on quit.
+                        drain_mcp_before_exit();
                         app.exit(0);
                     }
                     _ => {}
@@ -492,9 +531,12 @@ pub fn run() {
             let kernel_app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 match cloto_core::start_kernel().await {
-                    Ok(_handle) => {
-                        // Kernel ready — _handle is kept alive by the spawn.
-                        // Shutdown is triggered via the /api/system/shutdown endpoint.
+                    Ok(handle) => {
+                        // Kernel ready. Stash the handle so the app-exit path can
+                        // drain and reap MCP subprocesses (orphan-leak fix, Step 4);
+                        // the kernel task keeps running regardless. Shutdown is also
+                        // available via the /api/system/shutdown endpoint.
+                        let _ = KERNEL_HANDLE.set(handle);
                     }
                     Err(e) => {
                         eprintln!("FATAL: Failed to start Cloto Kernel: {}", e);
@@ -559,11 +601,19 @@ pub fn run() {
         .expect("error while building tauri application");
 
     // Run with cleanup on exit
-    app.run(|_app_handle, event| {
-        if let tauri::RunEvent::Exit = event {
+    app.run(|_app_handle, event| match event {
+        // Fires before the process tears down (covers macOS Cmd+Q and any other
+        // exit path, not just the tray Quit item). Drain MCP subprocesses here
+        // too — the once-guard makes a second call after tray Quit a no-op
+        // (orphan-leak fix, Step 4).
+        tauri::RunEvent::ExitRequested { .. } => {
+            drain_mcp_before_exit();
+        }
+        tauri::RunEvent::Exit => {
             // Clean up stale maintenance file if present
             let maint = cloto_core::config::exe_dir().join(".maintenance");
             let _ = std::fs::remove_file(maint);
         }
+        _ => {}
     });
 }

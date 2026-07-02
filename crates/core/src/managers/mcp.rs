@@ -99,6 +99,11 @@ pub struct McpClientManager {
     /// Default minimum severity sent via `logging/setLevel` to servers that
     /// advertise the MCP `logging` capability (design §7).
     mcp_default_log_level: String,
+    /// Per-server-id locks serialising connect/restart so concurrent restart
+    /// triggers (health monitor, manual API, env update) can't both spawn a child
+    /// and orphan the previous one (orphan-leak fix, Step 2). Different ids still
+    /// connect in parallel — only same-id connects serialise.
+    connect_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl McpClientManager {
@@ -135,7 +140,20 @@ impl McpClientManager {
             allow_unsigned: false,
             sandbox_base_dir: std::path::PathBuf::from("data/mcp-sandbox"),
             mcp_default_log_level: super::mcp_client::DEFAULT_MCP_LOG_LEVEL.to_string(),
+            connect_locks: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Get (or lazily create) the per-server-id lock that serialises
+    /// connect/restart for `id` (orphan-leak fix, Step 2). Held across the whole
+    /// of `connect_server` so two concurrent restart triggers can't double-spawn
+    /// a child and orphan the previous one.
+    async fn connect_lock_for(&self, id: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.connect_locks.lock().await;
+        locks
+            .entry(id.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
     }
 
     /// Configure isolation settings from AppConfig (called once at startup).
@@ -778,6 +796,13 @@ impl McpClientManager {
     pub async fn connect_server(&self, config: McpServerConfig) -> Result<Vec<String>> {
         let id = config.id.clone();
 
+        // Orphan-leak fix (Step 2): serialise connect for this id so concurrent
+        // restart triggers (health monitor, manual API, env update) can't both
+        // spawn a child and orphan the previous one. Held for the whole function;
+        // different ids still connect in parallel.
+        let connect_lock = self.connect_lock_for(&id).await;
+        let _connect_guard = connect_lock.lock().await;
+
         let is_http_transport = config.transport == "streamable-http";
 
         // Validate command against whitelist (skip for HTTP transport)
@@ -1391,6 +1416,22 @@ impl McpClientManager {
             connected_at: Some(std::time::Instant::now()),
             isolation_profile,
         };
+
+        // Orphan-leak fix (Step 1): if a handle for this id already holds a live
+        // client (a racy reconnect, or a prior stop that failed), reap its child
+        // process group before overwriting the entry — otherwise the old
+        // subprocess (and its forked subtree) is dropped with only a best-effort
+        // start_kill and can leak. Take the client out under the lock, then run
+        // the (up-to-~8s) kill_and_wait with the lock released. The per-id
+        // connect_lock held above guarantees no concurrent connect races this.
+        let previous_client = {
+            let mut state = self.state.write().await;
+            state.servers.get_mut(&id).and_then(|h| h.client.take())
+        };
+        if let Some(old) = previous_client {
+            debug!(server = %id, "Reaping previous live client before re-registering");
+            old.shutdown().await;
+        }
 
         // Register in servers map + update tool routing index under single lock.
         // Skip reasoning engines — their tools (think, think_with_tools) are
@@ -2879,6 +2920,41 @@ impl McpClientManager {
         Ok(())
     }
 
+    /// Drain and stop **every** MCP server, reaping each child's process group.
+    /// Shared by the HTTP `/api/system/shutdown` endpoint and the Tauri app-exit
+    /// path (orphan-leak fix, Step 4) so a GUI quit reaps subprocesses instead of
+    /// orphaning them. Each server gets `per_server_ms` to drain gracefully; the
+    /// whole sweep is capped at `global_timeout_secs`.
+    pub async fn drain_all(&self, reason: &str, per_server_ms: u64, global_timeout_secs: u64) {
+        let server_ids: Vec<String> = {
+            let state = self.state.read().await;
+            state.servers.keys().cloned().collect()
+        };
+        if server_ids.is_empty() {
+            return;
+        }
+        let drain_futures = server_ids.iter().map(|sid| {
+            let sid = sid.clone();
+            async move {
+                if let Err(e) = self.drain_server(&sid, reason, per_server_ms).await {
+                    tracing::warn!(server = %sid, error = %e, "MCP drain failed");
+                }
+            }
+        });
+        if tokio::time::timeout(
+            std::time::Duration::from_secs(global_timeout_secs),
+            futures::future::join_all(drain_futures),
+        )
+        .await
+        .is_err()
+        {
+            tracing::error!(
+                "MCP drain_all timed out after {global_timeout_secs}s — {} server(s) may not have shut down cleanly",
+                server_ids.len()
+            );
+        }
+    }
+
     /// Start a stopped or errored server by re-connecting with its preserved config.
     pub async fn start_server(&self, id: &str) -> Result<Vec<String>> {
         // 1. Read config from existing entry (clone, don't move)
@@ -2969,8 +3045,13 @@ impl McpClientManager {
         )
         .await;
 
-        // Stop if running (ignore error if already stopped)
-        let _ = self.stop_server(id).await;
+        // Stop if running. A failed stop that leaves the old client attached would
+        // otherwise be silently overwritten by start_server below; log it so the
+        // orphan-leak reap in connect_server (Step 1) is the visible safety net,
+        // not silence. ("already stopped" is expected and benign.)
+        if let Err(e) = self.stop_server(id).await {
+            debug!(server = %id, error = %e, "stop during restart failed (continuing to start)");
+        }
         self.start_server(id).await
     }
 
@@ -3049,7 +3130,9 @@ impl McpClientManager {
         }
 
         // Restart to apply new env
-        let _ = self.restart_server(id).await;
+        if let Err(e) = self.restart_server(id).await {
+            warn!(server = %id, error = %e, "restart after env update failed");
+        }
         Ok(())
     }
 
@@ -3757,5 +3840,147 @@ mod tests {
         assert!(super::detect_external_rejection("{status: rejected}").is_none());
         // Empty string
         assert!(super::detect_external_rejection("").is_none());
+    }
+
+    // ── drain_all reaps subprocess trees end-to-end (orphan-leak fix, Step 4) ──
+
+    /// Poll `kill(pid, 0)` until the process is gone (reaped) or the deadline
+    /// elapses. Returns true if it terminated.
+    #[cfg(unix)]
+    async fn wait_pid_gone(pid: i32, within: std::time::Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + within;
+        loop {
+            // SAFETY: signal 0 only probes existence/permission, sends nothing.
+            if unsafe { libc::kill(pid, 0) } != 0 {
+                return true; // ESRCH — process no longer exists
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+
+    /// End-to-end proof of Step 4 through the real manager: a connected server
+    /// that forked a helper (grandchild) has its whole process group reaped when
+    /// `drain_all` runs, so the app-exit path can no longer orphan MCP
+    /// subprocesses. Exercises drain_all → drain_server → stop_server →
+    /// client.shutdown() → kill_and_wait() with a real subprocess tree.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn drain_all_reaps_connected_server_subtree() {
+        // Mock MCP server: fork a long-lived `sleep 600` grandchild, record its
+        // PID to a file, answer `initialize`, then stay alive on stdin.
+        const MOCK: &str = "import sys, json, os, subprocess\n\
+g = subprocess.Popen(['sleep', '600'])\n\
+open(os.environ['CLOTO_TEST_PIDFILE'], 'w').write(str(g.pid))\n\
+while True:\n\
+\x20   line = sys.stdin.readline()\n\
+\x20   if not line:\n\
+\x20       break\n\
+\x20   line = line.strip()\n\
+\x20   if not line:\n\
+\x20       continue\n\
+\x20   try:\n\
+\x20       req = json.loads(line)\n\
+\x20   except Exception:\n\
+\x20       continue\n\
+\x20   if req.get('method') == 'initialize':\n\
+\x20       sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': req.get('id'), 'result': {}}) + '\\n')\n\
+\x20       sys.stdout.flush()\n";
+
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("skipping drain_all_reaps_connected_server_subtree: python3 not found");
+            return;
+        }
+
+        // Temp pidfile for the grandchild PID handoff.
+        let pidfile =
+            std::env::temp_dir().join(format!("cloto_drain_test_{}.pid", std::process::id()));
+        let _ = std::fs::remove_file(&pidfile);
+        let mut env = std::collections::HashMap::new();
+        env.insert(
+            "CLOTO_TEST_PIDFILE".to_string(),
+            pidfile.to_string_lossy().to_string(),
+        );
+
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let manager = McpClientManager::new(pool, false, 30, 30);
+
+        let (notif_tx, _notif_rx) = tokio::sync::mpsc::channel::<McpNotification>(16);
+        let (client, _caps) = McpClient::connect(
+            "mock-drain",
+            "python3",
+            &["-c".to_string(), MOCK.to_string()],
+            &env,
+            notif_tx,
+            5,
+            5,
+            None,
+            0,
+            &[],
+            crate::managers::mcp_client::DEFAULT_MCP_LOG_LEVEL,
+        )
+        .await
+        .expect("mock server should complete the initialize handshake");
+
+        // Register a live Connected handle directly — bypasses the seal gate;
+        // drain_all only needs a handle holding a live client.
+        let handle = McpServerHandle {
+            id: "mock-drain".to_string(),
+            config: McpServerConfig {
+                id: "mock-drain".to_string(),
+                command: "python3".to_string(),
+                ..Default::default()
+            },
+            client: Some(std::sync::Arc::new(client)),
+            tools: Vec::new(),
+            handshake: None,
+            mgp_negotiated: None,
+            status: ServerStatus::Connected,
+            audit_seq: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            connected_at: Some(std::time::Instant::now()),
+            isolation_profile: None,
+        };
+        manager
+            .state
+            .write()
+            .await
+            .servers
+            .insert("mock-drain".to_string(), handle);
+
+        // Read the grandchild PID the mock recorded.
+        let mut grandchild: i32 = 0;
+        for _ in 0..50 {
+            if let Ok(s) = std::fs::read_to_string(&pidfile) {
+                if let Ok(pid) = s.trim().parse::<i32>() {
+                    grandchild = pid;
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(
+            grandchild > 0,
+            "mock server did not record its grandchild PID"
+        );
+        assert_eq!(
+            unsafe { libc::kill(grandchild, 0) },
+            0,
+            "grandchild {grandchild} should be alive before drain_all"
+        );
+
+        // Behaviour under test: drain reaps the whole subtree.
+        manager.drain_all("test drain", 100, 5).await;
+
+        assert!(
+            wait_pid_gone(grandchild, std::time::Duration::from_secs(5)).await,
+            "grandchild {grandchild} survived drain_all — Step 4 failed to reap the subtree"
+        );
+        let _ = std::fs::remove_file(&pidfile);
     }
 }
