@@ -31,6 +31,7 @@ fn create_test_router(state: Arc<AppState>) -> axum::Router {
         .route("/chat", post(handlers::chat_handler))
         .route("/agents", get(handlers::get_agents))
         .route("/plugins/{id}/config", get(handlers::get_plugin_config))
+        .route("/llm/providers", get(handlers::list_llm_providers))
         .merge(admin_routes)
         .with_state(state);
 
@@ -545,4 +546,79 @@ async fn test_grant_permission_success() {
         .expect("send request");
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+/// GET /api/llm/providers annotates each provider with its backing-engine
+/// state so the dashboard shows only real engines and warns (never drops) when
+/// an engine is uninstalled (an earlier decision). No engine MCP server is registered in
+/// this harness, so classification is driven purely by user configuration.
+#[tokio::test]
+async fn test_llm_providers_engine_status_annotation() {
+    async fn fetch(app: &axum::Router) -> serde_json::Value {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/llm/providers")
+                    .header("X-API-Key", "test-key")
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("send request");
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("read body");
+        serde_json::from_slice(&bytes).expect("parse JSON")
+    }
+
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let pool = state.pool.clone();
+    let app = create_test_router(state);
+
+    // Fresh install: providers are seeded by migrations, but no engine server is
+    // registered and nothing is configured → every provider is `catalog_only`
+    // (hidden by the dashboard). Placeholder metadata rides along so the
+    // frontend keeps no hardcoded provider list of its own.
+    let body = fetch(&app).await;
+    let providers = body["data"]["providers"]
+        .as_array()
+        .expect("providers array")
+        .clone();
+    assert!(!providers.is_empty(), "migrations seed provider rows");
+    for p in &providers {
+        assert_eq!(
+            p["engine_status"], "catalog_only",
+            "engineless + unconfigured provider {} must be catalog_only",
+            p["id"]
+        );
+        assert_eq!(p["configured"], false);
+        assert!(
+            p.get("model_placeholder").is_some(),
+            "model_placeholder field present for {}",
+            p["id"]
+        );
+    }
+
+    // Configuring a provider's key (no engine installed) flips it to
+    // `uninstalled` — kept and warned, not hidden — while the rest stay hidden.
+    cloto_core::db::set_llm_provider_key(&pool, "deepseek", "sk-test")
+        .await
+        .expect("set provider key");
+    let body = fetch(&app).await;
+    let providers = body["data"]["providers"].as_array().unwrap();
+    let deepseek = providers
+        .iter()
+        .find(|p| p["id"] == "deepseek")
+        .expect("deepseek row");
+    assert_eq!(deepseek["engine_status"], "uninstalled");
+    assert_eq!(deepseek["configured"], true);
+    assert_eq!(deepseek["has_key"], true);
+    let cerebras = providers
+        .iter()
+        .find(|p| p["id"] == "cerebras")
+        .expect("cerebras row");
+    assert_eq!(cerebras["engine_status"], "catalog_only");
 }

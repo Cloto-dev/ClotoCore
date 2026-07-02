@@ -1,4 +1,4 @@
-import { RefreshCw } from 'lucide-react';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../hooks/useApi';
@@ -6,20 +6,17 @@ import { SectionCard } from './common';
 
 const MODEL_ID_MAX_LEN = 200;
 
-// Provider-specific model-ID format examples. Each LLM backend has its own
-// naming convention and showing a wrong example (e.g. Ollama's `name:tag`
-// format for LM Studio, which expects `org/name`) silently misleads users
-// into saving an invalid model ID.
-const MODEL_PLACEHOLDER_BY_PROVIDER: Record<string, string> = {
-  local: 'qwen/qwen3.5-9b',
-  ollama: 'qwen3.5:9b',
-  claude: 'claude-sonnet-4-6',
-  cerebras: 'gpt-oss-120b',
-  deepseek: 'deepseek-chat',
-  groq: 'openai/gpt-oss-20b',
-};
-
 type ThinkingMode = 'auto' | 'on' | 'off';
+
+// Backing-engine state per provider, computed by the kernel by joining the
+// provider row against the registered MCP engine servers (an earlier decision):
+//   connected    — an engine server is registered and operational.
+//   disconnected — an engine server is registered but down/stopped.
+//   uninstalled  — no engine server, but the user configured this provider →
+//                  keep + warn (settings are never dropped when an engine goes away).
+//   catalog_only — pristine seeded provider with no engine and no user config →
+//                  hidden from the UI (not a "real" engine).
+type EngineStatus = 'connected' | 'disconnected' | 'uninstalled' | 'catalog_only';
 
 type Provider = {
   id: string;
@@ -28,6 +25,12 @@ type Provider = {
   model_id: string;
   context_length: number | null;
   thinking_mode: ThinkingMode;
+  engine_status: EngineStatus;
+  configured: boolean;
+  // Provider-specific model-ID example (e.g. LM Studio's `org/name` vs Ollama's
+  // `name:tag`). Supplied by the backend so the dashboard keeps no hardcoded
+  // provider list of its own; null for providers without a baked-in example.
+  model_placeholder: string | null;
 };
 
 type ModelOption = {
@@ -294,287 +297,318 @@ export function LlmProvidersSection() {
     }
   };
 
+  // Only providers whose backing engine actually exists are shown. `uninstalled`
+  // is shown (with a warning) so a user's saved settings remain visible and
+  // editable after an engine is removed; `catalog_only` (pristine seed, no
+  // engine) is hidden — the LLM Providers list is derived from real engines,
+  // not from the seeded provider catalog (an earlier decision).
+  const visibleProviders = providers.filter((p) => p.engine_status !== 'catalog_only');
+
   return (
     <SectionCard title={t('llm_providers.title')}>
       <p className="text-xs text-content-tertiary mb-4">{t('llm_providers.desc')}</p>
-      <div className="space-y-3">
-        {providers.map((p) => (
-          <div
-            key={p.id}
-            className="flex items-center gap-3 p-3 bg-surface-secondary rounded-lg border border-edge-subtle"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span
-                  role="img"
-                  className={`w-2 h-2 rounded-full ${p.has_key ? 'bg-green-500' : 'bg-amber-500'}`}
-                  aria-label={p.has_key ? 'API key configured' : 'API key not configured'}
-                />
-                <span className="text-xs font-bold text-content-primary">{p.display_name}</span>
-                {editingModelId === p.id ? (
-                  <div className="flex items-center gap-1">
-                    {modelList?.status === 'ready' && modelList.models.length > 0 ? (
-                      <select
-                        aria-label={`${p.display_name} model ID`}
-                        value={modelInput}
-                        onChange={(e) => setModelInput(e.target.value)}
-                        onKeyDown={(e) => handleModelKeyDown(e, p.id)}
-                        className="bg-surface-base border border-brand/50 rounded px-2 py-0.5 text-[11px] font-mono text-content-primary w-48"
-                      >
-                        {/* Preserve a currently-saved model that isn't in the list (e.g. unloaded) */}
-                        {modelInput && !modelList.models.some((m) => m.id === modelInput) && (
-                          <option value={modelInput}>{modelInput}</option>
-                        )}
-                        {modelList.models.map((m) => {
-                          const parts: string[] = [m.id];
-                          if (m.name) parts.push(`— ${m.name}`);
-                          // Prefer showing the actually loaded n_ctx (what LM Studio will
-                          // accept right now) alongside the model's native maximum so the
-                          // user can see the gap at a glance.
-                          if (
-                            m.loaded &&
-                            m.loaded_context_length &&
-                            m.max_context_length &&
-                            m.loaded_context_length !== m.max_context_length
-                          ) {
-                            parts.push(
-                              `· ${t('llm_providers.model_ctx_loaded_of_max', {
-                                loaded: m.loaded_context_length.toLocaleString(),
-                                max: m.max_context_length.toLocaleString(),
-                              })}`,
+      {visibleProviders.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 py-8 text-center">
+          <AlertTriangle className="w-5 h-5 text-content-tertiary" />
+          <p className="text-xs text-content-tertiary max-w-xs">{t('llm_providers.empty_no_engines')}</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {visibleProviders.map((p) => (
+            <div
+              key={p.id}
+              className="flex items-center gap-3 p-3 bg-surface-secondary rounded-lg border border-edge-subtle"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    role="img"
+                    className={`w-2 h-2 rounded-full ${p.has_key ? 'bg-green-500' : 'bg-amber-500'}`}
+                    aria-label={p.has_key ? 'API key configured' : 'API key not configured'}
+                  />
+                  <span className="text-xs font-bold text-content-primary">{p.display_name}</span>
+                  {p.engine_status === 'disconnected' && (
+                    <span
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-amber-600 bg-amber-500/10 border border-amber-500/30"
+                      title={t('llm_providers.engine_disconnected_hint')}
+                    >
+                      <AlertTriangle className="w-3 h-3" />
+                      {t('llm_providers.engine_disconnected')}
+                    </span>
+                  )}
+                  {p.engine_status === 'uninstalled' && (
+                    <span
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-red-600 bg-red-500/10 border border-red-500/30"
+                      title={t('llm_providers.engine_uninstalled_hint')}
+                    >
+                      <AlertTriangle className="w-3 h-3" />
+                      {t('llm_providers.engine_uninstalled')}
+                    </span>
+                  )}
+                  {editingModelId === p.id ? (
+                    <div className="flex items-center gap-1">
+                      {modelList?.status === 'ready' && modelList.models.length > 0 ? (
+                        <select
+                          aria-label={`${p.display_name} model ID`}
+                          value={modelInput}
+                          onChange={(e) => setModelInput(e.target.value)}
+                          onKeyDown={(e) => handleModelKeyDown(e, p.id)}
+                          className="bg-surface-base border border-brand/50 rounded px-2 py-0.5 text-[11px] font-mono text-content-primary w-48"
+                        >
+                          {/* Preserve a currently-saved model that isn't in the list (e.g. unloaded) */}
+                          {modelInput && !modelList.models.some((m) => m.id === modelInput) && (
+                            <option value={modelInput}>{modelInput}</option>
+                          )}
+                          {modelList.models.map((m) => {
+                            const parts: string[] = [m.id];
+                            if (m.name) parts.push(`— ${m.name}`);
+                            // Prefer showing the actually loaded n_ctx (what LM Studio will
+                            // accept right now) alongside the model's native maximum so the
+                            // user can see the gap at a glance.
+                            if (
+                              m.loaded &&
+                              m.loaded_context_length &&
+                              m.max_context_length &&
+                              m.loaded_context_length !== m.max_context_length
+                            ) {
+                              parts.push(
+                                `· ${t('llm_providers.model_ctx_loaded_of_max', {
+                                  loaded: m.loaded_context_length.toLocaleString(),
+                                  max: m.max_context_length.toLocaleString(),
+                                })}`,
+                              );
+                            } else if (m.loaded && m.loaded_context_length) {
+                              parts.push(
+                                `· ${t('llm_providers.model_ctx_suffix', {
+                                  tokens: m.loaded_context_length.toLocaleString(),
+                                })}`,
+                              );
+                            } else if (m.max_context_length) {
+                              parts.push(
+                                `· ${t('llm_providers.model_ctx_max_suffix', {
+                                  tokens: m.max_context_length.toLocaleString(),
+                                })}`,
+                              );
+                            }
+                            if (m.loaded) parts.push(`· ${t('llm_providers.model_loaded')}`);
+                            return (
+                              <option key={m.id} value={m.id}>
+                                {parts.join(' ')}
+                              </option>
                             );
-                          } else if (m.loaded && m.loaded_context_length) {
-                            parts.push(
-                              `· ${t('llm_providers.model_ctx_suffix', {
-                                tokens: m.loaded_context_length.toLocaleString(),
-                              })}`,
-                            );
-                          } else if (m.max_context_length) {
-                            parts.push(
-                              `· ${t('llm_providers.model_ctx_max_suffix', {
-                                tokens: m.max_context_length.toLocaleString(),
-                              })}`,
-                            );
+                          })}
+                        </select>
+                      ) : (
+                        <input
+                          ref={modelInputRef}
+                          type="text"
+                          value={modelInput}
+                          maxLength={MODEL_ID_MAX_LEN}
+                          onChange={(e) => setModelInput(e.target.value)}
+                          onKeyDown={(e) => handleModelKeyDown(e, p.id)}
+                          aria-label={`${p.display_name} model ID`}
+                          placeholder={
+                            modelList?.status === 'loading'
+                              ? t('llm_providers.model_dropdown_loading')
+                              : p.model_placeholder
+                                ? t('llm_providers.model_placeholder_ex', {
+                                    example: p.model_placeholder,
+                                  })
+                                : t('llm_providers.model_placeholder')
                           }
-                          if (m.loaded) parts.push(`· ${t('llm_providers.model_loaded')}`);
-                          return (
-                            <option key={m.id} value={m.id}>
-                              {parts.join(' ')}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    ) : (
-                      <input
-                        ref={modelInputRef}
-                        type="text"
-                        value={modelInput}
-                        maxLength={MODEL_ID_MAX_LEN}
-                        onChange={(e) => setModelInput(e.target.value)}
-                        onKeyDown={(e) => handleModelKeyDown(e, p.id)}
-                        aria-label={`${p.display_name} model ID`}
-                        placeholder={
-                          modelList?.status === 'loading'
-                            ? t('llm_providers.model_dropdown_loading')
-                            : MODEL_PLACEHOLDER_BY_PROVIDER[p.id]
-                              ? t('llm_providers.model_placeholder_ex', {
-                                  example: MODEL_PLACEHOLDER_BY_PROVIDER[p.id],
-                                })
-                              : t('llm_providers.model_placeholder')
-                        }
-                        className="bg-surface-base border border-brand/50 rounded px-2 py-0.5 text-[11px] font-mono text-content-primary placeholder:text-content-tertiary w-48"
-                      />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => refreshModels(p.id)}
-                      disabled={modelList?.status === 'loading'}
-                      aria-label={t('llm_providers.model_refresh')}
-                      title={t('llm_providers.model_refresh')}
-                      className="p-0.5 text-content-tertiary hover:text-brand rounded disabled:opacity-40"
-                    >
-                      <RefreshCw className={`w-3 h-3 ${modelList?.status === 'loading' ? 'animate-spin' : ''}`} />
-                    </button>
-                    <button
-                      onClick={() => commitModelEdit(p.id)}
-                      disabled={modelSaving || !modelInput.trim()}
-                      aria-label={t('llm_providers.model_save')}
-                      className="px-2 py-0.5 bg-brand text-white text-[10px] font-bold rounded disabled:opacity-40"
-                    >
-                      {modelSaving ? '...' : t('llm_providers.model_save')}
-                    </button>
-                    <button
-                      onClick={cancelModelEdit}
-                      disabled={modelSaving}
-                      aria-label={t('llm_providers.model_cancel')}
-                      className="px-2 py-0.5 text-content-tertiary text-[10px] hover:text-content-primary rounded"
-                    >
-                      {t('llm_providers.model_cancel')}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => startModelEdit(p)}
-                    title={t('llm_providers.model_edit_hint')}
-                    className="text-[11px] font-mono text-content-tertiary hover:text-brand hover:underline cursor-pointer bg-transparent border-0 p-0"
-                  >
-                    {p.model_id || <span className="italic">{t('llm_providers.model_unset')}</span>}
-                  </button>
-                )}
-                <span className="text-content-tertiary text-[10px]">·</span>
-                {editingCtxId === p.id ? (
-                  <div className="flex items-center gap-1">
-                    <input
-                      ref={ctxInputRef}
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={ctxInput}
-                      onChange={(e) => setCtxInput(e.target.value)}
-                      onKeyDown={(e) => handleCtxKeyDown(e, p.id)}
-                      aria-label={`${p.display_name} context length`}
-                      placeholder={t('llm_providers.context_length_placeholder')}
-                      className="bg-surface-base border border-brand/50 rounded px-2 py-0.5 text-[11px] font-mono text-content-primary placeholder:text-content-tertiary w-24"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => detectCtxFromProbe(p.id)}
-                      disabled={ctxSaving}
-                      aria-label={t('llm_providers.context_length_detect')}
-                      title={t('llm_providers.context_length_detect')}
-                      className="px-2 py-0.5 text-content-tertiary text-[10px] hover:text-brand rounded disabled:opacity-40"
-                    >
-                      {t('llm_providers.context_length_detect')}
-                    </button>
-                    <button
-                      onClick={() => commitCtxEdit(p.id)}
-                      disabled={ctxSaving}
-                      aria-label={t('llm_providers.model_save')}
-                      className="px-2 py-0.5 bg-brand text-white text-[10px] font-bold rounded disabled:opacity-40"
-                    >
-                      {ctxSaving ? '...' : t('llm_providers.model_save')}
-                    </button>
-                    <button
-                      onClick={cancelCtxEdit}
-                      disabled={ctxSaving}
-                      aria-label={t('llm_providers.model_cancel')}
-                      className="px-2 py-0.5 text-content-tertiary text-[10px] hover:text-content-primary rounded"
-                    >
-                      {t('llm_providers.model_cancel')}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => startCtxEdit(p)}
-                    title={t('llm_providers.context_length_edit_hint')}
-                    className="text-[11px] font-mono text-content-tertiary hover:text-brand hover:underline cursor-pointer bg-transparent border-0 p-0"
-                  >
-                    {p.context_length != null ? (
-                      t('llm_providers.model_ctx_suffix', {
-                        tokens: p.context_length.toLocaleString(),
-                      })
-                    ) : (
-                      <span className="italic">{t('llm_providers.context_length_unset')}</span>
-                    )}
-                  </button>
-                )}
-                <span className="text-content-tertiary text-[10px]">·</span>
-                <div
-                  className="inline-flex items-center rounded border border-edge overflow-hidden"
-                  title={t('llm_providers.thinking_hint')}
-                >
-                  <span className="px-2 py-0.5 text-[10px] font-mono text-content-tertiary bg-transparent">
-                    {t('llm_providers.thinking_label')}
-                  </span>
-                  {(['auto', 'on', 'off'] as const).map((mode) => {
-                    const active = (p.thinking_mode ?? 'auto') === mode;
-                    return (
+                          className="bg-surface-base border border-brand/50 rounded px-2 py-0.5 text-[11px] font-mono text-content-primary placeholder:text-content-tertiary w-48"
+                        />
+                      )}
                       <button
-                        key={mode}
                         type="button"
-                        onClick={() => commitThinkingMode(p.id, mode)}
-                        disabled={thinkingSavingId === p.id}
-                        aria-pressed={active}
-                        className={`px-2 py-0.5 text-[10px] font-mono border-l border-edge ${
-                          active ? 'bg-brand text-white' : 'bg-transparent text-content-tertiary hover:text-brand'
-                        } disabled:opacity-40`}
+                        onClick={() => refreshModels(p.id)}
+                        disabled={modelList?.status === 'loading'}
+                        aria-label={t('llm_providers.model_refresh')}
+                        title={t('llm_providers.model_refresh')}
+                        className="p-0.5 text-content-tertiary hover:text-brand rounded disabled:opacity-40"
                       >
-                        {t(`llm_providers.thinking_${mode}`)}
+                        <RefreshCw className={`w-3 h-3 ${modelList?.status === 'loading' ? 'animate-spin' : ''}`} />
                       </button>
-                    );
-                  })}
+                      <button
+                        onClick={() => commitModelEdit(p.id)}
+                        disabled={modelSaving || !modelInput.trim()}
+                        aria-label={t('llm_providers.model_save')}
+                        className="px-2 py-0.5 bg-brand text-white text-[10px] font-bold rounded disabled:opacity-40"
+                      >
+                        {modelSaving ? '...' : t('llm_providers.model_save')}
+                      </button>
+                      <button
+                        onClick={cancelModelEdit}
+                        disabled={modelSaving}
+                        aria-label={t('llm_providers.model_cancel')}
+                        className="px-2 py-0.5 text-content-tertiary text-[10px] hover:text-content-primary rounded"
+                      >
+                        {t('llm_providers.model_cancel')}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => startModelEdit(p)}
+                      title={t('llm_providers.model_edit_hint')}
+                      className="text-[11px] font-mono text-content-tertiary hover:text-brand hover:underline cursor-pointer bg-transparent border-0 p-0"
+                    >
+                      {p.model_id || <span className="italic">{t('llm_providers.model_unset')}</span>}
+                    </button>
+                  )}
+                  <span className="text-content-tertiary text-[10px]">·</span>
+                  {editingCtxId === p.id ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        ref={ctxInputRef}
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={ctxInput}
+                        onChange={(e) => setCtxInput(e.target.value)}
+                        onKeyDown={(e) => handleCtxKeyDown(e, p.id)}
+                        aria-label={`${p.display_name} context length`}
+                        placeholder={t('llm_providers.context_length_placeholder')}
+                        className="bg-surface-base border border-brand/50 rounded px-2 py-0.5 text-[11px] font-mono text-content-primary placeholder:text-content-tertiary w-24"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => detectCtxFromProbe(p.id)}
+                        disabled={ctxSaving}
+                        aria-label={t('llm_providers.context_length_detect')}
+                        title={t('llm_providers.context_length_detect')}
+                        className="px-2 py-0.5 text-content-tertiary text-[10px] hover:text-brand rounded disabled:opacity-40"
+                      >
+                        {t('llm_providers.context_length_detect')}
+                      </button>
+                      <button
+                        onClick={() => commitCtxEdit(p.id)}
+                        disabled={ctxSaving}
+                        aria-label={t('llm_providers.model_save')}
+                        className="px-2 py-0.5 bg-brand text-white text-[10px] font-bold rounded disabled:opacity-40"
+                      >
+                        {ctxSaving ? '...' : t('llm_providers.model_save')}
+                      </button>
+                      <button
+                        onClick={cancelCtxEdit}
+                        disabled={ctxSaving}
+                        aria-label={t('llm_providers.model_cancel')}
+                        className="px-2 py-0.5 text-content-tertiary text-[10px] hover:text-content-primary rounded"
+                      >
+                        {t('llm_providers.model_cancel')}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => startCtxEdit(p)}
+                      title={t('llm_providers.context_length_edit_hint')}
+                      className="text-[11px] font-mono text-content-tertiary hover:text-brand hover:underline cursor-pointer bg-transparent border-0 p-0"
+                    >
+                      {p.context_length != null ? (
+                        t('llm_providers.model_ctx_suffix', {
+                          tokens: p.context_length.toLocaleString(),
+                        })
+                      ) : (
+                        <span className="italic">{t('llm_providers.context_length_unset')}</span>
+                      )}
+                    </button>
+                  )}
+                  <span className="text-content-tertiary text-[10px]">·</span>
+                  <div
+                    className="inline-flex items-center rounded border border-edge overflow-hidden"
+                    title={t('llm_providers.thinking_hint')}
+                  >
+                    <span className="px-2 py-0.5 text-[10px] font-mono text-content-tertiary bg-transparent">
+                      {t('llm_providers.thinking_label')}
+                    </span>
+                    {(['auto', 'on', 'off'] as const).map((mode) => {
+                      const active = (p.thinking_mode ?? 'auto') === mode;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => commitThinkingMode(p.id, mode)}
+                          disabled={thinkingSavingId === p.id}
+                          aria-pressed={active}
+                          className={`px-2 py-0.5 text-[10px] font-mono border-l border-edge ${
+                            active ? 'bg-brand text-white' : 'bg-transparent text-content-tertiary hover:text-brand'
+                          } disabled:opacity-40`}
+                        >
+                          {t(`llm_providers.thinking_${mode}`)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {editingModelId === p.id && modelError && (
+                  <p className="text-[10px] text-red-400 mt-1 ml-4">{modelError}</p>
+                )}
+                {editingModelId === p.id && modelList?.status === 'fallback' && !modelError && (
+                  <p className="text-[10px] text-content-tertiary mt-1 ml-4">
+                    {t('llm_providers.model_dropdown_error', { code: modelList.errorCode ?? 'unknown' })}
+                  </p>
+                )}
+                {editingCtxId === p.id && ctxError && <p className="text-[10px] text-red-400 mt-1 ml-4">{ctxError}</p>}
+                <div className="flex gap-2 mt-2">
+                  <input
+                    type="password"
+                    value={keyInputs[p.id] || ''}
+                    onChange={(e) => setKeyInputs((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                    placeholder={p.has_key ? t('llm_providers.placeholder_saved') : t('llm_providers.placeholder_new')}
+                    className="flex-1 bg-surface-base border border-edge rounded px-2 py-1 text-xs font-mono text-content-primary placeholder:text-content-tertiary"
+                  />
+                  <button
+                    onClick={() => handleCommitKey(p.id)}
+                    disabled={!keyInputs[p.id]?.trim() || saving === p.id}
+                    aria-label={`${tc('save')} ${p.display_name}`}
+                    className="px-3 py-1 bg-brand text-white text-xs font-bold rounded disabled:opacity-40"
+                  >
+                    {saving === p.id ? '...' : tc('save')}
+                  </button>
+                  {p.has_key && (
+                    <button
+                      onClick={() => handleDelete(p.id)}
+                      aria-label={`${t('llm_providers.clear')} ${p.display_name}`}
+                      className="px-2 py-1 text-red-400 text-xs hover:bg-red-500/10 rounded"
+                    >
+                      {t('llm_providers.clear')}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => runConnectionTest(p.id)}
+                    disabled={testStates[p.id]?.phase === 'running'}
+                    aria-label={`${t('llm_providers.test')} ${p.display_name}`}
+                    className="px-2 py-1 text-xs text-content-secondary border border-edge rounded hover:border-brand hover:text-brand disabled:opacity-40"
+                  >
+                    {testStates[p.id]?.phase === 'running' ? '...' : t('llm_providers.test')}
+                  </button>
+                  {(() => {
+                    const ts = testStates[p.id];
+                    if (!ts || ts.phase !== 'done') return null;
+                    const color =
+                      ts.status === 'ok'
+                        ? 'bg-green-500/15 text-green-400 border-green-500/40'
+                        : ts.status === 'unreachable'
+                          ? 'bg-red-500/15 text-red-400 border-red-500/40'
+                          : 'bg-amber-500/15 text-amber-400 border-amber-500/40';
+                    const label =
+                      ts.status === 'ok'
+                        ? t('llm_providers.test_ok', { latency: ts.latency_ms })
+                        : ts.status === 'auth_failed'
+                          ? t('llm_providers.test_auth_failed')
+                          : ts.status === 'unreachable'
+                            ? t('llm_providers.test_unreachable')
+                            : t('llm_providers.test_model_list_unavailable');
+                    return <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${color}`}>{label}</span>;
+                  })()}
                 </div>
               </div>
-              {editingModelId === p.id && modelError && (
-                <p className="text-[10px] text-red-400 mt-1 ml-4">{modelError}</p>
-              )}
-              {editingModelId === p.id && modelList?.status === 'fallback' && !modelError && (
-                <p className="text-[10px] text-content-tertiary mt-1 ml-4">
-                  {t('llm_providers.model_dropdown_error', { code: modelList.errorCode ?? 'unknown' })}
-                </p>
-              )}
-              {editingCtxId === p.id && ctxError && <p className="text-[10px] text-red-400 mt-1 ml-4">{ctxError}</p>}
-              <div className="flex gap-2 mt-2">
-                <input
-                  type="password"
-                  value={keyInputs[p.id] || ''}
-                  onChange={(e) => setKeyInputs((prev) => ({ ...prev, [p.id]: e.target.value }))}
-                  placeholder={p.has_key ? t('llm_providers.placeholder_saved') : t('llm_providers.placeholder_new')}
-                  className="flex-1 bg-surface-base border border-edge rounded px-2 py-1 text-xs font-mono text-content-primary placeholder:text-content-tertiary"
-                />
-                <button
-                  onClick={() => handleCommitKey(p.id)}
-                  disabled={!keyInputs[p.id]?.trim() || saving === p.id}
-                  aria-label={`${tc('save')} ${p.display_name}`}
-                  className="px-3 py-1 bg-brand text-white text-xs font-bold rounded disabled:opacity-40"
-                >
-                  {saving === p.id ? '...' : tc('save')}
-                </button>
-                {p.has_key && (
-                  <button
-                    onClick={() => handleDelete(p.id)}
-                    aria-label={`${t('llm_providers.clear')} ${p.display_name}`}
-                    className="px-2 py-1 text-red-400 text-xs hover:bg-red-500/10 rounded"
-                  >
-                    {t('llm_providers.clear')}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => runConnectionTest(p.id)}
-                  disabled={testStates[p.id]?.phase === 'running'}
-                  aria-label={`${t('llm_providers.test')} ${p.display_name}`}
-                  className="px-2 py-1 text-xs text-content-secondary border border-edge rounded hover:border-brand hover:text-brand disabled:opacity-40"
-                >
-                  {testStates[p.id]?.phase === 'running' ? '...' : t('llm_providers.test')}
-                </button>
-                {(() => {
-                  const ts = testStates[p.id];
-                  if (!ts || ts.phase !== 'done') return null;
-                  const color =
-                    ts.status === 'ok'
-                      ? 'bg-green-500/15 text-green-400 border-green-500/40'
-                      : ts.status === 'unreachable'
-                        ? 'bg-red-500/15 text-red-400 border-red-500/40'
-                        : 'bg-amber-500/15 text-amber-400 border-amber-500/40';
-                  const label =
-                    ts.status === 'ok'
-                      ? t('llm_providers.test_ok', { latency: ts.latency_ms })
-                      : ts.status === 'auth_failed'
-                        ? t('llm_providers.test_auth_failed')
-                        : ts.status === 'unreachable'
-                          ? t('llm_providers.test_unreachable')
-                          : t('llm_providers.test_model_list_unavailable');
-                  return <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${color}`}>{label}</span>;
-                })()}
-              </div>
             </div>
-          </div>
-        ))}
-        {providers.length === 0 && <p className="text-xs text-content-tertiary italic">{t('llm_providers.empty')}</p>}
-      </div>
+          ))}
+        </div>
+      )}
     </SectionCard>
   );
 }

@@ -11,6 +11,49 @@ const MODEL_ID_MAX_LEN: usize = 200;
 /// HTTP timeout for calls from the admin API to upstream LLM providers' model-list endpoints.
 const MODELS_FETCH_TIMEOUT_SECS: u64 = 15;
 
+/// Example model-id for a provider, shown as the model-input placeholder.
+///
+/// This is provider *metadata* (not user config), kept on the backend so the
+/// dashboard carries no hardcoded provider list of its own (an earlier decision — the
+/// former `MODEL_PLACEHOLDER_BY_PROVIDER` map in `LlmProvidersSection.tsx`).
+/// Option B1 will relocate this into the clotohub registry entry so adding a
+/// new engine needs no ClotoCore change.
+fn model_placeholder(provider_id: &str) -> Option<&'static str> {
+    match provider_id {
+        "local" => Some("qwen/qwen3.5-9b"),
+        "ollama" => Some("qwen3.5:9b"),
+        "claude" => Some("claude-sonnet-4-6"),
+        "cerebras" => Some("gpt-oss-120b"),
+        "deepseek" => Some("deepseek-chat"),
+        "groq" => Some("openai/gpt-oss-20b"),
+        _ => None,
+    }
+}
+
+/// Classify a provider's backing engine into one of four states for the
+/// dashboard (an earlier decision):
+///   * `connected`    — a registered engine server is operational.
+///   * `disconnected` — a registered engine server exists but is down/stopped.
+///   * `uninstalled`  — no engine server, but the user has configured this
+///     provider (key / context length / thinking mode) → keep + warn, never drop.
+///   * `catalog_only` — a pristine seeded provider with no engine and no user
+///     config → the dashboard hides it (not a "real" engine).
+///
+/// `server_status` is looked up by provider id against
+/// `McpClientManager::registered_server_statuses`, which survives disconnect.
+fn classify_engine_status(
+    server_status: Option<&crate::managers::mcp_types::ServerStatus>,
+    configured: bool,
+) -> &'static str {
+    use crate::managers::mcp_types::ServerStatus;
+    match server_status {
+        Some(ServerStatus::Connected) => "connected",
+        Some(_) => "disconnected",
+        None if configured => "uninstalled",
+        None => "catalog_only",
+    }
+}
+
 /// GET /api/llm/providers
 pub async fn list_llm_providers(
     State(state): State<Arc<AppState>>,
@@ -20,10 +63,20 @@ pub async fn list_llm_providers(
     let providers = crate::db::list_llm_providers(&state.pool)
         .await
         .map_err(AppError::Internal)?;
-    // Mask API keys in response
+    // Registration status of every MCP server, keyed by id. A provider is an
+    // engine iff a server shares its id (kernel definition); presence here
+    // survives a stopped engine, unlike the tool-surface classifier.
+    let server_statuses = state.mcp_manager.registered_server_statuses().await;
+    // Mask API keys in response; annotate each provider with its engine state.
     let masked: Vec<serde_json::Value> = providers
         .iter()
         .map(|p| {
+            // "configured" = the user has invested settings worth preserving
+            // even if the engine is later uninstalled. `model_id` is excluded
+            // because it is seeded non-empty, so it cannot signal user intent.
+            let configured =
+                !p.api_key.is_empty() || p.context_length.is_some() || p.thinking_mode != "auto";
+            let engine_status = classify_engine_status(server_statuses.get(&p.id), configured);
             serde_json::json!({
                 "id": p.id,
                 "display_name": p.display_name,
@@ -34,6 +87,9 @@ pub async fn list_llm_providers(
                 "enabled": p.enabled,
                 "context_length": p.context_length,
                 "thinking_mode": p.thinking_mode,
+                "engine_status": engine_status,
+                "configured": configured,
+                "model_placeholder": model_placeholder(&p.id),
             })
         })
         .collect();
@@ -667,7 +723,38 @@ pub async fn delete_llm_provider_key(
 
 #[cfg(test)]
 mod tests {
-    use super::derive_models_url;
+    use super::{classify_engine_status, derive_models_url, model_placeholder};
+    use crate::managers::mcp_types::ServerStatus;
+
+    #[test]
+    fn engine_status_four_states() {
+        // Registered + operational engine → live.
+        assert_eq!(
+            classify_engine_status(Some(&ServerStatus::Connected), true),
+            "connected"
+        );
+        // Registered but down (stopped / errored / restarting) → installed-but-down.
+        assert_eq!(
+            classify_engine_status(Some(&ServerStatus::Disconnected), false),
+            "disconnected"
+        );
+        assert_eq!(
+            classify_engine_status(Some(&ServerStatus::Error("boom".into())), true),
+            "disconnected"
+        );
+        // No engine server, but the user configured it → keep + warn.
+        assert_eq!(classify_engine_status(None, true), "uninstalled");
+        // No engine server, pristine seed → hidden catalog entry.
+        assert_eq!(classify_engine_status(None, false), "catalog_only");
+    }
+
+    #[test]
+    fn model_placeholder_known_and_unknown() {
+        assert_eq!(model_placeholder("deepseek"), Some("deepseek-chat"));
+        assert_eq!(model_placeholder("local"), Some("qwen/qwen3.5-9b"));
+        // Unknown / future provider ids have no baked-in example.
+        assert_eq!(model_placeholder("some-third-party"), None);
+    }
 
     #[test]
     fn derives_openai_compat_v1_base() {

@@ -1657,6 +1657,26 @@ impl McpClientManager {
             .collect()
     }
 
+    /// Registered MCP-server status keyed by server id, for classifying whether
+    /// an LLM provider's backing engine actually exists (an earlier decision).
+    ///
+    /// The join key for the provider → engine view is *registration presence*,
+    /// not `is_reasoning_engine()`: a stopped engine keeps its handle (status
+    /// `Disconnected`) but has its `tools` cleared (see `stop_server`), so the
+    /// tool-surface classifier would misreport a merely-down engine as absent.
+    /// A provider row already asserts its id is an engine (kernel definition,
+    /// see `augment_engine_env`), so presence + status here is the robust signal:
+    /// present+Connected ⇒ live, present+other ⇒ installed-but-down, absent ⇒
+    /// uninstalled. Uninstall (`remove_server`) drops the handle entirely.
+    pub async fn registered_server_statuses(&self) -> HashMap<String, ServerStatus> {
+        let state = self.state.read().await;
+        state
+            .servers
+            .iter()
+            .map(|(id, h)| (id.clone(), h.status.clone()))
+            .collect()
+    }
+
     /// Check if a server with the given ID is registered.
     pub async fn has_server(&self, id: &str) -> bool {
         let state = self.state.read().await;
