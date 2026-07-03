@@ -622,3 +622,74 @@ async fn test_llm_providers_engine_status_annotation() {
         .expect("cerebras row");
     assert_eq!(cerebras["engine_status"], "catalog_only");
 }
+
+/// Ingesting provider metadata from a catalog entry (Goal #148) updates only
+/// provider-authored columns and never clobbers user-owned settings; the
+/// default model is seeded only when the row is first created.
+#[tokio::test]
+async fn test_upsert_llm_provider_meta_preserves_user_columns() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let pool = state.pool.clone();
+
+    // Existing seeded provider with user-owned settings applied.
+    cloto_core::db::set_llm_provider_key(&pool, "deepseek", "sk-user")
+        .await
+        .expect("set key");
+    sqlx::query("UPDATE llm_providers SET model_id = ?, thinking_mode = ? WHERE id = ?")
+        .bind("user-chosen-model")
+        .bind("on")
+        .bind("deepseek")
+        .execute(&pool)
+        .await
+        .expect("apply user model + thinking mode");
+
+    // Re-ingest metadata (as a reinstall would): different api_url/auth/default.
+    cloto_core::db::upsert_llm_provider_meta(
+        &pool,
+        "deepseek",
+        "DeepSeek Renamed",
+        "https://new.example.com/v1/chat/completions",
+        "x-api-key",
+        "ingested-default-model",
+        99,
+        Some(r#"{"model_placeholder":"org/example"}"#.to_string()),
+    )
+    .await
+    .expect("upsert meta");
+
+    let row = cloto_core::db::get_llm_provider(&pool, "deepseek")
+        .await
+        .expect("get deepseek");
+    // Meta columns updated…
+    assert_eq!(row.api_url, "https://new.example.com/v1/chat/completions");
+    assert_eq!(row.auth_type, "x-api-key");
+    assert_eq!(row.display_name, "DeepSeek Renamed");
+    assert_eq!(row.timeout_secs, 99);
+    assert_eq!(
+        row.quirks_parsed().model_placeholder.as_deref(),
+        Some("org/example")
+    );
+    // …user columns untouched.
+    assert_eq!(row.api_key, "sk-user");
+    assert_eq!(row.model_id, "user-chosen-model");
+    assert_eq!(row.thinking_mode, "on");
+
+    // Brand-new engine id: the row is created and the default model is seeded.
+    cloto_core::db::upsert_llm_provider_meta(
+        &pool,
+        "newengine",
+        "New Engine",
+        "https://n.example.com/v1/chat/completions",
+        "bearer",
+        "seeded-default",
+        120,
+        None,
+    )
+    .await
+    .expect("upsert new");
+    let fresh = cloto_core::db::get_llm_provider(&pool, "newengine")
+        .await
+        .expect("get newengine");
+    assert_eq!(fresh.model_id, "seeded-default");
+    assert_eq!(fresh.api_key, "");
+}

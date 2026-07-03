@@ -23,6 +23,12 @@ pub struct ProviderQuirks {
     /// model switch, for providers whose engine binds the model name at startup.
     #[serde(default)]
     pub switch_model_tool: Option<String>,
+    /// Example model id for the dashboard's model-input placeholder (e.g. LM
+    /// Studio's `org/name` vs Ollama's `name:tag`). Ingested from the connector
+    /// catalog's provider block (Goal #148); superseded the frontend's hardcoded
+    /// per-provider map.
+    #[serde(default)]
+    pub model_placeholder: Option<String>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
@@ -97,6 +103,51 @@ pub async fn get_llm_provider(pool: &SqlitePool, id: &str) -> anyhow::Result<Llm
         "SELECT id, display_name, api_url, api_key, model_id, timeout_secs, enabled, created_at, auth_type, context_length, thinking_mode, quirks FROM llm_providers WHERE id = ?"
     ).bind(id).fetch_optional(pool)).await?;
     row.ok_or_else(|| anyhow::anyhow!("LLM provider '{}' not found", id))
+}
+
+/// Upsert an LLM provider's **metadata** from a connector catalog entry
+/// (Goal #148: registry.json provider block → ingest at marketplace install).
+///
+/// Writes only provider-authored metadata columns (display_name, api_url,
+/// auth_type, timeout_secs, quirks). It never overwrites user-owned columns
+/// (`api_key`, `context_length`, `thinking_mode`), and it seeds `model_id`
+/// **only when the row is first created** — a reinstall must not clobber a
+/// model the user has since chosen. `enabled` defaults to 1 on insert and is
+/// left untouched on update. This replaces the per-engine seed migration as
+/// the source of truth so a new engine needs only a catalog entry.
+pub async fn upsert_llm_provider_meta(
+    pool: &SqlitePool,
+    id: &str,
+    display_name: &str,
+    api_url: &str,
+    auth_type: &str,
+    default_model: &str,
+    timeout_secs: i32,
+    quirks_json: Option<String>,
+) -> anyhow::Result<()> {
+    db_timeout(
+        sqlx::query(
+            "INSERT INTO llm_providers \
+                (id, display_name, api_url, api_key, model_id, timeout_secs, enabled, auth_type, quirks) \
+             VALUES (?, ?, ?, '', ?, ?, 1, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET \
+                display_name = excluded.display_name, \
+                api_url      = excluded.api_url, \
+                timeout_secs = excluded.timeout_secs, \
+                auth_type    = excluded.auth_type, \
+                quirks       = excluded.quirks",
+        )
+        .bind(id)
+        .bind(display_name)
+        .bind(api_url)
+        .bind(default_model)
+        .bind(timeout_secs)
+        .bind(auth_type)
+        .bind(quirks_json)
+        .execute(pool),
+    )
+    .await?;
+    Ok(())
 }
 
 pub async fn set_llm_provider_key(
