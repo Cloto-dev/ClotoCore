@@ -11,13 +11,13 @@ const MODEL_ID_MAX_LEN: usize = 200;
 /// HTTP timeout for calls from the admin API to upstream LLM providers' model-list endpoints.
 const MODELS_FETCH_TIMEOUT_SECS: u64 = 15;
 
-/// Example model-id for a provider, shown as the model-input placeholder.
+/// Fallback example model-id for a provider, shown as the model-input
+/// placeholder when the provider row's `quirks.model_placeholder` is absent.
 ///
-/// This is provider *metadata* (not user config), kept on the backend so the
-/// dashboard carries no hardcoded provider list of its own (an earlier decision — the
-/// former `MODEL_PLACEHOLDER_BY_PROVIDER` map in `LlmProvidersSection.tsx`).
-/// Option B1 will relocate this into the clotohub registry entry so adding a
-/// new engine needs no ClotoCore change.
+/// an earlier decision moved this off the dashboard onto the backend; an earlier decision makes the
+/// catalog `provider` block the source of truth (ingested into
+/// `quirks.model_placeholder`). This hardcoded map remains only as the fallback
+/// for the original seeded engines until they are re-ingested from the catalog.
 fn model_placeholder(provider_id: &str) -> Option<&'static str> {
     match provider_id {
         "local" => Some("qwen/qwen3.5-9b"),
@@ -77,6 +77,12 @@ pub async fn list_llm_providers(
             let configured =
                 !p.api_key.is_empty() || p.context_length.is_some() || p.thinking_mode != "auto";
             let engine_status = classify_engine_status(server_statuses.get(&p.id), configured);
+            // Registry-ingested placeholder (an earlier decision) wins; fall back to the
+            // hardcoded map for engines not yet re-ingested from the catalog.
+            let placeholder = p
+                .quirks_parsed()
+                .model_placeholder
+                .or_else(|| model_placeholder(&p.id).map(str::to_string));
             serde_json::json!({
                 "id": p.id,
                 "display_name": p.display_name,
@@ -89,7 +95,7 @@ pub async fn list_llm_providers(
                 "thinking_mode": p.thinking_mode,
                 "engine_status": engine_status,
                 "configured": configured,
-                "model_placeholder": model_placeholder(&p.id),
+                "model_placeholder": placeholder,
             })
         })
         .collect();

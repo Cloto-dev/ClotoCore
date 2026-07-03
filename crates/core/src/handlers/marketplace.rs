@@ -1597,6 +1597,42 @@ async fn register_server(
         warn!("Failed to set marketplace fields: {e}");
     }
 
+    // Engine provider metadata (an earlier decision): a reasoning-engine connector
+    // (`category = "mind"`) carries its upstream LLM-provider metadata in the
+    // catalog entry's `provider` block. Ingest it into the `llm_providers`
+    // credential registry so a new engine needs only a catalog entry, not a
+    // seed migration. Meta columns only — user-owned key/model/context/thinking
+    // are never overwritten (db::upsert_llm_provider_meta).
+    if let Some(pm) = &entry.provider {
+        let quirks = crate::db::ProviderQuirks {
+            no_api_key: pm.quirks.as_ref().is_some_and(|q| q.no_api_key),
+            models_endpoint_path: pm
+                .quirks
+                .as_ref()
+                .and_then(|q| q.models_endpoint_path.clone()),
+            switch_model_tool: pm.quirks.as_ref().and_then(|q| q.switch_model_tool.clone()),
+            model_placeholder: pm.model_placeholder.clone(),
+        };
+        let quirks_json = serde_json::to_string(&quirks).ok();
+        if let Err(e) = crate::db::upsert_llm_provider_meta(
+            &state.pool,
+            &entry.id,
+            &entry.name,
+            &pm.api_url,
+            &pm.auth_type,
+            pm.model_default.as_deref().unwrap_or(""),
+            pm.timeout_secs.map_or(120, |t| t as i32),
+            quirks_json,
+        )
+        .await
+        {
+            warn!(
+                "Failed to ingest LLM provider metadata for {}: {e}",
+                entry.id
+            );
+        }
+    }
+
     // Modern decouple path (0.6.6+): when a memory-kind plugin is installed
     // and the default agent has not yet picked one, mirror this install id
     // into `agent.cloto_default.metadata.preferred_memory`. This replaces
@@ -3695,6 +3731,7 @@ mod tests {
             entry_point_sha256: None,
             signature_payload: None,
             install: None,
+            provider: None,
         }
     }
 
