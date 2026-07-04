@@ -358,8 +358,10 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         return;
       }
 
-      // Thinking process visualization
-      if (event.data?.agent_id === agent.id || (event.data?.engine_id as string | undefined)?.startsWith('mind.')) {
+      // Thinking process visualization. An event carrying engine_id is an
+      // engine event by construction — ids are bare (Goal #143), so presence
+      // is the signal, not a prefix.
+      if (event.data?.agent_id === agent.id || event.data?.engine_id !== undefined) {
         if (event.type === 'ToolInvoked' && event.data.agent_id === agent.id) {
           const tool = (event.data.tool_name as string) || 'unknown';
           const hint = event.data.tool_hint as string | undefined;

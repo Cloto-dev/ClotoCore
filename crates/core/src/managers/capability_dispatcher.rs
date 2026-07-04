@@ -310,25 +310,13 @@ impl CapabilityDispatcher {
 }
 
 /// Classify a server/tool combination into a CapabilityType.
-fn classify_tool(server_id: &str, tool_name: &str) -> Option<CapabilityType> {
-    // Server prefix classification (primary)
-    if server_id.starts_with("memory.") {
-        return Some(CapabilityType::Memory);
-    }
-    if server_id.starts_with("mind.") {
-        return Some(CapabilityType::Reasoning);
-    }
-    if server_id.starts_with("vision.") {
-        return Some(CapabilityType::Vision);
-    }
-    if server_id.starts_with("stt.") {
-        return Some(CapabilityType::Stt);
-    }
-    if server_id.starts_with("output.") {
-        return Some(CapabilityType::Speech);
-    }
-
-    // Tool name fallback for non-standard server prefixes
+///
+/// Classification is tool-surface only: the tool name is the sole signal
+/// (docs/CATEGORY_PREFIX_RETIREMENT_DESIGN.md §5). Server ids carry no
+/// category semantics — the historical `memory.` / `mind.` / `vision.` /
+/// `stt.` / `output.` prefix arms were retired along with the prefixed ids
+/// themselves (Goals #142 / #143); dotted ids remain legal but meaningless.
+fn classify_tool(_server_id: &str, tool_name: &str) -> Option<CapabilityType> {
     match tool_name {
         "store"
         | "recall"
@@ -345,7 +333,9 @@ fn classify_tool(server_id: &str, tool_name: &str) -> Option<CapabilityType> {
         | "set_recall_precision"
         | "get_recall_precision" => Some(CapabilityType::Memory),
         "think" | "think_with_tools" => Some(CapabilityType::Reasoning),
-        "analyze_image" | "capture_screenshot" => Some(CapabilityType::Vision),
+        // `capture_screen` is the capture server's real screenshot tool;
+        // `capture_screenshot` is kept for compatibility with third parties.
+        "analyze_image" | "capture_screen" | "capture_screenshot" => Some(CapabilityType::Vision),
         "transcribe" => Some(CapabilityType::Stt),
         "speak" => Some(CapabilityType::Speech),
         _ => None,
@@ -415,6 +405,64 @@ mod tests {
 
         let result = dispatcher.resolve(CapabilityType::Memory, "recall").await;
         assert!(result.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_bare_ids_classify_by_tool_surface() {
+        // Category prefixes are retired (Goal #143): bare catalog ids must
+        // classify purely from their tool surface.
+        let dispatcher = CapabilityDispatcher::new();
+        dispatcher
+            .build_from_tools(
+                "capture",
+                &[make_tool("capture_screen"), make_tool("analyze_image")],
+            )
+            .await;
+        dispatcher
+            .build_from_tools("stt", &[make_tool("transcribe")])
+            .await;
+        dispatcher
+            .build_from_tools("avatar", &[make_tool("speak")])
+            .await;
+
+        assert_eq!(
+            dispatcher
+                .resolve(CapabilityType::Vision, "analyze_image")
+                .await,
+            Some(("capture".to_string(), "analyze_image".to_string()))
+        );
+        assert_eq!(
+            dispatcher
+                .resolve(CapabilityType::Vision, "capture_screen")
+                .await,
+            Some(("capture".to_string(), "capture_screen".to_string()))
+        );
+        assert_eq!(
+            dispatcher.resolve(CapabilityType::Stt, "transcribe").await,
+            Some(("stt".to_string(), "transcribe".to_string()))
+        );
+        assert_eq!(
+            dispatcher.resolve(CapabilityType::Speech, "speak").await,
+            Some(("avatar".to_string(), "speak".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_prefix_carries_no_category_semantics() {
+        // A dotted id whose tools match no capability arm classifies as
+        // nothing — the old `vision.` prefix arm must not resurrect it.
+        let dispatcher = CapabilityDispatcher::new();
+        dispatcher
+            .build_from_tools(
+                "vision.gaze_webcam",
+                &[make_tool("start_tracking"), make_tool("stop_tracking")],
+            )
+            .await;
+
+        assert!(dispatcher
+            .resolve_server(CapabilityType::Vision)
+            .await
+            .is_none());
     }
 
     #[tokio::test]

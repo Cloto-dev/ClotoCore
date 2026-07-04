@@ -356,10 +356,11 @@ if __name__ == "__main__":
 
 /// Validate a dynamic MCP server name.
 ///
-/// Accepts ASCII alphanumerics plus `_`, `-`, and `.` so the dashboard's
-/// dot-delimited convention (`tool.terminal`, `memory.cpersona`, …) works
-/// through the create endpoint too. Rejects anything that could form a
-/// traversal-like path fragment (leading/trailing dot or a `..` sequence).
+/// Accepts ASCII alphanumerics plus `_`, `-`, and `.`. Dots stay legal for
+/// third-party dotted ids even though first-party ids are bare since the
+/// category-prefix retirement (docs/CATEGORY_PREFIX_RETIREMENT_DESIGN.md).
+/// Rejects anything that could form a traversal-like path fragment
+/// (leading/trailing dot or a `..` sequence).
 fn validate_server_name(name: &str) -> AppResult<()> {
     if name.is_empty() || name.len() > 64 {
         return Err(AppError::Validation(

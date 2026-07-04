@@ -41,21 +41,25 @@ import { SERVER_PRESETS, STANDARD_SERVERS } from '../lib/presets';
 // engines were already bare; built-ins (local/ollama) are now bare too.
 const ENGINE_IDS = ['cerebras', 'groq', 'deepseek', 'claude', 'local', 'ollama'] as const;
 
+// Server ids are bare (Goal #143 — category prefixes retired). The former
+// `voice.tts` entry was removed rather than renamed: no such server exists
+// (TTS ships inside the avatar server via VOICEVOX), so installing it could
+// never succeed.
 const ALL_SELECTABLE_SERVER_IDS = [
   'cpersona',
-  'tool.terminal',
-  'tool.cron',
-  'tool.websearch',
-  'tool.agent_utils',
-  'tool.embedding',
-  'tool.imagegen',
-  'vision.capture',
-  'vision.gaze_webcam',
-  'voice.stt',
-  'voice.tts',
+  'terminal',
+  'cron',
+  'websearch',
+  'agent_utils',
+  'embedding',
+  'imagegen',
+  'capture',
+  'gaze',
+  'stt',
 ] as const;
 
-/** Map server ID → translation key (e.g., "tool.terminal" → "server_tool_terminal", "cpersona" → "server_cpersona") */
+/** Map server ID → translation key (e.g., "terminal" → "server_terminal"). The
+ *  dot replacement only matters for third-party dotted ids. */
 function serverTKey(id: string): string {
   return `server_${id.replace('.', '_')}`;
 }
@@ -66,13 +70,7 @@ function engineTKey(id: string): string {
   return `engine_${id.replace('mind.', '')}`;
 }
 
-const MANUAL_START_SERVERS = new Set([
-  'vision.gaze_webcam',
-  'vision.capture',
-  'tool.imagegen',
-  'voice.stt',
-  'voice.tts',
-]);
+const MANUAL_START_SERVERS = new Set(['gaze', 'capture', 'imagegen', 'stt']);
 
 const DEFAULT_AGENT_ID = 'agent.cloto_default';
 
