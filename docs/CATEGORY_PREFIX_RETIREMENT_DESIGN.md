@@ -94,6 +94,20 @@ more normalization.
 | `output.avatar` | `avatar` | |
 | `io.discord` | `discord` | |
 
+> **Amendment (2026-07-05) — connector id charset.** The `agent_utils`
+> decision below collided with a constraint this document missed: the
+> connector v1 schema restricted ids to kebab-case
+> (`[a-z0-9]([a-z0-9-]*[a-z0-9])?`, MGP_CONNECTOR.md §3), so the snake_case
+> canonical id was valid host-side but rejected at hub import. Resolved
+> spec-side (option A, approved 2026-07-05): the spec charset was widened to
+> `[a-z0-9]([a-z0-9_-]*[a-z0-9])?` with kebab-case as the RECOMMENDED style
+> (MGP_CONNECTOR.md §3.3, mgp-sdk v0.6.1) — the id-unification doctrine of
+> this document requires the host and wire charsets to be congruent, and
+> hyphens carry the inverse host-side hazard (illegal in derived env-var
+> names such as `{ID}_MODEL`). **Rule going forward: a canonical server id
+> must satisfy the §3.3 charset — which every `servers/<id>` directory name
+> that follows host conventions already does.**
+
 **`gaze` naming decision.** The gaze server today has a four-way name spread:
 registry id `vision.gaze_webcam`, directory `servers/gaze`, manifest id `gaze-webcam`,
 future hub connector derived from the manifest. A mechanical prefix strip would mint a
