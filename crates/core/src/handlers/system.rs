@@ -3089,7 +3089,7 @@ impl SystemHandler {
     }
 
     /// Extract text content from MCP think() response.
-    /// Analyze image attachments via vision.capture MCP server.
+    /// Analyze image attachments via the capture MCP server (Vision capability).
     /// Prepends analysis text to the message content so the LLM engine
     /// can "see" images even though it only receives text.
     #[allow(clippy::too_many_lines)]

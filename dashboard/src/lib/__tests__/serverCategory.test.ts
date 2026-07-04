@@ -14,13 +14,14 @@ function server(id: string, tools: string[] = []): McpServerInfo {
 }
 
 describe('isEngineServer', () => {
-  it('matches the legacy mind.* prefix', () => {
-    expect(isEngineServer(server('mind.local'))).toBe(true);
+  it('matches engines by the think tool surface', () => {
+    expect(isEngineServer(server('deepseek', ['think', 'think_with_tools']))).toBe(true);
+    expect(isEngineServer(server('local', ['think']))).toBe(true);
   });
 
-  it('matches de-prefixed catalog engines by the think tool surface', () => {
-    // bug-388/396: ClotoHub registers `deepseek`, not `mind.deepseek`.
-    expect(isEngineServer(server('deepseek', ['think', 'think_with_tools']))).toBe(true);
+  it('carries no id semantics — a dotted id without the tool surface is not an engine', () => {
+    // an earlier decision: prefixes are retired; classification is tool-surface only.
+    expect(isEngineServer(server('mind.local'))).toBe(false);
   });
 
   it('rejects non-engine servers', () => {
@@ -30,16 +31,16 @@ describe('isEngineServer', () => {
 });
 
 describe('isMemoryServer', () => {
-  it('matches the legacy memory.* prefix', () => {
-    expect(isMemoryServer(server('memory.cpersona'))).toBe(true);
-  });
-
-  it('matches de-prefixed catalog memory backends by the memory tool surface', () => {
+  it('matches memory backends by the memory tool surface', () => {
     expect(isMemoryServer(server('cpersona', ['store', 'recall', 'list_memories']))).toBe(true);
   });
 
+  it('carries no id semantics — a dotted id without the tool surface is not memory', () => {
+    expect(isMemoryServer(server('memory.cpersona'))).toBe(false);
+  });
+
   it('rejects non-memory servers', () => {
-    expect(isMemoryServer(server('mind.local', ['think']))).toBe(false);
+    expect(isMemoryServer(server('local', ['think']))).toBe(false);
     expect(isMemoryServer(server('websearch', ['search']))).toBe(false);
   });
 });

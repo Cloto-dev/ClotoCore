@@ -139,7 +139,7 @@ export function VrmViewerPage() {
   useEventStream(
     EVENTS_URL,
     (event) => {
-      // MGP server notifications (output.avatar)
+      // MGP server notifications (avatar)
       if (event.type === 'McpNotification') {
         const d = event.data as Record<string, unknown>;
         const serverId = d?.server_id as string | undefined;
@@ -149,8 +149,8 @@ export function VrmViewerPage() {
         const data = params.data as Record<string, unknown> | undefined;
         if (!data || data.agent_id !== agentId) return;
 
-        // output.avatar server channels (includes VOICEVOX TTS)
-        if (serverId === 'output.avatar') {
+        // avatar server channels (includes VOICEVOX TTS)
+        if (serverId === 'avatar') {
           if (channel === 'avatar_set_expression') {
             controllerRef.current?.setExpression(data.expression as string, (data.intensity as number) ?? 1.0);
           } else if (channel === 'avatar_set_pose') {

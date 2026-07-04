@@ -548,6 +548,14 @@ impl McpClientManager {
             .servers
             .into_iter()
             .map(|mut server_config| {
+                // Config files predating the prefix retirement (an earlier decision)
+                // spell ids as `tool.terminal`, `mind.local`, … . Normalize at
+                // this ingestion boundary so a stale mcp.toml(.migrated) —
+                // re-read whenever `config-loaded` placeholders need repair —
+                // cannot re-insert prefixed rows after the DB migration
+                // renamed them (docs/CATEGORY_PREFIX_RETIREMENT_DESIGN.md §5).
+                server_config.id = normalize_legacy_server_id(&server_config.id);
+
                 // HTTP transport: skip path resolution (no local command/args)
                 if server_config.transport == "streamable-http" {
                     // Resolve ${VAR} references in auth_token
@@ -3403,6 +3411,35 @@ fn expand_path_vars(input: &str, paths: &HashMap<String, String>) -> String {
     result
 }
 
+/// Normalize a legacy category-prefixed server id from a config file to its
+/// canonical bare form (docs/CATEGORY_PREFIX_RETIREMENT_DESIGN.md §5).
+///
+/// `mcp.toml` / `mcp.toml.migrated` files written before the prefix
+/// retirement (an earlier decision) spell ids as `tool.terminal`, `mind.local`,
+/// … . Those files are re-read whenever `config-loaded` placeholder rows need
+/// repair, so this one-shot normalization at the ingestion boundary is what
+/// keeps a stale file from re-inserting prefixed rows after the DB migration
+/// renamed them. Ids that carry no legacy prefix — including third-party
+/// dotted ids — pass through unchanged.
+fn normalize_legacy_server_id(id: &str) -> String {
+    // Explicit mapping: the gaze server's canonical id is its install
+    // directory (`servers/gaze`), not a mechanical prefix strip.
+    if id == "vision.gaze_webcam" {
+        return "gaze".to_string();
+    }
+    const LEGACY_PREFIXES: [&str; 7] = [
+        "tool.", "vision.", "voice.", "io.", "output.", "mind.", "memory.",
+    ];
+    for prefix in LEGACY_PREFIXES {
+        if let Some(bare) = id.strip_prefix(prefix) {
+            if !bare.is_empty() {
+                return bare.to_string();
+            }
+        }
+    }
+    id.to_string()
+}
+
 /// Public bridge for callback handling from lib.rs notification listener.
 pub fn mcp_events_handle_callback(
     manager: &McpClientManager,
@@ -3474,6 +3511,38 @@ pub(crate) fn detect_external_rejection(text: &str) -> Option<cloto_shared::Tool
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── normalize_legacy_server_id (an earlier decision) ──
+
+    #[test]
+    fn legacy_prefixed_config_ids_normalize_to_bare() {
+        for (legacy, bare) in [
+            ("tool.terminal", "terminal"),
+            ("tool.agent_utils", "agent_utils"),
+            ("vision.capture", "capture"),
+            ("vision.gaze_webcam", "gaze"), // explicit mapping, not a strip
+            ("voice.stt", "stt"),
+            ("io.discord", "discord"),
+            ("output.avatar", "avatar"),
+            ("mind.local", "local"),
+            ("memory.cpersona", "cpersona"),
+        ] {
+            assert_eq!(normalize_legacy_server_id(legacy), bare);
+        }
+    }
+
+    #[test]
+    fn bare_and_third_party_config_ids_pass_through() {
+        for id in [
+            "terminal",
+            "cpersona",
+            "acme.custom_server",
+            "tool.",
+            "gaze",
+        ] {
+            assert_eq!(normalize_legacy_server_id(id), id);
+        }
+    }
 
     // ── resolve_sealable_entry_point (bug-391) ──
 

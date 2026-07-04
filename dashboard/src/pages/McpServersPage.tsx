@@ -12,6 +12,7 @@ import { useMcpServers } from '../hooks/useMcpServers';
 import { extractError } from '../lib/errors';
 import { displayServerId } from '../lib/format';
 import { isMgpServer } from '../lib/mgp';
+import { isEngineServer, isMemoryServer } from '../lib/serverCategory';
 import type { McpServerInfo } from '../types';
 
 function mcpStatusToDot(server: McpServerInfo): StatusDotStatus {
@@ -45,24 +46,16 @@ export function McpServersPage() {
 
   const selectedServer = servers.find((s) => s.id === selectedId);
 
-  // Category sort
-  const categoryOrder: Record<string, number> = {
-    'mind.': 0,
-    'memory.': 1,
-    'tool.': 2,
-    'voice.': 3,
-    'vision.': 4,
-    'io.': 5,
-  };
-  const getOrder = (id: string) => {
-    for (const [prefix, order] of Object.entries(categoryOrder)) {
-      if (id.startsWith(prefix)) return order;
-    }
+  // Category sort — ids are bare (an earlier decision), so grouping comes from the
+  // tool surface: engines first, memory second, everything else alphabetical.
+  const getOrder = (server: McpServerInfo) => {
+    if (isEngineServer(server)) return 0;
+    if (isMemoryServer(server)) return 1;
     return 9;
   };
   const sortedServers = [...servers].sort((a, b) => {
-    const oa = getOrder(a.id),
-      ob = getOrder(b.id);
+    const oa = getOrder(a),
+      ob = getOrder(b);
     return oa !== ob ? oa - ob : a.id.localeCompare(b.id);
   });
 

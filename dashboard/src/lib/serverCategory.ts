@@ -3,12 +3,10 @@ import type { McpServerInfo } from '../types';
 // Capability classification for connected MCP servers, mirroring the kernel's
 // `classify_tool` (crates/core/src/managers/capability_dispatcher.rs).
 //
-// Servers installed via the ClotoHub catalog carry de-prefixed ids (e.g.
-// `deepseek`, `cpersona`) instead of the legacy `mind.` / `memory.` namespace
-// (bug-388 / bug-396). Prefix-only matching therefore misses every catalog
-// connector and only catches built-ins like `mind.local`. Fall back to the
-// same tool surface the kernel keys on so de-prefixed engines and memory
-// backends are categorised correctly.
+// Classification is tool-surface only. Server ids are bare and carry no
+// category semantics — the legacy `mind.` / `memory.` prefix arms were
+// retired with the prefixed ids themselves (an earlier decision,
+// docs/CATEGORY_PREFIX_RETIREMENT_DESIGN.md).
 
 const REASONING_TOOLS = ['think', 'think_with_tools'];
 
@@ -29,14 +27,12 @@ const MEMORY_TOOLS = new Set([
   'get_recall_precision',
 ]);
 
-/** True when the server is a reasoning engine (legacy `mind.` prefix or a
- *  de-prefixed catalog engine exposing the `think` tool surface). */
+/** True when the server is a reasoning engine (exposes the `think` tool surface). */
 export function isEngineServer(s: McpServerInfo): boolean {
-  return s.id.startsWith('mind.') || s.tools.some((t) => REASONING_TOOLS.includes(t));
+  return s.tools.some((t) => REASONING_TOOLS.includes(t));
 }
 
-/** True when the server is a memory backend (legacy `memory.` prefix or a
- *  de-prefixed catalog backend exposing the memory tool surface). */
+/** True when the server is a memory backend (exposes the memory tool surface). */
 export function isMemoryServer(s: McpServerInfo): boolean {
-  return s.id.startsWith('memory.') || s.tools.some((t) => MEMORY_TOOLS.has(t));
+  return s.tools.some((t) => MEMORY_TOOLS.has(t));
 }

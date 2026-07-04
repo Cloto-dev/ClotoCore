@@ -683,6 +683,154 @@ mod tests {
         assert_eq!(servers, vec!["deepseek"]);
     }
 
+    // ── 20260704130000_retire_category_prefixes (an earlier decision / an earlier decision) ──
+
+    const CATEGORY_PREFIX_MIGRATION: &str =
+        include_str!("../../migrations/20260704130000_retire_category_prefixes.sql");
+
+    /// Minimal shapes of the tables the category-prefix migration touches,
+    /// with the same FK as the real schema plus the cron_jobs residue target.
+    async fn create_category_prefix_tables(pool: &SqlitePool) {
+        sqlx::raw_sql(
+            "CREATE TABLE mcp_servers (name TEXT PRIMARY KEY, command TEXT); \
+             CREATE TABLE mcp_access_control ( \
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, \
+                 entry_type TEXT NOT NULL, \
+                 agent_id TEXT NOT NULL, \
+                 server_id TEXT NOT NULL REFERENCES mcp_servers(name) ON DELETE CASCADE, \
+                 tool_name TEXT, \
+                 permission TEXT NOT NULL DEFAULT 'allow', \
+                 granted_by TEXT, \
+                 granted_at TEXT NOT NULL, \
+                 expires_at TEXT, \
+                 justification TEXT, \
+                 metadata TEXT); \
+             CREATE TABLE cron_jobs (id INTEGER PRIMARY KEY, engine_id TEXT);",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn category_prefix_migration_renames_merges_and_maps_gaze() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        create_category_prefix_tables(&pool).await;
+        // Real-world shape (observed in a live dev DB): seeded tool.* rows,
+        // marketplace-installed bare twins (terminal), the gaze special case,
+        // the legacy orphan tool.research, and one of every other prefix.
+        sqlx::raw_sql(
+            "INSERT INTO mcp_servers (name, command) VALUES \
+               ('tool.terminal','config-loaded'),('terminal','x'), \
+               ('tool.cron','x'),('tool.research','config-loaded'), \
+               ('vision.capture','x'),('vision.gaze_webcam','x'), \
+               ('voice.stt','x'),('io.discord','x'),('output.avatar','x'), \
+               ('cpersona','x'); \
+             INSERT INTO mcp_access_control (entry_type, agent_id, server_id, tool_name, granted_at) VALUES \
+               ('server_grant','agentA','tool.terminal',NULL,'t'), \
+               ('server_grant','agentA','terminal',NULL,'t'), \
+               ('server_grant','agentA','tool.cron',NULL,'t'), \
+               ('server_grant','agentB','vision.gaze_webcam',NULL,'t'), \
+               ('tool_grant','agentB','vision.capture','analyze_image','t'), \
+               ('server_grant','agentC','cpersona',NULL,'t'); \
+             INSERT INTO cron_jobs (id, engine_id) VALUES \
+               (1,'mind.deepseek'),(2,'local'),(3,NULL);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Applying twice must be idempotent.
+        for _ in 0..2 {
+            sqlx::raw_sql(CATEGORY_PREFIX_MIGRATION)
+                .execute(&pool)
+                .await
+                .expect("category-prefix migration must apply cleanly");
+        }
+
+        let servers: Vec<String> = sqlx::query_scalar("SELECT name FROM mcp_servers ORDER BY name")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            servers,
+            vec![
+                "avatar", "capture", "cpersona", "cron", "discord", "gaze", "research", "stt",
+                "terminal"
+            ]
+        );
+
+        // The tool.terminal grant merged into the existing bare terminal
+        // grant; gaze got the explicit mapping; the tool_grant kept its
+        // tool_name; the bare cpersona grant is untouched.
+        let grants: Vec<(String, String, Option<String>)> = sqlx::query_as(
+            "SELECT agent_id, server_id, tool_name FROM mcp_access_control \
+             ORDER BY agent_id, server_id, IFNULL(tool_name,'')",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            grants,
+            vec![
+                ("agentA".into(), "cron".into(), None),
+                ("agentA".into(), "terminal".into(), None),
+                (
+                    "agentB".into(),
+                    "capture".into(),
+                    Some("analyze_image".into())
+                ),
+                ("agentB".into(), "gaze".into(), None),
+                ("agentC".into(), "cpersona".into(), None),
+            ]
+        );
+
+        // an earlier decision residue: cron_jobs.engine_id de-prefixed; bare and NULL
+        // values untouched.
+        let engines: Vec<(i64, Option<String>)> =
+            sqlx::query_as("SELECT id, engine_id FROM cron_jobs ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            engines,
+            vec![
+                (1, Some("deepseek".into())),
+                (2, Some("local".into())),
+                (3, None),
+            ]
+        );
+
+        let fk_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(fk_violations.is_empty(), "FK must stay consistent");
+    }
+
+    #[tokio::test]
+    async fn category_prefix_migration_tolerates_fresh_database() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        create_category_prefix_tables(&pool).await;
+        sqlx::raw_sql(
+            "INSERT INTO mcp_servers (name, command) VALUES ('terminal','x'); \
+             INSERT INTO cron_jobs (id, engine_id) VALUES (1,'deepseek');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(CATEGORY_PREFIX_MIGRATION)
+            .execute(&pool)
+            .await
+            .expect("no-op on a DB with no prefixed rows");
+        let servers: Vec<String> = sqlx::query_scalar("SELECT name FROM mcp_servers ORDER BY name")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(servers, vec!["terminal"]);
+    }
+
     #[tokio::test]
     async fn test_audit_log_roundtrip() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
