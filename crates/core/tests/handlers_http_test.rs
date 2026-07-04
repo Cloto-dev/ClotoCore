@@ -578,16 +578,53 @@ async fn test_llm_providers_engine_status_annotation() {
     let pool = state.pool.clone();
     let app = create_test_router(state);
 
-    // Fresh install: providers are seeded by migrations, but no engine server is
-    // registered and nothing is configured → every provider is `catalog_only`
-    // (hidden by the dashboard). Placeholder metadata rides along so the
-    // frontend keeps no hardcoded provider list of its own.
+    // Fresh install: the pristine-seed cleanup migration leaves llm_providers
+    // empty — rows exist only after catalog ingest at engine install time.
     let body = fetch(&app).await;
     let providers = body["data"]["providers"]
         .as_array()
         .expect("providers array")
         .clone();
-    assert!(!providers.is_empty(), "migrations seed provider rows");
+    assert!(
+        providers.is_empty(),
+        "fresh install has no provider rows (pristine seeds cleaned up)"
+    );
+
+    // Catalog ingest (as a marketplace install would run) creates the rows.
+    // Neither engine server is registered and nothing is configured yet →
+    // both are `catalog_only` (hidden by the dashboard). Placeholder metadata
+    // rides along so the frontend keeps no hardcoded provider list of its own.
+    for (id, name, url) in [
+        (
+            "deepseek",
+            "DeepSeek",
+            "https://api.deepseek.com/chat/completions",
+        ),
+        (
+            "cerebras",
+            "Cerebras",
+            "https://api.cerebras.ai/v1/chat/completions",
+        ),
+    ] {
+        cloto_core::db::upsert_llm_provider_meta(
+            &pool,
+            id,
+            name,
+            url,
+            "bearer",
+            "default-model",
+            120,
+            Some(r#"{"model_placeholder":"org/example-model"}"#.to_string()),
+        )
+        .await
+        .expect("ingest provider meta");
+    }
+    let body = fetch(&app).await;
+    let providers = body["data"]["providers"]
+        .as_array()
+        .expect("providers array")
+        .clone();
+    assert_eq!(providers.len(), 2);
     for p in &providers {
         assert_eq!(
             p["engine_status"], "catalog_only",
@@ -595,11 +632,7 @@ async fn test_llm_providers_engine_status_annotation() {
             p["id"]
         );
         assert_eq!(p["configured"], false);
-        assert!(
-            p.get("model_placeholder").is_some(),
-            "model_placeholder field present for {}",
-            p["id"]
-        );
+        assert_eq!(p["model_placeholder"], "org/example-model");
     }
 
     // Configuring a provider's key (no engine installed) flips it to
@@ -623,6 +656,58 @@ async fn test_llm_providers_engine_status_annotation() {
     assert_eq!(cerebras["engine_status"], "catalog_only");
 }
 
+/// The pristine-seed cleanup migration deletes only rows that carry zero
+/// user intent AND have no installed engine. Re-running its exact SQL (via
+/// `include_str!`, so the test cannot drift from the shipped file) against
+/// hand-built rows proves the two keep-conditions: user-configured rows and
+/// rows backing a registered engine survive.
+#[tokio::test]
+async fn test_pristine_seed_cleanup_preserves_configured_and_installed_rows() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let pool = state.pool.clone();
+
+    // Rebuild three seed-shaped rows the way the (now-frozen) seed
+    // migrations left them.
+    for (id, model) in [
+        ("claude", "claude-sonnet-4-6"),
+        ("groq", "openai/gpt-oss-120b"),
+        ("ollama", ""),
+    ] {
+        sqlx::query(
+            "INSERT INTO llm_providers (id, display_name, api_url, model_id)
+             VALUES (?, ?, 'https://example.com', ?)",
+        )
+        .bind(id)
+        .bind(id)
+        .bind(model)
+        .execute(&pool)
+        .await
+        .expect("insert seed-shaped row");
+    }
+    // groq: user configured a key. ollama: engine is installed.
+    cloto_core::db::set_llm_provider_key(&pool, "groq", "sk-user")
+        .await
+        .expect("set key");
+    seed_mcp_server(&pool, "ollama").await;
+
+    sqlx::raw_sql(include_str!(
+        "../migrations/20260704000000_cleanup_pristine_llm_provider_seeds.sql"
+    ))
+    .execute(&pool)
+    .await
+    .expect("re-run cleanup migration SQL");
+
+    let remaining: Vec<String> = sqlx::query_scalar("SELECT id FROM llm_providers ORDER BY id")
+        .fetch_all(&pool)
+        .await
+        .expect("list remaining");
+    assert_eq!(
+        remaining,
+        vec!["groq".to_string(), "ollama".to_string()],
+        "pristine 'claude' deleted; configured 'groq' and installed 'ollama' kept"
+    );
+}
+
 /// Ingesting provider metadata from a catalog entry (an earlier decision) updates only
 /// provider-authored columns and never clobbers user-owned settings; the
 /// default model is seeded only when the row is first created.
@@ -631,7 +716,20 @@ async fn test_upsert_llm_provider_meta_preserves_user_columns() {
     let state = create_test_app_state(Some("test-key".to_string())).await;
     let pool = state.pool.clone();
 
-    // Existing seeded provider with user-owned settings applied.
+    // Install-time ingest creates the row (fresh installs have none), then
+    // the user applies their own settings on top.
+    cloto_core::db::upsert_llm_provider_meta(
+        &pool,
+        "deepseek",
+        "DeepSeek",
+        "https://api.deepseek.com/chat/completions",
+        "bearer",
+        "deepseek-chat",
+        120,
+        None,
+    )
+    .await
+    .expect("initial ingest");
     cloto_core::db::set_llm_provider_key(&pool, "deepseek", "sk-user")
         .await
         .expect("set key");
