@@ -437,7 +437,7 @@ use super::utils::{ext_to_mime, mime_to_ext, AVATAR_MAX_BYTES};
 /// **Route:** `POST /api/agents/:id/avatar`
 ///
 /// Accepts raw image bytes with Content-Type header.
-/// Optionally analyzes the image via vision.capture MCP server.
+/// Optionally analyzes the image via the capture MCP server (Vision capability).
 pub async fn upload_avatar(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,

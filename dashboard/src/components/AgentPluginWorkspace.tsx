@@ -144,11 +144,11 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
 
   const applyPreset = (presetServerIds: string[]) => {
     setGrantedIds((prev) => {
-      // Keep existing engines (legacy mind.* or de-prefixed catalog engines),
-      // replace everything else with preset.
+      // Keep existing engines (tool-surface test — bare ids carry no
+      // category information), replace everything else with preset.
       const engines = [...prev].filter((id) => {
         const server = servers.find((s) => s.id === id);
-        return server ? isEngineServer(server) : id.startsWith('mind.');
+        return server ? isEngineServer(server) : false;
       });
       return new Set([...engines, ...presetServerIds]);
     });
