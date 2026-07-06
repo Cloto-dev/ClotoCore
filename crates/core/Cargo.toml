@@ -44,7 +44,7 @@ subtle = "2"
 mgp-seal = { git = "https://github.com/Cloto-dev/mgp-rs", tag = "mgp-seal-v0.3.0" }
 mgp-sdk = { git = "https://github.com/Cloto-dev/mgp-rs", tag = "mgp-sdk-v0.6.0" }
 toml = "1.0"
-cron = "0.16"
+cron = "0.17"
 uuid.workspace = true
 base64 = "0.22"
 flate2 = "1"
