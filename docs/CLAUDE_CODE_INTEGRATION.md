@@ -1,51 +1,45 @@
 # Claude Code Integration: CPersona Memory
 
-Connect CPersona (persistent memory) and the Embedding server to Claude Code
+Connect CPersona (persistent memory) and the CEmbedding server to Claude Code
 so that Claude can store, recall, and manage memories across sessions.
 
 ## Architecture
 
 ```
 Claude Code
-  ├─ cpersona MCP server  (store, recall, export, import, ...)
-  │    └─ HTTP → Embedding server (port 8401)
-  └─ embedding MCP server (MiniLM local inference, HTTP endpoint)
+  ├─ cpersona MCP server    (store, recall, export, import, ...)
+  │    └─ HTTP → CEmbedding server (port 8401)
+  └─ cembedding MCP server  (local ONNX inference, HTTP endpoint)
 ```
 
-Both servers run as stdio MCP processes. CPersona calls the Embedding server's
+Both servers run as stdio MCP processes. CPersona calls CEmbedding's
 HTTP endpoint for vector operations — Claude Code launches both, so the
 dependency resolves automatically.
 
-> **Note:** CPersona now lives in its own repository —
-> [Cloto-dev/CPersona](https://github.com/Cloto-dev/CPersona) (MIT). The
-> canonical Claude Code setup instructions are in that repository's README;
-> this document is kept as the ClotoCore-side integration reference.
+> **Note:** Both servers now live in their own repositories —
+> [Cloto-dev/CPersona](https://github.com/Cloto-dev/CPersona) (MIT, PyPI:
+> [`cpersona`](https://pypi.org/project/cpersona/)) and
+> [Cloto-dev/CEmbedding](https://github.com/Cloto-dev/CEmbedding) (MIT, PyPI:
+> [`cembedding`](https://pypi.org/project/cembedding/)). The former
+> `servers/embedding` copy in clotohub-servers was retired at 0.4.0 (2026-07-09).
+> Canonical setup instructions are in each repository's README; this document
+> is kept as the ClotoCore-side integration reference.
 
 ## Prerequisites
 
-- Python 3.11+ with `pip`
-- [CPersona](https://github.com/Cloto-dev/CPersona) repository cloned locally
-- `clotohub-servers` repository (formerly `cloto-mcp-servers`; private,
-  maintainers only) cloned locally for the embedding server
-- Virtual environment with dependencies installed:
-
-```bash
-cd C:/Users/Cycia/source/repos/clotohub-servers/servers
-python -m venv .venv
-.venv/Scripts/activate   # Windows
-pip install -r requirements.txt
-```
+- Python 3.10+ and [`uv`](https://docs.astral.sh/uv/) (both servers install
+  from PyPI via `uvx` — no repository clone or virtual environment needed)
 
 ## Claude Code Configuration
 
 Register both MCP servers using `claude mcp add-json` (user scope):
 
 ```bash
-# Embedding server (must start before CPersona for vector operations)
-claude mcp add-json embedding '{
+# CEmbedding server (must start before CPersona for vector operations)
+claude mcp add-json cembedding '{
   "type": "stdio",
-  "command": "C:/Users/Cycia/source/repos/clotohub-servers/servers/.venv/Scripts/python.exe",
-  "args": ["C:/Users/Cycia/source/repos/clotohub-servers/servers/embedding/server.py"],
+  "command": "uvx",
+  "args": ["--from", "cembedding[onnx]", "cembedding"],
   "env": {
     "EMBEDDING_PROVIDER": "onnx_miniml",
     "EMBEDDING_HTTP_PORT": "8401"
@@ -55,16 +49,21 @@ claude mcp add-json embedding '{
 # CPersona memory server
 claude mcp add-json cpersona '{
   "type": "stdio",
-  "command": "C:/Users/Cycia/source/repos/CPersona/.venv/Scripts/python.exe",
-  "args": ["C:/Users/Cycia/source/repos/CPersona/server.py"],
+  "command": "uvx",
+  "args": ["cpersona"],
   "env": {
-    "CPERSONA_DB_PATH": "C:/Users/Cycia/.claude/cpersona.db",
+    "CPERSONA_DB_PATH": "~/.claude/cpersona.db",
     "CPERSONA_EMBEDDING_MODE": "http",
     "CPERSONA_EMBEDDING_URL": "http://127.0.0.1:8401/embed",
     "CPERSONA_TASK_QUEUE_ENABLED": "false"
   }
 }' -s user
 ```
+
+The first `uvx` launch downloads the packages; the first CEmbedding start also
+downloads the ONNX model (`cembedding-download-model` pre-fetches it if you
+prefer). Pin versions with `cembedding==0.6.0` / `cpersona==X.Y.Z` when you
+need reproducible setups.
 
 Verify with `claude mcp list` — both should show "Connected".
 
@@ -111,12 +110,15 @@ Once configured, Claude Code gains access to:
 | `CPERSONA_TASK_QUEUE_ENABLED` | `true` | Enable background task queue |
 | `CPERSONA_LLM_PROXY_URL` | `http://127.0.0.1:8082/v1/chat/completions` | LLM proxy for extraction |
 
-### Embedding
+### CEmbedding
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EMBEDDING_PROVIDER` | `api_openai` | `onnx_miniml` (local) or `api_openai` |
+| `EMBEDDING_PROVIDER` | `api_openai` | `onnx_miniml` / `onnx_jina_v5_nano` / `onnx_bge_m3` / `mlx_bge_m3` (local) or `api_openai` |
 | `EMBEDDING_HTTP_PORT` | `8401` | HTTP server port |
+
+The full variable list (vector index, `EMBEDDING_SEARCH_BACKEND`, ONNX tuning)
+is in the [CEmbedding README](https://github.com/Cloto-dev/CEmbedding#configuration).
 
 ## Memory Portability (Export / Import)
 
@@ -164,15 +166,17 @@ Each line is a JSON object with a `_type` field:
 
 ## Standalone Mode (No Embedding)
 
-CPersona works without the embedding server — set `CPERSONA_EMBEDDING_MODE=none`
+CPersona works without the CEmbedding server — set `CPERSONA_EMBEDDING_MODE=none`
 (the default). Memory search falls back to FTS5 + keyword matching.
 
 ## Troubleshooting
 
-- **"Connection refused" on port 8401**: Ensure the embedding server is
+- **"Connection refused" on port 8401**: Ensure the CEmbedding server is
   running. Claude Code must start it before CPersona attempts embedding calls.
-  The embedding server may take a few seconds to load the ONNX model on first
-  start.
+  The very first `uvx` launch downloads the package and the ONNX model, so
+  allow extra time (or pre-fetch with `uvx --from "cembedding[onnx]"
+  cembedding-download-model`); later starts take a few seconds to load the
+  model.
 
 - **Task queue errors**: Set `CPERSONA_TASK_QUEUE_ENABLED=false` for Claude Code
   usage. The task queue is designed for the ClotoCore kernel's LLM proxy, which
