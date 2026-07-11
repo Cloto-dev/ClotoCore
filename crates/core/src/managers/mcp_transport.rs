@@ -27,6 +27,18 @@ impl McpTransport {
         }
     }
 
+    /// OS pid of the spawned child (None for HTTP transports or once the child
+    /// has been reaped). The child is its own process-group leader
+    /// (`process_group(0)` in `start`), so this doubles as the pgid — the
+    /// forced drain sweep signals `-pid` to reap the whole subtree (bug-426).
+    #[must_use]
+    pub fn child_id(&self) -> Option<u32> {
+        match self {
+            Self::Stdio(t) => t.child_id(),
+            Self::Http(_) => None,
+        }
+    }
+
     /// Kill the child process and wait for it to exit (up to 5 seconds).
     /// Prevents race conditions where a new server starts before the old one releases resources.
     pub async fn kill_and_wait(&mut self) {
@@ -186,6 +198,13 @@ impl Drop for StdioTransport {
 }
 
 impl StdioTransport {
+    /// OS pid of the spawned child == its pgid (`process_group(0)` in `start`).
+    /// None once the child has been reaped.
+    #[must_use]
+    pub fn child_id(&self) -> Option<u32> {
+        self.child.id()
+    }
+
     /// Kill the child process and wait for it to actually exit.
     /// Ensures file locks (DB, ports) are released before returning.
     pub async fn kill_and_wait(&mut self) {
