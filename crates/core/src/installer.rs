@@ -54,9 +54,15 @@ DATABASE_URL=sqlite:{db_path}
 # CEREBRAS_API_KEY=
 
 # --- Consensus (Principle #8: Dynamic Intelligence Orchestration) ---
-# Comma-separated reasoning engine IDs for consensus: mode.
-# Messages prefixed with "consensus:" are routed to all listed engines.
-# CONSENSUS_ENGINES=deepseek,cerebras
+# Multi-engine deliberation: a message prefixed with "consensus:" fans out to
+# the agent's assigned reasoning engines, and a synthesizer engine merges the
+# independent proposals into one answer delivered as the agent's response.
+# Engines are sourced from the agent's granted engine servers — assign at
+# least CONSENSUS_MIN_PROPOSALS engines (default 2) to the agent in the
+# Dashboard. CONSENSUS_ENGINES only narrows that per-agent set
+# (comma-separated IDs; empty = use all of the agent's engines) — it never
+# adds an engine the agent was not assigned.
+# CONSENSUS_ENGINES=
 
 # --- Agent ---
 # DEFAULT_AGENT_ID=agent.cloto_default

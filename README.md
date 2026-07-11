@@ -180,7 +180,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `CLOTO_API_KEY` | (none) | Admin API key (required in release builds) |
 | `DEEPSEEK_API_KEY` | (none) | DeepSeek API key |
 | `CEREBRAS_API_KEY` | (none) | Cerebras API key |
-| `CONSENSUS_ENGINES` | `mind.deepseek,mind.cerebras` | Engine IDs for consensus mode |
+| `CONSENSUS_ENGINES` | (none) | Filter over the agent's engines for consensus mode (empty = all; never adds engines) |
 | `DEFAULT_AGENT_ID` | `agent.cloto_default` | Default agent for `/api/chat` |
 | `EMBEDDING_API_KEY` | (none) | Embedding API key (OpenAI-compatible) |
 | `CLOTO_SKIP_ICON_EMBED` | (none) | Set to `1` to skip icon embedding during dev builds |
@@ -203,9 +203,12 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `CLOTO_CRON_ENABLED` | `true` | Enable cron job scheduler |
 | `CLOTO_CRON_INTERVAL` | `60` | Cron check interval in seconds |
 | `CLOTO_LLM_PROXY_PORT` | `8082` | LLM API proxy port |
-| `CONSENSUS_SYNTHESIZER` | (none) | Consensus synthesis engine ID |
+| `CONSENSUS_SYNTHESIZER` | (first working engine) | Engine that merges the proposals |
 | `CONSENSUS_MIN_PROPOSALS` | `2` | Minimum proposals before synthesis |
-| `CONSENSUS_SESSION_TIMEOUT_SECS` | `60` | Consensus session timeout |
+| `CONSENSUS_SESSION_TIMEOUT_SECS` | `60` | Per-phase timeout (proposal collection / synthesis) |
+| `CONSENSUS_PREFIX` | `consensus:` | Message prefix that triggers consensus mode |
+| `CONSENSUS_AGENT_ID` | `system.consensus` | Synthetic consensus ID recorded in response metadata |
+| `CONSENSUS_ENGINE_REUSE` | `true` | Re-sample working engines (varied framings) to reach quorum when engines fail |
 | `CLOTO_EVENT_CONCURRENCY` | `50` | Event processing concurrency limit (1-500) |
 | `CLOTO_MAX_EVENT_HISTORY` | `10000` | Maximum event history buffer (100-1000000) |
 | `CLOTO_DB_TIMEOUT_SECS` | `10` | Database operation timeout (1-120) |
@@ -227,6 +230,25 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `OLLAMA_ENABLE_THINKING` | (none) | Enable Ollama thinking mode |
 
 </details>
+
+### Consensus mode
+
+Ask several reasoning engines at once and get a single merged answer. A
+message starting with the consensus prefix (default `consensus:`) fans out to
+every engine assigned to the agent; each engine answers independently, then a
+synthesizer engine merges the proposals into one response delivered in the
+agent's chat. Per-engine progress is visible in the dashboard's Consensus tab.
+
+```
+consensus: Compare Rust and Go for a latency-sensitive network service.
+```
+
+- Engines come from the agent's **granted engine servers** — assign at least
+  `CONSENSUS_MIN_PROPOSALS` (default 2) engines to the agent in the Dashboard.
+  `CONSENSUS_ENGINES` optionally narrows that set; it never adds engines.
+- If some engines fail or time out, working engines are re-sampled through
+  varied reasoning framings to reach quorum (`CONSENSUS_ENGINE_REUSE=0`
+  disables this and fails fast instead).
 
 ## API
 

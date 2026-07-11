@@ -71,6 +71,13 @@ Every plugin runs in a sandbox with capability injection. Every sensitive
 operation requires human approval. The security model isn't bolted on —
 it's the foundation everything else is built on.
 
+A feature I'm fond of: multi-engine consensus. Prefix a message with
+"consensus:" and the agent fans the task out to every reasoning engine it
+has been assigned — each produces an independent proposal, then a
+synthesizer engine merges them into one answer, with per-engine progress
+live in the dashboard. Different models genuinely disagree, and the merged
+answer is often better than any single engine's.
+
 Quickest way to try it: cpersona (the memory server) works standalone
 in Claude Desktop or Claude Code — pip install, single SQLite file, MIT.
 
