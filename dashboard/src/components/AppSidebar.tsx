@@ -1,9 +1,13 @@
-import { Brain, Clock, Cpu, PanelLeftClose, PanelLeftOpen, Server, Settings, Users } from 'lucide-react';
+import { Brain, Clock, Cpu, PanelLeftClose, PanelLeftOpen, Power, Server, Settings, Users } from 'lucide-react';
 import type React from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAgentContext } from '../contexts/AgentContext';
+import { useApi } from '../hooks/useApi';
 import { AgentIcon, statusDotColor } from '../lib/agentIdentity';
+import { requestShutdown } from './ShutdownOverlay';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 
 const NAV_LINKS: readonly { path: string; icon: typeof Server; labelKey: string; action?: 'settings' | 'agents' }[] = [
   { path: '/', icon: Users, labelKey: 'agent', action: 'agents' },
@@ -23,6 +27,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation('nav');
+  const { t: tSettings } = useTranslation('settings');
+  const { t: tCommon } = useTranslation('common');
+  const api = useApi();
+  const [shutdownConfirm, setShutdownConfirm] = useState(false);
   const { agents, selectedAgentId, setSelectedAgentId, systemActive, setSystemActive, processingAgentIds } =
     useAgentContext();
 
@@ -167,9 +175,34 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
           ) : (
             <PanelLeftClose size={24} className="shrink-0" />
           )}
-          {!collapsed && <span className="text-[10px] font-mono uppercase tracking-wide">{t('collapse')}</span>}
+          {!collapsed && <span className="text-xs font-bold uppercase tracking-wide">{t('collapse')}</span>}
+        </button>
+
+        {/* Safe shutdown (an earlier decision) — same sequence as the tray Quit */}
+        <button
+          onClick={() => setShutdownConfirm(true)}
+          title={collapsed ? t('shutdown') : undefined}
+          aria-label={t('shutdown')}
+          className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-content-tertiary hover:text-red-400 hover:bg-red-500/10 w-full`}
+        >
+          <Power size={24} className="shrink-0" />
+          {!collapsed && <span className="text-xs font-bold uppercase tracking-wide">{t('shutdown')}</span>}
         </button>
       </div>
+
+      <ConfirmDialog
+        open={shutdownConfirm}
+        title={tSettings('advanced.shutdown_confirm_title')}
+        message={tSettings('advanced.shutdown_confirm_message')}
+        confirmLabel={tSettings('advanced.shutdown_confirm_label')}
+        cancelLabel={tCommon('cancel')}
+        variant="danger"
+        onConfirm={() => {
+          setShutdownConfirm(false);
+          void requestShutdown(api.post);
+        }}
+        onCancel={() => setShutdownConfirm(false)}
+      />
     </div>
   );
 };
