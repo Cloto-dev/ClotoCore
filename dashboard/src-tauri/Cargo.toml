@@ -29,6 +29,9 @@ tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-process = "2"
+# Rfc3339 formatting of the updater's release date (same `time` the updater
+# plugin already pulls in — this only turns on the `formatting` feature).
+time = { version = "0.3", features = ["formatting"] }
 
 # Screen capture
 xcap = "0.9"

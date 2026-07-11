@@ -223,36 +223,44 @@ export interface UpdateInfo {
 }
 
 /**
- * Check for updates via the Tauri Updater plugin. Reads `latest.json` from the
- * GitHub release endpoint configured in `tauri.conf.json`. Browser mode is a
- * no-op (returns `available: false`).
- *
- * The endpoint resolves through GitHub's `/releases/latest/download/` URL, which
- * always points to the latest STABLE release — pre-release channel discovery is
- * deferred to a future feature.
+ * Update channels served by the signed `updater-feed` rolling release
+ * (docs/RELEASE_PIPELINE_DESIGN.md §5.1). Channel names come from the
+ * Release Lifecycle Standard tiers verbatim.
+ */
+export type UpdateChannel = 'stable' | 'current' | 'experimental';
+export const UPDATE_CHANNELS: readonly UpdateChannel[] = ['stable', 'current', 'experimental'];
+export const UPDATE_CHANNEL_STORAGE_KEY = 'cloto-update-channel';
+
+/** Resolve the persisted update channel, defaulting to `stable` on any unknown value. */
+export function getUpdateChannel(): UpdateChannel {
+  const stored = localStorage.getItem(UPDATE_CHANNEL_STORAGE_KEY);
+  return UPDATE_CHANNELS.includes(stored as UpdateChannel) ? (stored as UpdateChannel) : 'stable';
+}
+
+/**
+ * True when this build is a pre-release (semver pre-release suffix on the app
+ * version). Locally derived — no network, no manifest (design §6).
+ */
+export const isExperimentalBuild = __APP_VERSION__.includes('-');
+
+/**
+ * Check for updates on the persisted channel. The Rust side builds the updater
+ * against `…/updater-feed/{channel}.json` at check time; artifact signatures
+ * are still verified against the pubkey in `tauri.conf.json`. Browser mode is
+ * a no-op (returns `available: false`).
  */
 export async function checkForUpdates(): Promise<UpdateInfo> {
   const current = __APP_VERSION__;
   if (!isTauri) {
     return { available: false, currentVersion: current, latestVersion: current };
   }
-  const { check } = await import('@tauri-apps/plugin-updater');
-  const update = await check();
-  if (!update) {
-    return { available: false, currentVersion: current, latestVersion: current };
-  }
-  return {
-    available: true,
-    currentVersion: update.currentVersion,
-    latestVersion: update.version,
-    releaseDate: update.date,
-    releaseNotes: update.body,
-  };
+  const { invoke } = await import('@tauri-apps/api/core');
+  return await invoke<UpdateInfo>('updater_check', { channel: getUpdateChannel() });
 }
 
 /**
- * Download and install the available update, then relaunch the app.
- * Throws when not in desktop mode or no update is available.
+ * Download and install the update available on the persisted channel, then
+ * relaunch the app. Throws when not in desktop mode or no update is available.
  *
  * On Windows (NSIS), the installer terminates the running process and starts
  * the new exe itself, so the `relaunch()` call may reject — that is expected
@@ -261,25 +269,15 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
  */
 export async function applyUpdate(): Promise<string> {
   if (!isTauri) throw new Error('Update can only be applied in desktop mode');
-  const { check } = await import('@tauri-apps/plugin-updater');
+  const { invoke } = await import('@tauri-apps/api/core');
   const { relaunch } = await import('@tauri-apps/plugin-process');
-  const update = await check();
-  if (!update) throw new Error('No update available');
-  let downloaded = 0;
-  let contentLength = 0;
-  await update.downloadAndInstall((event) => {
-    if (event.event === 'Started') {
-      contentLength = event.data.contentLength ?? 0;
-    } else if (event.event === 'Progress') {
-      downloaded += event.data.chunkLength;
-    }
+  const message = await invoke<string>('updater_download_and_install', {
+    channel: getUpdateChannel(),
   });
-  const sizeBytes = contentLength || downloaded;
-  const sizeMb = sizeBytes / 1_048_576;
   try {
     await relaunch();
   } catch {
     // NSIS installer may have already killed the process
   }
-  return `Updated to v${update.version} (${sizeMb.toFixed(1)} MB). Restarting…`;
+  return message;
 }

@@ -1,4 +1,15 @@
-import { Brain, Clock, Cpu, PanelLeftClose, PanelLeftOpen, Power, Server, Settings, Users } from 'lucide-react';
+import {
+  Brain,
+  Clock,
+  Cpu,
+  FlaskConical,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Power,
+  Server,
+  Settings,
+  Users,
+} from 'lucide-react';
 import type React from 'react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -6,6 +17,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAgentContext } from '../contexts/AgentContext';
 import { useApi } from '../hooks/useApi';
 import { AgentIcon, statusDotColor } from '../lib/agentIdentity';
+import { isExperimentalBuild } from '../lib/tauri';
 import { requestShutdown } from './ShutdownOverlay';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 
@@ -161,6 +173,20 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
       </div>
 
       <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
+
+      {/* Experimental-build badge (docs/RELEASE_PIPELINE_DESIGN.md §6) — always
+          visible while running a pre-release; locally derived, no network. */}
+      {isExperimentalBuild && (
+        <div className="px-2 mb-1">
+          <div
+            title={t('experimental_tooltip')}
+            className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-1.5 px-3'} py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-500`}
+          >
+            <FlaskConical size={collapsed ? 16 : 12} className="shrink-0" />
+            {!collapsed && <span className="text-[9px] font-bold uppercase tracking-widest">{t('experimental')}</span>}
+          </div>
+        </div>
+      )}
 
       {/* Collapse toggle */}
       <div className="px-2">
