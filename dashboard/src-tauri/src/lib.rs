@@ -30,8 +30,7 @@ static MCP_DRAINED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 
 /// Guard so the coordinated shutdown sequence ([`begin_shutdown`]) runs at most
 /// once, no matter which UI path fires it (tray quit / dashboard button).
-static SHUTDOWN_STARTED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static SHUTDOWN_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Drain parameters shared by every exit path (Goal #164: tray quit and the
 /// dashboard shutdown button must run the identical sequence).
