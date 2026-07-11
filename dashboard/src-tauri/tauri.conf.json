@@ -58,7 +58,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY2RkQ3QzUxNzI4MTlERUMKUldUc25ZRnlVWHo5Wm92U3E3ZXdoM1BKZExuMm9jVitPdGlHYWNaVWxwL2FOenFzSEF4SGxMczcK",
       "endpoints": [
-        "https://github.com/Cloto-dev/ClotoCore/releases/latest/download/latest.json"
+        "https://github.com/Cloto-dev/ClotoCore/releases/download/updater-feed/stable.json"
       ]
     }
   }

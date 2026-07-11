@@ -353,6 +353,15 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     );
     info!("+---------------------------------------+");
 
+    // Experimental-build warning (docs/RELEASE_PIPELINE_DESIGN.md §6) — a semver
+    // pre-release suffix is locally derivable, no network needed.
+    if env!("CARGO_PKG_VERSION").contains('-') {
+        tracing::warn!(
+            "⚠️  Experimental build v{} — opt-in, no guarantees; fixes ship in the next pre-release",
+            env!("CARGO_PKG_VERSION")
+        );
+    }
+
     let config = AppConfig::load()?;
     // H-06: Mask DB path in logs (show filename only, not full path)
     let db_display = config

@@ -1,11 +1,21 @@
-import { CheckCircle, Download, RefreshCw, RotateCcw } from 'lucide-react';
+import { CheckCircle, Download, GitBranch, RefreshCw, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { REPOSITORY_URL } from '../../constants';
 import { useLocalStorage } from '../../hooks/useStorage';
-import { applyUpdate, checkForUpdates, isTauri, type UpdateInfo } from '../../lib/tauri';
+import {
+  applyUpdate,
+  checkForUpdates,
+  isTauri,
+  UPDATE_CHANNEL_STORAGE_KEY,
+  UPDATE_CHANNELS,
+  type UpdateChannel,
+  type UpdateInfo,
+} from '../../lib/tauri';
 import { SetupWizard } from '../SetupWizard';
 import { AlertCard } from '../ui/AlertCard';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { PillSelect } from '../ui/PillSelect';
 import { SectionCard, Toggle } from './common';
 
 type UpdateState = 'idle' | 'checking' | 'up-to-date' | 'available' | 'updating' | 'updated' | 'error';
@@ -17,8 +27,31 @@ export function AboutSection() {
   const [updateOutput, setUpdateOutput] = useState('');
   const [showWizard, setShowWizard] = useState(false);
   const { t } = useTranslation('settings');
+  const { t: tCommon } = useTranslation('common');
   const [autoUpdateRaw, setAutoUpdateRaw] = useLocalStorage('cloto-auto-update', 'on');
   const autoUpdateEnabled = autoUpdateRaw !== 'off';
+  const [channelRaw, setChannelRaw] = useLocalStorage(UPDATE_CHANNEL_STORAGE_KEY, 'stable');
+  const channel: UpdateChannel = UPDATE_CHANNELS.includes(channelRaw as UpdateChannel)
+    ? (channelRaw as UpdateChannel)
+    : 'stable';
+  const [experimentalConfirm, setExperimentalConfirm] = useState(false);
+
+  const applyChannel = (next: UpdateChannel) => {
+    setChannelRaw(next);
+    // A channel switch invalidates any previous check result.
+    setUpdateInfo(null);
+    setUpdateState('idle');
+  };
+
+  const handleChannelSelect = (next: UpdateChannel) => {
+    if (next === channel) return;
+    if (next === 'experimental') {
+      // Switching TO experimental requires explicit confirmation (design §5.1).
+      setExperimentalConfirm(true);
+      return;
+    }
+    applyChannel(next);
+  };
 
   const handleCheck = async () => {
     setUpdateState('checking');
@@ -77,6 +110,31 @@ export function AboutSection() {
                 label={t('about.auto_update')}
               />
               <p className="text-[11px] text-content-tertiary mt-1">{t('about.auto_update_desc')}</p>
+            </div>
+          )}
+
+          {/* Update channel selector (Tauri desktop only) */}
+          {isTauri && (
+            <div className="mb-3 pb-3 border-b border-edge space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-bold text-content-secondary">{t('about.update_channel')}</span>
+                <PillSelect<UpdateChannel>
+                  value={channel}
+                  options={[
+                    { value: 'stable', label: t('about.channel_stable'), hint: t('about.channel_stable_hint') },
+                    { value: 'current', label: t('about.channel_current'), hint: t('about.channel_current_hint') },
+                    {
+                      value: 'experimental',
+                      label: t('about.channel_experimental'),
+                      hint: t('about.channel_experimental_hint'),
+                    },
+                  ]}
+                  onSelect={handleChannelSelect}
+                  icon={GitBranch}
+                  accented={channel !== 'stable'}
+                />
+              </div>
+              <p className="text-[11px] text-content-tertiary">{t('about.update_channel_desc')}</p>
             </div>
           )}
 
@@ -237,6 +295,20 @@ export function AboutSection() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={experimentalConfirm}
+        title={t('about.channel_confirm_title')}
+        message={t('about.channel_confirm_message')}
+        confirmLabel={t('about.channel_confirm_label')}
+        cancelLabel={tCommon('cancel')}
+        variant="danger"
+        onConfirm={() => {
+          setExperimentalConfirm(false);
+          applyChannel('experimental');
+        }}
+        onCancel={() => setExperimentalConfirm(false)}
+      />
     </>
   );
 }

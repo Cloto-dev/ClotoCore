@@ -295,6 +295,118 @@ fn get_auto_api_key() -> Option<String> {
     DASHBOARD_API_KEY.get().cloned()
 }
 
+// ── Channel-aware updater (docs/RELEASE_PIPELINE_DESIGN.md §5.1) ──
+
+/// Channels served by the signed `updater-feed` rolling release. Names come
+/// from the Release Lifecycle Standard tiers verbatim.
+const UPDATE_CHANNELS: [&str; 3] = ["stable", "current", "experimental"];
+
+/// Build an updater pointed at the requested channel view of the feed. The
+/// channel string arrives from the frontend (localStorage) and is validated
+/// against the closed channel set before it touches a URL.
+fn channel_updater(
+    app: &tauri::AppHandle,
+    channel: &str,
+) -> Result<tauri_plugin_updater::Updater, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    if !UPDATE_CHANNELS.contains(&channel) {
+        return Err(format!("Unknown update channel: {channel}"));
+    }
+    let endpoint: tauri::Url = format!(
+        "https://github.com/Cloto-dev/ClotoCore/releases/download/updater-feed/{channel}.json"
+    )
+    .parse()
+    .map_err(|e| format!("{e}"))?;
+    app.updater_builder()
+        .endpoints(vec![endpoint])
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateCheckResult {
+    available: bool,
+    current_version: String,
+    latest_version: String,
+    release_date: Option<String>,
+    release_notes: Option<String>,
+}
+
+/// Check the given channel for an update. Signature verification of the
+/// downloaded artifact still happens inside the plugin against the pubkey in
+/// `tauri.conf.json`; only the endpoint is channel-selected at runtime.
+#[tauri::command]
+async fn updater_check(
+    app: tauri::AppHandle,
+    channel: String,
+) -> Result<UpdateCheckResult, String> {
+    let updater = channel_updater(&app, &channel)?;
+    let update = updater.check().await.map_err(|e| e.to_string())?;
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    Ok(match update {
+        Some(u) => UpdateCheckResult {
+            available: true,
+            current_version: u.current_version.clone(),
+            latest_version: u.version.clone(),
+            release_date: u.date.map(|d| {
+                d.format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_else(|_| d.to_string())
+            }),
+            release_notes: u.body.clone(),
+        },
+        None => UpdateCheckResult {
+            available: false,
+            current_version: current.clone(),
+            latest_version: current,
+            release_date: None,
+            release_notes: None,
+        },
+    })
+}
+
+/// Download and install the update available on the given channel. Returns a
+/// human-readable summary; the frontend performs the relaunch (on Windows the
+/// NSIS installer may kill the process first — same contract as before).
+#[tauri::command]
+async fn updater_download_and_install(
+    app: tauri::AppHandle,
+    channel: String,
+) -> Result<String, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let updater = channel_updater(&app, &channel)?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No update available".to_string())?;
+    let downloaded = AtomicU64::new(0);
+    let total = AtomicU64::new(0);
+    update
+        .download_and_install(
+            |chunk, content_length| {
+                downloaded.fetch_add(chunk as u64, Ordering::Relaxed);
+                if let Some(len) = content_length {
+                    total.store(len, Ordering::Relaxed);
+                }
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let size = match total.load(Ordering::Relaxed) {
+        0 => downloaded.load(Ordering::Relaxed),
+        n => n,
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let size_mb = size as f64 / 1_048_576.0;
+    Ok(format!(
+        "Updated to v{} ({size_mb:.1} MB). Restarting…",
+        update.version
+    ))
+}
+
 /// Headless release-gate self-check, invoked by `app --smoke`.
 ///
 /// Boots the **real** kernel (config load, SQLite open + migrations, plugin / MCP
@@ -493,7 +605,9 @@ pub fn run() {
             save_language_pack,
             remove_language_pack,
             install_default_packs,
-            shutdown_app
+            shutdown_app,
+            updater_check,
+            updater_download_and_install
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
