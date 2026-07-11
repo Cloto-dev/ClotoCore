@@ -3434,6 +3434,18 @@
       "expected": "absent",
       "status": "fixed",
       "notes": "Latent filter bug 2 of 2 (see bug-423). Fix under Goal #141 Task #125: match the real discriminant (McpNotification / the new McpServerLog type). Correct precedent: VrmViewerPage.tsx:143 (event.type === 'McpNotification'). FIXED 2026-07-01 (Task #125, commit pending): McpServerLogsTab now reads event.data.server_id and matches event.type==='McpServerLog' (+McpNotification), with source/level badges. Both buggy patterns removed."
+    },
+    {
+      "id": "bug-426",
+      "summary": "MEDIUM: drain_all's global timeout cancels join_all, dropping in-flight drain futures between SIGTERM and SIGKILL, so a server that survives SIGTERM can leak past app exit. The Tauri app-exit drain (2000ms grace, 6s cap) is structurally guaranteed to hit the cap whenever any server needs escalation: drain_server worst case = 2s drain wait + 3s SHUTDOWN_GRACE_SECS + 5s post-SIGKILL wait = 10s > 6s. On timeout the un-finished futures are dropped at their next await; one dropped after its SIGTERM but before the SIGKILL escalation leaves that child alive, and the app exit that follows runs no destructors (app.exit/process::exit), so kill_on_drop / transport Drop never fire. Observed 2026-07-11 (Goal #164 verification): every safe-shutdown run logged 'MCP drain_all timed out after 6s - 18 server(s) may not have shut down cleanly' (ERROR). In practice Python servers still exit on stdin EOF when the kernel dies, masking the leak; a server that ignores stdin EOF (Rust mgp-discord) would survive.",
+      "severity": "MEDIUM",
+      "discovered": "2026-07-11T12:40:00Z",
+      "version": "0.6.8-beta.1",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "join_all\\(drain_futures\\)",
+      "expected": "present",
+      "status": "open",
+      "notes": "CSC Task #197 (Goal #145). Fix directions: (a) make the per-server kill non-cancellable - spawn each drain as a detached task and have the timeout bound only the *wait*, never the kill; (b) scale the global cap to the per-server worst case (2s + 3s + 5s) instead of a flat 6s, and unify with the kernel endpoint's 5000ms/10s constants; (c) after a timeout, run a forced synchronous group-kill sweep over the still-registered children and log the sweep result (demoting the ERROR to WARN when the sweep confirms reap). Found while verifying the Goal #164 two-path safe shutdown; distinct from the mgp-discord mid-session restart leak (bug-427)."
     }
   ]
 }
