@@ -273,11 +273,7 @@ impl EventProcessor {
             //  here.)
             match &event.data {
                 cloto_shared::ClotoEventData::ThoughtResponse {
-                    agent_id,
-                    engine_id: _,
-                    content,
-                    source_message_id: _,
-                    ..
+                    agent_id, content, ..
                 } => {
                     info!(trace_id = %trace_id, agent_id = %agent_id, "🧠 Received ThoughtResponse");
                     if let Err(e) = self.agent_manager.touch_last_seen(agent_id).await {
