@@ -9,12 +9,31 @@ type Phase = 'hidden' | 'shutting-down' | 'stopped';
 let externalTrigger: (() => void) | null = null;
 
 /**
- * Show the full-screen shutdown overlay (Goal #164). Called by the settings
+ * Show the full-screen shutdown overlay (Goal #164). Called by the sidebar
  * shutdown button; the tray-quit path triggers the same overlay through the
  * Tauri `shutdown-started` event instead. No-op if the overlay is not mounted.
  */
 export function showShutdownOverlay() {
   externalTrigger?.();
+}
+
+/**
+ * Run the safe shutdown from the dashboard UI (Goal #164): show the overlay,
+ * then — desktop — invoke the shared `begin_shutdown` sequence (same path as
+ * the tray Quit), or — browser — POST the kernel's shutdown endpoint.
+ */
+export async function requestShutdown(post: (path: string, payload: unknown) => Promise<void>) {
+  showShutdownOverlay();
+  try {
+    if (isTauri) {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('shutdown_app');
+    } else {
+      await post('/system/shutdown', {});
+    }
+  } catch (err) {
+    if (import.meta.env.DEV) console.error('Failed to shut down:', err);
+  }
 }
 
 /**

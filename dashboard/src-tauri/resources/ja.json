@@ -265,7 +265,14 @@
       "yolo_desc": "有効化すると MCP サーバー接続権限リクエストが自動承認されます。ツール実行の承認は影響を受けず、SafetyGate の事後検証がセーフティネットとして機能します。",
       "cron_limit_title": "CRON 再帰上限",
       "cron_limit_desc": "CRON ジョブが子 CRON ジョブを再帰的に作成できる世代数の上限。0 で再帰を完全に無効化します。",
-      "cron_limit_hint": "(0-6、既定値: 2)"
+      "cron_limit_hint": "(0-6、既定値: 2)",
+      "shutdown_confirm_title": "ClotoCore を終了しますか?",
+      "shutdown_confirm_message": "すべての MCP サーバーを停止し、カーネルを終了します。再起動するまでエージェントは応答しません。",
+      "shutdown_confirm_label": "終了する",
+      "shutdown_overlay_title": "シャットダウン中",
+      "shutdown_overlay_draining": "MCP サーバーを停止しています…",
+      "shutdown_overlay_stopped_title": "カーネル停止",
+      "shutdown_overlay_stopped_hint": "ClotoCore は終了しました。このタブを閉じて構いません。"
     },
     "security": {
       "api_key_title": "API キー",
@@ -332,7 +339,11 @@
     "no_servers": "MCP サーバーが登録されていません。",
     "status": "ステータス",
     "tools": "ツール",
-    "logs": "ログ",
+    "logs": {
+      "event_log": "イベントログ",
+      "clear": "クリア",
+      "waiting": "イベントを待機中..."
+    },
     "settings": "設定",
     "access_control": "アクセス制御",
     "servers_count": "{{count}} サーバー",
@@ -426,11 +437,6 @@
       "placeholder_value": "値",
       "add": "追加"
     },
-    "logs": {
-      "event_log": "イベントログ",
-      "clear": "クリア",
-      "waiting": "イベントを待機中..."
-    },
     "marketplace": {
       "tab_servers": "サーバー",
       "tab_marketplace": "マーケットプレイス",
@@ -467,7 +473,8 @@
     "settings": "設定",
     "collapse": "折りたたむ",
     "expand_sidebar": "サイドバーを展開",
-    "collapse_sidebar": "サイドバーを折りたたむ"
+    "collapse_sidebar": "サイドバーを折りたたむ",
+    "shutdown": "終了"
   },
   "cron": {
     "title": "Cron ジョブ",
