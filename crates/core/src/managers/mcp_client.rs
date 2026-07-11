@@ -109,6 +109,11 @@ pub struct McpClient {
     stream_idle_timeout_secs: u64,
     /// Stream chunk collectors: request_id → (chunk sender, activity notifier).
     stream_collectors: Arc<Mutex<HashMap<i64, StreamCollector>>>,
+    /// OS pid (== pgid, the child is its own group leader) of the stdio child,
+    /// captured at spawn. Lock-free so the forced drain sweep (bug-426) can
+    /// signal the group without touching the transport Mutex. None for HTTP
+    /// transports.
+    child_pid: Option<u32>,
 }
 
 impl Drop for McpClient {
@@ -150,6 +155,13 @@ impl McpClient {
                 Self::SEND_TIMEOUT_SECS
             )),
         }
+    }
+
+    /// OS pid (== pgid) of the stdio child captured at spawn; None for HTTP
+    /// transports. Lock-free — safe to read while a drain holds the transport.
+    #[must_use]
+    pub fn child_pid(&self) -> Option<u32> {
+        self.child_pid
     }
 
     /// Kill the underlying child process and wait for it to exit.
@@ -210,6 +222,10 @@ impl McpClient {
         )
         .await?;
         let sender = stdio.sender();
+        // Captured lock-free so the forced drain sweep (bug-426) can signal the
+        // process group without contending on the transport Mutex (the response
+        // loop holds it across recv()).
+        let child_pid = stdio.child_id();
         let transport = McpTransport::Stdio(Box::new(stdio));
         let mut client = Self {
             transport: Arc::new(Mutex::new(transport)),
@@ -222,6 +238,7 @@ impl McpClient {
             request_timeout_secs,
             stream_idle_timeout_secs,
             stream_collectors: Arc::new(Mutex::new(HashMap::new())),
+            child_pid,
         };
 
         client.start_response_loop(server_id);
@@ -254,6 +271,7 @@ impl McpClient {
             request_timeout_secs,
             stream_idle_timeout_secs,
             stream_collectors: Arc::new(Mutex::new(HashMap::new())),
+            child_pid: None,
         };
 
         client.start_response_loop(server_id);
