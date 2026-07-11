@@ -74,6 +74,23 @@ Client Request
 6. Plugin responses may generate cascade events → back to step 1
 ```
 
+#### Consensus mode (multi-engine deliberation)
+
+A message starting with the consensus prefix (default `consensus:`) takes a
+dedicated in-kernel path instead of the single-engine loop
+(`handlers/system.rs::run_consensus`): the kernel fans the task out
+concurrently to the originating agent's granted engine servers (the global
+`CONSENSUS_ENGINES` env only narrows this per-agent set), collects the
+independent proposals, then runs a synthesizer engine over the combined views
+and delivers exactly one response attributed to the originating agent.
+Orchestration is synchronous inside one task — proposals are never carried by
+events, so identity and ordering are structural (no aggregation races). Engine
+failures degrade gracefully: working engines are re-sampled through varied
+reasoning framings to reach quorum (`CONSENSUS_ENGINE_REUSE`), and every
+terminal branch emits a definite response. Per-step `ConsensusProgress` events
+feed the dashboard's Consensus tab. `consensus.rs` retains only the config and
+prompt builders; see `docs/CONSENSUS_REVIVAL_DESIGN.md`.
+
 ### 0.4 Crate Structure
 
 ```
@@ -133,7 +150,7 @@ ClotoCore/
 │   │       ├── config.rs        # AppConfig from environment variables
 │   │       ├── events.rs        # Event processor (cascade, broadcast, dispatch)
 │   │       ├── middleware.rs    # Rate limiter, request tracking
-│   │       ├── consensus.rs    # Multi-engine consensus orchestrator
+│   │       ├── consensus.rs    # Consensus config + prompt builders (orchestration: handlers/system.rs)
 │   │       ├── capabilities.rs # Capability types and permission model
 │   │       │   │       └── lib.rs           # AppState, router setup, server bootstrap
 │   └── shared/        # Shared trait definitions

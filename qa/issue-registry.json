@@ -3344,9 +3344,11 @@
       "version": "0.6.8-beta.1",
       "file": "crates/core/src/installer.rs",
       "pattern": "CONSENSUS_ENGINES=deepseek,cerebras",
-      "expected": "present",
-      "status": "open",
-      "notes": "Belongs with an earlier decision (config defaults/docs/marketing). Fix options: (a) change the example to two reliably-registered engines, (b) document that CONSENSUS_ENGINES entries must be registered mind.* engine servers and how to register a provider as one, and/or (c) emit a clearer boot/runtime warning when a CONSENSUS_ENGINES id has no resolvable engine server. Surfacing the dropped-engine reason to the user also depends on bug-417 (right now even the '[Consensus failed] 1/2' message is invisible).",
+      "expected": "absent",
+      "status": "fixed",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "Fixed at the docs/config layer (an earlier decision), after the runtime premise was already reshaped by the bug-419 fix (engines are now sourced from the agent's granted engine servers, CONSENSUS_ENGINES is only a filter that never adds engines) and softened by the #232 engine-reuse quorum fallback plus the bug-417 fix (the '[Consensus unavailable/failed]' message is now delivered to the user's chat instead of being invisible). The installer template no longer ships the copy-paste example 'CONSENSUS_ENGINES=deepseek,cerebras'; it now documents the per-agent grant requirement (assign >= CONSENSUS_MIN_PROPOSALS engine servers to the agent in the Dashboard) and defaults the variable to empty. README gains a Consensus-mode section + corrected env table (default was wrongly listed as 'mind.deepseek,mind.cerebras'; CONSENSUS_PREFIX / CONSENSUS_AGENT_ID / CONSENSUS_ENGINE_REUSE rows added), ARCHITECTURE.md documents the in-kernel consensus flow.",
+      "notes": "Was: the shipped example referenced an engine that is not auto-registered, producing a guaranteed quorum fail for a user who copied it. Belonged to an earlier decision (config defaults/docs/marketing). Original fix options (a) reliable example ids / (b) document registration requirement / (c) boot warning — resolved via (b) plus removing the trap example; (c) is subsumed by the per-engine ConsensusProgress error events (MGP section-14 codes) on the dashboard Consensus tab.",
       "github_issue": 233
     },
     {
