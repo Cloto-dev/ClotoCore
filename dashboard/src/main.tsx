@@ -5,6 +5,7 @@ import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { AppLayout } from './components/AppLayout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SetupWizard } from './components/SetupWizard';
+import { ShutdownOverlay } from './components/ShutdownOverlay';
 import { ThemeProvider } from './components/ThemeProvider';
 import { AgentProvider } from './contexts/AgentContext';
 import { ApiKeyProvider } from './contexts/ApiKeyContext';
@@ -190,6 +191,9 @@ async function bootstrap() {
             <UserIdentityProvider>
               <ConnectionProvider>
                 <App />
+                {/* Above the connection gate: must survive the kernel going
+                    away mid-shutdown (Goal #164). */}
+                <ShutdownOverlay />
               </ConnectionProvider>
             </UserIdentityProvider>
           </ApiKeyProvider>

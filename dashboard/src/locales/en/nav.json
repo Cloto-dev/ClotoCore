@@ -7,5 +7,6 @@
   "settings": "Settings",
   "collapse": "Collapse",
   "expand_sidebar": "Expand sidebar",
-  "collapse_sidebar": "Collapse sidebar"
+  "collapse_sidebar": "Collapse sidebar",
+  "shutdown": "Shut Down"
 }
