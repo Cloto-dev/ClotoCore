@@ -86,7 +86,7 @@ for entry in new_data.get('issues', []):
 
 created=0
 # Associative array to track created issues: bug_id → github_issue_number
-declare -A CREATED_MAP
+declare -A CREATED_MAP=()
 
 if [[ -n "$NEW_ENTRIES" ]]; then
     while IFS='|' read -r bug_id severity summary file status; do
