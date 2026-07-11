@@ -43,6 +43,9 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --exclude app -- -D warnings -A clippy::too-many-lines -A clippy::struct-excessive-bools -A clippy::match-same-arms -A clippy::cast-possible-wrap -A clippy::trivially-copy-pass-by-ref -A clippy::manual-let-else -A clippy::option-if-let-else -A clippy::case-sensitive-file-extension-comparisons -A clippy::unwrap-used -A clippy::type-complexity
 
+      - name: Feed generator self-test
+        run: python3 scripts/generate-release-feed.py --selftest
+
   audit:
     name: Security Audit
     runs-on: ubuntu-latest

@@ -672,3 +672,12 @@ jobs:
           files: release-indicator/latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Regenerate the updater feed after the release is fully published. Runs
+  # last so a feed reader can never resolve a version whose artifacts are
+  # still uploading (same ordering guarantee as the two-phase latest.json).
+  update-feed:
+    needs: release
+    if: github.event.inputs.draft_only != 'true'
+    uses: ./.github/workflows/update-feed.yml
+    secrets: inherit
