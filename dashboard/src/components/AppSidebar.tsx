@@ -175,7 +175,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
           ) : (
             <PanelLeftClose size={24} className="shrink-0" />
           )}
-          {!collapsed && <span className="text-[10px] font-mono uppercase tracking-wide">{t('collapse')}</span>}
+          {!collapsed && <span className="text-xs font-bold uppercase tracking-wide">{t('collapse')}</span>}
         </button>
 
         {/* Safe shutdown (Goal #164) — same sequence as the tray Quit */}
@@ -186,7 +186,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
           className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-content-tertiary hover:text-red-400 hover:bg-red-500/10 w-full`}
         >
           <Power size={24} className="shrink-0" />
-          {!collapsed && <span className="text-[10px] font-mono uppercase tracking-wide">{t('shutdown')}</span>}
+          {!collapsed && <span className="text-xs font-bold uppercase tracking-wide">{t('shutdown')}</span>}
         </button>
       </div>
 
