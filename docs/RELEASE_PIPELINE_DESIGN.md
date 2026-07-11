@@ -194,6 +194,30 @@ signature; `install.sh` verifies per-artifact `sha256` from the manifest
 per-artifact Tauri signatures and the cosign-signed `SHA256SUMS.txt` bundle
 are unchanged.
 
+#### Key management (runbook)
+
+The signing key pair (key id `66FD7C51 72819DEC`, generated 2026-07-12)
+lives in three places that MUST stay in sync:
+
+1. `~/.tauri/cloto-signing-key.key` (+ `.password`) on the maintainer's
+   machine — **back both up in the password manager**; the file system copy
+   is not a backup.
+2. Repository secrets `TAURI_SIGNING_PRIVATE_KEY` /
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (what CI signs with).
+3. The `pubkey` in `dashboard/src-tauri/tauri.conf.json` (what every
+   shipped client verifies against).
+
+**Rotation procedure**: regenerate with `tauri signer generate`, then update
+(2) and (3) **in the same change**, then run the Update Feed workflow and
+confirm the published `manifest.json.minisig` key id matches the new
+pubkey. History lesson (2026-07-12): the 2026-03-08 rotation updated (3)
+but not (2), which silently broke desktop auto-update signature
+verification for every release from v0.6.0 to v0.6.8-beta.1 — the mismatch
+was only caught when the feed's manifest signature was machine-verified
+against the client-embedded pubkey. Clients on those versions must
+reinstall manually once; auto-update verifies from the first release signed
+with the current key.
+
 ## 5. Consumers
 
 ### 5.1 Tauri updater (desktop)
