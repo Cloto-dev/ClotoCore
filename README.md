@@ -340,6 +340,14 @@ cargo test --test '*'                   # integration tests only
 
 See [Architecture](docs/ARCHITECTURE.md) for the full security model.
 
+## Release Lifecycle & Support
+
+ClotoCore follows a three-tier release lifecycle (**Stable** / **Current** /
+**Experimental**) with explicit certification and grace-window rules —
+see [SUPPORT.md](SUPPORT.md). Supported versions for security fixes are
+listed in [SECURITY.md](SECURITY.md). Pre-releases (`-alpha.N` / `-beta.N`)
+are opt-in only and carry no guarantees.
+
 ## Documentation
 
 - [MCP/MGP Server Quickstart](docs/QUICKSTART_MCP_SERVER.md) — Build your first server in 5 minutes
