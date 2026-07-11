@@ -2,10 +2,17 @@
 
 ## Supported Versions
 
-| Version         | Supported |
-|-----------------|-----------|
-| 0.6.x (latest)  | Yes       |
-| < 0.6.0         | No        |
+Support follows the release-tier policy in [SUPPORT.md](SUPPORT.md).
+Security fixes are provided for the Stable line, the Current line, and any
+line inside its 30-day grace window.
+
+| Line | Security fixes |
+| --- | --- |
+| Stable (none certified yet — see SUPPORT.md) | ✅ |
+| Current (0.6.x) | ✅ |
+| Experimental (pre-releases, e.g. 0.6.8-beta.1) | ✅ shipped in the next release / pre-release |
+| Lines in the 30-day grace window | ✅ |
+| EOL lines | ❌ maintainer discretion only |
 
 ## Reporting a Vulnerability
 
