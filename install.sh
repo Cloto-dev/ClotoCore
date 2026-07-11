@@ -21,6 +21,7 @@ SETUP_SERVICE="${CLOTO_SERVICE:-false}"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
 error() { echo -e "${RED}Error: $1${NC}" >&2; exit 1; }
@@ -68,6 +69,15 @@ if ! [[ "$VERSION_NUM" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
 fi
 
 echo "  Version:  v${VERSION_NUM}"
+
+# --- Experimental warning (docs/RELEASE_PIPELINE_DESIGN.md §6) ---
+# Fires on an explicit experimental channel request or a pre-release version pin.
+if [[ "${CLOTO_CHANNEL:-}" == "experimental" || "$VERSION_NUM" == *-* ]]; then
+    echo ""
+    echo -e "${YELLOW}WARNING: installing an EXPERIMENTAL (pre-release) build.${NC}"
+    echo -e "${YELLOW}Experimental releases are opt-in only, with no guarantees.${NC}"
+    echo -e "${YELLOW}Fixes ship in the next pre-release.${NC}"
+fi
 
 # --- Download ---
 ARCHIVE="cloto-${VERSION_NUM}-${PLATFORM}.tar.gz"

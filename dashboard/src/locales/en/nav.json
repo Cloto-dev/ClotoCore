@@ -8,5 +8,7 @@
   "collapse": "Collapse",
   "expand_sidebar": "Expand sidebar",
   "collapse_sidebar": "Collapse sidebar",
-  "shutdown": "Shut Down"
+  "shutdown": "Shut Down",
+  "experimental": "Experimental",
+  "experimental_tooltip": "Experimental build — opt-in, no guarantees"
 }

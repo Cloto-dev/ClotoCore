@@ -19,7 +19,18 @@ import en_settings from './locales/en/settings.json';
 import en_setup from './locales/en/setup.json';
 import en_wizard from './locales/en/wizard.json';
 
-const NAMESPACES = ['common', 'agents', 'settings', 'mcp', 'nav', 'cron', 'memory', 'wizard', 'setup', 'actions'] as const;
+const NAMESPACES = [
+  'common',
+  'agents',
+  'settings',
+  'mcp',
+  'nav',
+  'cron',
+  'memory',
+  'wizard',
+  'setup',
+  'actions',
+] as const;
 
 i18n
   .use(LanguageDetector)
