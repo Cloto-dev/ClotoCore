@@ -2243,9 +2243,10 @@
       "version": "0.6.3-alpha.10",
       "commit": "08fc0e1",
       "file": "crates/core/src/managers/mcp.rs",
-      "pattern": "join_all\\(drain_futures\\)",
+      "pattern": "join_all\\(drain_handles\\)",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "notes": " Witness pattern updated 2026-07-11: the bug-426 fix renamed drain_futures to drain_handles (per-server drains now run as detached tasks joined in parallel — still parallel, plus cancel-safe)."
     },
     {
       "id": "bug-335",
@@ -3443,9 +3444,11 @@
       "version": "0.6.8-beta.1",
       "file": "crates/core/src/managers/mcp.rs",
       "pattern": "join_all\\(drain_futures\\)",
-      "expected": "present",
-      "status": "open",
-      "notes": "an earlier decision (an earlier decision). Fix directions: (a) make the per-server kill non-cancellable - spawn each drain as a detached task and have the timeout bound only the *wait*, never the kill; (b) scale the global cap to the per-server worst case (2s + 3s + 5s) instead of a flat 6s, and unify with the kernel endpoint's 5000ms/10s constants; (c) after a timeout, run a forced synchronous group-kill sweep over the still-registered children and log the sweep result (demoting the ERROR to WARN when the sweep confirms reap). Found while verifying the an earlier decision two-path safe shutdown; distinct from the mgp-discord mid-session restart leak (bug-427)."
+      "expected": "absent",
+      "status": "fixed",
+      "notes": "an earlier decision (an earlier decision). Fix directions: (a) make the per-server kill non-cancellable - spawn each drain as a detached task and have the timeout bound only the *wait*, never the kill; (b) scale the global cap to the per-server worst case (2s + 3s + 5s) instead of a flat 6s, and unify with the kernel endpoint's 5000ms/10s constants; (c) after a timeout, run a forced synchronous group-kill sweep over the still-registered children and log the sweep result (demoting the ERROR to WARN when the sweep confirms reap). Found while verifying the an earlier decision two-path safe shutdown; distinct from the mgp-discord mid-session restart leak (bug-427).",
+      "fixed_in": "0.6.8-beta.1",
+      "fix_note": "drain_all now runs each per-server drain as a detached tokio task, so the global timeout only stops waiting for them and can no longer cancel a drain between its SIGTERM and its SIGKILL escalation. Child pgids are snapshotted lock-free before draining (new McpClient::child_pid, captured at spawn — the response loop holding the transport Mutex cannot block it); on timeout a signal-only forced sweep SIGKILLs every recorded process group (ESRCH no-op for servers that already exited), so no child of a registered server survives drain_all returning, even when the caller exits without running destructors. The timeout log is demoted to WARN and reports the sweep result; non-Unix keeps the ERROR (subtree containment there needs a Job Object, tracked in an earlier decision). Regression test drain_all_timeout_sweep_kills_sigterm_immune_server: a SIGTERM-ignoring mock server against a 1s cap is dead after drain_all returns."
     }
   ]
 }

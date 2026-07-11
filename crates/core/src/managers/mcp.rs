@@ -2953,32 +2953,79 @@ impl McpClientManager {
     /// path (orphan-leak fix, Step 4) so a GUI quit reaps subprocesses instead of
     /// orphaning them. Each server gets `per_server_ms` to drain gracefully; the
     /// whole sweep is capped at `global_timeout_secs`.
-    pub async fn drain_all(&self, reason: &str, per_server_ms: u64, global_timeout_secs: u64) {
-        let server_ids: Vec<String> = {
+    ///
+    /// bug-426: the per-server drains run as **detached tasks**, so the global
+    /// timeout only stops *waiting* for them — it can no longer cancel a drain
+    /// between its SIGTERM and its SIGKILL escalation. On timeout, a signal-only
+    /// forced sweep SIGKILLs every recorded child process group (pgids captured
+    /// lock-free before draining), so by the time this returns no child of a
+    /// registered server can still be alive — even when the caller exits the
+    /// process without running destructors (`app.exit` / `process::exit`).
+    pub async fn drain_all(
+        self: &Arc<Self>,
+        reason: &str,
+        per_server_ms: u64,
+        global_timeout_secs: u64,
+    ) {
+        // (server id, child pgid) snapshot — pgid read lock-free from the client
+        // so a response loop holding the transport Mutex cannot block the sweep.
+        let targets: Vec<(String, Option<u32>)> = {
             let state = self.state.read().await;
-            state.servers.keys().cloned().collect()
+            state
+                .servers
+                .iter()
+                .map(|(id, h)| (id.clone(), h.client.as_ref().and_then(|c| c.child_pid())))
+                .collect()
         };
-        if server_ids.is_empty() {
+        if targets.is_empty() {
             return;
         }
-        let drain_futures = server_ids.iter().map(|sid| {
-            let sid = sid.clone();
-            async move {
-                if let Err(e) = self.drain_server(&sid, reason, per_server_ms).await {
-                    tracing::warn!(server = %sid, error = %e, "MCP drain failed");
-                }
-            }
-        });
+        let reason_owned = reason.to_string();
+        let drain_handles: Vec<_> = targets
+            .iter()
+            .map(|(sid, _)| {
+                let sid = sid.clone();
+                let mgr = Arc::clone(self);
+                let reason = reason_owned.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = mgr.drain_server(&sid, &reason, per_server_ms).await {
+                        tracing::warn!(server = %sid, error = %e, "MCP drain failed");
+                    }
+                })
+            })
+            .collect();
         if tokio::time::timeout(
             std::time::Duration::from_secs(global_timeout_secs),
-            futures::future::join_all(drain_futures),
+            futures::future::join_all(drain_handles),
         )
         .await
         .is_err()
         {
+            // Forced sweep: signal-only (no awaits, nothing to cancel). Servers
+            // that already exited make the group kill a harmless ESRCH no-op.
+            #[cfg(unix)]
+            {
+                let mut swept = 0u32;
+                for (sid, pid) in &targets {
+                    if let Some(pid) = pid {
+                        // SAFETY: signalling a process group we created and own
+                        // (each child is spawned as its own group leader).
+                        let rc = unsafe { libc::kill(-(*pid as libc::pid_t), libc::SIGKILL) };
+                        if rc == 0 {
+                            swept += 1;
+                            tracing::warn!(server = %sid, pid, "drain timeout — force-killed child process group");
+                        }
+                    }
+                }
+                tracing::warn!(
+                    "MCP drain_all hit the {global_timeout_secs}s cap — graceful drain incomplete; forced sweep killed {swept} remaining process group(s) of {} server(s)",
+                    targets.len()
+                );
+            }
+            #[cfg(not(unix))]
             tracing::error!(
-                "MCP drain_all timed out after {global_timeout_secs}s — {} server(s) may not have shut down cleanly",
-                server_ids.len()
+                "MCP drain_all timed out after {global_timeout_secs}s — {} server(s) may not have shut down cleanly (no group-kill sweep on this platform; needs a Job Object)",
+                targets.len()
             );
         }
     }
@@ -3998,7 +4045,7 @@ while True:\n\
         );
 
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        let manager = McpClientManager::new(pool, false, 30, 30);
+        let manager = std::sync::Arc::new(McpClientManager::new(pool, false, 30, 30));
 
         let (notif_tx, _notif_rx) = tokio::sync::mpsc::channel::<McpNotification>(16);
         let (client, _caps) = McpClient::connect(
@@ -4071,5 +4118,105 @@ while True:\n\
             "grandchild {grandchild} survived drain_all — Step 4 failed to reap the subtree"
         );
         let _ = std::fs::remove_file(&pidfile);
+    }
+
+    /// bug-426: when the graceful drain overruns the global cap (here a server
+    /// that ignores SIGTERM, against a 1s cap far below the SIGTERM grace), the
+    /// timeout must not cancel the kill mid-flight — the forced sweep SIGKILLs
+    /// the recorded process group, so no child survives `drain_all` returning.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn drain_all_timeout_sweep_kills_sigterm_immune_server() {
+        // Mock MCP server: ignore SIGTERM, answer `initialize`, then stay alive
+        // forever (even across stdin EOF) so only SIGKILL can end it.
+        const MOCK: &str = "import sys, json, signal, time\n\
+signal.signal(signal.SIGTERM, signal.SIG_IGN)\n\
+while True:\n\
+\x20   line = sys.stdin.readline()\n\
+\x20   if not line:\n\
+\x20       while True:\n\
+\x20           time.sleep(60)\n\
+\x20   line = line.strip()\n\
+\x20   if not line:\n\
+\x20       continue\n\
+\x20   try:\n\
+\x20       req = json.loads(line)\n\
+\x20   except Exception:\n\
+\x20       continue\n\
+\x20   if req.get('method') == 'initialize':\n\
+\x20       sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': req.get('id'), 'result': {}}) + '\\n')\n\
+\x20       sys.stdout.flush()\n";
+
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!(
+                "skipping drain_all_timeout_sweep_kills_sigterm_immune_server: python3 not found"
+            );
+            return;
+        }
+
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let manager = std::sync::Arc::new(McpClientManager::new(pool, false, 30, 30));
+
+        let (notif_tx, _notif_rx) = tokio::sync::mpsc::channel::<McpNotification>(16);
+        let (client, _caps) = McpClient::connect(
+            "mock-immune",
+            "python3",
+            &["-c".to_string(), MOCK.to_string()],
+            &std::collections::HashMap::new(),
+            notif_tx,
+            5,
+            5,
+            None,
+            0,
+            &[],
+            crate::managers::mcp_client::DEFAULT_MCP_LOG_LEVEL,
+        )
+        .await
+        .expect("mock server should complete the initialize handshake");
+
+        let child = client
+            .child_pid()
+            .expect("stdio client should record its child pid") as i32;
+        assert_eq!(
+            unsafe { libc::kill(child, 0) },
+            0,
+            "mock child {child} should be alive before drain_all"
+        );
+
+        let handle = McpServerHandle {
+            id: "mock-immune".to_string(),
+            config: McpServerConfig {
+                id: "mock-immune".to_string(),
+                command: "python3".to_string(),
+                ..Default::default()
+            },
+            client: Some(std::sync::Arc::new(client)),
+            tools: Vec::new(),
+            handshake: None,
+            mgp_negotiated: None,
+            status: ServerStatus::Connected,
+            audit_seq: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            connected_at: Some(std::time::Instant::now()),
+            isolation_profile: None,
+        };
+        manager
+            .state
+            .write()
+            .await
+            .servers
+            .insert("mock-immune".to_string(), handle);
+
+        // 1s cap << the 3s SIGTERM grace inside kill_and_wait — the graceful
+        // drain cannot finish, so the timeout + forced sweep path must run.
+        manager.drain_all("test timeout sweep", 100, 1).await;
+
+        assert!(
+            wait_pid_gone(child, std::time::Duration::from_secs(5)).await,
+            "SIGTERM-immune child {child} survived drain_all — the forced sweep did not kill its process group (bug-426)"
+        );
     }
 }
