@@ -1,4 +1,5 @@
 import { type LucideIcon, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 interface ModalProps {
   title: string;
@@ -11,7 +12,11 @@ interface ModalProps {
 export function Modal({ title, icon: Icon, size = 'sm', onClose, children }: ModalProps) {
   const isLarge = size === 'lg';
 
-  return (
+  // Portal to <body>: `fixed` is resolved against the nearest ancestor with a
+  // backdrop-filter/transform (it becomes the containing block), so a modal
+  // opened from inside e.g. the backdrop-blurred sidebar would be trapped in
+  // and clipped to that ancestor instead of covering the viewport.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/[0.35] backdrop-blur-[2px] animate-in fade-in duration-200"
       onClick={(e) => {
@@ -39,6 +44,7 @@ export function Modal({ title, icon: Icon, size = 'sm', onClose, children }: Mod
         {/* Content */}
         <div className={`flex-1 min-h-0 ${isLarge ? 'overflow-hidden' : 'overflow-y-auto'}`}>{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
