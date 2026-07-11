@@ -7,6 +7,67 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.8-beta.2] — 2026-07-12
+
+Second beta of the 0.6.8 line — and the **first release whose updater
+signatures verify against the shipped pubkey** (see Fixed): desktop
+auto-update works from this release onward. Also the first release published
+through the signed updater feed (`updater-feed` release: `manifest.json` +
+`stable`/`current`/`experimental` channel views). **Installs of v0.6.8-beta.1
+or older must update manually once** — their embedded key cannot verify any
+signature ever published.
+
+### Added
+
+- **Consensus revived** as in-kernel orchestration (an earlier decision): answers are
+  delivered to the originating agent's chat plus a dedicated Consensus tab,
+  engine-reuse quorum fallback (`CONSENSUS_ENGINE_REUSE`), per-agent engine
+  access enforcement, and long-term memory storage of verdicts.
+  (#230–#232, #237, #242, #266)
+- **Safe shutdown** (an earlier decision): tray quit and the new sidebar power button
+  share one drain-then-exit sequence with a shutdown overlay; MCP subprocess
+  trees are reaped on restart and app exit, with a forced group-kill sweep
+  when the drain window expires (bug-426). (#248, #264, #265)
+- **Per-agent recall configuration** (an earlier decision): recall timing policy,
+  session scope with the per-channel episode axis (default flipped after
+  A/B), and read-edit-save precision control in the dashboard. (#190–#203)
+- **Per-server MCP log streaming** in the dashboard Log tab (an earlier decision). (#244)
+- **LLM provider metadata** seeded from the marketplace catalog; the agent
+  console lists only real engines and warns on uninstall (an earlier decision).
+  (#249–#251)
+- **Release pipeline** (an earlier decision): Release Lifecycle Standard adoption
+  (`SUPPORT.md` / `SECURITY.md`), signed updater feed with per-tier channel
+  views, certification recorded in `.release/lifecycle.json`. (#269–#271)
+
+### Fixed
+
+- **Updater signing key mismatch (critical, latent since v0.6.0)**: the
+  2026-03-08 key rotation updated the client-embedded pubkey but not the CI
+  signing secret, so every published artifact was signed with a key no
+  shipped client could verify — `downloadAndInstall()` always failed
+  signature verification (update *notifications* worked, masking it).
+  Rotated to a fresh pair (`66FD7C5172819DEC`); key-management runbook added
+  to the pipeline design doc. (#272)
+- Consensus access/delivery bugs (bug-417/419/420/422) and the installer
+  `.env` consensus-template trap (bug-418). (#231, #237, #242, #266)
+- Security & correctness batches: bug-288/396–416 sweeps, per-agent MCP
+  access unified behind a single capability gate (bug-421), per-agent
+  MemoryCore fetch scoping (bug-413). (#204, #207, #209, #225, #227, #240)
+- mgp-discord orphan class closed from both sides: kernel forced sweep
+  (bug-426) + server stdin-EOF exit (clotohub-servers bug-009). (#265)
+- Marketplace: in-place server update preserves grants + env (#198);
+  install-path doubling (bug-399). (#207)
+
+### Changed
+
+- Engine/server ids de-prefixed: the `mind.` engine prefix and category id
+  prefixes are retired; classification is tool-surface based (an earlier decision). (#247, #252)
+- axum 0.8 migration and dependency refresh (tauri 2.11, tower-http,
+  quinn-proto RUSTSEC advisory). (#224 et al.)
+- Cross-platform release gate: Windows tests + headless `--smoke` in CI. (#185)
+
+---
+
 ## [0.6.8-beta.1] — 2026-06-13
 
 **Feature freeze for the 0.6.8 line.** This beta completes the P1/P2 design-violation remediation tracked under an earlier decision: every remaining `ARCHITECTURE.md` §1 (Design Principles) violation in the kernel is resolved, alongside the Setup Wizard / marketplace robustness, MCP transport-timeout, and lifecycle hardening backlog. `scripts/verify-issues.sh` reports zero open HIGH/MEDIUM entries for the an earlier decision set. Published on the alpha channel (the Tauri Updater resolves `latest.json` via `/releases/latest/download/` and skips prerelease entries, so production `v0.6.7` stable installs receive no in-app upgrade prompt). No installer / upgrade-hook behaviour changes.
