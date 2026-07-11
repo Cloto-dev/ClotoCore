@@ -24,18 +24,25 @@ static DASHBOARD_API_KEY: OnceLock<String> = OnceLock::new();
 /// and reap MCP subprocesses instead of orphaning them (orphan-leak fix, Step 4).
 static KERNEL_HANDLE: OnceLock<cloto_core::KernelHandle> = OnceLock::new();
 
-/// Guard so the MCP drain runs at most once across the tray-quit and
-/// `RunEvent::ExitRequested` paths.
+/// Guard so the MCP drain runs at most once across the tray-quit, dashboard
+/// shutdown-button, and `RunEvent::ExitRequested` paths.
 static MCP_DRAINED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Drain and reap all MCP subprocesses before the process exits.
+/// Guard so the coordinated shutdown sequence ([`begin_shutdown`]) runs at most
+/// once, no matter which UI path fires it (tray quit / dashboard button).
+static SHUTDOWN_STARTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Drain parameters shared by every exit path (Goal #164: tray quit and the
+/// dashboard shutdown button must run the identical sequence).
+const DRAIN_GRACE_MS: u64 = 2000;
+const DRAIN_GLOBAL_CAP_SECS: u64 = 6;
+
+/// Drain and reap all MCP subprocesses (runs at most once, guarded).
 ///
-/// Runs at most once (guarded). `app.exit()` / `std::process::exit` skip Rust
-/// destructors, so `kill_on_drop` and transport `Drop` never fire on a normal
-/// quit — the drain must be explicit. The async drain is spawned on the
-/// Tauri/tokio runtime and the calling (GUI) thread blocks until it completes or
-/// a hard cap elapses, so quit stays responsive even if a server ignores SIGTERM.
-fn drain_mcp_before_exit() {
+/// `app.exit()` / `std::process::exit` skip Rust destructors, so `kill_on_drop`
+/// and transport `Drop` never fire on a normal quit — the drain must be explicit.
+async fn drain_mcp() {
     use std::sync::atomic::Ordering;
     if MCP_DRAINED.swap(true, Ordering::SeqCst) {
         return;
@@ -43,15 +50,68 @@ fn drain_mcp_before_exit() {
     let Some(handle) = KERNEL_HANDLE.get() else {
         return;
     };
-    let mcp = handle.mcp_manager.clone();
+    handle
+        .mcp_manager
+        .drain_all("app exit", DRAIN_GRACE_MS, DRAIN_GLOBAL_CAP_SECS)
+        .await;
+}
+
+/// Blocking backstop for exit paths that bypass [`begin_shutdown`] (macOS Cmd+Q
+/// and any other OS-initiated `RunEvent::ExitRequested`). The async drain is
+/// spawned on the Tauri/tokio runtime and the calling (GUI) thread blocks until
+/// it completes or a hard cap elapses, so quit stays responsive even if a server
+/// ignores SIGTERM. A no-op when the drain already ran.
+fn drain_mcp_before_exit() {
     let (tx, rx) = std::sync::mpsc::channel::<()>();
     tauri::async_runtime::spawn(async move {
-        // 2s graceful drain per server, 6s global cap; the recv timeout below is
-        // the hard ceiling on how long quit may block.
-        mcp.drain_all("app exit", 2000, 6).await;
+        drain_mcp().await;
         let _ = tx.send(());
     });
-    let _ = rx.recv_timeout(std::time::Duration::from_secs(8));
+    // The recv timeout is the hard ceiling on how long quit may block.
+    let _ = rx.recv_timeout(std::time::Duration::from_secs(DRAIN_GLOBAL_CAP_SECS + 2));
+}
+
+/// The one safe-shutdown sequence shared by both user-facing exit paths
+/// (Goal #164): the tray-menu Quit and the dashboard's shutdown button.
+///
+/// Sequence: surface the window and emit `shutdown-started` (the webview shows
+/// the shutdown overlay), drain and reap all MCP subprocesses off the GUI
+/// thread, signal the in-process kernel to shut down gracefully, then exit the
+/// app. Runs at most once; `app.exit` re-enters via `RunEvent::ExitRequested`,
+/// where the already-drained guard makes the backstop a no-op.
+fn begin_shutdown(app: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    use tauri::Emitter;
+    if SHUTDOWN_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    // Same UX on both paths: bring the window up so the shutdown overlay is
+    // visible even when quitting from the tray with the window hidden.
+    if let Some(window) = app.get_webview_window("main") {
+        with_window_log!(window.show());
+    }
+    if let Err(e) = app.emit("shutdown-started", ()) {
+        log::warn!("failed to emit shutdown-started: {e}");
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        drain_mcp().await;
+        if let Some(handle) = KERNEL_HANDLE.get() {
+            handle.shutdown.notify_waiters();
+            // Give the kernel's HTTP server and background tasks a beat to wind
+            // down (and the overlay a beat to be seen) before the process exits.
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        }
+        app.exit(0);
+    });
+}
+
+/// Run the shared safe-shutdown sequence from the dashboard UI (Goal #164).
+/// The frontend shows the shutdown overlay immediately; the `shutdown-started`
+/// event keeps any other window in sync.
+#[tauri::command]
+fn shutdown_app(app: tauri::AppHandle) {
+    begin_shutdown(&app);
 }
 
 /// Generate a cryptographically random API key (64 hex chars).
@@ -433,7 +493,8 @@ pub fn run() {
             scan_languages_dir,
             save_language_pack,
             remove_language_pack,
-            install_default_packs
+            install_default_packs,
+            shutdown_app
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -477,11 +538,10 @@ pub fn run() {
                         }
                     }
                     "quit" => {
-                        // Reap MCP subprocesses before exiting (orphan-leak fix,
-                        // Step 4). app.exit skips destructors, so this explicit
-                        // drain is the only reliable reap on quit.
-                        drain_mcp_before_exit();
-                        app.exit(0);
+                        // Shared safe-shutdown sequence (Goal #164): overlay +
+                        // MCP drain off the GUI thread + kernel shutdown + exit.
+                        // Same path as the dashboard's shutdown button.
+                        begin_shutdown(app);
                     }
                     _ => {}
                 })

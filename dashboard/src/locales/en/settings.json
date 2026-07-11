@@ -67,7 +67,17 @@
     "yolo_desc": "When enabled, MCP server connection permission requests are automatically approved. Tool execution approval is unaffected. SafetyGate post-validation remains active as a safety net.",
     "cron_limit_title": "CRON Recursion Limit",
     "cron_limit_desc": "Maximum generations a CRON job can recursively create child CRON jobs. 0 disables recursion entirely.",
-    "cron_limit_hint": "(0-6, default: 2)"
+    "cron_limit_hint": "(0-6, default: 2)",
+    "shutdown_title": "Shut Down",
+    "shutdown_desc": "Stop ClotoCore safely: running MCP servers are drained and terminated, then the kernel exits. Quitting from the system tray runs the same sequence.",
+    "shutdown_button": "Shut down ClotoCore",
+    "shutdown_confirm_title": "Shut down ClotoCore?",
+    "shutdown_confirm_message": "All MCP servers will be stopped and the kernel will exit. Agents stop responding until you start ClotoCore again.",
+    "shutdown_confirm_label": "Shut down",
+    "shutdown_overlay_title": "Shutting down",
+    "shutdown_overlay_draining": "Stopping MCP servers…",
+    "shutdown_overlay_stopped_title": "Kernel stopped",
+    "shutdown_overlay_stopped_hint": "ClotoCore has shut down. You can close this tab."
   },
   "llm_providers": {
     "title": "LLM Providers",
