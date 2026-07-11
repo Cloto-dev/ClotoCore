@@ -1,0 +1,72 @@
+name: Update Feed
+
+# Regenerates the updater feed (manifest.json + per-channel views) and
+# publishes it to the rolling `updater-feed` release. Triggered:
+#   - by release.yml after a versioned release is fully published
+#     (workflow_call — keeps the two-phase ordering: a client can never see
+#     a feed version whose artifacts are still uploading)
+#   - on certification flips: a push to .release/lifecycle.json on master
+#   - manually (workflow_dispatch), e.g. to rebuild after an asset fix
+#
+# The feed is a pure function of (GitHub Releases state, lifecycle.json), so
+# every run is a full idempotent rebuild. Design: docs/RELEASE_PIPELINE_DESIGN.md §4.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches: [master]
+    paths: [".release/lifecycle.json"]
+
+permissions:
+  contents: write
+
+jobs:
+  update-feed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
+
+      - name: Self-test generator
+        run: python3 scripts/generate-release-feed.py --selftest
+
+      - name: Generate feed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/generate-release-feed.py \
+            --repo "${{ github.repository }}" \
+            --lifecycle .release/lifecycle.json \
+            --out feed
+          # Stamp generation time (kept out of the generator's pure function)
+          jq --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.generated_at = $t' \
+            feed/manifest.json > feed/manifest.json.tmp
+          mv feed/manifest.json.tmp feed/manifest.json
+
+      - name: Sign manifest (Tauri updater key)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        # The tauri CLI reads the key and password from the env vars directly —
+        # keeping the secret off the command line.
+        run: |
+          npx --yes @tauri-apps/cli signer sign feed/manifest.json
+          mv feed/manifest.json.sig feed/manifest.json.minisig
+          ls -l feed/
+
+      - name: Ensure updater-feed release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view updater-feed --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            gh release create updater-feed \
+              --repo "${{ github.repository }}" \
+              --prerelease \
+              --title "Updater feed (rolling)" \
+              --notes "Rolling release holding the updater feed: manifest.json (+ .minisig, signed with the Tauri updater key) and the per-channel views stable.json / current.json / experimental.json. Assets are replaced in place on every release and on certification flips — do not link to versioned artifacts from here. Design: docs/RELEASE_PIPELINE_DESIGN.md."
+          fi
+
+      - name: Upload feed assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload updater-feed feed/* --repo "${{ github.repository }}" --clobber
