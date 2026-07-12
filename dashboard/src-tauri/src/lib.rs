@@ -226,11 +226,39 @@ fn scan_languages_dir() -> Result<Vec<(String, String)>, String> {
     Ok(results)
 }
 
+/// bug-460: language-pack filenames arrive from imported pack JSON (`pack.code`),
+/// which is fully attacker-controlled. Reject anything that is not a bare filename
+/// so a crafted `code` cannot escape the languages directory (`..`, `/`, `\`, or an
+/// absolute path that `join` would use to replace the base) and write arbitrary
+/// content to an arbitrary path. Language codes (e.g. "ja", "en-US", "zh_Hans")
+/// fit the conservative slug comfortably.
+fn safe_language_pack_path(
+    dir: &std::path::Path,
+    filename: &str,
+) -> Result<std::path::PathBuf, String> {
+    let ok = !filename.is_empty()
+        && filename != "."
+        && filename != ".."
+        && !filename.contains("..")
+        && filename
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+    if !ok {
+        return Err(format!("Invalid language pack name: {filename:?}"));
+    }
+    let path = dir.join(format!("{filename}.json"));
+    // Defense in depth: the resolved path must stay a direct child of `dir`.
+    if path.parent() != Some(dir) {
+        return Err(format!("Invalid language pack name: {filename:?}"));
+    }
+    Ok(path)
+}
+
 /// Save a language pack JSON file to the languages directory.
 #[tauri::command]
 fn save_language_pack(filename: String, content: String) -> Result<(), String> {
     let dir = get_languages_dir_path()?;
-    let path = dir.join(format!("{}.json", filename));
+    let path = safe_language_pack_path(&dir, &filename)?;
     std::fs::write(&path, content).map_err(|e| e.to_string())
 }
 
@@ -238,7 +266,7 @@ fn save_language_pack(filename: String, content: String) -> Result<(), String> {
 #[tauri::command]
 fn remove_language_pack(filename: String) -> Result<(), String> {
     let dir = get_languages_dir_path()?;
-    let path = dir.join(format!("{}.json", filename));
+    let path = safe_language_pack_path(&dir, &filename)?;
     if path.exists() {
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
     }

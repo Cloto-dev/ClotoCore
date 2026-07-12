@@ -301,7 +301,17 @@ impl EventProcessor {
                         correlation_id: Some(trace_id),
                         depth: envelope.depth + 1,
                     };
-                    let _ = event_tx.send(system_envelope).await;
+                    // bug-457: spawn the requeue instead of awaiting `send` inline.
+                    // `process_loop` is the SOLE reader of this bounded channel, so
+                    // awaiting a full channel here self-deadlocks — capacity can only
+                    // free via the `recv()` this very task would then be blocked from
+                    // reaching. Mirrors `redispatch_plugin_event`'s `tokio::spawn`.
+                    let event_tx = event_tx.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = event_tx.send(system_envelope).await {
+                            warn!("Failed to requeue ThoughtResponse-derived message: {e}");
+                        }
+                    });
                 }
                 cloto_shared::ClotoEventData::ActionRequested {
                     requester,
@@ -363,7 +373,7 @@ impl EventProcessor {
                         if let Some(plugin) = reg_state.plugins.get(plugin_id) {
                             if let Some(cap) = self
                                 .plugin_manager
-                                .get_capability_for_permission(&legacy_perm)
+                                .get_capability_for_permission(plugin_id, &legacy_perm)
                             {
                                 let plugin_id = plugin_id.clone();
                                 info!(trace_id = %trace_id, plugin_id = %plugin_id, "Injecting capability");
@@ -591,9 +601,14 @@ impl EventProcessor {
                         correlation_id: Some(trace_id),
                         depth: envelope.depth + 1,
                     };
-                    if let Err(e) = event_tx.send(msg_envelope).await {
-                        error!("Failed to inject external message into event bus: {}", e);
-                    }
+                    // bug-457: spawn the injection so process_loop (the sole reader
+                    // of this bounded channel) never blocks on a full channel.
+                    let event_tx = event_tx.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = event_tx.send(msg_envelope).await {
+                            error!("Failed to inject external message into event bus: {}", e);
+                        }
+                    });
                 }
                 cloto_shared::ClotoEventData::ExternalAction {
                     ref action_id,

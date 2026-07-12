@@ -59,9 +59,34 @@ impl PluginManager {
         self.http_client.clone()
     }
 
+    /// bug-459: per-plugin sandbox root under `data/plugin_sandbox/<plugin_id>/`.
+    /// Sanitizes `plugin_id` to a single safe path component so a crafted id
+    /// cannot escape the sandbox root via path separators or `..`.
+    fn plugin_sandbox_dir(plugin_id: &str) -> std::path::PathBuf {
+        let safe: String = plugin_id
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        // Reject empty / "." / ".." (which sanitization above leaves intact) so
+        // the join always yields a real child directory of `data/plugin_sandbox`.
+        let component = if safe.trim_matches('.').is_empty() {
+            "_unnamed".to_string()
+        } else {
+            safe
+        };
+        std::path::PathBuf::from("data/plugin_sandbox").join(component)
+    }
+
     #[must_use]
     pub fn get_capability_for_permission(
         &self,
+        plugin_id: &str,
         permission: &Permission,
     ) -> Option<cloto_shared::PluginCapability> {
         match permission {
@@ -69,15 +94,17 @@ impl PluginManager {
                 self.http_client.clone(),
             )),
             Permission::FileRead => {
-                // Read-only sandbox: plugins can read from the data/ directory
-                let base = std::path::PathBuf::from("data/plugin_sandbox");
+                // bug-459: per-plugin read-only sandbox so two plugins that both
+                // hold file permissions cannot read each other's files.
+                let base = Self::plugin_sandbox_dir(plugin_id);
                 Some(cloto_shared::PluginCapability::File(std::sync::Arc::new(
                     crate::capabilities::SandboxedFileCapability::read_only(base),
                 )))
             }
             Permission::FileWrite => {
-                // Read+write sandbox
-                let base = std::path::PathBuf::from("data/plugin_sandbox");
+                // bug-459: per-plugin read+write sandbox, isolated from every
+                // other plugin's sandbox directory.
+                let base = Self::plugin_sandbox_dir(plugin_id);
                 Some(cloto_shared::PluginCapability::File(std::sync::Arc::new(
                     crate::capabilities::SandboxedFileCapability::read_write(base),
                 )))

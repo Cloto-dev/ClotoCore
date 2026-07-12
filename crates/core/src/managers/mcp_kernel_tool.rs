@@ -603,6 +603,13 @@ pub(super) async fn execute_access_query(manager: &McpClientManager, args: Value
 }
 
 /// Execute mgp.access.grant — create an access control entry.
+/// bug-438: YOLO-mode self-grants (mgp.access.grant) auto-expire after this many
+/// hours so a temporary trust window cannot durably widen the admin-curated
+/// allow-list. Comfortably covers a long autonomous session while guaranteeing the
+/// grant does not persist indefinitely; set_yolo_mode also purges them outright on
+/// YOLO disable.
+const YOLO_GRANT_TTL_HOURS: i64 = 24;
+
 pub(super) async fn execute_access_grant(manager: &McpClientManager, args: Value) -> Result<Value> {
     if !manager.yolo_mode.load(Ordering::Relaxed) {
         return Err(yolo_required_rejection());
@@ -634,6 +641,16 @@ pub(super) async fn execute_access_grant(manager: &McpClientManager, args: Value
         serde_json::from_value(serde_json::Value::String(permission.to_string()))
             .map_err(|_| anyhow::anyhow!("Invalid permission: '{}'", permission))?;
 
+    // bug-438: a grant written by a YOLO-mode agent must NOT durably self-escalate
+    // access past the YOLO trust window. Record the actual requesting agent in
+    // `granted_by` (auditable, and the `yolo-grant:` prefix lets set_yolo_mode purge
+    // these when YOLO is turned off), and set a bounded `expires_at` so the grant
+    // auto-expires — `resolve_explicit_permission` already filters on `expires_at`,
+    // so an expired self-grant stops resolving even if the purge is missed. The
+    // format matches SQLite `datetime('now')` for correct string comparison there.
+    let expires_at = (chrono::Utc::now() + chrono::Duration::hours(YOLO_GRANT_TTL_HOURS))
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
     let entry = crate::db::AccessControlEntry {
         id: None,
         entry_type: parsed_entry_type,
@@ -641,9 +658,9 @@ pub(super) async fn execute_access_grant(manager: &McpClientManager, args: Value
         server_id: server_id.to_string(),
         tool_name: tool_name.map(str::to_string),
         permission: parsed_permission,
-        granted_by: Some("kernel".to_string()),
+        granted_by: Some(format!("yolo-grant:{agent_id}")),
         granted_at: chrono::Utc::now().to_rfc3339(),
-        expires_at: None,
+        expires_at: Some(expires_at),
         justification: justification.map(str::to_string),
         metadata: None,
     };
@@ -945,6 +962,38 @@ pub(super) async fn execute_health_status(
 }
 
 /// Execute mgp.lifecycle.shutdown — graceful shutdown with draining.
+/// bug-441: authorize a Tier-3 kernel-tool caller against a target MCP server.
+/// The anti-spoofing shim (handlers/system.rs) forces `agent_id` in `args` to the
+/// calling agent's real id; require that agent to hold a ServerGrant/Allow for
+/// `server_id` before it may drain / cancel / subscribe, so one agent cannot
+/// disrupt a server another agent depends on (a shared memory / engine server →
+/// system-wide DoS). Independent of `yolo_mode`: YOLO relaxes approval, not
+/// cross-agent resource ownership.
+async fn require_server_access(
+    manager: &McpClientManager,
+    args: &Value,
+    server_id: &str,
+) -> Result<()> {
+    let agent_id = args
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: agent_id"))?;
+    let entries = crate::db::get_access_entries_for_agent(manager.pool(), agent_id).await?;
+    let authorized = entries.iter().any(|e| {
+        e.server_id == server_id
+            && e.entry_type == crate::db::mcp::EntryType::ServerGrant
+            && e.permission == crate::db::mcp::PermissionLevel::Allow
+    });
+    if !authorized {
+        return Err(anyhow::anyhow!(
+            "Access denied: agent '{agent_id}' has no grant for server \
+             '{server_id}' (bug-441 ownership check)"
+        )
+        .into());
+    }
+    Ok(())
+}
+
 pub(super) async fn execute_lifecycle_shutdown(
     manager: &McpClientManager,
     args: Value,
@@ -954,6 +1003,7 @@ pub(super) async fn execute_lifecycle_shutdown(
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?
         .to_string();
+    require_server_access(manager, &args, &server_id).await?;
     let reason = args
         .get("reason")
         .and_then(|v| v.as_str())
@@ -1054,6 +1104,8 @@ pub(super) async fn execute_stream_cancel(
         .get("reason")
         .and_then(|v| v.as_str())
         .unwrap_or("user_cancelled");
+
+    require_server_access(manager, &args, server_id).await?;
 
     let result =
         super::mcp_streaming::cancel_stream(manager, server_id, request_id, reason).await?;
@@ -1195,6 +1247,14 @@ pub(super) async fn execute_events_subscribe(
     manager: &McpClientManager,
     args: Value,
 ) -> Result<Value> {
+    // bug-441: authorize the caller against the target server before subscribing.
+    let server_id = args
+        .get("server_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    if let Some(sid) = &server_id {
+        require_server_access(manager, &args, sid).await?;
+    }
     Ok(super::mcp_events::subscribe(manager, args).await?)
 }
 
