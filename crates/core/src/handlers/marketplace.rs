@@ -1867,7 +1867,20 @@ async fn install_from_git(
 
     let servers_dir = resolve_servers_dir(state);
     tokio::fs::create_dir_all(&servers_dir).await?;
-    let clone_dir = servers_dir.join(effective_install_dir(entry));
+    let clone_dir = match resolve_install_dir(&servers_dir, entry) {
+        Ok(dir) => dir,
+        Err(e) => {
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "git_clone".into(),
+                    error: e.to_string(),
+                    recoverable: false,
+                },
+            );
+            return Ok(());
+        }
+    };
 
     // Clear any leftover tree from a prior failed install so `git clone`
     // can target a fresh directory.
@@ -1999,15 +2012,78 @@ async fn install_from_raw_url(
         },
     );
 
+    // bug-431: `spec.url` is hub-served catalog data. Validate its shape up front
+    // (scheme http/https + sha256 hex — the check the docker path already runs for
+    // DockerSpec) and route the download through the same private-IP / loopback
+    // SSRF guard the rest of the codebase enforces
+    // (capabilities::resolve_unrestricted_addrs): resolve the host, reject any
+    // restricted IP, then PIN the connection to the validated addresses with
+    // redirects disabled so a whitelisted-looking host cannot DNS-rebind or 3xx to
+    // cloud-metadata / loopback. The LLM outbound whitelist is intentionally NOT
+    // applied here — marketplace hosts are authorized by catalog provenance.
+    if let Err(e) = spec.check() {
+        emit(
+            tx,
+            SetupProgressEvent::StepError {
+                step: "download".into(),
+                error: format!("Invalid raw_url source: {e}"),
+                recoverable: false,
+            },
+        );
+        return Ok(());
+    }
+    let parsed_url = match reqwest::Url::parse(&spec.url) {
+        Ok(u) => u,
+        Err(e) => {
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "download".into(),
+                    error: format!("Invalid raw_url URL: {e}"),
+                    recoverable: false,
+                },
+            );
+            return Ok(());
+        }
+    };
+    let Some(host) = parsed_url.host_str().map(str::to_string) else {
+        emit(
+            tx,
+            SetupProgressEvent::StepError {
+                step: "download".into(),
+                error: "raw_url has no host".into(),
+                recoverable: false,
+            },
+        );
+        return Ok(());
+    };
+    let port = parsed_url.port_or_known_default().unwrap_or(443);
+    let resolved = match crate::capabilities::resolve_unrestricted_addrs(&host, port).await {
+        Ok(addrs) => addrs,
+        Err(e) => {
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "download".into(),
+                    error: e.to_string(),
+                    recoverable: false,
+                },
+            );
+            return Ok(());
+        }
+    };
+
     let tmp_dir = state.data_dir.join("tmp");
     tokio::fs::create_dir_all(&tmp_dir).await?;
     let archive_path = tmp_dir.join(format!("{}-raw-url.tar.gz", entry.id));
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(TARBALL_DOWNLOAD_TIMEOUT_SECS))
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve_to_addrs(&host, &resolved)
         .build()?;
     let resp = client
-        .get(&spec.url)
+        .get(parsed_url)
         .header("User-Agent", "ClotoCore")
         .send()
         .await?;
@@ -2098,7 +2174,20 @@ async fn install_from_raw_url(
 
     let servers_dir = resolve_servers_dir(state);
     tokio::fs::create_dir_all(&servers_dir).await?;
-    let target_dir = servers_dir.join(effective_install_dir(entry));
+    let target_dir = match resolve_install_dir(&servers_dir, entry) {
+        Ok(dir) => dir,
+        Err(e) => {
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "extract".into(),
+                    error: e.to_string(),
+                    recoverable: false,
+                },
+            );
+            return Ok(());
+        }
+    };
     if target_dir.exists() {
         if let Err(e) = tokio::fs::remove_dir_all(&target_dir).await {
             warn!(
@@ -2517,6 +2606,39 @@ fn effective_install_dir(entry: &RegistryEntry) -> &str {
         .next()
         .filter(|s| !s.is_empty())
         .unwrap_or(raw)
+}
+
+/// Resolve the on-disk install directory for `entry` under `servers_dir`,
+/// refusing any catalog `id`/`directory` that would escape `servers_dir`
+/// (bug-430 / bug-432). The catalog is hub-served and can be stale or malicious;
+/// `effective_install_dir` collapses multi-segment values, but a bare `..` (no
+/// separator for `rsplit` to strip) would otherwise pass through and make
+/// `servers_dir.join("..")` resolve to the parent data directory — turning the
+/// pre-clone / pre-extract `remove_dir_all` into a wipe of app state. Mirrors the
+/// containment intent of `uninstall_handler`'s bug-400 check, expressed as a
+/// filesystem-independent single-component guard because the install target does
+/// not exist yet (so `canonicalize` on it is unavailable here).
+fn resolve_install_dir(
+    servers_dir: &std::path::Path,
+    entry: &RegistryEntry,
+) -> anyhow::Result<PathBuf> {
+    let component = effective_install_dir(entry);
+    // The install dir must be exactly one normal path component. This rejects
+    // `..` (ParentDir), `.` (CurDir), an absolute path (RootDir/Prefix — which
+    // `join` would use to REPLACE `servers_dir` wholesale), any multi-segment
+    // value, and the empty string; anything else could escape `servers_dir`.
+    let mut components = std::path::Path::new(component).components();
+    let single_normal = matches!(components.next(), Some(std::path::Component::Normal(_)))
+        && components.next().is_none();
+    if !single_normal {
+        anyhow::bail!(
+            "Refusing to install '{}': install directory '{}' is not a single \
+             path component under mcp-servers (path traversal blocked)",
+            entry.id,
+            component
+        );
+    }
+    Ok(servers_dir.join(component))
 }
 
 /// Derive the on-disk install directory from a registered server's `args`
