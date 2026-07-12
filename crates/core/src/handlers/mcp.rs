@@ -958,6 +958,23 @@ pub async fn set_yolo_mode(
         tracing::warn!("⚠️  YOLO mode enabled — all MCP permissions auto-approved. This bypasses security isolation.");
     } else {
         tracing::info!("YOLO mode disabled via API");
+        // bug-438: purge every access grant an agent self-issued via
+        // mgp.access.grant during the YOLO window, so a temporary trust window
+        // cannot durably widen the admin-curated allow-list once YOLO is off.
+        // These rows carry a `yolo-grant:` prefix in `granted_by` (see
+        // execute_access_grant); admin grants (put_agent_mcp_access) use a
+        // different granted_by and are preserved.
+        match sqlx::query("DELETE FROM mcp_access_control WHERE granted_by LIKE 'yolo-grant:%'")
+            .execute(&state.pool)
+            .await
+        {
+            Ok(res) if res.rows_affected() > 0 => tracing::warn!(
+                purged = res.rows_affected(),
+                "Purged YOLO-mode self-grants on YOLO disable (bug-438)"
+            ),
+            Ok(_) => {}
+            Err(e) => tracing::error!(error = %e, "Failed to purge YOLO self-grants (bug-438)"),
+        }
     }
 
     spawn_admin_audit(

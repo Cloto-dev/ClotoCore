@@ -47,14 +47,19 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
   const inputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
 
-  // Prefill input when entering edit mode
+  // Prefill input when entering edit mode. bug-461: depend ONLY on the stable
+  // `editMode?.messageId`, not the whole `editMode` object. The parent builds
+  // `editMode` as a fresh object literal on every render, so including it here
+  // re-ran this effect on any unrelated parent re-render and clobbered the user's
+  // in-progress edit back to the original content. Keying on messageId runs the
+  // prefill exactly once per edit session, which is the intended behavior.
   useEffect(() => {
     if (editMode) {
       setInput(editMode.initialContent);
       const timerId = setTimeout(() => inputRef.current?.focus(), 50);
       return () => clearTimeout(timerId);
     }
-  }, [editMode?.messageId, editMode]);
+  }, [editMode?.messageId]);
 
   const handleSend = () => {
     if ((!input.trim() && !attachment) || disabled) return;

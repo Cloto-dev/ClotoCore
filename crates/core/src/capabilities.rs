@@ -14,6 +14,76 @@ use tracing::warn;
 /// this window, and longer-running work should go through dedicated paths.
 const CAPABILITY_HTTP_PROBE_TIMEOUT_SECS: u64 = 30;
 
+/// Whitelist-independent SSRF IP guard: `true` when `ip` falls in a range that
+/// outbound requests must never reach — loopback, private, link-local (incl. the
+/// cloud-metadata 169.254.0.0/16), broadcast, documentation, unspecified, and the
+/// IPv4-mapped / unique-local / multicast IPv6 equivalents. A free function (not
+/// only the `SafeHttpClient` method) so non-whitelist callers such as the
+/// marketplace `raw_url` download (bug-431) reuse the exact same block-list
+/// without holding a client instance.
+#[must_use]
+pub fn is_restricted_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.is_unspecified()
+                || v4.octets()[0] == 0
+        }
+        IpAddr::V6(v6) => {
+            // IPv4-mapped addresses (::ffff:a.b.c.d) must be checked against the
+            // IPv4 rules — otherwise ::ffff:127.0.0.1 / ::ffff:169.254.169.254
+            // bypass the loopback / link-local guards the V4 branch enforces.
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_restricted_ip(IpAddr::V4(v4));
+            }
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (v6.segments()[0] & 0xfe00) == 0xfc00 // fc00::/7 unique-local
+                || (v6.segments()[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
+                || v6.is_multicast()
+        }
+    }
+}
+
+/// Resolve `host:port` and reject if ANY resolved address is restricted
+/// (`is_restricted_ip`). Returns the full resolved address set so the caller can
+/// pin a `reqwest` connection to exactly the validated IPs (DNS-rebinding /
+/// TOCTOU defense — bug-407). This is the whitelist-independent core of the
+/// `SafeHttpClient` SSRF guard, shared with streaming download paths (marketplace
+/// `raw_url` install, bug-431) that authorize hosts by catalog provenance rather
+/// than the LLM outbound whitelist and cannot use `send_http_request` (which
+/// buffers the whole body as a `String`).
+pub async fn resolve_unrestricted_addrs(
+    host: &str,
+    port: u16,
+) -> anyhow::Result<Vec<std::net::SocketAddr>> {
+    let resolved: Vec<std::net::SocketAddr> =
+        lookup_host(format!("{host}:{port}")).await?.collect();
+
+    if resolved.is_empty() {
+        return Err(anyhow::anyhow!("Failed to resolve host: {host}"));
+    }
+
+    for addr in &resolved {
+        if is_restricted_ip(addr.ip()) {
+            warn!(
+                "🚫 Security Violation: Host '{}' resolved to a restricted IP: {}",
+                host,
+                addr.ip()
+            );
+            return Err(anyhow::anyhow!(
+                "Access to host '{host}' is denied: restricted IP range detected."
+            ));
+        }
+    }
+
+    Ok(resolved)
+}
+
 #[derive(Clone)]
 pub struct SafeHttpClient {
     /// L5: Dynamic whitelist wrapped in Arc<RwLock> for runtime host addition
@@ -41,37 +111,15 @@ impl SafeHttpClient {
         })
     }
 
-    /// IPアドレスベースでの制限チェック (Principle #5: Strict Permission Isolation)
-    // The IPv6 arm recurses into the V4 rules for IPv4-mapped addresses; `self`
-    // is otherwise unused, but keeping it a method preserves the existing call
-    // sites and the `client.is_restricted_addr(..)` test surface.
-    #[allow(clippy::self_only_used_in_recursion)]
+    /// IPアドレスベースでの制限チェック (Principle #5: Strict Permission Isolation).
+    /// Delegates to the free `is_restricted_ip`; kept as a method (test-only) to
+    /// preserve the `client.is_restricted_addr(..)` test surface after the guard
+    /// logic moved to the free function. The production paths call `is_restricted_ip`
+    /// / `resolve_unrestricted_addrs` directly, so the method is `#[cfg(test)]`.
+    #[cfg(test)]
+    #[allow(clippy::unused_self)]
     fn is_restricted_addr(&self, ip: IpAddr) -> bool {
-        match ip {
-            IpAddr::V4(v4) => {
-                v4.is_private()
-                    || v4.is_loopback()
-                    || v4.is_link_local()
-                    || v4.is_broadcast()
-                    || v4.is_documentation()
-                    || v4.is_unspecified()
-                    || v4.octets()[0] == 0
-            }
-            IpAddr::V6(v6) => {
-                // IPv4-mapped addresses (::ffff:a.b.c.d) must be checked against
-                // the IPv4 rules — otherwise ::ffff:127.0.0.1 / ::ffff:169.254.169.254
-                // bypass the loopback / link-local / cloud-metadata guards that the
-                // V4 branch enforces.
-                if let Some(v4) = v6.to_ipv4_mapped() {
-                    return self.is_restricted_addr(IpAddr::V4(v4));
-                }
-                v6.is_loopback()
-                    || v6.is_unspecified()
-                    || (v6.segments()[0] & 0xfe00) == 0xfc00 // fc00::/7 unique-local
-                    || (v6.segments()[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
-                    || v6.is_multicast()
-            }
-        }
+        is_restricted_ip(ip)
     }
 
     /// ホスト名ベースでのホワイトリストチェック (O(1) HashSet lookup)
@@ -133,26 +181,7 @@ impl NetworkCapability for SafeHttpClient {
         //    pin the client to exactly the addresses we validated. SNI and the
         //    Host header keep using the hostname (reqwest only overrides the IP
         //    lookup), so legitimate multi-IP / HTTPS hosts do not regress.
-        let resolved: Vec<std::net::SocketAddr> =
-            lookup_host(format!("{host}:{port}")).await?.collect();
-
-        if resolved.is_empty() {
-            return Err(anyhow::anyhow!("Failed to resolve host: {host}"));
-        }
-
-        for addr in &resolved {
-            if self.is_restricted_addr(addr.ip()) {
-                warn!(
-                    "🚫 Security Violation: Host '{}' resolved to a restricted IP: {}",
-                    host,
-                    addr.ip()
-                );
-                return Err(anyhow::anyhow!(
-                    "Access to host '{}' is denied: restricted IP range detected.",
-                    host
-                ));
-            }
-        }
+        let resolved = resolve_unrestricted_addrs(host, port).await?;
 
         // 3. Build a per-request client pinned to the validated addresses, then
         //    send. The connection can only reach the IPs we checked above.

@@ -193,8 +193,14 @@ pub async fn post_message(
                                         // <=64KB: store inline
                                         ("inline".to_string(), Some(decoded), None)
                                     } else {
-                                        // >64KB: store on disk
-                                        let dir = state.data_dir.join("attachments").join(&msg.id);
+                                        // >64KB: store on disk. bug-458: key the
+                                        // attachment directory on the server-minted
+                                        // `att_id` (a fresh UUID), NOT the
+                                        // client-controlled `msg.id`, which is
+                                        // unvalidated and would otherwise allow
+                                        // `..`/absolute path traversal into an
+                                        // arbitrary filesystem write.
+                                        let dir = state.data_dir.join("attachments").join(&att_id);
                                         let path = dir.join(&filename);
                                         if let Err(e) = tokio::fs::create_dir_all(&dir).await {
                                             error!("Failed to create attachment dir: {}", e);
