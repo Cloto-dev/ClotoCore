@@ -164,6 +164,29 @@ The dashboard has two distinct surface patterns. Pick the right one for the role
 - Bump version in `Cargo.toml`, `dashboard/package.json`, `dashboard/src-tauri/tauri.conf.json`
 - Release notes: cumulative from previous release (`gh release list` to find it)
 
+### VM verify policy (every release, adopted 2026-07-13)
+
+`scripts/proxmox-windows-verify.sh` (Proxmox VM 104, ~6 min automated NSIS
+upgrade verify) is gated on the **release event**, not on NSIS-touching diffs —
+the diff detector (`nsis-touching-detect.yml`) remains as an extra per-PR
+signal, but a quiet detector never waives this policy:
+
+- **Stable release (`X.Y.Z`)**: VM verify is **MUST** before publish, no
+  approval needed to run it. A PASS report is a publish precondition. On the
+  first stable after updater-path changes (feed / signing / channel
+  resolution), additionally run a one-off live auto-update smoke in the VM
+  (install previous stable → let the real feed drive the update).
+- **Pre-release (`alpha.n` / `beta.n` / `rc.n`)**: when requesting publish
+  approval, **explicitly ask the maintainer whether to run VM verify** for
+  this release. If the maintainer waives it, record the skip decision in one
+  line (release notes or commit message) so the audit trail shows a deliberate
+  choice, never a silent fall-through.
+
+Rationale: 0.6.8-beta.2 (2026-07-12) shipped a full distribution-pipeline
+overhaul with zero VM verification because the old trigger (NSIS-touching
+diff) never fired — condition-based triggers silently miss risk that moves
+elsewhere; event-based triggers cannot be missed.
+
 ### Pre-release verification (draft_only)
 
 To produce installer artifacts on any branch without creating a tag or
