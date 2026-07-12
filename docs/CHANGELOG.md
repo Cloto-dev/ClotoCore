@@ -41,22 +41,127 @@ signature ever published.
 
 ### Fixed
 
-- **Updater signing key mismatch (critical, latent since v0.6.0)**: the
+This beta closes **33 registry-tracked bugs** (2 critical / 13 high /
+14 medium / 4 low) plus the updater key repair — the largest fix set of any
+0.6.x release. Itemized below by area; `qa/issue-registry.json` is the
+verification source of truth for every entry.
+
+- **Updater signing key mismatch (CRITICAL, latent since v0.6.0)**: the
   2026-03-08 key rotation updated the client-embedded pubkey but not the CI
   signing secret, so every published artifact was signed with a key no
   shipped client could verify — `downloadAndInstall()` always failed
   signature verification (update *notifications* worked, masking it).
   Rotated to a fresh pair (`66FD7C5172819DEC`); key-management runbook added
   to the pipeline design doc. (#272)
-- Consensus access/delivery bugs (bug-417/419/420/422) and the installer
-  `.env` consensus-template trap (bug-418). (#231, #237, #242, #266)
-- Security & correctness batches: bug-288/396–416 sweeps, per-agent MCP
-  access unified behind a single capability gate (bug-421), per-agent
-  MemoryCore fetch scoping (bug-413). (#204, #207, #209, #225, #227, #240)
-- mgp-discord orphan class closed from both sides: kernel forced sweep
-  (bug-426) + server stdin-EOF exit (clotohub-servers bug-009). (#265)
-- Marketplace: in-place server update preserves grants + env (#198);
-  install-path doubling (bug-399). (#207)
+
+**Security audit sweep** (PRs #204/#209/#227/#237/#240):
+
+- **bug-400** (CRITICAL): marketplace uninstall was vulnerable to path
+  traversal — `DELETE /api/marketplace/servers/:id` pushed the unvalidated
+  `server_id` into the on-disk path, allowing arbitrary directory deletion.
+  (#209)
+- **bug-415** (CRITICAL): the first bug-412 fix could poison the SQLite pool
+  when an audit write was cancelled — a regression caught pre-merge by the
+  post-fix adversarial review; never shipped. (#227)
+- **bug-403 / bug-407 / bug-414** (HIGH, SSRF hardening): the
+  restricted-address check missed IPv6 link-local and IPv4-mapped addresses
+  (403); the validated IP was discarded after the check, leaving a
+  DNS-rebinding TOCTOU — the connection is now pinned to the validated
+  address (407); redirects could escape the whitelist + IP pin — every hop
+  is now re-validated (414). (#209, #227)
+- **bug-406 / bug-420 / bug-421** (HIGH, per-agent access enforcement): the
+  `tool_hint` direct-execution path allowed `agent_id` spoofing (406) and
+  bypassed per-agent MCP access control entirely — an I/O bridge could
+  invoke tools on servers the agent was never granted (420); enforcement was
+  fragmented across call sites and reasoning *engines* were never
+  access-checked at all — now unified behind a single capability gate
+  covering both tools and engines (421). (#209, #237, #240)
+- **bug-409 / bug-410** (MEDIUM, resource exhaustion): unbounded allocation
+  in `StreamAssembler::record_chunk` on an attacker-controlled chunk index
+  (409); unbounded read buffer in `parse_sse_stream` when a server streams
+  a large body with no newline (410). (#209)
+
+**Kernel stability & correctness:**
+
+- **bug-401 / bug-402** (HIGH/MEDIUM): UTF-8 char-boundary panics — byte
+  slicing of log/error strings crashed on multibyte codepoints in the MCP
+  stdio response loop (401) and `parse_chat_think_result` error paths
+  (402). (#209)
+- **bug-405** (MEDIUM): cron intervals had no upper bound — an oversized
+  value overflowed `i64` and produced runaway perpetual dispatch. (#209)
+- **bug-411 / bug-412** (MEDIUM): `McpClient::is_alive()` inferred liveness
+  from the write channel, so an idle child that died was never auto-restarted
+  by the health monitor (411); the audit-log writer's DEFERRED read-then-write
+  transaction hit un-retried `SQLITE_BUSY_SNAPSHOT` under concurrency (412).
+  (#227)
+- **bug-288** (HIGH): the `delete_agent_data` memory-plugin tool name was
+  hard-coded in the kernel. (#204)
+- **bug-395** (HIGH): `sandbox_base_dir` — and therefore the Magic Seal key
+  directory — defaulted to a CWD-relative path instead of anchoring to the
+  absolute data dir. (#184)
+
+**MCP server management & marketplace:**
+
+- **bug-396 / bug-397 / bug-398**: `Agent.default_engine_id`
+  `mind.deepseek` was unresolvable — engine resolution requires an exact
+  server-name match (396, HIGH); `GET /api/mcp/servers/:name/settings`
+  returned 500 for every server — the SELECT omitted the `seal` column
+  (397, HIGH); interpreter-launched servers were spawned without verifying
+  the entry-point script exists, so stale paths failed opaquely (398,
+  MEDIUM). (#204)
+- **bug-399 / bug-404** (HIGH): monorepo connectors were installed to a
+  doubled on-disk path and failed to launch (399, #207); the MCP venv
+  resolver anchored to `exe_dir()/data` instead of `config::data_dir()`, so
+  installed builds couldn't find marketplace-created venvs (404, #209).
+- **In-place marketplace update** for installed servers preserves grants +
+  env instead of destroy-and-reinstall. (#198)
+- **Orphan-process class closed from both sides**: MCP subprocess *trees*
+  are reaped on server restart and app exit (#248); `drain_all`'s global
+  timeout cancelled in-flight kills between SIGTERM and SIGKILL, leaking
+  survivors past app exit — per-server drains are now detached tasks with a
+  forced group-kill sweep on timeout (bug-426, MEDIUM, #265). The
+  server-side half (mgp-discord exiting on stdin EOF) is clotohub-servers
+  bug-009.
+
+**Consensus (revival hardening, an earlier decision):**
+
+- **bug-417** (HIGH): the terminal consensus response was never delivered to
+  the originating chat — a silent hang from the requester's perspective.
+  (#231)
+- **bug-408** (MEDIUM): a straggler proposal arriving during synthesis could
+  be mistaken for the synthesizer's output — eliminated structurally by the
+  event-driven in-kernel redesign. (#230)
+- **bug-419** (MEDIUM): the global `CONSENSUS_ENGINES` list ran on every
+  agent, executing engines the requesting agent was never assigned. (#237)
+- **bug-422** (MEDIUM): consensus verdicts were persisted to chat history
+  but never written to the agent's long-term memory, so later turns couldn't
+  recall them. (#242)
+- **bug-418** (LOW): the shipped `.env` example referenced an engine that is
+  not auto-registered, so consensus failed out of the box for anyone
+  uncommenting it. (#266)
+
+**Dashboard:**
+
+- **bug-413 / bug-416**: MemoryCore fetched a *global* most-recent top-N and
+  filtered client-side, under-displaying per-agent memories (413, MEDIUM,
+  #225); the tab bar rendered an un-scopable empty-string agent tab for
+  global-pool rows (416, LOW, #227).
+- **bug-425** (MEDIUM): the agent console engine selector filtered grants by
+  the `mind.` prefix only, hiding de-prefixed catalog engines. (#245)
+- **bug-423 / bug-424** (LOW): the MCP log tab's SSE filter read
+  `event.payload.*` where kernel events carry `event.data.*`, and matched
+  `'MCP'` against mixed-case `Mcp*` discriminants — together the filter was
+  never true. (#244)
+- Engines/memory classified by tool surface instead of id prefix (#234);
+  deleting a passwordless agent no longer sends an empty JSON body (#235);
+  recall `PillSelect` popover portaled to `document.body` to escape clipping
+  (#200); knob2 v2 store/recall channel symmetry (#201).
+
+**CI:**
+
+- `CREATED_MAP` initialization so the registry-sync no-new-entries path
+  survives `set -u` (#268); master unblocked on new clippy 1.97 lints + the
+  crossbeam-epoch advisory (#267).
 
 ### Changed
 
