@@ -495,6 +495,49 @@ jobs:
           echo "Release files:"
           ls -lh release-files/
 
+      # Fail-loud guard against CI-signing-secret / conf-pubkey drift (the
+      # 2026-07-11 key-rotation incident class): every updater .sig produced
+      # by the build must verify against the pubkey shipped in
+      # tauri.conf.json, BEFORE any tag / release / feed step. Runs on the
+      # draft_only path too, so pre-merge verification builds exercise it.
+      - name: Verify updater signatures against conf pubkey
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq minisign
+          PUBKEY_B64=$(jq -r '.plugins.updater.pubkey // empty' dashboard/src-tauri/tauri.conf.json)
+          if [[ -z "$PUBKEY_B64" ]]; then
+            echo "::error::plugins.updater.pubkey missing from tauri.conf.json"
+            exit 1
+          fi
+          echo "$PUBKEY_B64" | base64 -d > /tmp/updater.pub
+          echo "Pubkey from tauri.conf.json:"
+          cat /tmp/updater.pub
+
+          shopt -s nullglob
+          sigs=(release-files/*.sig)
+          if [[ ${#sigs[@]} -eq 0 ]]; then
+            echo "::error::No .sig files in release-files/ — updater signing produced nothing to verify"
+            exit 1
+          fi
+
+          fail=0
+          for sig in "${sigs[@]}"; do
+            artifact="${sig%.sig}"
+            if [[ ! -f "$artifact" ]]; then
+              echo "::error::${sig} has no matching artifact ${artifact}"
+              fail=1
+              continue
+            fi
+            base64 -d "$sig" > /tmp/artifact.minisig
+            if minisign -Vq -m "$artifact" -x /tmp/artifact.minisig -p /tmp/updater.pub; then
+              echo "OK   $(basename "$artifact")"
+            else
+              echo "::error::Signature verify FAILED for $(basename "$artifact") — CI signing key does not match tauri.conf.json pubkey"
+              fail=1
+            fi
+          done
+          exit "$fail"
+
       - name: Generate latest.json for Tauri updater
         run: |
           VERSION="${{ steps.version.outputs.version }}"
