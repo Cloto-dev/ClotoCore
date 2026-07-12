@@ -626,6 +626,31 @@ jobs:
           ---
           HEADER
 
+      # GitHub's automatic previous-tag detection ("generate_release_notes")
+      # picks the most recently created release — since 2026-07-12 that is
+      # often the rolling `updater-feed` release, which collapses "What's
+      # Changed" to almost nothing and breaks the Full Changelog compare link
+      # (observed on v0.6.8-beta.2). Resolve the previous tag explicitly:
+      # latest published release excluding the feed and this tag itself.
+      - name: Append generated release notes (explicit previous tag)
+        if: github.event.inputs.draft_only != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          PREV="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=30" \
+            --jq "[.[] | select(.draft | not) | .tag_name | select(. != \"updater-feed\" and . != \"$TAG\")][0] // empty")"
+          if [[ -n "$PREV" ]]; then
+            echo "Previous release tag: $PREV"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f tag_name="$TAG" \
+              -f previous_tag_name="$PREV" \
+              -f target_commitish="${GITHUB_SHA}" \
+              --jq '.body' >> release-body.md
+          else
+            echo "No previous release found — keeping the static body only"
+          fi
+
       # Two-phase upload to prevent the Tauri Updater 404 race window:
       # softprops/action-gh-release uploads `files` glob entries serially, and the
       # ~hundreds-of-bytes latest.json finishes long before the ~25 MB
@@ -659,7 +684,10 @@ jobs:
           prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'rc') }}
           body_path: release-body.md
           append_body: true
-          generate_release_notes: true
+          # Notes are generated in the "Append generated release notes" step
+          # with an explicit previous_tag_name — the automatic detection here
+          # would pick the rolling `updater-feed` release as the baseline.
+          generate_release_notes: false
           files: release-files/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
