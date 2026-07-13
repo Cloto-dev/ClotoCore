@@ -54,9 +54,7 @@ class ResourceSample:
 
 def _run(cmd: list[str], timeout: float = 5.0) -> Optional[str]:
     try:
-        out = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout
-        )
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         if out.returncode != 0:
             return None
         return out.stdout

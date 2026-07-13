@@ -45,6 +45,7 @@ from typing import Iterable, List, Optional
 DEFAULT_KEEP_ENGINES = ("deepseek",)
 DEFAULT_AGENT = "agent.cloto_default"
 
+
 # Real DBs the deactivated engines would open if they ever spawned — the
 # isolation oracle asserts these stay byte-identical across a run. Only paths
 # that exist are fingerprinted; the list is deliberately broad (defence in
@@ -137,8 +138,7 @@ def prepare_chat_db(
 
         # deactivate every engine except the kept one(s) → only they spawn.
         cur.execute(
-            f"UPDATE mcp_servers SET is_active = 0 "
-            f"WHERE name NOT IN ({placeholders})",
+            f"UPDATE mcp_servers SET is_active = 0 WHERE name NOT IN ({placeholders})",
             keep,
         )
 

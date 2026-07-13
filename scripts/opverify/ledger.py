@@ -74,7 +74,9 @@ def git_sha(cwd: Optional[str] = None) -> Optional[str]:
         return None
 
 
-def entry_from_report(report: dict, ts: float, sha: Optional[str] = None) -> LedgerEntry:
+def entry_from_report(
+    report: dict, ts: float, sha: Optional[str] = None
+) -> LedgerEntry:
     """Distil a full harness report dict into a compact ledger entry."""
     ops = report.get("operations", [])
     per_domain: dict = {}
