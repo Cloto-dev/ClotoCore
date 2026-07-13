@@ -100,6 +100,9 @@ def run(deployment, ops: List[Operation], ratchet: str = "report") -> dict:
     # post-teardown checks (DB no longer WAL-locked; process gone).
     # Intentionally NOT scraping the log here — see note above.
     orc.check_corruption(target.db_path, report)
+    # isolation: prove no real user DB was mutated (seed-mode runs only; a
+    # fresh-DB run has no snapshot and leaves isolation_ok = None).
+    orc.check_isolation(getattr(deployment, "iso_snapshot", None), report)
     _resource_leak_check(report)
 
     # release throwaway run state now that all oracles have read from it
@@ -160,7 +163,8 @@ def print_summary(rep: dict) -> None:
     o = rep["oracles"]
     print(
         f"oracles: liveness={o['liveness_ok']} integrity={o['integrity_ok']} "
-        f"log_clean={o['log_clean']} corruption_ok={o['corruption_ok']}"
+        f"log_clean={o['log_clean']} corruption_ok={o['corruption_ok']} "
+        f"isolation_ok={o.get('isolation_ok')}"
     )
     for f in o["findings"]:
         print(f"  ! {f}")

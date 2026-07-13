@@ -26,6 +26,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from .. import bootstrap
+from .. import oracle as orc
 from ..client import ClotoClient
 from . import RunningTarget
 
@@ -64,11 +66,22 @@ class LocalDeployment:
         port: Optional[int] = None,
         keep_dir: bool = False,
         env_overrides: Optional[dict] = None,
+        seed_db: Optional[str] = None,
+        keep_engines=bootstrap.DEFAULT_KEEP_ENGINES,
+        protected_paths: Optional[list] = None,
     ):
         self.binary = Path(binary) if binary else _default_binary()
         self.port = port
         self.keep_dir = keep_dir
         self.env_overrides = env_overrides or {}
+        # When set, the throwaway DB is a rewired *copy* of this DB (carries a
+        # real LLM key for chat) instead of a fresh empty DB — see bootstrap.py.
+        self.seed_db = seed_db
+        self.keep_engines = tuple(keep_engines)
+        self.protected_paths = protected_paths
+        # Fingerprint of protected real DBs, taken just before boot; the
+        # harness verifies it after teardown (isolation oracle).
+        self.iso_snapshot: Optional[dict] = None
         self._proc: Optional[subprocess.Popen] = None
         self._dir: Optional[str] = None
         self._stderr_fh = None
@@ -86,6 +99,39 @@ class LocalDeployment:
         stderr_path = os.path.join(self._dir, "stderr.log")
         key = secrets.token_hex(32)
         port = self.port or _free_port()
+        # A private LLM-proxy port (distinct from the admin port) so a seeded
+        # engine's proxy calls never collide with a running GUI's :8082.
+        proxy_port = _free_port()
+        while proxy_port == port:
+            proxy_port = _free_port()
+
+        extra_env: dict = {}
+
+        # Seed mode: boot from a rewired *copy* of a real DB (carries an LLM
+        # key so chat can actually run) with all but the kept engine(s)
+        # deactivated. Fingerprint the real DBs first so the isolation oracle
+        # can prove nothing outside the throwaway was touched.
+        if self.seed_db:
+            protected = (
+                self.protected_paths
+                if self.protected_paths is not None
+                else bootstrap.default_protected_paths(str(_repo_root()))
+            )
+            self.iso_snapshot = orc.snapshot_paths(protected)
+            bootstrap.prepare_chat_db(
+                self.seed_db,
+                db_path,
+                proxy_port=proxy_port,
+                keep_engines=self.keep_engines,
+            )
+            # The kept engine's Magic Seal was HMAC'd with the install's seal
+            # key (``{data_dir}/seal.key``). The kernel resolves that key at
+            # ``{CLOTO_SANDBOX_DIR}/../seal.key`` — empty in our throwaway — so
+            # copy the real one in and the seal verifies for real (no bypass).
+            bootstrap.copy_seal_key(self.seed_db, self._dir)
+            # Belt-and-suspenders for any *unsigned* kept engine (does not
+            # rescue a seal mismatch — that path blocks unconditionally).
+            extra_env["CLOTO_ALLOW_UNSIGNED"] = "true"
 
         env = dict(os.environ)
         env.pop("CLOTO_DEBUG_SKIP_AUTH", None)  # force real auth
@@ -96,9 +142,11 @@ class LocalDeployment:
                 "BIND_ADDRESS": "127.0.0.1",
                 "DATABASE_URL": f"sqlite:{db_path}",
                 "CLOTO_SANDBOX_DIR": sandbox,
+                "CLOTO_LLM_PROXY_PORT": str(proxy_port),
                 "RUST_LOG": env.get("RUST_LOG", "info"),
             }
         )
+        env.update(extra_env)
         env.update(self.env_overrides)
 
         self._stderr_fh = open(stderr_path, "wb")

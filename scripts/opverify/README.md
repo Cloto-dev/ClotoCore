@@ -67,10 +67,29 @@ present; each degrades to `None` rather than failing where unavailable.
 * **Phase 0 (done)** — local spine: health, agents (list + full lifecycle),
   memory (read), events (publish→history), mcp (list); oracles; coverage
   ratchet; JSON report.
-* **Phase 1** — full 12-domain catalog incl. chat across DeepSeek / Cerebras
-  / Groq (real LLM, cheap/free providers), marketplace install, cron,
-  permissions, llm; plus the MCP register→call→stop→reap lifecycle and the
-  result ledger (`qa/opverify/history.jsonl`) with regression detection.
-  Requires provider API keys via a gitignored `.env` / CI secrets.
+* **Phase 1 (in progress)** — the headline **real-LLM chat** verification is
+  live: `chat.deepseek` drives a genuine round trip (engine subprocess → LLM
+  proxy → DeepSeek → `ThoughtResponse` correlated to our exact message id) in
+  an **isolated copy** of the operator's DB. Isolation is machine-proven by
+  the `isolation` oracle (real `cpersona.db` / `cscheduler.db` are byte-for-byte
+  unchanged across a run). The result **ledger** (`qa/opverify/history.jsonl`,
+  via `--ledger`) records each run and flags regressions vs the prior
+  same-target baseline. Still to add this phase: `chat.cerebras` (needs its
+  mind engine installed), `chat.groq` (needs a provider row + key), and the
+  `marketplace` / `cron` / `permissions` / `llm` domains + the MCP
+  register→call→stop→**reap** lifecycle (an earlier decision orphan target).
 * **Phases 2–4** — Linux VM, Windows VM (VM 104), and permanence wiring
   (CLAUDE.md standard-procedure rule, nightly CI, ledger commit).
+
+### Chat isolation (how a real key is used without ever being read)
+
+`bootstrap.py` copies the operator's dev DB to a throwaway (the LLM key rides
+along inside the copy and is **never** selected or logged — copy+use is
+permitted, disclosure is not), then on the copy: deactivates every MCP engine
+except the pure-HTTP reasoning engine (`is_active=0`, so the DB-touching
+`cpersona`/`cscheduler`/`embedding` subprocesses never spawn), rewrites the
+engine's LLM-proxy port to a private one, points the target agent at it, and
+disables all other agents (so the heartbeat fires no stray billable calls).
+The install's `seal.key` is copied into the throwaway so Magic Seals verify for
+real. The isolation oracle fingerprints the real DBs before boot and asserts
+they are untouched after teardown.

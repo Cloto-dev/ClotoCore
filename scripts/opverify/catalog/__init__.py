@@ -26,7 +26,8 @@ _MODULES = [
     "memory",
     "events",
     "mcp",
-    # phase 1 domains added later: chat, marketplace, cron, permissions, llm, setup
+    "chat",
+    # phase 1 domains still to add: marketplace, cron, permissions, llm, setup
 ]
 
 REGISTRY: List["Operation"] = []
