@@ -33,10 +33,9 @@ _MODULES = [
     "system",
     "plugins",
     "permissions",
-    # still to add: setup; the permission approve/deny mutations (need a live
-    # pending request raised by an agent calling an untrusted tool — the admin
-    # /mcp/call path runs as System and is not permission-gated, so a chat-tier
-    # untrusted call is required to stage one).
+    # still to add: setup. (The register→call→stop→reap MCP lifecycle and the
+    # permission approve/deny mutations both landed in phase 1 — see
+    # mcp.lifecycle and permissions.decide.)
 ]
 
 REGISTRY: List["Operation"] = []
