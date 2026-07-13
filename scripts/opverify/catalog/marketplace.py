@@ -24,9 +24,7 @@ class MarketplaceCatalog(Operation):
     def assert_success(self, ctx: RunContext, result):
         assert isinstance(result, dict), f"catalog not an object: {result!r}"
         servers = result.get("servers")
-        assert isinstance(servers, list), (
-            f"catalog missing servers[] list: {result!r}"
-        )
+        assert isinstance(servers, list), f"catalog missing servers[] list: {result!r}"
         assert servers, "catalog returned zero servers (hub unreachable/empty?)"
         # each entry should at least identify itself.
         for s in servers[:5]:

@@ -24,10 +24,15 @@ class SystemInfo(Operation):
     def assert_success(self, ctx: RunContext, result):
         v = result["version"]
         # version may be a bare string or an object carrying a version field.
-        ok_v = isinstance(v, str) and v or (
-            isinstance(v, dict) and any(
-                isinstance(v.get(k), str) and v.get(k)
-                for k in ("version", "server_version")
+        ok_v = (
+            isinstance(v, str)
+            and v
+            or (
+                isinstance(v, dict)
+                and any(
+                    isinstance(v.get(k), str) and v.get(k)
+                    for k in ("version", "server_version")
+                )
             )
         )
         assert ok_v, f"version read returned nothing usable: {v!r}"

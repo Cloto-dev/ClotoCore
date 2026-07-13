@@ -13,7 +13,7 @@ import secrets
 import time
 import traceback
 from dataclasses import asdict, dataclass, field
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from . import coverage as cov
 from . import oracle as orc
@@ -35,7 +35,9 @@ class OpResult:
 
 
 def _run_op(op: Operation, ctx: RunContext) -> OpResult:
-    pre = orc.sample_resources(ctx.target.pid) if ctx.target.pid else orc.ResourceSample()
+    pre = (
+        orc.sample_resources(ctx.target.pid) if ctx.target.pid else orc.ResourceSample()
+    )
     t0 = time.monotonic()
     passed, err = True, None
     try:
@@ -49,7 +51,9 @@ def _run_op(op: Operation, ctx: RunContext) -> OpResult:
         op.teardown(ctx)
     except Exception:  # noqa: BLE001 - teardown is best-effort
         pass
-    post = orc.sample_resources(ctx.target.pid) if ctx.target.pid else orc.ResourceSample()
+    post = (
+        orc.sample_resources(ctx.target.pid) if ctx.target.pid else orc.ResourceSample()
+    )
     return OpResult(
         domain=op.domain,
         name=op.name,
@@ -178,4 +182,4 @@ def print_summary(rep: dict) -> None:
         if len(c["uncovered"]) > 12:
             print(f"    ... and {len(c['uncovered']) - 12} more")
     if c["unknown"]:
-        print(f"  unknown (covers not in kernel): " + ", ".join(c["unknown"]))
+        print("  unknown (covers not in kernel): " + ", ".join(c["unknown"]))
