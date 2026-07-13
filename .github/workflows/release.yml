@@ -378,8 +378,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # arch labels match Tauri's own macOS bundle naming (aarch64 / x64),
+          # which is also what the latest.json globs key on (*aarch64* / *x64*).
           - target: aarch64-apple-darwin
-            arch: arm64
+            arch: aarch64
+          - target: x86_64-apple-darwin
+            arch: x64
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
 
@@ -449,9 +453,23 @@ jobs:
         shell: bash
         run: |
           mkdir -p tauri-artifacts
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+          # DMG installer — Tauri already names it *_<arch>.dmg.
           find target/${{ matrix.target }}/release/bundle/dmg -type f -name "*.dmg" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
-          find target/${{ matrix.target }}/release/bundle -type f -name "*.sig" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
-          find target/${{ matrix.target }}/release/bundle -type f -name "*.tar.gz" -exec cp {} tauri-artifacts/ \; 2>/dev/null || true
+          # Updater bundle (.app.tar.gz + .sig). Tauri names it by product name
+          # only (no arch), so the two matrix arches would collide on upload and
+          # neither would match the latest.json globs (*aarch64* / *x64*). Rename
+          # with the arch to disambiguate and to satisfy those globs.
+          tarball=$(find target/${{ matrix.target }}/release/bundle -type f -name "*.app.tar.gz" | head -1)
+          sig=$(find target/${{ matrix.target }}/release/bundle -type f -name "*.app.tar.gz.sig" | head -1)
+          if [[ -n "$tarball" ]]; then
+            cp "$tarball" "tauri-artifacts/ClotoCore_${VERSION}_${ARCH}.app.tar.gz"
+            [[ -n "$sig" ]] && cp "$sig" "tauri-artifacts/ClotoCore_${VERSION}_${ARCH}.app.tar.gz.sig"
+          else
+            echo "::error::No .app.tar.gz updater bundle produced for ${ARCH} — macOS auto-update would be missing this arch (is the 'app' bundle target enabled?)"
+            exit 1
+          fi
           echo "Tauri artifacts:"
           ls -lh tauri-artifacts/
 
@@ -624,6 +642,17 @@ jobs:
             cat release-files/latest.json
           fi
 
+          # Coverage guard: every platform we build must appear in the feed.
+          # A silent omission (the pre-2026-07-13 missing darwin-* entries left
+          # all macOS users unable to auto-update) must fail the release loudly
+          # instead of shipping a half-populated manifest.
+          for want in windows-x86_64 linux-x86_64 darwin-aarch64 darwin-x86_64; do
+            if ! grep -q "\"${want}\"" release-files/latest.json 2>/dev/null; then
+              echo "::error::latest.json is missing platform '${want}' — updater feed would leave that platform without auto-update"
+              exit 1
+            fi
+          done
+
       - name: Generate checksums manifest
         run: |
           cd release-files
@@ -661,7 +690,7 @@ jobs:
           Download **ClotoCore_${VERSION}_x64-setup.exe** from the assets below and run the NSIS installer.
 
           **macOS (Desktop App):**
-          Download the **.dmg** file for your architecture (arm64 for Apple Silicon, x64 for Intel) from the assets below.
+          Download the **.dmg** file for your architecture (aarch64 for Apple Silicon, x64 for Intel) from the assets below.
 
           **Linux (Desktop App):**
           Download the **.deb** (Debian/Ubuntu) or **.AppImage** (universal) from the assets below.
