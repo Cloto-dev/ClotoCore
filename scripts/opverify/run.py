@@ -42,20 +42,30 @@ def _build_deployment(args, seed_db):
 
         return LocalDeployment(binary=args.binary, seed_db=seed_db)
     if args.target in ("linux-vm", "windows-vm"):
-        raise SystemExit(
-            f"target '{args.target}' not yet implemented (phase 2/3)"
-        )
+        raise SystemExit(f"target '{args.target}' not yet implemented (phase 2/3)")
     raise SystemExit(f"unknown target: {args.target}")
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="opverify", description=__doc__)
-    p.add_argument("--target", default="local",
-                   choices=["local", "linux-vm", "windows-vm"])
-    p.add_argument("--slice", default="all", choices=["all", "phase0"],
-                   help="operation subset to run")
-    p.add_argument("--binary", default=None,
-                   help="path to clotocore binary (local target)")
+    p.add_argument(
+        "--target", default="local", choices=["local", "linux-vm", "windows-vm"]
+    )
+    p.add_argument(
+        "--slice",
+        default="all",
+        choices=["all", "phase0"],
+        help="operation subset to run",
+    )
+    p.add_argument(
+        "--only",
+        default=None,
+        help="comma-separated op keys (domain.name) or bare domains "
+        "to run in isolation, e.g. 'mcp.lifecycle' or 'mcp,health'",
+    )
+    p.add_argument(
+        "--binary", default=None, help="path to clotocore binary (local target)"
+    )
     p.add_argument("--ratchet", default="report", choices=["report", "enforce"])
     p.add_argument("--report", default=None, help="write JSON report to this path")
     p.add_argument(
@@ -85,6 +95,19 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
 
     operations = select(load_all(), phase0_only=(args.slice == "phase0"))
+    if args.only:
+        wanted = {w.strip() for w in args.only.split(",") if w.strip()}
+        operations = [
+            op for op in operations if op.key in wanted or op.domain in wanted
+        ]
+        missing = (
+            wanted - {op.key for op in operations} - {op.domain for op in operations}
+        )
+        if missing:
+            print(
+                f"--only: no such op/domain: {', '.join(sorted(missing))}",
+                file=sys.stderr,
+            )
     if not operations:
         print("no operations selected", file=sys.stderr)
         return 1
@@ -123,8 +146,9 @@ def main(argv=None) -> int:
         )
         for reg in regressions:
             regressed = True
-            print(f"  !! REGRESSION [{reg.kind}] {reg.detail} "
-                  f"(vs {reg.baseline_run_id})")
+            print(
+                f"  !! REGRESSION [{reg.kind}] {reg.detail} (vs {reg.baseline_run_id})"
+            )
 
     ok = rep["verdict"] == "pass" and not regressed
     return 0 if ok else 1
