@@ -89,10 +89,16 @@ def run(deployment, ops: List[Operation], ratchet: str = "report") -> dict:
         report.final = orc.sample_resources(target.pid) if target.pid else None
         orc.scrape_log(target.stderr_path, report)
     finally:
+        # final run-time log scrape BEFORE shutdown — teardown naturally
+        # closes MCP connections ("MCP Connection closed" / pending-request
+        # failures), which are benign shutdown artifacts, not operation
+        # failures. Any panic during the actual run is already captured by the
+        # per-op and end-of-run scrapes above.
+        orc.scrape_log(target.stderr_path, report)
         deployment.stop()
 
-    # post-teardown checks (DB no longer WAL-locked; process gone)
-    orc.scrape_log(target.stderr_path, report)
+    # post-teardown checks (DB no longer WAL-locked; process gone).
+    # Intentionally NOT scraping the log here — see note above.
     orc.check_corruption(target.db_path, report)
     _resource_leak_check(report)
 
