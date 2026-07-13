@@ -41,9 +41,7 @@ class LlmInspect(Operation):
 
     def drive(self, ctx: RunContext):
         providers = _provider_list(ctx.client)
-        models = ctx.client.get(
-            f"/api/llm/providers/{_PROVIDER}/models", timeout=30.0
-        )
+        models = ctx.client.get(f"/api/llm/providers/{_PROVIDER}/models", timeout=30.0)
         return {"providers": providers, "models": models}
 
     def assert_success(self, ctx: RunContext, result):

@@ -43,7 +43,11 @@ class EventsPublish(Operation):
                     if d.get("x") == _SENTINEL_X:
                         found = True
                         break
-        return {"published": published, "found_in_history": found, "history_len": len(history) if isinstance(history, list) else None}
+        return {
+            "published": published,
+            "found_in_history": found,
+            "history_len": len(history) if isinstance(history, list) else None,
+        }
 
     def assert_success(self, ctx: RunContext, result):
         assert result["found_in_history"], (

@@ -133,14 +133,10 @@ class ClotoClient:
             except (urllib.error.URLError, ApiError, OSError) as e:
                 last_err = str(e)
             time.sleep(interval)
-        raise TimeoutError(
-            f"kernel not healthy within {timeout}s ({last_err})"
-        )
+        raise TimeoutError(f"kernel not healthy within {timeout}s ({last_err})")
 
     # -- SSE -------------------------------------------------------------
-    def sse(
-        self, path: str = "/api/events", timeout: float = 15.0
-    ) -> Iterator[dict]:
+    def sse(self, path: str = "/api/events", timeout: float = 15.0) -> Iterator[dict]:
         """Yield decoded SSE events from an event-stream route.
 
         The key is passed as ``?token=`` since EventSource cannot set
@@ -160,7 +156,9 @@ class ClotoClient:
                 line = raw_line.decode("utf-8", "replace").rstrip("\n")
                 if line == "":
                     # dispatch accumulated event
-                    data_lines = [ln[5:].lstrip() for ln in buf if ln.startswith("data:")]
+                    data_lines = [
+                        ln[5:].lstrip() for ln in buf if ln.startswith("data:")
+                    ]
                     buf = []
                     if not data_lines:
                         continue

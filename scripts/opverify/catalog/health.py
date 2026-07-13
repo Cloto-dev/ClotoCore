@@ -29,7 +29,9 @@ class HealthScan(Operation):
     phase0 = True
 
     def drive(self, ctx: RunContext):
-        return ctx.client.get("/api/health/scan", params={"fresh": "true"}, timeout=30.0)
+        return ctx.client.get(
+            "/api/health/scan", params={"fresh": "true"}, timeout=30.0
+        )
 
     def assert_success(self, ctx: RunContext, result):
         status = _assert_report(result)
@@ -52,6 +54,6 @@ class HealthRepair(Operation):
         assert isinstance(result.get("actions"), list), (
             f"repair report missing actions[]: {result!r}"
         )
-        assert isinstance(result.get("total_fixed"), int) and result["total_fixed"] >= 0, (
-            f"repair report missing/invalid total_fixed: {result!r}"
-        )
+        assert (
+            isinstance(result.get("total_fixed"), int) and result["total_fixed"] >= 0
+        ), f"repair report missing/invalid total_fixed: {result!r}"
