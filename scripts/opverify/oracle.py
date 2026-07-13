@@ -120,6 +120,9 @@ class OracleReport:
     integrity_ok: bool = True
     log_clean: bool = True
     corruption_ok: Optional[bool] = None
+    # None = not checked (e.g. fresh-DB run with no real state to protect);
+    # False = a protected real DB was mutated during the run (isolation breach).
+    isolation_ok: Optional[bool] = None
     findings: list[str] = field(default_factory=list)
     baseline: Optional[ResourceSample] = None
     final: Optional[ResourceSample] = None
@@ -135,6 +138,7 @@ class OracleReport:
             and self.integrity_ok
             and self.log_clean
             and self.corruption_ok is not False
+            and self.isolation_ok is not False
         )
 
     def as_dict(self) -> dict:
@@ -144,6 +148,7 @@ class OracleReport:
             "integrity_ok": self.integrity_ok,
             "log_clean": self.log_clean,
             "corruption_ok": self.corruption_ok,
+            "isolation_ok": self.isolation_ok,
             "baseline": self.baseline.as_dict() if self.baseline else None,
             "final": self.final.as_dict() if self.final else None,
             "findings": self.findings,
@@ -212,3 +217,49 @@ def check_corruption(db_path: Optional[str], report: OracleReport) -> None:
     report.corruption_ok = out.strip() == "ok"
     if not report.corruption_ok:
         report.note(f"corruption: integrity_check -> {out.strip()[:200]}")
+
+
+def snapshot_paths(paths) -> dict:
+    """Record (mtime_ns, size) for each existing path — the pre-run fingerprint
+    of real DBs the isolated daemon must NEVER touch. Missing paths are stored
+    as ``None`` so their later *appearance* is also flagged."""
+    import os
+
+    snap: dict = {}
+    for p in paths:
+        try:
+            st = os.stat(p)
+            snap[p] = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            snap[p] = None
+    return snap
+
+
+def check_isolation(snapshot: Optional[dict], report: OracleReport) -> None:
+    """Assert every protected path is byte-for-byte unchanged since the
+    snapshot. Any mutation (or a newly-appeared file) is an isolation breach —
+    proof the throwaway daemon reached a real user DB — and fails the run.
+
+    A ``None``/empty snapshot means isolation was not being guarded this run
+    (e.g. a fresh-DB phase-0 run); leaves ``isolation_ok`` as None."""
+    import os
+
+    if not snapshot:
+        return
+    breaches = []
+    for p, before in snapshot.items():
+        try:
+            st = os.stat(p)
+            after = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            after = None
+        if after != before:
+            if before is None:
+                breaches.append(f"{p} (created during run)")
+            elif after is None:
+                breaches.append(f"{p} (removed during run)")
+            else:
+                breaches.append(f"{p} (mtime/size changed)")
+    report.isolation_ok = not breaches
+    for b in breaches:
+        report.note(f"isolation: protected real DB mutated — {b}")
