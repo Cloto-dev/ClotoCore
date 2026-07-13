@@ -113,6 +113,9 @@ class ClotoClient:
     def post(self, path: str, body: Optional[Any] = None, **kw) -> Any:
         return self.request("POST", path, body=body, **kw)
 
+    def put(self, path: str, body: Optional[Any] = None, **kw) -> Any:
+        return self.request("PUT", path, body=body, **kw)
+
     def delete(self, path: str, **kw) -> Any:
         return self.request("DELETE", path, **kw)
 
