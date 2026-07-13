@@ -30,7 +30,12 @@ _MODULES = [
     "llm",
     "cron",
     "marketplace",
-    # phase 1 domains still to add: permissions, setup; mcp register→call→stop→reap
+    "system",
+    "plugins",
+    "permissions",
+    # still to add: setup; the MCP register→call→stop→reap lifecycle (Goal #145,
+    # a VM-tier orphan-reap target) and the permission approve/deny mutations
+    # (need a live pending request from an untrusted tool call).
 ]
 
 REGISTRY: List["Operation"] = []
