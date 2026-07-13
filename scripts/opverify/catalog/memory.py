@@ -33,3 +33,21 @@ class MemoryList(Operation):
         assert isinstance(result.get("capabilities"), dict), (
             f"capabilities missing/not an object: {result!r}"
         )
+
+
+@register
+class MemoryEpisodes(Operation):
+    domain = "memory"
+    name = "episodes"
+    covers = ["GET /api/episodes"]
+    phase0 = False
+
+    def drive(self, ctx: RunContext):
+        return ctx.client.get("/api/episodes")
+
+    def assert_success(self, ctx: RunContext, result):
+        # accept a bare list or an {episodes: [...]} envelope.
+        episodes = result.get("episodes") if isinstance(result, dict) else result
+        assert isinstance(episodes, list), (
+            f"episodes read did not return a list: {result!r}"
+        )
