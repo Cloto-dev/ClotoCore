@@ -27,27 +27,40 @@ def settle(
     stable_needed: int = 2,
     interval: float = 0.3,
     max_wait: float = 10.0,
+    change_probe: Optional[Callable[[], str]] = None,
     now: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Frame:
     """Capture until ``stable_needed`` consecutive frames share a fingerprint
     (the UI stopped moving), or ``max_wait`` elapses. Returns the latest frame
     either way — a settle timeout still yields the freshest capture rather than
-    raising, so the caller's oracle can judge whatever is on screen."""
+    raising, so the caller's oracle can judge whatever is on screen.
+
+    ``change_probe`` is an optional cheap change-signal (e.g. the agent's
+    ``/grabhash`` — a hash of the raw framebuffer, no PNG encode or transfer).
+    When given, the stability loop polls *that* instead of grabbing a full PNG
+    each interval, and a single real ``source.grab()`` is taken only once the
+    signal has stabilized (or on timeout). This makes settling a sequence of
+    tiny hash polls plus one grab, rather than N full-frame grabs."""
     start = now()
-    prev: Optional[Frame] = None
+    prev: Optional[str] = None
     run = 1
+    last_frame: Optional[Frame] = None
     while True:
-        frame = source.grab()
-        if prev is not None and frame.fingerprint == prev.fingerprint:
+        if change_probe is None:
+            last_frame = source.grab()
+            sig = last_frame.fingerprint
+        else:
+            sig = change_probe()  # cheap hash; grab only once we've settled
+        if prev is not None and sig == prev:
             run += 1
         else:
             run = 1
         if run >= stable_needed:
-            return frame
-        prev = frame
+            return last_frame if last_frame is not None else source.grab()
+        prev = sig
         if now() - start >= max_wait:
-            return frame
+            return last_frame if last_frame is not None else source.grab()
         sleep(interval)
 
 
