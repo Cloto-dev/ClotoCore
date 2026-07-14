@@ -75,11 +75,14 @@ present; each degrades to `None` rather than failing where unavailable.
   unchanged across a run). The result **ledger** (`qa/opverify/history.jsonl`,
   via `--ledger`) records each run and flags regressions vs the prior
   same-target baseline. Domains landed so far: health, agents, memory, events,
-  mcp (list), chat (deepseek), **llm** (inspect + configure/real-connection
-  test), **cron** (full job lifecycle), **marketplace** (catalog). Still to add
-  this phase: `chat.cerebras` (needs its mind engine installed), `chat.groq`
-  (needs a provider row + key), the `permissions` domain, and the MCP
-  register→call→stop→**reap** lifecycle (an earlier decision orphan target).
+  mcp (list **+ register→call→stop→reap** lifecycle — the an earlier decision orphan
+  target), chat (deepseek), **llm** (inspect + configure/real-connection test),
+  **cron** (full job lifecycle), **marketplace** (catalog), **permissions**
+  (approve/deny against staged pending requests), **system**, **plugins**, and
+  **setup** (onboarding gate) — every locally-drivable domain is now covered.
+  Still to add: `chat.cerebras` (needs its mind engine installed) and
+  `chat.groq` (needs a provider row + key), which land with the full-real
+  keys/engines available on the VM and nightly tiers.
 * **Phases 2–4** — Linux VM, Windows VM (VM 104), and permanence wiring
   (CLAUDE.md standard-procedure rule, nightly CI, ledger commit).
 

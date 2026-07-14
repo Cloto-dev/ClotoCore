@@ -33,9 +33,7 @@ _MODULES = [
     "system",
     "plugins",
     "permissions",
-    # still to add: setup. (The register→call→stop→reap MCP lifecycle and the
-    # permission approve/deny mutations both landed in phase 1 — see
-    # mcp.lifecycle and permissions.decide.)
+    "setup",
 ]
 
 REGISTRY: List["Operation"] = []
