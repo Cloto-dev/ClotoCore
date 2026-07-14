@@ -44,8 +44,17 @@ jobs:
         with:
           shared-key: opverify-${{ matrix.os }}
 
+      # crates/core embeds dashboard/dist via rust-embed at compile time
+      # (handlers/assets.rs), so the folder must exist even for the headless
+      # kernel build — a placeholder is enough (opverify never serves the UI).
+      - name: Create dashboard dist placeholder
+        shell: bash
+        run: |
+          mkdir -p dashboard/dist
+          echo '<html><body></body></html>' > dashboard/dist/index.html
+
       # clotocore is a headless axum daemon (crates/core, no Tauri) — no
-      # GTK/WebKit system deps and no dashboard dist placeholder are required.
+      # GTK/WebKit system deps required.
       - name: Build clotocore kernel
         run: cargo build --bin clotocore
 
