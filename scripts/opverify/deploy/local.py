@@ -18,7 +18,6 @@ from __future__ import annotations
 import os
 import secrets
 import shutil
-import signal
 import socket
 import subprocess
 import tempfile
@@ -39,8 +38,10 @@ def _repo_root() -> Path:
 
 def _default_binary() -> Optional[Path]:
     root = _repo_root()
-    for rel in ("target/debug/clotocore", "target/release/clotocore"):
-        p = root / rel
+    # cargo emits `clotocore.exe` on Windows, `clotocore` elsewhere.
+    exe = ".exe" if os.name == "nt" else ""
+    for profile in ("debug", "release"):
+        p = root / "target" / profile / f"clotocore{exe}"
         if p.exists():
             return p
     return None
@@ -203,7 +204,9 @@ class LocalDeployment:
             time.sleep(0.3)
         if self._proc.poll() is None:
             try:
-                self._proc.send_signal(signal.SIGKILL)
+                # cross-platform hard kill (TerminateProcess on Windows,
+                # SIGKILL on POSIX); signal.SIGKILL is not defined on Windows.
+                self._proc.kill()
             except OSError:
                 pass
             try:
