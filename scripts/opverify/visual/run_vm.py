@@ -25,6 +25,7 @@ import sys
 
 from . import journey as J
 from .backends_vm import (
+    KernelApiProbe,
     KernelHealthProbe,
     RecordedVision,
     VmAgentActuator,
@@ -94,6 +95,25 @@ def _onboarding_journey():
     )
 
 
+def _agents_journey():
+    """Operation-level dual oracle: the GUI is rendered (visual) AND the kernel's
+    authenticated /api/agents confirms the seeded default agent exists (op-level
+    kernel hard-gate). Requires OPV_API_KEY = the CLOTO_API_KEY the harness
+    launched the GUI with."""
+    return J.Journey(
+        name="agents-seeded",
+        steps=[
+            J.Step(
+                name="default-agent-present",
+                trigger=J.CHECKPOINT,
+                settle=False,
+                vision_question="is the ClotoCore GUI rendered with visible content?",
+                kernel_probe=KernelApiProbe("/api/agents", '"agent_type":"agent"'),
+            )
+        ],
+    )
+
+
 _JOURNEYS = {
     "liveness": (_liveness_journey, [
         {"visible": True, "detail": "onboarding/main UI rendered, non-black window"},
@@ -101,6 +121,9 @@ _JOURNEYS = {
     "onboarding": (_onboarding_journey, [
         {"visible": True, "detail": "welcome screen + Get Started button"},
         {"visible": True, "detail": "advanced to language-select page (page 2/7)"},
+    ]),
+    "agents": (_agents_journey, [
+        {"visible": True, "detail": "ClotoCore UI rendered (onboarding/main)"},
     ]),
 }
 
