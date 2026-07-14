@@ -39,6 +39,7 @@ from .backends_vm import (
 )
 from .driver import VisualDriver
 from .interfaces import Frame, click
+from .live_assessor import AgentHandshakeAssessor
 
 
 class _SavingScreen:
@@ -194,6 +195,17 @@ def main(argv) -> int:
     frame_dir = os.environ.get("OPV_FRAME_DIR", "/tmp/opv-frames")
     transport = os.environ.get("OPV_TRANSPORT", "tunnel")
 
+    # Assessor: 'recorded' (bootstrap — replays pre-recorded verdicts in call
+    # order) or 'handshake' (live — a Sonnet VM-executor subagent reads each
+    # frame and writes the verdict; unattended AI, no API key). #237.
+    assessor_kind = os.environ.get("OPV_ASSESSOR", "recorded")
+    if assessor_kind == "handshake":
+        assessor = AgentHandshakeAssessor(
+            os.environ.get("OPV_EXCHANGE_DIR", "/tmp/opv-exchange")
+        )
+    else:
+        assessor = RecordedVision(recorded)
+
     screen, actuator, health_probe, make_api_probe, change_probe, teardown = (
         _build_transport(transport)
     )
@@ -201,12 +213,14 @@ def main(argv) -> int:
         driver = VisualDriver(
             screen=_SavingScreen(screen, frame_dir),
             actuator=actuator,
-            assessor=RecordedVision(recorded),
+            assessor=assessor,
             change_probe=change_probe,
         )
         report = driver.run(make_journey(health_probe, make_api_probe))
     finally:
         teardown()
+        if isinstance(assessor, AgentHandshakeAssessor):
+            assessor.signal_done()
     print(json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
     print(f"\nframes saved under: {frame_dir}  (transport={transport})")
     return 0 if report.verdict != "fail" else 1

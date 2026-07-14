@@ -34,6 +34,22 @@ spot-check. Cost pools also differ, and the executor's visual read is a genuine
 intelligent perceiver — exactly the apex's design (a VLM in the human perception
 loop), just hosted in a subagent.
 
+## Two ways the executor drives
+
+- **Manual VM I/O** (the flow detailed below): the subagent curl/tunnel-grabs,
+  Reads the PNG, judges, curl-acts, curl-probes — assembling the dual-oracle
+  verdict itself. Maximum flexibility for exploratory / ad-hoc journeys.
+- **Structured handshake** (`OPV_ASSESSOR=handshake`, #237): the subagent runs
+  `python -m scripts.opverify.visual.run_vm <journey>` in the background and only
+  supplies the *visual* verdict per frame — the driver owns the loop, journey
+  structure, dual-oracle cross-check, tiering and forensic capture. Prefer this
+  to run a *defined* journey with less hand-rolling. Protocol: the driver writes
+  `req_NNN.json` `{seq, question, frame}` into `OPV_EXCHANGE_DIR`; you Read the
+  referenced PNG (your live eyes) and Write `resp_NNN.json`
+  `{visible: bool, detail: str, defects: [str]}`; repeat until `done.flag`
+  appears, then read the run's JSON report. This is the live replacement for the
+  `RecordedVision` bootstrap — the executor's read *is* the oracle.
+
 ## Orchestrator responsibilities (do NOT delegate these)
 
 1. **Journey + oracle design.** Decide the steps, the visual question at each
