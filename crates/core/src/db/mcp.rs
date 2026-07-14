@@ -470,6 +470,53 @@ pub async fn put_agent_server_grants(
     .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", secs))?
 }
 
+/// Grant a freshly-installed reasoning engine to every agent that already
+/// declares it as `default_engine_id`, as an explicit, auditable `server_grant`.
+///
+/// This is the install-time complement of the two existing auto-grant paths:
+/// the `create_agent` handler (grants the engine chosen at creation) and the
+/// capability-gate backfill migration (grants `default_engine_id`, but only
+/// where the engine row already existed when the migration ran). A seeded agent
+/// whose hardcoded default engine is installed *later* via the Marketplace was
+/// covered by neither, so its own default engine returned MGP-1001 until granted
+/// by hand. Same "auto-grant the agent's declared default engine" policy as
+/// those paths (see docs/MCP_CAPABILITY_GATE_DESIGN.md §6: grant ⇒ allow,
+/// no grant ⇒ deny), scoped to `default_engine_id` only. Matches bare ids —
+/// `default_engine_id` is de-prefixed by the retire-mind-prefix migration.
+///
+/// Non-clobbering: the `NOT EXISTS` guard matches any existing `server_grant`
+/// for the (agent, server) pair — `allow` *or* `deny` — so an operator's
+/// explicit deny is preserved. Returns the number of grants inserted.
+pub async fn grant_default_engine_to_agents(
+    pool: &SqlitePool,
+    server_id: &str,
+) -> anyhow::Result<u64> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let result = db_timeout(
+        sqlx::query(
+            "INSERT INTO mcp_access_control \
+             (entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at, expires_at, justification, metadata) \
+             SELECT 'server_grant', a.id, ?, NULL, 'allow', 'install:default-engine', ?, NULL, NULL, NULL \
+             FROM agents a \
+             WHERE a.default_engine_id = ? \
+               AND NOT EXISTS ( \
+                     SELECT 1 FROM mcp_access_control ac \
+                      WHERE ac.agent_id = a.id \
+                        AND ac.server_id = ? \
+                        AND ac.entry_type = 'server_grant' \
+                        AND ac.tool_name IS NULL \
+               )",
+        )
+        .bind(server_id)
+        .bind(&now)
+        .bind(server_id)
+        .bind(server_id)
+        .execute(pool),
+    )
+    .await?;
+    Ok(result.rows_affected())
+}
+
 /// Delete an access control entry for an agent/server/entry_type combination.
 /// If `tool_name` is Some, additionally filters by tool_name.
 pub async fn delete_access_entry(
@@ -822,5 +869,91 @@ mod tests {
             .expect("settings query must not error (seal NULL)")
             .expect("server row must exist");
         assert_eq!(unsealed.seal, None);
+    }
+
+    /// grant_default_engine_to_agents grants a freshly-installed engine to the
+    /// agents that declare it as `default_engine_id`, skips non-matching agents,
+    /// preserves an explicit deny, and is idempotent (non-clobbering).
+    #[tokio::test]
+    async fn grant_default_engine_to_agents_scopes_and_preserves_deny() {
+        let state = crate::test_utils::create_test_app_state(None).await;
+        let pool = &state.pool;
+
+        // The engine being installed (server row makes the grant FK hold).
+        save_mcp_server(pool, &sample_record("testengine", None))
+            .await
+            .unwrap();
+
+        // agent.a declares testengine as its default → should be granted.
+        // agent.b also declares it but already has an explicit deny → preserved.
+        // agent.c declares a different engine → untouched.
+        for (id, engine) in [
+            ("agent.a", "testengine"),
+            ("agent.b", "testengine"),
+            ("agent.c", "otherengine"),
+        ] {
+            sqlx::query(
+                "INSERT INTO agents (id, name, description, status, default_engine_id, metadata) \
+                 VALUES (?, 'T', 'd', 'offline', ?, '{}')",
+            )
+            .bind(id)
+            .bind(engine)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO mcp_access_control \
+             (entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at) \
+             VALUES ('server_grant', 'agent.b', 'testengine', NULL, 'deny', 'test', datetime('now'))",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+
+        // Only agent.a is granted: agent.b already has a row, agent.c does not match.
+        let granted = grant_default_engine_to_agents(pool, "testengine")
+            .await
+            .unwrap();
+        assert_eq!(granted, 1, "only the matching, ungranted agent is granted");
+
+        let count = |agent: &'static str, perm: &'static str| async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM mcp_access_control \
+                 WHERE agent_id = ? AND server_id = 'testengine' \
+                   AND entry_type = 'server_grant' AND permission = ?",
+            )
+            .bind(agent)
+            .bind(perm)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+        };
+        assert_eq!(
+            count("agent.a", "allow").await,
+            1,
+            "agent.a's default engine granted"
+        );
+        assert_eq!(
+            count("agent.b", "deny").await,
+            1,
+            "agent.b's explicit deny preserved"
+        );
+        assert_eq!(
+            count("agent.b", "allow").await,
+            0,
+            "agent.b's deny not overwritten by allow"
+        );
+        assert_eq!(
+            count("agent.c", "allow").await,
+            0,
+            "non-matching agent not granted"
+        );
+
+        // Idempotent: a re-install grants nothing new.
+        let again = grant_default_engine_to_agents(pool, "testengine")
+            .await
+            .unwrap();
+        assert_eq!(again, 0, "re-install does not create duplicate grants");
     }
 }
