@@ -213,3 +213,24 @@ The `version` input is still required by the workflow but the produced tag is
 neither created nor published, so any throwaway placeholder is acceptable for
 verification builds. Use real `x.y.z` matching `Cargo.toml` when iterating
 toward an actual release so artifact filenames are coherent.
+
+### User emulation (opverify visual apex)
+
+**User emulation** is the top verification tier: drive the *real installed
+GUI* through a *real user journey* with a visual agent — only the user is
+automated (emulating real usage, not simulating it). opverify's confidence
+pyramid, low to high: kernel emulation (headless daemon via the admin HTTP
+API) < install + OS emulation (real installer on a real-OS VM) < **user
+emulation (apex)** (real installed app, GUI driven as a user).
+
+Each apex run cross-checks two oracles — a **visual** assert (a multimodal
+agent reads a screenshot) against a **kernel** assert (the admin HTTP API);
+agreement is the signal, disagreement localizes the fault (e.g. kernel OK but
+nothing rendered = a frontend bug). This catches GUI-only defects a headless
+probe never sees (e.g. a fatal startup modal), and lets a fix be *re-verified
+on the real installed app*, closing capture → fix → re-verify. Pair it with a
+`draft_only` build (above) to stage a fixed, unpublished installer on the VM.
+
+Tooling + runbook: `scripts/opverify/visual/` (`FIRST_RUN.md` results log,
+`VM_EXECUTOR_RUNBOOK.md` two-tier orchestrator ↔ VM-executor runbook + VM
+access), landing with the opverify feature line.
