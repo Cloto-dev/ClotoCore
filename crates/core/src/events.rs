@@ -280,7 +280,14 @@ impl EventProcessor {
                         error!(agent_id = %agent_id, error = %e, "Failed to update last_seen on ThoughtResponse");
                     }
 
-                    // Create additional MessageReceived for plugin cascade
+                    // Create additional MessageReceived for plugin cascade.
+                    // bug-487: do NOT record / SSE-broadcast this inline. It is
+                    // requeued below and re-enters process_loop, which records it
+                    // (L213-214) and broadcasts it (the MessageReceived SSE arm)
+                    // exactly once. Recording it here too double-persisted the
+                    // agent reply to /api/history and double-fired its SSE. Mirror
+                    // the ExternalAction path, which only requeues the injected
+                    // MessageReceived and never records it inline.
                     let msg = cloto_shared::ClotoMessage::new(
                         cloto_shared::MessageSource::Agent {
                             id: agent_id.clone(),
@@ -291,9 +298,6 @@ impl EventProcessor {
                         trace_id,
                         cloto_shared::ClotoEventData::MessageReceived(msg.clone()),
                     ));
-                    let seq_msg = SequencedEvent::new(msg_received.clone());
-                    self.record_event(seq_msg.clone()).await;
-                    let _ = self.tx_internal.send(seq_msg);
 
                     let system_envelope = crate::EnvelopedEvent {
                         event: msg_received,
