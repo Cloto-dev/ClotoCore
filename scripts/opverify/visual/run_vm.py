@@ -26,10 +26,9 @@ import sys
 from . import journey as J
 from .backends_vm import (
     KernelApiProbe,
-    KernelHealthProbe,
     RecordedVision,
     VmAgentActuator,
-    VmAgentScreen,
+    make_cofetch_backend,
 )
 from .driver import VisualDriver
 from .interfaces import Frame, click
@@ -54,8 +53,9 @@ class _SavingScreen:
         return f
 
 
-def _liveness_journey():
-    """Single no-action step: the app is rendered AND the kernel is healthy."""
+def _liveness_journey(health_probe):
+    """Single no-action step: the app is rendered AND the kernel is healthy.
+    The liveness gate is co-fetched with the grab (one round trip)."""
     return J.Journey(
         name="vm-liveness",
         steps=[
@@ -64,15 +64,16 @@ def _liveness_journey():
                 trigger=J.CHECKPOINT,
                 settle=False,
                 vision_question="is the ClotoCore GUI rendered with visible content?",
-                kernel_probe=KernelHealthProbe(),
+                kernel_probe=health_probe,
             )
         ],
     )
 
 
-def _onboarding_journey():
+def _onboarding_journey(health_probe):
     """Drive the first-run onboarding: advance one page and re-verify. Assumes
-    the app is on the onboarding carousel (fresh profile)."""
+    the app is on the onboarding carousel (fresh profile). Each health gate is
+    co-fetched with that step's grab (one round trip per checkpoint)."""
     return J.Journey(
         name="onboarding-advance",
         steps=[
@@ -81,7 +82,7 @@ def _onboarding_journey():
                 trigger=J.CHECKPOINT,
                 settle=False,
                 vision_question="is the onboarding welcome screen with a Get Started button visible?",
-                kernel_probe=KernelHealthProbe(),
+                kernel_probe=health_probe,
             ),
             J.Step(
                 name="advance-to-language",
@@ -89,17 +90,19 @@ def _onboarding_journey():
                 trigger=J.CHECKPOINT,
                 settle=False,
                 vision_question="did onboarding advance to the language-select page?",
-                kernel_probe=KernelHealthProbe(),
+                kernel_probe=health_probe,
             ),
         ],
     )
 
 
-def _agents_journey():
+def _agents_journey(health_probe):
     """Operation-level dual oracle: the GUI is rendered (visual) AND the kernel's
     authenticated /api/agents confirms the seeded default agent exists (op-level
     kernel hard-gate). Requires OPV_API_KEY = the CLOTO_API_KEY the harness
-    launched the GUI with."""
+    launched the GUI with. The op-level gate is authenticated, so it stays a
+    separate probe (not co-fetchable with the unauthenticated liveness); the grab
+    still co-fetches health harmlessly on the same round trip."""
     return J.Journey(
         name="agents-seeded",
         steps=[
@@ -115,16 +118,28 @@ def _agents_journey():
 
 
 _JOURNEYS = {
-    "liveness": (_liveness_journey, [
-        {"visible": True, "detail": "onboarding/main UI rendered, non-black window"},
-    ]),
-    "onboarding": (_onboarding_journey, [
-        {"visible": True, "detail": "welcome screen + Get Started button"},
-        {"visible": True, "detail": "advanced to language-select page (page 2/7)"},
-    ]),
-    "agents": (_agents_journey, [
-        {"visible": True, "detail": "ClotoCore UI rendered (onboarding/main)"},
-    ]),
+    "liveness": (
+        _liveness_journey,
+        [
+            {
+                "visible": True,
+                "detail": "onboarding/main UI rendered, non-black window",
+            },
+        ],
+    ),
+    "onboarding": (
+        _onboarding_journey,
+        [
+            {"visible": True, "detail": "welcome screen + Get Started button"},
+            {"visible": True, "detail": "advanced to language-select page (page 2/7)"},
+        ],
+    ),
+    "agents": (
+        _agents_journey,
+        [
+            {"visible": True, "detail": "ClotoCore UI rendered (onboarding/main)"},
+        ],
+    ),
 }
 
 
@@ -136,12 +151,14 @@ def main(argv) -> int:
     make_journey, recorded = _JOURNEYS[name]
     frame_dir = os.environ.get("OPV_FRAME_DIR", "/tmp/opv-frames")
 
+    # Fused backend: grab + liveness health share one ssh round trip.
+    screen, health_probe = make_cofetch_backend()
     driver = VisualDriver(
-        screen=_SavingScreen(VmAgentScreen(), frame_dir),
+        screen=_SavingScreen(screen, frame_dir),
         actuator=VmAgentActuator(),
         assessor=RecordedVision(recorded),
     )
-    report = driver.run(make_journey())
+    report = driver.run(make_journey(health_probe))
     print(json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
     print(f"\nframes saved under: {frame_dir}")
     return 0 if report.verdict != "fail" else 1
