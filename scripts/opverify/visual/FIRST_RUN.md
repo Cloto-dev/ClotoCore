@@ -73,3 +73,46 @@ operation take effect": the `agents` journey (`run_vm.py`) cross-checks the
 rendered GUI against an authenticated `/api/agents` that confirms the seeded
 default agent (`default_engine_id: mind.cerebras`) — **AGREE_PASS**, with the
 same route returning 403 unauthenticated (auth is enforced; the key unlocks it).
+
+## Chat-render dual-oracle (added 2026-07-14) — the headline journey
+
+The apex's north-star journey: a real user types into the chat box, and the
+assistant's reply **renders** while the kernel **persists** it. Both must agree.
+
+* **Unblocker — the VM was stale.** On beta.1 (2026-06-13) every mind engine
+  install hit the *already-fixed* **bug-399** (doubled marketplace path
+  `mcp-servers/servers/<id>/servers/<id>/server.py`) plus a Magic Seal failure,
+  so no reasoning engine could start and chat was impossible. This was not a new
+  defect — the apex faithfully reproduced a **known, since-fixed regression on a
+  stale build**. Fix `e5b1b85` (#207, 2026-06-29) ships in beta.2. Updating the
+  VM to **0.6.8-beta.2** (verified installer SHA-256, silent NSIS install,
+  relaunched with a known `CLOTO_API_KEY`) let the `cerebras` engine connect
+  immediately (`/api/mcp/servers` → `cerebras: Connected`, key carried in the
+  preserved DB).
+* **Kernel oracle proven first.** `POST /api/chat` with a nonce →
+  `ThoughtResponse` in `/api/history`, `engine_id=cerebras`, content = the exact
+  nonce echoed. `default_engine_id=mind.cerebras` resolves to the bare `cerebras`
+  engine (the `mind.` prefix is stripped by migration + runtime; not a mismatch).
+* **Visual × kernel = AGREE_PASS.** Driving the GUI (finish onboarding → chat
+  input → type nonce → Enter), the response bubble rendered the exact nonce in
+  0.8 s (no stuck spinner / greying / overlap), and `/api/history` independently
+  showed the correlated `cerebras` `ThoughtResponse`. Cross-check: **AGREE_PASS**.
+
+### Two-tier execution (orchestrator ↔ VM executor)
+
+This run introduced the permanent split now codified in
+`VM_EXECUTOR_RUNBOOK.md`: the **orchestrator** (Opus) designs the journey +
+dual-oracle and *verifies* the verdict (re-runs the deterministic kernel
+correlation itself + eyeballs the response frame); a **Sonnet subagent** does the
+GUI actuation, frame grabs + first-pass visual assessment, and kernel probes,
+returning a compact structured verdict. This keeps the orchestrator's context
+lean and realizes the "live multimodal assessor" that `RecordedVision` was a
+placeholder for.
+
+* **Harness artifact caught (not a product bug):** the session-1 agent's
+  pyautogui `write()` mis-typed `:` as `*` on the JP keyboard layout (visible in
+  the sent message, not the alphanumeric nonce). Prefer clipboard paste for exact
+  literal text. See `VM_EXECUTOR_RUNBOOK.md` "Known harness artifacts".
+* **Follow-up (low priority):** two extra `MessageReceived` events carrying the
+  bare nonce appeared after the `ThoughtResponse` — possible duplicate emission,
+  not yet investigated.
