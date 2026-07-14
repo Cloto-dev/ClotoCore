@@ -1,6 +1,7 @@
 import { CheckCircle2, ChevronDown, ChevronRight, Loader2, Sparkles, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { displayServerId } from '../lib/format';
 import type { ConsensusRound, ConsensusStep } from '../types';
 
 interface ConsensusCardProps {
@@ -34,7 +35,7 @@ function StepRow({ step, defaultLines }: { step: ConsensusStep; defaultLines: nu
         <div className="flex items-center gap-1.5 min-w-0">
           <StatusIcon status={step.status} />
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-content-secondary truncate">
-            {step.engine_id.replace('mind.', '')}
+            {displayServerId(step.engine_id)}
           </span>
           {step.sample_index > 1 && (
             <span className="text-[9px] font-mono text-content-tertiary shrink-0">

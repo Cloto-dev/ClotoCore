@@ -1,5 +1,6 @@
 import { ArrowRight, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { displayServerId } from '../lib/format';
 import type { ExternalAction } from '../types';
 
 interface ExternalActionCardProps {
@@ -55,7 +56,7 @@ export function ExternalActionCard({ action }: ExternalActionCardProps) {
           </span>
         </div>
         <span className="text-[9px] font-mono text-content-tertiary bg-surface-secondary px-1.5 py-0.5 rounded shrink-0">
-          {action.engine_id.replace('mind.', '')}
+          {displayServerId(action.engine_id)}
         </span>
       </div>
 

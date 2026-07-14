@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useLocation } from 'react-router-dom';
 import { useAgentCreation } from '../hooks/useAgentCreation';
 import { useApi } from '../hooks/useApi';
 import { useEventStream } from '../hooks/useEventStream';
@@ -63,11 +64,23 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletePassword, setDeletePassword] = useState('');
 
-  // MCP-based engine/memory discovery (mind.* = reasoning engines, memory.* = memory backends)
+  // Engine / memory discovery is by tool surface, not a server-id prefix
+  // (category prefixes retired, an earlier decision): a reasoning engine exposes
+  // `think`, a memory backend exposes `store`/`recall`.
   // Must be called before any conditional returns to satisfy React's Rules of Hooks
-  const { servers: mcpServers } = useMcpServers();
+  const { servers: mcpServers, refetch: refetchMcpServers } = useMcpServers();
   const mcpEngines = mcpServers.filter((s) => isEngineServer(s) && s.status === 'Connected');
   const mcpMemories = mcpServers.filter((s) => isMemoryServer(s) && s.status === 'Connected');
+
+  // The agent view is persistently mounted — AppLayout hides it with CSS rather
+  // than unmounting it — so useMcpServers' mount-time fetch never re-runs while
+  // the app stays open, freezing the engine list at its startup snapshot.
+  // Refetch whenever the agent route ('/') becomes active so an engine installed
+  // elsewhere (Marketplace) appears in the engine picker without an app restart.
+  const location = useLocation();
+  useEffect(() => {
+    if (location.pathname === '/') void refetchMcpServers();
+  }, [location.pathname, refetchMcpServers]);
 
   const DEFAULT_AGENT_ID = 'agent.cloto_default';
 
