@@ -52,9 +52,24 @@ reports `verdict: pass` (real grab + real health probe + `cross_check`).
 ## Proven / deferred
 
 * **Proven:** perception (`/grab`), actuation (`/act`), kernel liveness oracle,
-  `driver.py` + `dual_oracle.py` orchestration against real infra, and a real
-  defect-class catch (startup-blocking modal).
-* **Deferred:** (1) operation-level kernel oracle (`/api/agents`, `/api/history`
-  return 403 — needs the app's `X-API-Key`); (2) a live multimodal-model vision
-  assessor to replace `RecordedVision` (this run's vision is the agent's own
-  recorded read); (3) a chat-render journey once onboarding is completed.
+  **operation-level kernel oracle** (see below), `driver.py` + `dual_oracle.py`
+  orchestration against real infra, and a real defect-class catch
+  (startup-blocking modal).
+* **Deferred:** (1) a live multimodal-model vision assessor to replace
+  `RecordedVision` (this run's vision is the agent's own recorded read); (2) a
+  chat-render journey once onboarding is completed.
+
+## Operation-level kernel oracle (added 2026-07-14)
+
+Liveness (`/api/system/health`) is unauthenticated, but the admin routes
+(`/api/agents`, `/api/history`, …) return **403** without the app's
+`X-API-Key`. ClotoCore reads `CLOTO_API_KEY` from the environment at boot
+(`dashboard/src-tauri/src/lib.rs:721`), so the harness launches the GUI with a
+**known** key — the actuator agent's `/run` merges an `env` dict into the
+launched process — and then authenticates the kernel probe with it (matching
+the opverify daemon flow). `KernelApiProbe` (in `backends_vm.py`, key from
+`OPV_API_KEY`) lifts the hard-gate from "is the kernel alive" to "did the
+operation take effect": the `agents` journey (`run_vm.py`) cross-checks the
+rendered GUI against an authenticated `/api/agents` that confirms the seeded
+default agent (`default_engine_id: mind.cerebras`) — **AGREE_PASS**, with the
+same route returning 403 unauthenticated (auth is enforced; the key unlocks it).
