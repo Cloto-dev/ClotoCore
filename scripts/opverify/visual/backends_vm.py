@@ -27,6 +27,12 @@ immune to shell quoting. SSH connection multiplexing (``ControlMaster`` +
 ``ControlPersist``) keeps one shared connection warm for the whole run, so only
 the first call pays the TCP+auth handshake — measured ~0.76s→~0.4s per call.
 
+Checkpoint fusion (:class:`CompositeVmScreen` + :class:`CoFetchHealthProbe`): a
+checkpoint needs the frame *and* the kernel liveness gate. curl chains both in a
+single process (``--next``) with a ``-w`` delimiter between the bodies, so the
+two are one ssh round trip instead of two — halving per-checkpoint latency on
+top of the multiplexing win.
+
 Config is env-driven (no secrets): ``OPV_VM_USER`` / ``OPV_VM_IP`` /
 ``OPV_AGENT_PORT`` (8900) / ``OPV_KERNEL_PORT`` (8081) / ``OPV_SSH_TIMEOUT`` /
 ``OPV_SSH_PERSIST`` (ControlPersist seconds, default 60) / ``OPV_SSH_CONTROL_PATH``.
@@ -90,6 +96,50 @@ def _agent_url(path: str) -> str:
 
 def _kernel_url(path: str) -> str:
     return f"http://127.0.0.1:{_cfg('OPV_KERNEL_PORT', '8081')}{path}"
+
+
+# --- grab + liveness co-fetch (one round trip) ---------------------------
+# A checkpoint needs both the frame (agent /grab) and the kernel liveness gate
+# (/api/system/health). Done naively that is two SSH round trips. curl can chain
+# both transfers in ONE process (``--next``) and emit a delimiter between the two
+# bodies (``-w``), so the whole checkpoint costs a single ssh — and because it is
+# still one ``curl.exe`` process, its stdout streams raw exactly like the plain
+# /grab (PR #339: byte-identical PNG). The frame comes first (the agent is always
+# up, so its ``-w`` reliably prints the delimiter); the health body follows and
+# may be empty if the kernel is unreachable (→ a False gate, which is correct).
+_DELIM_TOKEN = "--OPV-COFETCH-9d1f7--"
+# curl -w interprets the literal ``\n`` escapes; the marker is wrapped in
+# newlines so it never abuts binary PNG bytes. Single-quoted at the call site so
+# the PowerShell default shell passes it to curl verbatim.
+_DELIM_WRITEOUT = rf"\n{_DELIM_TOKEN}\n"
+_DELIM_BYTES = f"\n{_DELIM_TOKEN}\n".encode()
+
+
+def _split_composite(raw: bytes) -> tuple:
+    """Split a fused ``grab -w DELIM --next health`` stream into
+    ``(png_bytes, health_body)``. Uses ``rfind`` so that even in the
+    astronomically unlikely case the PNG contains the delimiter byte sequence,
+    the true separator (the last one — the trailing health body carries no
+    delimiter) is the one chosen. No delimiter at all → treat the whole payload
+    as the frame with no health co-fetched."""
+    idx = raw.rfind(_DELIM_BYTES)
+    if idx == -1:
+        return raw, b""
+    return raw[:idx], raw[idx + len(_DELIM_BYTES) :]
+
+
+class _CoFetchCell:
+    """One-slot cache shared by a :class:`CompositeVmScreen` and its paired
+    :class:`CoFetchHealthProbe`: a grab drops the co-fetched health body here and
+    the probe consumes it, so the liveness gate costs no round trip of its own.
+    The driver always grabs before it probes within a step, so the body a probe
+    reads is always the one this step's own grab just fetched."""
+
+    def __init__(self) -> None:
+        self.health_body: Optional[bytes] = None
+
+    def put(self, body: bytes) -> None:
+        self.health_body = body
 
 
 class VmAgentScreen:
@@ -168,6 +218,69 @@ class KernelApiProbe:
         except Exception:  # noqa: BLE001 - unreachable kernel is a False gate
             return False
         return self._want in body
+
+
+class CompositeVmScreen:
+    """ScreenSource that co-fetches the kernel liveness body in the SAME ssh
+    command as the /grab (curl ``--next``), halving a checkpoint's round trips
+    (frame + liveness gate) from two to one. Byte-for-byte the same PNG as
+    :class:`VmAgentScreen` — it is still a single ``curl.exe`` process, so stdout
+    streams raw — plus a trailing health body it drops into the shared cell for
+    the paired :class:`CoFetchHealthProbe` to consume."""
+
+    def __init__(
+        self, cell: _CoFetchCell, health_path: str = "/api/system/health"
+    ) -> None:
+        self._cell = cell
+        self._health_path = health_path
+
+    def grab(self) -> Frame:
+        raw = _run(
+            f"curl.exe -s -m 15 {_agent_url('/grab')} -w '{_DELIM_WRITEOUT}' "
+            f"--next -s -m 5 {_kernel_url(self._health_path)}"
+        )
+        png, health = _split_composite(raw)
+        self._cell.put(health)
+        return Frame.of(png)
+
+
+class CoFetchHealthProbe:
+    """KernelProbe (liveness hard-gate) that reads the health body co-fetched by
+    the paired :class:`CompositeVmScreen`'s most recent grab — zero extra ssh.
+    Falls back to a standalone health request only if no grab has populated the
+    cell yet (a probe called before any grab, which the driver never does)."""
+
+    def __init__(
+        self,
+        cell: _CoFetchCell,
+        path: str = "/api/system/health",
+        want: str = '"status":"ok"',
+    ):
+        self._cell = cell
+        self._path = path
+        self._want = want
+
+    def check(self) -> bool:
+        body = self._cell.health_body
+        if body is None:
+            try:
+                body = _run(f"curl.exe -s -m 5 {_kernel_url(self._path)}", timeout=12)
+            except Exception:  # noqa: BLE001 - unreachable kernel is a False gate
+                return False
+        return self._want in body.decode(errors="replace").replace(" ", "")
+
+
+def make_cofetch_backend(
+    health_path: str = "/api/system/health", want: str = '"status":"ok"'
+) -> tuple:
+    """Build a ``(screen, health_probe)`` pair sharing a cell so that grab +
+    liveness fuse into one ssh round trip. Wire the screen into the driver and
+    hand the probe to every health-gated journey step."""
+    cell = _CoFetchCell()
+    return (
+        CompositeVmScreen(cell, health_path),
+        CoFetchHealthProbe(cell, health_path, want),
+    )
 
 
 class RecordedVision:
