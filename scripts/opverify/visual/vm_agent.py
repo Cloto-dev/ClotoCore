@@ -11,12 +11,14 @@ sockets).
 Endpoints:
   GET  /health            -> {"ok":true,"session":N,"screen":[w,h]}
   GET  /grab              -> image/png of the primary monitor
+  GET  /grabhash          -> {"ok":true,"hash":"<sha256 of raw pixels>"}
   POST /act   {kind,...}  -> inject input; kind in click/move/type/key/hotkey/scroll
   POST /run   {path,args} -> launch a program in this (interactive) session
   POST /quit              -> stop the agent
 """
 
 import ctypes
+import hashlib
 import json
 import os
 import subprocess
@@ -57,11 +59,25 @@ def grab_png():
         return mss.tools.to_png(shot.rgb, shot.size)
 
 
+def grab_hash():
+    """A cheap change-signal for settle polling: hash the raw framebuffer
+    pixels directly, skipping the PNG encode and the ~85 KB body transfer that
+    /grab pays. settle only needs a stable/changed signal, so it polls this and
+    grabs a real PNG once the screen has stopped moving."""
+    with mss.mss() as sct:
+        shot = sct.grab(sct.monitors[1])
+        return hashlib.sha256(shot.rgb).hexdigest()
+
+
 def do_act(a):
     kind = a.get("kind")
     if kind == "click":
-        pyautogui.click(x=a["x"], y=a["y"], clicks=a.get("clicks", 1),
-                        button=a.get("button", "left"))
+        pyautogui.click(
+            x=a["x"],
+            y=a["y"],
+            clicks=a.get("clicks", 1),
+            button=a.get("button", "left"),
+        )
     elif kind == "move":
         pyautogui.moveTo(a["x"], a["y"])
     elif kind == "type":
@@ -96,10 +112,19 @@ class H(BaseHTTPRequestHandler):
         try:
             if self.path == "/health":
                 w, h = pyautogui.size()
-                self._send(200, {"ok": True, "version": 2,
-                                 "session": session_id(), "screen": [w, h]})
+                self._send(
+                    200,
+                    {
+                        "ok": True,
+                        "version": 3,
+                        "session": session_id(),
+                        "screen": [w, h],
+                    },
+                )
             elif self.path == "/grab":
                 self._send(200, grab_png(), ctype="image/png")
+            elif self.path == "/grabhash":
+                self._send(200, {"ok": True, "hash": grab_hash()})
             else:
                 self._send(404, {"ok": False, "error": "not found"})
         except Exception as e:
@@ -118,9 +143,7 @@ class H(BaseHTTPRequestHandler):
                 # can pass a known CLOTO_API_KEY to the launched app (kernel oracle
                 # auth), matching the opverify daemon flow.
                 env = {**os.environ, **body["env"]} if body.get("env") else None
-                p = subprocess.Popen(
-                    [body["path"]] + body.get("args", []), env=env
-                )
+                p = subprocess.Popen([body["path"]] + body.get("args", []), env=env)
                 self._send(200, {"ok": True, "pid": p.pid})
             elif self.path == "/quit":
                 self._send(200, {"ok": True, "quitting": True})

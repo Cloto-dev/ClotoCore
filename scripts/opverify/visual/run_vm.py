@@ -28,6 +28,7 @@ from .backends_vm import (
     KernelApiProbe,
     RecordedVision,
     VmAgentActuator,
+    VmAgentHashSource,
     make_cofetch_backend,
 )
 from .driver import VisualDriver
@@ -153,10 +154,22 @@ def main(argv) -> int:
 
     # Fused backend: grab + liveness health share one ssh round trip.
     screen, health_probe = make_cofetch_backend()
+    # Settle hash-poll (agent /grabhash) is OPT-IN via OPV_SETTLE_HASHPOLL=1.
+    # Measured on VM104 (2026-07-15): /grabhash saves only ~23ms/poll (~4%) over
+    # /grab — the per-call cost is dominated by ssh+PowerShell+screen-capture
+    # overhead, not the PNG encode/transfer hash-polling skips. With the extra
+    # final grab, hash-polling only beats grab-based settle past ~27 polls, so it
+    # is a net loss for realistic settles (2–8 polls) today. Keep the primitive
+    # wired but off; revisit once #235 (persistent channel) cuts per-call
+    # overhead and makes the PNG fraction worth skipping.
+    change_probe = (
+        VmAgentHashSource().hash if os.environ.get("OPV_SETTLE_HASHPOLL") else None
+    )
     driver = VisualDriver(
         screen=_SavingScreen(screen, frame_dir),
         actuator=VmAgentActuator(),
         assessor=RecordedVision(recorded),
+        change_probe=change_probe,
     )
     report = driver.run(make_journey(health_probe))
     print(json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
