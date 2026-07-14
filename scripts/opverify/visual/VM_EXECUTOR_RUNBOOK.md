@@ -56,10 +56,19 @@ must contain, verbatim, the operational runbook below plus the journey-specific
 goal + dual-oracle spec.
 
 ### VM access (stable facts)
-- **PowerShell-on-VM helper:** `scratchpad/vmps.sh` — `printf '%s' "$PS" | bash
-  vmps.sh` runs `$PS` on the guest via `ssh PC@192.0.2.252 powershell
-  -EncodedCommand` (UTF-16LE base64, quote-immune). Guest stdout returns on
-  stdout.
+- **Canonical automated transport:** the committed harness
+  (`python -m scripts.opverify.visual.run_vm <journey>`, backend
+  `backends_vm.py`) drives the guest via bare `curl.exe` over an SSH
+  connection kept warm with `ControlMaster`/`ControlPersist` — only the first
+  call pays the TCP+auth handshake (measured ~0.76s→~0.4s per round trip). Grab
+  bytes come back raw (no base64), POST bodies ride ssh stdin. Prefer this for
+  anything scripted.
+- **Manual round trips:** run `curl.exe` directly over a multiplexed ssh —
+  `ssh -o ControlMaster=auto -o ControlPersist=60 -o ControlPath=/tmp/opv-ssh-%r@%h:%p
+  PC@192.0.2.252 'curl.exe -s http://127.0.0.1:8900/grab' > frame.png`. Reuse
+  the same `-o ControlPath` on every call so the handshake is paid once. The
+  legacy `scratchpad/vmps.sh` (`ssh … powershell -EncodedCommand`, UTF-16LE
+  base64) remains only for ad-hoc PowerShell that isn't a simple HTTP call.
 - **Admin token:** `scratchpad/opv_key.txt` = kernel `CLOTO_API_KEY`. Use for the
   `X-API-Key` header; transport base64 (`$ak =
   [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("<b64>"))`) so it
@@ -73,10 +82,13 @@ goal + dual-oracle spec.
   `/api/system/health`, `/api/chat`, `/api/history`, `/api/llm/providers`,
   `/api/mcp/servers`, `/api/system/version`.
 - **Screen** 1280×800.
-- **Grab→read:** PS `[Convert]::ToBase64String($r.Content)` for `/grab`, then
-  `| tr -d '\r\n' | base64 -d > frame.png`, then Read the PNG.
-- Chain several `/act` + a final `/grab` in one PS (with `Start-Sleep
-  -Milliseconds 1500` to settle) to save round-trips.
+- **Grab→read:** `ssh <multiplexed-opts> PC@192.0.2.252 'curl.exe -s
+  http://127.0.0.1:8900/grab' > frame.png`, then Read the PNG (raw bytes, no
+  base64 step). The legacy PS `[Convert]::ToBase64String($r.Content) | tr -d
+  '\r\n' | base64 -d` still works if you're already in a PS snippet.
+- To settle before a checkpoint, `POST /act` then sleep ~1.5s then `/grab`;
+  with a warm `ControlPath` each of those is a cheap reuse, so separate calls
+  are fine (no need to cram them into one PS to save handshakes).
 
 ### Chat payload / oracle (reference)
 - `POST /api/chat` body: `{id, source:{type:"User",id,name}, target_agent:
