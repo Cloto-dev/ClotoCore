@@ -9,7 +9,7 @@ Wiring (why it works across the Windows session boundary):
 * This driver runs on a separate host (a Mac) and reaches the VM over **SSH**.
   The SSH shell lands in **session 0**, which cannot screenshot session 1 — but
   it *can* open a localhost TCP socket, and that socket bridges to the agent in
-  session 1. So every call here is ``ssh <vm> 'powershell … Invoke-WebRequest
+  session 1. So every call here is ``ssh <vm> 'curl.exe
   http://127.0.0.1:AGENT_PORT/…'`` — the network socket is the bridge the
   session wall does not block.
 * The kernel oracle is the same trick pointed at the app's own kernel HTTP API
@@ -17,17 +17,23 @@ Wiring (why it works across the Windows session boundary):
   which is exactly the deterministic hard-gate the dual oracle cross-checks the
   visual read against.
 
-PowerShell is delivered via ``-EncodedCommand`` (UTF-16LE base64) so quoting is
-immune to the Windows OpenSSH cmd.exe hop. Binary frames come back as base64 on
-stdout (one round trip, no scp).
+Transport: every call is one ``ssh <vm> 'curl.exe …'``. The VM's default
+OpenSSH shell is PowerShell, and bare ``curl.exe`` (shipped with Windows 10+)
+needs no ``-EncodedCommand`` wrapper — dropping PowerShell startup from the hot
+path. GET bodies come straight back (PNG frames as *raw bytes* — no base64, no
+scp); POST bodies ride ``--data-binary '@-'`` over ssh stdin (the ``'@-'`` is
+PS-quoted so PowerShell passes it to curl instead of splatting it), which is
+immune to shell quoting. SSH connection multiplexing (``ControlMaster`` +
+``ControlPersist``) keeps one shared connection warm for the whole run, so only
+the first call pays the TCP+auth handshake — measured ~0.76s→~0.4s per call.
 
 Config is env-driven (no secrets): ``OPV_VM_USER`` / ``OPV_VM_IP`` /
-``OPV_AGENT_PORT`` (8900) / ``OPV_KERNEL_PORT`` (8081) / ``OPV_SSH_TIMEOUT``.
+``OPV_AGENT_PORT`` (8900) / ``OPV_KERNEL_PORT`` (8081) / ``OPV_SSH_TIMEOUT`` /
+``OPV_SSH_PERSIST`` (ControlPersist seconds, default 60) / ``OPV_SSH_CONTROL_PATH``.
 """
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 import subprocess
@@ -40,20 +46,39 @@ def _cfg(name: str, default: str) -> str:
     return os.environ.get(name, default)
 
 
-def _run_ps(ps: str, *, binary: bool = False, timeout: Optional[float] = None) -> bytes:
-    """Run a PowerShell snippet on the VM via SSH -EncodedCommand; return stdout
-    (raw bytes). Raises on non-zero exit."""
+def _ssh_cmd() -> List[str]:
+    """SSH invocation prefix with connection multiplexing — the master
+    connection persists ``OPV_SSH_PERSIST`` seconds so subsequent calls reuse
+    it and skip the TCP+auth handshake (the dominant per-call cost)."""
     vm = f"{_cfg('OPV_VM_USER', 'PC')}@{_cfg('OPV_VM_IP', '192.168.0.252')}"
+    return [
+        "ssh",
+        "-o",
+        "ConnectTimeout=8",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        f"ControlPersist={_cfg('OPV_SSH_PERSIST', '60')}",
+        "-o",
+        f"ControlPath={_cfg('OPV_SSH_CONTROL_PATH', '/tmp/opv-ssh-%r@%h:%p')}",
+        vm,
+    ]
+
+
+def _run(
+    remote: str, *, stdin: Optional[bytes] = None, timeout: Optional[float] = None
+) -> bytes:
+    """Run one remote command over the multiplexed SSH connection; return
+    stdout (raw bytes). Raises on non-zero exit."""
     tmo = timeout if timeout is not None else float(_cfg("OPV_SSH_TIMEOUT", "25"))
-    b64 = base64.b64encode(ps.encode("utf-16-le")).decode()
     proc = subprocess.run(
-        ["ssh", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new",
-         vm, f"powershell -NoProfile -EncodedCommand {b64}"],
-        capture_output=True, timeout=tmo,
+        _ssh_cmd() + [remote], input=stdin, capture_output=True, timeout=tmo
     )
     if proc.returncode != 0:
         raise RuntimeError(
-            f"VM powershell failed ({proc.returncode}): "
+            f"VM ssh failed ({proc.returncode}): "
             f"{proc.stderr.decode(errors='replace')[:400]}"
         )
     return proc.stdout
@@ -68,17 +93,11 @@ def _kernel_url(path: str) -> str:
 
 
 class VmAgentScreen:
-    """ScreenSource: pulls a PNG from the agent's /grab, base64 over stdout."""
+    """ScreenSource: pulls the PNG from the agent's /grab as raw bytes (curl
+    streams the binary body straight back over ssh — no base64 round trip)."""
 
     def grab(self) -> Frame:
-        url = _agent_url("/grab")
-        ps = (
-            "$ProgressPreference='SilentlyContinue';"
-            f"$r = Invoke-WebRequest -Uri '{url}' -UseBasicParsing -TimeoutSec 15;"
-            "[Convert]::ToBase64String($r.Content)"
-        )
-        out = _run_ps(ps).decode().strip()
-        data = base64.b64decode(out)
+        data = _run(f"curl.exe -s -m 15 {_agent_url('/grab')}")
         return Frame.of(data)
 
 
@@ -91,16 +110,14 @@ class VmAgentActuator:
             v = getattr(action, k)
             if v is not None:
                 payload[k] = v
-        body = json.dumps(payload).replace("'", "''")  # PS single-quote escape
-        url = _agent_url("/act")
-        ps = (
-            "$ProgressPreference='SilentlyContinue';"
-            f"$b = '{body}';"
-            f"$r = Invoke-WebRequest -Uri '{url}' -Method POST -Body $b "
-            "-ContentType 'application/json' -UseBasicParsing -TimeoutSec 15;"
-            "$r.Content"
-        )
-        resp = _run_ps(ps).decode(errors="replace")
+        # Body rides ssh stdin via curl --data-binary '@-' (the '@-' is single-
+        # quoted so the PowerShell default shell passes it to curl literally
+        # instead of splatting it) — no shell quoting of the JSON at all.
+        body = json.dumps(payload).encode()
+        resp = _run(
+            f"curl.exe -s -m 15 -X POST {_agent_url('/act')} --data-binary '@-'",
+            stdin=body,
+        ).decode(errors="replace")
         if '"ok": true' not in resp and '"ok":true' not in resp:
             raise RuntimeError(f"/act rejected: {resp[:200]}")
 
@@ -116,14 +133,12 @@ class KernelHealthProbe:
         self._want = want
 
     def check(self) -> bool:
-        url = _kernel_url(self._path)
-        ps = (
-            "$ProgressPreference='SilentlyContinue';"
-            "try {"
-            f"  (Invoke-WebRequest -Uri '{url}' -UseBasicParsing -TimeoutSec 5).Content"
-            "} catch { 'HEALTH_ERR:' + $_.Exception.Message }"
-        )
-        body = _run_ps(ps).decode(errors="replace")
+        try:
+            body = _run(
+                f"curl.exe -s -m 5 {_kernel_url(self._path)}", timeout=12
+            ).decode(errors="replace")
+        except Exception:  # noqa: BLE001 - unreachable kernel is a False gate
+            return False
         return self._want in body.replace(" ", "")
 
 
@@ -143,17 +158,15 @@ class KernelApiProbe:
         self._key = api_key if api_key is not None else _cfg("OPV_API_KEY", "")
 
     def check(self) -> bool:
-        url = _kernel_url(self._path)
-        key = self._key.replace("'", "''")
-        ps = (
-            "$ProgressPreference='SilentlyContinue';"
-            f"$h=@{{'X-API-Key'='{key}'}};"
-            "try {"
-            f"  (Invoke-WebRequest -Uri '{url}' -Headers $h -UseBasicParsing "
-            "-TimeoutSec 8).Content"
-            "} catch { 'API_ERR:'+$_.Exception.Message }"
-        )
-        body = _run_ps(ps).decode(errors="replace")
+        # key is a hex token (secrets.token_hex) — safe inside single quotes.
+        try:
+            body = _run(
+                f"curl.exe -s -m 8 -H 'X-API-Key: {self._key}' "
+                f"{_kernel_url(self._path)}",
+                timeout=15,
+            ).decode(errors="replace")
+        except Exception:  # noqa: BLE001 - unreachable kernel is a False gate
+            return False
         return self._want in body
 
 
