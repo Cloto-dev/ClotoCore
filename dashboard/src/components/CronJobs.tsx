@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApi } from '../hooks/useApi';
 import { useMcpServers } from '../hooks/useMcpServers';
+import { displayServerId } from '../lib/format';
 import { isEngineServer } from '../lib/serverCategory';
 import type { AgentMetadata, CronJob } from '../types';
 import { ConfirmDialog } from './ui/ConfirmDialog';
@@ -248,7 +249,7 @@ export const CronJobs = memo(function CronJobs() {
                   <option value="">{t('engine_default', { defaultValue: 'Agent Default' })}</option>
                   {mcpEngines.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.id.replace('mind.', '')}
+                      {displayServerId(s.id)}
                     </option>
                   ))}
                 </select>
