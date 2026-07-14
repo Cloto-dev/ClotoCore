@@ -323,6 +323,142 @@ pub struct KernelHandle {
     _server_task: tokio::task::JoinHandle<()>,
 }
 
+/// Connect to the SQLite pool and run migrations/seeds. Factored out of
+/// [`start_kernel`] so [`open_kernel_db`] can retry it after quarantining a
+/// corrupt DB, and so tests can exercise it directly.
+async fn connect_and_init_db(
+    database_url: &str,
+    memory_plugin_id: Option<&str>,
+) -> anyhow::Result<sqlx::SqlitePool> {
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+    use std::str::FromStr;
+
+    // WAL journal + busy_timeout are critical for concurrent write resilience:
+    // SQLite's default DELETE journal serializes readers against writers, and a
+    // default busy_timeout of 0 fails SQLITE_BUSY immediately. Before this change
+    // the audit_logs writer (which uses a two-statement tx to chain-hash the
+    // previous row) went silent for 14 h under normal load because every retry
+    // lost the race while chat_messages kept squeezing through. WAL lets readers
+    // run in parallel with a writer, and busy_timeout=10s gives the retry ladder
+    // in spawn_audit_log a realistic chance to succeed.
+    let opts = SqliteConnectOptions::from_str(database_url)?
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .busy_timeout(std::time::Duration::from_secs(10))
+        .pragma("foreign_keys", "ON")
+        .pragma("synchronous", "NORMAL");
+    let pool = sqlx::SqlitePool::connect_with(opts).await?;
+    crate::db::init_db(&pool, database_url, memory_plugin_id).await?;
+    Ok(pool)
+}
+
+/// If `err` is the recoverable corrupt-DB class (SQLite `SQLITE_NOTADB` /
+/// "file is not a database" / "database disk image is malformed") **and**
+/// `database_url` points at an on-disk SQLite file that exists, return that
+/// file's path. Otherwise return `None` — genuinely unrecoverable errors
+/// (permission denied, disk full, an in-memory URL, or a missing file) must
+/// propagate so the caller still hard-fails.
+fn recoverable_corrupt_db_path(
+    database_url: &str,
+    err: &anyhow::Error,
+) -> Option<std::path::PathBuf> {
+    // Only file-backed sqlite: URLs can be quarantined. Reject in-memory forms.
+    let path_str = database_url.strip_prefix("sqlite:")?;
+    if path_str.is_empty() || path_str.starts_with(":memory:") || path_str.contains("mode=memory") {
+        return None;
+    }
+    // Drop any `?query` parameters to get the bare filesystem path.
+    let path_str = path_str.split('?').next().unwrap_or(path_str);
+
+    let is_corrupt = err.chain().any(|cause| {
+        if let Some(sqlx::Error::Database(db)) = cause.downcast_ref::<sqlx::Error>() {
+            if db.code().as_deref() == Some("26") {
+                return true; // SQLITE_NOTADB
+            }
+        }
+        let m = cause.to_string().to_ascii_lowercase();
+        m.contains("file is not a database")
+            || m.contains("database disk image is malformed")
+            || m.contains("file is encrypted or is not a database")
+    });
+    if !is_corrupt {
+        return None;
+    }
+
+    let path = std::path::Path::new(path_str);
+    path.exists().then(|| path.to_path_buf())
+}
+
+/// Rename a corrupt SQLite DB file — and its `-wal` / `-shm` sidecars — aside
+/// with a timestamped `.corrupt-<ts>.bak` suffix so a fresh DB can be created
+/// in its place. **Never deletes** (Destructive DB rule): the unreadable data
+/// is preserved for post-mortem / manual recovery. Returns the backup path.
+fn quarantine_corrupt_db(db_path: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
+    let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let file_name = db_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("cloto_memories.db");
+    let backup = db_path.with_file_name(format!("{file_name}.corrupt-{ts}.bak"));
+    std::fs::rename(db_path, &backup)?;
+    // Stale WAL/SHM sidecars would corrupt the freshly created DB — move them
+    // aside too (best-effort; their absence is fine).
+    for ext in ["-wal", "-shm"] {
+        let side = std::path::PathBuf::from(format!("{}{ext}", db_path.display()));
+        if side.exists() {
+            let side_backup = std::path::PathBuf::from(format!("{}{ext}", backup.display()));
+            let _ = std::fs::rename(&side, &side_backup);
+        }
+    }
+    Ok(backup)
+}
+
+/// Open the kernel SQLite pool and run migrations, self-healing a corrupt /
+/// non-SQLite database file (bug-486).
+///
+/// A real user can reach `SQLITE_NOTADB` (SQLite error code 26, "file is not a
+/// database") from disk corruption, an interrupted/torn write, or AV quarantine
+/// of the DB. Previously any such error propagated out of [`start_kernel`] to a
+/// fatal "Cloto Kernel failed to start" dialog + `exit(1)`, leaving the user
+/// permanently unable to launch with no in-app remedy.
+///
+/// On the first-open failing with the recoverable corrupt-DB class, the
+/// unreadable file (and its `-wal`/`-shm` sidecars) is renamed aside with a
+/// timestamped `.corrupt-*.bak` suffix (never deleted) and a fresh DB is created
+/// and migrated in its place, so the app launches instead of dead-ending. Any
+/// other error — or a second failure after recovery — propagates unchanged, so
+/// genuinely unrecoverable conditions still surface the fatal dialog.
+pub async fn open_kernel_db(
+    database_url: &str,
+    memory_plugin_id: Option<&str>,
+) -> anyhow::Result<sqlx::SqlitePool> {
+    use anyhow::Context;
+
+    match connect_and_init_db(database_url, memory_plugin_id).await {
+        Ok(pool) => Ok(pool),
+        Err(e) => {
+            let Some(db_path) = recoverable_corrupt_db_path(database_url, &e) else {
+                return Err(e);
+            };
+            let backup = quarantine_corrupt_db(&db_path).with_context(|| {
+                format!(
+                    "kernel DB at {} is corrupt but could not be moved aside for recovery",
+                    db_path.display()
+                )
+            })?;
+            tracing::error!(
+                backup = %backup.display(),
+                "🩹 Kernel database was corrupt or not a valid SQLite file; moved it \
+                 aside and recreating a fresh database. Prior data (if any) is preserved \
+                 in the backup file — the app will launch with an empty database."
+            );
+            connect_and_init_db(database_url, memory_plugin_id)
+                .await
+                .context("re-initializing a fresh kernel DB after quarantining the corrupt one")
+        }
+    }
+}
+
 /// Initialize the kernel (DB, plugins, MCP, LLM proxy, event loop) and spawn the
 /// HTTP server in the background.  Returns a [`KernelHandle`] on success.
 ///
@@ -442,29 +578,9 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
 
     // 1. データベースの初期化
     //
-    // WAL journal + busy_timeout are critical for concurrent write resilience:
-    // SQLite's default DELETE journal serializes readers against writers, and a
-    // default busy_timeout of 0 fails SQLITE_BUSY immediately. Before this change
-    // the audit_logs writer (which uses a two-statement tx to chain-hash the
-    // previous row) went silent for 14 h under normal load because every retry
-    // lost the race while chat_messages kept squeezing through. WAL lets readers
-    // run in parallel with a writer, and busy_timeout=10s gives the retry ladder
-    // in spawn_audit_log a realistic chance to succeed.
-    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
-    use std::str::FromStr;
-    let opts = SqliteConnectOptions::from_str(&config.database_url)?
-        .create_if_missing(true)
-        .journal_mode(SqliteJournalMode::Wal)
-        .busy_timeout(std::time::Duration::from_secs(10))
-        .pragma("foreign_keys", "ON")
-        .pragma("synchronous", "NORMAL");
-    let pool = sqlx::SqlitePool::connect_with(opts).await?;
-    db::init_db(
-        &pool,
-        &config.database_url,
-        config.memory_plugin_id.as_deref(),
-    )
-    .await?;
+    // Opens the pool and runs migrations, self-healing a corrupt / non-SQLite
+    // DB file (bug-486) instead of dead-ending the launch. See `open_kernel_db`.
+    let pool = open_kernel_db(&config.database_url, config.memory_plugin_id.as_deref()).await?;
 
     // 1b. Sync API keys from environment variables into llm_providers table
     db::sync_env_api_keys(&pool, &config.llm_provider_env_mappings).await;
