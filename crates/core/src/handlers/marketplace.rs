@@ -1633,6 +1633,28 @@ async fn register_server(
         }
     }
 
+    // A reasoning engine installed here is auto-granted to any agent that
+    // already declares it as `default_engine_id`, as an explicit server_grant.
+    // This is the install-time complement of the create_agent handler and the
+    // capability-gate backfill migration (which could only grant engines already
+    // installed when it ran): without it, a seeded agent whose hardcoded default
+    // engine is installed later returned MGP-1001 on its own default engine until
+    // granted by hand. Scoped to `default_engine_id` only; a non-clobber guard in
+    // the query preserves any explicit deny. See MCP_CAPABILITY_GATE_DESIGN.md §6.
+    if entry.category == "mind" {
+        match crate::db::mcp::grant_default_engine_to_agents(&state.pool, &entry.id).await {
+            Ok(n) if n > 0 => info!(
+                "Auto-granted engine '{}' to {} agent(s) with a matching default_engine_id",
+                entry.id, n
+            ),
+            Ok(_) => {}
+            Err(e) => warn!(
+                "Failed to auto-grant engine '{}' to its default-engine agents: {e}",
+                entry.id
+            ),
+        }
+    }
+
     // Modern decouple path (0.6.6+): when a memory-kind plugin is installed
     // and the default agent has not yet picked one, mirror this install id
     // into `agent.cloto_default.metadata.preferred_memory`. This replaces
