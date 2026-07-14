@@ -27,6 +27,12 @@ from . import journey as J
 from .backends_vm import (
     KernelApiProbe,
     RecordedVision,
+    SshTunnel,
+    TunnelActuator,
+    TunnelApiProbe,
+    TunnelHashSource,
+    TunnelHealthProbe,
+    TunnelScreen,
     VmAgentActuator,
     VmAgentHashSource,
     make_cofetch_backend,
@@ -54,9 +60,8 @@ class _SavingScreen:
         return f
 
 
-def _liveness_journey(health_probe):
-    """Single no-action step: the app is rendered AND the kernel is healthy.
-    The liveness gate is co-fetched with the grab (one round trip)."""
+def _liveness_journey(health_probe, make_api_probe):
+    """Single no-action step: the app is rendered AND the kernel is healthy."""
     return J.Journey(
         name="vm-liveness",
         steps=[
@@ -71,10 +76,9 @@ def _liveness_journey(health_probe):
     )
 
 
-def _onboarding_journey(health_probe):
+def _onboarding_journey(health_probe, make_api_probe):
     """Drive the first-run onboarding: advance one page and re-verify. Assumes
-    the app is on the onboarding carousel (fresh profile). Each health gate is
-    co-fetched with that step's grab (one round trip per checkpoint)."""
+    the app is on the onboarding carousel (fresh profile)."""
     return J.Journey(
         name="onboarding-advance",
         steps=[
@@ -97,13 +101,11 @@ def _onboarding_journey(health_probe):
     )
 
 
-def _agents_journey(health_probe):
+def _agents_journey(health_probe, make_api_probe):
     """Operation-level dual oracle: the GUI is rendered (visual) AND the kernel's
     authenticated /api/agents confirms the seeded default agent exists (op-level
     kernel hard-gate). Requires OPV_API_KEY = the CLOTO_API_KEY the harness
-    launched the GUI with. The op-level gate is authenticated, so it stays a
-    separate probe (not co-fetchable with the unauthenticated liveness); the grab
-    still co-fetches health harmlessly on the same round trip."""
+    launched the GUI with."""
     return J.Journey(
         name="agents-seeded",
         steps=[
@@ -112,7 +114,7 @@ def _agents_journey(health_probe):
                 trigger=J.CHECKPOINT,
                 settle=False,
                 vision_question="is the ClotoCore GUI rendered with visible content?",
-                kernel_probe=KernelApiProbe("/api/agents", '"agent_type":"agent"'),
+                kernel_probe=make_api_probe("/api/agents", '"agent_type":"agent"'),
             )
         ],
     )
@@ -144,6 +146,45 @@ _JOURNEYS = {
 }
 
 
+# Settle hash-poll (agent /grabhash) is OPT-IN via OPV_SETTLE_HASHPOLL=1.
+# Measured net-negative at current per-call costs (#234) — off by default.
+def _hashpoll_enabled() -> bool:
+    return bool(os.environ.get("OPV_SETTLE_HASHPOLL"))
+
+
+def _build_transport(transport: str):
+    """Return (screen, actuator, health_probe, make_api_probe, change_probe,
+    teardown) for the chosen transport.
+
+    - ``tunnel`` (default, #235): a persistent SSH port-forward — every call is a
+      plain local HTTP hit, no per-call ssh/PowerShell/curl spawn (measured ~2.3x
+      on /grab, kernel probes ~350→7ms). One master for the whole run.
+    - ``curl``: the ssh + ``curl.exe`` transport with the grab+liveness co-fetch
+      fusion (#233). Kept as a no-setup fallback."""
+    if transport == "curl":
+        screen, health_probe = make_cofetch_backend()
+        change_probe = VmAgentHashSource().hash if _hashpoll_enabled() else None
+        return (
+            screen,
+            VmAgentActuator(),
+            health_probe,
+            KernelApiProbe,
+            change_probe,
+            lambda: None,
+        )
+
+    tunnel = SshTunnel().open()
+    change_probe = TunnelHashSource(tunnel).hash if _hashpoll_enabled() else None
+    return (
+        TunnelScreen(tunnel),
+        TunnelActuator(tunnel),
+        TunnelHealthProbe(tunnel),
+        lambda path, want: TunnelApiProbe(tunnel, path, want),
+        change_probe,
+        tunnel.close,
+    )
+
+
 def main(argv) -> int:
     name = argv[0] if argv else "liveness"
     if name not in _JOURNEYS:
@@ -151,29 +192,23 @@ def main(argv) -> int:
         return 2
     make_journey, recorded = _JOURNEYS[name]
     frame_dir = os.environ.get("OPV_FRAME_DIR", "/tmp/opv-frames")
+    transport = os.environ.get("OPV_TRANSPORT", "tunnel")
 
-    # Fused backend: grab + liveness health share one ssh round trip.
-    screen, health_probe = make_cofetch_backend()
-    # Settle hash-poll (agent /grabhash) is OPT-IN via OPV_SETTLE_HASHPOLL=1.
-    # Measured on VM104 (2026-07-15): /grabhash saves only ~23ms/poll (~4%) over
-    # /grab — the per-call cost is dominated by ssh+PowerShell+screen-capture
-    # overhead, not the PNG encode/transfer hash-polling skips. With the extra
-    # final grab, hash-polling only beats grab-based settle past ~27 polls, so it
-    # is a net loss for realistic settles (2–8 polls) today. Keep the primitive
-    # wired but off; revisit once #235 (persistent channel) cuts per-call
-    # overhead and makes the PNG fraction worth skipping.
-    change_probe = (
-        VmAgentHashSource().hash if os.environ.get("OPV_SETTLE_HASHPOLL") else None
+    screen, actuator, health_probe, make_api_probe, change_probe, teardown = (
+        _build_transport(transport)
     )
-    driver = VisualDriver(
-        screen=_SavingScreen(screen, frame_dir),
-        actuator=VmAgentActuator(),
-        assessor=RecordedVision(recorded),
-        change_probe=change_probe,
-    )
-    report = driver.run(make_journey(health_probe))
+    try:
+        driver = VisualDriver(
+            screen=_SavingScreen(screen, frame_dir),
+            actuator=actuator,
+            assessor=RecordedVision(recorded),
+            change_probe=change_probe,
+        )
+        report = driver.run(make_journey(health_probe, make_api_probe))
+    finally:
+        teardown()
     print(json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
-    print(f"\nframes saved under: {frame_dir}")
+    print(f"\nframes saved under: {frame_dir}  (transport={transport})")
     return 0 if report.verdict != "fail" else 1
 
 
