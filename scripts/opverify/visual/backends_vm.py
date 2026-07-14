@@ -33,6 +33,15 @@ single process (``--next``) with a ``-w`` delimiter between the bodies, so the
 two are one ssh round trip instead of two — halving per-checkpoint latency on
 top of the multiplexing win.
 
+Faster transport (:class:`SshTunnel` + ``Tunnel*`` backends, #235): even a warm
+``ssh 'curl.exe …'`` pays ~350ms/call to open an exec channel and spawn
+PowerShell + curl on the VM. An SSH local port-forward pays that once — a
+persistent master forwards the agent/kernel loopback ports to local ports and
+the Mac hits them with a plain local HTTP client. Measured ~2.3x on /grab and
+kernel probes from ~350ms to ~7ms; ``run_vm`` uses it by default
+(``OPV_TRANSPORT=curl`` selects the ssh+curl transport above). The remaining
+/grab floor is the VM's mss screen capture, which no transport can remove.
+
 Config is env-driven (no secrets): ``OPV_VM_USER`` / ``OPV_VM_IP`` /
 ``OPV_AGENT_PORT`` (8900) / ``OPV_KERNEL_PORT`` (8081) / ``OPV_SSH_TIMEOUT`` /
 ``OPV_SSH_PERSIST`` (ControlPersist seconds, default 60) / ``OPV_SSH_CONTROL_PATH``.
@@ -40,9 +49,12 @@ Config is env-driven (no secrets): ``OPV_VM_USER`` / ``OPV_VM_IP`` /
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
+import socket
 import subprocess
+import time
 from typing import List, Optional
 
 from .interfaces import Action, Frame, VisionAssessment
@@ -300,6 +312,215 @@ def make_cofetch_backend(
         CompositeVmScreen(cell, health_path),
         CoFetchHealthProbe(cell, health_path, want),
     )
+
+
+# --- persistent SSH port-forward transport (#235) ------------------------
+# The dominant per-call cost of the ssh+curl.exe transport is NOT the payload —
+# it is opening an ssh exec channel and spawning PowerShell + curl.exe on the VM
+# for *every* call (~350ms floor even with a warm ControlMaster). An SSH local
+# port-forward pays that once: a persistent master forwards the VM's agent (8900)
+# and kernel (8081) loopback ports to local ports, and the Mac then hits them
+# with a plain local HTTP client — no per-call ssh exec, no PowerShell, no remote
+# curl. Measured on VM104: /grab 606→259ms (2.3x), kernel probe ~350→7.5ms. The
+# ~258ms /grab floor that remains is the VM's mss screen capture (grab ≈ grabhash
+# over the tunnel), which this transport cannot touch.
+
+
+def _free_local_port() -> int:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+    finally:
+        s.close()
+
+
+def _http_get(port: int, path: str, headers=None, timeout: float = 15.0) -> bytes:
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+    try:
+        conn.request("GET", path, headers=headers or {})
+        return conn.getresponse().read()
+    finally:
+        conn.close()
+
+
+def _http_post(port: int, path: str, body: bytes, timeout: float = 15.0) -> bytes:
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+    try:
+        conn.request(
+            "POST", path, body=body, headers={"Content-Type": "application/json"}
+        )
+        return conn.getresponse().read()
+    finally:
+        conn.close()
+
+
+class SshTunnel:
+    """A persistent SSH master that port-forwards the VM's agent + kernel
+    loopback ports to local ports, so the whole run reaches them over plain local
+    HTTP instead of a per-call ``ssh 'curl.exe …'``. Open once, use many times,
+    close on teardown (context-manager friendly). ``local_agent`` / ``local_kernel``
+    are the Mac-side ports the backends target."""
+
+    def __init__(
+        self,
+        agent_port: Optional[int] = None,
+        kernel_port: Optional[int] = None,
+    ):
+        self.vm = f"{_cfg('OPV_VM_USER', 'PC')}@{_cfg('OPV_VM_IP', '192.0.2.252')}"
+        self.agent_port = agent_port or int(_cfg("OPV_AGENT_PORT", "8900"))
+        self.kernel_port = kernel_port or int(_cfg("OPV_KERNEL_PORT", "8081"))
+        self.local_agent = _free_local_port()
+        self.local_kernel = _free_local_port()
+        self._ctl = f"/tmp/opv-tunnel-{self.local_agent}-%r@%h:%p"
+
+    def open(self, timeout: float = 20.0) -> "SshTunnel":
+        subprocess.run(
+            [
+                "ssh",
+                "-f",
+                "-N",
+                "-M",
+                "-o",
+                f"ControlPath={self._ctl}",
+                "-o",
+                f"ControlPersist={_cfg('OPV_SSH_PERSIST', '300')}",
+                "-o",
+                "ConnectTimeout=8",
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                "-L",
+                f"{self.local_agent}:127.0.0.1:{self.agent_port}",
+                "-L",
+                f"{self.local_kernel}:127.0.0.1:{self.kernel_port}",
+                self.vm,
+            ],
+            check=True,
+            timeout=timeout,
+            capture_output=True,
+        )
+        # Wait until the agent forward actually answers (the master returns from
+        # -f before the remote side is necessarily reachable through it).
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                _http_get(self.local_agent, "/health", timeout=2.0)
+                return self
+            except OSError:
+                time.sleep(0.2)
+        self.close()
+        raise RuntimeError("ssh tunnel forwards did not come up within timeout")
+
+    def close(self) -> None:
+        subprocess.run(
+            ["ssh", "-O", "exit", "-o", f"ControlPath={self._ctl}", self.vm],
+            capture_output=True,
+        )
+
+    def __enter__(self) -> "SshTunnel":
+        return self.open()
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+
+class TunnelScreen:
+    """ScreenSource over the port-forward: a plain local HTTP GET /grab (raw PNG,
+    byte-identical to the ssh+curl transport)."""
+
+    def __init__(self, tunnel: SshTunnel):
+        self._t = tunnel
+
+    def grab(self) -> Frame:
+        return Frame.of(_http_get(self._t.local_agent, "/grab"))
+
+
+class TunnelActuator:
+    """Actuator over the port-forward: POST /act as JSON on the local HTTP."""
+
+    def __init__(self, tunnel: SshTunnel):
+        self._t = tunnel
+
+    def send(self, action: Action) -> None:
+        payload = {"kind": action.kind}
+        for k in ("x", "y", "text", "key"):
+            v = getattr(action, k)
+            if v is not None:
+                payload[k] = v
+        resp = _http_post(
+            self._t.local_agent, "/act", json.dumps(payload).encode()
+        ).decode(errors="replace")
+        if '"ok": true' not in resp and '"ok":true' not in resp:
+            raise RuntimeError(f"/act rejected: {resp[:200]}")
+
+
+class TunnelHealthProbe:
+    """KernelProbe (liveness) over the port-forward — a ~7ms local HTTP GET
+    (vs ~350ms for the ssh+curl transport), so co-fetching it into the grab is no
+    longer worth the complexity; it is just its own cheap call."""
+
+    def __init__(
+        self,
+        tunnel: SshTunnel,
+        path: str = "/api/system/health",
+        want: str = '"status":"ok"',
+    ):
+        self._t = tunnel
+        self._path = path
+        self._want = want
+
+    def check(self) -> bool:
+        try:
+            body = _http_get(self._t.local_kernel, self._path, timeout=8.0).decode(
+                errors="replace"
+            )
+        except OSError:  # unreachable kernel is a False gate
+            return False
+        return self._want in body.replace(" ", "")
+
+
+class TunnelApiProbe:
+    """Operation-level authenticated kernel oracle over the port-forward."""
+
+    def __init__(
+        self,
+        tunnel: SshTunnel,
+        path: str,
+        want: str,
+        api_key: Optional[str] = None,
+    ):
+        self._t = tunnel
+        self._path = path
+        self._want = want
+        self._key = api_key if api_key is not None else _cfg("OPV_API_KEY", "")
+
+    def check(self) -> bool:
+        try:
+            body = _http_get(
+                self._t.local_kernel,
+                self._path,
+                headers={"X-API-Key": self._key},
+                timeout=15.0,
+            ).decode(errors="replace")
+        except OSError:
+            return False
+        return self._want in body
+
+
+class TunnelHashSource:
+    """Settle change-signal over the port-forward: GET /grabhash (agent ≥ v3)."""
+
+    def __init__(self, tunnel: SshTunnel):
+        self._t = tunnel
+
+    def hash(self) -> str:
+        body = _http_get(self._t.local_agent, "/grabhash").decode(errors="replace")
+        try:
+            return json.loads(body)["hash"]
+        except (ValueError, KeyError) as e:
+            raise RuntimeError(
+                f"/grabhash unavailable (agent < v3?): {body[:120]}"
+            ) from e
 
 
 class RecordedVision:
