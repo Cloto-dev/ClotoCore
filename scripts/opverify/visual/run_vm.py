@@ -37,6 +37,7 @@ from .backends_vm import (
     VmAgentHashSource,
     make_cofetch_backend,
 )
+from .assessor_cache import CachingAssessor
 from .driver import VisualDriver
 from .interfaces import Frame, click
 from .live_assessor import AgentHandshakeAssessor
@@ -199,10 +200,15 @@ def main(argv) -> int:
     # order) or 'handshake' (live — a Sonnet VM-executor subagent reads each
     # frame and writes the verdict; unattended AI, no API key). #237.
     assessor_kind = os.environ.get("OPV_ASSESSOR", "recorded")
+    handshake = None
     if assessor_kind == "handshake":
-        assessor = AgentHandshakeAssessor(
+        handshake = AgentHandshakeAssessor(
             os.environ.get("OPV_EXCHANGE_DIR", "/tmp/opv-exchange")
         )
+        # Cache verdicts by (frame, question) so a poll-heavy checkpoint doesn't
+        # re-ask the live assessor about a byte-identical frame (#236). Safe only
+        # for the stateless live assessor — never wrap RecordedVision.
+        assessor = CachingAssessor(handshake)
     else:
         assessor = RecordedVision(recorded)
 
@@ -219,8 +225,8 @@ def main(argv) -> int:
         report = driver.run(make_journey(health_probe, make_api_probe))
     finally:
         teardown()
-        if isinstance(assessor, AgentHandshakeAssessor):
-            assessor.signal_done()
+        if handshake is not None:
+            handshake.signal_done()
     print(json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
     print(f"\nframes saved under: {frame_dir}  (transport={transport})")
     return 0 if report.verdict != "fail" else 1
