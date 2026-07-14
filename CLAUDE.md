@@ -187,6 +187,24 @@ overhaul with zero VM verification because the old trigger (NSIS-touching
 diff) never fired — condition-based triggers silently miss risk that moves
 elsewhere; event-based triggers cannot be missed.
 
+### opverify quality gate (stable cut, adopted 2026-07-14)
+
+`scripts/opverify/` drives a broad catalog of **real operations to success**
+against a live headless `clotocore` kernel over its HTTP admin API (an earlier decision) — the operation-coverage complement to the boot-only `--smoke` and the
+installer-diff VM verify above. See `scripts/opverify/README.md`.
+
+- **Before a stable cut (`X.Y.Z`)**: opverify is **MUST**. At minimum the
+  zero-secret local tier must pass —
+  `python3 -m scripts.opverify.run --target local --slice phase0` (exit 0 is the
+  gate). As the VM tiers land (phases 2–3), additionally run `--target
+  linux-vm` / `--target windows-vm` and the full `--slice all` (real LLM
+  providers) for that cut.
+- `opverify-nightly.yml` runs the local `phase0` tier on a schedule so
+  regressions surface between releases, not only at cut time.
+- A new kernel route added without a catalog operation trips the coverage
+  ratchet (report mode today; `enforce` once the catalog is complete) — extend
+  the catalog, never widen the ignore-list to hide a gap.
+
 ### Pre-release verification (draft_only)
 
 To produce installer artifacts on any branch without creating a tag or

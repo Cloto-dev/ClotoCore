@@ -1,0 +1,64 @@
+name: opverify nightly
+
+# Operation-to-success verification (an earlier decision). Boots a live headless
+# `clotocore` kernel and drives real operations to success over its HTTP admin
+# API, asserting each actually took effect — the quality layer between `--smoke`
+# (boot-only) and the release-time VM verify (installer diff).
+#
+# This nightly runs the ZERO-SECRET local tier: the `phase0` slice (health,
+# agents lifecycle, memory, events, mcp list) plus all cross-cutting oracles and
+# the coverage ratchet in report mode. No LLM keys and no operator DB are
+# needed — a fresh throwaway DB is enough. The full-real chat providers
+# (chat.deepseek/cerebras/groq) and enforce-mode ratchet land on the
+# secret-bearing / VM tiers (phases 2–3), not here.
+
+on:
+  schedule:
+    - cron: "0 15 * * *" # 15:00 UTC daily (~midnight JST)
+  workflow_dispatch: {}
+
+concurrency:
+  group: opverify-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  opverify:
+    name: opverify local (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          shared-key: opverify-${{ matrix.os }}
+
+      # clotocore is a headless axum daemon (crates/core, no Tauri) — no
+      # GTK/WebKit system deps and no dashboard dist placeholder are required.
+      - name: Build clotocore kernel
+        run: cargo build --bin clotocore
+
+      - name: Run opverify (local tier, phase0 slice)
+        shell: bash
+        run: |
+          python3 -m scripts.opverify.run \
+            --target local \
+            --slice phase0 \
+            --ratchet report \
+            --report opverify-report.json
+
+      - name: Show report
+        if: always()
+        shell: bash
+        run: cat opverify-report.json 2>/dev/null || echo "(no report produced)"
