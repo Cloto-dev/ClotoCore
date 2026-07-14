@@ -127,6 +127,36 @@ class KernelHealthProbe:
         return self._want in body.replace(" ", "")
 
 
+class KernelApiProbe:
+    """Operation-level kernel oracle: an *authenticated* GET whose response body
+    must contain ``want``. Unlike :class:`KernelHealthProbe` (unauthenticated
+    liveness), the admin routes (``/api/agents``, ``/api/history`` …) return 403
+    without the app's ``X-API-Key``, so this probe carries the key the harness
+    set via ``CLOTO_API_KEY`` when it launched the GUI (read from ``OPV_API_KEY``
+    by default). This lifts the hard-gate from "is the kernel alive" to "did the
+    operation actually take effect underneath the GUI" (an agent exists, a chat
+    turn persisted)."""
+
+    def __init__(self, path: str, want: str, api_key: Optional[str] = None):
+        self._path = path
+        self._want = want
+        self._key = api_key if api_key is not None else _cfg("OPV_API_KEY", "")
+
+    def check(self) -> bool:
+        url = _kernel_url(self._path)
+        key = self._key.replace("'", "''")
+        ps = (
+            "$ProgressPreference='SilentlyContinue';"
+            f"$h=@{{'X-API-Key'='{key}'}};"
+            "try {"
+            f"  (Invoke-WebRequest -Uri '{url}' -Headers $h -UseBasicParsing "
+            "-TimeoutSec 8).Content"
+            "} catch { 'API_ERR:'+$_.Exception.Message }"
+        )
+        body = _run_ps(ps).decode(errors="replace")
+        return self._want in body
+
+
 class RecordedVision:
     """VisionAssessor whose answers were produced by the human/agent multimodal
     read of this run's frames, consumed in call order. This is the honest
