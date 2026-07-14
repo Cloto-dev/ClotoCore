@@ -16,6 +16,7 @@ from . import journey as J
 from .dual_oracle import Diagnosis
 from .driver import VisualDriver
 from .interfaces import click, type_text
+from .settle import settle
 from .stub import (
     FakeClock,
     RecordingActuator,
@@ -134,6 +135,38 @@ def scenario_settle() -> None:
     assert report.steps[0].verdict.diagnosis is Diagnosis.AGREE_PASS, report.as_dict()
 
 
+def scenario_settle_hashpoll() -> None:
+    # settle polls the cheap change_probe (agent /grabhash) for stability and
+    # grabs the full frame only ONCE, after the hash stabilizes — the settle
+    # cost drops from N full grabs to N tiny hash polls + one grab.
+    clock = FakeClock()
+    grabbed = {"n": 0}
+    settled = frame("stable")
+
+    class OneGrab:
+        def grab(self):
+            grabbed["n"] += 1
+            return settled
+
+    hashes = iter(["h0", "h1", "h1"])  # stabilizes on the 2nd consecutive "h1"
+    probe_calls = {"n": 0}
+
+    def change_probe():
+        probe_calls["n"] += 1
+        return next(hashes)
+
+    out = settle(
+        OneGrab(),
+        stable_needed=2,
+        change_probe=change_probe,
+        now=clock.now,
+        sleep=clock.sleep,
+    )
+    assert out is settled, out
+    assert grabbed["n"] == 1, f"exactly one full grab expected, got {grabbed['n']}"
+    assert probe_calls["n"] == 3, f"three hash polls expected, got {probe_calls['n']}"
+
+
 def main() -> int:
     scenarios = [
         scenario_happy,
@@ -141,6 +174,7 @@ def main() -> int:
         scenario_backend_fail,
         scenario_agree_fail,
         scenario_settle,
+        scenario_settle_hashpoll,
     ]
     for sc in scenarios:
         sc()

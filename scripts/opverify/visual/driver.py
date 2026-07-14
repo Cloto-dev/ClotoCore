@@ -81,12 +81,16 @@ class VisualDriver:
         actuator: Actuator,
         assessor: VisionAssessor,
         *,
+        change_probe: Optional[Callable[[], str]] = None,
         now: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
     ):
         self.screen = screen
         self.actuator = actuator
         self.assessor = assessor
+        # Optional cheap settle signal (e.g. agent /grabhash) — halves settle
+        # cost from N full grabs to N hash polls + one grab. None → grab-based.
+        self._change_probe = change_probe
         self._now = now
         self._sleep = sleep
 
@@ -124,7 +128,12 @@ class VisualDriver:
             visual_ok = appeared
         else:
             frame = (
-                settle(self.screen, now=self._now, sleep=self._sleep)
+                settle(
+                    self.screen,
+                    change_probe=self._change_probe,
+                    now=self._now,
+                    sleep=self._sleep,
+                )
                 if step.settle
                 else self.screen.grab()
             )

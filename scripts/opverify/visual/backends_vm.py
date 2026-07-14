@@ -244,6 +244,25 @@ class CompositeVmScreen:
         return Frame.of(png)
 
 
+class VmAgentHashSource:
+    """A cheap change-signal for :func:`settle` polling: hits the agent's
+    ``/grabhash`` (a hash of the raw framebuffer — no PNG encode, no ~85 KB
+    body) and returns the hash string. Wire ``VmAgentHashSource().hash`` as the
+    driver's ``change_probe`` so settling costs N tiny hash polls plus one real
+    grab instead of N full-frame grabs. Requires agent version ≥ 3."""
+
+    def hash(self) -> str:
+        body = _run(f"curl.exe -s -m 10 {_agent_url('/grabhash')}").decode(
+            errors="replace"
+        )
+        try:
+            return json.loads(body)["hash"]
+        except (ValueError, KeyError) as e:  # 404 (old agent) or malformed
+            raise RuntimeError(
+                f"/grabhash unavailable (agent < v3?): {body[:120]}"
+            ) from e
+
+
 class CoFetchHealthProbe:
     """KernelProbe (liveness hard-gate) that reads the health body co-fetched by
     the paired :class:`CompositeVmScreen`'s most recent grab — zero extra ssh.
