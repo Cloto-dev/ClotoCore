@@ -1,5 +1,6 @@
 import { ArrowRight, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { displayServerId } from '../lib/format';
 import type { AgentDialogue } from '../types';
 
 interface DialogueCardProps {
@@ -41,7 +42,7 @@ export function DialogueCard({ dialogue }: DialogueCardProps) {
           </span>
         </div>
         <span className="text-[9px] font-mono text-content-tertiary bg-surface-secondary px-1.5 py-0.5 rounded shrink-0">
-          {dialogue.engine_id.replace('mind.', '')}
+          {displayServerId(dialogue.engine_id)}
         </span>
       </div>
 
