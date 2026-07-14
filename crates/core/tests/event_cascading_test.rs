@@ -187,3 +187,110 @@ async fn test_event_cascading_protection() {
         count
     );
 }
+
+/// bug-487 regression: a `ThoughtResponse`'s derived `MessageReceived`
+/// (source=Agent, carrying the assistant reply) must be persisted to the event
+/// history exactly once. Previously the `ThoughtResponse` arm recorded it inline
+/// *and* requeued the same Arc, which re-entered `process_loop` and recorded it a
+/// second time — double-persisting the agent reply to `/api/history`. The fix
+/// drops the inline record so only the requeue re-entry persists it.
+#[tokio::test]
+async fn test_thoughtresponse_derived_message_recorded_once() {
+    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    cloto_core::db::init_db(&pool, "sqlite::memory:", None)
+        .await
+        .unwrap();
+
+    let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 1, 10, 50).unwrap());
+    let agent_manager = AgentManager::new(pool.clone(), 90_000);
+    let registry = Arc::new(PluginRegistry::new(1, 10, 50));
+
+    let (tx_broadcast, _rx_broadcast) =
+        broadcast::channel::<cloto_core::events::SequencedEvent>(1000);
+    let (tx_internal, rx_internal) = mpsc::channel::<EnvelopedEvent>(1000);
+
+    let metrics = Arc::new(cloto_core::managers::SystemMetrics::new());
+    let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
+    // Keep a handle so we can inspect what was persisted after processing.
+    let history_probe = event_history.clone();
+
+    let (sys_event_tx, _sys_event_rx) = mpsc::channel(10);
+    let sys_handler = Arc::new(SystemHandler::new(
+        registry.clone(),
+        agent_manager.clone(),
+        "agent.test".to_string(),
+        sys_event_tx,
+        10,
+        metrics.clone(),
+        vec![],
+        "consensus:".to_string(),
+        16,
+        30,
+        Arc::new(dashmap::DashMap::new()),
+        Arc::new(dashmap::DashMap::new()),
+        pool.clone(),
+        Arc::new(dashmap::DashMap::new()),
+        5,     // memory_timeout_secs
+        false, // mcp_streaming_enabled
+    ));
+
+    let processor = EventProcessor::new(
+        registry.clone(),
+        plugin_manager.clone(),
+        agent_manager,
+        tx_broadcast.clone(),
+        event_history,
+        metrics,
+        1000, // max_history_size
+        24,   // event_retention_hours
+        sys_handler,
+        10_000, // max_event_history
+        10,     // hal_rate_limit_per_sec
+        20,     // hal_rate_limit_burst
+    );
+
+    let tx_internal_for_loop = tx_internal.clone();
+    tokio::spawn(async move {
+        processor
+            .process_loop(rx_internal, tx_internal_for_loop)
+            .await;
+    });
+
+    // Feed a single ThoughtResponse into the loop.
+    let thought = EnvelopedEvent {
+        event: Arc::new(ClotoEvent::new(
+            cloto_shared::ClotoEventData::ThoughtResponse {
+                agent_id: "agent.test".to_string(),
+                engine_id: "engine.test".to_string(),
+                content: "bug487-reply".to_string(),
+                source_message_id: "src-1".to_string(),
+                auto_spoken: false,
+            },
+        )),
+        issuer: None,
+        correlation_id: None,
+        depth: 0,
+    };
+    tx_internal.send(thought).await.unwrap();
+
+    // Let the loop process the ThoughtResponse and the requeued derived message.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let history = history_probe.read().await;
+    let derived_count = history
+        .iter()
+        .filter(|se| {
+            matches!(
+                &se.event.data,
+                cloto_shared::ClotoEventData::MessageReceived(m)
+                    if matches!(m.source, cloto_shared::MessageSource::Agent { .. })
+                        && m.content == "bug487-reply"
+            )
+        })
+        .count();
+
+    assert_eq!(
+        derived_count, 1,
+        "bug-487: ThoughtResponse-derived MessageReceived must be persisted exactly once, got {derived_count}"
+    );
+}
