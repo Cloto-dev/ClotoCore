@@ -72,6 +72,16 @@ must contain, verbatim, the operational runbook below plus the journey-specific
 goal + dual-oracle spec.
 
 ### VM access (stable facts)
+- **Standing up the agent (reproducible deploy, #238):** the session-1 actuator
+  agent must be running before any transport works. Stand it up with the
+  committed, idempotent deployer — no hand-rolled scp/schtasks:
+  `python -m scripts.opverify.visual.deploy_agent` (full: ensures `C:\opv`,
+  Python + `mss`/`pyautogui`, copies `vm_agent.py`, registers the
+  Interactive/RunLevel-Highest/AtLogOn task, starts it, and asserts `/health`
+  reports the committed protocol version). `--redeploy` re-copies + restarts
+  only (after editing `vm_agent.py`); `--status` is a read-only version-match
+  probe. Use this on a pristine re-take or a brand-new VM. Config via the same
+  `OPV_VM_USER`/`OPV_VM_IP`/… env as the backends.
 - **Canonical automated transport:** the committed harness
   (`python -m scripts.opverify.visual.run_vm <journey>`, backend
   `backends_vm.py`) drives the guest via bare `curl.exe` over an SSH
