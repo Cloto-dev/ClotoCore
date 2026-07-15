@@ -701,6 +701,11 @@ impl SystemHandler {
                 "limit": self.memory_context_limit,
                 "channel": memory_channel,
                 "source_id": recall_source_id,
+                // CPersona ≥2.5.0 trims recall content to a 500-char preview by
+                // default; the kernel injects recall content verbatim into the
+                // LLM prompt, so opt out. Pre-2.5.0 servers ignore the unknown
+                // parameter (cpersona docs/RECALL_PREVIEW_TIER_DESIGN.md).
+                "full_content": true,
             });
             match tokio::time::timeout(
                 Duration::from_secs(self.memory_timeout_secs),
