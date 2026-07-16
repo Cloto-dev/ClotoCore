@@ -114,9 +114,25 @@ pub async fn update_plugin_config(
 
     // Get latest settings and notify
     if let Ok(full_config) = state.plugin_manager.get_config(&id).await {
+        // bug-462: the event is broadcast to every SSE subscriber and cached in
+        // the replay history, so a plaintext api_key/token here would leak to
+        // any authenticated client. Mask sensitive values the same way
+        // get_mcp_server_settings does before it leaves the handler.
+        let masked_config: std::collections::HashMap<String, String> = full_config
+            .into_iter()
+            .map(|(k, v)| {
+                let upper = k.to_uppercase();
+                let is_secret = upper.contains("KEY")
+                    || upper.contains("SECRET")
+                    || upper.contains("TOKEN")
+                    || upper.contains("PASSWORD")
+                    || upper.contains("CREDENTIAL");
+                (k, if is_secret { "***".to_string() } else { v })
+            })
+            .collect();
         let envelope = crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::ConfigUpdated {
             plugin_id: id.clone(),
-            config: full_config,
+            config: masked_config,
         });
         let event = envelope.event.clone();
         // H-04: Log send errors instead of silently ignoring

@@ -8,6 +8,10 @@ export class AudioPlaybackManager {
   private startTime = 0;
   private _playing = false;
   private _duration = 0;
+  // bug-472: monotonically increasing token so a superseded play() call that is
+  // still fetching/decoding when a newer one arrives bails out instead of
+  // starting a stale, overlapping AudioBufferSourceNode.
+  private playGeneration = 0;
 
   private getContext(): AudioContext {
     if (!this.audioContext) {
@@ -38,14 +42,20 @@ export class AudioPlaybackManager {
 
   /** Decode an ArrayBuffer and start playback. */
   private async playBuffer(arrayBuffer: ArrayBuffer): Promise<void> {
+    // bug-472: stop() bumps the generation (cancelling any prior in-flight
+    // play); read our own token AFTER it. Any later play()/stop() bumps it
+    // again, so the awaits below abort on a mismatch.
     this.stop();
+    const generation = this.playGeneration;
 
     const ctx = this.getContext();
     if (ctx.state === 'suspended') {
       await ctx.resume();
     }
+    if (generation !== this.playGeneration) return;
 
     const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    if (generation !== this.playGeneration) return;
 
     this.sourceNode = ctx.createBufferSource();
     this.sourceNode.buffer = audioBuffer;
@@ -65,6 +75,9 @@ export class AudioPlaybackManager {
 
   /** Stop playback immediately. */
   stop(): void {
+    // bug-472: invalidate any in-flight play() so a decode that resolves after
+    // this stop doesn't start a new node.
+    this.playGeneration++;
     if (this.sourceNode) {
       try {
         this.sourceNode.stop();

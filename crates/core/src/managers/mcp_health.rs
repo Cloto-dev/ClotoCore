@@ -108,6 +108,28 @@ async fn check_and_restart_dead_servers(
         );
         tokio::time::sleep(backoff).await;
 
+        // bug-433: the snapshot is stale after the backoff sleep. If the operator
+        // explicitly stopped/drained this server during the wait, its status is
+        // now Disconnected/Draining — do NOT resurrect it. Only proceed if it is
+        // still in the dead/Error state (or self-transitioned to Restarting).
+        {
+            let state = manager.state.read().await;
+            match state.servers.get(&server_id).map(|h| h.status.clone()) {
+                Some(ServerStatus::Disconnected | ServerStatus::Draining) => {
+                    debug!(
+                        server_id = %server_id,
+                        "Skipping auto-restart — operator stopped/drained the server during backoff"
+                    );
+                    continue;
+                }
+                None => {
+                    debug!(server_id = %server_id, "Skipping auto-restart — server removed during backoff");
+                    continue;
+                }
+                _ => {}
+            }
+        }
+
         match manager.restart_server(&server_id).await {
             Ok(tools) => {
                 info!(

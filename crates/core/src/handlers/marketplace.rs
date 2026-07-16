@@ -1202,6 +1202,10 @@ async fn build_and_register(
         let venv_dir = crate::managers::mcp_venv::resolve_venv_dir()
             .unwrap_or_else(|| servers_dir.join(".venv"));
 
+        // bug-453: serialize the venv check → create → install against the boot
+        // sync task and other installs sharing the same .venv.
+        let _venv_guard = crate::managers::mcp_venv::lock_venv().await;
+
         // Ensure venv exists (with timeout to avoid hanging)
         let uv = crate::managers::mcp_venv::uv_bin(&state.data_dir);
         let uv_str = uv.to_string_lossy().to_string();
@@ -2321,6 +2325,9 @@ async fn install_from_pypi(
     let servers_dir = resolve_servers_dir(state);
     let venv_dir =
         crate::managers::mcp_venv::resolve_venv_dir().unwrap_or_else(|| servers_dir.join(".venv"));
+
+    // bug-453: serialize the venv check → create → install (shared .venv).
+    let _venv_guard = crate::managers::mcp_venv::lock_venv().await;
 
     let uv = crate::managers::mcp_venv::uv_bin(&state.data_dir);
     let uv_str = uv.to_string_lossy().to_string();

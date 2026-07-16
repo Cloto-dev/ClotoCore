@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -438,19 +438,40 @@ impl StdioTransport {
         // produce no output for extended periods. The health check system
         // (mcp_health.rs) handles frozen server detection separately.
         tokio::spawn(async move {
-            let mut reader = BufReader::new(stdout).lines();
-            loop {
-                match reader.next_line().await {
-                    Ok(Some(line)) => {
-                        if !line.trim().is_empty() && res_tx.send(line).await.is_err() {
-                            break;
-                        }
-                    }
-                    Ok(None) => break, // EOF
+            // bug-449: bounded line reader. `lines()`/`next_line()` buffer an
+            // unterminated line without any size cap; read in chunks and enforce
+            // MAX_STDIO_LINE_BYTES on the accumulator instead.
+            let mut reader = BufReader::new(stdout);
+            let mut line_buf: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 8192];
+            'outer: loop {
+                let n = match reader.read(&mut chunk).await {
+                    Ok(0) => break, // EOF
+                    Ok(n) => n,
                     Err(e) => {
                         warn!("MCP stdout read error: {}", e);
                         break;
                     }
+                };
+                let mut start = 0;
+                for i in 0..n {
+                    if chunk[i] == b'\n' {
+                        line_buf.extend_from_slice(&chunk[start..i]);
+                        let line = String::from_utf8_lossy(&line_buf).trim().to_string();
+                        line_buf.clear();
+                        start = i + 1;
+                        if !line.is_empty() && res_tx.send(line).await.is_err() {
+                            break 'outer;
+                        }
+                    }
+                }
+                line_buf.extend_from_slice(&chunk[start..n]);
+                if line_buf.len() > MAX_STDIO_LINE_BYTES {
+                    warn!(
+                        "MCP stdout line exceeded {} bytes without a newline — aborting reader",
+                        MAX_STDIO_LINE_BYTES
+                    );
+                    break;
                 }
             }
             warn!("MCP Server stdout closed.");
@@ -464,14 +485,41 @@ impl StdioTransport {
         // docs/MCP_SERVER_LOGS_DESIGN.md §6.
         let cmd_display = command.to_string();
         tokio::spawn(async move {
-            let mut reader = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                warn!("[MCP:{}] {}", cmd_display, line);
-                if let Some(ref tx) = stderr_tx {
-                    // Best-effort: if the consumer is gone or the buffer is full,
-                    // drop the line (tracing already captured it). Never block
-                    // the reader on log delivery.
-                    let _ = tx.try_send(line);
+            // bug-449: same bounded reader as stdout — an unterminated stderr
+            // blob must not grow the buffer without bound.
+            let mut reader = BufReader::new(stderr);
+            let mut line_buf: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 8192];
+            'outer: loop {
+                let n = match reader.read(&mut chunk).await {
+                    Ok(0) => break,
+                    Ok(n) => n,
+                    Err(_) => break,
+                };
+                let mut start = 0;
+                for i in 0..n {
+                    if chunk[i] == b'\n' {
+                        line_buf.extend_from_slice(&chunk[start..i]);
+                        let line = String::from_utf8_lossy(&line_buf).trim().to_string();
+                        line_buf.clear();
+                        start = i + 1;
+                        if line.is_empty() {
+                            continue;
+                        }
+                        warn!("[MCP:{}] {}", cmd_display, line);
+                        if let Some(ref tx) = stderr_tx {
+                            // Best-effort: drop on a gone/full consumer (tracing
+                            // already captured it). Never block the reader.
+                            let _ = tx.try_send(line);
+                        }
+                    }
+                }
+                line_buf.extend_from_slice(&chunk[start..n]);
+                if line_buf.len() > MAX_STDIO_LINE_BYTES {
+                    warn!(
+                        "MCP stderr line exceeded {MAX_STDIO_LINE_BYTES} bytes — aborting logger"
+                    );
+                    break 'outer;
                 }
             }
         });
@@ -684,6 +732,12 @@ impl HttpTransport {
 /// exhaustion. An unbroken run past this limit is treated as a protocol
 /// violation and aborts the stream.
 const MAX_SSE_LINE_BYTES: usize = 1024 * 1024; // 1 MiB
+
+/// bug-449: cap for a single stdio line from a spawned MCP server. Mirrors
+/// `MAX_SSE_LINE_BYTES` — a child that writes a huge blob without a newline
+/// would otherwise grow the line buffer without bound and OOM the whole kernel
+/// (not just the connection). A line past this limit aborts the reader task.
+const MAX_STDIO_LINE_BYTES: usize = 1024 * 1024; // 1 MiB
 
 /// Parse an SSE (Server-Sent Events) stream, forwarding `data:` lines to the channel.
 async fn parse_sse_stream(

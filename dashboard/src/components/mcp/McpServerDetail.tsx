@@ -14,10 +14,13 @@ type Tab = 'settings' | 'access' | 'logs';
 interface Props {
   server: McpServerInfo;
   onRefresh: () => void;
-  onDelete: (id: string) => Promise<void>;
-  onStart: (id: string) => Promise<void>;
-  onStop: (id: string) => Promise<void>;
-  onRestart: (id: string) => Promise<void>;
+  // bug-471: these resolve to `true` on success / `undefined` on failure
+  // (useAsyncAction swallows the error), so handleAction can gate its "done"
+  // checkmark on actual success instead of assuming no-throw == success.
+  onDelete: (id: string) => Promise<boolean | undefined>;
+  onStart: (id: string) => Promise<boolean | undefined>;
+  onStop: (id: string) => Promise<boolean | undefined>;
+  onRestart: (id: string) => Promise<boolean | undefined>;
 }
 
 export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, onRestart }: Props) {
@@ -32,14 +35,22 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
     server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered';
   const isError = server.status === 'Error';
 
-  async function handleAction(action: string, fn: () => Promise<void>) {
+  async function handleAction(action: string, fn: () => Promise<boolean | undefined>) {
     setActionLoading(action);
     setActionDone(null);
     try {
-      await fn();
-      setActionDone(action);
-      setTimeout(() => setActionDone(null), ACTION_FEEDBACK_MS);
-      setTimeout(onRefresh, 500);
+      // bug-471: only show the success checkmark when the action actually
+      // succeeded — the callbacks swallow errors and resolve `undefined` on
+      // failure, so a bare `await` would flip to "done" even on a failed op.
+      const ok = await fn();
+      if (ok) {
+        setActionDone(action);
+        setTimeout(() => setActionDone(null), ACTION_FEEDBACK_MS);
+        setTimeout(onRefresh, 500);
+      } else {
+        // Refresh so the row reflects the real post-failure state.
+        setTimeout(onRefresh, 500);
+      }
     } finally {
       setActionLoading(null);
     }

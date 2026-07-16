@@ -15,6 +15,20 @@ use tracing::{info, warn};
 
 use crate::CHILD_PROCESS_TIMEOUT_SECS;
 
+/// bug-453: the shared MCP Python venv is created/stale-recreated/installed-into
+/// from several unsynchronized paths — the boot-time `ensure_mcp_venv` task and
+/// the marketplace install handlers — all doing a check-then-act on the same
+/// `.venv` directory. Two concurrent `uv venv` runs (or a `remove_dir_all`
+/// racing an in-flight `uv pip install`) can corrupt it. Serialize every such
+/// sequence behind this process-wide async lock.
+static VENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Acquire the process-wide venv lock. Hold the returned guard for the whole
+/// check → (remove) → create → install sequence (bug-453).
+pub(crate) async fn lock_venv() -> tokio::sync::MutexGuard<'static, ()> {
+    VENV_LOCK.lock().await
+}
+
 /// Target Python version for venv creation.
 pub const TARGET_PYTHON: &str = "3.13";
 
@@ -291,6 +305,9 @@ pub async fn ensure_mcp_venv(data_dir: &Path) {
             project_root.join("mcp-servers"),
         )
     };
+    // bug-453: hold the venv lock across the whole check → recreate → install
+    // sequence so a concurrent marketplace install can't race this boot task.
+    let _venv_guard = lock_venv().await;
     let mut venv_exists = venv_dir.join("pyvenv.cfg").exists();
 
     // Detect stale venv (Python version mismatch with target 3.13) and recreate

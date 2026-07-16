@@ -199,32 +199,35 @@ impl McpClientManager {
         permission: &str,
         approved_by: &str,
     ) {
-        let state = self.state.read().await;
-        if let Some(handle) = state.servers.get(server_id) {
-            if let Some(ref client) = handle.client {
-                let grant_params = serde_json::json!({
-                    "request_id": format!("perm-{}-{}", server_id, permission),
-                    "grants": {permission: {"granted": true}},
-                    "approved_by": approved_by,
-                });
-                if let Err(e) = client
-                    .call("mgp/permission/grant", Some(grant_params))
-                    .await
-                {
-                    debug!(
-                        "Failed to send mgp/permission/grant to [{}]: {}",
-                        server_id, e
-                    );
-                } else {
-                    info!(
-                        server = %server_id,
-                        permission = %permission,
-                        "Permission grant delivered to server"
-                    );
-                }
+        // bug-437: this awaits a full round-trip `client.call(...)` — clone the
+        // client under the lock and drop the guard before awaiting so a slow
+        // server can't block lifecycle writers for the whole request timeout.
+        let client = {
+            let state = self.state.read().await;
+            state.servers.get(server_id).and_then(|h| h.client.clone())
+        };
+        if let Some(client) = client {
+            let grant_params = serde_json::json!({
+                "request_id": format!("perm-{}-{}", server_id, permission),
+                "grants": {permission: {"granted": true}},
+                "approved_by": approved_by,
+            });
+            if let Err(e) = client
+                .call("mgp/permission/grant", Some(grant_params))
+                .await
+            {
+                debug!(
+                    "Failed to send mgp/permission/grant to [{}]: {}",
+                    server_id, e
+                );
+            } else {
+                info!(
+                    server = %server_id,
+                    permission = %permission,
+                    "Permission grant delivered to server"
+                );
             }
         }
-        drop(state);
 
         // Emit PermissionGranted event
         if let Some(tx) = self.kernel_event_tx.lock().await.as_ref() {
@@ -2494,26 +2497,28 @@ impl McpClientManager {
 
     /// Broadcast a kernel event to all connected MCP servers as a notification.
     pub async fn broadcast_event(&self, event: &cloto_shared::ClotoEvent) {
-        let state = self.state.read().await;
-        for handle in state.servers.values() {
-            if handle.status != ServerStatus::Connected {
-                continue;
-            }
-            let Some(client) = &handle.client else {
-                continue;
-            };
-            let Ok(event_json) = serde_json::to_value(event) else {
-                continue;
-            };
+        let Ok(event_json) = serde_json::to_value(event) else {
+            return;
+        };
+        // bug-437: collect the target clients under the read lock, then drop the
+        // guard before the per-server `.await` sends — otherwise one slow/wedged
+        // server holds the read lock for the whole loop and blocks every
+        // lifecycle writer (connect/stop/restart) system-wide.
+        let targets: Vec<(String, Arc<McpClient>)> = {
+            let state = self.state.read().await;
+            state
+                .servers
+                .values()
+                .filter(|h| h.status == ServerStatus::Connected)
+                .filter_map(|h| h.client.clone().map(|c| (h.id.clone(), c)))
+                .collect()
+        };
+        for (id, client) in targets {
             if let Err(e) = client
-                .send_notification("notifications/cloto.event", Some(event_json))
+                .send_notification("notifications/cloto.event", Some(event_json.clone()))
                 .await
             {
-                debug!(
-                    server = %handle.id,
-                    error = %e,
-                    "Failed to forward event to MCP server"
-                );
+                debug!(server = %id, error = %e, "Failed to forward event to MCP server");
             }
         }
     }
@@ -2524,76 +2529,79 @@ impl McpClientManager {
         // 1. Persist locally
         crate::db::spawn_audit_log(self.pool.clone(), entry.clone());
 
-        // 2. Send to audit-capable servers
-        let state = self.state.read().await;
-        for handle in state.servers.values() {
-            if handle.status != ServerStatus::Connected {
-                continue;
-            }
-            // Only send to servers that negotiated the "audit" extension
-            let has_audit = handle
-                .mgp_negotiated
-                .as_ref()
-                .is_some_and(|m| m.active_extensions.iter().any(|e| e == "audit"));
-            if !has_audit {
-                continue;
-            }
-            let Some(client) = &handle.client else {
-                continue;
-            };
-            let seq = handle.audit_seq.fetch_add(1, Ordering::Relaxed) + 1;
-            let audit_params = serde_json::json!({
-                "_mgp": { "seq": seq },
-                "event_type": entry.event_type,
-                "timestamp": entry.timestamp.to_rfc3339(),
-                "actor": {
-                    "type": if entry.actor_id.as_deref() == Some("kernel") { "kernel" } else { "agent" },
-                    "id": entry.actor_id,
-                },
-                "target": {
-                    "server_id": entry.target_id.as_ref().and_then(|t| t.split(':').next()),
-                    "tool_name": entry.target_id.as_ref().and_then(|t| t.split(':').nth(1)),
-                },
-                "result": entry.result,
-                "details": {
-                    "permission": entry.permission,
-                    "reason": entry.reason,
-                },
-            });
+        // 2. Send to audit-capable servers.
+        // bug-437: build each server's params (including its per-handle audit
+        // seq) under the read lock, then drop the guard before the `.await`
+        // sends so a wedged server can't hold the lock across the whole loop.
+        let targets: Vec<(String, Arc<McpClient>, Value)> = {
+            let state = self.state.read().await;
+            state
+                .servers
+                .values()
+                .filter(|h| h.status == ServerStatus::Connected)
+                .filter(|h| {
+                    h.mgp_negotiated
+                        .as_ref()
+                        .is_some_and(|m| m.active_extensions.iter().any(|e| e == "audit"))
+                })
+                .filter_map(|h| {
+                    let client = h.client.clone()?;
+                    let seq = h.audit_seq.fetch_add(1, Ordering::Relaxed) + 1;
+                    let audit_params = serde_json::json!({
+                        "_mgp": { "seq": seq },
+                        "event_type": entry.event_type,
+                        "timestamp": entry.timestamp.to_rfc3339(),
+                        "actor": {
+                            "type": if entry.actor_id.as_deref() == Some("kernel") { "kernel" } else { "agent" },
+                            "id": entry.actor_id,
+                        },
+                        "target": {
+                            "server_id": entry.target_id.as_ref().and_then(|t| t.split(':').next()),
+                            "tool_name": entry.target_id.as_ref().and_then(|t| t.split(':').nth(1)),
+                        },
+                        "result": entry.result,
+                        "details": {
+                            "permission": entry.permission,
+                            "reason": entry.reason,
+                        },
+                    });
+                    Some((h.id.clone(), client, audit_params))
+                })
+                .collect()
+        };
+        for (id, client, audit_params) in targets {
             if let Err(e) = client
                 .send_notification("notifications/mgp.audit", Some(audit_params))
                 .await
             {
-                debug!(
-                    server = %handle.id,
-                    error = %e,
-                    "Failed to send audit notification"
-                );
+                debug!(server = %id, error = %e, "Failed to send audit notification");
             }
         }
     }
 
     /// Send a config update notification to a specific MCP server.
     pub async fn notify_config_updated(&self, server_id: &str, config: Value) {
-        let state = self.state.read().await;
-        if let Some(handle) = state.servers.get(server_id) {
-            let Some(client) = &handle.client else {
-                return;
-            };
-            let params = serde_json::json!({
-                "server_id": server_id,
-                "config": config,
-            });
-            if let Err(e) = client
-                .send_notification("notifications/cloto.config_updated", Some(params))
-                .await
-            {
-                debug!(
-                    server = %server_id,
-                    error = %e,
-                    "Failed to send config update to MCP server"
-                );
-            }
+        // bug-437: clone the client under the lock, drop the guard, then send.
+        let client = {
+            let state = self.state.read().await;
+            state.servers.get(server_id).and_then(|h| h.client.clone())
+        };
+        let Some(client) = client else {
+            return;
+        };
+        let params = serde_json::json!({
+            "server_id": server_id,
+            "config": config,
+        });
+        if let Err(e) = client
+            .send_notification("notifications/cloto.config_updated", Some(params))
+            .await
+        {
+            debug!(
+                server = %server_id,
+                error = %e,
+                "Failed to send config update to MCP server"
+            );
         }
     }
 
