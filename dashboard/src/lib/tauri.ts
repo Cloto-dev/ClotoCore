@@ -52,9 +52,22 @@ export async function closeWindow() {
 // Track VRM window state at module level to avoid getByLabel race conditions
 let vrmWindowOpen = false;
 let vrmWindowRef: any = null;
+// bug-483: serialize overlapping toggles. Without this, a fast double-click
+// (very plausible on the first click while the dynamic import is still
+// resolving) lets two invocations both observe the pre-toggle state and both
+// create a window, desyncing tracked state from the real OS window.
+let vrmWindowToggle: Promise<void> | null = null;
 
 /** Toggle VRM avatar window. Tauri: native window. Browser: popup. */
-export async function openVrmWindow(agentId: string, apiKey?: string): Promise<void> {
+export function openVrmWindow(agentId: string, apiKey?: string): Promise<void> {
+  // Chain onto any in-flight toggle so calls run strictly one at a time.
+  const run = (vrmWindowToggle ?? Promise.resolve()).then(() => openVrmWindowInner(agentId, apiKey));
+  // Swallow errors on the shared chain so one failure doesn't reject later calls.
+  vrmWindowToggle = run.catch(() => {});
+  return run;
+}
+
+async function openVrmWindowInner(agentId: string, apiKey?: string): Promise<void> {
   const keyParam = apiKey ? `?key=${encodeURIComponent(apiKey)}` : '';
   const path = `/vrm-viewer/${encodeURIComponent(agentId)}${keyParam}`;
 

@@ -33,6 +33,9 @@ export class VrmaLoader {
   /** True when a VRMA pose/animation is actively controlling bones. */
   private _active = false;
   private _stopping = false;
+  // bug-485: handle for stop()'s deferred mixer-stop timer, so a later
+  // playAnimation()/stop() can cancel it before it clobbers a new animation.
+  private stopTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.loader = new GLTFLoader();
@@ -115,6 +118,12 @@ export class VrmaLoader {
   playAnimation(animation: VRMAnimation, transitionSec = 0.5) {
     if (!this.vrm || !this.mixer) return;
 
+    // bug-485: cancel a pending stop() timer so it can't fire mid-animation.
+    if (this.stopTimeoutId !== null) {
+      clearTimeout(this.stopTimeoutId);
+      this.stopTimeoutId = null;
+    }
+
     // Clear any pose mode
     this.poseTargets = [];
     this._isPoseMode = false;
@@ -165,11 +174,15 @@ export class VrmaLoader {
     if (transitionSec > 0) {
       this.currentAction.fadeOut(transitionSec);
       this._stopping = true;
-      setTimeout(() => {
+      // bug-485: clear any prior deferred stop before scheduling a new one, and
+      // store the handle so playAnimation()/stop() can cancel it.
+      if (this.stopTimeoutId !== null) clearTimeout(this.stopTimeoutId);
+      this.stopTimeoutId = setTimeout(() => {
         this.mixer?.stopAllAction();
         this.currentAction = null;
         this._active = false;
         this._stopping = false;
+        this.stopTimeoutId = null;
       }, transitionSec * 1000);
     } else {
       this.mixer.stopAllAction();

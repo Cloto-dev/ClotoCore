@@ -68,7 +68,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   };
 
   // Avatar state (deferred — only persisted on Save)
-  const [avatarKey, _setAvatarKey] = useState(0);
+  const [avatarKey, setAvatarKey] = useState(0);
   const [hasAvatar, setHasAvatar] = useState(agent.metadata?.has_avatar === 'true');
   const [avatarDescription, setAvatarDescription] = useState(agent.metadata?.avatar_description || '');
   const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
@@ -210,6 +210,9 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
       }
       if (pendingAvatarFile) {
         await api.uploadAvatar(agent.id, pendingAvatarFile);
+        // bug-480: bump the cache-buster so the persisted-avatar URL (?v=)
+        // changes after a replace — otherwise it is a permanent ?v=0.
+        setAvatarKey((k) => k + 1);
       }
 
       // Step 3: VRM operations AFTER updateAgent (same deferred pattern as avatar)
