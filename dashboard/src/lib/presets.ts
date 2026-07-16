@@ -43,9 +43,11 @@ export function detectPreset(grantedIds: Set<string>, servers: McpServerInfo[] =
     return server ? isEngineServer(server) : false;
   };
   const nonEngine = [...grantedIds].filter((id) => !isEngine(id));
-  const sorted = nonEngine.sort().join(',');
+  const sorted = [...nonEngine].sort().join(',');
   for (const preset of SERVER_PRESETS) {
-    if (preset.servers.sort().join(',') === sorted) return preset.id;
+    // bug-482: sort a copy — preset.servers aliases the exported *_SERVERS
+    // constants, so an in-place .sort() permanently reorders shared state.
+    if ([...preset.servers].sort().join(',') === sorted) return preset.id;
   }
   return null;
 }

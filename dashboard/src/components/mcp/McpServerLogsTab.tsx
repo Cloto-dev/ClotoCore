@@ -123,7 +123,16 @@ export function McpServerLogsTab({ server }: Props) {
           .slice(-MAX_LOG_LINES);
         // Prepend seed only if live events haven't already populated the list,
         // then cap — avoids clobbering lines that arrived during the fetch.
-        setLogs((prev) => (prev.length === 0 ? seeded : [...seeded, ...prev].slice(-MAX_LOG_LINES)));
+        // bug-481: the history snapshot and the live SSE tail overlap for
+        // events emitted around mount, so drop seed entries already present in
+        // prev (keyed by timestamp+label+message) to avoid duplicate lines.
+        setLogs((prev) => {
+          if (prev.length === 0) return seeded;
+          const keyOf = (e: LogEntry) => `${e.timestamp}|${e.label}|${e.message}`;
+          const live = new Set(prev.map(keyOf));
+          const fresh = seeded.filter((e) => !live.has(keyOf(e)));
+          return [...fresh, ...prev].slice(-MAX_LOG_LINES);
+        });
       })
       .catch(() => {
         /* history may be unavailable */

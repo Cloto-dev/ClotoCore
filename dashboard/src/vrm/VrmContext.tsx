@@ -35,10 +35,12 @@ export function VrmProvider({ vrmEnabled, children }: { vrmEnabled: boolean; chi
     }
   }, []);
 
-  // Reset state when vrmEnabled changes (agent switch)
+  // Reset state when vrmEnabled changes (agent switch).
+  // bug-484: depend on vrmEnabled — an empty dep array only fires on mount, so
+  // a stale 'thinking'/'responding' state would carry across an agent switch.
   useEffect(() => {
     setAgentState('idle');
-  }, []);
+  }, [vrmEnabled]);
 
   return (
     <VrmContext.Provider
