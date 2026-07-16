@@ -9,13 +9,20 @@ const SERVICE_NAME: &str = "Cloto";
 pub fn install_service(prefix: &Path, _user: Option<&str>) -> anyhow::Result<()> {
     let exe_path = prefix.join("clotocore.exe");
 
+    // bug-454: sc.exe requires each `option=` token to be followed by its value
+    // as a SEPARATE argv entry (the space after '=' is mandatory). Concatenating
+    // `binPath=<value>` into one token makes sc.exe reject the option, so the
+    // create always failed. Split each option into two argv entries.
     let status = Command::new("sc.exe")
         .args([
             "create",
             SERVICE_NAME,
-            &format!("binPath={}", exe_path.display()),
-            "start=auto",
-            "DisplayName=ClotoCore",
+            "binPath=",
+            &exe_path.display().to_string(),
+            "start=",
+            "auto",
+            "DisplayName=",
+            "ClotoCore",
         ])
         .status()
         .context("Failed to run sc.exe (are you running as Administrator?)")?;

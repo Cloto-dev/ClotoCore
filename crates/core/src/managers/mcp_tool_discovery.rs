@@ -858,10 +858,23 @@ pub(super) async fn execute_tools_request(
         .map(|(entry, _)| (entry.tool_id.clone(), entry.estimated_tokens))
         .collect();
 
-    let (added, tokens_added) = manager.session_cache.cache_tools(agent_id, &cache_entries);
+    let (_added, tokens_added) = manager.session_cache.cache_tools(agent_id, &cache_entries);
+
+    // bug-446: `cache_tools` inserts then runs LRU enforce_budget, so some of the
+    // just-requested tools may have been evicted within this same call. Compute
+    // the response from what ACTUALLY survives in the session cache, not the
+    // pre-eviction insert count — otherwise we report tools as "fulfilled"/loaded
+    // that are no longer cached.
+    let session_state = manager.session_cache.get_session_state(agent_id);
+    let surviving: std::collections::HashSet<String> = session_state
+        .as_ref()
+        .map(|s| s.cached.iter().cloned().collect())
+        .unwrap_or_default();
+    let session_tools_count = session_state.as_ref().map_or(0, |s| s.cached.len());
 
     let tools_loaded: Vec<Value> = results
         .iter()
+        .filter(|(entry, _)| surviving.contains(&entry.tool_id))
         .map(|(entry, _)| {
             let mut tool = serde_json::json!({
                 "name": entry.name,
@@ -876,21 +889,19 @@ pub(super) async fn execute_tools_request(
         })
         .collect();
 
-    let session_state = manager.session_cache.get_session_state(agent_id);
-    let session_tools_count = session_state.as_ref().map_or(0, |s| s.cached.len());
-
-    let status = if added == results.len() {
+    let survived = tools_loaded.len();
+    let status = if survived == results.len() {
         "fulfilled"
-    } else if added > 0 {
+    } else if survived > 0 {
         "partial"
     } else {
-        "fulfilled" // All were already cached
+        "unavailable"
     };
 
     debug!(
         agent = %agent_id,
         status = %status,
-        tools_loaded = added,
+        tools_loaded = survived,
         "Tool request completed"
     );
 

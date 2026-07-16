@@ -425,8 +425,28 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         if (event.type === 'AgentTokenStream' && event.data?.agent_id === agent.id) {
           const stream = event.data as unknown as AgentTokenStreamData;
           setPendingResponse((prev) => {
-            if (prev?.streaming) {
+            // bug-469: only append when the chunk belongs to the response we are
+            // currently showing. A concurrent loop for the same agent (cron,
+            // discord, …) can emit chunks for a DIFFERENT source_message_id;
+            // appending them would interleave two replies, and wholesale-
+            // replacing a non-streaming pendingResponse would drop the user's
+            // real answer. Finalize the current pending response first, then
+            // start a fresh streaming entry for the new source message.
+            if (prev?.streaming && prev.parentId === stream.source_message_id) {
               return { ...prev, text: prev.text + stream.delta };
+            }
+            if (prev) {
+              const prevMsg: ChatMessage = {
+                id: prev.id,
+                agent_id: agent.id,
+                user_id: identity.id,
+                source: 'agent',
+                content: [{ type: 'text', text: prev.text }],
+                metadata: { elapsed_secs: prev.elapsedSecs },
+                created_at: Date.now(),
+                parent_id: prev.parentId,
+              };
+              setMessages((msgs) => [...msgs, prevMsg]);
             }
             return {
               id: `${stream.source_message_id}-stream`,

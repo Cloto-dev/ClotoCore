@@ -76,6 +76,7 @@ export function McpServersPage() {
         await api.deleteMcpServer(id);
         if (selectedId === id) setSelectedId(null);
         refetch();
+        return true; // bug-471: signal success so the caller can gate its checkmark
       }),
     [api, selectedId, refetch, action.run],
   );
@@ -85,6 +86,7 @@ export function McpServersPage() {
       action.run(async () => {
         await api.startMcpServer(id);
         setTimeout(refetch, 500);
+        return true; // bug-471: signal success so the caller can gate its checkmark
       }),
     [api, refetch, action.run],
   );
@@ -94,6 +96,7 @@ export function McpServersPage() {
       action.run(async () => {
         await api.stopMcpServer(id);
         setTimeout(refetch, 500);
+        return true; // bug-471: signal success so the caller can gate its checkmark
       }),
     [api, refetch, action.run],
   );
@@ -103,6 +106,7 @@ export function McpServersPage() {
       action.run(async () => {
         await api.restartMcpServer(id);
         setTimeout(refetch, 500);
+        return true; // bug-471: signal success so the caller can gate its checkmark
       }),
     [api, refetch, action.run],
   );
