@@ -252,7 +252,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
     setIsDeleting(true);
     setDeleteError(null);
     try {
-      const hasPassword = deleteTarget.metadata?.has_password === 'true';
+      const hasPassword = deleteTarget.metadata?.has_power_password === 'true';
       await api.deleteAgent(deleteTarget.id, hasPassword ? deletePassword : undefined);
       setDeleteTarget(null);
       setDeletePassword('');
@@ -338,7 +338,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
               <p className="text-[10px] text-content-tertiary font-mono">{deleteTarget.id}</p>
             </div>
             <p className="text-xs text-content-secondary">{t('delete.warning')}</p>
-            {deleteTarget.metadata?.has_password === 'true' && (
+            {deleteTarget.metadata?.has_power_password === 'true' && (
               <input
                 type="password"
                 value={deletePassword}
@@ -363,7 +363,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
               </button>
               <button
                 onClick={handleDeleteConfirm}
-                disabled={isDeleting || (deleteTarget.metadata?.has_password === 'true' && !deletePassword)}
+                disabled={isDeleting || (deleteTarget.metadata?.has_power_password === 'true' && !deletePassword)}
                 aria-label={tc('delete')}
                 className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
               >
