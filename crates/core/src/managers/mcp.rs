@@ -2115,8 +2115,14 @@ impl McpClientManager {
         })
         .await;
 
-        // Update LRU timestamp in session cache (MGP §16.7)
-        self.session_cache.touch("default", tool_name);
+        // Update LRU timestamp in session cache (MGP §16.7).
+        // bug-435: the cache stores entries per real agent id under the
+        // qualified `server_id.tool_name` key — a hardcoded "default" bucket
+        // with a bare tool name never matches, making touch() a no-op.
+        if let Caller::Agent(agent_id) = caller {
+            self.session_cache
+                .touch(agent_id, &format!("{}.{}", server_id, tool_name));
+        }
 
         super::mcp_events::deliver_event(
             self,

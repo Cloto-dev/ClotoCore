@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex, Notify};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// MCP server-initiated notification (Server→Kernel).
 #[derive(Debug, Clone)]
@@ -306,7 +306,22 @@ impl McpClient {
                     match serde_json::from_str::<JsonRpcMessage>(&line) {
                         Ok(JsonRpcMessage::Response(response)) => {
                             if let Some(id_val) = response.id {
-                                if let Some(id) = id_val.as_i64() {
+                                // bug-447: widen correlation to string-typed ids
+                                // that parse as the same integer, and log any id
+                                // shape we still can't correlate — otherwise an
+                                // id-type mismatch is indistinguishable from a
+                                // hung server (bare timeout, no diagnostic).
+                                let id_opt = id_val.as_i64().or_else(|| {
+                                    id_val.as_str().and_then(|s| s.parse::<i64>().ok())
+                                });
+                                if id_opt.is_none() {
+                                    warn!(
+                                        id = %id_val,
+                                        "Dropping JSON-RPC response with non-integer id — \
+                                         cannot correlate to a pending request"
+                                    );
+                                }
+                                if let Some(id) = id_opt {
                                     let mut map = pending.lock().await;
                                     if let Some(tx) = map.remove(&id) {
                                         if let Some(error) = response.error {
@@ -566,6 +581,18 @@ impl McpClient {
         let idle_timeout_secs = self.stream_idle_timeout_secs;
         {
             let mut map = self.pending_requests.lock().await;
+            // bug-448: enforce the same in-flight bound as call() — this path
+            // shares pending_requests but previously inserted unconditionally,
+            // bypassing MAX_PENDING_REQUESTS (and growing a watchdog task +
+            // 256-slot channel per accepted call).
+            if map.len() >= Self::MAX_PENDING_REQUESTS {
+                drop(map); // avoid holding two locks at once
+                self.stream_collectors.lock().await.remove(&id);
+                return Err(anyhow::anyhow!(
+                    "MCP pending request limit reached ({})",
+                    Self::MAX_PENDING_REQUESTS
+                ));
+            }
             let (inner_tx, inner_rx) = oneshot::channel();
             map.insert(id, inner_tx);
 

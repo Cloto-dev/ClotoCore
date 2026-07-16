@@ -767,10 +767,14 @@ pub(super) async fn execute_audit_replay(manager: &McpClientManager, args: Value
 
     let since_seq = args.get("since_seq").and_then(serde_json::Value::as_i64);
     let since_timestamp = args.get("since_timestamp").and_then(|v| v.as_str());
+    // bug-439: clamp like the sibling mgp.events.replay — an unclamped value
+    // goes straight into SQL LIMIT (and SQLite treats a negative LIMIT as
+    // unlimited), letting one call materialize the whole audit table.
     let limit = args
         .get("limit")
         .and_then(serde_json::Value::as_i64)
-        .unwrap_or(100);
+        .unwrap_or(100)
+        .clamp(1, 1000);
 
     let entries =
         crate::db::query_audit_logs_since(manager.pool(), since_seq, since_timestamp, limit)
@@ -783,8 +787,13 @@ pub(super) async fn execute_audit_replay(manager: &McpClientManager, args: Value
                 "seq": id,
                 "timestamp": e.timestamp.to_rfc3339(),
                 "event_type": e.event_type,
+                // bug-440: derive the actor type from the entry instead of a
+                // hardcoded "kernel" — delegation entries carry real agent ids.
                 "actor": {
-                    "type": "kernel",
+                    "type": match e.actor_id.as_deref() {
+                        Some(id) if id.starts_with("agent.") => "agent",
+                        _ => "kernel",
+                    },
                     "id": e.actor_id,
                 },
                 "target": {

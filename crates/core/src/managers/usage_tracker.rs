@@ -79,7 +79,9 @@ pub fn normalize_usage(v: &serde_json::Value) -> Option<(u32, u32, u32)> {
     let total = obj
         .get("total_tokens")
         .and_then(serde_json::Value::as_u64)
-        .unwrap_or(prompt + completion);
+        // bug-478: prompt/completion come from untrusted MCP-server JSON —
+        // saturate instead of a raw `+` that panics (debug) or wraps (release).
+        .unwrap_or_else(|| prompt.saturating_add(completion));
     Some((
         u32::try_from(prompt).unwrap_or(u32::MAX),
         u32::try_from(completion).unwrap_or(u32::MAX),

@@ -580,6 +580,15 @@ impl HttpTransport {
                     request = request.header("Mcp-Session-Id", sid.clone());
                 }
 
+                // bug-450: capture the request id before `msg` is moved into the
+                // body — error envelopes must echo it so start_response_loop can
+                // route the failure to the exact pending request (a null id
+                // never matches, leaving the caller to a generic timeout).
+                let req_id = serde_json::from_str::<serde_json::Value>(&msg)
+                    .ok()
+                    .and_then(|v| v.get("id").cloned())
+                    .unwrap_or(serde_json::Value::Null);
+
                 // bug-356: bound each request so one slow message can't stall the
                 // serial request loop (and the queue behind it). This is in
                 // addition to the reqwest client's global timeout above.
@@ -597,7 +606,7 @@ impl HttpTransport {
                         let err_msg = serde_json::json!({
                             "jsonrpc": "2.0",
                             "error": {"code": -32000, "message": format!("HTTP transport error: {e}")},
-                            "id": null
+                            "id": req_id.clone()
                         });
                         let _ = res_tx.send(err_msg.to_string()).await;
                         continue;
@@ -607,7 +616,7 @@ impl HttpTransport {
                         let err_msg = serde_json::json!({
                             "jsonrpc": "2.0",
                             "error": {"code": -32000, "message": format!("HTTP per-message timeout ({HTTP_PER_MESSAGE_TIMEOUT_SECS}s)")},
-                            "id": null
+                            "id": req_id.clone()
                         });
                         let _ = res_tx.send(err_msg.to_string()).await;
                         continue;
@@ -621,7 +630,7 @@ impl HttpTransport {
                     let err_msg = serde_json::json!({
                         "jsonrpc": "2.0",
                         "error": {"code": -32000, "message": format!("HTTP {status}: {body}")},
-                        "id": null
+                        "id": req_id.clone()
                     });
                     let _ = res_tx.send(err_msg.to_string()).await;
                     continue;
@@ -730,6 +739,17 @@ async fn parse_sse_stream(
                 "SSE line exceeded {} bytes without a newline — aborting stream",
                 MAX_SSE_LINE_BYTES
             );
+        }
+    }
+
+    // bug-451: a stream that ends without a trailing newline (connection close
+    // right after `data: {...}`) leaves its final line in the buffer — flush it
+    // instead of silently dropping the only response for the request.
+    if !buffer.is_empty() {
+        let line = String::from_utf8_lossy(&buffer);
+        let line = line.trim_end_matches('\r');
+        if let Some(data) = line.strip_prefix("data: ").filter(|d| !d.is_empty()) {
+            let _ = res_tx.send(data.to_string()).await;
         }
     }
 

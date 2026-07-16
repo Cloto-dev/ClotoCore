@@ -133,6 +133,10 @@ impl ToolIndex {
             warn!("ToolIndex mutex poisoned — recovering");
             e.into_inner()
         });
+        // bug-444: make registration idempotent — the racy-reconnect path in
+        // connect_server re-registers a server without a prior
+        // remove_server_tools, so stale entries must be dropped here.
+        entries.retain(|e| e.server_id != server_id);
         for tool in tools {
             // Skip mgp.* namespace (reserved for kernel tools)
             if tool.name.starts_with("mgp.") {

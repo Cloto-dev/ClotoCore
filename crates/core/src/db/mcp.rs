@@ -572,12 +572,16 @@ pub async fn resolve_explicit_permission(
     server_id: &str,
     tool_name: &str,
 ) -> anyhow::Result<Option<PermissionLevel>> {
-    // 1. Check for explicit tool_grant
+    // 1. Check for explicit tool_grant.
+    // bug-455: wrap expires_at in datetime() — a raw RFC3339 string ('T'
+    // separator) compares lexicographically greater than SQLite's
+    // space-separated datetime('now') for any same-day expiry, so time-limited
+    // grants never lapse before midnight. datetime() normalizes both sides.
     let tool_grant = db_timeout(
         sqlx::query_scalar::<_, String>(
             "SELECT permission FROM mcp_access_control \
              WHERE agent_id = ? AND server_id = ? AND tool_name = ? AND entry_type = 'tool_grant' \
-             AND (expires_at IS NULL OR expires_at > datetime('now')) \
+             AND (expires_at IS NULL OR datetime(expires_at) > datetime('now')) \
              LIMIT 1",
         )
         .bind(agent_id)
@@ -600,7 +604,7 @@ pub async fn resolve_explicit_permission(
         sqlx::query_scalar::<_, String>(
             "SELECT permission FROM mcp_access_control \
              WHERE agent_id = ? AND server_id = ? AND entry_type = 'server_grant' AND tool_name IS NULL \
-             AND (expires_at IS NULL OR expires_at > datetime('now')) \
+             AND (expires_at IS NULL OR datetime(expires_at) > datetime('now')) \
              LIMIT 1",
         )
         .bind(agent_id)

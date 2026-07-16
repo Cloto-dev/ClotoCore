@@ -85,17 +85,27 @@ impl RateLimiter {
 }
 
 /// Axum middleware: rejects requests with 429 when rate limit is exceeded.
+///
+/// bug-427: the 429 must carry the same `{"error":{...}}` JSON envelope as
+/// every `AppError` response — a bare status code breaks clients that parse
+/// the uniform error body.
 pub async fn rate_limit_middleware(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<crate::AppState>>,
     request: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Response {
     if !state.rate_limiter.check(addr.ip()) {
         tracing::warn!(ip = %addr.ip(), "Rate limit exceeded");
-        return Err(StatusCode::TOO_MANY_REQUESTS);
+        let body = axum::Json(serde_json::json!({
+            "error": {
+                "type": "RateLimited",
+                "message": "Too many requests; retry later"
+            }
+        }));
+        return axum::response::IntoResponse::into_response((StatusCode::TOO_MANY_REQUESTS, body));
     }
-    Ok(next.run(request).await)
+    next.run(request).await
 }
 
 #[cfg(test)]

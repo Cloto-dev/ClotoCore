@@ -271,7 +271,7 @@ impl AgentManager {
     pub async fn clear_avatar(&self, agent_id: &str) -> anyhow::Result<()> {
         sqlx::query(
             "UPDATE agents SET metadata = json_remove(\
-             COALESCE(metadata, '{}'), '$.avatar_path', '$.avatar_description', '$.has_avatar') \
+             COALESCE(metadata, '{}'), '$.avatar_path', '$.avatar_description', '$.has_avatar', '$.avatar_updated_at') \
              WHERE id = ?",
         )
         .bind(agent_id)
@@ -391,20 +391,29 @@ impl AgentManager {
         // full-replacement would overwrite these fields.
         // Only re-inject each field if it exists in the current row (IS NOT NULL),
         // otherwise json_set would insert a JSON null which breaks deserialization.
-        sqlx::query(
+        // bug-476: avatar_updated_at (the frontend cache-bust key, written by
+        // set_avatar) must be preserved through the COALESCE full-replace just
+        // like avatar_path/avatar_description/vrm_path — otherwise it is dropped
+        // on every unrelated agent update.
+        let result = sqlx::query(
             "UPDATE agents SET metadata = CASE \
                WHEN ?1 IS NOT NULL THEN ( \
-                 SELECT CASE WHEN json_extract(metadata, '$.vrm_path') IS NOT NULL \
-                   THEN json_set(m3, '$.vrm_path', json_extract(metadata, '$.vrm_path')) \
-                   ELSE m3 END \
+                 SELECT CASE WHEN json_extract(metadata, '$.avatar_updated_at') IS NOT NULL \
+                   THEN json_set(m4, '$.avatar_updated_at', json_extract(metadata, '$.avatar_updated_at')) \
+                   ELSE m4 END \
                  FROM ( \
-                   SELECT CASE WHEN json_extract(metadata, '$.avatar_description') IS NOT NULL \
-                     THEN json_set(m2, '$.avatar_description', json_extract(metadata, '$.avatar_description')) \
-                     ELSE m2 END AS m3 \
+                   SELECT CASE WHEN json_extract(metadata, '$.vrm_path') IS NOT NULL \
+                     THEN json_set(m3, '$.vrm_path', json_extract(metadata, '$.vrm_path')) \
+                     ELSE m3 END AS m4 \
                    FROM ( \
-                     SELECT CASE WHEN json_extract(metadata, '$.avatar_path') IS NOT NULL \
-                       THEN json_set(?1, '$.avatar_path', json_extract(metadata, '$.avatar_path')) \
-                       ELSE ?1 END AS m2 \
+                     SELECT CASE WHEN json_extract(metadata, '$.avatar_description') IS NOT NULL \
+                       THEN json_set(m2, '$.avatar_description', json_extract(metadata, '$.avatar_description')) \
+                       ELSE m2 END AS m3 \
+                     FROM ( \
+                       SELECT CASE WHEN json_extract(metadata, '$.avatar_path') IS NOT NULL \
+                         THEN json_set(?1, '$.avatar_path', json_extract(metadata, '$.avatar_path')) \
+                         ELSE ?1 END AS m2 \
+                     ) \
                    ) \
                  ) \
                ) \
@@ -421,6 +430,11 @@ impl AgentManager {
         .bind(agent_id)
         .execute(&self.pool)
         .await?;
+        // bug-477: a 0-row UPDATE means the agent id doesn't exist — surface a
+        // 404-equivalent instead of a silent Ok (delete_agent already does this).
+        if result.rows_affected() == 0 {
+            return Err(cloto_shared::ClotoError::AgentNotFound(agent_id.to_string()).into());
+        }
         Ok(())
     }
 }
