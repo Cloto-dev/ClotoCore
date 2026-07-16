@@ -108,20 +108,25 @@ pub(crate) fn check_auth_with_query(
         }
         if let Some(p) = provided {
             let hash = crate::db::hash_api_key(p);
-            match state.revoked_keys.try_read() {
-                Ok(revoked) => {
-                    if revoked.contains(&hash) {
-                        tracing::warn!("🚫 Rejected revoked API key");
-                        return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
-                            cloto_shared::Permission::AdminAccess,
-                        )));
-                    }
+            // bug-428: fail CLOSED on a contended lock. The rare write (from
+            // invalidate_api_key or the periodic cleanup) previously caused
+            // try_read() to fail and the check to be SKIPPED, letting a
+            // just-revoked key through. Deny instead — the caller can retry once
+            // the brief write window clears.
+            if let Ok(revoked) = state.revoked_keys.try_read() {
+                if revoked.contains(&hash) {
+                    tracing::warn!("🚫 Rejected revoked API key");
+                    return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                        cloto_shared::Permission::AdminAccess,
+                    )));
                 }
-                Err(_) => {
-                    tracing::warn!(
-                        "Failed to acquire revoked_keys lock — skipping revocation check"
-                    );
-                }
+            } else {
+                tracing::warn!(
+                    "Failed to acquire revoked_keys lock — denying (fail-closed revocation check)"
+                );
+                return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                    cloto_shared::Permission::AdminAccess,
+                )));
             }
         }
     } else {

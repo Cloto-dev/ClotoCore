@@ -117,37 +117,37 @@ pub(super) async fn emit_lifecycle_notification(
     to: &str,
     reason: &str,
 ) {
-    let state = manager.state.read().await;
-    for handle in state.servers.values() {
-        if !handle.status.is_operational() {
-            continue;
-        }
-        let has_lifecycle = handle
-            .mgp_negotiated
-            .as_ref()
-            .is_some_and(|m| m.active_extensions.iter().any(|e| e == "lifecycle"));
-        if !has_lifecycle {
-            continue;
-        }
-        let Some(client) = &handle.client else {
-            continue;
-        };
-        let params = serde_json::json!({
-            "server_id": server_id,
-            "previous_state": from,
-            "new_state": to,
-            "reason": reason,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
+    // bug-437: collect lifecycle-capable clients under the lock, then drop the
+    // guard before the per-server `.await` sends — this runs on every
+    // connect/restart/drain transition and from the health monitor, so holding
+    // the read lock across a wedged server's send would stall all writers.
+    let params = serde_json::json!({
+        "server_id": server_id,
+        "previous_state": from,
+        "new_state": to,
+        "reason": reason,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
+    let targets: Vec<(String, std::sync::Arc<super::mcp_client::McpClient>)> = {
+        let state = manager.state.read().await;
+        state
+            .servers
+            .values()
+            .filter(|h| h.status.is_operational())
+            .filter(|h| {
+                h.mgp_negotiated
+                    .as_ref()
+                    .is_some_and(|m| m.active_extensions.iter().any(|e| e == "lifecycle"))
+            })
+            .filter_map(|h| h.client.clone().map(|c| (h.id.clone(), c)))
+            .collect()
+    };
+    for (id, client) in targets {
         if let Err(e) = client
-            .send_notification("notifications/mgp.lifecycle", Some(params))
+            .send_notification("notifications/mgp.lifecycle", Some(params.clone()))
             .await
         {
-            tracing::debug!(
-                server = %handle.id,
-                error = %e,
-                "Failed to send lifecycle notification"
-            );
+            tracing::debug!(server = %id, error = %e, "Failed to send lifecycle notification");
         }
     }
     info!(

@@ -141,6 +141,27 @@ pub async fn install(prefix: PathBuf, service: bool, user: Option<String>) -> an
             std::fs::set_permissions(&env_path, std::fs::Permissions::from_mode(0o600))
                 .context("Failed to set .env permissions to 0600")?;
         }
+        // bug-463: the Unix 0600 hardening had no Windows counterpart, leaving
+        // the admin-key file readable by the local Users group under the default
+        // ProgramData ACL. Strip inheritance and grant only the current user.
+        #[cfg(windows)]
+        {
+            if let Ok(user) = std::env::var("USERNAME") {
+                if !user.is_empty() {
+                    let status = std::process::Command::new("icacls")
+                        .args([
+                            &env_path.display().to_string(),
+                            "/inheritance:r",
+                            "/grant:r",
+                            &format!("{user}:F"),
+                        ])
+                        .status();
+                    if !matches!(status, Ok(s) if s.success()) {
+                        tracing::warn!("Failed to tighten .env ACL via icacls; secret may be readable by other local users");
+                    }
+                }
+            }
+        }
         info!("🔑 Generated .env with CLOTO_API_KEY");
         println!("  CLOTO_API_KEY has been auto-generated. Save it securely:");
         println!("  {}", api_key);
