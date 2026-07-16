@@ -122,7 +122,8 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
 
         if let Err(e) = event_tx.send(envelope).await {
             error!("Cron scheduler: failed to dispatch job '{}': {}", job.id, e);
-            db::update_cron_job_run(
+            // bug-467: log rather than silently drop the status-write failure.
+            if let Err(db_err) = db::update_cron_job_run(
                 pool,
                 &job.id,
                 now_ms,
@@ -132,7 +133,13 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
                 job.enabled,
             )
             .await
-            .ok();
+            {
+                tracing::error!(
+                    job_id = %job.id,
+                    error = %db_err,
+                    "Failed to persist cron job error-state"
+                );
+            }
             continue;
         }
 
@@ -187,7 +194,11 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
         // `handle_message` once the agentic loop resolves — "dispatched" here
         // only records that the event was successfully placed on the bus.
         let (next_run, still_enabled) = calculate_next_run(job, now_ms);
-        db::update_cron_job_run(
+        // bug-467: this write is the ONLY thing that advances the job past its
+        // due window — swallowing its error with `.ok()` lets a transient DB
+        // failure leave a `once` job enabled (re-fires next tick) or a recurring
+        // job stuck re-dispatching. Log it so the re-fire has a diagnostic trail.
+        if let Err(e) = db::update_cron_job_run(
             pool,
             &job.id,
             now_ms,
@@ -197,7 +208,13 @@ async fn tick(pool: &SqlitePool, event_tx: &mpsc::Sender<EnvelopedEvent>) -> any
             still_enabled,
         )
         .await
-        .ok();
+        {
+            tracing::error!(
+                job_id = %job.id,
+                error = %e,
+                "Failed to persist cron job run-state after dispatch — job may re-fire next tick"
+            );
+        }
     }
 
     Ok(())

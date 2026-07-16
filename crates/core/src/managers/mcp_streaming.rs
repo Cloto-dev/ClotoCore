@@ -74,6 +74,15 @@ impl StreamAssembler {
                 tracker.expected_index = index.saturating_add(1);
                 return None;
             }
+            if index < tracker.expected_index {
+                // A previously-gapped index has now arrived (retransmission).
+                // bug-452: remove it from `gaps` so a *second* delivery of the
+                // same index is correctly flagged as a duplicate by
+                // is_duplicate() — and so `gaps` doesn't grow unbounded over a
+                // long stream with recurring gaps.
+                tracker.gaps.retain(|&g| g != index);
+                return None;
+            }
             // Record gap: all indices between expected and received
             let mut gap_indices = Vec::new();
             for i in tracker.expected_index..index {
@@ -81,11 +90,7 @@ impl StreamAssembler {
                 gap_indices.push(i);
             }
             tracker.expected_index = index.saturating_add(1);
-            if gap_indices.is_empty() {
-                None // duplicate (index < expected)
-            } else {
-                Some(gap_indices)
-            }
+            Some(gap_indices)
         }
     }
 
@@ -227,6 +232,21 @@ mod tests {
         asm.record_chunk("s1", 1, 1);
         assert!(asm.is_duplicate("s1", 1, 0));
         assert!(!asm.is_duplicate("s1", 1, 2));
+    }
+
+    #[test]
+    fn assembler_retransmitted_gap_then_duplicate() {
+        // bug-452: a gapped index that is retransmitted must be pruned from
+        // `gaps`, so a *second* delivery of it is correctly flagged duplicate.
+        let asm = StreamAssembler::new();
+        assert!(asm.record_chunk("s1", 1, 0).is_none());
+        // Jump to 3 → gap [1, 2].
+        assert_eq!(asm.record_chunk("s1", 1, 3), Some(vec![1, 2]));
+        // Index 1 retransmitted: not a duplicate yet, and recording prunes it.
+        assert!(!asm.is_duplicate("s1", 1, 1));
+        assert!(asm.record_chunk("s1", 1, 1).is_none());
+        // A SECOND delivery of index 1 is now recognized as a duplicate.
+        assert!(asm.is_duplicate("s1", 1, 1));
     }
 
     #[test]

@@ -334,12 +334,23 @@ impl AllowedProcessCapability {
 #[async_trait]
 impl ProcessCapability for AllowedProcessCapability {
     async fn execute(&self, cmd: &str, args: &[String]) -> anyhow::Result<(String, String, i32)> {
-        let basename = std::path::Path::new(cmd)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(cmd);
+        // bug-473: reject any path-qualified command. The allowlist matches the
+        // basename, but the spawn below runs the raw `cmd` — accepting
+        // "/writable/dir/python3" would pass the "python3" allowlist check yet
+        // execute an attacker-planted binary. Only bare command names may pass
+        // (resolved via the process PATH).
+        if cmd.contains('/') || cmd.contains('\\') {
+            warn!(
+                "🚫 ProcessExecution denied: command '{}' must be a bare name, not a path",
+                cmd
+            );
+            return Err(anyhow::anyhow!(
+                "ProcessExecution denied: '{}' must be a bare command name, not a path",
+                cmd
+            ));
+        }
 
-        if self.allowed_commands.is_empty() || !self.allowed_commands.contains(basename) {
+        if self.allowed_commands.is_empty() || !self.allowed_commands.contains(cmd) {
             warn!(
                 "🚫 ProcessExecution denied: command '{}' is not in the allowlist",
                 cmd

@@ -628,9 +628,15 @@ pub async fn import_memories(
 
     let target_agent_id = body.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
 
-    // Write JSONL to a temp file for the MCP tool
+    // Write JSONL to a temp file for the MCP tool.
+    // bug-429: the path must be unique per request — a PID-only name is shared
+    // by every request in this process, so concurrent imports clobber each other.
     let tmp_path = std::env::temp_dir()
-        .join(format!("cloto-import-{}.jsonl", std::process::id()))
+        .join(format!(
+            "cloto-import-{}-{}.jsonl",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ))
         .to_string_lossy()
         .to_string();
 

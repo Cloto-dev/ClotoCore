@@ -34,6 +34,12 @@ struct BufferedEvent {
 
 const MAX_BUFFER_SIZE: usize = 1000;
 
+/// bug-465: hard TTL for callbacks that were never responded to. Without this,
+/// `cleanup_stale_callbacks` only evicts *responded* entries, so a server that
+/// keeps requesting callbacks and never answers grows the map unboundedly. A
+/// callback still open after this long is treated as abandoned and dropped.
+const UNRESPONDED_CALLBACK_TTL: std::time::Duration = std::time::Duration::from_hours(1);
+
 // ============================================================
 // Callbacks
 // ============================================================
@@ -262,14 +268,23 @@ impl EventManager {
             .collect()
     }
 
-    /// Remove callbacks that have been responded to and are older than `timeout`.
+    /// Remove callbacks that have been responded to and are older than
+    /// `timeout`, plus unresponded callbacks past `UNRESPONDED_CALLBACK_TTL`
+    /// (bug-465 — otherwise the map grows unbounded on never-answered callbacks).
     pub fn cleanup_stale_callbacks(&self, timeout: std::time::Duration) -> usize {
         let mut cbs = self.callbacks.lock().unwrap_or_else(|e| {
             warn!("EventManager mutex was poisoned, recovering");
             e.into_inner()
         });
         let before = cbs.len();
-        cbs.retain(|_, cb| !cb.responded || cb.created_at.elapsed() < timeout);
+        cbs.retain(|_, cb| {
+            let age = cb.created_at.elapsed();
+            if cb.responded {
+                age < timeout
+            } else {
+                age < UNRESPONDED_CALLBACK_TTL
+            }
+        });
         before - cbs.len()
     }
 }

@@ -170,10 +170,12 @@ pub async fn is_permission_approved(
     plugin_id: &str,
     permission_type: &str,
 ) -> anyhow::Result<bool> {
+    // bug-456: datetime(expires_at) normalizes the RFC3339 'T' separator to
+    // SQLite's space form so same-day expiries compare correctly (see bug-455).
     let query_future = sqlx::query_scalar::<_, i32>(
         "SELECT COUNT(*) FROM permission_requests
          WHERE plugin_id = ? AND permission_type = ? AND status IN ('approved', 'auto-approved')
-           AND (expires_at IS NULL OR expires_at > datetime('now'))",
+           AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))",
     )
     .bind(plugin_id)
     .bind(permission_type)

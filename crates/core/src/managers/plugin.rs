@@ -200,23 +200,36 @@ impl PluginManager {
         permission: &cloto_shared::Permission,
         registry: &PluginRegistry,
     ) -> anyhow::Result<()> {
-        // Reload current list, remove the target, write back atomically
-        let mut perms = self.get_permissions(plugin_id).await?;
-        let before = perms.len();
-        perms.retain(|p| p != permission);
-        if perms.len() == before {
+        // bug-466: revoke atomically like grant_permission (H-08) — a
+        // read-modify-write here loses concurrent revocations of *other*
+        // permissions (both callers read the same snapshot, the later UPDATE
+        // overwrites the earlier one). A single SQL statement that filters the
+        // target out via json_each avoids the TOCTOU window. The EXISTS guard
+        // makes rows_affected==0 mean "not granted" so the error path is kept.
+        let perm_json = serde_json::to_string(permission)?;
+        let result = sqlx::query(
+            "UPDATE plugin_settings SET allowed_permissions = (
+                SELECT json_group_array(value) FROM json_each(allowed_permissions)
+                WHERE value <> json_extract(json(?), '$')
+            ) WHERE plugin_id = ?
+            AND EXISTS (
+                SELECT 1 FROM json_each(allowed_permissions)
+                WHERE value = json_extract(json(?), '$')
+            )",
+        )
+        .bind(&perm_json)
+        .bind(plugin_id)
+        .bind(&perm_json)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
             return Err(anyhow::anyhow!(
                 "Permission '{:?}' is not granted to plugin '{}'",
                 permission,
                 plugin_id
             ));
         }
-        let updated = serde_json::to_string(&perms)?;
-        sqlx::query("UPDATE plugin_settings SET allowed_permissions = ? WHERE plugin_id = ?")
-            .bind(&updated)
-            .bind(plugin_id)
-            .execute(&self.pool)
-            .await?;
 
         // Update in-memory effective permissions
         let plugin_cloto_id = cloto_shared::ClotoId::from_name(plugin_id);
