@@ -306,10 +306,16 @@ async fn proxy_handler(
                     if status.is_success() {
                         json_error(StatusCode::OK, resp_body)
                     } else {
+                        // bug-464: this path faces MCP subprocesses, whose whole
+                        // point is never seeing the key — scrub any echoed key
+                        // material out of the logged body and the returned
+                        // detail before it leaves the proxy.
+                        let redact =
+                            |s: &str| crate::handlers::llm::redact_secrets(s, &provider.api_key);
                         warn!(
                             provider = %provider_id,
                             status = %status,
-                            body = %resp_body,
+                            body = %redact(&resp_body.to_string()),
                             "LLM provider returned error"
                         );
                         // Translate HTTP status into user-friendly error with code
@@ -357,7 +363,7 @@ async fn proxy_handler(
                         let full_msg = if upstream_detail.is_empty() {
                             msg
                         } else {
-                            format!("{}: {}", msg, upstream_detail)
+                            format!("{}: {}", msg, redact(upstream_detail))
                         };
                         json_error(
                             StatusCode::from_u16(status.as_u16())

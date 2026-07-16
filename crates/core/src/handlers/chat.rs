@@ -327,6 +327,33 @@ pub async fn retry_response(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Message '{}' not found", message_id)))?;
 
+    // bug-474: the lookup is by message_id alone — verify the message actually
+    // belongs to the path agent, or a caller could re-inject one agent's content
+    // into another agent's stream by mismatching agent_id/message_id.
+    if original.agent_id != agent_id {
+        return Err(AppError::NotFound(format!(
+            "Message '{}' not found for agent '{}'",
+            message_id, agent_id
+        )));
+    }
+
+    // Mirror post_message's existence/enabled gate (retry dispatches a live event).
+    let (agent, _) = state
+        .agent_manager
+        .get_agent_config(&agent_id)
+        .await
+        .map_err(|_| {
+            AppError::Cloto(cloto_shared::ClotoError::ValidationError(format!(
+                "Agent '{}' not found",
+                agent_id
+            )))
+        })?;
+    if !agent.enabled {
+        return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
+            format!("Agent '{}' is powered off", agent_id),
+        )));
+    }
+
     // Extract text content from the stored ContentBlock[] JSON
     let content_text = serde_json::from_str::<serde_json::Value>(&original.content)
         .ok()

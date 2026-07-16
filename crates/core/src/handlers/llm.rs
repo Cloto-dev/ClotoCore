@@ -473,7 +473,7 @@ pub async fn list_provider_models(
 /// error message before returning it to the Dashboard. reqwest's Display impl
 /// on a `Url` intentionally masks basic-auth credentials already, but upstream
 /// error bodies sometimes echo the key back verbatim.
-fn redact_secrets(s: &str, api_key: &str) -> String {
+pub(crate) fn redact_secrets(s: &str, api_key: &str) -> String {
     if api_key.is_empty() {
         s.to_string()
     } else {

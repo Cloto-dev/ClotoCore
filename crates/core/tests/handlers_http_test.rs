@@ -25,13 +25,20 @@ fn create_test_router(state: Arc<AppState>) -> axum::Router {
         .route(
             "/permissions/{id}/approve",
             post(handlers::approve_permission),
-        );
+        )
+        .route("/permissions/{id}/deny", post(handlers::deny_permission));
 
     let api_routes = axum::Router::new()
         .route("/chat", post(handlers::chat_handler))
         .route("/agents", get(handlers::get_agents))
         .route("/plugins/{id}/config", get(handlers::get_plugin_config))
         .route("/llm/providers", get(handlers::list_llm_providers))
+        // bug-475: register the pending-permissions read so its auth behavior
+        // is locked in by tests (the handler calls check_auth).
+        .route(
+            "/permissions/pending",
+            get(handlers::get_pending_permissions),
+        )
         .merge(admin_routes)
         .with_state(state);
 
@@ -540,6 +547,122 @@ async fn test_grant_permission_success() {
                 .body(Body::from(
                     serde_json::to_string(&payload).expect("serialize JSON"),
                 ))
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+/// bug-475: deny_permission is auth-gated like approve — assert it rejects a
+/// request with no X-API-Key (locks in the default-deny of the mutating path).
+#[tokio::test]
+async fn test_deny_permission_requires_auth() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let app = create_test_router(state);
+
+    let payload = json!({ "denied_by": "admin" });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/permissions/test-id/deny")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&payload).expect("serialize JSON"),
+                ))
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+
+    assert!(
+        response.status() == StatusCode::FORBIDDEN
+            || response.status() == StatusCode::UNAUTHORIZED
+            || response.status() == StatusCode::BAD_REQUEST
+    );
+}
+
+/// bug-475: deny_permission happy path — with a valid key and a pending row it
+/// transitions the request to denied and returns 200.
+#[tokio::test]
+async fn test_deny_permission_success() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+
+    sqlx::query("INSERT INTO permission_requests (request_id, plugin_id, permission_type, justification, status, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("req-deny-1")
+        .bind("test.plugin")
+        .bind("NetworkAccess")
+        .bind("Testing")
+        .bind("pending")
+        .bind(chrono::Utc::now().to_rfc3339())
+        .execute(&state.pool)
+        .await
+        .expect("insert test permission request");
+
+    let app = create_test_router(state);
+
+    let payload = json!({ "denied_by": "admin" });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/permissions/req-deny-1/deny")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("X-API-Key", "test-key")
+                .body(Body::from(
+                    serde_json::to_string(&payload).expect("serialize JSON"),
+                ))
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+/// bug-475: lock in get_pending_permissions' actual behavior. The handler calls
+/// check_auth, so a request with no X-API-Key must be rejected — this guards the
+/// read endpoint's auth gate the same way the mutating endpoints are guarded.
+#[tokio::test]
+async fn test_pending_permissions_requires_auth() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/permissions/pending")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+
+    assert!(
+        response.status() == StatusCode::FORBIDDEN
+            || response.status() == StatusCode::UNAUTHORIZED
+            || response.status() == StatusCode::BAD_REQUEST
+    );
+}
+
+/// bug-475: get_pending_permissions happy path — with a valid key it returns 200.
+#[tokio::test]
+async fn test_pending_permissions_success() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/permissions/pending")
+                .header("X-API-Key", "test-key")
+                .body(Body::empty())
                 .expect("build request"),
         )
         .await
