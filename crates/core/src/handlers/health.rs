@@ -41,10 +41,18 @@ pub async fn scan_handler(
     let servers_dir = crate::managers::mcp_venv::resolve_venv_dir()
         .and_then(|v| v.parent().map(std::path::Path::to_path_buf));
 
-    // Run fresh scan (DB + venv)
-    let report = db::health::run_full_quick_scan(&state.pool, servers_dir.as_deref())
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Health scan failed: {e}")))?;
+    // Run a fresh scan over the full defender check registry
+    // (DEFENDER_DESIGN.md §4) — a superset of the historical DB + venv scan;
+    // the response shape is unchanged.
+    let ctx = crate::defender::checks::CheckCtx {
+        pool: Some(state.pool.clone()),
+        data_dir: state.data_dir.clone(),
+        servers_dir,
+        in_kernel: true,
+        port: state.config.port,
+        offline: false,
+    };
+    let report = crate::defender::checks::run_scan(&ctx).await.report;
 
     // Cache the result
     {

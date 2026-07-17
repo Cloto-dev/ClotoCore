@@ -2892,6 +2892,10 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.7",
+      "advisory": {
+        "affected": ">=0.6.0 <0.6.7",
+        "symptom_check": "legacy_data_dir_drift"
+      },
       "fix_note": "Added a Tauri 2.x NSIS PREINSTALL hook at `dashboard/src-tauri/installer.nsh`, wired via `bundle.windows.nsis.installerHooks` in `tauri.conf.json`. The hook probes both `HKLM` and `HKCU` for `Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\cloto-system` (covering `installMode: \"both\"`), and when a legacy 0.6.5-era install is detected, silently invokes its `UninstallString` via `ExecWait '\"$0\" /S'`. The Tauri 2.x uninstaller's `un.SEC_APPDATA` section is not selected by default under silent mode, so user data at `%APPDATA%\\Roaming\\cloto-system\\` survives the migration — `config.rs:37` continues to resolve `data_dir` to that literal path post-upgrade, preserving chat history, agent state, embedding namespaces, `mcp_access_control` grants, and registered MCP servers. The new 0.6.7 install proceeds to `{autopf}\\ClotoCore\\` via Tauri's default flow and registers a fresh `HKLM\\…\\Uninstall\\ClotoCore` key. The hook is a no-op on fresh 0.6.7 installs (no legacy uninstall key present). Companion fixes shipped in 0.6.7: bug-387 (PR #152, dashboard env_var `name` field) and the release.yml two-phase upload race (PR #151). Sandbox verify pre-tag confirmed: legacy uninstaller ran, `%APPDATA%` data preserved, fresh `ClotoCore` folder created, new uninstall registry key at `HKLM\\…\\Uninstall\\ClotoCore`.",
       "github_issue": 141
     },
