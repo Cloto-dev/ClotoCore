@@ -45,18 +45,11 @@ const ENGINE_IDS = ['cerebras', 'groq', 'deepseek', 'claude', 'local', 'ollama']
 // `voice.tts` entry was removed rather than renamed: no such server exists
 // (TTS ships inside the avatar server via VOICEVOX), so installing it could
 // never succeed.
-const ALL_SELECTABLE_SERVER_IDS = [
-  'cpersona',
-  'terminal',
-  'cron',
-  'websearch',
-  'agent_utils',
-  'embedding',
-  'imagegen',
-  'capture',
-  'gaze',
-  'stt',
-] as const;
+//
+// Every id MUST exist in the live ClotoHub catalog — batch-install silently
+// skips unknown ids (bug-381). Reconciled against the catalog on 2026-07-17;
+// see lib/presets.ts and docs/ONBOARDING_MODERNIZATION_DESIGN.md §3.
+const ALL_SELECTABLE_SERVER_IDS = ['cpersona', 'terminal', 'websearch', 'cembedding', 'cscheduler'] as const;
 
 /** Map server ID → translation key (e.g., "terminal" → "server_terminal"). The
  *  dot replacement only matters for third-party dotted ids. */
@@ -70,7 +63,11 @@ function engineTKey(id: string): string {
   return `engine_${id.replace('mind.', '')}`;
 }
 
-const MANUAL_START_SERVERS = new Set(['gaze', 'capture', 'imagegen', 'stt']);
+// Servers that need a manual start after install. Currently empty: the
+// former members (gaze/capture/imagegen/stt) are not published on the hub
+// catalog and were removed from the selectable set (2026-07-17). The
+// mechanism (asterisk + preset_manual_note) is kept for when they return.
+const MANUAL_START_SERVERS = new Set<string>([]);
 
 const DEFAULT_AGENT_ID = 'agent.cloto_default';
 
