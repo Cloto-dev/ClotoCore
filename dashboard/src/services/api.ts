@@ -313,6 +313,10 @@ export const api = {
     mutate('/system/invalidate-key', 'POST', 'invalidate API key', undefined, { 'X-API-Key': apiKey })
       .then((r) => r.json())
       .then((b) => b.data),
+  regenerateApiKey: (apiKey: string): Promise<{ api_key: string; persisted_to: string }> =>
+    mutate('/system/regenerate-key', 'POST', 'regenerate API key', undefined, { 'X-API-Key': apiKey })
+      .then((r) => r.json())
+      .then((b) => b.data),
 
   // Custom error handling: reads error body for detailed message
   async toggleAgentPower(agentId: string, enabled: boolean, apiKey: string, password?: string): Promise<void> {
@@ -855,6 +859,7 @@ export function createAuthenticatedApi(apiKey: string) {
     denyCommand: (approvalId: string) => api.denyCommand(approvalId, k),
     // System
     invalidateApiKey: () => api.invalidateApiKey(k),
+    regenerateApiKey: () => api.regenerateApiKey(k),
     // MCP servers
     listMcpServers: () => api.listMcpServers(k),
     getMcpServerSettings: (name: string) => api.getMcpServerSettings(name, k),

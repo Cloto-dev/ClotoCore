@@ -16,9 +16,6 @@ macro_rules! with_window_log {
     };
 }
 
-/// Holds the API key for the dashboard (auto-generated or from .env).
-static DASHBOARD_API_KEY: OnceLock<String> = OnceLock::new();
-
 /// The running kernel handle, captured once `start_kernel` succeeds. Kept alive
 /// here (the kernel task runs regardless) and used by the app-exit path to drain
 /// and reap MCP subprocesses instead of orphaning them (orphan-leak fix, Step 4).
@@ -111,18 +108,6 @@ fn begin_shutdown(app: &tauri::AppHandle) {
 #[tauri::command]
 fn shutdown_app(app: tauri::AppHandle) {
     begin_shutdown(&app);
-}
-
-/// Generate a cryptographically random API key (64 hex chars).
-fn generate_api_key() -> String {
-    use rand::rngs::OsRng;
-    use rand::Rng;
-    use std::fmt::Write;
-    let bytes: [u8; 32] = OsRng.gen();
-    bytes.iter().fold(String::with_capacity(64), |mut s, b| {
-        let _ = write!(s, "{b:02x}");
-        s
-    })
 }
 
 /// Returns the kernel HTTP port (used by frontend to construct API URLs).
@@ -317,10 +302,15 @@ fn install_default_packs() -> Result<u32, String> {
     Ok(installed)
 }
 
-/// Returns the API key for dashboard use (auto-generated or from .env).
+/// Returns the API key for dashboard use. Reads the process environment,
+/// which the kernel keeps current across rotations (POST /system/regenerate-key
+/// updates CLOTO_API_KEY in place; kernel and shell share this process).
 #[tauri::command]
 fn get_auto_api_key() -> Option<String> {
-    DASHBOARD_API_KEY.get().cloned()
+    std::env::var("CLOTO_API_KEY")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 // ── Channel-aware updater (docs/RELEASE_PIPELINE_DESIGN.md §5.1) ──
@@ -476,7 +466,7 @@ fn run_smoke() -> i32 {
 
     // Mirror the GUI boot's key handling so admin-gated wiring initializes the same way.
     if std::env::var("CLOTO_API_KEY").is_err() {
-        std::env::set_var("CLOTO_API_KEY", generate_api_key());
+        std::env::set_var("CLOTO_API_KEY", cloto_core::apikey::generate());
     }
 
     let rt = match tokio::runtime::Builder::new_multi_thread()
@@ -712,22 +702,20 @@ pub fn run() {
             // --- Launch the Cloto Kernel Server ---
             // Load .env before spawn so we can inspect CLOTO_API_KEY synchronously.
             dotenvy::dotenv().ok();
+            // Desktop installs have no cwd `.env` — the persistent admin key
+            // lives in the user-data dir (docs/ONBOARDING_MODERNIZATION_DESIGN.md §2).
+            if std::env::var("CLOTO_API_KEY").is_err() {
+                let _ = dotenvy::from_path(cloto_core::config::data_dir().join(".env"));
+            }
 
             // Initialize kernel tracing (stderr + dev-only daily-rotated file log)
             // before spawning start_kernel so the earliest boot logs are captured.
             cloto_core::init_tracing();
 
-            // Provide API key to dashboard: use .env key if present, otherwise auto-generate
-            match std::env::var("CLOTO_API_KEY") {
-                Ok(key) => {
-                    let _ = DASHBOARD_API_KEY.set(key);
-                }
-                Err(_) => {
-                    let key = generate_api_key();
-                    std::env::set_var("CLOTO_API_KEY", &key);
-                    let _ = DASHBOARD_API_KEY.set(key);
-                }
-            }
+            // Ensure a persistent admin key: reuse the loaded .env key or
+            // generate one and persist it to data_dir/.env so the key the user
+            // is handed (Setup Wizard / Settings -> Security) survives restarts.
+            let _ = cloto_core::apikey::ensure_persistent_key();
 
             let kernel_app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
