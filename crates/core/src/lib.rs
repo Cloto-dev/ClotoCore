@@ -9,6 +9,7 @@ pub mod cli;
 pub mod config;
 pub mod consensus;
 pub mod db;
+pub mod defender;
 pub mod events;
 pub mod handlers;
 pub mod installer;
@@ -558,6 +559,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     }
     tracing::info!("📁 Data directory: {}", data_dir.display());
 
+    // 0b'. Defender install receipt (DEFENDER_DESIGN.md §3): refresh the
+    // ledger of kernel-managed paths. Best-effort — never blocks boot.
+    defender::footprint::record(&data_dir, defender::footprint::boot_entries(&data_dir));
+
     // 0c. Ensure Python MCP venv exists (auto-setup on first run)
     // Skip in production if bootstrap setup has not been completed yet.
     let setup_json = data_dir.join("setup-complete.json");
@@ -1080,28 +1085,38 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         );
     }
 
-    // 6d. Startup health scan (optional, default: on)
+    // 6d. Startup health scan (optional, default: on). Runs the full defender
+    // registry — including advisory-feed evaluation (DEFENDER_DESIGN.md §5,
+    // "on scan + boot") — in the background, off the critical startup path.
     if config.health_scan_on_startup {
         let scan_pool = pool.clone();
         let scan_report = app_state.last_health_report.clone();
+        let scan_data_dir = data_dir.clone();
+        let scan_port = config.port;
         tokio::spawn(async move {
-            match db::health::run_quick_scan(&scan_pool).await {
-                Ok(report) => {
-                    let issue_count = report
-                        .checks
-                        .iter()
-                        .filter(|c| c.status != db::health::HealthStatus::Healthy)
-                        .count();
-                    if issue_count > 0 {
-                        tracing::warn!("⚠️ Startup health scan: {issue_count} issue(s) detected");
-                    } else {
-                        tracing::info!("✓ Startup health scan: all clear");
-                    }
-                    let mut cached = scan_report.write().await;
-                    *cached = Some(report);
-                }
-                Err(e) => tracing::warn!("Startup health scan failed: {e}"),
+            let servers_dir = managers::mcp_venv::resolve_venv_dir()
+                .and_then(|v| v.parent().map(std::path::Path::to_path_buf));
+            let ctx = defender::checks::CheckCtx {
+                pool: Some(scan_pool),
+                data_dir: scan_data_dir,
+                servers_dir,
+                in_kernel: true,
+                port: scan_port,
+                offline: false,
+            };
+            let report = defender::checks::run_scan(&ctx).await.report;
+            let issue_count = report
+                .checks
+                .iter()
+                .filter(|c| c.status != db::health::HealthStatus::Healthy)
+                .count();
+            if issue_count > 0 {
+                tracing::warn!("⚠️ Startup health scan: {issue_count} issue(s) detected");
+            } else {
+                tracing::info!("✓ Startup health scan: all clear");
             }
+            let mut cached = scan_report.write().await;
+            *cached = Some(report);
         });
     }
 

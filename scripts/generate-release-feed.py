@@ -98,6 +98,42 @@ def kernel_platform(asset_name: str):
     return m[1] if m else None
 
 
+def advisories_from(issues: list) -> list:
+    """Extract curated advisories (DEFENDER_DESIGN.md §5) from issue-registry
+    entries. Opt-in: only entries carrying an explicit `advisory` object are
+    exported — mechanically converting every fixed bug would drown the client
+    in noise. The advisory object supplies `affected` (version range) and
+    optionally `symptom_check` (a defender registry check name that
+    corroborates the issue locally)."""
+    out = []
+    for issue in issues:
+        adv = issue.get("advisory")
+        if not adv:
+            continue
+        if not adv.get("affected"):
+            log(f"  warn: {issue.get('id')}: advisory without 'affected' range — skipped")
+            continue
+        out.append(
+            {
+                "bug_id": issue.get("id"),
+                "severity": (issue.get("severity") or "").lower(),
+                "affected": adv["affected"],
+                "fixed_in": issue.get("fixed_in"),
+                "symptom_check": adv.get("symptom_check"),
+                "summary": issue.get("summary", ""),
+            }
+        )
+    return out
+
+
+def load_advisories(path: Path) -> list:
+    if not path.exists():
+        log(f"  warn: issue registry not found at {path} — advisories block will be empty")
+        return []
+    data = json.loads(path.read_text())
+    return advisories_from(data.get("issues", []))
+
+
 def http_get(url: str) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": "clotocore-feed-generator"})
     with urllib.request.urlopen(req, timeout=60) as resp:
@@ -208,7 +244,9 @@ def channel_view(entry, *, stable_alias: bool = False) -> dict:
     return view
 
 
-def generate(repo: str, lifecycle: dict, out_dir: Path, max_workers: int) -> None:
+def generate(
+    repo: str, lifecycle: dict, out_dir: Path, max_workers: int, advisories: list | None = None
+) -> None:
     stable_line = lifecycle.get("stable_line")
 
     releases = [
@@ -242,6 +280,9 @@ def generate(repo: str, lifecycle: dict, out_dir: Path, max_workers: int) -> Non
         "lifecycle": lifecycle,
         "channels": {name: view["version"] for name, view in views.items()},
         "releases": [{k: v for k, v in e.items() if k != "_key"} for e in entries],
+        # Known-issue advisories for the defender (DEFENDER_DESIGN.md §5) —
+        # additive field, consumed by `clotocore doctor` / health scan.
+        "advisories": advisories or [],
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     log(f"wrote {out_dir}/manifest.json ({len(entries)} releases)")
@@ -301,6 +342,30 @@ def selftest() -> None:
     view = channel_view(entry("v0.6.7"), stable_alias=True)
     assert view["stable_alias"] is True and "linux-x86_64" in view["platforms"]
 
+    # advisory extraction: opt-in via the `advisory` object, range required
+    issues = [
+        {
+            "id": "bug-386",
+            "summary": "legacy install breaks boot",
+            "severity": "CRITICAL",
+            "status": "fixed",
+            "fixed_in": "0.6.7",
+            "advisory": {"affected": ">=0.6.0 <0.6.7", "symptom_check": "legacy_data_dir_drift"},
+        },
+        {"id": "bug-001", "summary": "no advisory object", "severity": "HIGH", "status": "fixed"},
+        {"id": "bug-002", "summary": "advisory without range", "advisory": {}},
+    ]
+    advisories = advisories_from(issues)
+    assert len(advisories) == 1, "only entries with a complete advisory object are exported"
+    assert advisories[0] == {
+        "bug_id": "bug-386",
+        "severity": "critical",
+        "affected": ">=0.6.0 <0.6.7",
+        "fixed_in": "0.6.7",
+        "symptom_check": "legacy_data_dir_drift",
+        "summary": "legacy install breaks boot",
+    }
+
     print("selftest: OK")
 
 
@@ -308,6 +373,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo", help="owner/name (required unless --selftest)")
     ap.add_argument("--lifecycle", default=".release/lifecycle.json")
+    ap.add_argument("--issue-registry", default="qa/issue-registry.json")
     ap.add_argument("--out", default="feed")
     ap.add_argument("--max-workers", type=int, default=8)
     ap.add_argument("--selftest", action="store_true")
@@ -320,7 +386,8 @@ def main() -> int:
         ap.error("--repo is required")
 
     lifecycle = json.loads(Path(args.lifecycle).read_text())
-    generate(args.repo, lifecycle, Path(args.out), args.max_workers)
+    advisories = load_advisories(Path(args.issue_registry))
+    generate(args.repo, lifecycle, Path(args.out), args.max_workers, advisories)
     return 0
 
 

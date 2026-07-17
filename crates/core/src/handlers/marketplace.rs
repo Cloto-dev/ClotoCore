@@ -736,6 +736,9 @@ pub async fn uninstall_handler(
         );
     }
 
+    // Defender install receipt: the registration is gone either way.
+    crate::defender::footprint::remove(&state.data_dir, &format!("mcp:{server_id}"));
+
     info!("Marketplace server uninstalled: {}", server_id);
 
     super::ok_data(serde_json::json!({
@@ -1047,7 +1050,7 @@ async fn run_install(
     auto_start: bool,
 ) -> anyhow::Result<()> {
     use mgp_sdk::adapters::SourceSpec;
-    match entry.install.as_ref().map(|i| &i.source) {
+    let result = match entry.install.as_ref().map(|i| &i.source) {
         Some(SourceSpec::Git(spec)) => {
             install_from_git(state, entry, spec, env_overrides, auto_start).await
         }
@@ -1061,7 +1064,23 @@ async fn run_install(
             install_from_docker(state, entry, spec, env_overrides, auto_start).await
         }
         None => install_from_monorepo_tarball(state, entry, env_overrides, auto_start).await,
+    };
+    if result.is_ok() {
+        // Defender install receipt (DEFENDER_DESIGN.md §3): every footprint
+        // mutation updates the ledger. Best-effort by contract.
+        let install_dir = state
+            .data_dir
+            .join("mcp-servers")
+            .join(effective_install_dir(entry));
+        crate::defender::footprint::record(
+            &state.data_dir,
+            vec![crate::defender::footprint::ReceiptEntry::dir(
+                format!("mcp:{}", entry.id),
+                &install_dir,
+            )],
+        );
     }
+    result
 }
 
 /// Ensure the toolchain required by `entry.runtime` is available. Emits a

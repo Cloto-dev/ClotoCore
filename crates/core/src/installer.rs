@@ -160,6 +160,23 @@ pub async fn install(prefix: PathBuf, service: bool, user: Option<String>) -> an
         crate::platform::install_service(&prefix, user.as_deref())?;
     }
 
+    // 4b. Defender install receipt (DEFENDER_DESIGN.md §3): ledger every
+    // path this install created. Best-effort — never fails the install.
+    {
+        use crate::defender::footprint::ReceiptEntry;
+        let mut entries = vec![
+            ReceiptEntry::file("binary", &dst_exe),
+            ReceiptEntry::dir("install_prefix", &prefix),
+            ReceiptEntry::dir("install_scripts", &scripts_dir),
+            ReceiptEntry::dir("install_data", &data_dir),
+            ReceiptEntry::file("env", &env_path).secret(),
+        ];
+        if service {
+            entries.push(ReceiptEntry::service("service", service_name()));
+        }
+        crate::defender::footprint::record(&crate::config::data_dir(), entries);
+    }
+
     // 5. Summary
     println!();
     println!("=== Installation complete ===");
@@ -182,6 +199,17 @@ pub async fn install(prefix: PathBuf, service: bool, user: Option<String>) -> an
     Ok(())
 }
 
+/// OS service identifier as registered by `crate::platform::install_service`.
+fn service_name() -> &'static str {
+    if cfg!(windows) {
+        "Cloto"
+    } else if cfg!(target_os = "macos") {
+        "com.cloto.system"
+    } else {
+        "cloto"
+    }
+}
+
 /// Uninstall Cloto from the specified prefix directory
 pub async fn uninstall(prefix: PathBuf) -> anyhow::Result<()> {
     println!("=== ClotoCore Uninstaller ===");
@@ -193,6 +221,20 @@ pub async fn uninstall(prefix: PathBuf) -> anyhow::Result<()> {
         println!("Removing {}...", prefix.display());
         std::fs::remove_dir_all(&prefix)
             .with_context(|| format!("Failed to remove {}", prefix.display()))?;
+    }
+
+    // Defender install receipt: drop the entries this path removed
+    // (best-effort; the user-data dir itself is untouched by this command).
+    let receipt_dir = crate::config::data_dir();
+    for id in [
+        "binary",
+        "install_prefix",
+        "install_scripts",
+        "install_data",
+        "env",
+        "service",
+    ] {
+        crate::defender::footprint::remove(&receipt_dir, id);
     }
 
     println!("Cloto uninstalled.");
