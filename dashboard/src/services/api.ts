@@ -9,6 +9,7 @@ import type {
   ContentBlock,
   Episode,
   MarketplaceCatalogEntry,
+  MarketplaceCollection,
   McpServerInfo,
   McpServerSettings,
   Memory,
@@ -715,11 +716,17 @@ export const api = {
   getMarketplaceCatalog: async (
     apiKey: string,
     forceRefresh = false,
-  ): Promise<{ servers: MarketplaceCatalogEntry[]; cached_at: string }> => {
+  ): Promise<{ servers: MarketplaceCatalogEntry[]; collections?: MarketplaceCollection[]; cached_at: string }> => {
     const url = forceRefresh ? `${API_BASE}/marketplace/catalog?force_refresh=true` : `${API_BASE}/marketplace/catalog`;
     const res = await fetch(url, { headers: { 'X-API-Key': apiKey } });
     if (!res.ok) throw new Error(`Marketplace catalog: ${res.status}`);
-    return res.json().then((b: { data: { servers: MarketplaceCatalogEntry[]; cached_at: string } }) => b.data);
+    return res
+      .json()
+      .then(
+        (b: {
+          data: { servers: MarketplaceCatalogEntry[]; collections?: MarketplaceCollection[]; cached_at: string };
+        }) => b.data,
+      );
   },
 
   installMarketplaceServer: (

@@ -303,6 +303,17 @@ export interface MarketplaceCatalogEntry {
   changelog?: string;
 }
 
+/** Hub-served setup preset (catalog `collections` field). Curation lives
+ * hub-side so preset updates propagate without a client release
+ * (docs/ONBOARDING_MODERNIZATION_DESIGN.md §3). */
+export interface MarketplaceCollection {
+  id: string;
+  /** Lucide icon name hint; unknown names fall back client-side. */
+  icon: string;
+  servers: string[];
+  default_engine?: string | null;
+}
+
 // Bootstrap Setup types
 export interface SetupStatus {
   setup_complete: boolean;

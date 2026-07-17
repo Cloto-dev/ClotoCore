@@ -1,8 +1,9 @@
 import { Layers, Plus, Server, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useHubPresets } from '../hooks/useHubPresets';
 import { displayServerId } from '../lib/format';
 import { isMgpServer } from '../lib/mgp';
-import { detectPreset, SERVER_PRESETS } from '../lib/presets';
+import { detectPreset } from '../lib/presets';
 import type { McpServerInfo } from '../types';
 import { StatusDot, type StatusDotStatus } from './ui/StatusDot';
 
@@ -41,7 +42,8 @@ export function ServerAccessSection({
   onApplyPreset,
 }: Props) {
   const { t } = useTranslation('agents');
-  const activePreset = detectPreset(grantedIds, grantedServers);
+  const hubPresets = useHubPresets();
+  const activePreset = detectPreset(grantedIds, grantedServers, hubPresets);
 
   return (
     <>
@@ -54,7 +56,7 @@ export function ServerAccessSection({
           </h2>
         </div>
         <div className="flex flex-wrap gap-2">
-          {SERVER_PRESETS.map((preset) => {
+          {hubPresets.map((preset) => {
             const isActive = activePreset === preset.id;
             return (
               <button
@@ -67,7 +69,9 @@ export function ServerAccessSection({
                     : 'border-edge bg-glass text-content-secondary hover:border-brand hover:text-brand'
                 }`}
               >
-                {t(`plugin_workspace.preset_${preset.id}`)}
+                {t(`plugin_workspace.preset_${preset.id}`, {
+                  defaultValue: preset.id.charAt(0).toUpperCase() + preset.id.slice(1),
+                })}
                 <span className="ml-1.5 text-[9px] font-mono text-content-tertiary">{preset.servers.length}</span>
               </button>
             );
