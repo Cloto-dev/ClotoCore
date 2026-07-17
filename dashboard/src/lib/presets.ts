@@ -6,13 +6,21 @@ import { isEngineServer } from './serverCategory';
 
 // Server ids are bare (an earlier decision — the category prefixes are retired;
 // docs/CATEGORY_PREFIX_RETIREMENT_DESIGN.md).
-export const MINIMAL_SERVERS = ['cpersona', 'agent_utils'];
+//
+// Every id below MUST exist in the live ClotoHub catalog
+// (https://hub.cloto.dev/api/catalog) — batch-install silently skips unknown
+// ids (bug-381), so a stale id here degrades first-run setup. Reconciled
+// against the catalog on 2026-07-17 (removed: agent_utils, cron, imagegen,
+// embedding → cembedding, stt, capture, gaze — none are published on the
+// hub). The structural fix (hub-served collections) is tracked in
+// docs/ONBOARDING_MODERNIZATION_DESIGN.md §3.
+export const MINIMAL_SERVERS = ['cpersona'];
 
-export const STANDARD_SERVERS = ['cpersona', 'cron', 'terminal', 'websearch', 'agent_utils'];
+export const STANDARD_SERVERS = ['cpersona', 'terminal', 'websearch'];
 
-export const ADVANCED_SERVERS = [...STANDARD_SERVERS, 'imagegen', 'embedding'];
+export const ADVANCED_SERVERS = [...STANDARD_SERVERS, 'cembedding'];
 
-export const EXPERT_SERVERS = [...ADVANCED_SERVERS, 'stt', 'capture', 'gaze'];
+export const EXPERT_SERVERS = [...ADVANCED_SERVERS, 'cscheduler'];
 
 export interface PresetInfo {
   id: string;
