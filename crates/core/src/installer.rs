@@ -11,18 +11,6 @@ fn binary_name() -> &'static str {
     }
 }
 
-/// Generate a cryptographically random API key (64 hex chars)
-fn generate_api_key() -> String {
-    use rand::rngs::OsRng;
-    use rand::Rng;
-    let bytes: [u8; 32] = OsRng.gen();
-    use std::fmt::Write;
-    bytes.iter().fold(String::with_capacity(64), |mut s, b| {
-        let _ = write!(s, "{b:02x}");
-        s
-    })
-}
-
 /// Generate .env file content
 fn env_template(prefix: &Path, api_key: &str) -> String {
     let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
@@ -131,7 +119,7 @@ pub async fn install(prefix: PathBuf, service: bool, user: Option<String>) -> an
     if env_path.exists() {
         info!("ℹ️  .env already exists, skipping");
     } else {
-        let api_key = generate_api_key();
+        let api_key = crate::apikey::generate();
         let env_content = env_template(&prefix, &api_key);
         std::fs::write(&env_path, env_content).context("Failed to write .env")?;
         // Restrict .env permissions (contains CLOTO_API_KEY)

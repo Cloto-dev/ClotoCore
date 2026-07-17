@@ -1,3 +1,4 @@
+import { Check, Copy, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCard } from '../../components/ui/AlertCard';
@@ -17,11 +18,37 @@ export function SecuritySection() {
   const { t: tc } = useTranslation();
   const [newKey, setNewKey] = useState('');
   const [confirmInvalidate, setConfirmInvalidate] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const saveAction = useAsyncAction(t('security.error_invalid_key'));
   const invalidateAction = useAsyncAction(t('security.error_invalidate_failed'));
+  const regenerateAction = useAsyncAction(t('security.error_regenerate_failed'));
 
-  const error = saveAction.error || invalidateAction.error;
+  const error = saveAction.error || invalidateAction.error || regenerateAction.error;
+
+  const handleCopy = async () => {
+    if (!authApi.apiKey) return;
+    try {
+      await navigator.clipboard.writeText(authApi.apiKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable (non-secure context) — reveal instead.
+      setRevealed(true);
+    }
+  };
+
+  const handleRegenerate = () => {
+    if (!authApi.apiKey) return;
+    regenerateAction.run(async () => {
+      const result = await authApi.regenerateApiKey();
+      setApiKey(result.api_key);
+      setConfirmRegenerate(false);
+      setRevealed(true); // show the new key once so the user can save it
+    });
+  };
 
   const handleSave = () => {
     if (!newKey.trim()) return;
@@ -60,6 +87,47 @@ export function SecuritySection() {
               {authApi.apiKey ? t('security.configured') : t('security.not_configured')}
             </span>
           </div>
+
+          {/* Current key: reveal / copy / regenerate (admin-key handover,
+              docs/ONBOARDING_MODERNIZATION_DESIGN.md §2.2) */}
+          {authApi.apiKey && (
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold text-content-tertiary uppercase tracking-wider">
+                {t('security.current_key')}
+              </span>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 truncate bg-surface-secondary border border-edge rounded-lg px-3 py-2 text-xs font-mono text-content-primary select-all">
+                  {revealed ? authApi.apiKey : '••••••••••••••••'}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => setRevealed((v) => !v)}
+                  aria-label={t('security.reveal_key')}
+                  className="p-2 rounded-lg bg-surface-secondary border border-edge text-content-secondary hover:text-content-primary transition-colors"
+                >
+                  {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  aria-label={t('security.copy_key')}
+                  className="p-2 rounded-lg bg-surface-secondary border border-edge text-content-secondary hover:text-content-primary transition-colors"
+                >
+                  {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmRegenerate(true)}
+                  disabled={regenerateAction.isLoading}
+                  aria-label={t('security.regenerate_label')}
+                  className="p-2 rounded-lg bg-surface-secondary border border-edge text-amber-500 hover:text-amber-400 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={regenerateAction.isLoading ? 'animate-spin' : ''} />
+                </button>
+              </div>
+              <p className="text-[11px] text-content-tertiary">{t('security.current_key_hint')}</p>
+            </div>
+          )}
 
           <div className="flex gap-2">
             <SecretInput
@@ -106,6 +174,17 @@ export function SecuritySection() {
         variant="danger"
         onConfirm={handleInvalidate}
         onCancel={() => setConfirmInvalidate(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmRegenerate}
+        title={t('security.regenerate_label')}
+        message={t('security.regenerate_confirm_desc')}
+        confirmLabel={tc('confirm')}
+        cancelLabel={tc('cancel')}
+        variant="danger"
+        onConfirm={handleRegenerate}
+        onCancel={() => setConfirmRegenerate(false)}
       />
 
       <LlmProvidersSection />
