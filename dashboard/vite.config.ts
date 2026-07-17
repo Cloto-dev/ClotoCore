@@ -26,8 +26,12 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'three-vrm': ['three', '@pixiv/three-vrm'],
+        // Function form (required by Vite 8 / Rolldown; also valid on Rollup).
+        // Groups three.js and all @pixiv/three-vrm* packages into one chunk.
+        manualChunks(id) {
+          if (id.includes('node_modules/three/') || id.includes('node_modules/@pixiv/three-vrm')) {
+            return 'three-vrm'
+          }
         },
       },
     },
