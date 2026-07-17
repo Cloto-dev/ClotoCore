@@ -223,7 +223,7 @@ pub async fn run_standard_repair(pool: &SqlitePool) -> anyhow::Result<RepairRepo
 
 // ── Individual Checks ──
 
-async fn check_db_connection(pool: &SqlitePool) -> HealthCheck {
+pub(crate) async fn check_db_connection(pool: &SqlitePool) -> HealthCheck {
     match db_timeout(sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(pool)).await {
         Ok(_) => HealthCheck {
             name: "db_connection".into(),
@@ -242,7 +242,7 @@ async fn check_db_connection(pool: &SqlitePool) -> HealthCheck {
     }
 }
 
-async fn check_orphaned_chat_messages(pool: &SqlitePool) -> HealthCheck {
+pub(crate) async fn check_orphaned_chat_messages(pool: &SqlitePool) -> HealthCheck {
     let query = "SELECT COUNT(*) FROM chat_messages WHERE agent_id NOT IN (SELECT id FROM agents)";
     match db_timeout(sqlx::query_scalar::<_, i32>(query).fetch_one(pool)).await {
         Ok(0) => HealthCheck {
@@ -269,7 +269,7 @@ async fn check_orphaned_chat_messages(pool: &SqlitePool) -> HealthCheck {
     }
 }
 
-async fn check_orphaned_trusted_commands(pool: &SqlitePool) -> HealthCheck {
+pub(crate) async fn check_orphaned_trusted_commands(pool: &SqlitePool) -> HealthCheck {
     let query =
         "SELECT COUNT(*) FROM trusted_commands WHERE agent_id NOT IN (SELECT id FROM agents)";
     match db_timeout(sqlx::query_scalar::<_, i32>(query).fetch_one(pool)).await {
@@ -297,7 +297,7 @@ async fn check_orphaned_trusted_commands(pool: &SqlitePool) -> HealthCheck {
     }
 }
 
-async fn check_orphaned_permission_requests(pool: &SqlitePool) -> HealthCheck {
+pub(crate) async fn check_orphaned_permission_requests(pool: &SqlitePool) -> HealthCheck {
     let query = "SELECT COUNT(*) FROM permission_requests WHERE plugin_id NOT IN (SELECT plugin_id FROM plugin_settings) AND status = 'pending'";
     match db_timeout(sqlx::query_scalar::<_, i32>(query).fetch_one(pool)).await {
         Ok(0) => HealthCheck {
@@ -324,7 +324,7 @@ async fn check_orphaned_permission_requests(pool: &SqlitePool) -> HealthCheck {
     }
 }
 
-async fn check_audit_chain_tail(pool: &SqlitePool) -> HealthCheck {
+pub(crate) async fn check_audit_chain_tail(pool: &SqlitePool) -> HealthCheck {
     // Verify the last 2 audit log entries have consistent chain hashes
     let query = "SELECT chain_hash, timestamp, event_type, actor_id, target_id, result FROM audit_logs ORDER BY id DESC LIMIT 2";
 
@@ -380,7 +380,7 @@ async fn check_audit_chain_tail(pool: &SqlitePool) -> HealthCheck {
     }
 }
 
-async fn get_db_size(pool: &SqlitePool) -> anyhow::Result<i64> {
+pub(crate) async fn get_db_size(pool: &SqlitePool) -> anyhow::Result<i64> {
     let page_count: i64 =
         db_timeout(sqlx::query_scalar("SELECT page_count FROM pragma_page_count").fetch_one(pool))
             .await?;
@@ -421,7 +421,7 @@ async fn repair_orphaned_permission_requests(pool: &SqlitePool) -> anyhow::Resul
 
 // ── venv Checks ──
 
-fn check_venv_exists(servers_dir: &Path) -> HealthCheck {
+pub(crate) fn check_venv_exists(servers_dir: &Path) -> HealthCheck {
     let venv_dir = servers_dir.join(".venv");
     let pyvenv_cfg = venv_dir.join("pyvenv.cfg");
     if pyvenv_cfg.exists() {
@@ -443,7 +443,7 @@ fn check_venv_exists(servers_dir: &Path) -> HealthCheck {
     }
 }
 
-fn check_venv_python_version(servers_dir: &Path) -> HealthCheck {
+pub(crate) fn check_venv_python_version(servers_dir: &Path) -> HealthCheck {
     let venv_dir = servers_dir.join(".venv");
     if !venv_dir.join("pyvenv.cfg").exists() {
         // Already reported by check_venv_exists

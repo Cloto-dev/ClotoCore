@@ -125,6 +125,16 @@ file). Illustrative schema:
         "macos-arm64": { "url": "…", "sha256": "…" }
       }
     }
+  ],
+  "advisories": [
+    {
+      "bug_id": "bug-386",
+      "severity": "critical",
+      "affected": ">=0.6.0 <0.6.7",
+      "fixed_in": "0.6.7",
+      "symptom_check": "legacy_data_dir_drift",
+      "summary": "…"
+    }
   ]
 }
 ```
@@ -138,6 +148,11 @@ file). Illustrative schema:
   `macos-x64`, `macos-arm64`, `windows-x64`).
 - `signature` is the existing per-artifact minisign signature (unchanged);
   `sha256` comes from the release's `SHA256SUMS.txt`.
+- `advisories` (additive, DEFENDER_DESIGN.md §5) is extracted from
+  `qa/issue-registry.json` entries that carry an opt-in `advisory` object
+  (`{ "affected": "<semver range>", "symptom_check": "<check name>" }`).
+  Consumed by `clotocore doctor` and the kernel health scan;
+  recommendation-only on the client (the defender never auto-updates).
 
 ### 4.2 Lifecycle file (`.release/lifecycle.json`)
 

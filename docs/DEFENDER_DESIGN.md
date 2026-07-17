@@ -1,6 +1,6 @@
 # Lifecycle Defender — Unified Health, Repair, and Clean-Uninstall Subsystem
 
-**Status**: Draft (design approved 2026-07-17)
+**Status**: Approved (2026-07-17) — Phase 1 (receipt / check registry / doctor / updater-guard / advisories) implemented; Phases 2–3 pending
 **Tracking**: CSC Goal #173 (Scope #12, 0.6.8 line)
 **Related**: `ONBOARDING_MODERNIZATION_DESIGN.md` (admin-key handover is the prerequisite for the sudo-mode gate in §7), `RELEASE_PIPELINE_DESIGN.md` (signed manifest carries the advisory feed), `INSTALLER_DISTRIBUTION.md`
 

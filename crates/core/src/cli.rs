@@ -51,6 +51,15 @@ pub enum Commands {
         #[arg(long, short = 'y')]
         yes: bool,
     },
+    /// Diagnose the installation (read-only) — works without a running kernel
+    Doctor {
+        /// Output the report as JSON
+        #[arg(long)]
+        json: bool,
+        /// Skip checks that need the network (advisory feed)
+        #[arg(long)]
+        offline: bool,
+    },
     /// Print version and build information
     Version,
     /// Internal: perform exe swap after parent exits (used by update mechanism)
@@ -123,6 +132,7 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
             version,
             yes,
         } => update_command(check, version, yes).await,
+        Commands::Doctor { json, offline } => crate::defender::doctor::run(json, offline).await,
         Commands::Version => {
             println!("ClotoCore v{}", env!("CARGO_PKG_VERSION"));
             println!("Build target: {}", env!("TARGET"));
@@ -365,6 +375,15 @@ async fn update_command(
     std::fs::write(&new_path, &binary_data)?;
     crate::platform::set_executable_permission(&new_path)?;
     crate::platform::swap_running_binary(&new_path, &exe_path, &old_path)?;
+
+    // Defender install receipt: record the swapped binary (best-effort;
+    // app_version refreshes when the new binary boots).
+    crate::defender::footprint::record(
+        &crate::config::data_dir(),
+        vec![crate::defender::footprint::ReceiptEntry::file(
+            "binary", &exe_path,
+        )],
+    );
 
     println!();
     println!(

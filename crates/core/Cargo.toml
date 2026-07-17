@@ -53,6 +53,9 @@ zip = "2"
 unicode-normalization = "0.1"
 lindera = { version = "2.3", features = ["embed-ipadic"] }
 dirs = "6"
+semver = "1"
+minisign-verify = "0.2"
+fs4 = { version = "0.13", default-features = false }
 
 # bug-358: graceful SIGTERM (before SIGKILL) for MCP child shutdown. Unix only —
 # tokio's process API can only send SIGKILL.
