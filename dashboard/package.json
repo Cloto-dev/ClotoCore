@@ -36,7 +36,7 @@
     "react-i18next": "^17.0.10",
     "react-router-dom": "^7.15.1",
     "simplex-noise": "^4.0.3",
-    "three": "^0.172.0"
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.7",
@@ -48,7 +48,7 @@
     "@types/marked": "^5.0.2",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
-    "@types/three": "^0.172.0",
+    "@types/three": "^0.185.1",
     "@vitejs/plugin-react": "^5.1.4",
     "autoprefixer": "^10.5.0",
     "jsdom": "^29.1.1",
