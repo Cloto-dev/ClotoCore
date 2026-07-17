@@ -95,7 +95,15 @@ pub(crate) fn check_auth_with_query(
     let from_query = query.get("token").map(String::as_str);
     let provided = from_header.or(from_query);
 
-    if let Some(ref required_key) = state.config.admin_api_key {
+    // Read the live key (rotatable via /system/regenerate-key), not the
+    // boot-time config snapshot. Fail closed on a poisoned lock.
+    let Ok(required) = state.admin_api_key.read().map(|guard| (*guard).clone()) else {
+        tracing::warn!("Failed to read admin_api_key lock — denying (fail-closed)");
+        return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+            cloto_shared::Permission::AdminAccess,
+        )));
+    };
+    if let Some(ref required_key) = required {
         use subtle::ConstantTimeEq;
         let matches: bool = match provided {
             Some(p) => p.as_bytes().ct_eq(required_key.as_bytes()).into(),
@@ -956,11 +964,106 @@ pub async fn invalidate_api_key(
     }))
 }
 
+// ============================================================
+// API Key Regeneration (rotation)
+// ============================================================
+
+/// Rotate the admin API key: generate a new key, persist it to the resolved
+/// `.env`, and swap it into the live auth state. The old key stops matching
+/// immediately (no restart needed). The new key is returned once in the
+/// response — the caller (Setup Wizard / Settings → Security) is responsible
+/// for handing it to the user. See `docs/ONBOARDING_MODERNIZATION_DESIGN.md` §2.
+///
+/// **Route:** `POST /api/system/regenerate-key` (admin auth required)
+pub async fn regenerate_api_key(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let new_key = crate::apikey::generate();
+    let target = crate::apikey::resolve_env_target();
+    crate::apikey::persist_key(&target, &new_key).map_err(|e| {
+        AppError::Internal(anyhow::anyhow!(
+            "Failed to persist the new key to {} — keeping the current key active: {e}",
+            target.display()
+        ))
+    })?;
+
+    // Keep the process environment coherent (the desktop shell reads
+    // CLOTO_API_KEY via get_auto_api_key; kernel and shell share a process).
+    std::env::set_var("CLOTO_API_KEY", &new_key);
+
+    if let Ok(mut guard) = state.admin_api_key.write() {
+        *guard = Some(new_key.clone());
+    } else {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "admin_api_key lock poisoned — key persisted but not activated; restart to apply"
+        )));
+    }
+
+    tracing::warn!(
+        "🔑 Admin API key regenerated (persisted to {}) — the previous key is no longer valid",
+        target.display()
+    );
+    spawn_admin_audit(
+        state.pool.clone(),
+        "api_key_regenerated",
+        "system".to_string(),
+        format!("persisted to {}", target.display()),
+        None,
+        None,
+        None,
+    );
+
+    ok_data(serde_json::json!({
+        "api_key": new_key,
+        "persisted_to": target.display().to_string(),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_utils::create_test_app_state;
     use axum::http::HeaderValue;
+
+    #[tokio::test]
+    async fn test_regenerate_api_key_rotates_live_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let env_path = dir.path().join(".env");
+        std::env::set_var("CLOTO_ENV_PATH", &env_path);
+
+        let state = create_test_app_state(Some("old-key".to_string())).await;
+        let mut old_headers = HeaderMap::new();
+        old_headers.insert("X-API-Key", HeaderValue::from_static("old-key"));
+
+        let resp = match regenerate_api_key(State(state.clone()), old_headers.clone()).await {
+            Ok(r) => r,
+            Err(_) => panic!("regenerate_api_key failed"),
+        };
+        let new_key = resp.0["data"]["api_key"].as_str().unwrap().to_string();
+        assert_eq!(new_key.len(), 64);
+
+        // The old key stops matching immediately; the new one authenticates.
+        assert!(check_auth(&state, &old_headers).is_err());
+        let mut new_headers = HeaderMap::new();
+        new_headers.insert("X-API-Key", HeaderValue::from_str(&new_key).unwrap());
+        assert!(check_auth(&state, &new_headers).is_ok());
+
+        // Persisted to the CLOTO_ENV_PATH-overridden target.
+        let content = std::fs::read_to_string(&env_path).unwrap();
+        assert!(content.contains(&format!("CLOTO_API_KEY={new_key}")));
+
+        std::env::remove_var("CLOTO_ENV_PATH");
+    }
+
+    #[tokio::test]
+    async fn test_regenerate_api_key_requires_auth() {
+        let state = create_test_app_state(Some("secret".to_string())).await;
+        let headers = HeaderMap::new(); // no key provided
+        assert!(regenerate_api_key(State(state), headers).await.is_err());
+    }
 
     #[tokio::test]
     async fn test_check_auth_with_valid_api_key() {

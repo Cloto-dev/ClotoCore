@@ -3,6 +3,7 @@
 //! Provides the Axum HTTP server, event-driven plugin system, SQLite persistence,
 //! MCP server management, and the agentic loop that ties agents to reasoning engines.
 
+pub mod apikey;
 pub mod capabilities;
 pub mod cli;
 pub mod config;
@@ -171,6 +172,10 @@ pub struct AppState {
     /// In-memory cache of revoked API key hashes (SHA-256 fingerprints).
     /// Loaded from DB at startup; updated on POST /api/system/invalidate-key.
     pub revoked_keys: Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>,
+    /// Live admin API key. Seeded from `config.admin_api_key` at boot and
+    /// swapped in place by POST /api/system/regenerate-key so a rotation
+    /// takes effect without a restart (std RwLock: sync readers in check_auth).
+    pub admin_api_key: std::sync::RwLock<Option<String>>,
     /// Pending command approval requests (kernel ↔ API handler bridge).
     pub pending_command_approvals: handlers::command_approval::PendingApprovals,
     /// Session-scoped trusted command names (cleared on restart).
@@ -801,6 +806,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         plugin_manager: plugin_manager.clone(),
         mcp_manager: mcp_manager.clone(),
         dynamic_router: dynamic_router.clone(),
+        admin_api_key: std::sync::RwLock::new(config.admin_api_key.clone()),
         config: config.clone(),
         data_dir: data_dir.clone(),
         event_history: event_history.clone(),
@@ -1353,6 +1359,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         )
         // API key invalidation
         .route("/system/invalidate-key", post(handlers::invalidate_api_key))
+        .route("/system/regenerate-key", post(handlers::regenerate_api_key))
         // Marketplace (auth required)
         .route("/marketplace/catalog", get(handlers::catalog_handler))
         .route("/marketplace/install", post(handlers::install_handler))

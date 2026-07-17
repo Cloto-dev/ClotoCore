@@ -1538,6 +1538,12 @@ video {
           user-select: text;
 }
 
+.select-all {
+  -webkit-user-select: all;
+     -moz-user-select: all;
+          user-select: all;
+}
+
 .resize-none {
   resize: none;
 }
@@ -2833,6 +2839,10 @@ video {
   text-decoration-line: underline;
 }
 
+.accent-brand {
+  accent-color: rgb(var(--brand-primary) / 1);
+}
+
 .opacity-0 {
   opacity: 0;
 }
@@ -3586,6 +3596,11 @@ video {
 
 .hover\:bg-white\/20:hover {
   background-color: rgb(255 255 255 / 0.2);
+}
+
+.hover\:text-amber-400:hover {
+  --tw-text-opacity: 1;
+  color: rgb(251 191 36 / var(--tw-text-opacity, 1));
 }
 
 .hover\:text-amber-500:hover {

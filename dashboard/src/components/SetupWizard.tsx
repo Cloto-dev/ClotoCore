@@ -5,9 +5,13 @@ import {
   ChevronDown,
   Circle,
   Clock,
+  Copy,
+  Eye,
+  EyeOff,
   Loader2,
   Monitor,
   Moon,
+  RefreshCw,
   Server,
   Settings,
   Sun,
@@ -29,7 +33,7 @@ const BUILTIN_LANGUAGES = [
   { code: 'ja', label: '日本語' },
 ];
 
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 8;
 
 // ============================================================
 // Preset Definitions
@@ -90,7 +94,7 @@ export function SetupWizard({ onComplete }: Props) {
   const { t, i18n } = useTranslation('wizard');
   const { preference, setPreference } = useTheme();
   const { identity, setIdentity } = useUserIdentity();
-  const { apiKey } = useApiKey();
+  const { apiKey, setApiKey } = useApiKey();
   const [customLangs, setCustomLangs] = useState<{ code: string; label: string }[]>([]);
   const [displayName, setDisplayName] = useState(identity.name === 'User' ? '' : identity.name);
 
@@ -100,6 +104,12 @@ export function SetupWizard({ onComplete }: Props) {
   const [customServers, setCustomServers] = useState<Set<string>>(new Set(STANDARD_SERVERS));
   const [applying, setApplying] = useState(false);
   const [presetError, setPresetError] = useState(false);
+  // Admin-key handover state (Step 6, docs/ONBOARDING_MODERNIZATION_DESIGN.md §2.1)
+  const [wizardKey, setWizardKey] = useState('');
+  const [keyRevealed, setKeyRevealed] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
+  const [keySaved, setKeySaved] = useState(false);
+  const [keyRegenerating, setKeyRegenerating] = useState(false);
   // Installation state (Step 5)
   const api = useApi();
   const [installStarted, setInstallStarted] = useState(false);
@@ -260,7 +270,7 @@ export function SetupWizard({ onComplete }: Props) {
     }
   };
 
-  // Step 4: skip — jump directly to Quick Guide (step 6), skipping installation
+  // Step 4: skip — jump past installation to the admin-key step (6)
   const handlePresetSkip = () => {
     setStep(6);
   };
@@ -382,6 +392,51 @@ export function SetupWizard({ onComplete }: Props) {
     { value: 'dark' as const, icon: Moon, label: t('theme_dark') },
     { value: 'system' as const, icon: Monitor, label: t('theme_system') },
   ];
+
+  // Step 6: resolve the admin key for handover (context → sessionStorage → Tauri)
+  useEffect(() => {
+    if (step !== 6 || wizardKey) return;
+    (async () => {
+      let key = apiKey || sessionStorage.getItem('cloto-api-key') || '';
+      if (!key) {
+        const tauriKey = await getAutoApiKey();
+        if (tauriKey) {
+          key = tauriKey;
+          sessionStorage.setItem('cloto-api-key', key);
+        }
+      }
+      setWizardKey(key);
+    })();
+  }, [step, apiKey, wizardKey]);
+
+  const handleKeyCopy = async () => {
+    if (!wizardKey) return;
+    try {
+      await navigator.clipboard.writeText(wizardKey);
+      setKeyCopied(true);
+      setTimeout(() => setKeyCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable — reveal so the user can copy manually.
+      setKeyRevealed(true);
+    }
+  };
+
+  const handleKeyRegenerate = async () => {
+    if (!wizardKey || keyRegenerating) return;
+    setKeyRegenerating(true);
+    try {
+      const authed = createAuthenticatedApi(wizardKey);
+      const result = await authed.regenerateApiKey();
+      setWizardKey(result.api_key);
+      setApiKey(result.api_key);
+      setKeyRevealed(true); // show the new key once so the user can save it
+      setKeySaved(false); // the saved confirmation applies to the OLD key
+    } catch {
+      // Keep the current key on failure; Settings → Security offers a retry.
+    } finally {
+      setKeyRegenerating(false);
+    }
+  };
 
   const guideItems = [
     { icon: Users, label: 'Agent', desc: t('guide_agents') },
@@ -591,6 +646,74 @@ export function SetupWizard({ onComplete }: Props) {
             )}
 
             {step === 6 && (
+              <div className="space-y-4 w-full max-w-sm mx-auto">
+                <div className="text-center">
+                  <h2 className="text-xl font-bold text-content-primary">
+                    {t('admin_key_title', { defaultValue: 'Administrator Key' })}
+                  </h2>
+                  <p className="text-[11px] text-content-tertiary mt-1">
+                    {t('admin_key_desc', {
+                      defaultValue:
+                        'This is your ClotoCore administrator key. You will be asked to present it for critical operations such as a complete uninstall.',
+                    })}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 truncate bg-surface-secondary border border-edge rounded-lg px-3 py-2 text-xs font-mono text-content-primary select-all">
+                    {wizardKey
+                      ? keyRevealed
+                        ? wizardKey
+                        : '••••••••••••••••'
+                      : t('admin_key_unavailable', { defaultValue: 'Key unavailable — see Settings → Security' })}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => setKeyRevealed((v) => !v)}
+                    disabled={!wizardKey}
+                    aria-label={t('admin_key_reveal', { defaultValue: 'Reveal key' })}
+                    className="p-2 rounded-lg bg-surface-secondary border border-edge text-content-secondary hover:text-content-primary transition-colors disabled:opacity-40"
+                  >
+                    {keyRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleKeyCopy}
+                    disabled={!wizardKey}
+                    aria-label={t('admin_key_copy', { defaultValue: 'Copy key' })}
+                    className="p-2 rounded-lg bg-surface-secondary border border-edge text-content-secondary hover:text-content-primary transition-colors disabled:opacity-40"
+                  >
+                    {keyCopied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleKeyRegenerate}
+                    disabled={!wizardKey || keyRegenerating}
+                    aria-label={t('admin_key_regenerate', { defaultValue: 'Regenerate key' })}
+                    className="p-2 rounded-lg bg-surface-secondary border border-edge text-amber-500 hover:text-amber-400 transition-colors disabled:opacity-40"
+                  >
+                    <RefreshCw size={14} className={keyRegenerating ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+                <p className="text-[11px] text-content-tertiary text-center">
+                  {t('admin_key_hint', {
+                    defaultValue: 'You can view or regenerate it anytime in Settings → Security.',
+                  })}
+                </p>
+                <label className="flex items-center justify-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={keySaved}
+                    onChange={(e) => setKeySaved(e.target.checked)}
+                    className="accent-brand"
+                  />
+                  <span className="text-xs text-content-secondary">
+                    {t('admin_key_saved_confirm', { defaultValue: 'I have saved this key in a safe place' })}
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {step === 7 && (
               <div className="space-y-5 w-full">
                 <h2 className="text-xl font-bold text-content-primary text-center">{t('quick_guide')}</h2>
                 <div className="space-y-3">
@@ -667,6 +790,15 @@ export function SetupWizard({ onComplete }: Props) {
                 </div>
               ) : step === 5 ? (
                 <div /> // Installation auto-advances
+              ) : step === 6 ? (
+                <button
+                  onClick={next}
+                  disabled={!keySaved && !!wizardKey}
+                  aria-label={t('next')}
+                  className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {t('next')}
+                </button>
               ) : step < TOTAL_STEPS - 1 ? (
                 <button
                   onClick={next}

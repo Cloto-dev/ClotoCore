@@ -28,6 +28,7 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
 
     let mut config = AppConfig::load().unwrap();
     config.admin_api_key = admin_api_key;
+    let config_admin_key = config.admin_api_key.clone();
 
     let rate_limiter = Arc::new(crate::middleware::RateLimiter::new(
         config.rate_limit_per_sec,
@@ -58,6 +59,7 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
         rate_limiter,
         shutdown,
         revoked_keys: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
+        admin_api_key: std::sync::RwLock::new(config_admin_key),
         pending_command_approvals: Arc::new(dashmap::DashMap::new()),
         session_trusted_commands: Arc::new(dashmap::DashMap::new()),
         active_cron_contexts: Arc::new(dashmap::DashMap::new()),
