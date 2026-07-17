@@ -37,6 +37,26 @@ pub struct Registry {
     pub schema_version: u32,
     pub updated_at: String,
     pub servers: Vec<RegistryEntry>,
+    /// Hub-served setup-preset curation (ONBOARDING_MODERNIZATION_DESIGN.md
+    /// §3). Absent on legacy registries — `#[serde(default)]` keeps old
+    /// catalogs parseable; the dashboard falls back to its bundled presets
+    /// when the list is empty.
+    #[serde(default)]
+    pub collections: Vec<CollectionEntry>,
+}
+
+/// One hub-curated setup preset, passed through to the dashboard verbatim.
+/// Shape mirrors the hub's `catalog::collections::Collection`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionEntry {
+    pub id: String,
+    /// Lucide icon name hint (e.g. "layers"); unknown names fall back
+    /// client-side.
+    #[serde(default)]
+    pub icon: String,
+    pub servers: Vec<String>,
+    #[serde(default)]
+    pub default_engine: Option<String>,
 }
 
 // ── Catalog cache ───────────────────────────────────────────────────
@@ -405,6 +425,9 @@ pub async fn catalog_handler(
 
     super::ok_data(serde_json::json!({
         "servers": entries,
+        // Hub-curated setup presets, passed through for the dashboard's
+        // preset resolution chain (bundled presets are its offline floor).
+        "collections": registry.collections,
         "cached_at": cached_at,
         "is_stale": is_stale,
         "stale_reason": stale_reason,

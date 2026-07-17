@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next';
 import { useApiKey } from '../contexts/ApiKeyContext';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApi } from '../hooks/useApi';
+import { useHubPresets } from '../hooks/useHubPresets';
 import { useTheme } from '../hooks/useTheme';
 import { getCustomLanguages } from '../i18n';
 import { getAutoApiKey } from '../lib/tauri';
@@ -39,7 +40,7 @@ const TOTAL_STEPS = 8;
 // Preset Definitions
 // ============================================================
 
-import { SERVER_PRESETS, STANDARD_SERVERS } from '../lib/presets';
+import { type PresetInfo, STANDARD_SERVERS } from '../lib/presets';
 
 // Engine ids are bare (Goal #142 — the `mind.` prefix is retired). Catalog
 // engines were already bare; built-ins (local/ollama) are now bare too.
@@ -98,7 +99,8 @@ export function SetupWizard({ onComplete }: Props) {
   const [customLangs, setCustomLangs] = useState<{ code: string; label: string }[]>([]);
   const [displayName, setDisplayName] = useState(identity.name === 'User' ? '' : identity.name);
 
-  // Preset state
+  // Preset state (hub-resolved with bundled floor — useHubPresets)
+  const hubPresets = useHubPresets();
   const [selectedPreset, setSelectedPreset] = useState<string>('advanced');
   const [selectedEngine, setSelectedEngine] = useState('deepseek');
   const [customServers, setCustomServers] = useState<Set<string>>(new Set(STANDARD_SERVERS));
@@ -172,7 +174,7 @@ export function SetupWizard({ onComplete }: Props) {
   const handlePresetSelect = (presetId: string) => {
     setSelectedPreset(presetId);
     if (presetId !== 'custom') {
-      const preset = SERVER_PRESETS.find((p) => p.id === presetId);
+      const preset = hubPresets.find((p) => p.id === presetId);
       if (preset) {
         setSelectedEngine(preset.defaultEngine);
         setCustomServers(new Set(preset.servers));
@@ -193,7 +195,7 @@ export function SetupWizard({ onComplete }: Props) {
     const base =
       selectedPreset === 'custom'
         ? Array.from(customServers)
-        : (SERVER_PRESETS.find((p) => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
+        : (hubPresets.find((p) => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
     // Always include the selected engine in server grants
     if (selectedEngine && !base.includes(selectedEngine)) {
       return [...base, selectedEngine];
@@ -526,6 +528,7 @@ export function SetupWizard({ onComplete }: Props) {
             {step === 4 && (
               <PresetStep
                 t={t}
+                presets={hubPresets}
                 selectedPreset={selectedPreset}
                 selectedEngine={selectedEngine}
                 customServers={customServers}
@@ -829,7 +832,8 @@ export function SetupWizard({ onComplete }: Props) {
 // ============================================================
 
 interface PresetStepProps {
-  t: (key: string) => string;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+  presets: PresetInfo[];
   selectedPreset: string;
   selectedEngine: string;
   customServers: Set<string>;
@@ -840,6 +844,7 @@ interface PresetStepProps {
 
 function PresetStep({
   t,
+  presets,
   selectedPreset,
   selectedEngine,
   customServers,
@@ -847,12 +852,12 @@ function PresetStep({
   onSelectEngine,
   onToggleServer,
 }: PresetStepProps) {
-  const presetCards = [...SERVER_PRESETS.map((p) => ({ id: p.id, icon: p.icon })), { id: 'custom', icon: Settings }];
+  const presetCards = [...presets.map((p) => ({ id: p.id, icon: p.icon })), { id: 'custom', icon: Settings }];
 
   const activeServers =
     selectedPreset === 'custom'
       ? customServers
-      : new Set(SERVER_PRESETS.find((p) => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
+      : new Set(presets.find((p) => p.id === selectedPreset)?.servers ?? STANDARD_SERVERS);
 
   const hasManualStart = Array.from(activeServers).some((s) => MANUAL_START_SERVERS.has(s));
 
@@ -877,13 +882,17 @@ function PresetStep({
             }`}
           >
             <Icon size={18} />
-            <span className="text-[10px] font-bold leading-tight">{t(`preset_${id}`)}</span>
+            <span className="text-[10px] font-bold leading-tight">
+              {t(`preset_${id}`, { defaultValue: id.charAt(0).toUpperCase() + id.slice(1) })}
+            </span>
           </button>
         ))}
       </div>
 
       {/* Description */}
-      <p className="text-[11px] text-content-secondary text-center px-4">{t(`preset_${selectedPreset}_desc`)}</p>
+      <p className="text-[11px] text-content-secondary text-center px-4">
+        {t(`preset_${selectedPreset}_desc`, { defaultValue: '' })}
+      </p>
 
       {/* Engine selector */}
       <div className="space-y-1.5">
