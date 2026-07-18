@@ -1,6 +1,6 @@
 # Lifecycle Defender — Unified Health, Repair, and Clean-Uninstall Subsystem
 
-**Status**: Approved (2026-07-17) — Phase 1 (receipt / check registry / doctor / updater-guard / advisories) implemented; Phases 2–3 pending
+**Status**: Approved (2026-07-17) — Phase 1 (receipt / check registry / doctor / updater-guard / advisories) and Phase 2 (repair verb / clean-update first-boot) implemented; Phase 3 pending
 **Tracking**: an earlier decision (an earlier decision, 0.6.8 line)
 **Related**: `ONBOARDING_MODERNIZATION_DESIGN.md` (admin-key handover is the prerequisite for the sudo-mode gate in §7), `RELEASE_PIPELINE_DESIGN.md` (signed manifest carries the advisory feed), `INSTALLER_DISTRIBUTION.md`
 
@@ -168,6 +168,18 @@ install script.
 **Safety**: all migration is backup-first — quarantine by rename
 (`<name>.bak-<ts>`), never delete; quarantined items are reported as purge
 *candidates* for explicit approval later.
+
+**Phase 2 implementation note (deviation, 2026-07-17)**: legacy data-dir
+quarantine is deliberately part of *neither* the automatic first-boot phase
+*nor* the repair verb. A stray-looking data dir can be the **active** dir of
+a coexisting install (dev layout and a production desktop install on the
+same machine), and no local heuristic can distinguish the two reliably.
+Legacy drift therefore stays report-only (`legacy_data_dir_drift`) until the
+Phase 3 purge plan, where removal is explicit, enumerated, and
+user-approved. The first-boot phase runs receipt convergence only; the
+`.old` rollback binary next to the exe is likewise left in place at first
+boot (it *is* the backup-first quarantine) and is removed by the explicit
+repair verb.
 
 ## 7. Complete uninstall
 

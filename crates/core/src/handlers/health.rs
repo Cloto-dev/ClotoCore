@@ -8,7 +8,6 @@ use axum::Json;
 use serde::Deserialize;
 
 use super::ok_data;
-use crate::db;
 use crate::{AppError, AppResult, AppState};
 
 #[derive(Deserialize)]
@@ -75,7 +74,19 @@ pub async fn repair_handler(
     let servers_dir = crate::managers::mcp_venv::resolve_venv_dir()
         .and_then(|v| v.parent().map(std::path::Path::to_path_buf));
 
-    let report = db::health::run_full_repair(&state.pool, servers_dir.as_deref(), &state.data_dir)
+    // Full defender repair (DEFENDER_DESIGN.md §2 Phase 2) — superset of the
+    // historical DB + venv repair; the response shape is unchanged. Repair is
+    // non-destructive by invariant (§8.1): ledger correction, regeneration,
+    // and ClotoCore's own transient artifacts only.
+    let ctx = crate::defender::checks::CheckCtx {
+        pool: Some(state.pool.clone()),
+        data_dir: state.data_dir.clone(),
+        servers_dir,
+        in_kernel: true,
+        port: state.config.port,
+        offline: false,
+    };
+    let report = crate::defender::repair::run_repair(&ctx)
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Health repair failed: {e}")))?;
 

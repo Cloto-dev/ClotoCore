@@ -561,7 +561,15 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
 
     // 0b'. Defender install receipt (DEFENDER_DESIGN.md §3): refresh the
     // ledger of kernel-managed paths. Best-effort — never blocks boot.
+    // The pre-refresh app_version tells us whether this is the first boot of
+    // a new version (§6 clean-update phase).
+    let receipt_prev_version = defender::footprint::load(&data_dir).map(|r| r.app_version);
     defender::footprint::record(&data_dir, defender::footprint::boot_entries(&data_dir));
+    if let Some(prev) = receipt_prev_version {
+        if prev != env!("CARGO_PKG_VERSION") {
+            defender::repair::first_boot_maintenance(&data_dir, &prev);
+        }
+    }
 
     // 0c. Ensure Python MCP venv exists (auto-setup on first run)
     // Skip in production if bootstrap setup has not been completed yet.

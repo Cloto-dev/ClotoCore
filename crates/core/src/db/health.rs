@@ -392,7 +392,7 @@ pub(crate) async fn get_db_size(pool: &SqlitePool) -> anyhow::Result<i64> {
 
 // ── Repair Functions ──
 
-async fn repair_orphaned_chat_messages(pool: &SqlitePool) -> anyhow::Result<usize> {
+pub(crate) async fn repair_orphaned_chat_messages(pool: &SqlitePool) -> anyhow::Result<usize> {
     let result = db_timeout(
         sqlx::query("DELETE FROM chat_messages WHERE agent_id NOT IN (SELECT id FROM agents)")
             .execute(pool),
@@ -401,7 +401,7 @@ async fn repair_orphaned_chat_messages(pool: &SqlitePool) -> anyhow::Result<usiz
     Ok(result.rows_affected() as usize)
 }
 
-async fn repair_orphaned_trusted_commands(pool: &SqlitePool) -> anyhow::Result<usize> {
+pub(crate) async fn repair_orphaned_trusted_commands(pool: &SqlitePool) -> anyhow::Result<usize> {
     let result = db_timeout(
         sqlx::query("DELETE FROM trusted_commands WHERE agent_id NOT IN (SELECT id FROM agents)")
             .execute(pool),
@@ -410,7 +410,9 @@ async fn repair_orphaned_trusted_commands(pool: &SqlitePool) -> anyhow::Result<u
     Ok(result.rows_affected() as usize)
 }
 
-async fn repair_orphaned_permission_requests(pool: &SqlitePool) -> anyhow::Result<usize> {
+pub(crate) async fn repair_orphaned_permission_requests(
+    pool: &SqlitePool,
+) -> anyhow::Result<usize> {
     let result = db_timeout(
         sqlx::query("DELETE FROM permission_requests WHERE plugin_id NOT IN (SELECT plugin_id FROM plugin_settings) AND status = 'pending'")
             .execute(pool),
@@ -483,7 +485,7 @@ pub(crate) fn check_venv_python_version(servers_dir: &Path) -> HealthCheck {
 
 // ── venv Repair ──
 
-async fn repair_venv(servers_dir: &Path, data_dir: &Path) -> Option<RepairAction> {
+pub(crate) async fn repair_venv(servers_dir: &Path, data_dir: &Path) -> Option<RepairAction> {
     let venv_dir = servers_dir.join(".venv");
     let needs_repair = !venv_dir.join("pyvenv.cfg").exists()
         || crate::managers::mcp_venv::is_venv_stale(&venv_dir);
