@@ -60,6 +60,13 @@ pub enum Commands {
         #[arg(long)]
         offline: bool,
     },
+    /// Repair fixable issues non-destructively (swap remnants, install
+    /// receipt, venv) — never touches user data
+    Repair {
+        /// Output the report as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Print version and build information
     Version,
     /// Internal: perform exe swap after parent exits (used by update mechanism)
@@ -133,6 +140,7 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
             yes,
         } => update_command(check, version, yes).await,
         Commands::Doctor { json, offline } => crate::defender::doctor::run(json, offline).await,
+        Commands::Repair { json } => crate::defender::repair::run_cli(json).await,
         Commands::Version => {
             println!("ClotoCore v{}", env!("CARGO_PKG_VERSION"));
             println!("Build target: {}", env!("TARGET"));

@@ -691,13 +691,13 @@ fn c_port_availability(ctx: &CheckCtx) -> CheckFuture<'_> {
     })
 }
 
-enum KernelProbe {
+pub(crate) enum KernelProbe {
     Kernel(String),
     Foreign,
     Free,
 }
 
-async fn probe_kernel_version(port: u16) -> KernelProbe {
+pub(crate) async fn probe_kernel_version(port: u16) -> KernelProbe {
     let url = format!("http://127.0.0.1:{port}/api/system/version");
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
