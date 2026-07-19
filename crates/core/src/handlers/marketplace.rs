@@ -1399,6 +1399,49 @@ async fn build_and_register(
     register_server(state, entry, command, args, env_overrides, auto_start).await
 }
 
+/// What the catalog entry's `signature_payload` says about the archive
+/// its seal was signed over (ClotoHub an earlier decision — `dual-v2` seals).
+enum ArchiveBinding {
+    /// A `dual-v1` seal, or no seal: nothing about an archive was signed.
+    Absent,
+    /// An `archive` block is there but unusable (missing field, wrong
+    /// type, non-hex digest). We cannot reconstruct what was signed, so
+    /// we cannot verify — same class as a malformed signature block.
+    Malformed,
+    /// The digest and length the hub bound the seal to.
+    Bound { sha256: String, length: u64 },
+}
+
+/// Read the archive binding a `dual-v2` seal carries.
+///
+/// The values are *claims* until the Ed25519 signature over them
+/// verifies — that is exactly what makes the binding worth having: an
+/// adversary who edits them invalidates the signature, and one who
+/// leaves them alone cannot substitute the archive they name.
+fn archive_binding(entry: &RegistryEntry) -> ArchiveBinding {
+    let Some(archive) = entry
+        .signature_payload
+        .as_ref()
+        .and_then(|p| p.get("archive"))
+    else {
+        return ArchiveBinding::Absent;
+    };
+    let (Some(sha256), Some(length)) = (
+        archive.get("sha256").and_then(serde_json::Value::as_str),
+        archive.get("length").and_then(serde_json::Value::as_u64),
+    ) else {
+        return ArchiveBinding::Malformed;
+    };
+    let sha256 = sha256.trim();
+    if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return ArchiveBinding::Malformed;
+    }
+    ArchiveBinding::Bound {
+        sha256: sha256.to_ascii_lowercase(),
+        length,
+    }
+}
+
 /// bug-394 proper fix: decide the install-time seal from the catalog
 /// entry's cryptographic evidence (D2 bifurcation — see
 /// `project_clotohub_ed25519_seal_verification.md` §5).
@@ -1518,15 +1561,35 @@ fn local_seal_for_install(
         return Ok(None);
     };
 
-    let canonical = mgp_seal::canonical_message(&entry.id, &entry.version, expected);
+    // A `dual-v2` seal signed the archive alongside the entry point, so
+    // the message to reconstruct includes it. The two message versions
+    // are domain-separated by their first line, so guessing wrong does
+    // not silently fall back — it fails verification. Which is why a
+    // binding we cannot parse must not be treated as "no binding": that
+    // would reconstruct v1 and report a genuine hub-issued seal as
+    // tampered.
+    let canonical = match archive_binding(entry) {
+        ArchiveBinding::Bound { sha256, length } => {
+            mgp_seal::canonical_message_v2(&entry.id, &entry.version, expected, &sha256, length)
+        }
+        ArchiveBinding::Absent => mgp_seal::canonical_message(&entry.id, &entry.version, expected),
+        ArchiveBinding::Malformed => {
+            warn!(
+                "{}: malformed archive binding in signature_payload — cannot reconstruct \
+                 the signed message; registering unsealed (untrusted at spawn)",
+                entry.id
+            );
+            return Ok(None);
+        }
+    };
     if !mgp_seal::ed25519::verify(pk, &kid, &canonical, &sig) {
         error!(
             "{}: TAMPER SUSPECT (signature_invalid) — Ed25519 signature under hub key \
-             '{kid_str}' does not match the entry's (id, version, entry_point_sha256)",
+             '{kid_str}' does not match the entry's signed identity",
             entry.id
         );
         anyhow::bail!(
-            "Ed25519 seal verification failed for '{}': the catalog's signature does not match its (id, version, entry_point_sha256) under hub key '{kid_str}' — refusing install",
+            "Ed25519 seal verification failed for '{}': the catalog's signature does not match its signed identity under hub key '{kid_str}' — refusing install",
             entry.id
         );
     }
@@ -2053,10 +2116,29 @@ async fn install_from_git(
 }
 
 /// Install from a single HTTP(S) artifact: download `{spec.url}`,
-/// verify `spec.sha256` if present, extract a `.tar.gz` into
+/// verify the archive digest, extract a `.tar.gz` into
 /// `{servers_dir}/{entry.directory}` (stripping a single shared
 /// top-level prefix when the archive uses one, GitHub-style), then
 /// build_and_register.
+///
+/// # Which digest is authoritative
+///
+/// `spec.sha256` is injected when the catalog rewrites a source to the
+/// hub proxy, and the catalog response as a whole is **not signed** — so
+/// on its own it is authenticated by nothing but the transport. An
+/// adversary able to forge the response substitutes the archive and that
+/// digest together, and this check passes.
+///
+/// A `dual-v2` seal (ClotoHub an earlier decision) carries the digest **and length
+/// inside the signed message**, so when the entry has one we compare
+/// against that instead, and treat a disagreement between the two as a
+/// tamper signal. The signature over those values is verified later, in
+/// [`local_seal_for_install`]; both must pass, and both read the same
+/// claim, so the order between them does not matter.
+///
+/// The signed length lets us bound the transfer *before* streaming it,
+/// so a hostile mirror cannot feed unbounded data that would only fail
+/// at the final digest comparison.
 #[allow(clippy::too_many_lines)]
 async fn install_from_raw_url(
     state: &AppState,
@@ -2168,7 +2250,68 @@ async fn install_from_raw_url(
         return Ok(());
     }
 
+    // Prefer the signed digest over the catalog-served one. When both
+    // are present they must agree: the served value contradicting what
+    // the hub signed is itself the substitution this check exists to
+    // catch.
+    let (expected_sha256, signed_length) = match archive_binding(entry) {
+        ArchiveBinding::Bound { sha256, length } => {
+            if let Some(served) = spec.sha256.as_deref() {
+                if !served.trim().eq_ignore_ascii_case(&sha256) {
+                    error!(
+                        "{}: TAMPER SUSPECT (archive_digest_contradiction) — catalog serves \
+                         sha256 {served}, the seal signed {sha256}",
+                        entry.id
+                    );
+                    emit(
+                        tx,
+                        SetupProgressEvent::StepError {
+                            step: "download".into(),
+                            error: format!(
+                                "archive digest contradiction: catalog serves {served}, \
+                                 the seal signed {sha256}"
+                            ),
+                            recoverable: false,
+                        },
+                    );
+                    return Ok(());
+                }
+            }
+            (Some(sha256), Some(length))
+        }
+        // v1 seal or none: fall back to the catalog's unsigned claim,
+        // byte-for-byte as this path has always checked it. Until the hub
+        // issues v2 seals every entry lands here, so nothing below this
+        // point behaves differently than it did before.
+        ArchiveBinding::Absent | ArchiveBinding::Malformed => (spec.sha256.clone(), None),
+    };
+
     let total = resp.content_length();
+
+    // With a signed length, refuse before reading a byte when the server
+    // announces a different size.
+    if let (Some(expected_len), Some(announced)) = (signed_length, total) {
+        if announced != expected_len {
+            error!(
+                "{}: TAMPER SUSPECT (archive_length_mismatch) — seal signed {expected_len} bytes, \
+                 server announces {announced}",
+                entry.id
+            );
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "download".into(),
+                    error: format!(
+                        "archive length mismatch: seal signed {expected_len} bytes, \
+                         server announces {announced}"
+                    ),
+                    recoverable: false,
+                },
+            );
+            return Ok(());
+        }
+    }
+
     let mut stream = resp.bytes_stream();
     let mut file = tokio::fs::File::create(&archive_path).await?;
     let mut downloaded: u64 = 0;
@@ -2181,10 +2324,40 @@ async fn install_from_raw_url(
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         file.write_all(&chunk).await?;
-        if spec.sha256.is_some() {
+        if expected_sha256.is_some() {
             hasher.update(&chunk);
         }
         downloaded += chunk.len() as u64;
+
+        // A lying or absent Content-Length must not turn into an
+        // unbounded write: the signed length is the ceiling.
+        if let Some(expected_len) = signed_length {
+            if downloaded > expected_len {
+                error!(
+                    "{}: TAMPER SUSPECT (archive_overrun) — body exceeded the signed length \
+                     of {expected_len} bytes",
+                    entry.id
+                );
+                drop(file);
+                if let Err(e) = tokio::fs::remove_file(&archive_path).await {
+                    warn!(
+                        "Failed to cleanup archive after overrun {}: {e}",
+                        archive_path.display()
+                    );
+                }
+                emit(
+                    tx,
+                    SetupProgressEvent::StepError {
+                        step: "download".into(),
+                        error: format!(
+                            "archive exceeded the signed length of {expected_len} bytes"
+                        ),
+                        recoverable: false,
+                    },
+                );
+                return Ok(());
+            }
+        }
 
         if let Some(total) = total {
             let progress = (downloaded as f32 / total as f32).min(1.0);
@@ -2202,9 +2375,45 @@ async fn install_from_raw_url(
     }
     file.flush().await?;
 
-    if let Some(expected) = &spec.sha256 {
+    // A body shorter than the signed length is a mismatch too — caught
+    // by the digest below, but worth naming for the operator.
+    if let Some(expected_len) = signed_length {
+        if downloaded != expected_len {
+            error!(
+                "{}: TAMPER SUSPECT (archive_length_mismatch) — seal signed {expected_len} bytes, \
+                 received {downloaded}",
+                entry.id
+            );
+            if let Err(e) = tokio::fs::remove_file(&archive_path).await {
+                warn!(
+                    "Failed to cleanup archive after length mismatch {}: {e}",
+                    archive_path.display()
+                );
+            }
+            emit(
+                tx,
+                SetupProgressEvent::StepError {
+                    step: "download".into(),
+                    error: format!(
+                        "archive length mismatch: seal signed {expected_len} bytes, received {downloaded}"
+                    ),
+                    recoverable: false,
+                },
+            );
+            return Ok(());
+        }
+    }
+
+    if let Some(expected) = &expected_sha256 {
         let actual = hex::encode(hasher.finalize());
         if !actual.eq_ignore_ascii_case(expected) {
+            if signed_length.is_some() {
+                error!(
+                    "{}: TAMPER SUSPECT (archive_digest_mismatch) — seal signed sha256 \
+                     {expected}, downloaded archive hashes to {actual}",
+                    entry.id
+                );
+            }
             // bug-367: surface cleanup failures instead of swallowing them, so a
             // corrupted-download retry loop can't silently leak disk space.
             if let Err(e) = tokio::fs::remove_file(&archive_path).await {
@@ -4132,6 +4341,197 @@ mod tests {
         let (e, _pk, kid) = signed_entry("demo", b"x");
         assert_eq!(entry_signature_kid(&e).as_deref(), Some(kid.as_str()));
         assert_eq!(entry_signature_kid(&entry("demo", "demo")), None);
+    }
+
+    // ── dual-v2 seals: the archive binding (ClotoHub an earlier decision) ──
+    //
+    // The existing tests above cover v1 entries and are also the
+    // backward-compatibility proof: an entry with no `archive` block must
+    // keep verifying against the v1 message forever.
+
+    const V2_ARCHIVE_SHA: &str = "3b1f0c4a5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708";
+    const V2_ARCHIVE_LEN: u64 = 4096;
+
+    /// A correctly signed `dual-v2` entry: the signature covers the
+    /// archive digest and length in addition to the entry point.
+    fn signed_entry_v2(
+        id: &str,
+        script_body: &[u8],
+    ) -> (
+        RegistryEntry,
+        mgp_seal::ed25519::PublicKey,
+        mgp_seal::ed25519::KeyId,
+    ) {
+        let (sk, pk) = mgp_seal::ed25519::generate_keypair(&mut rand::rngs::OsRng);
+        let kid = mgp_seal::ed25519::KeyId::new("clotohub-master-test").unwrap();
+        let mut e = entry(id, id);
+        let hash = sha256_hex(script_body);
+        let canonical = mgp_seal::canonical_message_v2(
+            &e.id,
+            &e.version,
+            &hash,
+            V2_ARCHIVE_SHA,
+            V2_ARCHIVE_LEN,
+        );
+        let sig = mgp_seal::ed25519::sign(&sk, &kid, &canonical);
+        e.entry_point_sha256 = Some(hash);
+        e.signature_payload = Some(serde_json::json!({
+            "hmac": "ab".repeat(32),
+            "ed25519": { "sig": sig.to_base64(), "key_id": kid.as_str() },
+            "archive": { "sha256": V2_ARCHIVE_SHA, "length": V2_ARCHIVE_LEN }
+        }));
+        (e, pk, kid)
+    }
+
+    fn v2_fixture(name: &str) -> (std::path::PathBuf, std::path::PathBuf, &'static [u8]) {
+        let work = temp_dir(name);
+        let body: &[u8] = b"from demo.server import run\n"; // a shim, as in the real case
+        let script = work.join("server.py");
+        std::fs::write(&script, body).unwrap();
+        (work, script, body)
+    }
+
+    #[test]
+    fn local_seal_v2_minted_when_signature_verifies() {
+        let (work, script, body) = v2_fixture("seal-v2-ok");
+        let (e, pk, _kid) = signed_entry_v2("demo", body);
+
+        let got = local_seal_for_install(
+            &work,
+            &e,
+            "python",
+            &[script.to_string_lossy().to_string()],
+            Some(&pk),
+        )
+        .unwrap()
+        .expect("a verified v2 seal must mint a local seal");
+
+        let key = mgp_seal::load_or_generate_seal_key(&work).unwrap();
+        assert!(mgp_seal::verify_seal(&script, &got, &key).unwrap());
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_seal_v2_blocks_when_the_archive_digest_is_swapped() {
+        // The substitution v2 exists to stop, at the install gate: the
+        // entry point is an unchanged shim (so the v1 claim would still
+        // hold) and only the archive identity moves.
+        let (work, script, body) = v2_fixture("seal-v2-archive-swap");
+        let (mut e, pk, _kid) = signed_entry_v2("demo", body);
+        e.signature_payload.as_mut().unwrap()["archive"]["sha256"] =
+            serde_json::json!("f".repeat(64));
+
+        let err = local_seal_for_install(
+            &work,
+            &e,
+            "python",
+            &[script.to_string_lossy().to_string()],
+            Some(&pk),
+        );
+        assert!(
+            err.is_err(),
+            "a swapped archive digest must hard-block: the signature covers it"
+        );
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_seal_v2_blocks_when_the_archive_length_is_swapped() {
+        let (work, script, body) = v2_fixture("seal-v2-length-swap");
+        let (mut e, pk, _kid) = signed_entry_v2("demo", body);
+        e.signature_payload.as_mut().unwrap()["archive"]["length"] =
+            serde_json::json!(V2_ARCHIVE_LEN + 1);
+
+        let err = local_seal_for_install(
+            &work,
+            &e,
+            "python",
+            &[script.to_string_lossy().to_string()],
+            Some(&pk),
+        );
+        assert!(
+            err.is_err(),
+            "the declared length is signed too — changing it alone must hard-block"
+        );
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_seal_v2_is_not_verifiable_as_v1() {
+        // Dropping the archive block from a v2-signed entry must not let
+        // it through under the weaker v1 message. It cannot: the two
+        // messages are domain-separated, so verification fails and the
+        // entry is refused rather than downgraded.
+        let (work, script, body) = v2_fixture("seal-v2-downgrade");
+        let (mut e, pk, _kid) = signed_entry_v2("demo", body);
+        let payload = e.signature_payload.as_mut().unwrap();
+        payload.as_object_mut().unwrap().remove("archive");
+
+        let err = local_seal_for_install(
+            &work,
+            &e,
+            "python",
+            &[script.to_string_lossy().to_string()],
+            Some(&pk),
+        );
+        assert!(
+            err.is_err(),
+            "a v2 signature must not verify as the weaker v1 claim"
+        );
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn local_seal_unsealed_on_malformed_archive_block() {
+        // An `archive` block we cannot parse means we cannot reconstruct
+        // what was signed — the same class as a malformed signature
+        // block, so: benign untrusted, never a tamper verdict. Falling
+        // back to the v1 message here instead would report a genuine
+        // hub-issued seal as tampered and hard-block the install.
+        for broken in [
+            serde_json::json!({ "sha256": V2_ARCHIVE_SHA }), // no length
+            serde_json::json!({ "length": V2_ARCHIVE_LEN }), // no digest
+            serde_json::json!({ "sha256": "not-hex", "length": V2_ARCHIVE_LEN }),
+            serde_json::json!({ "sha256": V2_ARCHIVE_SHA, "length": "4096" }),
+        ] {
+            let (work, script, body) = v2_fixture("seal-v2-malformed");
+            let (mut e, pk, _kid) = signed_entry_v2("demo", body);
+            e.signature_payload.as_mut().unwrap()["archive"] = broken.clone();
+
+            let got = local_seal_for_install(
+                &work,
+                &e,
+                "python",
+                &[script.to_string_lossy().to_string()],
+                Some(&pk),
+            );
+            assert!(
+                matches!(got, Ok(None)),
+                "malformed archive block {broken} -> unsealed, not a tamper verdict"
+            );
+            let _ = std::fs::remove_dir_all(&work);
+        }
+    }
+
+    #[test]
+    fn archive_binding_classifies_payload_shapes() {
+        let (v2, _pk, _kid) = signed_entry_v2("demo", b"x");
+        assert!(matches!(archive_binding(&v2), ArchiveBinding::Bound { .. }));
+
+        let (v1, _pk, _kid) = signed_entry("demo", b"x");
+        assert!(matches!(archive_binding(&v1), ArchiveBinding::Absent));
+
+        assert!(matches!(
+            archive_binding(&entry("demo", "demo")),
+            ArchiveBinding::Absent
+        ));
+
+        let mut broken = v2.clone();
+        broken.signature_payload.as_mut().unwrap()["archive"] = serde_json::json!("nope");
+        assert!(matches!(
+            archive_binding(&broken),
+            ArchiveBinding::Malformed
+        ));
     }
 
     // ── install_dir_from_args (bug-392) ──
