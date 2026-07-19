@@ -2465,15 +2465,28 @@ async fn install_from_raw_url(
             return Ok(());
         }
     };
-    if target_dir.exists() {
-        if let Err(e) = tokio::fs::remove_dir_all(&target_dir).await {
+    // Extract into a staging directory and swap it in only once the whole
+    // tree has materialized. Extracting straight into `target_dir` meant
+    // clearing the existing install *first*, so any mid-extract failure
+    // (truncated archive, a budget refusal from `write_entry`, disk full)
+    // left a half-written tree where a working server used to be — failure
+    // was destructive rather than merely unsuccessful. Staging lives in the
+    // same `{data_dir}/tmp` as the download, so the swap is a
+    // same-filesystem rename and a leftover never looks like an installed
+    // server to the scans over `mcp-servers/`.
+    let staging_dir = tmp_dir.join(target_dir.file_name().map_or_else(
+        || "install-staging".to_string(),
+        |name| format!("{}-staging", name.to_string_lossy()),
+    ));
+    if staging_dir.exists() {
+        if let Err(e) = tokio::fs::remove_dir_all(&staging_dir).await {
             warn!(
-                "Failed to clear existing target dir {}: {e}",
-                target_dir.display()
+                "Failed to clear stale staging dir {}: {e}",
+                staging_dir.display()
             );
         }
     }
-    tokio::fs::create_dir_all(&target_dir).await?;
+    tokio::fs::create_dir_all(&staging_dir).await?;
 
     // Goal #110: a `raw_url` source may carry a `subdir` (mgp-sdk
     // v0.3.0) when the tarball is a whole monorepo served by the
@@ -2491,15 +2504,52 @@ async fn install_from_raw_url(
     let needs_common = !is_rust && entry.dependencies.contains(&"common".to_string());
 
     let archive_path_clone = archive_path.clone();
-    let target_dir_clone = target_dir.clone();
+    let staging_dir_clone = staging_dir.clone();
     let subdir_clone = subdir.clone();
-    tokio::task::spawn_blocking(move || match &subdir_clone {
+    let extract_result = tokio::task::spawn_blocking(move || match &subdir_clone {
         Some(sub) => {
-            extract_subdir_selective(&archive_path_clone, &target_dir_clone, sub, needs_common)
+            extract_subdir_selective(&archive_path_clone, &staging_dir_clone, sub, needs_common)
         }
-        None => extract_tarball_stripped(&archive_path_clone, &target_dir_clone),
+        None => extract_tarball_stripped(&archive_path_clone, &staging_dir_clone),
     })
-    .await??;
+    .await?;
+
+    if let Err(e) = extract_result {
+        // The previous install is still intact — nothing has been removed yet.
+        if let Err(rm) = tokio::fs::remove_dir_all(&staging_dir).await {
+            warn!(
+                "Failed to clear staging dir {}: {rm}",
+                staging_dir.display()
+            );
+        }
+        if let Err(rm) = tokio::fs::remove_file(&archive_path).await {
+            warn!("Failed to cleanup archive {}: {rm}", archive_path.display());
+        }
+        emit(
+            tx,
+            SetupProgressEvent::StepError {
+                step: "extract".into(),
+                error: e.to_string(),
+                recoverable: false,
+            },
+        );
+        return Ok(());
+    }
+
+    // Swap the staged tree in. The gap between removing the old tree and
+    // renaming the new one is not itself atomic — a crash inside it leaves
+    // the server uninstalled, which a reinstall fixes — but the staged tree
+    // is complete before the old one is touched, which is the property that
+    // was missing.
+    if target_dir.exists() {
+        if let Err(e) = tokio::fs::remove_dir_all(&target_dir).await {
+            warn!(
+                "Failed to clear existing target dir {}: {e}",
+                target_dir.display()
+            );
+        }
+    }
+    tokio::fs::rename(&staging_dir, &target_dir).await?;
 
     emit(
         tx,
@@ -2993,6 +3043,120 @@ fn validate_dest_path(target_dir: &std::path::Path, dest: &std::path::Path) -> a
     Ok(())
 }
 
+/// Ceiling on what one archive may expand to on disk.
+///
+/// A verified digest proves the bytes are the ones the hub signed; it says
+/// nothing about what they expand to. The signed `archive_length` (Task #320)
+/// bounds the *compressed* transfer only, so a few tens of kilobytes can still
+/// decompress to gigabytes. Extraction therefore carries its own budget.
+const MAX_EXTRACTED_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Ceiling on how many entries one archive may carry. Bounds the
+/// per-entry syscall cost that a size budget alone does not (millions of
+/// empty files stay under the byte cap).
+const MAX_EXTRACTED_ENTRIES: usize = 20_000;
+
+/// Remaining extraction allowance, shared across every entry of one archive.
+struct ExtractBudget {
+    remaining_bytes: u64,
+    remaining_entries: usize,
+}
+
+impl ExtractBudget {
+    fn new() -> Self {
+        Self {
+            remaining_bytes: MAX_EXTRACTED_BYTES,
+            remaining_entries: MAX_EXTRACTED_ENTRIES,
+        }
+    }
+
+    /// Charge one entry against the count budget.
+    fn charge_entry(&mut self) -> anyhow::Result<()> {
+        self.remaining_entries = self.remaining_entries.checked_sub(1).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Refusing to extract: archive carries more than {MAX_EXTRACTED_ENTRIES} entries"
+            )
+        })?;
+        Ok(())
+    }
+}
+
+/// Materialize one tar entry at `dest` under the extraction policy.
+///
+/// Entry types are matched explicitly rather than split on `is_dir()`. The
+/// previous shape wrote every non-directory through `File::create` +
+/// `io::copy`, which happened to neutralize links and device nodes — they
+/// landed as empty regular files, so a symlink could not redirect a later
+/// write outside the target. That safety was a side effect of not calling
+/// `Entry::unpack`, not a stated invariant: a refactor to `unpack_in` would
+/// have silently restored link creation. Link and special-file entries are
+/// now refused outright, and the refusal is pinned by tests.
+///
+/// Duplicate paths within one archive are last-wins — `File::create`
+/// truncates, so a later entry overwrites an earlier one. Both entries are
+/// charged to the budget, so duplicates cannot be used to exceed it.
+///
+/// `dest` must already have been checked with [`validate_dest_path`].
+///
+/// Returns whether a regular file was written, so callers that track
+/// "did this archive actually carry content" do not have to re-inspect the
+/// entry type and get the skipped kinds wrong.
+fn write_entry<R: std::io::Read>(
+    entry: &mut tar::Entry<'_, R>,
+    dest: &std::path::Path,
+    budget: &mut ExtractBudget,
+) -> anyhow::Result<bool> {
+    use std::io::Read as _;
+    use tar::EntryType;
+
+    budget.charge_entry()?;
+
+    let entry_type = entry.header().entry_type();
+    match entry_type {
+        EntryType::Directory => {
+            std::fs::create_dir_all(dest)?;
+            return Ok(false);
+        }
+        EntryType::Regular | EntryType::Continuous | EntryType::GNUSparse => {}
+        EntryType::Symlink
+        | EntryType::Link
+        | EntryType::Char
+        | EntryType::Block
+        | EntryType::Fifo => {
+            anyhow::bail!(
+                "Refusing to extract '{}': archives may not carry links or special \
+                 files (entry type {entry_type:?})",
+                dest.display()
+            );
+        }
+        other => {
+            warn!(
+                "Skipping unsupported tar entry type {other:?} at '{}'",
+                dest.display()
+            );
+            return Ok(false);
+        }
+    }
+
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut out = std::fs::File::create(dest)?;
+    // Read one byte past the remaining allowance so an archive that exactly
+    // exhausts the budget stays distinguishable from one that overruns it.
+    let limit = budget.remaining_bytes;
+    let written = std::io::copy(&mut entry.take(limit + 1), &mut out)?;
+    if written > limit {
+        anyhow::bail!(
+            "Refusing to extract '{}': archive expands past the \
+             {MAX_EXTRACTED_BYTES}-byte limit",
+            dest.display()
+        );
+    }
+    budget.remaining_bytes -= written;
+    Ok(true)
+}
+
 /// Extract specific directories from a GitHub tarball.
 /// GitHub tarballs have a prefix like `Cloto-dev-clotohub-servers-{sha}/`
 /// (matching is suffix-based, so the repo name does not matter).
@@ -3009,6 +3173,7 @@ fn extract_selective(
     let server_suffix = format!("/servers/{server_directory}/");
     let common_suffix = "/servers/common/";
 
+    let mut budget = ExtractBudget::new();
     for entry_result in archive.entries()? {
         let mut entry = entry_result?;
         let path = entry.path()?.to_path_buf();
@@ -3028,16 +3193,7 @@ fn extract_selective(
             // Strip "servers/" prefix to get "{directory}/..."
             let dest = target_dir.join(relative.strip_prefix("servers/").unwrap_or(relative));
             validate_dest_path(target_dir, &dest)?;
-
-            if entry.header().entry_type().is_dir() {
-                std::fs::create_dir_all(&dest)?;
-            } else {
-                if let Some(parent) = dest.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                let mut out = std::fs::File::create(&dest)?;
-                std::io::copy(&mut entry, &mut out)?;
-            }
+            write_entry(&mut entry, &dest, &mut budget)?;
         }
     }
 
@@ -3121,6 +3277,7 @@ fn extract_tarball_stripped(
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
 
+    let mut budget = ExtractBudget::new();
     for entry_result in archive.entries()? {
         let mut entry = entry_result?;
         if is_pax_metadata(entry.header().entry_type()) {
@@ -3143,16 +3300,7 @@ fn extract_tarball_stripped(
 
         let dest = target_dir.join(&relative);
         validate_dest_path(target_dir, &dest)?;
-
-        if entry.header().entry_type().is_dir() {
-            std::fs::create_dir_all(&dest)?;
-        } else {
-            if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            let mut out = std::fs::File::create(&dest)?;
-            std::io::copy(&mut entry, &mut out)?;
-        }
+        write_entry(&mut entry, &dest, &mut budget)?;
     }
 
     Ok(())
@@ -3194,6 +3342,7 @@ fn extract_subdir_selective(
     let mut archive = tar::Archive::new(decoder);
 
     let mut extracted_any = false;
+    let mut budget = ExtractBudget::new();
     for entry_result in archive.entries()? {
         let mut entry = entry_result?;
         if is_pax_metadata(entry.header().entry_type()) {
@@ -3218,18 +3367,8 @@ fn extract_subdir_selective(
 
         let dest = target_dir.join(&relative);
         validate_dest_path(target_dir, &dest)?;
-
-        if entry.header().entry_type().is_dir() {
-            std::fs::create_dir_all(&dest)?;
-        } else {
-            if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            let mut out = std::fs::File::create(&dest)?;
-            std::io::copy(&mut entry, &mut out)?;
-            if relative.starts_with(&subdir_root) {
-                extracted_any = true;
-            }
+        if write_entry(&mut entry, &dest, &mut budget)? && relative.starts_with(&subdir_root) {
+            extracted_any = true;
         }
     }
 
@@ -3256,6 +3395,7 @@ fn extract_batch(
         .collect();
     let common_suffix = "/servers/common/";
 
+    let mut budget = ExtractBudget::new();
     for entry_result in archive.entries()? {
         let mut entry = entry_result?;
         let path = entry.path()?.to_path_buf();
@@ -3276,16 +3416,7 @@ fn extract_batch(
         if let Some(relative) = relative {
             let dest = target_dir.join(relative.strip_prefix("servers/").unwrap_or(relative));
             validate_dest_path(target_dir, &dest)?;
-
-            if entry.header().entry_type().is_dir() {
-                std::fs::create_dir_all(&dest)?;
-            } else {
-                if let Some(parent) = dest.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                let mut out = std::fs::File::create(&dest)?;
-                std::io::copy(&mut entry, &mut out)?;
-            }
+            write_entry(&mut entry, &dest, &mut budget)?;
         }
     }
 
@@ -4031,6 +4162,188 @@ mod tests {
         ("repo-v0/servers/common/common/__init__.py", b""),
         ("repo-v0/servers/other/server.py", b"print('other')"),
     ];
+
+    // ── Extraction policy (Task #321) ───────────────────────────────
+
+    /// Build a GitHub-style tarball carrying one link entry of
+    /// `entry_type` alongside an ordinary file.
+    fn write_tarball_with_link_entry(path: &std::path::Path, entry_type: tar::EntryType) {
+        let mut tar_buf = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_buf);
+
+            let mut dir = tar::Header::new_gnu();
+            dir.set_entry_type(tar::EntryType::Directory);
+            dir.set_size(0);
+            dir.set_mode(0o755);
+            builder.append_data(&mut dir, "repo-v0/", &[][..]).unwrap();
+
+            let mut ordinary = tar::Header::new_gnu();
+            ordinary.set_size(6);
+            ordinary.set_mode(0o644);
+            builder
+                .append_data(&mut ordinary, "repo-v0/server.py", &b"normal"[..])
+                .unwrap();
+
+            let mut link = tar::Header::new_gnu();
+            link.set_entry_type(entry_type);
+            link.set_size(0);
+            link.set_mode(0o777);
+            builder
+                .append_link(&mut link, "repo-v0/escape", "../../../etc/passwd")
+                .unwrap();
+
+            builder.finish().unwrap();
+        }
+        use std::io::Write;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(&tar_buf).unwrap();
+        std::fs::write(path, gz.finish().unwrap()).unwrap();
+    }
+
+    /// Drive `write_entry` over a single-file tarball with a hand-set
+    /// budget, so the limits can be exercised without materializing
+    /// hundreds of megabytes.
+    fn write_first_entry_with_budget(
+        data: &[u8],
+        budget: &mut ExtractBudget,
+        dest: &std::path::Path,
+    ) -> anyhow::Result<bool> {
+        let mut tar_buf = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_buf);
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            builder.append_data(&mut header, "file.bin", data).unwrap();
+            builder.finish().unwrap();
+        }
+        let mut archive = tar::Archive::new(std::io::Cursor::new(tar_buf));
+        let mut entries = archive.entries().unwrap();
+        let mut entry = entries.next().unwrap().unwrap();
+        write_entry(&mut entry, dest, budget)
+    }
+
+    /// A symlink in the archive must be refused outright. Before Task #321
+    /// the extractor split on `is_dir()` alone and wrote every other kind
+    /// through `File::create`, so this landed as an *empty regular file* —
+    /// harmless by accident, and silently restored the moment anyone
+    /// refactored the loop onto `Entry::unpack_in`.
+    #[test]
+    fn extract_tarball_stripped_refuses_a_symlink_entry() {
+        let work = temp_dir("reject-symlink");
+        let archive = work.join("repo.tar.gz");
+        write_tarball_with_link_entry(&archive, tar::EntryType::Symlink);
+        let target = work.join("out");
+        std::fs::create_dir_all(&target).unwrap();
+
+        let err = extract_tarball_stripped(&archive, &target).unwrap_err();
+        assert!(
+            err.to_string().contains("links or special"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            !target.join("escape").exists(),
+            "the refused link must not be materialized in any form"
+        );
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    #[test]
+    fn extract_tarball_stripped_refuses_a_hard_link_entry() {
+        let work = temp_dir("reject-hardlink");
+        let archive = work.join("repo.tar.gz");
+        write_tarball_with_link_entry(&archive, tar::EntryType::Link);
+        let target = work.join("out");
+        std::fs::create_dir_all(&target).unwrap();
+
+        let err = extract_tarball_stripped(&archive, &target).unwrap_err();
+        assert!(
+            err.to_string().contains("links or special"),
+            "unexpected error: {err}"
+        );
+        assert!(!target.join("escape").exists());
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// The signed `archive_length` (Task #320) bounds the compressed
+    /// transfer only, so expansion needs its own ceiling — otherwise a
+    /// digest-verified archive can still be a decompression bomb.
+    #[test]
+    fn write_entry_refuses_content_past_the_byte_budget() {
+        let work = temp_dir("budget-bytes");
+        let mut budget = ExtractBudget::new();
+        budget.remaining_bytes = 8;
+
+        let err = write_first_entry_with_budget(&[0u8; 64], &mut budget, &work.join("out.bin"))
+            .unwrap_err();
+
+        assert!(
+            err.to_string().contains("expands past"),
+            "unexpected error: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// Boundary: reading one byte past the allowance must not misreport an
+    /// archive that exactly fills it.
+    #[test]
+    fn write_entry_admits_content_that_exactly_fills_the_byte_budget() {
+        let work = temp_dir("budget-exact");
+        let mut budget = ExtractBudget::new();
+        budget.remaining_bytes = 8;
+        let dest = work.join("out.bin");
+
+        assert!(write_first_entry_with_budget(&[0u8; 8], &mut budget, &dest).unwrap());
+
+        assert_eq!(budget.remaining_bytes, 0);
+        assert_eq!(std::fs::read(&dest).unwrap().len(), 8);
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// Millions of empty files stay under any byte cap, so entry count is
+    /// budgeted separately.
+    #[test]
+    fn write_entry_refuses_once_the_entry_budget_is_spent() {
+        let work = temp_dir("budget-entries");
+        let mut budget = ExtractBudget::new();
+        budget.remaining_entries = 0;
+
+        let err =
+            write_first_entry_with_budget(b"x", &mut budget, &work.join("out.bin")).unwrap_err();
+
+        assert!(
+            err.to_string().contains("more than"),
+            "unexpected error: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// Duplicate paths are last-wins and each copy is charged to the
+    /// budget — pinning the documented behaviour so it cannot drift into
+    /// an unbounded rewrite loop.
+    #[test]
+    fn extract_tarball_stripped_lets_a_duplicate_path_win_last() {
+        let work = temp_dir("duplicate-path");
+        let archive = work.join("repo.tar.gz");
+        write_tarball(
+            &archive,
+            &[
+                ("repo-v0/server.py", b"first"),
+                ("repo-v0/server.py", b"second"),
+            ],
+        );
+        let target = work.join("out");
+        std::fs::create_dir_all(&target).unwrap();
+
+        extract_tarball_stripped(&archive, &target).unwrap();
+
+        assert_eq!(
+            std::fs::read(target.join("server.py")).unwrap(),
+            b"second".to_vec()
+        );
+        let _ = std::fs::remove_dir_all(&work);
+    }
 
     #[test]
     fn extract_subdir_selective_extracts_server_and_sibling_common() {
