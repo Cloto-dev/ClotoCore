@@ -570,7 +570,10 @@ async fn smoke_health_check(port: u16, deadline: std::time::Instant) -> Result<(
 #[allow(clippy::too_many_lines)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Tauri desktop mode: bind kernel to loopback only for security
+    // Tauri desktop mode: the kernel serves only this machine's WebView, so pin the
+    // listener to loopback rather than inheriting a wider BIND_ADDRESS. This narrows
+    // reachability; it is not a security boundary (a tunnel or reverse proxy that
+    // forwards to loopback still reaches it).
     std::env::set_var("BIND_ADDRESS", "127.0.0.1");
 
     // Add Tauri WebView origins to CORS allowlist

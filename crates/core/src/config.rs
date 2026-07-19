@@ -257,8 +257,11 @@ impl AppConfig {
             anyhow::bail!("Invalid PORT value '0': must be between 1 and 65535");
         }
 
-        // BIND_ADDRESS: defaults to 127.0.0.1 (loopback only) for safety.
+        // BIND_ADDRESS: defaults to 127.0.0.1, which limits the listener to this host.
         // Set to 0.0.0.0 explicitly in .env if network access from other hosts is required.
+        // Note that the default narrows reachability but is not a security boundary: a
+        // tunnel or reverse proxy forwarding to loopback reaches this listener regardless
+        // of what it binds. Authentication, not the bind address, is what protects it.
         let bind_address = match env::var("BIND_ADDRESS") {
             Ok(addr) => {
                 addr.parse::<std::net::IpAddr>()

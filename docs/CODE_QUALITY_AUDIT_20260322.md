@@ -132,6 +132,16 @@ The internal LLM proxy (`127.0.0.1:8082`) accepts requests from any local proces
 
 **Resolution (2026-03-24):** Closed as By Design. The proxy separation is required by P5 (Strict Permission Isolation). Merging into the `/api` router would require sharing admin API keys with MCP server subprocesses, which is strictly worse. The `127.0.0.1` binding is the security boundary. If future hardening is needed, per-session lightweight tokens (not admin keys) injected at MCP spawn time would be the correct approach.
 
+> **Addendum (2026-07-20) — one ground of the closure above is now known to be false.**
+> "The `127.0.0.1` binding is the security boundary" does not hold. A tunnel or reverse
+> proxy that forwards to loopback reaches the listener regardless of what it binds; a
+> sibling service in this project was publicly reachable for 13 days on exactly that
+> path. The 2026-03-24 text is left unedited because it records what was decided then.
+> What remains of the argument is P5 and the upstream rate limits, and both justify
+> *not sharing admin credentials* rather than *this proxy needing no authentication of
+> its own*. The closure of H-4 (and H-5, which leans on the same trusted-caller
+> premise) is therefore pending re-evaluation and should not be cited as settled.
+
 ---
 
 #### H-5: LLM Proxy Has No Rate Limiting — CLOSED (By Design)

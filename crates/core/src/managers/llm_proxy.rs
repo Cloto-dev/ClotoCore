@@ -12,10 +12,30 @@
 //! - MCP servers are kernel-spawned child processes that must NOT hold admin API keys.
 //! - Merging into the `/api` router (port 8081) would require sharing admin credentials
 //!   with MCP servers, which is strictly worse for security.
-//! - The `127.0.0.1` binding is the security boundary — external access is impossible.
 //! - Upstream LLM providers enforce their own rate limits (429 → structured error).
 //!
-//! See: Code Quality Audit H-4/H-5 (2026-03-22) — closed as By Design.
+//! ## The bind address is NOT a security boundary
+//!
+//! This proxy binds `127.0.0.1` (hard-coded, unlike the kernel API, which honours
+//! `BIND_ADDRESS`). A loopback bind narrows who can reach the process; it does not
+//! make the process unreachable. Any tunnel or reverse proxy that forwards to
+//! loopback — cloudflared, ngrok, an nginx `proxy_pass`, a container port
+//! publish — puts this port on the far side of that forwarder. A sibling service
+//! in this project was publicly reachable for 13 days on exactly that path while
+//! its own comments described it as loopback-only.
+//!
+//! So: reaching this port means calling an upstream LLM provider with someone
+//! else's stored API key, and the bind address is not what prevents that.
+//!
+//! ## Status of the By Design closure
+//!
+//! Code Quality Audit H-4/H-5 (2026-03-22) closed the missing authentication as
+//! By Design, and one of the four stated grounds was the loopback claim corrected
+//! above. Removing it leaves the P5 argument and the upstream rate limits — and
+//! both of those justify *not sharing admin credentials*, which is a different
+//! claim from *this proxy needs no authentication of its own*. That closure is
+//! therefore pending re-evaluation; this comment records the gap rather than
+//! re-deciding it. Do not read this module as settled.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
