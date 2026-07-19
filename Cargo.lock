@@ -4256,8 +4256,8 @@ dependencies = [
 
 [[package]]
 name = "mgp-seal"
-version = "0.3.0"
-source = "git+https://github.com/Cloto-dev/mgp-rs?tag=mgp-seal-v0.3.0#7251ed12e1df0c271af1e96c74cdd16745a20b40"
+version = "0.4.1"
+source = "git+https://github.com/Cloto-dev/mgp-rs?tag=mgp-seal-v0.4.1#a579c300d3aa7b2758dce885a4233576698cf4fd"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
