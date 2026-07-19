@@ -137,7 +137,7 @@ Always review this list before making code changes and adhere to the constraints
 | Security | Rate Limiting: per-IP 10 req/s, burst 20 (`middleware.rs`) | Done |
 | Security | Audit Logging: full recording of all security events | Done |
 | Security | .env file permissions 0600 (Unix) | Done |
-| Security | BIND_ADDRESS default 127.0.0.1 (loopback only) | Done |
+| Security | BIND_ADDRESS defaults to 127.0.0.1 (narrows reachability; not a security boundary — see `llm_proxy.rs`) | Done |
 | Security | CORS origin scheme validation (allow http/https only) | Done |
 | Security | cosign keyless signing (release artifacts) | Done |
 | Quality | Unit Tests: handlers, db, capabilities, middleware, validation, config | Done |
