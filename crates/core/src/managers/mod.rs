@@ -28,6 +28,7 @@ mod registry;
 pub mod scheduler;
 pub mod session_manager;
 pub mod token_budget;
+pub mod tree_seal;
 pub mod usage_tracker;
 
 pub use agents::AgentManager;
