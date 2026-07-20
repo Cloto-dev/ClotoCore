@@ -1595,11 +1595,29 @@ fn local_seal_for_install(
     }
 
     let seal_key = mgp_seal::load_or_generate_seal_key(data_dir)?;
-    let seal = mgp_seal::compute_seal(entry_point, &seal_key)?;
+    // an earlier decision: seal the installed tree rather than the entry point alone.
+    // Since connectors became packaged the entry point is usually a shim, so
+    // an entry-point seal certified almost none of the code that runs. When
+    // the install directory does not resolve — dev layouts, tests, a server
+    // launched from outside `mcp-servers/` — fall back to the entry-point
+    // seal so those paths keep working exactly as before.
+    let install_root = resolve_install_dir(&data_dir.join("mcp-servers"), entry)
+        .ok()
+        .filter(|dir| dir.is_dir());
+    let seal = match &install_root {
+        Some(root) => crate::managers::tree_seal::compute_tree_seal(root, &seal_key)?,
+        None => mgp_seal::compute_seal(entry_point, &seal_key)?,
+    };
     info!(
-        "{}: Ed25519 seal verified under hub key '{kid_str}'; minted local seal at \
+        "{}: Ed25519 seal verified under hub key '{kid_str}'; minted local {} seal at \
          declared tier '{}'",
-        entry.id, entry.trust_level
+        entry.id,
+        if install_root.is_some() {
+            "tree"
+        } else {
+            "entry-point"
+        },
+        entry.trust_level
     );
     Ok(Some(seal))
 }

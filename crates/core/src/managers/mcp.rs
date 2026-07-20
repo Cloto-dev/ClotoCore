@@ -973,13 +973,48 @@ impl McpClientManager {
                         .parent()
                         .unwrap_or(std::path::Path::new("data")),
                 )?;
-                let status = mgp_seal::check_seal(
-                    &declared_trust_level,
-                    config.seal.as_deref(),
-                    entry_point,
-                    &seal_key,
-                    self.allow_unsigned,
-                )?;
+                // an earlier decision: a `tree-sha256:` seal covers the whole installed
+                // tree, so it is verified against that tree instead of the
+                // entry point. Servers sealed before this existed still carry
+                // an entry-point seal and take the unchanged path below — the
+                // prefix is the version marker, so nothing already installed
+                // changes behavior.
+                let tree_root = config
+                    .seal
+                    .as_deref()
+                    .filter(|seal| super::tree_seal::is_tree_seal(seal))
+                    .and_then(|_| {
+                        super::tree_seal::install_root_for(
+                            entry_point,
+                            &self
+                                .sandbox_base_dir
+                                .parent()
+                                .unwrap_or(std::path::Path::new("data"))
+                                .join("mcp-servers"),
+                        )
+                    });
+                let status = match (&tree_root, config.seal.as_deref()) {
+                    (Some(root), Some(seal)) => {
+                        // A tree we cannot read is not a pass. Treat it the
+                        // same as a mismatch: refusing to start is the safe
+                        // direction when the evidence is unavailable.
+                        match super::tree_seal::verify_tree_seal(root, seal, &seal_key) {
+                            Ok(true) => mgp_seal::SealStatus::Verified,
+                            Ok(false) => mgp_seal::SealStatus::Failed,
+                            Err(e) => {
+                                warn!(id = %id, "Tree seal could not be evaluated: {e}");
+                                mgp_seal::SealStatus::Failed
+                            }
+                        }
+                    }
+                    _ => mgp_seal::check_seal(
+                        &declared_trust_level,
+                        config.seal.as_deref(),
+                        entry_point,
+                        &seal_key,
+                        self.allow_unsigned,
+                    )?,
+                };
                 match status {
                     mgp_seal::SealStatus::Verified => {
                         info!(id = %id, "Magic Seal verified for MCP server");

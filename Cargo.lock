@@ -1168,6 +1168,7 @@ dependencies = [
  "futures",
  "governor",
  "hex",
+ "hmac",
  "http",
  "libc",
  "lindera",
