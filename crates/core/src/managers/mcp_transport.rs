@@ -341,6 +341,16 @@ impl StdioTransport {
         // discover it at runtime (supplements config-level env vars).
         cmd.env("CLOTO_LLM_PROXY_PORT", llm_proxy_port.to_string());
 
+        // Never hand a child the Magic Seal key (CSC Task #322). There is no
+        // `env_clear` here — a child inherits the kernel's environment — so
+        // when the kernel was started with `CLOTO_SEAL_KEY` set, every
+        // connector was being given the key that authenticates its own
+        // integrity seal. Removed unconditionally, outside the isolation
+        // block: the strip list there is built from the LLM provider env
+        // mappings and only applies when a profile is attached, and this must
+        // hold for every spawn regardless of trust level.
+        cmd.env_remove("CLOTO_SEAL_KEY");
+
         // Apply OS-level isolation (Phase 1: environment-based soft isolation).
         if let Some(profile) = isolation {
             // Create sandbox directory if it doesn't exist.
