@@ -7,7 +7,7 @@ This document specifies ClotoCore's distribution pipeline: a single signed
 release manifest that every update consumer reads, with release channels
 mapped 1:1 to the tiers of the [Release Lifecycle
 Standard](https://github.com/Cloto-dev/cpersona/blob/master/docs/RELEASE_LIFECYCLE_STANDARD.md)
-(v1.0, piloted in cpersona). ClotoCore adopts that standard as the second
+(v1.3, piloted in cpersona). ClotoCore adopts that standard as the second
 pilot repository: cpersona is the reference for policy operation, ClotoCore
 is the reference for **enforcing the policy in distribution infrastructure**.
 
