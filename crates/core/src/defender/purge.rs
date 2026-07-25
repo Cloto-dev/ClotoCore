@@ -1589,11 +1589,22 @@ mod tests {
 
     #[test]
     fn absolutize_cleans_without_resolving_symlinks() {
+        // "/a" is not absolute on Windows — it lacks a drive prefix — so the
+        // fixtures have to be written in the host's own absolute form.
+        let (messy, clean, above_root) = if cfg!(windows) {
+            (r"C:\a\.\b\..\c", r"C:\a\c", r"C:\..\..")
+        } else {
+            ("/a/./b/../c", "/a/c", "/../..")
+        };
+        assert_eq!(absolutize(Path::new(messy)), Some(PathBuf::from(clean)));
         assert_eq!(
-            absolutize(Path::new("/a/./b/../c")),
-            Some(PathBuf::from("/a/c"))
+            absolutize(Path::new(above_root)),
+            None,
+            "climbing above the root has no answer, and must not silently become the root"
         );
-        assert_eq!(absolutize(Path::new("/../..")), None);
+
+        // Whatever the host calls absolute, the output is: the executor runs
+        // from a temp directory and cannot re-resolve a relative path.
         let rel = absolutize(Path::new("rel")).unwrap();
         assert!(rel.is_absolute());
     }
