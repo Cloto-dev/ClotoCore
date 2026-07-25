@@ -55,19 +55,25 @@ pub fn install_service(prefix: &Path, user: Option<&str>) -> anyhow::Result<()> 
 }
 
 /// Remove Cloto systemd service
-pub fn uninstall_service() -> anyhow::Result<()> {
+/// Deregister the systemd service.
+///
+/// `Ok(true)` = a registration was removed, `Ok(false)` = there was none,
+/// `Err` = the removal failed. The purge executor reports these as `removed` /
+/// `absent` / `failed`, so collapsing "nothing to remove" into success would
+/// make it claim it deleted something that was never there.
+pub fn uninstall_service() -> anyhow::Result<bool> {
     // Stop if running (ignore errors)
     let _ = run_systemctl(&["stop", SERVICE_NAME]);
     let _ = run_systemctl(&["disable", SERVICE_NAME]);
 
-    if Path::new(SERVICE_FILE).exists() {
-        std::fs::remove_file(SERVICE_FILE).context("Failed to remove service file")?;
-        run_systemctl(&["daemon-reload"])?;
-        info!("✅ Service removed: {}", SERVICE_NAME);
-    } else {
+    if !Path::new(SERVICE_FILE).exists() {
         info!("ℹ️  Service file not found, nothing to remove");
+        return Ok(false);
     }
-    Ok(())
+    std::fs::remove_file(SERVICE_FILE).context("Failed to remove service file")?;
+    run_systemctl(&["daemon-reload"])?;
+    info!("✅ Service removed: {}", SERVICE_NAME);
+    Ok(true)
 }
 
 pub fn start_service() -> anyhow::Result<()> {
@@ -150,6 +156,33 @@ pub fn swap_running_binary(
     })?;
 
     Ok(())
+}
+
+/// Check if a process is alive by PID (Unix: the signal-0 existence probe).
+///
+/// `EPERM` counts as alive: the process exists, it simply belongs to another
+/// user. Reading that as "gone" would let the uninstall helper start deleting
+/// files while the kernel it is waiting for is still running.
+/// A pid that does not fit `pid_t` cannot be probed, so it is reported alive:
+/// the safe reading of "unintelligible" is "still running", because the caller
+/// deletes files once this returns false.
+#[must_use]
+pub fn is_process_alive(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else {
+        return true;
+    };
+    // SAFETY: `kill` with signal 0 performs no action; it only reports whether
+    // the pid can be signalled.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// Registry keys are a Windows concept; the signature exists so the purge
+/// executor is written once for every platform.
+pub fn delete_registry_key(key_path: &str) -> anyhow::Result<bool> {
+    bail!("registry keys exist only on Windows (asked for {key_path})")
 }
 
 /// Execute binary swap (direct rename on Unix — called inline, no subprocess needed)

@@ -90,23 +90,30 @@ pub fn install_service(prefix: &Path, _user: Option<&str>) -> anyhow::Result<()>
 }
 
 /// Remove Cloto launchd user agent
-pub fn uninstall_service() -> anyhow::Result<()> {
+/// Deregister the launchd agent.
+///
+/// `Ok(true)` = a registration was removed, `Ok(false)` = there was none,
+/// `Err` = the removal failed. The purge executor reports these as `removed` /
+/// `absent` / `failed`, so collapsing "nothing to remove" into success would
+/// make it claim it deleted something that was never there.
+pub fn uninstall_service() -> anyhow::Result<bool> {
     let plist = plist_path();
 
-    if plist.exists() {
-        // Unload (stops if running)
-        let _ = Command::new("launchctl")
-            .args(["unload", "-w"])
-            .arg(&plist)
-            .status();
-
-        std::fs::remove_file(&plist)
-            .with_context(|| format!("Failed to remove plist {}", plist.display()))?;
-        info!("Service removed: {}", SERVICE_LABEL);
-    } else {
+    if !plist.exists() {
         info!("Plist not found, nothing to remove");
+        return Ok(false);
     }
-    Ok(())
+
+    // Unload (stops if running)
+    let _ = Command::new("launchctl")
+        .args(["unload", "-w"])
+        .arg(&plist)
+        .status();
+
+    std::fs::remove_file(&plist)
+        .with_context(|| format!("Failed to remove plist {}", plist.display()))?;
+    info!("Service removed: {}", SERVICE_LABEL);
+    Ok(true)
 }
 
 pub fn start_service() -> anyhow::Result<()> {
@@ -188,6 +195,33 @@ pub fn swap_running_binary(
     })?;
 
     Ok(())
+}
+
+/// Check if a process is alive by PID (Unix: the signal-0 existence probe).
+///
+/// `EPERM` counts as alive: the process exists, it simply belongs to another
+/// user. Reading that as "gone" would let the uninstall helper start deleting
+/// files while the kernel it is waiting for is still running.
+/// A pid that does not fit `pid_t` cannot be probed, so it is reported alive:
+/// the safe reading of "unintelligible" is "still running", because the caller
+/// deletes files once this returns false.
+#[must_use]
+pub fn is_process_alive(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else {
+        return true;
+    };
+    // SAFETY: `kill` with signal 0 performs no action; it only reports whether
+    // the pid can be signalled.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// Registry keys are a Windows concept; the signature exists so the purge
+/// executor is written once for every platform.
+pub fn delete_registry_key(key_path: &str) -> anyhow::Result<bool> {
+    bail!("registry keys exist only on Windows (asked for {key_path})")
 }
 
 /// Execute binary swap (direct rename on macOS — no subprocess needed, same as Linux)

@@ -898,7 +898,7 @@ fn absolutize(path: &Path) -> Option<PathBuf> {
 
 /// A path with nothing above it — `/`, `C:\`, a bare UNC share. The plan
 /// refuses these outright; no uninstall footprint is ever a filesystem root.
-fn is_filesystem_root(path: &Path) -> bool {
+pub(crate) fn is_filesystem_root(path: &Path) -> bool {
     path.parent().is_none()
         || path
             .components()
@@ -928,7 +928,7 @@ fn is_strict_descendant(path: &Path, dir: &Path) -> bool {
 /// deleted: `platform::uninstall_service` only unloads a launchd job when the
 /// plist still exists, so removing the file first turns the deregistration
 /// into a silent no-op and leaves the job loaded.
-fn order_for_removal(mut entries: Vec<PurgeEntry>) -> Vec<PurgeEntry> {
+pub(crate) fn order_for_removal(mut entries: Vec<PurgeEntry>) -> Vec<PurgeEntry> {
     entries.sort_by(|a, b| {
         let rank = |e: &PurgeEntry| match e.kind {
             PurgeKind::Service | PurgeKind::Registry => 0,
@@ -1105,7 +1105,7 @@ pub fn render_text(plan: &PurgePlan) -> String {
     out
 }
 
-fn tier_label(tier: PurgeTier) -> &'static str {
+pub(crate) fn tier_label(tier: PurgeTier) -> &'static str {
     match tier {
         PurgeTier::Application => "application only",
         PurgeTier::UserData => "application + user data",
