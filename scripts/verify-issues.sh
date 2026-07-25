@@ -66,10 +66,62 @@ verified=0
 stale=0
 fixed=0
 errors=0
+rows_read=0
+declared_count=""
 
-# Extract issues from JSON using python3
+# Extract issues from JSON using python3, into a file rather than a process
+# substitution (bug-494). A substitution's exit status is invisible to
+# `set -e`, so a registry that failed to parse yielded zero rows and the run
+# still reported success — silently disabling verification for EVERY entry
+# while the pre-commit hook and the CI Issue Registry job (both of which gate
+# only on this script's exit code) went green.
+EXTRACT_OUT="$(mktemp)"
+EXTRACT_ERR="$(mktemp)"
+trap 'rm -f "$EXTRACT_OUT" "$EXTRACT_ERR"' EXIT
+
+# Convert path for native Python on Windows (MSYS /c/ → C:/)
+_REGISTRY_PY="$REGISTRY"
+if command -v cygpath &>/dev/null; then
+    _REGISTRY_PY="$(cygpath -m "$REGISTRY")"
+fi
+
 # Output format: id|severity|file|pattern|expected|status|summary
+# plus a final `#count=<n>` trailer, so a truncated read cannot masquerade as
+# a short registry. `data['issues']` is indexed, not `.get`, so a registry
+# missing the key raises instead of verifying nothing.
+if ! PYTHONUTF8=1 $PYTHON_CMD -c "
+import json, sys
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+with open('$_REGISTRY_PY', encoding='utf-8') as f:
+    data = json.load(f)
+issues = data['issues']
+for issue in issues:
+    print('|'.join([
+        issue.get('id', ''),
+        issue.get('severity', '?'),
+        issue.get('file', ''),
+        issue.get('pattern', ''),
+        issue.get('expected', 'present'),
+        issue.get('status', 'unknown'),
+        issue.get('summary', ''),
+    ]))
+print('#count={}'.format(len(issues)))
+" > "$EXTRACT_OUT" 2> "$EXTRACT_ERR"; then
+    echo -e "  ${RED}[ERROR]${NC} Failed to parse registry: qa/issue-registry.json"
+    sed 's/^/           /' "$EXTRACT_ERR"
+    echo ""
+    echo -e "${RED}Registry could not be read — nothing was verified.${NC}"
+    exit 1
+fi
+
 while IFS='|' read -r id severity file pattern expected status summary; do
+    # Row-count trailer, not an issue
+    if [[ "$id" == '#count='* ]]; then
+        declared_count="${id#\#count=}"
+        continue
+    fi
+    rows_read=$((rows_read + 1))
+
     # Apply filter
     if [[ -n "$FILTER" && "$status" != "$FILTER" ]]; then
         continue
@@ -125,29 +177,17 @@ while IFS='|' read -r id severity file pattern expected status summary; do
         fi
     fi
 
-done < <(
-    # Convert path for native Python on Windows (MSYS /c/ → C:/)
-    _REGISTRY_PY="$REGISTRY"
-    if command -v cygpath &>/dev/null; then
-        _REGISTRY_PY="$(cygpath -m "$REGISTRY")"
-    fi
-    PYTHONUTF8=1 $PYTHON_CMD -c "
-import json, sys, os
-sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-with open('$_REGISTRY_PY', encoding='utf-8') as f:
-    data = json.load(f)
-for issue in data.get('issues', []):
-    print('|'.join([
-        issue.get('id', ''),
-        issue.get('severity', '?'),
-        issue.get('file', ''),
-        issue.get('pattern', ''),
-        issue.get('expected', 'present'),
-        issue.get('status', 'unknown'),
-        issue.get('summary', ''),
-    ]))
-"
-)
+done < "$EXTRACT_OUT"
+
+# The extractor parsed the registry, so any mismatch here means rows were lost
+# between it and this loop — report it rather than verifying a subset quietly.
+if [[ -z "$declared_count" ]]; then
+    echo -e "  ${RED}[ERROR]${NC} Registry extraction ended without a row-count trailer — output was truncated"
+    errors=$((errors + 1))
+elif [[ "$rows_read" -ne "$declared_count" ]]; then
+    echo -e "  ${RED}[ERROR]${NC} Read $rows_read of $declared_count registry entries — output was truncated"
+    errors=$((errors + 1))
+fi
 
 # Summary
 echo ""
@@ -158,16 +198,19 @@ echo -e "Stale:         ${YELLOW}$stale${NC}"
 echo -e "Fixed:         ${GREEN}$fixed${NC}"
 echo -e "Errors:        ${RED}$errors${NC}"
 
-if [[ $total -eq 0 ]]; then
-    echo ""
-    echo -e "${YELLOW}No issues found in registry.${NC}"
-    exit 0
-fi
-
+# Checked before the empty-registry case on purpose: an extraction problem
+# reports zero verified issues, and treating that as "nothing to do" is what
+# made this gate fail open (bug-494).
 if [[ $stale -gt 0 || $errors -gt 0 ]]; then
     echo ""
     echo -e "${RED}WARNING: $((stale + errors)) issue(s) need attention${NC}"
     exit 1
+fi
+
+if [[ $total -eq 0 ]]; then
+    echo ""
+    echo -e "${YELLOW}No issues found in registry.${NC}"
+    exit 0
 fi
 
 echo ""
