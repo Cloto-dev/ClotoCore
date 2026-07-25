@@ -4245,8 +4245,8 @@ dependencies = [
 
 [[package]]
 name = "mgp-sdk"
-version = "0.6.0"
-source = "git+https://github.com/Cloto-dev/mgp-rs?tag=mgp-sdk-v0.6.0#6d42fa3ffaef29393d39a6485d754c3d60a1fa3e"
+version = "0.6.1"
+source = "git+https://github.com/Cloto-dev/mgp-rs?tag=mgp-sdk-v0.6.1#ffa754bbfacccda7492a298e61a57d75052d4d5d"
 dependencies = [
  "anyhow",
  "serde",
