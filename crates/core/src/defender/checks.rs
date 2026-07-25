@@ -416,7 +416,10 @@ fn c_db_file_integrity(ctx: &CheckCtx) -> CheckFuture<'_> {
 
 /// Pure core of the drift check: which `candidates` (≠ the resolved dir)
 /// contain a database the running binary would not read?
-fn drift_hits(resolved: &Path, candidates: &[PathBuf]) -> Vec<PathBuf> {
+///
+/// Shared with `defender::purge` so the doctor and the uninstall plan can
+/// never disagree about what counts as a stray data directory.
+pub(crate) fn drift_hits(resolved: &Path, candidates: &[PathBuf]) -> Vec<PathBuf> {
     candidates
         .iter()
         .filter(|c| c.as_path() != resolved && c.join("cloto_memories.db").exists())
