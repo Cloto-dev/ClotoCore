@@ -33,7 +33,8 @@ crates/core/src/defender/
   footprint.rs   — install receipt: the ledger (canonical source 1)
   advisories.rs  — known-issue feed evaluation (canonical source 2)
   checks.rs      — check registry (canonical source 3)
-  plan.rs        — purge-plan generation & execution
+  repair.rs      — the repair verb (non-destructive fixes)
+  purge.rs       — purge-plan generation; execution is plan-bound and separate
 ```
 
 | Verb | Semantics | Destructive? |
@@ -194,6 +195,19 @@ abstract warning. Scope tiers, conservative by default:
 3. \+ heavy assets (models, voicevox) and MCP servers + venv
 4. \+ everything (WebView data, registry keys, receipt itself)
 
+Tier 4 is where the `data_dir` *container* and the receipt go; tiers 2 and 3
+name paths inside it. A plan therefore never lists a path that sits inside
+another listed directory — the child is reported as covered by its parent so
+the size total counts each tree once.
+
+Receipt entries are classified by id, and an id the running binary does not
+recognise **falls back to tier 2, never tier 1**. A future version that
+records a new kind of footprint is then invisible to the default uninstall
+rather than deleted by it: an unclassified entry should survive a scope the
+user did not knowingly widen. The classification lives in code
+(`defender::purge::classify`), which is where new ids are added; enumerating
+every id here would drift.
+
 ### UI — Settings → Health → Danger Zone
 
 The Health section (`HealthSection.tsx`) already exists; the Danger Zone is
@@ -208,8 +222,9 @@ The dashboard route is the primary implementation for *all* platforms: one
 flow, one plan format, one confirmation UI; OS-specific work stays inside the
 existing `crate::platform` abstraction. On macOS — which has no uninstaller
 artifact at all — this route is the only proper uninstall path. The CLI
-(`clotocore uninstall --purge-data --dry-run`) is a thin wrapper over the same
-plan generator, covering headless installs. NSIS gains at most a checkbox that
+(`clotocore uninstall --plan [--tier N] [--prefix P] [--json]` for the dry run;
+execution flags land with the executor) is a thin wrapper over the same plan
+generator, covering headless installs. NSIS gains at most a checkbox that
 invokes the same plan.
 
 ### Authentication — two distinct layers

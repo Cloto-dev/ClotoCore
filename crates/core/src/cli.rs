@@ -33,6 +33,17 @@ pub enum Commands {
         /// Installation directory to remove
         #[arg(long, default_value_os_t = default_prefix())]
         prefix: PathBuf,
+        /// Enumerate the full footprint and print it without removing
+        /// anything (install receipt + platform artifacts + stray data dirs)
+        #[arg(long)]
+        plan: bool,
+        /// Scope tier for --plan: 1 = application only (default), 2 = + user
+        /// data, 3 = + assets and MCP servers, 4 = + everything
+        #[arg(long, default_value_t = 1, requires = "plan")]
+        tier: u8,
+        /// Output the plan as JSON
+        #[arg(long, requires = "plan")]
+        json: bool,
     },
     /// Manage OS service
     Service {
@@ -117,7 +128,20 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
             info!("📦 Installing Cloto to {}", prefix.display());
             crate::installer::install(prefix, service, user).await
         }
-        Commands::Uninstall { prefix } => {
+        Commands::Uninstall {
+            prefix,
+            plan,
+            tier,
+            json,
+        } => {
+            if plan {
+                // Read-only enumeration (DEFENDER_DESIGN.md §7). The plan is
+                // the capability boundary of the uninstall path, so it is
+                // reviewable on its own, before anything can act on it. The
+                // prefix is passed through so the dry run describes what the
+                // real `uninstall` would remove, receipt or not.
+                return crate::defender::purge::run_cli(tier, Some(prefix), json);
+            }
             info!("🗑️  Uninstalling Cloto from {}", prefix.display());
             crate::installer::uninstall(prefix).await
         }

@@ -93,6 +93,28 @@ pub fn receipt_path(data_dir: &Path) -> PathBuf {
     data_dir.join(RECEIPT_FILE)
 }
 
+/// The `.app` bundle containing `exe`, if it is laid out as one
+/// (`Foo.app/Contents/MacOS/foo`). The layout is macOS-only in practice, but
+/// the rule is pure path arithmetic and is therefore checked on every
+/// platform's test run rather than only where it matters.
+#[must_use]
+pub fn app_bundle_of(exe: &Path) -> Option<PathBuf> {
+    let macos_dir = exe.parent()?;
+    if macos_dir.file_name()? != "MacOS" {
+        return None;
+    }
+    let contents = macos_dir.parent()?;
+    if contents.file_name()? != "Contents" {
+        return None;
+    }
+    let bundle = contents.parent()?;
+    if bundle.extension()? == "app" {
+        Some(bundle.to_path_buf())
+    } else {
+        None
+    }
+}
+
 /// Load the receipt, tolerating absence and corruption (both return `None`;
 /// corruption is logged — the next `record` rewrites a valid ledger).
 #[must_use]
@@ -183,6 +205,13 @@ pub fn boot_entries(data_dir: &Path) -> Vec<ReceiptEntry> {
 
     if let Ok(exe) = std::env::current_exe() {
         entries.push(ReceiptEntry::file("binary", &exe));
+        // On macOS the desktop build runs from inside an .app bundle, so the
+        // binary alone is not the application: removing it would leave a
+        // broken bundle in /Applications. The uninstall plan can only remove
+        // what the receipt records, so the bundle has to be recorded here.
+        if let Some(bundle) = app_bundle_of(&exe) {
+            entries.push(ReceiptEntry::dir("app_bundle", &bundle));
+        }
     }
 
     let db = crate::defender::checks::resolve_db_path(data_dir);
@@ -298,6 +327,28 @@ mod tests {
         assert!(
             load(dir.path()).is_some(),
             "record must rewrite a valid ledger"
+        );
+    }
+
+    #[test]
+    fn app_bundle_is_detected_from_the_bundle_layout() {
+        assert_eq!(
+            app_bundle_of(Path::new(
+                "/Applications/ClotoCore.app/Contents/MacOS/ClotoCore"
+            )),
+            Some(PathBuf::from("/Applications/ClotoCore.app"))
+        );
+        // A plain binary is not a bundle; recording its directory would put
+        // an unrelated tree (a cargo target dir, /usr/local/bin) in the
+        // uninstall plan.
+        assert_eq!(app_bundle_of(Path::new("/usr/local/bin/clotocore")), None);
+        assert_eq!(
+            app_bundle_of(Path::new("/x/ClotoCore.app/Contents/Resources/tool")),
+            None
+        );
+        assert_eq!(
+            app_bundle_of(Path::new("/x/notanapp/Contents/MacOS/x")),
+            None
         );
     }
 
