@@ -105,7 +105,10 @@ jobs:
 
       - name: Test count ratchet
         if: matrix.os == 'ubuntu-latest'
-        run: bash scripts/check-test-count.sh
+        # `rust` explicitly: this job has no Node, and a ratchet that skips the
+        # suite it cannot measure is how a floor stops holding anything. The
+        # dashboard floor is checked in the Dashboard job, which has Node.
+        run: bash scripts/check-test-count.sh rust
 
   smoke:
     name: Smoke (${{ matrix.os }})
@@ -247,3 +250,10 @@ jobs:
 
       - name: Run tests
         run: npm test -- --run --passWithNoTests
+
+      - name: Test count ratchet
+        # `--passWithNoTests` above means a suite that vanished still passes.
+        # The ratchet is what notices: it reads the count back and compares it
+        # against the floor in qa/test-baseline.json.
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/check-test-count.sh dashboard
