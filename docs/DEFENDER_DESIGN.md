@@ -200,6 +200,17 @@ name paths inside it. A plan therefore never lists a path that sits inside
 another listed directory — the child is reported as covered by its parent so
 the size total counts each tree once.
 
+A plan is a UTF-8 JSON file, and a path is not text: on Linux a file name is
+bytes, so a path can exist that the plan cannot write down. Rendering it
+lossily is the dangerous option, because the mangled string round-trips to
+itself — nothing downstream can tell it apart from a faithful path, the
+executor stats it, finds nothing, and reports the entry as already gone while
+the directory is still there. Such a path is therefore refused at the two
+seams where a path becomes a string (the receipt and the plan's own
+candidates), listed among the plan's skipped entries, and stated in the plan's
+notes. The uninstall says it did not remove it, which is true, instead of
+claiming a success it did not have.
+
 Receipt entries are classified by id, and an id the running binary does not
 recognise **falls back to tier 2, never tier 1**. A future version that
 records a new kind of footprint is then invisible to the default uninstall
@@ -248,17 +259,79 @@ parent exits").
 
 ```
 dashboard confirm → POST /api/system/uninstall (X-API-Key)
-kernel: stop MCP servers → close DB pool → write purge plan to temp
-      → copy own binary to temp → spawn detached:
-        clotocore purge-exec --plan <file> --pid <parent>   (hidden subcommand)
-      → clean app exit
+kernel: write purge plan to a fresh temp dir → copy own binary beside it
+      → ask for UAC elevation where the plan needs it (Windows)
+      → spawn detached:
+        clotocore purge-exec --plan <file> --pid <parent> --root <r>…
+      → drain MCP servers → close DB pool → clean app exit
 helper (from temp): wait for parent pid → execute plan
-      → UAC elevation on Windows where required (Program Files, ProgramData)
       → remove service/autostart/uninstall keys → remove everything in plan
+      → write the report next to the plan
 ```
 
 The helper executes **only** what the plan file lists — the plan is the
 capability boundary; the helper has no enumeration logic of its own.
+
+Three properties of this sequence are load-bearing, and each of them is a
+correction to the sketch it replaces.
+
+**The elevation prompt comes before the exit, not inside the helper.** A prompt
+raised after the app is gone appears with nothing on screen to explain it, and a
+refusal has nobody left to report to. Asking while the kernel is still up costs
+nothing — the helper blocks on the parent pid either way — and turns a declined
+prompt into a `409` with the app still running and nothing removed. Whether the
+plan needs elevation at all is decided from the plan (a service, an `HKLM`
+uninstall key, or any path outside the user's own tree), not from a permission
+probe, which would race the state it measures.
+
+**The containment roots travel on the command line.** The plan is a file, and
+the helper reads it after the kernel wrote it — elevated, on Windows. If the
+plan's contents were the only thing deciding what gets deleted, then plan-file
+integrity would be the whole security boundary, and a same-user process that
+rewrote the file between write and read would be handing an elevated process a
+list of things to remove. The lexical floor (absolute, not a filesystem root, no
+`..`) does not close this: `/etc/passwd` satisfies all three. So the kernel
+states the allowed directory trees as `--root` arguments, which a process that
+can only rewrite files cannot reach, and the executor refuses any path outside
+them. A helper invoked with no roots derives them from its own environment
+(`data_dir`, home, the platform dirs, the install prefix, `/Applications`) —
+never from the plan it was handed. An empty root set refuses everything rather
+than allowing everything.
+
+**The report is a file, not stdout.** A detached helper's stdout goes nowhere:
+the process that spawned it has exited. The run is written to
+`<plan>.report.json` before the exit status is decided, so a partial or refused
+uninstall leaves a complete account behind — which is also what makes "fix the
+failure and re-run `purge-exec --plan <path>`" a real instruction rather than a
+suggestion to start over.
+
+That instruction only holds if the plan outlives the run, and the receipt
+outlives the removal that reads it. Deepest-first ordering would take the
+data-directory container — and the receipt inside it — before shallower entries
+like the install prefix or the app bundle, so a failure on one of those would
+leave a second `uninstall --execute` rebuilding its plan from a receipt that no
+longer exists, silently naming less than the first attempt did. The entry
+holding the receipt is therefore removed last; nesting has already collapsed by
+then, so the surviving entries are disjoint and the order is free to say so.
+The in-process path saves its plan into a staging directory outside the tree it
+is about to remove, before removing anything, and writes its report beside it
+afterwards — the same two artifacts the detached path produces, so an
+interrupted run of either is resumed the same way.
+
+Removing a *running* installation is a separate hazard from removing a
+privileged one. On Unix the deletions succeed against open files, the live
+process keeps writing to unlinked inodes, and it recreates the receipt and data
+directory on its way out: the uninstall reports success and the installation is
+still there. The kernel therefore records its pid in `data_dir/kernel.pid` while
+it runs, and the in-process path (`clotocore uninstall --execute`) refuses while
+a live kernel holds it, pointing at the detached flow instead. The record is
+advisory — a stale file whose pid is gone counts as no holder — because it
+answers a question for a human-driven operation, not a concurrency invariant.
+
+On a desktop install the kernel lives inside the GUI binary, so *that* binary is
+what gets copied and re-launched as `purge-exec`. It honours the hidden
+subcommand before any window is created; otherwise the copy would start a second
+app instead of executing the plan.
 
 ### Boundaries (stated honestly in user-facing docs)
 
@@ -281,6 +354,13 @@ capability boundary; the helper has no enumeration logic of its own.
    recommendation (HITL).
 5. The detached helper is plan-bound: nothing outside the plan file is
    touched.
+6. A plan file is UTF-8 JSON. A path that does not survive that encoding is
+   refused and reported as refused — never acted on, and never counted as
+   already removed.
+7. The entry holding the install receipt is removed last, and every run saves
+   its plan and its report outside the tree it removes, so a partial uninstall
+   can be finished with `purge-exec --plan <file>` rather than re-enumerated
+   from a ledger it has already deleted.
 
 ## 9. Phasing
 

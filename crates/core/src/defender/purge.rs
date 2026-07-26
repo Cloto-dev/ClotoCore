@@ -351,8 +351,8 @@ impl PlanRequest {
 #[must_use]
 pub fn build_plan(req: &PlanRequest) -> PurgePlan {
     let receipt = footprint::load(&req.data_dir);
-    let candidates = collect_candidates(req, receipt.as_ref());
-    finish_plan(req, candidates, receipt.as_ref())
+    let (candidates, refused) = collect_candidates(req, receipt.as_ref());
+    finish_plan(req, candidates, refused, receipt.as_ref())
 }
 
 /// A candidate before existence checks, tier promotion and nesting collapse.
@@ -387,11 +387,30 @@ impl Candidate {
     }
 }
 
-fn collect_candidates(req: &PlanRequest, receipt: Option<&Receipt>) -> Vec<Candidate> {
+/// Turn the receipt, the caller's prefix and the platform probes into
+/// candidates, together with the entries refused before they could become one.
+///
+/// The only refusal made here is a receipt path the receipt itself could not
+/// express (`ReceiptEntry::unrepresentable`). It has to happen at this seam:
+/// once such a path is a candidate it is indistinguishable from a path that is
+/// merely absent, and the plan would report it as already removed.
+fn collect_candidates(
+    req: &PlanRequest,
+    receipt: Option<&Receipt>,
+) -> (Vec<Candidate>, Vec<SkippedEntry>) {
     let mut out = Vec::new();
+    let mut refused = Vec::new();
 
     if let Some(receipt) = receipt {
         for entry in &receipt.entries {
+            if entry.unrepresentable {
+                refused.push(SkippedEntry {
+                    id: entry.id.clone(),
+                    reason: SkipReason::Unsafe,
+                    path: entry.path.clone(),
+                });
+                continue;
+            }
             let kind = match entry.kind {
                 EntryKind::File => PurgeKind::File,
                 EntryKind::Dir => PurgeKind::Dir,
@@ -423,7 +442,7 @@ fn collect_candidates(req: &PlanRequest, receipt: Option<&Receipt>) -> Vec<Candi
 
     out.extend(platform_candidates(&req.roots));
     out.extend(legacy_candidates(&req.data_dir, &req.roots));
-    out
+    (out, refused)
 }
 
 /// Artifacts outside the receipt's reach (§7): the launchd plist, the systemd
@@ -558,18 +577,25 @@ fn legacy_candidates(data_dir: &Path, roots: &ProbeRoots) -> Vec<Candidate> {
 fn finish_plan(
     req: &PlanRequest,
     candidates: Vec<Candidate>,
+    refused: Vec<SkippedEntry>,
     receipt: Option<&Receipt>,
 ) -> PurgePlan {
-    let mut skipped = Vec::new();
+    // `collect_candidates` refuses for one reason only — a receipt path that
+    // cannot be written into a plan — so a non-empty seed *is* that case.
+    let unrepresentable_in_receipt = !refused.is_empty();
+    let mut skipped = refused;
 
-    let present = probe_existence(candidates, &mut skipped);
+    let (present, unrepresentable_live) = probe_existence(candidates, &mut skipped);
     let deduped = dedupe_by_path(present);
     let promoted = promote_containers(deduped);
     let in_tier = filter_by_tier(promoted, req.tier, &mut skipped);
     let (collapsed, covered) = collapse_nested(in_tier);
     skipped.extend(covered);
 
-    let entries = order_for_removal(collapsed.into_iter().map(measure_entry).collect());
+    let entries = order_for_removal(
+        collapsed.into_iter().map(measure_entry).collect(),
+        Some(&footprint::receipt_path(&req.data_dir)),
+    );
 
     PurgePlan {
         plan_version: PLAN_VERSION,
@@ -579,7 +605,11 @@ fn finish_plan(
         data_dir: req.data_dir.display().to_string(),
         entries,
         skipped,
-        notes: notes(receipt, req),
+        notes: notes(
+            receipt,
+            req,
+            unrepresentable_in_receipt || unrepresentable_live,
+        ),
     }
 }
 
@@ -624,8 +654,16 @@ struct Present {
 /// "Cannot stat" is not "absent": a permission error keeps the entry, because
 /// the executor may run elevated. Treating it as absent would quietly leave
 /// an unreadable `.env` behind after a "complete" uninstall.
-fn probe_existence(candidates: Vec<Candidate>, skipped: &mut Vec<SkippedEntry>) -> Vec<Present> {
+///
+/// Returns the surviving candidates and whether any was refused for not
+/// surviving the plan file's encoding — the plan says so in its notes, since
+/// that refusal is the one the user cannot infer from what is listed.
+fn probe_existence(
+    candidates: Vec<Candidate>,
+    skipped: &mut Vec<SkippedEntry>,
+) -> (Vec<Present>, bool) {
     let mut out = Vec::new();
+    let mut unrepresentable = false;
     for candidate in candidates {
         let (path, unreadable) = match (candidate.kind, candidate.path.as_ref()) {
             (PurgeKind::File | PurgeKind::Dir, Some(path)) => {
@@ -638,6 +676,21 @@ fn probe_existence(candidates: Vec<Candidate>, skipped: &mut Vec<SkippedEntry>) 
                     continue;
                 };
                 if is_filesystem_root(&abs) {
+                    skipped.push(SkippedEntry {
+                        id: candidate.id,
+                        reason: SkipReason::Unsafe,
+                        path: Some(abs.display().to_string()),
+                    });
+                    continue;
+                }
+                // Candidates that never went through the receipt — a
+                // `--prefix` argument, a platform probe, the legacy scan —
+                // arrive as live paths, so this is where the plan file's
+                // encoding is decided for them. Refused *before* the stat:
+                // a mangled path stats as NotFound, which would enter the
+                // plan as "already absent" and exit the uninstall as success.
+                if representable(&abs).is_none() {
+                    unrepresentable = true;
                     skipped.push(SkippedEntry {
                         id: candidate.id,
                         reason: SkipReason::Unsafe,
@@ -680,7 +733,7 @@ fn probe_existence(candidates: Vec<Candidate>, skipped: &mut Vec<SkippedEntry>) 
             unreadable,
         });
     }
-    out
+    (out, unrepresentable)
 }
 
 /// Collapse duplicate paths (the receipt and the legacy scan can name the
@@ -831,7 +884,7 @@ fn measure_entry(entry: Present) -> PurgeEntry {
     }
 }
 
-fn notes(receipt: Option<&Receipt>, req: &PlanRequest) -> Vec<String> {
+fn notes(receipt: Option<&Receipt>, req: &PlanRequest, unrepresentable: bool) -> Vec<String> {
     let mut notes = vec![
         "Third-party MCP servers may write outside their install directory (their own caches and \
          configs). Only declared paths are enumerated here."
@@ -853,6 +906,14 @@ fn notes(receipt: Option<&Receipt>, req: &PlanRequest) -> Vec<String> {
             "This plan covers the receipt and the platform artifacts of this installation. A CLI \
              install in a custom prefix that left no receipt is only covered when --prefix is \
              given."
+                .to_string(),
+        );
+    }
+    if unrepresentable {
+        notes.push(
+            "A path on this system cannot be written into a plan file — plan files are UTF-8 \
+             JSON, and that path is not valid UTF-8. It was left alone rather than reported as \
+             removed, so it is still on disk and has to be removed by hand."
                 .to_string(),
         );
     }
@@ -896,6 +957,22 @@ fn absolutize(path: &Path) -> Option<PathBuf> {
     Some(out)
 }
 
+/// The path as a plan can carry it, or `None` when it cannot carry it at all.
+///
+/// A plan is UTF-8 JSON and `Path::display` is lossy, so a path that is not
+/// valid UTF-8 — ordinary on Linux, where a file name is bytes — becomes a
+/// U+FFFD-mangled string that names nothing on disk. The mangled string
+/// round-trips to itself, so no later stage can tell it apart from a path that
+/// was simply never there: the executor stats it, finds nothing, and records
+/// the entry as an idempotent success while the real directory stays exactly
+/// where it was. This check is the only place the difference is still visible,
+/// which is why both seams that turn a path into a string go through it — the
+/// receipt (`footprint::ReceiptEntry`) and the plan's own live candidates.
+pub(crate) fn representable(path: &Path) -> Option<String> {
+    let rendered = path.display().to_string();
+    (PathBuf::from(&rendered).as_path() == path).then_some(rendered)
+}
+
 /// A path with nothing above it — `/`, `C:\`, a bare UNC share. The plan
 /// refuses these outright; no uninstall footprint is ever a filesystem root.
 pub(crate) fn is_filesystem_root(path: &Path) -> bool {
@@ -922,17 +999,39 @@ fn is_strict_descendant(path: &Path, dir: &Path) -> bool {
     path != dir && path.starts_with(dir)
 }
 
-/// Deregistrations first, then deepest paths first.
+/// Deregistrations first, then deepest paths first, and whatever holds the
+/// install receipt last.
 ///
 /// Services must be deregistered *before* their unit or plist file is
 /// deleted: `platform::uninstall_service` only unloads a launchd job when the
 /// plist still exists, so removing the file first turns the deregistration
 /// into a silent no-op and leaves the job loaded.
-pub(crate) fn order_for_removal(mut entries: Vec<PurgeEntry>) -> Vec<PurgeEntry> {
+///
+/// The receipt is the ledger this whole enumeration is built from, and
+/// deepest-first would take the data directory that holds it before shallower
+/// entries like the install prefix or the app bundle. If one of those then
+/// fails, a second `clotocore uninstall --execute` has no receipt to read and
+/// can no longer name anything only the receipt knew about — so the receipt
+/// goes last. Nesting has already collapsed by this point, which is what makes
+/// the reordering free: the surviving entries are disjoint, so none of them
+/// depends on another being removed first.
+///
+/// `receipt_path` is the path of the receipt file itself; an entry ranks last
+/// when removing it would take that file with it.
+pub(crate) fn order_for_removal(
+    mut entries: Vec<PurgeEntry>,
+    receipt_path: Option<&Path>,
+) -> Vec<PurgeEntry> {
     entries.sort_by(|a, b| {
         let rank = |e: &PurgeEntry| match e.kind {
             PurgeKind::Service | PurgeKind::Registry => 0,
-            PurgeKind::File | PurgeKind::Dir => 1,
+            PurgeKind::File | PurgeKind::Dir => {
+                if holds_receipt(e, receipt_path) {
+                    2
+                } else {
+                    1
+                }
+            }
         };
         let depth = |e: &PurgeEntry| {
             e.path
@@ -946,6 +1045,20 @@ pub(crate) fn order_for_removal(mut entries: Vec<PurgeEntry>) -> Vec<PurgeEntry>
             .then(a.id.cmp(&b.id))
     });
     entries
+}
+
+/// Would removing `entry` take the install receipt with it?
+///
+/// True for the receipt file itself and for every directory above it that the
+/// plan lists (the data-directory container, an install prefix holding it).
+/// An entry with no path — a service, a registry key — never holds a file.
+fn holds_receipt(entry: &PurgeEntry, receipt_path: Option<&Path>) -> bool {
+    match (receipt_path, entry.path.as_deref()) {
+        // An empty string is a prefix of everything, which would rank an
+        // unusable entry last for no reason; the executor refuses it anyway.
+        (Some(receipt), Some(path)) if !path.is_empty() => receipt.starts_with(Path::new(path)),
+        _ => false,
+    }
 }
 
 /// Bytes under `path`, without following symlinks. Returns the size and
@@ -1157,6 +1270,47 @@ mod tests {
             std::fs::create_dir_all(parent).unwrap();
         }
         std::fs::write(path, vec![0_u8; bytes]).unwrap();
+    }
+
+    /// A plan entry built without going through enumeration, for the ordering
+    /// rules — which are about the shape of a list, not about a disk.
+    fn purge_entry(id: &str, kind: PurgeKind, path: Option<&str>) -> PurgeEntry {
+        PurgeEntry {
+            id: id.to_string(),
+            kind,
+            path: path.map(ToString::to_string),
+            name: None,
+            tier: PurgeTier::Everything,
+            source: PurgeSource::Receipt,
+            size_bytes: None,
+            size_truncated: false,
+            unreadable: false,
+            secret: false,
+            covers_secret: false,
+        }
+    }
+
+    /// An absolute path this platform accepts and UTF-8 does not.
+    ///
+    /// Built in memory, never on disk: APFS rejects the byte sequence with
+    /// `EILSEQ`, so a fixture that touched the filesystem would only run on
+    /// one third of the CI matrix. Nothing here needs it to exist — the plan
+    /// refuses the path before it is ever stat'd, which is the whole point.
+    #[cfg(unix)]
+    fn unrepresentable_path() -> PathBuf {
+        use std::os::unix::ffi::OsStrExt as _;
+        PathBuf::from(std::ffi::OsStr::from_bytes(b"/opt/caf\xe9/cloto"))
+    }
+
+    #[cfg(windows)]
+    fn unrepresentable_path() -> PathBuf {
+        use std::os::windows::ffi::OsStringExt as _;
+        // A lone high surrogate: valid UTF-16, and therefore a valid Windows
+        // path, but not encodable as UTF-8.
+        let mut wide: Vec<u16> = r"C:\opt\".encode_utf16().collect();
+        wide.push(0xD800);
+        wide.extend(r"\cloto".encode_utf16());
+        PathBuf::from(std::ffi::OsString::from_wide(&wide))
     }
 
     #[test]
@@ -1564,6 +1718,102 @@ mod tests {
         );
     }
 
+    // ── Paths a plan file cannot carry ──
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn a_path_that_does_not_survive_utf8_is_not_representable() {
+        let ordinary = if cfg!(windows) {
+            r"C:\opt\cloto"
+        } else {
+            "/opt/cloto"
+        };
+        assert_eq!(
+            representable(Path::new(ordinary)),
+            Some(ordinary.to_string()),
+            "an ordinary path is carried as itself"
+        );
+
+        let bad = unrepresentable_path();
+        assert_eq!(
+            representable(&bad),
+            None,
+            "a plan is UTF-8 JSON, and this path is not UTF-8"
+        );
+
+        // Why the check cannot be moved downstream: once rendered, the
+        // mangled string round-trips to itself, so nothing later can tell it
+        // apart from a path that was written faithfully.
+        let mangled = PathBuf::from(bad.display().to_string());
+        assert_ne!(mangled, bad);
+        assert_eq!(representable(&mangled), Some(bad.display().to_string()));
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn a_recorded_path_the_plan_cannot_carry_is_refused_not_called_absent() {
+        let bad = unrepresentable_path();
+        let entry = ReceiptEntry::dir("install_prefix", &bad);
+        assert!(
+            entry.unrepresentable,
+            "the receipt has to admit that its string is not the path"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        footprint::record(dir.path(), vec![entry]);
+        let plan = build_plan(&isolated(dir.path(), PurgeTier::Everything));
+
+        assert!(!ids(&plan).contains(&"install_prefix"), "{:?}", ids(&plan));
+        assert_eq!(
+            skipped_for(&plan, "install_prefix"),
+            Some(SkipReason::Unsafe),
+            "the mangled path stats as NotFound, so anything that probes it calls the directory \
+             absent — and the uninstall then exits 0 with the directory still on disk"
+        );
+        assert!(
+            plan.notes.iter().any(|n| n.contains("UTF-8")),
+            "a refusal the user cannot infer from the listing has to be stated: {:?}",
+            plan.notes
+        );
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn a_live_path_the_plan_cannot_carry_is_refused_before_it_is_probed() {
+        // `--prefix` arrives as a path, not through the receipt, so the
+        // receipt's flag cannot cover it: the probe applies the same check to
+        // the candidates it is handed. Platform probes and the legacy scan
+        // reach the plan the same way.
+        let dir = tempfile::tempdir().unwrap();
+        let plan = build_plan(
+            &isolated(dir.path(), PurgeTier::Everything).with_prefix(Some(unrepresentable_path())),
+        );
+
+        assert!(!ids(&plan).contains(&"install_prefix"), "{:?}", ids(&plan));
+        assert_eq!(
+            skipped_for(&plan, "install_prefix"),
+            Some(SkipReason::Unsafe)
+        );
+        assert!(plan.notes.iter().any(|n| n.contains("UTF-8")));
+    }
+
+    #[test]
+    fn an_ordinary_path_is_untouched_by_the_encoding_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("cloto_memories.db");
+        touch(&db, 8);
+        let entry = ReceiptEntry::file("db", &db);
+        assert!(!entry.unrepresentable);
+        footprint::record(dir.path(), vec![entry]);
+
+        let plan = build_plan(&isolated(dir.path(), PurgeTier::UserData));
+        assert!(ids(&plan).contains(&"db"));
+        assert!(
+            !plan.notes.iter().any(|n| n.contains("UTF-8")),
+            "a plan that carries everything it enumerated must not warn that it did not"
+        );
+    }
+
     #[test]
     fn every_listed_path_is_absolute_and_lexically_clean() {
         // The executor runs detached from a temp directory, so a relative
@@ -1805,11 +2055,72 @@ mod tests {
                 covers_secret: false,
             },
         ];
-        let ordered = order_for_removal(entries);
+        let ordered = order_for_removal(entries, None);
         assert_eq!(
             ordered[0].kind,
             PurgeKind::Service,
             "unloading a launchd job only works while its plist still exists"
+        );
+    }
+
+    #[test]
+    fn the_entry_holding_the_receipt_is_removed_last() {
+        // The convergence property: if a shallower entry fails, the next
+        // `uninstall --execute` still has a receipt to rebuild its plan from.
+        // The container is *deeper* than the app bundle here, so deepest-first
+        // alone would put it first — the assertion fails if the ranking goes.
+        let (data_dir, bundle) = if cfg!(windows) {
+            (r"C:\opt\cloto\data", r"C:\Applications\ClotoCore.app")
+        } else {
+            ("/opt/cloto/data", "/Applications/ClotoCore.app")
+        };
+        let receipt = footprint::receipt_path(Path::new(data_dir));
+        let receipt_str = receipt.to_string_lossy().into_owned();
+
+        let ordered = order_for_removal(
+            vec![
+                purge_entry("data_dir", PurgeKind::Dir, Some(data_dir)),
+                purge_entry("app_bundle", PurgeKind::Dir, Some(bundle)),
+                PurgeEntry {
+                    name: Some("com.cloto.system".to_string()),
+                    ..purge_entry("service", PurgeKind::Service, None)
+                },
+            ],
+            Some(&receipt),
+        );
+
+        let order: Vec<&str> = ordered.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(
+            order,
+            vec!["service", "app_bundle", "data_dir"],
+            "deregistration first, then the rest, and the receipt's own directory last"
+        );
+
+        // The receipt file itself, listed on its own, is the same case.
+        let ordered = order_for_removal(
+            vec![
+                purge_entry("receipt", PurgeKind::File, Some(&receipt_str)),
+                purge_entry("app_bundle", PurgeKind::Dir, Some(bundle)),
+            ],
+            Some(&receipt),
+        );
+        assert_eq!(
+            ordered.last().map(|e| e.id.as_str()),
+            Some("receipt"),
+            "the ledger goes after everything it can still describe"
+        );
+
+        // Without a receipt to protect, ordering is unchanged: deepest first.
+        let ordered = order_for_removal(
+            vec![
+                purge_entry("data_dir", PurgeKind::Dir, Some(data_dir)),
+                purge_entry("app_bundle", PurgeKind::Dir, Some(bundle)),
+            ],
+            None,
+        );
+        assert_eq!(
+            ordered[0].id, "data_dir",
+            "the deeper path still goes first"
         );
     }
 
