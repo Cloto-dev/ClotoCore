@@ -23,6 +23,7 @@ If a proposed change conflicts with any of these, flag it before proceeding.
 - Release build: `cd dashboard && npx tauri build` (`cargo build --release -p app` is prohibited)
 - Bug verify: `bash scripts/verify-issues.sh`
 - Test ratchet: `bash scripts/check-test-count.sh`
+- Language packs: `python3 scripts/check-language-packs.py` (blocking CI gate — every key in `dashboard/src/locales/en/` must exist in each pack under `dashboard/src-tauri/resources/`. Adding UI strings means adding the ja values in the same PR; `fallbackLng` hides the gap at runtime and the component tests only see English)
 
 **MUST (pre-push lint for Rust changes):** before pushing any change under `crates/`, run **both** `cargo fmt --all -- --check` **and** clippy locally — the CI **Lint** job gates on both and a formatting/clippy diff fails the PR. Running the dashboard `biome` check alone does **not** cover the Rust Lint job. The clippy command above (`--all-targets`) is stricter than CI; to reproduce CI exactly use the flags in `.github/workflows/ci.yml` (Lint job: no `--all-targets`, plus an `-A clippy::*` allowlist). `.github/workflows/ci.yml` is the authoritative gate.
 

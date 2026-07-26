@@ -147,7 +147,12 @@
       "preset_expert": "エキスパート",
       "status_connected": "接続済み",
       "status_disconnected": "未接続",
-      "status_error": "エラー"
+      "status_error": "エラー",
+      "vrm_thumbnail_title": "VRM のサムネイルを検出",
+      "vrm_thumbnail_message": "VRM ファイルにサムネイル画像が含まれています。エージェントのアバターとして適用しますか？",
+      "vrm_thumbnail_dont_show": "このセッション中は再表示しない",
+      "vrm_thumbnail_skip": "スキップ",
+      "vrm_thumbnail_apply": "適用"
     },
     "export_config": "エクスポート",
     "import_config": "構成インポート",
@@ -213,7 +218,66 @@
       "scan": "スキャン",
       "repair": "修復",
       "repaired": "{{count}} 件の問題を修復しました",
-      "db_size": "データベースサイズ"
+      "db_size": "データベースサイズ",
+      "danger": {
+        "title": "危険な操作",
+        "desc": "完全アンインストール。アプリが終了し、切り離されたヘルパーが、アプリ終了後に下記の計画に挙げられたものだけを削除します。取り消しはできません。",
+        "review": "削除される対象を確認",
+        "reviewing": "列挙中…",
+        "close": "閉じる",
+        "refresh": "再確認",
+        "scope_title": "範囲",
+        "scope_hint": "ティアは累積です — 広い範囲は、それより狭いすべての範囲を含みます。",
+        "scope_stale": "下記の一覧は別の範囲で列挙されたものです。選択中の範囲で削除される対象を見るには、再確認してください。",
+        "tier1": "アプリケーションのみ",
+        "tier1_hint": "実行ファイルまたはアプリバンドル、インストール先、OS サービス、自動起動。",
+        "tier1_always": "常に含まれます",
+        "tier2": "+ ユーザーデータ",
+        "tier2_hint": "データベース、シールキー、.env、添付ファイル、アバター。",
+        "tier3": "+ 大容量アセットと MCP サーバー",
+        "tier3_hint": "モデル、音声アセット、ダウンロード済みランタイム、MCP サーバーとその venv。",
+        "tier4": "+ その他すべて",
+        "tier4_hint": "データディレクトリのコンテナ、WebView プロファイル、アンインストール用レジストリキー、インストールレシート自体。",
+        "plan_title": "削除される対象",
+        "plan_meta": "計画 v{{planVersion}} · アプリ v{{appVersion}} · 列挙時刻 {{generatedAt}}",
+        "data_dir": "データディレクトリ",
+        "summary_items": "{{count}} 件",
+        "summary_secret": "認証情報が破棄されます",
+        "summary_elevation": "管理者の承認が要求されます",
+        "summary_truncated": "サイズは下限値です — 少なくとも 1 つのディレクトリが大きすぎて、完全に走査できませんでした。",
+        "empty": "この範囲に削除対象はありません。範囲を広げてください。あるいは、このインストールが自身のものとして名指しできるものが無い状態です。",
+        "tier_short": "T{{level}}",
+        "source_receipt": "記録済み",
+        "source_platform": "プラットフォーム",
+        "source_legacy": "スキャンで検出",
+        "flag_secret": "認証情報",
+        "flag_covers_secret": "認証情報を含む",
+        "flag_unreadable": "読み取り不可 — 削除には権限昇格が必要な場合があります",
+        "size_unknown": "—",
+        "size_lower_bound": "≥ {{size}}",
+        "skipped_show": "{{count}} 件の候補をスキップ",
+        "skipped_hint": "検討した上で除外したものです。「存在しない」ことも列挙の一部であり、記載漏れではありません。",
+        "skip_absent": "存在しない",
+        "skip_above_tier": "選択中の範囲より上位",
+        "skip_covered_by_parent": "親エントリに含まれる",
+        "skip_unsafe": "安全でないため拒否",
+        "notes_title": "この列挙の限界",
+        "sudo_title": "管理キーで確認",
+        "sudo_desc": "アンインストールを実行可能にするには、管理 API キーを入力してください。これは意図を確かめるためのゲートであり、セキュリティ境界ではありません — このアプリ自身がキーを読み取れます。実際の境界は、アンインストール要求に対してカーネル自身が行う X-API-Key 検証であり、キーが誤っていればカーネルの 403 として返ります。",
+        "sudo_where": "設定 → セキュリティ → 現在のキー (表示) から取得できます。",
+        "sudo_placeholder": "管理 API キーを入力または貼り付け",
+        "execute": "ClotoCore をアンインストール",
+        "confirm_title": "ClotoCore をアンインストールしますか？",
+        "confirm_message": "範囲ティア {{tier}} — {{items}}、{{size}}。アプリは終了し、削除はその終了後に実行されます。この操作は取り消せません。",
+        "confirm_label": "アンインストール",
+        "error_plan": "アンインストール計画を列挙できませんでした",
+        "error_execute": "アンインストールに失敗しました",
+        "error_ambiguous": "それでもアプリが自動的に閉じた場合、アンインストールは開始されています — 削除された内容はレポートファイルに記録されます。",
+        "running_title": "アンインストール中",
+        "running_desc": "列挙された項目をヘルパーが削除できるよう、アプリを終了しています。このウィンドウを閉じ、ClotoCore を再度開かないでください。",
+        "report_path": "レポート",
+        "running_resume_hint": "何か残っていた場合、その内容はレポートに記載されます。隣に置かれた計画ファイルは次のコマンドで再実行できます: clotocore purge-exec --plan <file>"
+      }
     },
     "general": {
       "theme": "テーマ",
@@ -256,7 +320,18 @@
       "setup_desc": "初期セットアップウィザードを再表示して、言語・テーマ・表示名を変更できます。",
       "rerun_setup": "クイックセットアップを再表示",
       "auto_update": "アップデートの自動確認",
-      "auto_update_desc": "アプリ起動時に新しいバージョンがあるかを自動で確認します。"
+      "auto_update_desc": "アプリ起動時に新しいバージョンがあるかを自動で確認します。",
+      "update_channel": "アップデートチャンネル",
+      "update_channel_desc": "下位のチャンネルに戻しても、インストール済みのバージョンがダウングレードされることはありません — そのチャンネルが現在のバージョンを追い越すまで、アプリはそのままです。",
+      "channel_stable": "Stable",
+      "channel_stable_hint": "認証済みリリースのみ (既定)",
+      "channel_current": "Current",
+      "channel_current_hint": "最新の正式リリース",
+      "channel_experimental": "Experimental",
+      "channel_experimental_hint": "プレリリース (alpha/beta) — 任意参加",
+      "channel_confirm_title": "Experimental チャンネルに切り替えますか？",
+      "channel_confirm_message": "Experimental リリースは任意参加のみで、動作の保証はありません。修正は次のプレリリースで提供されます。",
+      "channel_confirm_label": "切り替える"
     },
     "advanced": {
       "yolo_title": "YOLO モード",
@@ -338,7 +413,12 @@
       "model_cancel": "キャンセル",
       "model_unset": "(未設定)",
       "model_validation_empty": "モデル ID を入力してください",
-      "model_validation_too_long": "モデル ID は 200 文字以内で入力してください"
+      "model_validation_too_long": "モデル ID は 200 文字以内で入力してください",
+      "empty_no_engines": "推論エンジンがインストールされていません。LLM プロバイダーを設定するには、マーケットプレイスからエンジンを追加してください。",
+      "engine_disconnected": "エンジン停止中",
+      "engine_disconnected_hint": "このエンジンはインストール済みですが、実行されていません。このプロバイダーを使うには起動してください。",
+      "engine_uninstalled": "エンジン未インストール",
+      "engine_uninstalled_hint": "このプロバイダー用のエンジンは、すでにインストールされていません。設定は保持されます — 再度使用するには、エンジンを再インストールしてください。"
     }
   },
   "mcp": {
@@ -468,8 +548,13 @@
       "uninstall_error": "サーバーのアンインストールに失敗しました",
       "install_success": "{{name}} をインストールしました",
       "uninstall_success": "{{name}} をアンインストールしました",
-      "rust_notice": "このサーバーは Rust ツールチェイン (cargo) が必要です。初回ビルドに 5〜10 分かかる場合があります。"
-    }
+      "rust_notice": "このサーバーは Rust ツールチェイン (cargo) が必要です。初回ビルドに 5〜10 分かかる場合があります。",
+      "seal_verified": "検証済み",
+      "seal_verified_tooltip": "Magic Seal あり — カーネルは宣言されたトラストレベルを尊重します。",
+      "seal_unverified": "未検証",
+      "seal_unverified_tooltip": "Magic Seal なし — カーネルは実行時にトラストレベルを untrusted に強制します (MGP v0.6.3 §10 不変条件 3)。"
+    },
+    "status_connecting": "起動中"
   },
   "nav": {
     "system": "システム",
@@ -481,7 +566,9 @@
     "collapse": "折りたたむ",
     "expand_sidebar": "サイドバーを展開",
     "collapse_sidebar": "サイドバーを折りたたむ",
-    "shutdown": "終了"
+    "shutdown": "終了",
+    "experimental": "Experimental",
+    "experimental_tooltip": "Experimental ビルド — 任意参加で、動作の保証はありません"
   },
   "cron": {
     "title": "Cron ジョブ",
@@ -610,7 +697,9 @@
     "finish": "Cloto を使い始める",
     "next": "次へ",
     "back": "戻る",
-    "step_of": "{{current}} / {{total}}"
+    "step_of": "{{current}} / {{total}}",
+    "install_error_stream_disconnected": "インストール進捗のストリームが切断されました。再試行してください。",
+    "install_error_no_servers": "続行する前に、インストールするサーバーを 1 つ以上選択してください。"
   },
   "setup": {
     "title": "CLOTOCORE",
@@ -638,5 +727,27 @@
     "hide_log": "ログを非表示",
     "server_count": "{{count}} サーバー",
     "marketplace_hint": "一部のサーバーは後でマーケットプレイスからインストールできます。"
+  },
+  "actions": {
+    "title": "アクション",
+    "empty": "コード成果物はまだありません",
+    "open": "アクションを開く",
+    "collapse": "折りたたむ",
+    "tabs": {
+      "code": "コード",
+      "dialogues": "対話",
+      "external": "外部",
+      "consensus": "合議"
+    },
+    "consensusCard": {
+      "engines": "エンジン",
+      "proposals": "提案",
+      "synthesis": "統合",
+      "thinking": "思考中…",
+      "retryable": "再試行可能",
+      "sample": "サンプル",
+      "expand": "展開",
+      "collapse": "折りたたむ"
+    }
   }
 }
