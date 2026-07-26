@@ -1249,6 +1249,14 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             "/system/uninstall",
             post(handlers::system_uninstall_handler),
         )
+        // The Danger Zone's first gate (§7): read-only enumeration, so the
+        // dashboard can show what an uninstall would remove before one is
+        // started. Admin-auth because a plan names the credential-bearing
+        // paths, not because it changes anything.
+        .route(
+            "/system/uninstall/plan",
+            get(handlers::system_uninstall_plan_handler),
+        )
         .route("/plugins/apply", post(handlers::apply_plugin_settings))
         .route("/plugins/{id}/config", post(handlers::update_plugin_config))
         .route(

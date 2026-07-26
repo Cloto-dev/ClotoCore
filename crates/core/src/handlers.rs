@@ -410,6 +410,86 @@ pub async fn system_uninstall_handler(
     }))
 }
 
+/// Query of `GET /api/system/uninstall/plan`.
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(default)]
+pub struct UninstallPlanQuery {
+    /// Scope tier, 1–4. Same default as the uninstall itself: the narrowest.
+    pub tier: Option<u8>,
+    /// Install prefix for deployments that predate the receipt. Absolute only.
+    pub prefix: Option<std::path::PathBuf>,
+}
+
+/// Enumerate what an uninstall at this scope would remove, without removing
+/// anything.
+///
+/// **Route:** `GET /api/system/uninstall/plan`
+///
+/// # Authentication
+/// Requires a valid API key in `X-API-Key` — a plan names every path this
+/// installation owns, including the ones that hold credentials, so it is
+/// admin-only even though it is read-only.
+///
+/// # Behavior
+/// The first gate of the Danger Zone (`DEFENDER_DESIGN.md` §7, "UI"): the
+/// dashboard renders this plan before offering to execute one, and re-reads it
+/// whenever the user widens the scope. Unlike `POST /api/system/uninstall`
+/// this stages nothing — no temp directory, no helper copy, no plan file — so
+/// it is safe to call repeatedly and safe to exercise on the machine running
+/// the harness (the uninstall itself is not: it would remove that machine's
+/// installation).
+///
+/// The tier and prefix are validated by the same functions the uninstall uses,
+/// so a scope this endpoint accepts is one the uninstall accepts.
+///
+/// # Response
+/// - **200 OK:** `{ "plan": …, "summary": { "entries", "skipped",
+///   "total_bytes", "total_truncated", "contains_secret", "needs_elevation" } }`
+/// - **400 Bad Request:** invalid tier or prefix
+/// - **403 Forbidden:** invalid or missing API key
+pub async fn system_uninstall_plan_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::Query(params): axum::extract::Query<UninstallPlanQuery>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let tier = crate::defender::uninstall::parse_tier(params.tier.unwrap_or(1))
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+    let prefix = crate::defender::uninstall::checked_prefix(params.prefix)
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+
+    let data_dir = state.data_dir.clone();
+    // Blocking because enumeration stats and size-walks real directories.
+    let plan = tokio::task::spawn_blocking(move || {
+        crate::defender::purge::build_plan(
+            &crate::defender::purge::PlanRequest::new(data_dir, tier).with_prefix(prefix),
+        )
+    })
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("Purge enumeration panicked: {e}")))?;
+
+    // Derived facts the UI would otherwise have to recompute — and would get
+    // wrong: `needs_elevation` is the executor's own rule (`purge_exec`), and
+    // the totals have to skip the entries that carry no size.
+    let summary = serde_json::json!({
+        "entries": plan.entries.len(),
+        "skipped": plan.skipped.len(),
+        "total_bytes": plan.total_bytes(),
+        "total_truncated": plan.total_truncated(),
+        "contains_secret": plan.contains_secret(),
+        "needs_elevation": crate::defender::purge_exec::requires_elevation(
+            &plan,
+            dirs::home_dir().as_deref(),
+        ),
+    });
+
+    let plan_json = serde_json::to_value(&plan)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Cannot render the purge plan: {e}")))?;
+
+    ok_data(serde_json::json!({ "plan": plan_json, "summary": summary }))
+}
+
 /// Server-Sent Events (SSE) stream for real-time event delivery.
 ///
 /// **Route:** `GET /api/events/stream`
@@ -1199,6 +1279,124 @@ mod tests {
         assert!(content.contains(&format!("CLOTO_API_KEY={new_key}")));
 
         std::env::remove_var("CLOTO_ENV_PATH");
+    }
+
+    /// Count staging directories this process has created. The uninstall
+    /// stages a plan and a helper copy under a name that carries our pid
+    /// (`defender::uninstall::create_staging_dir`); the plan endpoint must not,
+    /// which is the property that makes it safe to call on a live machine and
+    /// safe to drive from the opverify harness.
+    fn staging_dirs_for_this_process() -> usize {
+        let prefix = format!("clotocore-uninstall-{}-", std::process::id());
+        std::fs::read_dir(std::env::temp_dir())
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    #[tokio::test]
+    async fn test_uninstall_plan_enumerates_without_staging_anything() {
+        let state = create_test_app_state(Some("plan-key".to_string())).await;
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", HeaderValue::from_static("plan-key"));
+
+        let before = staging_dirs_for_this_process();
+        let resp = match system_uninstall_plan_handler(
+            State(state),
+            headers,
+            axum::extract::Query(UninstallPlanQuery::default()),
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(_) => panic!("plan enumeration failed"),
+        };
+
+        let plan = &resp.0["data"]["plan"];
+        let summary = &resp.0["data"]["summary"];
+        assert_eq!(plan["plan_version"], 1);
+        // No tier in the query resolves to the narrowest scope — the same
+        // default the destructive endpoint uses, so what the dashboard shows
+        // before the user widens anything is what an unwidened uninstall does.
+        assert_eq!(plan["tier"], "application");
+        assert!(
+            plan["notes"].as_array().is_some_and(|n| !n.is_empty()),
+            "a plan must carry its limitations verbatim (§7): {plan:?}"
+        );
+        assert_eq!(
+            summary["entries"].as_u64().unwrap(),
+            plan["entries"].as_array().unwrap().len() as u64,
+        );
+        for key in [
+            "skipped",
+            "total_bytes",
+            "total_truncated",
+            "contains_secret",
+            "needs_elevation",
+        ] {
+            assert!(!summary[key].is_null(), "summary is missing {key}");
+        }
+
+        // Read-only: nothing was staged, so there is nothing to clean up and
+        // nothing for a helper to execute.
+        assert_eq!(
+            staging_dirs_for_this_process(),
+            before,
+            "the plan endpoint staged an uninstall"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_uninstall_plan_rejects_scopes_the_uninstall_would_reject() {
+        let state = create_test_app_state(Some("plan-key".to_string())).await;
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", HeaderValue::from_static("plan-key"));
+
+        // Validation is shared with POST /api/system/uninstall on purpose: a
+        // scope the dashboard can preview is a scope it can then execute.
+        for tier in [0_u8, 5, 255] {
+            let query = axum::extract::Query(UninstallPlanQuery {
+                tier: Some(tier),
+                prefix: None,
+            });
+            assert!(
+                system_uninstall_plan_handler(State(state.clone()), headers.clone(), query)
+                    .await
+                    .is_err(),
+                "tier {tier} was accepted"
+            );
+        }
+
+        // A relative prefix would resolve against the helper's temp working
+        // directory rather than the install it names.
+        let query = axum::extract::Query(UninstallPlanQuery {
+            tier: None,
+            prefix: Some(std::path::PathBuf::from("relative/prefix")),
+        });
+        assert!(
+            system_uninstall_plan_handler(State(state), headers, query)
+                .await
+                .is_err(),
+            "a relative prefix was accepted"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_uninstall_plan_requires_auth() {
+        let state = create_test_app_state(Some("plan-key".to_string())).await;
+        // A plan names every path this installation owns, including the ones
+        // holding credentials — read-only is not a reason to publish it.
+        assert!(system_uninstall_plan_handler(
+            State(state),
+            HeaderMap::new(),
+            axum::extract::Query(UninstallPlanQuery::default()),
+        )
+        .await
+        .is_err());
     }
 
     #[tokio::test]

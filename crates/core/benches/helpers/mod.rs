@@ -37,6 +37,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
 
     let mut config = AppConfig::load().unwrap();
     config.admin_api_key = Some("bench-key".to_string());
+    let admin_api_key = config.admin_api_key.clone();
 
     let rate_limiter = Arc::new(cloto_core::middleware::RateLimiter::new(100, 200));
 
@@ -52,6 +53,10 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         mcp_manager,
         dynamic_router,
         config,
+        // Seeded from the config the same way the real boot path does
+        // (`lib.rs`), so a bench authenticates with the key it just set.
+        admin_api_key: std::sync::RwLock::new(admin_api_key),
+        install_task: Arc::new(tokio::sync::Mutex::new(None)),
         data_dir: std::path::PathBuf::from("target/debug/data"),
         event_history,
         metrics,
