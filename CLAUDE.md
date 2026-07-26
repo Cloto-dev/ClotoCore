@@ -204,6 +204,13 @@ installer-diff VM verify above. See `scripts/opverify/README.md`.
 - A new kernel route added without a catalog operation trips the coverage
   ratchet (report mode today; `enforce` once the catalog is complete) — extend
   the catalog, never widen the ignore-list to hide a gap.
+- **MUST: every run is recorded.** Pass `--ledger`, so the run appends a row to
+  `qa/opverify/history.jsonl` and is compared against the prior same-target
+  baseline. That file is the only durable answer to "how much is this machinery
+  actually used?" — a question that on 2026-07-27 could only be answered by
+  cross-referencing CI run lists against hypervisor snapshot dates, because the
+  ledger existed in code and had never been wired to anything. A verification
+  tier nobody can count is a tier nobody can defend keeping.
 
 ### Pre-release verification (draft_only)
 
@@ -252,3 +259,34 @@ on the real installed app*, closing capture → fix → re-verify. Pair it with 
 Tooling + runbook: `scripts/opverify/visual/` (`FIRST_RUN.md` results log,
 `VM_EXECUTOR_RUNBOOK.md` two-tier orchestrator ↔ VM-executor runbook + VM
 access), landing with the opverify feature line.
+
+**MUST — when an apex run is owed.** The pyramid described a top without saying
+when to climb it, and the result was measurable: between 2026-07-14 and
+2026-07-27 the apex ran exactly once, while the changes that most needed it (the
+entire Lifecycle Defender install/uninstall line) shipped without a single frame
+of the real GUI being looked at. A run is owed once a change lands on `master`
+that touches what only a real installed GUI can exercise:
+
+- the install / uninstall path (NSIS, `defender::purge*`,
+  `POST /api/system/uninstall`);
+- anything that renders *before or instead of* the main window (fatal startup
+  modal, first-run setup, updater dialog);
+- a destructive or irreversible action reachable from the GUI (Settings →
+  Danger Zone).
+
+It is owed **by the end of the next working session on this repo**, not inside
+the landing PR: an apex run needs a `draft_only` build staged on the VM, which
+is a human-triggered step, and blocking a PR on it would only teach everyone to
+route around the rule. Two escapes, both explicit — fold the run into the
+release-time VM verify when a cut is imminent, or write one line saying it was
+skipped and why. A *silent* skip is the exact failure this rule removes.
+
+Record every apex run with `python -m scripts.opverify.visual.run_vm <journey>
+--ledger` so it lands in `qa/opverify/history.jsonl` alongside the kernel tiers.
+Apex rows carry their own target label, so they are only ever compared against
+prior apex rows.
+
+The VM tiers of the *kernel* emulation (`--target linux-vm` / `windows-vm`) are
+still unimplemented — `run.py` exits with "not yet implemented (phase 2/3)".
+Until they land, the apex is the only tier that touches a real VM, which is
+another reason the rule above is not optional.
