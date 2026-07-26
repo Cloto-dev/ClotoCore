@@ -29,6 +29,10 @@ pub enum Commands {
         user: Option<String>,
     },
     /// Uninstall Cloto
+    // --plan and --execute are the two halves of the enumerated uninstall
+    // (DEFENDER_DESIGN.md §7); --tier qualifies whichever one is present, and
+    // neither is implied by a bare `uninstall`.
+    #[command(group = clap::ArgGroup::new("purge_mode").args(["plan", "execute"]))]
     Uninstall {
         /// Installation directory to remove
         #[arg(long, default_value_os_t = default_prefix())]
@@ -37,13 +41,20 @@ pub enum Commands {
         /// anything (install receipt + platform artifacts + stray data dirs)
         #[arg(long)]
         plan: bool,
-        /// Scope tier for --plan: 1 = application only (default), 2 = + user
-        /// data, 3 = + assets and MCP servers, 4 = + everything
-        #[arg(long, default_value_t = 1, requires = "plan")]
+        /// Remove everything the plan lists, after showing it and asking for
+        /// confirmation (the enumerated uninstall)
+        #[arg(long, conflicts_with = "plan")]
+        execute: bool,
+        /// Scope tier for --plan / --execute: 1 = application only (default),
+        /// 2 = + user data, 3 = + assets and MCP servers, 4 = + everything
+        #[arg(long, default_value_t = 1, requires = "purge_mode")]
         tier: u8,
         /// Output the plan as JSON
         #[arg(long, requires = "plan")]
         json: bool,
+        /// Skip the confirmation prompt (--execute only)
+        #[arg(long, short = 'y', requires = "execute")]
+        yes: bool,
     },
     /// Manage OS service
     Service {
@@ -88,6 +99,16 @@ pub enum Commands {
         #[arg(long)]
         pid: u32,
     },
+    /// Internal: execute a purge plan after the parent exits (used by the uninstall flow)
+    #[command(hide = true)]
+    PurgeExec {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        pid: Option<u32>,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -131,8 +152,10 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
         Commands::Uninstall {
             prefix,
             plan,
+            execute,
             tier,
             json,
+            yes,
         } => {
             if plan {
                 // Read-only enumeration (DEFENDER_DESIGN.md §7). The plan is
@@ -142,6 +165,13 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
                 // real `uninstall` would remove, receipt or not.
                 return crate::defender::purge::run_cli(tier, Some(prefix), json);
             }
+            if execute {
+                // Same plan, now applied — the plan is shown first and the
+                // removal is plan-bound (§8.5).
+                return crate::defender::purge_exec::run_uninstall(tier, Some(prefix), yes);
+            }
+            // Legacy path, unchanged: prefix-only removal for installs that
+            // predate the receipt.
             info!("🗑️  Uninstalling Cloto from {}", prefix.display());
             crate::installer::uninstall(prefix).await
         }
@@ -149,7 +179,9 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
             ServiceAction::Install { prefix, user } => {
                 crate::platform::install_service(&prefix, user.as_deref())
             }
-            ServiceAction::Uninstall => crate::platform::uninstall_service(),
+            // `uninstall_service` now distinguishes "removed" from "there was
+            // none"; the CLI only needs the failure, which it no longer hides.
+            ServiceAction::Uninstall => crate::platform::uninstall_service().map(|_| ()),
             ServiceAction::Start => crate::platform::start_service(),
             ServiceAction::Stop => crate::platform::stop_service(),
             ServiceAction::Status => {
@@ -171,6 +203,9 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
             Ok(())
         }
         Commands::SwapExe { target, pid } => crate::platform::execute_swap(target, pid),
+        Commands::PurgeExec { plan, pid, json } => {
+            crate::defender::purge_exec::run_cli(&plan, pid, json)
+        }
     }
 }
 
@@ -428,4 +463,78 @@ async fn update_command(
     println!("  clotocore service stop && clotocore service start");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(args)
+    }
+
+    #[test]
+    fn command_definition_is_internally_consistent() {
+        // Catches an unresolvable `requires`/`conflicts_with` id, which clap
+        // only reports when the offending flag is actually used.
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn a_bare_uninstall_still_takes_the_legacy_path() {
+        let cli = parse(&["clotocore", "uninstall"]).expect("bare uninstall must keep working");
+        match cli.command {
+            Some(Commands::Uninstall { plan, execute, .. }) => {
+                assert!(!plan, "the enumerated dry run must stay opt-in");
+                assert!(!execute, "the enumerated removal must stay opt-in");
+            }
+            _ => panic!("expected the uninstall subcommand"),
+        }
+    }
+
+    #[test]
+    fn tier_qualifies_a_mode_and_the_two_modes_are_exclusive() {
+        assert!(
+            parse(&["clotocore", "uninstall", "--tier", "4"]).is_err(),
+            "a tier without --plan or --execute would silently mean nothing"
+        );
+        assert!(parse(&["clotocore", "uninstall", "--plan", "--tier", "4"]).is_ok());
+        assert!(parse(&["clotocore", "uninstall", "--execute", "--tier", "4"]).is_ok());
+        assert!(
+            parse(&["clotocore", "uninstall", "--plan", "--execute"]).is_err(),
+            "a dry run that also removes things is not a dry run"
+        );
+        assert!(
+            parse(&["clotocore", "uninstall", "--yes"]).is_err(),
+            "--yes only waives the confirmation of --execute"
+        );
+    }
+
+    #[test]
+    fn purge_exec_requires_a_plan_and_accepts_an_optional_parent() {
+        assert!(
+            parse(&["clotocore", "purge-exec"]).is_err(),
+            "the helper has no enumeration of its own; without a plan it has nothing to do"
+        );
+        let cli = parse(&["clotocore", "purge-exec", "--plan", "/tmp/p.json"]).unwrap();
+        match cli.command {
+            Some(Commands::PurgeExec { plan, pid, json }) => {
+                assert_eq!(plan, PathBuf::from("/tmp/p.json"));
+                assert_eq!(pid, None, "a directly invoked helper waits for nobody");
+                assert!(!json);
+            }
+            _ => panic!("expected the purge-exec subcommand"),
+        }
+        assert!(parse(&[
+            "clotocore",
+            "purge-exec",
+            "--plan",
+            "/tmp/p.json",
+            "--pid",
+            "1234",
+            "--json"
+        ])
+        .is_ok());
+    }
 }

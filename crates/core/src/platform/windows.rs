@@ -43,24 +43,47 @@ pub fn install_service(prefix: &Path, _user: Option<&str>) -> anyhow::Result<()>
 }
 
 /// Remove Cloto Windows Service
-pub fn uninstall_service() -> anyhow::Result<()> {
+/// `ERROR_SERVICE_DOES_NOT_EXIST` — the one `sc.exe delete` failure that means
+/// "there was nothing to remove" rather than "the removal did not work".
+const ERROR_SERVICE_DOES_NOT_EXIST: i32 = 1060;
+
+/// Deregister the Windows service.
+///
+/// `Ok(true)` = a registration was removed, `Ok(false)` = there was none,
+/// `Err` = the removal failed.
+///
+/// Every non-zero exit used to be swallowed as success with a "may not exist"
+/// log line. That made an access-denied `sc.exe delete` indistinguishable from
+/// a clean uninstall, and the purge executor turned it into a `removed` report
+/// and exit 0 while the service stayed registered. `clotocore service
+/// uninstall` now surfaces such a failure instead of reporting success.
+pub fn uninstall_service() -> anyhow::Result<bool> {
     // Stop if running (ignore errors)
-    let _ = Command::new("sc.exe").args(["stop", SERVICE_NAME]).status();
+    let _ = Command::new(system32_tool("sc.exe"))
+        .args(["stop", SERVICE_NAME])
+        .status();
 
     // Wait briefly for stop
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    let status = Command::new("sc.exe")
+    let status = Command::new(system32_tool("sc.exe"))
         .args(["delete", SERVICE_NAME])
         .status()
         .context("Failed to run sc.exe")?;
 
     if status.success() {
         info!("✅ Service removed: {}", SERVICE_NAME);
-    } else {
-        info!("ℹ️  Service removal returned non-zero (may not exist)");
+        return Ok(true);
     }
-    Ok(())
+    if status.code() == Some(ERROR_SERVICE_DOES_NOT_EXIST) {
+        info!("ℹ️  No service registration to remove: {}", SERVICE_NAME);
+        return Ok(false);
+    }
+    bail!(
+        "sc.exe delete {} failed with exit code {:?}",
+        SERVICE_NAME,
+        status.code()
+    )
 }
 
 pub fn start_service() -> anyhow::Result<()> {
@@ -169,14 +192,71 @@ pub fn execute_swap(target: std::path::PathBuf, pid: u32) -> anyhow::Result<()> 
     Ok(())
 }
 
-/// Check if a process is alive by PID (Windows)
-fn is_process_alive(pid: u32) -> bool {
-    Command::new("tasklist")
+/// Absolute path to a System32 tool.
+///
+/// Windows resolves a bare program name against the calling image's directory
+/// and the current directory *before* System32. The uninstall helper (§7) is
+/// copied to a temp directory and re-launched elevated from there, so a bare
+/// `reg.exe` would let anyone who can write that directory execute code with
+/// the elevated token. Always name the tool absolutely.
+fn system32_tool(exe: &str) -> std::path::PathBuf {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+    Path::new(&root).join("System32").join(exe)
+}
+
+/// Delete a registry key and everything under it.
+///
+/// Returns `true` when a key was deleted and `false` when there was nothing to
+/// delete, so an idempotent caller can tell "removed" from "already gone".
+///
+/// The delete is attempted *first* and the `query` probe only interprets a
+/// failure. Probing first conflates "the key is absent" with "the probe was
+/// denied", and reported a key that is still present as already gone. Deciding
+/// afterwards is unambiguous: if the key cannot be seen either, it was not
+/// there; if it can, the delete genuinely failed. `reg.exe`'s error text is
+/// localized, so it is never parsed.
+pub fn delete_registry_key(key_path: &str) -> anyhow::Result<bool> {
+    let reg = system32_tool("reg.exe");
+
+    let deleted = Command::new(&reg)
+        .args(["delete", key_path, "/f"])
+        .status()
+        .context("Failed to run reg.exe delete")?;
+    if deleted.success() {
+        return Ok(true);
+    }
+
+    let probe = Command::new(&reg)
+        .args(["query", key_path])
+        .output()
+        .context("Failed to run reg.exe query")?;
+    if probe.status.success() {
+        bail!(
+            "reg.exe delete {} failed with exit code {:?} and the key is still present",
+            key_path,
+            deleted.code()
+        );
+    }
+    Ok(false)
+}
+
+/// Check if a process is alive by PID (Windows).
+///
+/// Fails closed: if `tasklist` cannot be run at all — a PATH without System32,
+/// AppLocker policy, a trimmed Server Core image — the answer is "alive". The
+/// uninstall helper waits on this before it deletes anything, so guessing
+/// "gone" would start removing files from under a kernel that is still
+/// running. An unusable probe must stall the handoff, not release it.
+#[must_use]
+pub fn is_process_alive(pid: u32) -> bool {
+    let Ok(output) = Command::new(system32_tool("tasklist.exe"))
         .args(["/FI", &format!("PID eq {}", pid), "/NH"])
         .output()
-        .map(|o| {
-            let out = String::from_utf8_lossy(&o.stdout);
-            out.contains(&pid.to_string())
-        })
-        .unwrap_or(false)
+    else {
+        return true;
+    };
+    if !output.status.success() {
+        return true;
+    }
+    String::from_utf8_lossy(&output.stdout).contains(&pid.to_string())
 }
