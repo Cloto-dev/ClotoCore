@@ -13,7 +13,7 @@ pub fn install_service(prefix: &Path, _user: Option<&str>) -> anyhow::Result<()>
     // as a SEPARATE argv entry (the space after '=' is mandatory). Concatenating
     // `binPath=<value>` into one token makes sc.exe reject the option, so the
     // create always failed. Split each option into two argv entries.
-    let status = Command::new("sc.exe")
+    let status = Command::new(system32_tool("sc.exe"))
         .args([
             "create",
             SERVICE_NAME,
@@ -32,7 +32,7 @@ pub fn install_service(prefix: &Path, _user: Option<&str>) -> anyhow::Result<()>
     }
 
     // Configure restart on failure (restart after 5 seconds)
-    let _ = Command::new("sc.exe")
+    let _ = Command::new(system32_tool("sc.exe"))
         .args(["failure", SERVICE_NAME, "reset=60", "actions=restart/5000"])
         .status();
 
@@ -87,7 +87,7 @@ pub fn uninstall_service() -> anyhow::Result<bool> {
 }
 
 pub fn start_service() -> anyhow::Result<()> {
-    let status = Command::new("sc.exe")
+    let status = Command::new(system32_tool("sc.exe"))
         .args(["start", SERVICE_NAME])
         .status()
         .context("Failed to run sc.exe")?;
@@ -98,7 +98,7 @@ pub fn start_service() -> anyhow::Result<()> {
 }
 
 pub fn stop_service() -> anyhow::Result<()> {
-    let status = Command::new("sc.exe")
+    let status = Command::new(system32_tool("sc.exe"))
         .args(["stop", SERVICE_NAME])
         .status()
         .context("Failed to run sc.exe")?;
@@ -109,7 +109,7 @@ pub fn stop_service() -> anyhow::Result<()> {
 }
 
 pub fn service_status() -> anyhow::Result<String> {
-    let output = Command::new("sc.exe")
+    let output = Command::new(system32_tool("sc.exe"))
         .args(["query", SERVICE_NAME])
         .output()
         .context("Failed to run sc.exe")?;
@@ -185,11 +185,87 @@ pub fn execute_swap(target: std::path::PathBuf, pid: u32) -> anyhow::Result<()> 
     eprintln!("Cloto swap-exe: binary updated. Restarting service...");
 
     // Try to restart the service
-    let _ = Command::new("sc.exe")
+    let _ = Command::new(system32_tool("sc.exe"))
         .args(["start", SERVICE_NAME])
         .status();
 
     Ok(())
+}
+
+/// Start `exe` and return without waiting for it.
+///
+/// Used by the uninstall handoff (§7): the spawned helper has to outlive this
+/// process, which is about to exit so the helper can delete its files.
+pub fn spawn_detached(exe: &Path, args: &[String]) -> anyhow::Result<()> {
+    Command::new(exe)
+        .args(args)
+        .spawn()
+        .with_context(|| format!("Failed to spawn {}", exe.display()))?;
+    Ok(())
+}
+
+/// Start `exe` elevated, waiting only for the elevation prompt to be answered.
+///
+/// There is no Windows-API crate in this workspace, so the prompt goes through
+/// PowerShell's `Start-Process -Verb RunAs`. Without `-Wait` on that call, the
+/// PowerShell process exits as soon as the elevated process has been created —
+/// so waiting for *PowerShell* means waiting for the user's answer, not for the
+/// uninstall. A refusal (or a timeout) comes back as an error, which is what
+/// lets the caller keep the app running instead of exiting into nothing.
+///
+/// Arguments are passed as single-quoted PowerShell strings with embedded
+/// quotes doubled. Windows paths cannot contain `"`, so the only quote that has
+/// to survive is `'`.
+pub fn spawn_elevated_and_wait(
+    exe: &Path,
+    args: &[String],
+    timeout: std::time::Duration,
+) -> anyhow::Result<()> {
+    let arg_list = args
+        .iter()
+        .map(|a| ps_single_quote(a))
+        .collect::<Vec<_>>()
+        .join(",");
+    let script = format!(
+        "$ErrorActionPreference='Stop'; Start-Process -FilePath {} -ArgumentList {arg_list} -Verb RunAs",
+        ps_single_quote(&exe.to_string_lossy())
+    );
+
+    let mut child = Command::new(system32_tool(r"WindowsPowerShell\v1.0\powershell.exe"))
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .spawn()
+        .context("Failed to run powershell.exe for the elevation prompt")?;
+
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child
+            .try_wait()
+            .context("Failed to await the elevation prompt")?
+        {
+            Some(status) if status.success() => return Ok(()),
+            // The one failure users actually hit: "the operation was cancelled
+            // by the user" from a declined UAC dialog. PowerShell's message is
+            // localized, so the exit status is all that is reported.
+            Some(status) => bail!(
+                "The uninstall was not started: the elevation request ended with exit code {:?} \
+                 (a declined prompt looks like this). Nothing was removed.",
+                status.code()
+            ),
+            None if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                bail!(
+                    "The elevation prompt was not answered within {}s. Nothing was removed.",
+                    timeout.as_secs()
+                )
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(250)),
+        }
+    }
+}
+
+/// Quote a value as a PowerShell single-quoted string.
+fn ps_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 /// Absolute path to a System32 tool.

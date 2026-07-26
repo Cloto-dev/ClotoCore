@@ -24,6 +24,24 @@
 //!
 //! One failure never aborts the run: a partially completed uninstall is still
 //! worth finishing, and the report says exactly what happened to every entry.
+//!
+//! # Why the lexical floor is not the whole boundary
+//!
+//! Everything above is a check on the *shape* of a path. Shape is not
+//! ownership: `/etc/passwd` is absolute, is not a root, and carries no `..`.
+//! The helper runs elevated on Windows (§7), and the plan reaches it through a
+//! file that a same-user process could rewrite between the moment the kernel
+//! writes it and the moment the elevated helper reads it — so if the plan's
+//! contents were the only thing deciding what gets deleted, plan-file integrity
+//! would be the entire security boundary.
+//!
+//! [`PurgeRoots`] closes that: the caller states, out of band from the plan,
+//! which directory trees this run may touch, and an entry outside every one of
+//! them is refused no matter how well-formed it looks. The kernel passes the
+//! roots as command-line arguments — which the process that rewrites a file on
+//! disk cannot reach — and a helper invoked without any derives them from its
+//! own environment rather than from the plan it was handed. An edited plan can
+//! then still name only things inside ClotoCore's own footprint.
 
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -33,8 +51,8 @@ use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::defender::purge::{
-    self, is_filesystem_root, order_for_removal, tier_label, PlanRequest, PurgeEntry, PurgeKind,
-    PurgePlan, PurgeTier, PLAN_VERSION,
+    self, is_filesystem_root, order_for_removal, tier_label, PlanRequest, ProbeRoots, PurgeEntry,
+    PurgeKind, PurgePlan, PurgeTier, PLAN_VERSION,
 };
 
 /// A plan is a list of paths, not a payload. Anything larger than this is not
@@ -45,6 +63,94 @@ const MAX_PLAN_BYTES: u64 = 8 * 1024 * 1024;
 /// How long the detached helper waits for the kernel that spawned it to exit
 /// (§7 choreography). Matches the updater's `execute_swap` handoff window.
 const PARENT_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Written next to the plan after a run. A detached helper's stdout goes
+/// nowhere — the process that spawned it has exited by then — so without this
+/// the only thing that survives the run is a one-bit exit status.
+pub const REPORT_FILE_SUFFIX: &str = ".report.json";
+
+// ── Containment ──
+
+/// The directory trees an executed plan is allowed to touch.
+///
+/// This is the half of the boundary the plan file cannot state about itself
+/// (see the module docs). Roots are compared lexically against paths that have
+/// already passed the floor in [`checked_path`] — absolute, no `..` — so no
+/// filesystem access is needed to decide, and a symlink cannot widen the set:
+/// the executor unlinks links rather than following them.
+#[derive(Debug, Clone, Default)]
+pub struct PurgeRoots {
+    roots: Vec<PathBuf>,
+}
+
+impl PurgeRoots {
+    /// Roots stated by the caller. Relative entries are dropped: a relative
+    /// root would match nothing, and silently keeping one invites the reading
+    /// that it widened the set.
+    #[must_use]
+    pub fn from_paths(paths: impl IntoIterator<Item = PathBuf>) -> Self {
+        let mut roots: Vec<PathBuf> = paths
+            .into_iter()
+            .filter(|p| p.is_absolute() && !is_filesystem_root(p))
+            .collect();
+        roots.sort();
+        roots.dedup();
+        Self { roots }
+    }
+
+    /// What this installation could legitimately own, derived from the running
+    /// binary's own environment — never from the plan, which is the input under
+    /// suspicion.
+    #[must_use]
+    pub fn from_env(data_dir: &Path, prefix: Option<&Path>) -> Self {
+        let probe = ProbeRoots::from_env();
+        let mut paths = vec![data_dir.to_path_buf()];
+        paths.extend(prefix.map(Path::to_path_buf));
+        paths.extend(probe.home);
+        paths.extend(probe.platform_data);
+        paths.extend(probe.platform_cache);
+        paths.extend(probe.platform_local);
+        paths.extend(probe.exe_dir);
+        if cfg!(target_os = "macos") {
+            paths.push(PathBuf::from("/Applications"));
+        }
+        Self::from_paths(paths)
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.roots.is_empty()
+    }
+
+    #[must_use]
+    pub fn paths(&self) -> &[PathBuf] {
+        &self.roots
+    }
+
+    fn contains(&self, path: &Path) -> bool {
+        self.roots.iter().any(|root| is_within(root, path))
+    }
+}
+
+/// Is `path` `root` itself or something under it?
+///
+/// Component-wise, so `/opt/cloto-evil` is not inside `/opt/cloto`. Windows
+/// paths are case-insensitive, and the plan is written by one process and read
+/// by another that may have resolved the same directory with different casing;
+/// comparing case-sensitively there would refuse an installation's own files.
+fn is_within(root: &Path, path: &Path) -> bool {
+    if cfg!(windows) {
+        let fold = |p: &Path| -> Vec<std::ffi::OsString> {
+            p.components()
+                .map(|c| c.as_os_str().to_ascii_lowercase())
+                .collect()
+        };
+        let (root, path) = (fold(root), fold(path));
+        path.len() >= root.len() && path[..root.len()] == root[..]
+    } else {
+        path.starts_with(root)
+    }
+}
 
 // ── Report ──
 
@@ -112,12 +218,12 @@ impl PurgeReport {
 
 // ── Execution ──
 
-/// Execute `plan`, removing only what it lists.
+/// Execute `plan`, removing only what it lists *and* only what `roots` allows.
 ///
 /// Never panics and never returns early: every entry gets an outcome, so the
 /// report is a complete account of the run even when parts of it failed.
 #[must_use]
-pub fn execute(plan: &PurgePlan) -> PurgeReport {
+pub fn execute(plan: &PurgePlan, roots: &PurgeRoots) -> PurgeReport {
     let mut report = PurgeReport {
         plan_version: plan.plan_version,
         app_version: plan.app_version.clone(),
@@ -157,7 +263,7 @@ pub fn execute(plan: &PurgePlan) -> PurgeReport {
         // an entry wider than the declared scope would be removed while the
         // header said "application only".
         let outcome = if plan.tier.includes(entry.tier) {
-            execute_entry(&entry)
+            execute_entry(&entry, roots)
         } else {
             refuse(format!(
                 "entry is tier {} but the plan declares tier {}",
@@ -192,11 +298,14 @@ fn refuse(reason: impl Into<String>) -> EntryOutcome {
     }
 }
 
-fn execute_entry(entry: &PurgeEntry) -> EntryOutcome {
+fn execute_entry(entry: &PurgeEntry, roots: &PurgeRoots) -> EntryOutcome {
     match entry.kind {
         PurgeKind::File | PurgeKind::Dir => match checked_path(entry.path.as_deref()) {
             Err(reason) => refuse(reason),
-            Ok(path) => remove_path(&path, entry.kind),
+            Ok(path) => match contained(&path, roots) {
+                Err(reason) => refuse(reason),
+                Ok(()) => remove_path(&path, entry.kind),
+            },
         },
         PurgeKind::Service => match non_empty(entry.name.as_deref()) {
             None => refuse("service entry carries no service name"),
@@ -239,8 +348,67 @@ fn checked_path(raw: Option<&str>) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Refuse a path that no declared root covers.
+///
+/// An empty root set refuses everything rather than allowing everything: the
+/// set is derived from the environment when the caller states nothing, so an
+/// empty one means the derivation failed, and "we could not work out what this
+/// installation owns" must not read as "delete anything".
+fn contained(path: &Path, roots: &PurgeRoots) -> Result<(), String> {
+    if roots.is_empty() {
+        return Err(format!(
+            "no purge roots were established, so nothing can be shown to belong to this \
+             installation: {}",
+            path.display()
+        ));
+    }
+    if roots.contains(path) {
+        return Ok(());
+    }
+    Err(format!(
+        "path is outside this installation's footprint: {} (allowed: {})",
+        path.display(),
+        roots
+            .paths()
+            .iter()
+            .map(|r| r.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
+}
+
 fn non_empty(value: Option<&str>) -> Option<&str> {
     value.filter(|v| !v.trim().is_empty())
+}
+
+/// Would executing `plan` need more privilege than the current user has?
+///
+/// Used by the kernel to decide whether to ask for elevation *before* it exits
+/// (§7). Deliberately a question about the plan rather than a permission probe:
+/// probing races with the very state it measures, and a wrong "no" surfaces as
+/// a helper that fails after the app is already gone, with no way to ask.
+///
+/// `home` is the user's own tree; anything under it, or under no path at all
+/// (a service or per-user registry entry), is theirs to remove.
+#[must_use]
+pub fn requires_elevation(plan: &PurgePlan, home: Option<&Path>) -> bool {
+    plan.entries.iter().any(|entry| match entry.kind {
+        // Deregistering a machine-wide service is an administrative act
+        // wherever its files happen to live.
+        PurgeKind::Service => true,
+        PurgeKind::Registry => entry
+            .path
+            .as_deref()
+            .is_some_and(|key| key.to_ascii_uppercase().starts_with("HKLM")),
+        PurgeKind::File | PurgeKind::Dir => match (&entry.path, home) {
+            (Some(path), Some(home)) => !is_within(home, Path::new(path)),
+            // No home to compare against: assume the wider answer, since the
+            // cost of a needless prompt is a prompt, and the cost of a missing
+            // one is an uninstall that silently leaves the install dir behind.
+            (Some(_), None) => true,
+            (None, _) => false,
+        },
+    })
 }
 
 fn remove_path(path: &Path, kind: PurgeKind) -> EntryOutcome {
@@ -463,7 +631,16 @@ fn kind_label(kind: PurgeKind) -> &'static str {
 ///
 /// The plan file is left in place: its lifecycle belongs to the caller that
 /// created it.
-pub fn run_cli(plan_path: &Path, parent_pid: Option<u32>, json: bool) -> anyhow::Result<()> {
+///
+/// `roots` is the containment set (see the module docs). An empty one is not
+/// "no restriction" — it means the caller stated nothing, so the helper derives
+/// the set from its own environment.
+pub fn run_cli(
+    plan_path: &Path,
+    parent_pid: Option<u32>,
+    json: bool,
+    roots: PurgeRoots,
+) -> anyhow::Result<()> {
     if let Some(pid) = parent_pid {
         eprintln!("clotocore purge-exec: waiting for PID {pid} to exit...");
         if !crate::platform::wait_for_process_exit(pid, PARENT_EXIT_TIMEOUT) {
@@ -478,16 +655,45 @@ pub fn run_cli(plan_path: &Path, parent_pid: Option<u32>, json: bool) -> anyhow:
     }
 
     let plan = load_plan(plan_path)?;
-    let report = execute(&plan);
+    let roots = if roots.is_empty() {
+        PurgeRoots::from_env(&crate::config::data_dir(), None)
+    } else {
+        roots
+    };
+    let report = execute(&plan, &roots);
+
+    // Before rendering: the account has to survive even if this process is
+    // killed while printing, and stdout is not where a detached helper's caller
+    // will look.
+    let written = write_report_beside(plan_path, &report);
 
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         print!("{}", render_text(&report));
     }
+    match written {
+        Ok(path) => println!("Report written to {}", path.display()),
+        Err(e) => println!("Report could not be written next to the plan: {e:#}"),
+    }
 
     unfinished(&report)?;
     Ok(())
+}
+
+/// Persist the report beside the plan that produced it.
+///
+/// Same directory as the plan on purpose: that directory is the one the caller
+/// chose and knows the path of, and on the detached path (§7) it is the only
+/// thing left that both processes agreed on.
+fn write_report_beside(plan_path: &Path, report: &PurgeReport) -> anyhow::Result<PathBuf> {
+    let mut name = plan_path.file_name().unwrap_or_default().to_os_string();
+    name.push(REPORT_FILE_SUFFIX);
+    let path = plan_path.with_file_name(name);
+    let body = serde_json::to_vec_pretty(report).context("Cannot serialise the purge report")?;
+    std::fs::write(&path, body)
+        .with_context(|| format!("Cannot write purge report {}", path.display()))?;
+    Ok(path)
 }
 
 /// `clotocore uninstall --execute` — generate a plan, show it, and (after an
@@ -497,11 +703,33 @@ pub fn run_cli(plan_path: &Path, parent_pid: Option<u32>, json: bool) -> anyhow:
 /// generator, same executor, same wording. No detached helper is involved, so
 /// it cannot remove a running binary — that is what the `purge-exec` handoff
 /// is for.
-pub fn run_uninstall(tier: u8, prefix: Option<PathBuf>, assume_yes: bool) -> anyhow::Result<()> {
+pub fn run_uninstall(
+    tier: u8,
+    prefix: Option<PathBuf>,
+    assume_yes: bool,
+    json: bool,
+) -> anyhow::Result<()> {
     let tier = PurgeTier::from_level(tier)
         .ok_or_else(|| anyhow::anyhow!("Invalid scope tier {tier}; expected 1, 2, 3 or 4"))?;
+    let data_dir = crate::config::data_dir();
+
+    // A live kernel keeps writing to the tree this is about to remove: on Unix
+    // the deletion succeeds against open files, the running process keeps
+    // writing to unlinked inodes, and it recreates the receipt and data
+    // directory as it shuts down. The uninstall reports success and the
+    // installation is still there. In-process removal is only correct when
+    // nothing is running; the detached handoff (§7) is what exists for the
+    // other case.
+    if let Some(pid) = crate::defender::runlock::live_holder(&data_dir) {
+        bail!(
+            "ClotoCore is running (PID {pid}). Stop it first, or uninstall from the app \
+             (Settings → Health → Danger Zone), which hands the removal to a detached helper. \
+             Nothing was removed."
+        );
+    }
+
     let plan =
-        purge::build_plan(&PlanRequest::new(crate::config::data_dir(), tier).with_prefix(prefix));
+        purge::build_plan(&PlanRequest::new(data_dir.clone(), tier).with_prefix(prefix.clone()));
 
     print!("{}", purge::render_text(&plan));
 
@@ -515,8 +743,13 @@ pub fn run_uninstall(tier: u8, prefix: Option<PathBuf>, assume_yes: bool) -> any
         return Ok(());
     }
 
-    let report = execute(&plan);
-    print!("{}", render_text(&report));
+    let roots = PurgeRoots::from_env(&data_dir, prefix.as_deref());
+    let report = execute(&plan, &roots);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print!("{}", render_text(&report));
+    }
 
     unfinished(&report)?;
     Ok(())
@@ -647,6 +880,17 @@ mod tests {
         path.to_str().unwrap().to_string()
     }
 
+    /// Containment stated the way a real caller states it: from outside the
+    /// plan. Every test therefore also asserts, implicitly, that a legitimate
+    /// plan is not refused by its own boundary.
+    fn only(root: &Path) -> PurgeRoots {
+        PurgeRoots::from_paths([root.to_path_buf()])
+    }
+
+    fn execute_in(root: &Path, plan: &PurgePlan) -> PurgeReport {
+        execute(plan, &only(root))
+    }
+
     // ── Removal ──
 
     #[test]
@@ -657,10 +901,13 @@ mod tests {
         touch(&file, 16);
         touch(&dir.join("cscheduler/server.py"), 8);
 
-        let report = execute(&plan_of(vec![
-            entry("db", PurgeKind::File, Some(&as_str(&file))),
-            entry("mcp_servers_root", PurgeKind::Dir, Some(&as_str(&dir))),
-        ]));
+        let report = execute_in(
+            root.path(),
+            &plan_of(vec![
+                entry("db", PurgeKind::File, Some(&as_str(&file))),
+                entry("mcp_servers_root", PurgeKind::Dir, Some(&as_str(&dir))),
+            ]),
+        );
 
         assert_eq!(*outcome_of(&report, "db"), EntryOutcome::Removed);
         assert_eq!(
@@ -678,18 +925,21 @@ mod tests {
         // generated before anything is removed — every entry is a race with
         // the user's own cleanup.
         let root = tempfile::tempdir().unwrap();
-        let report = execute(&plan_of(vec![
-            entry(
-                "db",
-                PurgeKind::File,
-                Some(&as_str(&root.path().join("gone.db"))),
-            ),
-            entry(
-                "data_dir",
-                PurgeKind::Dir,
-                Some(&as_str(&root.path().join("gone-dir"))),
-            ),
-        ]));
+        let report = execute_in(
+            root.path(),
+            &plan_of(vec![
+                entry(
+                    "db",
+                    PurgeKind::File,
+                    Some(&as_str(&root.path().join("gone.db"))),
+                ),
+                entry(
+                    "data_dir",
+                    PurgeKind::Dir,
+                    Some(&as_str(&root.path().join("gone-dir"))),
+                ),
+            ]),
+        );
 
         assert_eq!(*outcome_of(&report, "db"), EntryOutcome::Absent);
         assert_eq!(*outcome_of(&report, "data_dir"), EntryOutcome::Absent);
@@ -720,10 +970,13 @@ mod tests {
         let link_to_file = root.path().join("linked-file");
         std::os::unix::fs::symlink(&file_target, &link_to_file).unwrap();
 
-        let report = execute(&plan_of(vec![
-            entry("data_dir", PurgeKind::Dir, Some(&as_str(&link))),
-            entry("webview", PurgeKind::Dir, Some(&as_str(&link_to_file))),
-        ]));
+        let report = execute_in(
+            root.path(),
+            &plan_of(vec![
+                entry("data_dir", PurgeKind::Dir, Some(&as_str(&link))),
+                entry("webview", PurgeKind::Dir, Some(&as_str(&link_to_file))),
+            ]),
+        );
 
         assert_eq!(*outcome_of(&report, "data_dir"), EntryOutcome::Removed);
         assert!(
@@ -778,12 +1031,15 @@ mod tests {
         // input, so `..` must be rejected before it can escape anywhere.
         let traversal = as_str(&root.path().join("sub").join("..").join("victim.db"));
 
-        let report = execute(&plan_of(vec![
-            entry("relative", PurgeKind::File, Some("relative/thing.db")),
-            entry("traversal", PurgeKind::File, Some(&traversal)),
-            entry("empty", PurgeKind::Dir, Some("   ")),
-            entry("missing", PurgeKind::File, None),
-        ]));
+        let report = execute_in(
+            root.path(),
+            &plan_of(vec![
+                entry("relative", PurgeKind::File, Some("relative/thing.db")),
+                entry("traversal", PurgeKind::File, Some(&traversal)),
+                entry("empty", PurgeKind::Dir, Some("   ")),
+                entry("missing", PurgeKind::File, None),
+            ]),
+        );
 
         assert!(refusal(&report, "relative").contains("not absolute"));
         assert!(refusal(&report, "traversal").contains("parent-directory"));
@@ -799,9 +1055,10 @@ mod tests {
         // Guards the deregistration branch without invoking it: calling
         // `uninstall_service` in a test would deregister the developer's own
         // installation.
+        let root = tempfile::tempdir().unwrap();
         let mut svc = entry("service", PurgeKind::Service, None);
         svc.name = Some("  ".to_string());
-        let report = execute(&plan_of(vec![svc]));
+        let report = execute_in(root.path(), &plan_of(vec![svc]));
         assert!(refusal(&report, "service").contains("no service name"));
     }
 
@@ -849,11 +1106,15 @@ mod tests {
     fn a_registry_key_outside_the_uninstall_list_is_refused() {
         // Checked before the Windows gate, so the boundary is verified on every
         // platform rather than only where it can be exercised.
-        let report = execute(&plan_of(vec![entry(
-            "registry_uninstall_hklm",
-            PurgeKind::Registry,
-            Some(r"HKLM\SOFTWARE"),
-        )]));
+        let root = tempfile::tempdir().unwrap();
+        let report = execute_in(
+            root.path(),
+            &plan_of(vec![entry(
+                "registry_uninstall_hklm",
+                PurgeKind::Registry,
+                Some(r"HKLM\SOFTWARE"),
+            )]),
+        );
         assert!(
             refusal(&report, "registry_uninstall_hklm").contains("outside the uninstall list"),
             "an elevated recursive delete of a whole hive must be refused by name"
@@ -873,7 +1134,7 @@ mod tests {
 
         let mut plan = plan_of(vec![wide]);
         plan.tier = PurgeTier::Application;
-        let report = execute(&plan);
+        let report = execute_in(root.path(), &plan);
 
         let reason = refusal(&report, "db");
         assert!(
@@ -894,7 +1155,7 @@ mod tests {
         let mut plan = plan_of(vec![entry("db", PurgeKind::File, Some(&as_str(&file)))]);
         plan.plan_version = PLAN_VERSION + 99;
 
-        let report = execute(&plan);
+        let report = execute_in(root.path(), &plan);
 
         assert!(refusal(&report, "db").contains("plan version mismatch"));
         assert_eq!(report.refused(), 1);
@@ -915,10 +1176,13 @@ mod tests {
         let now_a_dir = root.path().join("was-a-file");
         std::fs::create_dir_all(now_a_dir.join("child")).unwrap();
 
-        let report = execute(&plan_of(vec![
-            entry("data_dir", PurgeKind::Dir, Some(&as_str(&now_a_file))),
-            entry("db", PurgeKind::File, Some(&as_str(&now_a_dir))),
-        ]));
+        let report = execute_in(
+            root.path(),
+            &plan_of(vec![
+                entry("data_dir", PurgeKind::Dir, Some(&as_str(&now_a_file))),
+                entry("db", PurgeKind::File, Some(&as_str(&now_a_dir))),
+            ]),
+        );
 
         assert!(refusal(&report, "data_dir").contains("type changed"));
         assert!(refusal(&report, "db").contains("type changed"));
@@ -941,11 +1205,14 @@ mod tests {
         touch(&after, 8);
         let unusable = format!("{}/na\0me.db", as_str(root.path()));
 
-        let report = execute(&plan_of(vec![
-            entry("first", PurgeKind::File, Some(&as_str(&before))),
-            entry("broken", PurgeKind::File, Some(&unusable)),
-            entry("last", PurgeKind::File, Some(&as_str(&after))),
-        ]));
+        let report = execute_in(
+            root.path(),
+            &plan_of(vec![
+                entry("first", PurgeKind::File, Some(&as_str(&before))),
+                entry("broken", PurgeKind::File, Some(&unusable)),
+                entry("last", PurgeKind::File, Some(&as_str(&after))),
+            ]),
+        );
 
         assert!(
             matches!(outcome_of(&report, "broken"), EntryOutcome::Failed { .. }),
@@ -978,15 +1245,18 @@ mod tests {
         touch(&shallow, 1);
         touch(&deep, 1);
 
-        let report = execute(&plan_of(vec![
-            entry("db", PurgeKind::File, Some(&as_str(&shallow))),
-            entry("nested", PurgeKind::File, Some(&as_str(&deep))),
-            entry(
-                "registry_uninstall",
-                PurgeKind::Registry,
-                Some(r"HKCU\Software\ClotoCore\NoSuchKeyForTests"),
-            ),
-        ]));
+        let report = execute_in(
+            root.path(),
+            &plan_of(vec![
+                entry("db", PurgeKind::File, Some(&as_str(&shallow))),
+                entry("nested", PurgeKind::File, Some(&as_str(&deep))),
+                entry(
+                    "registry_uninstall",
+                    PurgeKind::Registry,
+                    Some(r"HKCU\Software\ClotoCore\NoSuchKeyForTests"),
+                ),
+            ]),
+        );
 
         let order: Vec<&str> = report.entries.iter().map(|e| e.id.as_str()).collect();
         assert_eq!(
@@ -1003,15 +1273,18 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let removed = root.path().join("removed.db");
         touch(&removed, 4);
-        let report = execute(&plan_of(vec![
-            entry("db", PurgeKind::File, Some(&as_str(&removed))),
-            entry(
-                "absent",
-                PurgeKind::File,
-                Some(&as_str(&root.path().join("nope.db"))),
-            ),
-            entry("bad", PurgeKind::Dir, Some("relative/dir")),
-        ]));
+        let report = execute_in(
+            root.path(),
+            &plan_of(vec![
+                entry("db", PurgeKind::File, Some(&as_str(&removed))),
+                entry(
+                    "absent",
+                    PurgeKind::File,
+                    Some(&as_str(&root.path().join("nope.db"))),
+                ),
+                entry("bad", PurgeKind::Dir, Some("relative/dir")),
+            ]),
+        );
 
         let text = render_text(&report);
         assert!(text.contains("Scope tier:     4"), "{text}");
@@ -1030,14 +1303,19 @@ mod tests {
 
     #[test]
     fn an_empty_plan_reports_nothing_to_remove() {
-        let report = execute(&plan_of(Vec::new()));
+        let root = tempfile::tempdir().unwrap();
+        let report = execute_in(root.path(), &plan_of(Vec::new()));
         assert_eq!(report.entries.len(), 0);
         assert!(render_text(&report).contains("Nothing to remove"));
     }
 
     #[test]
     fn report_round_trips_through_json() {
-        let report = execute(&plan_of(vec![entry("bad", PurgeKind::Dir, Some("rel/x"))]));
+        let root = tempfile::tempdir().unwrap();
+        let report = execute_in(
+            root.path(),
+            &plan_of(vec![entry("bad", PurgeKind::Dir, Some("rel/x"))]),
+        );
         let json = serde_json::to_string(&report).unwrap();
         let back: PurgeReport = serde_json::from_str(&json).unwrap();
         assert_eq!(report, back, "the report is the caller's only account");
@@ -1057,7 +1335,7 @@ mod tests {
         let stale_path = root.path().join("stale-plan.json");
         std::fs::write(&stale_path, serde_json::to_vec(&stale).unwrap()).unwrap();
 
-        let err = run_cli(&stale_path, None, false)
+        let err = run_cli(&stale_path, None, false, only(root.path()))
             .expect_err("a plan that removed nothing must not exit successfully")
             .to_string();
         assert!(err.contains("1 refused"), "{err}");
@@ -1067,7 +1345,8 @@ mod tests {
         let good = plan_of(vec![entry("db", PurgeKind::File, Some(&as_str(&file)))]);
         let good_path = root.path().join("plan.json");
         std::fs::write(&good_path, serde_json::to_vec(&good).unwrap()).unwrap();
-        run_cli(&good_path, None, false).expect("a plan that fully applied must exit 0");
+        run_cli(&good_path, None, false, only(root.path()))
+            .expect("a plan that fully applied must exit 0");
         assert!(!file.exists());
     }
 
@@ -1090,6 +1369,283 @@ mod tests {
         assert!(
             load_plan(&root.path().join("missing.json")).is_err(),
             "a missing plan is an error, not an empty run"
+        );
+    }
+
+    // ── Containment ──
+
+    #[test]
+    fn a_path_outside_every_root_is_refused() {
+        // The scenario the roots exist for: the plan file was rewritten between
+        // being written and being read, and the helper runs elevated. Every
+        // lexical check passes — absolute, not a root, no `..` — and the entry
+        // must still be refused.
+        let owned = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let victim = elsewhere.path().join("passwd");
+        touch(&victim, 32);
+
+        let report = execute_in(
+            owned.path(),
+            &plan_of(vec![entry("db", PurgeKind::File, Some(&as_str(&victim)))]),
+        );
+
+        assert!(
+            refusal(&report, "db").contains("outside this installation's footprint"),
+            "{}",
+            refusal(&report, "db")
+        );
+        assert!(
+            victim.is_file(),
+            "an edited plan must not be able to reach outside the declared roots"
+        );
+    }
+
+    #[test]
+    fn an_empty_root_set_removes_nothing() {
+        // "We could not work out what this installation owns" must not read as
+        // "delete anything" — the failure has to land on the safe side.
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("cloto_memories.db");
+        touch(&file, 8);
+
+        let report = execute(
+            &plan_of(vec![entry("db", PurgeKind::File, Some(&as_str(&file)))]),
+            &PurgeRoots::default(),
+        );
+
+        assert!(refusal(&report, "db").contains("no purge roots"));
+        assert!(
+            file.is_file(),
+            "no roots means no removals, not all of them"
+        );
+    }
+
+    #[test]
+    fn a_sibling_of_a_root_is_not_inside_it() {
+        // String-prefix containment would treat `/opt/cloto-evil` as living
+        // inside `/opt/cloto`. Both directories exist here, so the assertion
+        // fails loudly rather than passing because the path was absent.
+        let base = tempfile::tempdir().unwrap();
+        let owned = base.path().join("cloto");
+        let sibling = base.path().join("cloto-evil");
+        let inside = owned.join("data.db");
+        let outside = sibling.join("data.db");
+        touch(&inside, 8);
+        touch(&outside, 8);
+
+        let report = execute(
+            &plan_of(vec![
+                entry("inside", PurgeKind::File, Some(&as_str(&inside))),
+                entry("outside", PurgeKind::File, Some(&as_str(&outside))),
+            ]),
+            &only(&owned),
+        );
+
+        assert_eq!(*outcome_of(&report, "inside"), EntryOutcome::Removed);
+        assert!(refusal(&report, "outside").contains("outside this installation's footprint"));
+        assert!(outside.is_file(), "a sibling directory is a different tree");
+    }
+
+    #[test]
+    fn a_root_that_could_not_narrow_anything_is_dropped() {
+        // A relative root matches nothing and a filesystem root matches
+        // everything. Keeping either would misrepresent the set: the first
+        // reads as a restriction that is not there, the second as a
+        // restriction that does not restrict.
+        let roots = PurgeRoots::from_paths([
+            PathBuf::from("relative/dir"),
+            PathBuf::from("/"),
+            PathBuf::from(r"C:\"),
+        ]);
+        assert!(
+            roots.is_empty(),
+            "got {:?} — none of these narrows anything",
+            roots.paths()
+        );
+    }
+
+    #[test]
+    fn containment_is_stated_by_the_caller_not_by_the_plan() {
+        // A plan cannot widen itself: `data_dir` is a plan field, and it is not
+        // consulted when deciding what may be touched.
+        let owned = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let victim = elsewhere.path().join("payload.db");
+        touch(&victim, 8);
+
+        let mut plan = plan_of(vec![entry("db", PurgeKind::File, Some(&as_str(&victim)))]);
+        plan.data_dir = as_str(elsewhere.path());
+
+        let report = execute(&plan, &only(owned.path()));
+        assert!(refusal(&report, "db").contains("outside this installation's footprint"));
+        assert!(victim.is_file());
+    }
+
+    #[test]
+    fn a_plan_rewritten_on_disk_cannot_reach_past_the_roots() {
+        // End to end through the helper's own entry point, because that is
+        // where the threat lives: the kernel writes a plan, something rewrites
+        // the file, and the helper — elevated, on Windows — reads what is there
+        // now. The roots arrive as arguments, so they survive the rewrite.
+        let owned = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let mine = owned.path().join("cloto_memories.db");
+        let theirs = elsewhere.path().join("someone-elses.db");
+        touch(&mine, 8);
+        touch(&theirs, 8);
+
+        let plan_path = owned.path().join("purge-plan.json");
+        std::fs::write(
+            &plan_path,
+            serde_json::to_vec(&plan_of(vec![entry(
+                "db",
+                PurgeKind::File,
+                Some(&as_str(&mine)),
+            )]))
+            .unwrap(),
+        )
+        .unwrap();
+
+        // The rewrite: same shape, different target.
+        std::fs::write(
+            &plan_path,
+            serde_json::to_vec(&plan_of(vec![entry(
+                "db",
+                PurgeKind::File,
+                Some(&as_str(&theirs)),
+            )]))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let err = run_cli(&plan_path, None, false, only(owned.path()))
+            .expect_err("a run that removed nothing must not exit 0");
+
+        assert!(err.to_string().contains("1 refused"), "{err}");
+        assert!(
+            theirs.is_file(),
+            "the rewritten target must survive: the plan file is not the whole boundary"
+        );
+        assert!(
+            mine.is_file(),
+            "and the original target is not removed either — the plan no longer names it"
+        );
+    }
+
+    // ── Elevation ──
+
+    #[test]
+    fn elevation_is_asked_for_only_when_the_plan_reaches_outside_the_user() {
+        let home = PathBuf::from(if cfg!(windows) {
+            r"C:\Users\someone"
+        } else {
+            "/home/someone"
+        });
+        let mine = as_str(&home.join(".local/share/ClotoCore"));
+        let theirs = if cfg!(windows) {
+            r"C:\Program Files\ClotoCore"
+        } else {
+            "/opt/cloto"
+        };
+
+        let own_tree = plan_of(vec![entry("data_dir", PurgeKind::Dir, Some(&mine))]);
+        assert!(
+            !requires_elevation(&own_tree, Some(&home)),
+            "removing one's own files must not raise a prompt"
+        );
+
+        let install_dir = plan_of(vec![entry("prefix", PurgeKind::Dir, Some(theirs))]);
+        assert!(requires_elevation(&install_dir, Some(&home)));
+
+        let mut service = entry("service", PurgeKind::Service, None);
+        service.name = Some("Cloto".to_string());
+        assert!(
+            requires_elevation(&plan_of(vec![service]), Some(&home)),
+            "deregistering a machine-wide service is an administrative act"
+        );
+
+        let hklm = plan_of(vec![entry(
+            "registry_uninstall_hklm",
+            PurgeKind::Registry,
+            Some(r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\ClotoCore"),
+        )]);
+        assert!(requires_elevation(&hklm, Some(&home)));
+
+        let hkcu = plan_of(vec![entry(
+            "registry_uninstall_hkcu",
+            PurgeKind::Registry,
+            Some(r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\ClotoCore"),
+        )]);
+        assert!(
+            !requires_elevation(&hkcu, Some(&home)),
+            "a per-user key is the user's own"
+        );
+
+        assert!(
+            requires_elevation(&own_tree, None),
+            "with no home to compare against, assume the prompt is needed"
+        );
+        assert!(
+            !requires_elevation(&plan_of(Vec::new()), None),
+            "an empty plan asks for nothing"
+        );
+    }
+
+    // ── Report persistence ──
+
+    #[test]
+    fn the_run_is_recorded_next_to_the_plan() {
+        // A detached helper's stdout goes nowhere: the process that spawned it
+        // has exited. Without this file the only surviving account of what an
+        // uninstall did is its exit status.
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("cloto_memories.db");
+        touch(&file, 8);
+        let plan_path = root.path().join("plan.json");
+        std::fs::write(
+            &plan_path,
+            serde_json::to_vec(&plan_of(vec![entry(
+                "db",
+                PurgeKind::File,
+                Some(&as_str(&file)),
+            )]))
+            .unwrap(),
+        )
+        .unwrap();
+
+        run_cli(&plan_path, None, false, only(root.path())).expect("the plan applies cleanly");
+
+        let report_path = root.path().join(format!("plan.json{REPORT_FILE_SUFFIX}"));
+        let written: PurgeReport =
+            serde_json::from_slice(&std::fs::read(&report_path).expect("a report must be written"))
+                .expect("and it must be the report type, not prose");
+        assert_eq!(written.removed(), 1);
+        assert_eq!(written.entries[0].id, "db");
+    }
+
+    #[test]
+    fn a_failed_run_still_leaves_an_account() {
+        // The failing case is the one worth reading afterwards, so the report
+        // is written before the exit status is decided.
+        let root = tempfile::tempdir().unwrap();
+        let plan_path = root.path().join("plan.json");
+        let mut stale = plan_of(vec![entry("db", PurgeKind::File, Some("relative/x.db"))]);
+        stale.plan_version = PLAN_VERSION + 7;
+        std::fs::write(&plan_path, serde_json::to_vec(&stale).unwrap()).unwrap();
+
+        run_cli(&plan_path, None, true, only(root.path()))
+            .expect_err("a plan that removed nothing must not exit 0");
+
+        let report_path = root.path().join(format!("plan.json{REPORT_FILE_SUFFIX}"));
+        let written: PurgeReport =
+            serde_json::from_slice(&std::fs::read(&report_path).expect("a report must be written"))
+                .unwrap();
+        assert_eq!(written.refused(), 1);
+        assert_eq!(
+            written.plan_version,
+            PLAN_VERSION + 7,
+            "the record states the version it was handed"
         );
     }
 }
