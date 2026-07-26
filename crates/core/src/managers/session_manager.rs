@@ -456,7 +456,9 @@ mod tests {
         std::thread::sleep(Duration::from_millis(2));
 
         assert_eq!(sm.tier_of(&k), SessionTier::Warm);
-        sm.run_cleanup();
+        // A Warm session is trimmed, not evicted — the count says so, and
+        // reading it keeps `run_cleanup`'s `#[must_use]` honoured here too.
+        assert_eq!(sm.run_cleanup(), 0);
 
         // Session retained (still Warm), tool_history wiped, transcript kept.
         assert_eq!(sm.snapshot_transcript(&k).len(), 1);
