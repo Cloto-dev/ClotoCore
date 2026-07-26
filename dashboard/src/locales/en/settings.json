@@ -27,7 +27,7 @@
       "scope_hint": "Tiers are cumulative — a wider scope includes every narrower one.",
       "scope_stale": "The list below was enumerated for a different scope. Re-check to see what the selected scope would remove.",
       "tier1": "Application only",
-      "tier1_hint": "Binary or app bundle, install prefix, OS service, autostart.",
+      "tier1_hint": "Binary or app bundle, install prefix, shortcuts and desktop entry, OS service, autostart.",
       "tier1_always": "always included",
       "tier2": "+ User data",
       "tier2_hint": "Databases, seal key, .env, attachments, avatars.",

@@ -109,16 +109,51 @@ impl PurgeRoots {
     /// suspicion.
     #[must_use]
     pub fn from_env(data_dir: &Path, prefix: Option<&Path>) -> Self {
-        let probe = ProbeRoots::from_env();
+        Self::from_probe(data_dir, prefix, &ProbeRoots::from_env())
+    }
+
+    /// The same derivation from a stated machine layout rather than this one.
+    ///
+    /// Exists so the set can be checked against what the *planner* emits from
+    /// the same layout (`purge::tests::every_path_the_planner_emits_…`). The two
+    /// notions of "belongs to this installation" are independent by design — the
+    /// plan is the input under suspicion — but they must not contradict each
+    /// other, or the uninstall refuses paths it offered to remove.
+    ///
+    /// Each platform location is admitted as narrowly as the artifact allows:
+    /// the Start Menu directory rather than all of `%ProgramData%`, the public
+    /// desktop rather than the whole public profile, `applications` and
+    /// `icons/hicolor` rather than all of `/usr/share`.
+    #[must_use]
+    pub fn from_probe(data_dir: &Path, prefix: Option<&Path>, probe: &ProbeRoots) -> Self {
         let mut paths = vec![data_dir.to_path_buf()];
         paths.extend(prefix.map(Path::to_path_buf));
-        paths.extend(probe.home);
-        paths.extend(probe.platform_data);
-        paths.extend(probe.platform_cache);
-        paths.extend(probe.platform_local);
-        paths.extend(probe.exe_dir);
+        paths.extend(probe.home.clone());
+        paths.extend(probe.platform_data.clone());
+        paths.extend(probe.platform_cache.clone());
+        paths.extend(probe.platform_local.clone());
+        paths.extend(probe.exe_dir.clone());
         if cfg!(target_os = "macos") {
             paths.push(PathBuf::from("/Applications"));
+        }
+        if cfg!(target_os = "windows") {
+            paths.extend(
+                probe
+                    .program_data
+                    .as_ref()
+                    .map(|d| d.join(crate::defender::purge::START_MENU_REL)),
+            );
+            paths.extend(probe.public.as_ref().map(|d| d.join("Desktop")));
+            paths.extend(probe.desktop.clone());
+        }
+        if cfg!(target_os = "linux") {
+            // The systemd unit has been in every Linux plan since the plan
+            // existed, and nothing could remove it: no root covered /etc.
+            paths.push(PathBuf::from("/etc/systemd/system"));
+            if let Some(share) = &probe.system_share {
+                paths.push(share.join("applications"));
+                paths.push(share.join("icons").join("hicolor"));
+            }
         }
         Self::from_paths(paths)
     }
@@ -131,6 +166,13 @@ impl PurgeRoots {
     #[must_use]
     pub fn paths(&self) -> &[PathBuf] {
         &self.roots
+    }
+
+    /// Is `path` inside a declared root? The executor's own admission test,
+    /// exposed so the planner's output can be checked against it.
+    #[must_use]
+    pub fn covers(&self, path: &Path) -> bool {
+        self.contains(path)
     }
 
     fn contains(&self, path: &Path) -> bool {

@@ -261,6 +261,12 @@ pub fn classify(id: &str) -> PurgeTier {
     if id.starts_with("mcp:") {
         return PurgeTier::Assets;
     }
+    // One icon per installed size, discovered rather than enumerated, so the
+    // ids are indexed. They are part of the application's desktop
+    // registration, like the `.desktop` entry that points at them.
+    if id.starts_with("icon_") {
+        return PurgeTier::Application;
+    }
     PurgeTier::UserData
 }
 
@@ -269,6 +275,14 @@ fn classify_exact(id: &str) -> Option<PurgeTier> {
         // Tier 1 — the application itself.
         "binary" | "app_bundle" | "install_prefix" | "install_scripts" | "service"
         | "autostart" => PurgeTier::Application,
+        // Desktop registration: shortcuts (Windows, per-machine and per-user)
+        // and the `.desktop` entry (Linux). They belong to the application, not
+        // to anything the user made.
+        "start_menu_shortcut"
+        | "start_menu_shortcut_user"
+        | "desktop_shortcut"
+        | "desktop_shortcut_user"
+        | "desktop_entry" => PurgeTier::Application,
         // Tier 2 — what the user created or the install personalised.
         "db" | "seal_key" | "env" | "setup_marker" | "attachments" | "avatars" | "vrm" | "logs"
         | "tmp" | "mcp_config" => PurgeTier::UserData,
@@ -302,6 +316,22 @@ pub struct ProbeRoots {
     pub platform_local: Option<PathBuf>,
     /// Directory holding the running binary.
     pub exe_dir: Option<PathBuf>,
+    /// The running binary itself. The `.deb` names its icons after it
+    /// (`/usr/bin/app` → `app.png`), so the icon probe follows a renamed
+    /// binary instead of a literal that would go stale.
+    pub exe: Option<PathBuf>,
+    /// Machine-wide application data (`%ProgramData%`). Holds the all-users
+    /// Start Menu, where a per-machine install puts its shortcut.
+    pub program_data: Option<PathBuf>,
+    /// The public profile (`%PUBLIC%`), whose `Desktop` a per-machine install
+    /// writes its desktop shortcut into — not the current user's.
+    pub public: Option<PathBuf>,
+    /// This user's desktop (`dirs::desktop_dir`, which follows a redirected or
+    /// localised folder), where a per-user install puts its shortcut.
+    pub desktop: Option<PathBuf>,
+    /// System data root (`/usr/share`) for the `.desktop` entry and icons a
+    /// `.deb` install lays down.
+    pub system_share: Option<PathBuf>,
 }
 
 impl ProbeRoots {
@@ -314,9 +344,19 @@ impl ProbeRoots {
             platform_cache: dirs::cache_dir(),
             platform_local: dirs::data_local_dir(),
             exe_dir: Some(crate::config::exe_dir()),
+            exe: std::env::current_exe().ok(),
+            program_data: std::env::var_os("ProgramData").map(PathBuf::from),
+            public: std::env::var_os("PUBLIC").map(PathBuf::from),
+            desktop: dirs::desktop_dir(),
+            system_share: Some(PathBuf::from(SYSTEM_SHARE)),
         }
     }
 }
+
+/// Where a `.deb` install puts everything that is not the binary. Measured
+/// against the shipped package, not assumed: `usr/share/applications/
+/// ClotoCore.desktop` and `usr/share/icons/hicolor/<size>/apps/<binary>.png`.
+const SYSTEM_SHARE: &str = "/usr/share";
 
 /// Everything the enumeration needs. Built with `PlanRequest::new` for the
 /// real machine; constructed field-by-field in tests.
@@ -583,6 +623,7 @@ fn platform_candidates(roots: &ProbeRoots) -> Vec<Candidate> {
                 ));
             }
         }
+        out.extend(desktop_integration_candidates(roots));
     }
 
     if cfg!(target_os = "windows") {
@@ -615,8 +656,144 @@ fn platform_candidates(roots: &ProbeRoots) -> Vec<Candidate> {
                 });
             }
         }
+        out.extend(desktop_integration_candidates(roots));
     }
 
+    out
+}
+
+/// Product name as the installers write it: the NSIS shortcut is
+/// `<PRODUCT>.lnk` and the `.deb` ships `usr/share/applications/<PRODUCT>
+/// .desktop`. Mirrors `productName` in `dashboard/src-tauri/tauri.conf.json`.
+const PRODUCT_NAME: &str = "ClotoCore";
+
+/// The Start Menu's `Programs` directory, relative to `%ProgramData%` (all
+/// users) or `%APPDATA%` (one user). Shared with `purge_exec`, whose root set
+/// has to admit exactly the directory this one probes.
+pub(crate) const START_MENU_REL: &str = r"Microsoft\Windows\Start Menu\Programs";
+
+/// Where the installers register the application with the desktop: Start Menu
+/// and desktop shortcuts on Windows, the `.desktop` entry and its icons on
+/// Linux.
+///
+/// Every path here was read off a real installation rather than derived from
+/// documentation — a probe aimed at the wrong directory would report "we looked
+/// and it was not there", which is worse than saying nothing. Measured
+/// 2026-07-27 on the per-machine Windows install and in the shipped `.deb`:
+///
+/// ```text
+/// C:\ProgramData\Microsoft\Windows\Start Menu\Programs\ClotoCore.lnk
+/// C:\Users\Public\Desktop\ClotoCore.lnk
+/// /usr/share/applications/ClotoCore.desktop
+/// /usr/share/icons/hicolor/{32x32,128x128,256x256@2}/apps/app.png
+/// ```
+///
+/// `installMode: "both"` means either hive can be the one that ran, so the
+/// per-user locations are probed too and simply come back absent on a
+/// per-machine machine. The pre-rename `cloto-system` name is deliberately
+/// *not* probed: unlike the uninstall registry keys, which bug-386 showed
+/// survive a rename, the legacy uninstaller removes its own shortcuts.
+fn desktop_integration_candidates(roots: &ProbeRoots) -> Vec<Candidate> {
+    let mut out = Vec::new();
+    let shortcut = format!("{PRODUCT_NAME}.lnk");
+
+    if cfg!(target_os = "windows") {
+        let start_menu = Path::new(START_MENU_REL);
+        // Per-machine first: that is where `installMode: both` landed when this
+        // was measured.
+        if let Some(program_data) = &roots.program_data {
+            out.push(Candidate::path_entry(
+                "start_menu_shortcut",
+                PurgeKind::File,
+                program_data.join(start_menu).join(&shortcut),
+                PurgeTier::Application,
+                PurgeSource::Platform,
+            ));
+        }
+        if let Some(roaming) = &roots.platform_data {
+            out.push(Candidate::path_entry(
+                "start_menu_shortcut_user",
+                PurgeKind::File,
+                roaming.join(start_menu).join(&shortcut),
+                PurgeTier::Application,
+                PurgeSource::Platform,
+            ));
+        }
+        if let Some(public) = &roots.public {
+            out.push(Candidate::path_entry(
+                "desktop_shortcut",
+                PurgeKind::File,
+                public.join("Desktop").join(&shortcut),
+                PurgeTier::Application,
+                PurgeSource::Platform,
+            ));
+        }
+        if let Some(desktop) = &roots.desktop {
+            out.push(Candidate::path_entry(
+                "desktop_shortcut_user",
+                PurgeKind::File,
+                desktop.join(&shortcut),
+                PurgeTier::Application,
+                PurgeSource::Platform,
+            ));
+        }
+    }
+
+    if cfg!(target_os = "linux") {
+        if let Some(share) = &roots.system_share {
+            out.push(Candidate::path_entry(
+                "desktop_entry",
+                PurgeKind::File,
+                share
+                    .join("applications")
+                    .join(format!("{PRODUCT_NAME}.desktop")),
+                PurgeTier::Application,
+                PurgeSource::Platform,
+            ));
+            // The icon is named after the binary (`/usr/bin/app` →
+            // `app.png`), and the set of sizes is a packaging detail, so the
+            // sizes are discovered rather than listed: a build that adds one
+            // must not silently leave an icon behind.
+            for (idx, icon) in icon_candidates(share, roots.exe.as_deref())
+                .into_iter()
+                .enumerate()
+            {
+                out.push(Candidate::path_entry(
+                    format!("icon_{idx}"),
+                    PurgeKind::File,
+                    icon,
+                    PurgeTier::Application,
+                    PurgeSource::Platform,
+                ));
+            }
+        }
+    }
+
+    out
+}
+
+/// `<share>/icons/hicolor/*/apps/<binary>.png`, one per size actually present.
+///
+/// The sizes are discovered, not listed: a package that adds one must not
+/// silently leave an icon behind. The name comes from the running binary, which
+/// is what the packaging derives it from, so a rename carries through instead of
+/// stranding a literal.
+fn icon_candidates(share: &Path, exe: Option<&Path>) -> Vec<PathBuf> {
+    let Some(stem) = exe.and_then(Path::file_stem) else {
+        return Vec::new();
+    };
+    let mut icon = PathBuf::from(stem);
+    icon.set_extension("png");
+    let Ok(listing) = std::fs::read_dir(share.join("icons").join("hicolor")) else {
+        return Vec::new();
+    };
+    let mut out: Vec<PathBuf> = listing
+        .flatten()
+        .map(|size| size.path().join("apps").join(&icon))
+        .filter(|p| p.is_file())
+        .collect();
+    // Directory order is not defined; a plan has to be reproducible.
+    out.sort();
     out
 }
 
@@ -2138,6 +2315,152 @@ mod tests {
                     .any(|e| e.id.starts_with("webview") && e.source == PurgeSource::Platform),
                 "webview data is exactly the footprint no other path cleans up: {:?}",
                 ids(&plan)
+            );
+        }
+    }
+
+    /// A machine where every location the planner probes exists, so a test can
+    /// see the whole candidate set instead of whichever subset this host has.
+    fn populated_roots(root: &Path) -> ProbeRoots {
+        let mk = |rel: &str| {
+            let p = root.join(rel);
+            std::fs::create_dir_all(&p).unwrap();
+            p
+        };
+        let exe_dir = mk("prefix");
+        let exe = exe_dir.join("app");
+        std::fs::write(&exe, b"binary").unwrap();
+        let share = mk("usr/share");
+        std::fs::create_dir_all(share.join("applications")).unwrap();
+        std::fs::write(
+            share.join("applications/ClotoCore.desktop"),
+            b"[Desktop Entry]",
+        )
+        .unwrap();
+        // Two sizes present, one theme directory holding no icon at all: the
+        // probe has to discover sizes rather than assume a fixed list.
+        for size in ["32x32", "128x128"] {
+            let apps = share.join("icons/hicolor").join(size).join("apps");
+            std::fs::create_dir_all(&apps).unwrap();
+            std::fs::write(apps.join("app.png"), b"icon").unwrap();
+        }
+        std::fs::create_dir_all(share.join("icons/hicolor/16x16/apps")).unwrap();
+
+        let program_data = mk("ProgramData");
+        let start_menu = program_data.join(START_MENU_REL);
+        std::fs::create_dir_all(&start_menu).unwrap();
+        std::fs::write(start_menu.join("ClotoCore.lnk"), b"lnk").unwrap();
+        let public = mk("Public");
+        std::fs::create_dir_all(public.join("Desktop")).unwrap();
+        std::fs::write(public.join("Desktop/ClotoCore.lnk"), b"lnk").unwrap();
+
+        ProbeRoots {
+            home: Some(mk("home")),
+            platform_data: Some(mk("xdg-data")),
+            platform_cache: Some(mk("cache")),
+            platform_local: Some(mk("localappdata")),
+            exe_dir: Some(exe_dir),
+            exe: Some(exe),
+            program_data: Some(program_data),
+            public: Some(public),
+            desktop: Some(mk("desktop")),
+            system_share: Some(share),
+        }
+    }
+
+    #[test]
+    fn the_desktop_registration_is_enumerated_at_the_application_tier() {
+        let root = tempfile::tempdir().unwrap();
+        let receipt_dir = root.path().join("r");
+        std::fs::create_dir_all(&receipt_dir).unwrap();
+        let mut req = isolated(&receipt_dir, PurgeTier::Application);
+        req.roots = populated_roots(root.path());
+        let plan = build_plan(&req);
+
+        // Measured on the real installs (see `desktop_integration_candidates`):
+        // Windows puts the shortcut in the all-users Start Menu and on the
+        // public desktop; the .deb ships the entry and one icon per size.
+        let expected: &[&str] = if cfg!(target_os = "windows") {
+            &["start_menu_shortcut", "desktop_shortcut"]
+        } else if cfg!(target_os = "linux") {
+            &["desktop_entry", "icon_0", "icon_1"]
+        } else {
+            &[]
+        };
+        for id in expected {
+            assert!(
+                ids(&plan).contains(id),
+                "{id} must be removed by the tier that removes the application: {:?}",
+                ids(&plan)
+            );
+        }
+        // The theme directory with no icon in it contributes nothing, so the
+        // discovered set is exactly the two sizes that exist.
+        if cfg!(target_os = "linux") {
+            assert!(!ids(&plan).contains(&"icon_2"));
+        }
+        for id in [
+            "start_menu_shortcut",
+            "start_menu_shortcut_user",
+            "desktop_shortcut",
+            "desktop_shortcut_user",
+            "desktop_entry",
+            "icon_0",
+        ] {
+            assert_eq!(
+                classify(id),
+                PurgeTier::Application,
+                "{id} is part of the application, not of anything the user made"
+            );
+        }
+    }
+
+    #[test]
+    fn every_path_the_planner_emits_is_one_the_executor_will_accept() {
+        // The planner and the executor have separate notions of what belongs to
+        // this installation: the plan lists paths, and `purge_exec` refuses any
+        // path no declared root covers. A listed path the executor refuses is
+        // worse than an omission — the uninstall reports a failure for
+        // something it offered to remove.
+        //
+        // Checked over the *candidates*, not the finished plan: a platform path
+        // that does not exist on this machine never reaches the plan, so
+        // asserting on entries would pass while saying nothing about the
+        // artifact that only exists on a real install. That is how
+        // `/etc/systemd/system/cloto.service` stayed listed-and-unremovable —
+        // it is in every Linux plan and no root covered `/etc`.
+        let root = tempfile::tempdir().unwrap();
+        let data_dir = root.path().join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let roots = populated_roots(root.path());
+        let prefix = roots.exe_dir.clone();
+
+        let allowed = crate::defender::purge_exec::PurgeRoots::from_probe(
+            &data_dir,
+            prefix.as_deref(),
+            &roots,
+        );
+        let candidates: Vec<Candidate> = platform_candidates(&roots)
+            .into_iter()
+            .chain(legacy_candidates(&data_dir, &roots))
+            .collect();
+        assert!(
+            !candidates.is_empty(),
+            "this platform must probe for something, or the invariant is vacuous"
+        );
+        for candidate in candidates {
+            if matches!(candidate.kind, PurgeKind::Registry | PurgeKind::Service) {
+                continue; // removed through OS calls, not by path
+            }
+            let Some(path) = candidate.path.as_deref() else {
+                continue;
+            };
+            assert!(
+                allowed.covers(path),
+                "the planner can emit `{}` ({}) but the executor would refuse it as outside this \
+                 installation's footprint",
+                path.display(),
+                candidate.id
             );
         }
     }
