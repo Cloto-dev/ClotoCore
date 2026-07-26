@@ -123,7 +123,10 @@ if [ "$TARGET" = "rust" ] || [ "$TARGET" = "all" ]; then
     # `if ! VAR=$(...)` keeps the output instead of letting `set -e` abort with
     # it swallowed. A failing run must not be counted either: "50 passed" out of
     # a run that also failed two tests would otherwise clear the floor.
-    if ! RUST_OUTPUT=$(cargo test --workspace --exclude app 2>&1); then
+    # Colour off: the pattern reads digits out of human output, and an escape
+    # sequence landing between the number and the word would silently zero the
+    # count (the dashboard side hit exactly that under CI's forced colour).
+    if ! RUST_OUTPUT=$(CARGO_TERM_COLOR=never cargo test --workspace --exclude app 2>&1); then
         printf '%s\n' "$RUST_OUTPUT"
         echo "❌ Rust tests failed — no count is certified from a failing run" >&2
         exit 1
@@ -139,13 +142,27 @@ if [ "$TARGET" = "dashboard" ] || [ "$TARGET" = "all" ]; then
     # `--run` because vitest otherwise watches. Deliberately no
     # `--passWithNoTests`: a suite that vanished has to read as zero and break
     # the floor, which is the one case this guard exists for.
-    if ! DASHBOARD_OUTPUT=$(cd dashboard && npx vitest run --reporter=dot 2>&1); then
+    # The count comes from vitest's JSON reporter, not from its console output.
+    # The human summary is styled, and under CI vitest forces colour on, so
+    # `Tests 52 passed` arrives as `Tests \e[22m \e[1m\e[32m52 passed` and any
+    # pattern written against a local (uncoloured, piped) run misses it — which
+    # is exactly what happened on the first run of this step. `--run` because
+    # vitest otherwise watches, and deliberately no `--passWithNoTests`: a suite
+    # that vanished has to read as zero and break the floor.
+    DASHBOARD_REPORT=$(mktemp)
+    trap 'rm -f "$DASHBOARD_REPORT"' EXIT
+    if ! DASHBOARD_OUTPUT=$(cd dashboard && npx vitest run --reporter=json --outputFile="$DASHBOARD_REPORT" 2>&1); then
         printf '%s\n' "$DASHBOARD_OUTPUT"
         echo "❌ Dashboard tests failed — no count is certified from a failing run" >&2
         exit 1
     fi
-    DASHBOARD_COUNT=$(printf '%s\n' "$DASHBOARD_OUTPUT" |
-        grep -oE '^ *Tests +[0-9]+ passed' | grep -oE '[0-9]+' | tail -1 || true)
+    DASHBOARD_COUNT=$("$PYTHON_CMD" -c "
+import json, sys
+try:
+    print(json.load(open(sys.argv[1]))['numPassedTests'])
+except Exception:
+    pass
+" "$DASHBOARD_REPORT")
     check_suite "Dashboard tests" dashboard_test_count "${DASHBOARD_COUNT:-}" || FAILED=true
 fi
 
