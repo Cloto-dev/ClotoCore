@@ -250,6 +250,7 @@
         "source_receipt": "記録済み",
         "source_platform": "プラットフォーム",
         "source_legacy": "スキャンで検出",
+        "source_derived": "記録済みファイルの隣で検出",
         "flag_secret": "認証情報",
         "flag_covers_secret": "認証情報を含む",
         "flag_unreadable": "読み取り不可 — 削除には権限昇格が必要な場合があります",

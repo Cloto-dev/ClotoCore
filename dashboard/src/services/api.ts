@@ -76,8 +76,16 @@ export interface RepairReport {
 export type PurgeKind = 'file' | 'dir' | 'service' | 'registry';
 /** Serde tag of `defender::purge::PurgeTier` — cumulative, levels 1..4. */
 export type PurgeTierName = 'application' | 'user_data' | 'assets' | 'everything';
-/** Serde tag of `defender::purge::PurgeSource`. */
-export type PurgeSource = 'receipt' | 'platform' | 'legacy';
+/**
+ * Serde tags of `defender::purge::PurgeSource`.
+ *
+ * A runtime list, not just a type: the Danger Zone renders the label through
+ * `t('health.danger.source_' + entry.source)`, and a computed key is invisible
+ * to any check that reads the source for literal keys — a missing one shows the
+ * user the key itself. Iterating this is what makes that family testable.
+ */
+export const PURGE_SOURCES = ['receipt', 'platform', 'legacy', 'derived'] as const;
+export type PurgeSource = (typeof PURGE_SOURCES)[number];
 /** Serde tag of `defender::purge::SkipReason`. */
 export type PurgeSkipReason = 'absent' | 'above_tier' | 'covered_by_parent' | 'unsafe';
 
