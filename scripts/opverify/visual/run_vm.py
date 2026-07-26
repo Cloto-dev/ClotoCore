@@ -14,15 +14,18 @@ multimodal-model assessor to fully automate.
 Usage (env: OPV_VM_IP / OPV_VM_USER / OPV_AGENT_PORT / OPV_KERNEL_PORT):
 
     python -m scripts.opverify.visual.run_vm liveness
-    python -m scripts.opverify.visual.run_vm onboarding
+    python -m scripts.opverify.visual.run_vm onboarding --ledger
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
+import time
 
+from .. import ledger as ledger_mod
 from . import journey as J
 from .backends_vm import (
     KernelApiProbe,
@@ -148,6 +151,14 @@ _JOURNEYS = {
 }
 
 
+# The OS label recorded on an apex ledger row. It names the machine *under
+# verification*, not the orchestrating host: the apex drives the real installed
+# GUI on the Windows VM (VM 104 — see VM_EXECUTOR_RUNBOOK.md), while the
+# orchestrator typically runs on macOS. Hardcoded because the apex has exactly
+# one VM target today; a second one would make this a CLI argument.
+APEX_OS_LABEL = "windows-vm"
+
+
 # Settle hash-poll (agent /grabhash) is OPT-IN via OPV_SETTLE_HASHPOLL=1.
 # Measured net-negative at current per-call costs (#234) — off by default.
 def _hashpoll_enabled() -> bool:
@@ -187,11 +198,35 @@ def _build_transport(transport: str):
     )
 
 
+def _parse_args(argv):
+    p = argparse.ArgumentParser(
+        prog="opverify-apex", description=__doc__.splitlines()[0]
+    )
+    p.add_argument(
+        "journey",
+        nargs="?",
+        default="liveness",
+        choices=sorted(_JOURNEYS),
+        help="journey to drive (default: liveness)",
+    )
+    p.add_argument(
+        "--ledger",
+        action="store_true",
+        help="append this apex run to qa/opverify/history.jsonl and check for "
+        "regressions vs the prior apex baseline (apex rows are compared only "
+        "against apex rows)",
+    )
+    p.add_argument(
+        "--history",
+        default=None,
+        help="override ledger history path (default qa/opverify/history.jsonl)",
+    )
+    return p.parse_args(argv)
+
+
 def main(argv) -> int:
-    name = argv[0] if argv else "liveness"
-    if name not in _JOURNEYS:
-        print(f"unknown journey: {name} (choose {list(_JOURNEYS)})")
-        return 2
+    args = _parse_args(argv)
+    name = args.journey
     make_journey, recorded = _JOURNEYS[name]
     frame_dir = os.environ.get("OPV_FRAME_DIR", "/tmp/opv-frames")
     transport = os.environ.get("OPV_TRANSPORT", "tunnel")
@@ -229,7 +264,27 @@ def main(argv) -> int:
             handshake.signal_done()
     print(json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
     print(f"\nframes saved under: {frame_dir}  (transport={transport})")
-    return 0 if report.verdict != "fail" else 1
+
+    regressed = False
+    if args.ledger:
+        entry, regressions = ledger_mod.record_apex(
+            report.as_dict(),
+            ts=time.time(),
+            os_label=APEX_OS_LABEL,
+            history_path=args.history,
+        )
+        print(
+            f"\nledger: recorded {entry.run_id} "
+            f"(git={entry.git_sha or 'n/a'}, os={entry.os}, "
+            f"steps={entry.ops_passed}/{entry.ops_total})"
+        )
+        for reg in regressions:
+            regressed = True
+            print(
+                f"  !! REGRESSION [{reg.kind}] {reg.detail} (vs {reg.baseline_run_id})"
+            )
+
+    return 0 if report.verdict != "fail" and not regressed else 1
 
 
 if __name__ == "__main__":
