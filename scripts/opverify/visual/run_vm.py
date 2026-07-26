@@ -42,7 +42,7 @@ from .backends_vm import (
 )
 from .assessor_cache import CachingAssessor
 from .driver import VisualDriver
-from .interfaces import Frame, click
+from .interfaces import Frame, click, move, scroll
 from .live_assessor import AgentHandshakeAssessor
 
 
@@ -125,6 +125,111 @@ def _agents_journey(health_probe, make_api_probe):
     )
 
 
+def _scroll_steps(label: str, amount: int, times: int):
+    """`times` wheel events of `amount`, as positioning steps that assert
+    nothing. Splitting the travel is not cosmetic: the WebView caps how far one
+    wheel event moves a pane, so a single large delta silently stops short."""
+    return [
+        J.Step(
+            name=f"scroll-{label}-{i + 1}",
+            action=scroll(amount),
+            trigger=J.CHECKPOINT,
+            settle=False,
+        )
+        for i in range(times)
+    ]
+
+
+def _danger_zone_journey(health_probe, make_api_probe):
+    """Settings → Health → Danger Zone, dry-run only (`docs/DEFENDER_DESIGN.md`
+    §7). The GUI's enumeration is cross-checked against the kernel's own
+    `/api/system/uninstall/plan` for the same scope: the user is told, in
+    pixels, exactly what a purge would remove, and the kernel is asked the same
+    question over the admin API. Widening application-only → +user data must
+    move both oracles together.
+
+    Nothing here is destructive: the plan endpoint is read-only, and the journey
+    stops short of the admin-key field, so the uninstall button stays disabled.
+    Executing a purge is the VM-tier kernel scenario (an earlier decision), not this.
+
+    Coordinates are for the 1280×800 VM at the app's default zoom. A drifted
+    coordinate does not silently pass: the step's visual question fails, because
+    the assessor is asked what the frame actually shows.
+    """
+    return J.Journey(
+        name="danger-zone-dry-run",
+        steps=[
+            J.Step(
+                name="app-rendered",
+                trigger=J.CHECKPOINT,
+                settle=False,
+                vision_question="is the ClotoCore main window rendered with visible content?",
+                kernel_probe=health_probe,
+            ),
+            J.Step(
+                name="open-settings",
+                action=click(66, 592),  # left rail: 設定 / Settings
+                trigger=J.CHECKPOINT,
+                vision_question="is the SETTINGS modal open?",
+                kernel_probe=health_probe,
+            ),
+            J.Step(
+                name="open-health",
+                action=click(259, 339),  # settings nav: ヘルス / Health
+                trigger=J.CHECKPOINT,
+                vision_question="does the settings pane show a system-health check list?",
+                kernel_probe=health_probe,
+            ),
+            J.Step(
+                name="hover-health-pane",
+                action=move(720, 450),  # the wheel acts on the pane under the pointer
+                trigger=J.CHECKPOINT,
+                settle=False,
+            ),
+            # One wheel event does not scroll an arbitrary distance — the WebView
+            # caps how far a single delta moves the pane, so a lone scroll(-3600)
+            # stops short of the bottom (measured 2026-07-27). Repeat instead.
+            *_scroll_steps("to-danger-zone", -600, 6),
+            J.Step(
+                name="danger-zone-visible",
+                trigger=J.CHECKPOINT,
+                vision_question="is a red-bordered DANGER ZONE card visible with a button to review what would be removed?",
+                kernel_probe=health_probe,
+            ),
+            J.Step(
+                name="open-the-plan",
+                action=click(574, 524),  # "review what would be removed"
+                trigger=J.CHECKPOINT,
+                vision_question="are cumulative scope checkboxes shown, with the narrowest (application only) checked and disabled?",
+                kernel_probe=make_api_probe(
+                    "/api/system/uninstall/plan?tier=1", '"tier":"application"'
+                ),
+            ),
+            # The card grew when the plan rendered: ride to the bottom again, then
+            # back up one notch so the entry list — not the notes — is on screen.
+            *_scroll_steps("plan-into-view", -600, 6),
+            J.Step(
+                name="tier1-enumeration",
+                action=scroll(400),
+                trigger=J.CHECKPOINT,
+                vision_question="does the enumeration list exactly one item, the app executable under Program Files, and say administrator approval will be requested?",
+                kernel_probe=make_api_probe(
+                    "/api/system/uninstall/plan?tier=1", '"tier":"application"'
+                ),
+            ),
+            J.Step(
+                name="widen-to-user-data",
+                action=click(455, 227),  # "+ User data" checkbox
+                trigger=J.CHECKPOINT,
+                vision_question="did the list re-enumerate to 8 items including paths under AppData\\Roaming\\cloto-system, with a warning that credentials will be destroyed?",
+                kernel_probe=make_api_probe(
+                    "/api/system/uninstall/plan?tier=2", '"tier":"user_data"'
+                ),
+            ),
+        ],
+    )
+
+
 _JOURNEYS = {
     "liveness": (
         _liveness_journey,
@@ -146,6 +251,21 @@ _JOURNEYS = {
         _agents_journey,
         [
             {"visible": True, "detail": "ClotoCore UI rendered (onboarding/main)"},
+        ],
+    ),
+    "danger-zone": (
+        _danger_zone_journey,
+        # RecordedVision fallback (OPV_ASSESSOR=recorded). One entry per assessed
+        # step, in call order; the two positioning steps ask nothing. Prefer
+        # OPV_ASSESSOR=handshake — a pre-recorded verdict cannot notice drift.
+        [
+            {"visible": True, "detail": "main window rendered"},
+            {"visible": True, "detail": "settings modal open"},
+            {"visible": True, "detail": "health check list shown"},
+            {"visible": True, "detail": "DANGER ZONE card with review button"},
+            {"visible": True, "detail": "scope checkboxes, tier 1 checked+disabled"},
+            {"visible": True, "detail": "1 item: Program Files app.exe, elevation flagged"},
+            {"visible": True, "detail": "8 items under cloto-system, credentials flagged"},
         ],
     ),
 }

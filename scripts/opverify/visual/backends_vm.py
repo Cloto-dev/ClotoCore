@@ -168,7 +168,7 @@ class VmAgentActuator:
 
     def send(self, action: Action) -> None:
         payload = {"kind": action.kind}
-        for k in ("x", "y", "text", "key"):
+        for k in ("x", "y", "text", "key", "amount"):
             v = getattr(action, k)
             if v is not None:
                 payload[k] = v
@@ -443,7 +443,7 @@ class TunnelActuator:
 
     def send(self, action: Action) -> None:
         payload = {"kind": action.kind}
-        for k in ("x", "y", "text", "key"):
+        for k in ("x", "y", "text", "key", "amount"):
             v = getattr(action, k)
             if v is not None:
                 payload[k] = v
