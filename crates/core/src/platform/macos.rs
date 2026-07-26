@@ -230,3 +230,22 @@ pub fn execute_swap(target: std::path::PathBuf, _pid: u32) -> anyhow::Result<()>
     let _ = target;
     Ok(())
 }
+
+/// Start `exe` and return without waiting for it.
+///
+/// Used by the uninstall handoff (§7). The child is put in its own process
+/// group: it has to outlive this process, and a group-wide signal aimed at the
+/// exiting kernel — a terminal closing, launchd stopping the job — would
+/// otherwise take the helper down with it, leaving an installation
+/// half-removed.
+pub fn spawn_detached(exe: &Path, args: &[String]) -> anyhow::Result<()> {
+    use std::os::unix::process::CommandExt as _;
+
+    Command::new(exe)
+        .args(args)
+        .process_group(0)
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .with_context(|| format!("Failed to spawn {}", exe.display()))?;
+    Ok(())
+}

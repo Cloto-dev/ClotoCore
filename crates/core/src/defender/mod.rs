@@ -8,7 +8,9 @@
 //! in two: `purge` enumerates and produces the plan, and `purge_exec` is the
 //! plan-bound executor that consumes it. `purge_exec` is the only code here
 //! that deletes anything, it removes exactly what a plan lists (§8.5), and it
-//! is reachable only through the uninstall flow (§8.2).
+//! is reachable only through the uninstall flow (§8.2) — `uninstall` is that
+//! flow: it stages a plan, hands it to a detached helper, and lets the kernel
+//! exit so the helper can remove files the running process still holds.
 
 pub mod advisories;
 pub mod checks;
@@ -17,3 +19,5 @@ pub mod footprint;
 pub mod purge;
 pub mod purge_exec;
 pub mod repair;
+pub mod runlock;
+pub mod uninstall;

@@ -49,8 +49,8 @@ pub enum Commands {
         /// 2 = + user data, 3 = + assets and MCP servers, 4 = + everything
         #[arg(long, default_value_t = 1, requires = "purge_mode")]
         tier: u8,
-        /// Output the plan as JSON
-        #[arg(long, requires = "plan")]
+        /// Output the plan (--plan) or the removal report (--execute) as JSON
+        #[arg(long, requires = "purge_mode")]
         json: bool,
         /// Skip the confirmation prompt (--execute only)
         #[arg(long, short = 'y', requires = "execute")]
@@ -108,6 +108,13 @@ pub enum Commands {
         pid: Option<u32>,
         #[arg(long)]
         json: bool,
+        /// Directory tree the plan may touch. Repeatable. This is the half of
+        /// the boundary the plan file cannot state about itself: the kernel
+        /// passes it here, on a channel that a process which can rewrite the
+        /// plan on disk cannot reach. Omitted entirely, the helper derives the
+        /// set from its own environment — never from the plan.
+        #[arg(long = "root")]
+        roots: Vec<PathBuf>,
     },
 }
 
@@ -168,7 +175,7 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
             if execute {
                 // Same plan, now applied — the plan is shown first and the
                 // removal is plan-bound (§8.5).
-                return crate::defender::purge_exec::run_uninstall(tier, Some(prefix), yes);
+                return crate::defender::purge_exec::run_uninstall(tier, Some(prefix), yes, json);
             }
             // Legacy path, unchanged: prefix-only removal for installs that
             // predate the receipt.
@@ -203,9 +210,58 @@ pub async fn dispatch(cmd: Commands) -> anyhow::Result<()> {
             Ok(())
         }
         Commands::SwapExe { target, pid } => crate::platform::execute_swap(target, pid),
-        Commands::PurgeExec { plan, pid, json } => {
-            crate::defender::purge_exec::run_cli(&plan, pid, json)
-        }
+        Commands::PurgeExec {
+            plan,
+            pid,
+            json,
+            roots,
+        } => crate::defender::purge_exec::run_cli(
+            &plan,
+            pid,
+            json,
+            crate::defender::purge_exec::PurgeRoots::from_paths(roots),
+        ),
+    }
+}
+
+/// Run a hidden helper subcommand, if this process was started as one.
+///
+/// The desktop app embeds the kernel in a GUI binary that never parses a
+/// command line — but the uninstall handoff (`DEFENDER_DESIGN.md` §7) copies
+/// *the running binary* to a temp directory and re-launches it as
+/// `purge-exec`. Whatever binary the kernel lives in therefore has to honour
+/// that subcommand, or a desktop installation can stage an uninstall it cannot
+/// carry out.
+///
+/// Returns `None` when this is an ordinary launch, so the caller proceeds
+/// exactly as before.
+#[must_use]
+pub fn run_detached_helper_if_requested() -> Option<anyhow::Result<()>> {
+    // Only the helper subcommands. Everything else stays with whichever binary
+    // owns the real CLI; a GUI must not start interpreting `uninstall`.
+    if std::env::args_os().nth(1)? != *"purge-exec" {
+        return None;
+    }
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => return Some(Err(anyhow::anyhow!("{e}"))),
+    };
+    match cli.command {
+        // Called directly rather than through `dispatch`, which is async: the
+        // helper has no runtime, and starting one to run a synchronous file
+        // walk would be the only reason this binary needed one.
+        Some(Commands::PurgeExec {
+            plan,
+            pid,
+            json,
+            roots,
+        }) => Some(crate::defender::purge_exec::run_cli(
+            &plan,
+            pid,
+            json,
+            crate::defender::purge_exec::PurgeRoots::from_paths(roots),
+        )),
+        _ => None,
     }
 }
 
@@ -519,10 +575,19 @@ mod tests {
         );
         let cli = parse(&["clotocore", "purge-exec", "--plan", "/tmp/p.json"]).unwrap();
         match cli.command {
-            Some(Commands::PurgeExec { plan, pid, json }) => {
+            Some(Commands::PurgeExec {
+                plan,
+                pid,
+                json,
+                roots,
+            }) => {
                 assert_eq!(plan, PathBuf::from("/tmp/p.json"));
                 assert_eq!(pid, None, "a directly invoked helper waits for nobody");
                 assert!(!json);
+                assert!(
+                    roots.is_empty(),
+                    "no roots means the helper derives them itself, not that it has none"
+                );
             }
             _ => panic!("expected the purge-exec subcommand"),
         }
@@ -536,5 +601,45 @@ mod tests {
             "--json"
         ])
         .is_ok());
+    }
+
+    #[test]
+    fn the_containment_roots_are_repeatable() {
+        // The kernel passes one `--root` per tree it will allow. If clap took
+        // only the last, every uninstall would silently narrow to a single
+        // root and refuse most of its own plan.
+        let cli = parse(&[
+            "clotocore",
+            "purge-exec",
+            "--plan",
+            "/tmp/p.json",
+            "--root",
+            "/opt/cloto",
+            "--root",
+            "/home/u/.local/share/ClotoCore",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::PurgeExec { roots, .. }) => assert_eq!(
+                roots,
+                vec![
+                    PathBuf::from("/opt/cloto"),
+                    PathBuf::from("/home/u/.local/share/ClotoCore"),
+                ]
+            ),
+            _ => panic!("expected the purge-exec subcommand"),
+        }
+    }
+
+    #[test]
+    fn json_qualifies_either_purge_mode() {
+        // `--execute --json` was rejected because `json` required `plan`, which
+        // left the in-process removal with no machine-readable report at all.
+        assert!(parse(&["clotocore", "uninstall", "--execute", "--json"]).is_ok());
+        assert!(parse(&["clotocore", "uninstall", "--plan", "--json"]).is_ok());
+        assert!(
+            parse(&["clotocore", "uninstall", "--json"]).is_err(),
+            "a format for an output nobody asked for is not a request"
+        );
     }
 }

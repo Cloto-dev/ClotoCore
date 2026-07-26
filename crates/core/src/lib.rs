@@ -225,6 +225,13 @@ pub enum AppError {
     Internal(anyhow::Error),
     NotFound(String),
     Validation(String),
+    /// The request was well-formed but the system is not in a state to carry it
+    /// out — and the caller needs to be told which, in words. Distinct from
+    /// `Validation` (the request was wrong) and from `Internal` (whose message
+    /// is deliberately withheld from the client), because the states this
+    /// covers are ones a user resolves themselves: a declined elevation
+    /// prompt, an uninstall with nothing to remove.
+    Conflict(String),
     Mgp(Box<managers::mcp_mgp::MgpError>),
 }
 
@@ -259,6 +266,7 @@ impl axum::response::IntoResponse for AppError {
                 "ValidationError".to_string(),
                 m,
             ),
+            AppError::Conflict(m) => (axum::http::StatusCode::CONFLICT, "Conflict".to_string(), m),
             AppError::Mgp(ref e) => {
                 let status = match e.code {
                     1000 | 1001 | 1010 | 1011 => axum::http::StatusCode::FORBIDDEN,
@@ -1235,6 +1243,12 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .route("/health/scan", get(handlers::health::scan_handler))
         .route("/health/repair", post(handlers::health::repair_handler))
         .route("/system/shutdown", post(handlers::shutdown_handler))
+        // Same admin-auth class as shutdown, and the same exit path — it just
+        // hands the installation to a detached helper on the way out (§7).
+        .route(
+            "/system/uninstall",
+            post(handlers::system_uninstall_handler),
+        )
         .route("/plugins/apply", post(handlers::apply_plugin_settings))
         .route("/plugins/{id}/config", post(handlers::update_plugin_config))
         .route(
@@ -1471,8 +1485,14 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         kernel_start.elapsed().as_secs_f64()
     );
 
+    // Record who is running this installation, now that it demonstrably is.
+    // `clotocore uninstall --execute` reads this and refuses to remove a live
+    // install out from under itself (`defender::runlock`).
+    defender::runlock::acquire(&app_state.data_dir);
+
     let shutdown_handle = app_state.shutdown.clone();
     let shutdown_signal = app_state.shutdown.clone();
+    let lock_dir = app_state.data_dir.clone();
     let server_task = tokio::spawn(async move {
         axum::serve(
             listener,
@@ -1484,6 +1504,9 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         })
         .await
         .ok();
+        // Best-effort: a kill -9 leaves the record behind, which the reader
+        // treats as stale once the pid is gone.
+        defender::runlock::release(&lock_dir);
     });
 
     Ok(KernelHandle {

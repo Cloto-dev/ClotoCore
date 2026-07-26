@@ -78,7 +78,7 @@ use axum::{
 };
 use futures::stream::Stream;
 use std::{convert::Infallible, sync::Arc, time::Duration};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::{AppError, AppResult, AppState};
 
@@ -265,6 +265,149 @@ pub async fn shutdown_handler(
     });
 
     ok_data(serde_json::json!({}))
+}
+
+/// Request body of `POST /api/system/uninstall`.
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(default)]
+pub struct UninstallRequest {
+    /// Scope tier, 1–4. Defaults to the narrowest: an uninstall that removes
+    /// only the application, never user data, unless the caller widened it.
+    pub tier: Option<u8>,
+    /// Install prefix for deployments that predate the receipt. Absolute only.
+    pub prefix: Option<std::path::PathBuf>,
+}
+
+/// Remove this installation.
+///
+/// **Route:** `POST /api/system/uninstall`
+///
+/// # Authentication
+/// Requires a valid API key in `X-API-Key` — the real boundary of the Danger
+/// Zone (`DEFENDER_DESIGN.md` §7, "Authentication"). The dashboard's sudo-mode
+/// dialog is a deliberateness gate on top of it, not a second boundary.
+///
+/// # Behavior
+/// Stages a purge plan and a copy of this binary in a fresh temp directory,
+/// asks for elevation where the plan needs it (Windows), starts the detached
+/// helper, and only then shuts the kernel down. The helper waits for this
+/// process to disappear before it removes anything, so nothing is deleted out
+/// from under a live installation, and a staging failure leaves the app running
+/// with nothing touched.
+///
+/// # Response
+/// - **200 OK:** `{ "status": "uninstalling", "plan": …, "report_path": … }`
+/// - **400 Bad Request:** invalid tier or prefix
+/// - **403 Forbidden:** invalid or missing API key
+/// - **409 Conflict:** the plan is empty, or elevation was declined
+pub async fn system_uninstall_handler(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Option<Json<UninstallRequest>>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let req = body.map(|Json(b)| b).unwrap_or_default();
+    let tier = crate::defender::uninstall::parse_tier(req.tier.unwrap_or(1))
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+    let prefix = crate::defender::uninstall::checked_prefix(req.prefix)
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+
+    let data_dir = state.data_dir.clone();
+    let staged = tokio::task::spawn_blocking(move || {
+        crate::defender::uninstall::stage(&data_dir, tier, prefix.as_deref())
+    })
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("Uninstall staging panicked: {e}")))?
+    .map_err(|e| AppError::Internal(e.context("Cannot stage the uninstall")))?;
+
+    // An empty plan means there is nothing this installation can name as its
+    // own. Shutting down for that would look like an uninstall that worked.
+    if staged.plan.entries.is_empty() {
+        let tier_level = staged.plan.tier.level();
+        crate::defender::uninstall::discard(staged);
+        return Err(AppError::Conflict(format!(
+            "Nothing to remove at scope tier {tier_level}; the kernel is still running."
+        )));
+    }
+
+    let plan_json = serde_json::to_value(&staged.plan)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Cannot render the purge plan: {e}")))?;
+    let report_path = staged.report_path();
+    let entries = staged.plan.entries.len();
+    let tier_level = staged.plan.tier.level();
+    let elevated = staged.needs_elevation();
+    let parent_pid = std::process::id();
+
+    // Blocking because the Windows path waits here for the user to answer the
+    // elevation prompt (§7): a decline has to come back as an error while the
+    // app is still up, not as a kernel that exited into nothing.
+    let launched = tokio::task::spawn_blocking(move || {
+        let result = crate::defender::uninstall::launch(&staged, parent_pid);
+        if result.is_err() {
+            crate::defender::uninstall::discard(staged);
+        }
+        result
+    })
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("Uninstall launch panicked: {e}")))?;
+    launched.map_err(|e| AppError::Conflict(format!("{e:#}")))?;
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        "SYSTEM_UNINSTALL",
+        "installation".to_string(),
+        format!(
+            "purge tier {tier_level} — {entries} item(s), elevation {}; report at {}",
+            if elevated { "requested" } else { "not needed" },
+            report_path.display()
+        ),
+        None,
+        None,
+        None,
+    );
+
+    info!(
+        "🗑️  Uninstall handed to the detached helper ({entries} item(s)); report will be written to {}",
+        report_path.display()
+    );
+
+    // Same exit sequence as the shutdown endpoint: drain MCP servers, close the
+    // pool, then release the shutdown waiters. The helper is already running
+    // and blocked on this pid.
+    let mcp = state.mcp_manager.clone();
+    let shutdown = state.shutdown.clone();
+    let install_task = state.install_task.clone();
+    let pool = state.pool.clone();
+    let data_dir = state.data_dir.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        mcp.drain_all("uninstall", 5000, 10).await;
+        if let Some(h) = install_task.lock().await.take() {
+            h.abort();
+        }
+        // The helper is about to delete these files; an open SQLite pool means
+        // WAL and shm files recreated after the removal on Unix, and a locked
+        // database on Windows. Bounded: `close` waits for every connection to
+        // come back, and one task that never returns one would hold the exit
+        // open until the helper gave up waiting — leaving the app running with
+        // its MCP servers already drained.
+        if tokio::time::timeout(Duration::from_secs(10), pool.close())
+            .await
+            .is_err()
+        {
+            warn!("DB pool did not close within 10s; exiting anyway for the uninstall handoff");
+        }
+        crate::defender::runlock::release(&data_dir);
+        info!("👋 Kernel exiting so the uninstall helper can take over.");
+        shutdown.notify_waiters();
+    });
+
+    ok_data(serde_json::json!({
+        "status": "uninstalling",
+        "plan": plan_json,
+        "report_path": report_path,
+    }))
 }
 
 /// Server-Sent Events (SSE) stream for real-time event delivery.
