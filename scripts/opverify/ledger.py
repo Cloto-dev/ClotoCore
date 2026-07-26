@@ -16,12 +16,27 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import subprocess
 from dataclasses import asdict, dataclass, field
 from typing import List, Optional
 
 # repo-root-relative default; resolved against the repo root at call time.
 DEFAULT_HISTORY_REL = "qa/opverify/history.jsonl"
+
+# Ledger label for visual-apex runs (scripts/opverify/visual). Deliberately
+# disjoint from every harness target kind ("local" / "linux-vm" / "windows-vm"),
+# because baselines are matched on (target_kind, os): an apex row is therefore
+# only ever compared against a prior apex row. The apex measures a different
+# thing (a GUI journey, dual-oracle judged) than the harness (admin-API
+# operations + route coverage), so mixing their baselines would produce
+# nonsense regressions in both directions.
+APEX_TARGET_KIND = "apex"
+
+# The coverage ratchet is a harness concept (kernel routes vs catalog
+# operations). The apex has no route catalog, so it declares "n/a" rather than
+# borrowing "report"/"enforce" and pretending a ratchet ran.
+APEX_RATCHET_MODE = "n/a"
 
 
 @dataclass
@@ -104,6 +119,74 @@ def entry_from_report(
     )
 
 
+def _apex_step_failed(step: dict) -> bool:
+    """Did this apex step fail?
+
+    Mirrors ``visual.driver.VisualDriver._tier``: a hard_fail (kernel oracle
+    said no) fails, a soft_fail (kernel ok but the screen diverged) fails, and
+    an ``error`` step fails too. The error case must be checked explicitly —
+    an errored step carries no verdict, so its ``hard_fail`` is ``None``, and
+    counting it as a pass would let an actuation/probe crash look clean.
+    """
+    return bool(step.get("hard_fail") or step.get("soft_fail") or step.get("error"))
+
+
+def _apex_step_bucket(step: dict) -> str:
+    """Grouping key for ``per_domain_pass`` on an apex row.
+
+    The apex has no domains; its meaningful axis is the dual-oracle diagnosis
+    (agree_pass / agree_fail / frontend_bug / backend_or_hidden), which is what
+    localises a defect to a layer. Steps that never produced a verdict are
+    bucketed as ``error``.
+    """
+    diag = step.get("diagnosis")
+    if diag:
+        return str(diag)
+    return "error" if step.get("error") else "unknown"
+
+
+def entry_from_apex_report(
+    report: dict, ts: float, os_label: str, sha: Optional[str] = None
+) -> LedgerEntry:
+    """Distil a visual-apex ``RunReport.as_dict()`` into a compact ledger entry.
+
+    The apex report shape (``visual.driver.RunReport``) differs from the
+    harness one, so this is a sibling of :func:`entry_from_report` rather than a
+    branch inside it. Steps map onto the ledger's operation fields, so the
+    existing op-regression check ("a step that passed last time is failing
+    now") applies unchanged. Coverage fields stay 0 — the apex measures no
+    route coverage, and 0.0 -> 0.0 can never trip the coverage-drop check.
+    """
+    steps = report.get("steps", [])
+    journey = report.get("journey", "?")
+    per_bucket: dict = {}
+    for st in steps:
+        bucket = _apex_step_bucket(st)
+        per_bucket[bucket] = per_bucket.get(bucket, True) and not _apex_step_failed(st)
+    failed = [st.get("name", "?") for st in steps if _apex_step_failed(st)]
+    return LedgerEntry(
+        # The apex driver mints no run id, so one is derived here: the journey
+        # names *what* ran, the timestamp orders it, and the random suffix
+        # keeps it unique — same shape as the harness id (harness.py mints
+        # ``opverify-<epoch>-<hex>``), and for the same reason: whole-second
+        # resolution alone collides when two runs land in the same second.
+        run_id=f"apex-{journey}-{int(ts)}-{secrets.token_hex(3)}",
+        ts=ts,
+        target_kind=APEX_TARGET_KIND,
+        os=os_label,
+        git_sha=sha if sha is not None else git_sha(),
+        verdict=report.get("verdict", "?"),
+        ops_total=len(steps),
+        ops_passed=sum(1 for st in steps if not _apex_step_failed(st)),
+        failed_ops=failed,
+        per_domain_pass=per_bucket,
+        coverage_pct=0.0,
+        covered=0,
+        total_routes=0,
+        ratchet_mode=APEX_RATCHET_MODE,
+    )
+
+
 def load_history(history_path: str) -> List[dict]:
     """Read all prior entries (skips malformed lines rather than failing)."""
     if not os.path.exists(history_path):
@@ -169,6 +252,14 @@ def detect_regressions(entry: LedgerEntry, history: List[dict]) -> List[Regressi
     return regs
 
 
+def _append_entry(path: str, entry: LedgerEntry) -> None:
+    """Append one row. Append-only by construction: the file is opened in "a"
+    mode and never rewritten, so prior rows cannot be lost."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+
+
 def record(
     report: dict,
     ts: float,
@@ -185,7 +276,27 @@ def record(
     history = load_history(path)
     regressions = detect_regressions(entry, history)
 
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+    _append_entry(path, entry)
+    return entry, regressions
+
+
+def record_apex(
+    report: dict,
+    ts: float,
+    os_label: str,
+    history_path: Optional[str] = None,
+    sha: Optional[str] = None,
+) -> tuple[LedgerEntry, List[Regression]]:
+    """:func:`record` for a visual-apex run — same ledger, same file, same
+    detect-then-append ordering; only the distillation differs.
+
+    ``os_label`` names the OS *under verification* (the VM the GUI runs on),
+    not the host that orchestrated the run.
+    """
+    path = history_path or os.path.join(_repo_root(), DEFAULT_HISTORY_REL)
+    entry = entry_from_apex_report(report, ts=ts, os_label=os_label, sha=sha)
+    history = load_history(path)
+    regressions = detect_regressions(entry, history)
+
+    _append_entry(path, entry)
     return entry, regressions

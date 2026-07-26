@@ -11,6 +11,18 @@ name: opverify nightly
 # needed — a fresh throwaway DB is enough. The full-real chat providers
 # (chat.deepseek/cerebras/groq) and enforce-mode ratchet land on the
 # secret-bearing / VM tiers (phases 2–3), not here.
+#
+# LEDGER. Every matrix job passes `--ledger`, so each run appends one row to
+# `qa/opverify/history.jsonl` and is compared against the prior same-target
+# baseline (the checked-out file carries last night's rows, so the comparison is
+# correct inside the job). The rows are then collected by the `commit-ledger`
+# job below and committed back to master — a single writer, because three OS
+# jobs pushing to one file would race.
+#
+# `--ledger` makes a regression a RED nightly: a route-coverage drop, or an
+# operation that passed last night and fails now, exits non-zero even when the
+# operations themselves all "ran". That is the intent (see the ledger.py module
+# docstring) — the nightly is the tripwire, not a report nobody reads.
 
 on:
   schedule:
@@ -58,6 +70,20 @@ jobs:
       - name: Build clotocore kernel
         run: cargo build --bin clotocore
 
+      # Remember how long the committed ledger was BEFORE this run, so the row
+      # this job appends can be isolated afterwards. Reading `tail -1` instead
+      # would silently re-publish last night's row whenever the run dies before
+      # the ledger is written (e.g. a build failure).
+      - name: Snapshot ledger baseline length
+        shell: bash
+        run: |
+          n=0
+          if [ -f qa/opverify/history.jsonl ]; then
+            n=$(wc -l < qa/opverify/history.jsonl | tr -d '[:space:]')
+          fi
+          echo "LEDGER_BASE_LINES=$n" >> "$GITHUB_ENV"
+          echo "ledger baseline: $n row(s)"
+
       - name: Run opverify (local tier, phase0 slice)
         shell: bash
         run: |
@@ -65,9 +91,139 @@ jobs:
             --target local \
             --slice phase0 \
             --ratchet report \
+            --ledger \
             --report opverify-report.json
 
       - name: Show report
         if: always()
         shell: bash
         run: cat opverify-report.json 2>/dev/null || echo "(no report produced)"
+
+      - name: Extract this job's ledger row
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p ledger-rows
+          out="ledger-rows/${{ matrix.os }}.jsonl"
+          : > "$out"
+          # An unset baseline means the step that records it never ran (the
+          # build failed before it). That is "unknown", not "zero" — treating
+          # it as zero would publish the whole committed history as this job's
+          # output. Publish nothing instead.
+          if [ -z "${LEDGER_BASE_LINES:-}" ]; then
+            echo "ledger baseline unknown (the run never got that far) — no rows to publish"
+          elif [ -f qa/opverify/history.jsonl ]; then
+            tail -n "+$((LEDGER_BASE_LINES + 1))" qa/opverify/history.jsonl > "$out"
+          fi
+          echo "rows appended by this job: $(wc -l < "$out" | tr -d '[:space:]')"
+          cat "$out"
+
+      - name: Upload ledger row
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: ledger-row-${{ matrix.os }}
+          path: ledger-rows/*.jsonl
+          if-no-files-found: warn
+          retention-days: 14
+
+  commit-ledger:
+    name: Commit ledger rows
+    needs: opverify
+    # `always()`: a red nightly is exactly the run whose row is worth keeping.
+    # Restricted to master because this job pushes there — a branch dispatch
+    # must not write master's ledger.
+    if: ${{ always() && github.ref == 'refs/heads/master' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    # One writer at a time — the three OS jobs must never push to the same file
+    # in parallel, so they hand their rows to this single collector instead.
+    # `cancel-in-progress: false` because a cancelled push leaves rows collected
+    # and never committed. Caveat: the workflow-level group above still cancels
+    # this job if a newer nightly starts on the same ref; the dropped rows
+    # remain retrievable from the `ledger-row-*` artifacts for 14 days.
+    concurrency:
+      group: opverify-ledger-commit
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
+        with:
+          ref: master
+
+      - name: Download ledger rows
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          pattern: ledger-row-*
+          merge-multiple: true
+          path: incoming
+
+      - name: Append rows to the ledger
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob, json, os
+
+          HIST = "qa/opverify/history.jsonl"
+
+          def read(path):
+              rows = []
+              if not os.path.exists(path):
+                  return rows
+              with open(path, encoding="utf-8") as fh:
+                  for line in fh:
+                      line = line.strip()
+                      if not line:
+                          continue
+                      try:
+                          rows.append(json.loads(line))
+                      except json.JSONDecodeError:
+                          print(f"skipping malformed row in {path}: {line[:80]}")
+              return rows
+
+          incoming = []
+          for p in sorted(glob.glob("incoming/*.jsonl")):
+              rows = read(p)
+              print(f"{p}: {len(rows)} row(s)")
+              incoming.extend(rows)
+
+          # Idempotent: re-running this job (or a re-download) must not
+          # duplicate a row already in the file.
+          seen = {(r.get("run_id"), r.get("os")) for r in read(HIST)}
+          # Deterministic order, independent of artifact download order and of
+          # which matrix job happened to finish first.
+          incoming.sort(key=lambda r: (r.get("ts", 0.0), str(r.get("os")), str(r.get("run_id"))))
+          new = [r for r in incoming if (r.get("run_id"), r.get("os")) not in seen]
+
+          os.makedirs(os.path.dirname(HIST), exist_ok=True)
+          with open(HIST, "a", encoding="utf-8") as fh:
+              for r in new:
+                  fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+          print(f"appended {len(new)} new row(s) of {len(incoming)} collected")
+          PY
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          if [ -z "$(git status --porcelain qa/opverify/history.jsonl)" ]; then
+            echo "no new ledger rows — nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add qa/opverify/history.jsonl
+          git commit -m "chore(opverify): record nightly ledger rows"
+          # Re-attempt against a moving master (append-only file, so a rebase
+          # normally replays cleanly; a genuine conflict fails loudly rather
+          # than resolving itself with a guess).
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin master && git push origin HEAD:master; then
+              echo "ledger pushed (attempt $attempt)"
+              exit 0
+            fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((RANDOM % 5 + 5))
+          done
+          echo "::error::failed to push ledger rows after 3 attempts"
+          exit 1

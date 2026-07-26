@@ -8,9 +8,11 @@ existing quality layers (`--smoke` boot check; `proxmox-windows-verify.sh`
 installer/upgrade diff) with the missing layer: *does the running app hold
 up under many kinds of real use?*
 
-Design authority: CSC Goal #169. This is a **permanent** capability
-(committed package + coverage ratchet + — phase 4 — nightly CI + result
-ledger), deliberately built so it cannot rot into an unused pipeline.
+Design authority: CSC Goal #169. This is meant to be a **permanent**
+capability — committed package, coverage ratchet, nightly CI, and a result
+ledger that is actually written and committed (see Status: the ledger existed
+in code but was wired to nothing until 2026-07-27, which is exactly the rot
+this design claims to prevent).
 
 ## Quick start
 
@@ -30,6 +32,9 @@ python3 -m scripts.opverify.run \
     --slice all \             # all | phase0 (LLM-free spine subset)
     --ratchet report \        # report (list gaps) | enforce (uncovered route => fail)
     --binary path/to/clotocore \   # optional; defaults to target/{debug,release}/clotocore
+    --ledger \                # record this run in qa/opverify/history.jsonl + check
+                              #   for regressions vs the prior same-target baseline
+                              #   (nightly/VM runs; omit for local iteration)
     --report out.json
 ```
 
@@ -83,8 +88,30 @@ present; each degrades to `None` rather than failing where unavailable.
   Still to add: `chat.cerebras` (needs its mind engine installed) and
   `chat.groq` (needs a provider row + key), which land with the full-real
   keys/engines available on the VM and nightly tiers.
-* **Phases 2–4** — Linux VM, Windows VM (VM 104), and permanence wiring
-  (CLAUDE.md standard-procedure rule, nightly CI, ledger commit).
+* **Phases 2–3 (not started)** — the kernel tiers on a real VM: `--target
+  linux-vm` / `--target windows-vm` both still exit with "not yet implemented
+  (phase 2/3)". The only tier that touches a VM today is the visual apex
+  (`visual/`), which is driven by hand.
+* **Phase 4 (partially wired)** — permanence. What is wired:
+  * the nightly (`opverify-nightly.yml`) passes `--ledger`, so each of its
+    three OS jobs appends a row and turns a regression (a coverage drop, or an
+    operation that passed last night and fails now) into a **red nightly**;
+  * a single `commit-ledger` job collects those rows and commits
+    `qa/opverify/history.jsonl` back to master, so the trend is durable rather
+    than living in a 14-day artifact;
+  * the apex records to the same file — `python -m
+    scripts.opverify.visual.run_vm <journey> --ledger`. Apex rows carry their
+    own `target_kind` (`apex`), so they are only ever compared against prior
+    apex rows and never trip the route-coverage check;
+  * `ledger_selftest.py` gates that distillation in CI (Lint job), because
+    nothing else exercises it on a PR.
+
+  What is **not** wired, and what this therefore does not claim: recording a
+  run is not the same as making runs happen. The apex is still hand-driven, its
+  obligation lives in `CLAUDE.md` (a text rule, not a mechanism), and the
+  ledger cannot record a tier that does not run — which is precisely how the
+  apex managed to run exactly once between 2026-07-14 and 2026-07-27 while the
+  machinery designed to notice that sat unwired.
 
 ### Chat isolation (how a real key is used without ever being read)
 
