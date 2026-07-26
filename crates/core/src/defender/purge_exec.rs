@@ -50,6 +50,7 @@ use std::time::Duration;
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
+use crate::defender::footprint;
 use crate::defender::purge::{
     self, is_filesystem_root, order_for_removal, tier_label, PlanRequest, ProbeRoots, PurgeEntry,
     PurgeKind, PurgePlan, PurgeTier, PLAN_VERSION,
@@ -68,6 +69,11 @@ const PARENT_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
 /// nowhere — the process that spawned it has exited by then — so without this
 /// the only thing that survives the run is a one-bit exit status.
 pub const REPORT_FILE_SUFFIX: &str = ".report.json";
+
+/// File name a saved plan gets, on both paths. The detached handoff
+/// (`uninstall::stage`) and the in-process run write the same artifact, and
+/// resuming either is the same `purge-exec --plan <file>`.
+pub(crate) const PLAN_FILE: &str = "purge-plan.json";
 
 // ── Containment ──
 
@@ -254,10 +260,18 @@ pub fn execute(plan: &PurgePlan, roots: &PurgeRoots) -> PurgeReport {
         return report;
     }
 
-    // Deregistrations first, then deepest paths first (the planner's own
-    // ordering rule — a launchd job cannot be unloaded once its plist is
-    // gone).
-    for entry in order_for_removal(plan.entries.clone()) {
+    // Deregistrations first, then deepest paths first, and whatever holds the
+    // install receipt last (the planner's own ordering rule — a launchd job
+    // cannot be unloaded once its plist is gone, and a receipt removed early
+    // takes the next run's enumeration with it). Consuming the plan through
+    // the same function is what keeps the executor from undoing that order.
+    //
+    // `data_dir` is a plan field, and a plan cannot widen what it may touch:
+    // this decides the *order* only. What may be touched is stated by `roots`,
+    // out of band from the file.
+    let receipt_path =
+        non_empty(Some(plan.data_dir.as_str())).map(|dir| footprint::receipt_path(Path::new(dir)));
+    for entry in order_for_removal(plan.entries.clone(), receipt_path.as_deref()) {
         // The tier the plan declares is a floor like any other, not a caption.
         // The planner filters by it (`purge.rs`), and the report prints it — so
         // an entry wider than the declared scope would be removed while the
@@ -744,15 +758,68 @@ pub fn run_uninstall(
     }
 
     let roots = PurgeRoots::from_env(&data_dir, prefix.as_deref());
+
+    // The plan is saved before anything is removed, into a directory outside
+    // the tree this is about to delete. The detached path has always done this
+    // (`uninstall::stage`); doing it here too is what makes a partial failure
+    // recoverable, because the saved plan still names everything the receipt
+    // knew about — and the receipt is one of the things a tier-4 run removes.
+    let staging = crate::defender::uninstall::create_staging_dir()?;
+    let plan_path = stage_plan(&staging, &plan)?;
+    println!("Plan written to {}", plan_path.display());
+
     let report = execute(&plan, &roots);
+    let written = write_report_beside(&plan_path, &report);
+
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         print!("{}", render_text(&report));
     }
+    match written {
+        Ok(path) => println!("Report written to {}", path.display()),
+        Err(e) => println!("Report could not be written next to the plan: {e:#}"),
+    }
 
-    unfinished(&report)?;
+    unfinished_in_process(&report, &plan_path)?;
     Ok(())
+}
+
+/// Save `plan` into `staging` and return where it landed.
+///
+/// Written before the removal starts, not after: a run that dies halfway has
+/// to leave behind the one file that can finish it.
+fn stage_plan(staging: &Path, plan: &PurgePlan) -> anyhow::Result<PathBuf> {
+    let path = staging.join(PLAN_FILE);
+    let body = serde_json::to_vec_pretty(plan).context("Cannot serialise the purge plan")?;
+    std::fs::write(&path, body)
+        .with_context(|| format!("Cannot write the purge plan to {}", path.display()))?;
+    Ok(path)
+}
+
+/// Fail an in-process run that did not finish, and say how to finish it.
+///
+/// `unfinished` states what happened; this states what to do about it, and the
+/// distinction matters because the obvious remedy is the wrong one.
+/// `uninstall --execute` rebuilds its plan from the install receipt, and the
+/// receipt is one of the things a wide run removes — so a second `--execute`
+/// can enumerate less than the first did, and quietly leave behind whatever
+/// only the receipt knew about. The saved plan still names all of it.
+fn unfinished_in_process(report: &PurgeReport, plan_path: &Path) -> anyhow::Result<()> {
+    if let Err(e) = unfinished(report) {
+        bail!("{e:#}\n\n{}", resume_hint(plan_path));
+    }
+    Ok(())
+}
+
+fn resume_hint(plan_path: &Path) -> String {
+    format!(
+        "Fix the cause, then re-run:  clotocore purge-exec --plan {}\nThat plan still names \
+         everything the install receipt knew about. Running `clotocore uninstall --execute` again \
+         rebuilds the plan from the receipt instead, which this run may already have removed, so \
+         it can no longer name those items.",
+        plan_path.display()
+    )
 }
 
 /// Fail the process when the run did not do what it was asked to.
@@ -1622,6 +1689,93 @@ mod tests {
                 .expect("and it must be the report type, not prose");
         assert_eq!(written.removed(), 1);
         assert_eq!(written.entries[0].id, "db");
+    }
+
+    #[test]
+    fn an_in_process_run_saves_its_plan_and_its_report() {
+        // `uninstall --execute` used to print and forget. A partial failure
+        // then lost both the plan and the account of what happened — and the
+        // receipt a second run would rebuild the plan from is one of the
+        // things a wide run removes.
+        let staging = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("cloto_memories.db");
+        touch(&file, 8);
+        let plan = plan_of(vec![entry("db", PurgeKind::File, Some(&as_str(&file)))]);
+
+        let plan_path = stage_plan(staging.path(), &plan).expect("the plan must be saved");
+        assert!(
+            !plan_path.starts_with(root.path()),
+            "a plan stored inside the tree being removed is gone when it is needed"
+        );
+
+        let report = execute_in(root.path(), &plan);
+        let report_path = write_report_beside(&plan_path, &report).expect("and so must the report");
+
+        let saved: PurgePlan = serde_json::from_slice(&std::fs::read(&plan_path).unwrap())
+            .expect("the saved plan is what `purge-exec --plan` reads back");
+        assert_eq!(saved, plan);
+        let saved: PurgeReport = serde_json::from_slice(&std::fs::read(&report_path).unwrap())
+            .expect("the report is JSON, not prose");
+        assert_eq!(saved, report);
+        assert_eq!(saved.removed(), 1);
+    }
+
+    #[test]
+    fn an_unfinished_in_process_run_points_at_the_saved_plan() {
+        // Telling the user to re-run `uninstall --execute` would be the wrong
+        // advice: that path rebuilds its plan from a receipt this run may have
+        // removed. Only the saved plan still names everything.
+        let root = tempfile::tempdir().unwrap();
+        let plan_path = root.path().join(PLAN_FILE);
+
+        let clean = execute_in(root.path(), &plan_of(Vec::new()));
+        assert!(
+            unfinished_in_process(&clean, &plan_path).is_ok(),
+            "a run with nothing left over must still succeed"
+        );
+
+        let stuck = execute_in(
+            root.path(),
+            &plan_of(vec![entry("db", PurgeKind::File, Some("relative/x.db"))]),
+        );
+        let err = unfinished_in_process(&stuck, &plan_path)
+            .expect_err("a run that left items behind must not exit 0")
+            .to_string();
+        assert!(err.contains("1 refused"), "{err}");
+        assert!(err.contains("purge-exec --plan"), "{err}");
+        assert!(err.contains(&plan_path.display().to_string()), "{err}");
+        assert!(
+            err.contains("receipt"),
+            "the instruction has to say why the obvious remedy is the wrong one: {err}"
+        );
+    }
+
+    #[test]
+    fn the_executor_removes_the_receipt_bearing_directory_last() {
+        // The executor re-orders the plan it is handed, so it has to honour
+        // the planner's rule rather than fall back to deepest-first — the
+        // container here is deeper than the bundle, so it would go first.
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("opt/cloto/data");
+        let bundle = root.path().join("Apps/ClotoCore.app");
+        touch(&data.join("cloto_memories.db"), 8);
+        touch(&bundle.join("Contents/Info.plist"), 8);
+
+        let mut plan = plan_of(vec![
+            entry("data_dir", PurgeKind::Dir, Some(&as_str(&data))),
+            entry("app_bundle", PurgeKind::Dir, Some(&as_str(&bundle))),
+        ]);
+        plan.data_dir = as_str(&data);
+
+        let report = execute_in(root.path(), &plan);
+        let order: Vec<&str> = report.entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(
+            order,
+            vec!["app_bundle", "data_dir"],
+            "the directory holding the install receipt is removed last"
+        );
+        assert_eq!(report.removed(), 2, "and both are still removed");
     }
 
     #[test]

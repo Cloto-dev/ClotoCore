@@ -200,6 +200,17 @@ name paths inside it. A plan therefore never lists a path that sits inside
 another listed directory — the child is reported as covered by its parent so
 the size total counts each tree once.
 
+A plan is a UTF-8 JSON file, and a path is not text: on Linux a file name is
+bytes, so a path can exist that the plan cannot write down. Rendering it
+lossily is the dangerous option, because the mangled string round-trips to
+itself — nothing downstream can tell it apart from a faithful path, the
+executor stats it, finds nothing, and reports the entry as already gone while
+the directory is still there. Such a path is therefore refused at the two
+seams where a path becomes a string (the receipt and the plan's own
+candidates), listed among the plan's skipped entries, and stated in the plan's
+notes. The uninstall says it did not remove it, which is true, instead of
+claiming a success it did not have.
+
 Receipt entries are classified by id, and an id the running binary does not
 recognise **falls back to tier 2, never tier 1**. A future version that
 records a new kind of footprint is then invisible to the default uninstall
@@ -294,6 +305,19 @@ uninstall leaves a complete account behind — which is also what makes "fix the
 failure and re-run `purge-exec --plan <path>`" a real instruction rather than a
 suggestion to start over.
 
+That instruction only holds if the plan outlives the run, and the receipt
+outlives the removal that reads it. Deepest-first ordering would take the
+data-directory container — and the receipt inside it — before shallower entries
+like the install prefix or the app bundle, so a failure on one of those would
+leave a second `uninstall --execute` rebuilding its plan from a receipt that no
+longer exists, silently naming less than the first attempt did. The entry
+holding the receipt is therefore removed last; nesting has already collapsed by
+then, so the surviving entries are disjoint and the order is free to say so.
+The in-process path saves its plan into a staging directory outside the tree it
+is about to remove, before removing anything, and writes its report beside it
+afterwards — the same two artifacts the detached path produces, so an
+interrupted run of either is resumed the same way.
+
 Removing a *running* installation is a separate hazard from removing a
 privileged one. On Unix the deletions succeed against open files, the live
 process keeps writing to unlinked inodes, and it recreates the receipt and data
@@ -330,6 +354,13 @@ app instead of executing the plan.
    recommendation (HITL).
 5. The detached helper is plan-bound: nothing outside the plan file is
    touched.
+6. A plan file is UTF-8 JSON. A path that does not survive that encoding is
+   refused and reported as refused — never acted on, and never counted as
+   already removed.
+7. The entry holding the install receipt is removed last, and every run saves
+   its plan and its report outside the tree it removes, so a partial uninstall
+   can be finished with `purge-exec --plan <file>` rather than re-enumerated
+   from a ledger it has already deleted.
 
 ## 9. Phasing
 

@@ -43,6 +43,14 @@ pub struct ReceiptEntry {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub secret: bool,
+    /// `path` is a lossy rendering, not the path itself: what is on disk
+    /// cannot be written into this ledger (see `purge::representable`). The
+    /// entry is still recorded — something *is* there, and a receipt that
+    /// dropped it would claim the footprint was smaller than it is — but no
+    /// consumer may act on the string. The purge plan refuses it rather than
+    /// probing it, because probing a mangled path reports "already gone".
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub unrepresentable: bool,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -50,24 +58,39 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
+/// Record a path as a string, saying so when the string is not the path.
+///
+/// Receipts and plans are both UTF-8 JSON, so one round-trip check decides for
+/// both; `purge::representable` is that check, and it lives there because the
+/// plan is where acting on a mangled path would delete — or fail to delete —
+/// something.
+fn record_path(path: &Path) -> (String, bool) {
+    crate::defender::purge::representable(path)
+        .map_or_else(|| (path.display().to_string(), true), |ok| (ok, false))
+}
+
 impl ReceiptEntry {
     pub fn file(id: impl Into<String>, path: &Path) -> Self {
+        let (path, unrepresentable) = record_path(path);
         Self {
             id: id.into(),
             kind: EntryKind::File,
-            path: Some(path.display().to_string()),
+            path: Some(path),
             name: None,
             secret: false,
+            unrepresentable,
         }
     }
 
     pub fn dir(id: impl Into<String>, path: &Path) -> Self {
+        let (path, unrepresentable) = record_path(path);
         Self {
             id: id.into(),
             kind: EntryKind::Dir,
-            path: Some(path.display().to_string()),
+            path: Some(path),
             name: None,
             secret: false,
+            unrepresentable,
         }
     }
 
@@ -78,6 +101,7 @@ impl ReceiptEntry {
             path: None,
             name: Some(name.into()),
             secret: false,
+            unrepresentable: false,
         }
     }
 
@@ -349,6 +373,38 @@ mod tests {
         assert_eq!(
             app_bundle_of(Path::new("/x/notanapp/Contents/MacOS/x")),
             None
+        );
+    }
+
+    #[test]
+    fn the_unrepresentable_flag_defaults_to_false_and_survives_the_ledger() {
+        // Additive field: a receipt written before it existed must keep
+        // loading, and must not read as "this path could not be recorded".
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            receipt_path(dir.path()),
+            r#"{"receipt_version":1,"app_version":"0.6.7","installed_at":"2026-07-01T00:00:00Z",
+                "updated_at":"2026-07-01T00:00:00Z",
+                "entries":[{"id":"db","kind":"file","path":"/opt/cloto/data/cloto_memories.db"}]}"#,
+        )
+        .unwrap();
+        let receipt = load(dir.path()).expect("a receipt without the field must still load");
+        assert!(!receipt.entries[0].unrepresentable);
+
+        // And when it is set it has to survive the write: the purge plan reads
+        // the receipt back from disk, so a flag lost in JSON is a flag that
+        // never ran, and the path it guards is reported as already gone.
+        let mut entry = ReceiptEntry::dir("install_prefix", Path::new("/opt/cloto"));
+        entry.unrepresentable = true;
+        record(dir.path(), vec![entry]);
+        let receipt = load(dir.path()).unwrap();
+        assert!(
+            receipt
+                .entries
+                .iter()
+                .find(|e| e.id == "install_prefix")
+                .expect("the entry stays in the ledger — something is there")
+                .unrepresentable
         );
     }
 

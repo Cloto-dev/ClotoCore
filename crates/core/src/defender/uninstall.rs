@@ -90,7 +90,7 @@ pub fn stage(
     );
 
     let staging = create_staging_dir()?;
-    let plan_path = staging.join("purge-plan.json");
+    let plan_path = staging.join(purge_exec::PLAN_FILE);
     std::fs::write(
         &plan_path,
         serde_json::to_vec_pretty(&plan).context("Cannot serialise the purge plan")?,
@@ -158,7 +158,11 @@ pub fn helper_args(staged: &StagedUninstall, parent_pid: u32) -> Vec<String> {
 /// `create_dir` rather than `create_dir_all`: it fails if the path already
 /// exists, so a pre-created directory owned by someone else cannot become the
 /// place we write the plan into.
-fn create_staging_dir() -> anyhow::Result<PathBuf> {
+///
+/// Shared with the in-process path (`purge_exec::run_uninstall`), which needs
+/// the same durable place outside the tree it is about to remove — only
+/// without a helper copy, since nothing is handed off there.
+pub(crate) fn create_staging_dir() -> anyhow::Result<PathBuf> {
     let suffix: u64 = rand::random();
     let path = std::env::temp_dir().join(format!(
         "clotocore-uninstall-{}-{suffix:016x}",
