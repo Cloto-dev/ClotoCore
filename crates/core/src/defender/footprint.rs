@@ -139,6 +139,44 @@ pub fn app_bundle_of(exe: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Name of the uninstaller the NSIS installer writes into the install
+/// directory. Its presence beside the running binary is what proves the
+/// directory is an install prefix and not a build output.
+const NSIS_UNINSTALLER: &str = "uninstall.exe";
+
+/// The directory an installer laid `exe` into, if it can be shown to be one.
+///
+/// The evidence is `uninstall.exe` beside the binary: the NSIS installer writes
+/// it into `$INSTDIR`, and nothing else does. A cargo `target/debug` has no
+/// such sibling, which is what makes this safe to act on — deriving the prefix
+/// from the binary's directory alone would put a developer's build output in a
+/// tier-1 removal plan.
+///
+/// The same shape as `app_bundle_of`: a structural marker, not a guess about
+/// where installs live. Pure path arithmetic plus one existence check, so it is
+/// exercised on every platform's test run rather than only on Windows.
+#[must_use]
+pub fn install_prefix_of(exe: &Path) -> Option<PathBuf> {
+    let dir = prefix_dir_of(exe)?;
+    dir.join(NSIS_UNINSTALLER)
+        .is_file()
+        .then(|| dir.to_path_buf())
+}
+
+/// The directory that is *allowed* to be an install prefix — the binary's own,
+/// unless that is a filesystem root.
+///
+/// Split from the marker check so the rule is decidable without a filesystem:
+/// a marker at `C:\uninstall.exe` cannot be created in a test, so a check
+/// folded into `install_prefix_of` would pass because the marker was missing
+/// rather than because the root was refused. The purge plan refuses roots too;
+/// this is the same refusal made where the claim originates, so a receipt never
+/// carries `C:\` as something this installation owns.
+fn prefix_dir_of(exe: &Path) -> Option<&Path> {
+    let dir = exe.parent()?;
+    dir.parent().is_some().then_some(dir)
+}
+
 /// Load the receipt, tolerating absence and corruption (both return `None`;
 /// corruption is logged — the next `record` rewrites a valid ledger).
 #[must_use]
@@ -220,6 +258,34 @@ fn write_receipt(data_dir: &Path, receipt: &Receipt) {
     }
 }
 
+/// What the application *is* on disk, given the running binary.
+///
+/// Takes the executable rather than reading it, so the decisions below are
+/// reachable from a test: `boot_entries` can only ever be called with the real
+/// `current_exe()`, and both rules here — the macOS bundle and the Windows
+/// install prefix — are exactly the ones that never fire on the machine the
+/// tests run on.
+fn binary_entries(exe: &Path) -> Vec<ReceiptEntry> {
+    let mut entries = vec![ReceiptEntry::file("binary", exe)];
+    // On macOS the desktop build runs from inside an .app bundle, so the binary
+    // alone is not the application: removing it would leave a broken bundle in
+    // /Applications. The uninstall plan can only remove what the receipt
+    // records, so the bundle has to be recorded here.
+    if let Some(bundle) = app_bundle_of(exe) {
+        entries.push(ReceiptEntry::dir("app_bundle", &bundle));
+    }
+    // On Windows the installer lays down a directory, not a file: the binary,
+    // its DLLs, its resources, and the uninstaller that removes them.
+    // Recording only the binary left `C:\Program Files\ClotoCore\` and
+    // `uninstall.exe` on disk after a tier-4 purge had already deleted the
+    // registry keys — an install that no longer appears in Add/Remove Programs
+    // and is still there.
+    if let Some(prefix) = install_prefix_of(exe) {
+        entries.push(ReceiptEntry::dir("install_prefix", &prefix));
+    }
+    entries
+}
+
 /// Standard kernel-managed footprint, refreshed on every boot. Only paths
 /// that exist are recorded (plus the binary and the data dir themselves), so
 /// the receipt converges toward reality instead of accumulating wishes.
@@ -228,14 +294,7 @@ pub fn boot_entries(data_dir: &Path) -> Vec<ReceiptEntry> {
     let mut entries = vec![ReceiptEntry::dir("data_dir", data_dir)];
 
     if let Ok(exe) = std::env::current_exe() {
-        entries.push(ReceiptEntry::file("binary", &exe));
-        // On macOS the desktop build runs from inside an .app bundle, so the
-        // binary alone is not the application: removing it would leave a
-        // broken bundle in /Applications. The uninstall plan can only remove
-        // what the receipt records, so the bundle has to be recorded here.
-        if let Some(bundle) = app_bundle_of(&exe) {
-            entries.push(ReceiptEntry::dir("app_bundle", &bundle));
-        }
+        entries.extend(binary_entries(&exe));
     }
 
     let db = crate::defender::checks::resolve_db_path(data_dir);
@@ -374,6 +433,85 @@ mod tests {
             app_bundle_of(Path::new("/x/notanapp/Contents/MacOS/x")),
             None
         );
+    }
+
+    #[test]
+    fn an_install_prefix_is_recognised_only_by_the_uninstaller_beside_the_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        let install = dir.path().join("ClotoCore");
+        let exe = install.join("app.exe");
+        std::fs::create_dir_all(&install).unwrap();
+        std::fs::write(&exe, b"binary").unwrap();
+
+        // No uninstaller: this is what a cargo target directory looks like, and
+        // returning its parent here would put a developer's build output — or
+        // whatever else sits beside the binary — into a tier-1 removal plan.
+        assert_eq!(install_prefix_of(&exe), None);
+
+        std::fs::write(install.join("uninstall.exe"), b"uninstaller").unwrap();
+        assert_eq!(install_prefix_of(&exe), Some(install.clone()));
+
+        // A directory, not a file: a stray `uninstall.exe` *directory* is not
+        // an installer's work.
+        let other = dir.path().join("other");
+        std::fs::create_dir_all(other.join("uninstall.exe")).unwrap();
+        std::fs::write(other.join("app.exe"), b"binary").unwrap();
+        assert_eq!(install_prefix_of(&other.join("app.exe")), None);
+    }
+
+    #[test]
+    fn the_receipt_records_the_install_directory_and_not_merely_the_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        let install = dir.path().join("ClotoCore");
+        let exe = install.join("app.exe");
+        std::fs::create_dir_all(&install).unwrap();
+        std::fs::write(&exe, b"binary").unwrap();
+
+        let ids = |entries: &[ReceiptEntry]| -> Vec<String> {
+            entries.iter().map(|e| e.id.clone()).collect()
+        };
+
+        // A bare binary: nothing to enumerate beyond it.
+        assert_eq!(ids(&binary_entries(&exe)), vec!["binary"]);
+
+        std::fs::write(install.join("uninstall.exe"), b"uninstaller").unwrap();
+        let entries = binary_entries(&exe);
+        assert_eq!(ids(&entries), vec!["binary", "install_prefix"]);
+        let prefix = entries.iter().find(|e| e.id == "install_prefix").unwrap();
+        assert_eq!(prefix.kind, EntryKind::Dir);
+        assert_eq!(prefix.path.as_deref(), Some(install.to_str().unwrap()));
+
+        // The bundle rule still fires on the layout it is for, and the two are
+        // independent: a bundle has no NSIS uninstaller beside its binary.
+        let bundled = Path::new("/Applications/ClotoCore.app/Contents/MacOS/ClotoCore");
+        assert_eq!(ids(&binary_entries(bundled)), vec!["binary", "app_bundle"]);
+    }
+
+    #[test]
+    fn a_binary_sitting_in_a_filesystem_root_has_no_prefix() {
+        // A marker at `/uninstall.exe` cannot be created in a test, so this
+        // asserts the path rule directly: going through `install_prefix_of`
+        // here would pass because the marker was absent, which is not the same
+        // as the root being refused — and would keep passing with the rule
+        // deleted.
+        let (root_child, nested) = if cfg!(windows) {
+            (
+                PathBuf::from(r"C:\app.exe"),
+                PathBuf::from(r"C:\ClotoCore\app.exe"),
+            )
+        } else {
+            (
+                PathBuf::from("/app.exe"),
+                PathBuf::from("/opt/clotocore/app.exe"),
+            )
+        };
+        assert_eq!(
+            prefix_dir_of(&root_child),
+            None,
+            "a root must never be named as this installation's prefix"
+        );
+        assert_eq!(prefix_dir_of(&nested), Some(nested.parent().unwrap()));
+        assert_eq!(prefix_dir_of(Path::new("app.exe")), None);
     }
 
     #[test]

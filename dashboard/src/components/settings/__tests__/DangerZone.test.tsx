@@ -13,6 +13,8 @@ vi.mock('../../../contexts/ApiKeyContext', () => ({
   useApiKey: () => ({ apiKey: 'ambient-key' }),
 }));
 
+import enSettings from '../../../locales/en/settings.json';
+import { PURGE_SOURCES } from '../../../services/api';
 import { DangerZone } from '../DangerZone';
 
 const TIER_NAMES = ['application', 'user_data', 'assets', 'everything'] as const;
@@ -179,5 +181,20 @@ describe('DangerZone gates', () => {
     expect((screen.getByText('health.danger.execute').closest('button') as HTMLButtonElement).disabled).toBe(true);
     // Only the two plan reads happened — no uninstall was posted.
     expect(fetchMock.mock.calls.every((c) => String(c[0]).includes('/system/uninstall/plan'))).toBe(true);
+  });
+});
+
+describe('provenance labels', () => {
+  it('has an English label for every source a plan can carry', () => {
+    // The label key is computed from the entry (`source_${entry.source}`), so
+    // nothing statically references it: a source the locale has no entry for
+    // renders the raw key to the user. The bundled packs are checked against
+    // this locale separately (scripts/check-language-packs.py), so covering
+    // English here covers every language.
+    const labels = enSettings.health.danger as Record<string, string>;
+    for (const source of PURGE_SOURCES) {
+      const key = `source_${source}`;
+      expect(labels[key], `settings.health.danger.${key} is missing`).toBeTruthy();
+    }
   });
 });
