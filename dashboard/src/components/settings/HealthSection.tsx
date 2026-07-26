@@ -2,14 +2,10 @@ import { AlertTriangle, CheckCircle, Loader2, XCircle } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../hooks/useApi';
+import { formatBytes } from '../../lib/format';
 import type { HealthReport, RepairReport } from '../../services/api';
 import { SectionCard } from './common';
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+import { DangerZone } from './DangerZone';
 
 function StatusIcon({ status }: { status: string }) {
   switch (status) {
@@ -153,6 +149,10 @@ export function HealthSection() {
           )}
         </button>
       </div>
+
+      {/* Complete uninstall, three gates (docs/DEFENDER_DESIGN.md §7). Appended
+          at the bottom per the established Settings → Danger Zone grammar. */}
+      <DangerZone />
     </SectionCard>
   );
 }
