@@ -1,0 +1,1 @@
+{"run_id": "apex-danger-zone-dry-run-1785084542-834226", "ts": 1785084542.361834, "target_kind": "apex", "os": "windows-vm", "git_sha": "6e57fb3", "verdict": "pass", "ops_total": 20, "ops_passed": 20, "failed_ops": [], "per_domain_pass": {"agree_pass": true}, "coverage_pct": 0.0, "covered": 0, "total_routes": 0, "ratchet_mode": "n/a"}

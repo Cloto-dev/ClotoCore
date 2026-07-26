@@ -116,3 +116,50 @@ placeholder for.
 * **Follow-up (low priority):** two extra `MessageReceived` events carrying the
   bare nonce appeared after the `ThoughtResponse` — possible duplicate emission,
   not yet investigated.
+
+## Danger Zone dry-run (2026-07-27) — first ledger row
+
+Second journey (`run_vm.py danger-zone`), and the first apex run recorded in
+`qa/opverify/history.jsonl`. It repays the apex debt owed for Defender Phase 3c
+(CSC Task #411) under the "when an apex run is owed" rule in `CLAUDE.md`.
+
+* **Build under test:** `0.6.8-beta.2` from a `draft_only` release dispatch
+  (run 30209921724), SHA-256 verified on the VM, silent NSIS install. Note it
+  landed **per-machine** in `C:\Program Files\ClotoCore` (`installMode: both`),
+  not per-user — which is what made the tier-1 finding below visible.
+* **VM state:** the `agent-base-20260727` snapshot's deliberate
+  `%APPDATA%\cloto-system` residue (6.5 MB) was used as the purge fixture; no
+  rollback was needed.
+* **Dual oracle:** the GUI's dry-run enumeration (visual) against
+  `GET /api/system/uninstall/plan?tier=N` (kernel), at tier 1 and again after
+  widening to tier 2. **20/20 steps `agree_pass`, verdict `pass`.** The scope
+  widening moved both oracles together: 1 item / 58.4 MB → 8 items / 58.6 MB
+  with the credentials-will-be-destroyed badge. Nothing was executed.
+
+### What the run surfaced
+
+1. **The Danger Zone is untranslated (GUI-only defect).** The bundled `ja` pack
+   (`dashboard/src-tauri/resources/ja.json`) is missing **103 of 652 keys**,
+   including *every* `settings.health.danger.*` key and the whole `actions`
+   namespace, so a Japanese user reads the most destructive screen in the app in
+   English. Component tests assert against the English bundle and CI is green;
+   only rendering the real localized GUI shows it.
+2. **Tier 1 lists the executable, not the installation.** On Windows the
+   enumeration is exactly one entry — `C:\Program Files\ClotoCore\app.exe`. The
+   install directory, `uninstall.exe` and the shortcuts are not in the receipt,
+   so a plan-bound purge structurally cannot remove them (CSC Task #392, now
+   measured on a real install rather than reasoned about). The tier-1 hint text
+   promises "install prefix" — the plan below it does not deliver one.
+3. **SQLite sidecars are not enumerated.** Tier 2 lists `cloto_memories.db` but
+   not `cloto_memories.db-wal` (4.1 MB on the fixture) or `-shm`, nor the
+   app's own `*.pre486bak` / `*.corrupt-*.bak` copies. "Remove my user data"
+   leaves user data behind; only tier 4, which takes the whole data directory,
+   covers them.
+
+### Harness note
+
+A single large wheel event does **not** scroll an arbitrary distance — the
+WebView caps the travel per event, so `scroll(-3600)` stops short of the pane
+bottom where six `scroll(-600)` events reach it. The journey encodes the
+repetition; the first attempt at the one-shot form was caught by the visual
+oracle answering honestly instead of the run passing on a lucky coordinate.

@@ -21,15 +21,27 @@ class Action:
     """A single user input. Coordinates are screen pixels (the actuator injects
     OS-level input); ``text``/``key`` carry keyboard payloads."""
 
-    kind: str  # "click" | "type" | "key" | "move" | "noop"
+    kind: str  # "click" | "type" | "key" | "move" | "scroll" | "noop"
     x: Optional[int] = None
     y: Optional[int] = None
     text: Optional[str] = None
     key: Optional[str] = None
+    # Wheel delta for "scroll" (negative scrolls down). The agent scrolls at the
+    # pointer, so a journey positions it with a "move" first — which pane is
+    # under the cursor decides which pane moves.
+    amount: Optional[int] = None
 
 
 def click(x: int, y: int) -> Action:
     return Action("click", x=x, y=y)
+
+
+def move(x: int, y: int) -> Action:
+    return Action("move", x=x, y=y)
+
+
+def scroll(amount: int) -> Action:
+    return Action("scroll", amount=amount)
 
 
 def type_text(text: str) -> Action:
