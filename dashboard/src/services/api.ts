@@ -31,6 +31,15 @@ export const EVENTS_URL = `${API_BASE}/events`;
 
 const HEALTH_CHECK_TIMEOUT_MS = 3000;
 const API_TIMEOUT_MS = 15_000;
+/** Purge enumeration stats and size-walks real directories (models, venvs). */
+const UNINSTALL_PLAN_TIMEOUT_MS = 60_000;
+/**
+ * The uninstall handler blocks while the OS elevation prompt is on screen
+ * (§7: the prompt is raised before the exit), so the default timeout would
+ * abort the client while the user is still answering — and an aborted fetch
+ * does not stop the kernel, it only hides what it did.
+ */
+const UNINSTALL_TIMEOUT_MS = 180_000;
 
 // Health check types
 export interface HealthCheck {
@@ -57,6 +66,79 @@ export interface RepairAction {
 export interface RepairReport {
   actions: RepairAction[];
   total_fixed: number;
+}
+
+// ── Complete uninstall (defender purge plan, DEFENDER_DESIGN.md §7) ──
+// The kernel omits every boolean flag that is false (`skip_serializing_if`),
+// so each of them is optional here and absent means false.
+
+/** Serde tag of `defender::purge::PurgeKind`. */
+export type PurgeKind = 'file' | 'dir' | 'service' | 'registry';
+/** Serde tag of `defender::purge::PurgeTier` — cumulative, levels 1..4. */
+export type PurgeTierName = 'application' | 'user_data' | 'assets' | 'everything';
+/** Serde tag of `defender::purge::PurgeSource`. */
+export type PurgeSource = 'receipt' | 'platform' | 'legacy';
+/** Serde tag of `defender::purge::SkipReason`. */
+export type PurgeSkipReason = 'absent' | 'above_tier' | 'covered_by_parent' | 'unsafe';
+
+export interface PurgeEntry {
+  id: string;
+  kind: PurgeKind;
+  /** Absolute path (`file` / `dir` / `registry`). */
+  path?: string;
+  /** Service name (`service` entries only). */
+  name?: string;
+  /** Effective tier — for a directory, the widest tier of anything inside it. */
+  tier: PurgeTierName;
+  source: PurgeSource;
+  size_bytes?: number;
+  /** The size walk hit its limit: `size_bytes` is a lower bound. */
+  size_truncated?: boolean;
+  /** Exists but could not be read; an elevated executor may still remove it. */
+  unreadable?: boolean;
+  /** Holds credentials (seal key, `.env`). */
+  secret?: boolean;
+  /** A directory that swallowed credentials when its children collapsed into it. */
+  covers_secret?: boolean;
+}
+
+export interface PurgeSkippedEntry {
+  id: string;
+  reason: PurgeSkipReason;
+  path?: string;
+}
+
+export interface PurgePlan {
+  plan_version: number;
+  app_version: string;
+  generated_at: string;
+  tier: PurgeTierName;
+  data_dir: string;
+  entries: PurgeEntry[];
+  skipped: PurgeSkippedEntry[];
+  /** Honest limits of the enumeration — rendered verbatim (§7). */
+  notes: string[];
+}
+
+/** Derived facts the kernel computes so the UI cannot get them wrong. */
+export interface PurgePlanSummary {
+  entries: number;
+  skipped: number;
+  total_bytes: number;
+  total_truncated: boolean;
+  contains_secret: boolean;
+  needs_elevation: boolean;
+}
+
+export interface UninstallPlanResponse {
+  plan: PurgePlan;
+  summary: PurgePlanSummary;
+}
+
+export interface UninstallResponse {
+  status: string;
+  plan: PurgePlan;
+  report_path: string;
 }
 
 /** Throw with detailed error message from JSON body if available */
@@ -747,6 +829,39 @@ export const api = {
       .then((r) => r.json())
       .then((b) => b.data as RepairReport),
 
+  // Complete uninstall (DEFENDER_DESIGN.md §7). The plan is read-only and safe
+  // to re-request whenever the scope widens; the execute call is not.
+  getUninstallPlan: (apiKey: string, tier?: number, prefix?: string, signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    if (tier !== undefined) params.set('tier', String(tier));
+    if (prefix) params.set('prefix', prefix);
+    const qs = params.toString();
+    return fetchJson<UninstallPlanResponse>(
+      `/system/uninstall/plan${qs ? `?${qs}` : ''}`,
+      'enumerate the uninstall plan',
+      apiKey,
+      signal ?? AbortSignal.timeout(UNINSTALL_PLAN_TIMEOUT_MS),
+    );
+  },
+  /**
+   * Execute the uninstall. On 200 the kernel exits about a second later, so
+   * this response is terminal: nothing may poll or re-scan after it.
+   *
+   * `apiKey` is the key the user typed into the sudo-mode gate, not the
+   * ambient one — a mistyped key has to come back as the kernel's own 403.
+   */
+  executeUninstall: (apiKey: string, payload: { tier?: number; prefix?: string | null }) =>
+    mutate(
+      '/system/uninstall',
+      'POST',
+      'uninstall ClotoCore',
+      payload,
+      { 'X-API-Key': apiKey },
+      AbortSignal.timeout(UNINSTALL_TIMEOUT_MS),
+    )
+      .then((r) => r.json())
+      .then((b) => b.data as UninstallResponse),
+
   batchInstallMarketplaceServers: (payload: { server_ids: string[]; auto_start?: boolean }, apiKey: string) =>
     mutate('/marketplace/batch-install', 'POST', 'batch install marketplace servers', payload, { 'X-API-Key': apiKey })
       .then((r) => r.json())
@@ -933,6 +1048,11 @@ export function createAuthenticatedApi(apiKey: string) {
     getMarketplaceProgressUrl: () => api.getMarketplaceProgressUrl(),
     scanHealth: (fresh?: boolean) => api.scanHealth(k, fresh),
     repairHealth: () => api.repairHealth(k),
+    // Read-only gate 1 of the Danger Zone; the execute call is deliberately
+    // *not* bound here, because it must carry the manually typed sudo key
+    // (DEFENDER_DESIGN.md §7, "Authentication").
+    getUninstallPlan: (tier?: number, prefix?: string, signal?: AbortSignal) =>
+      api.getUninstallPlan(k, tier, prefix, signal),
   };
 }
 
