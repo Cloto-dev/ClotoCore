@@ -47,6 +47,7 @@
       "source_receipt": "recorded",
       "source_platform": "platform",
       "source_legacy": "found by scan",
+      "source_derived": "beside a recorded file",
       "flag_secret": "credentials",
       "flag_covers_secret": "contains credentials",
       "flag_unreadable": "unreadable — removal may need elevation",

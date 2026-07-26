@@ -111,6 +111,12 @@ pub enum PurgeSource {
     /// Stray data directory found by scanning, not recorded by any install —
     /// possibly another installation's data.
     Legacy,
+    /// Found beside a path the receipt *does* record, and belonging to it: a
+    /// database's `-wal` / `-shm` sidecars, the copies the app takes before a
+    /// risky migration. Not "recorded" — the receipt never named it — and not
+    /// a platform artifact either, so a reviewer can see that the plan reached
+    /// past the ledger to get it.
+    Derived,
 }
 
 impl PurgeSource {
@@ -122,6 +128,7 @@ impl PurgeSource {
             Self::Receipt => "recorded",
             Self::Platform => "platform",
             Self::Legacy => "found by scan",
+            Self::Derived => "beside a recorded file",
         }
     }
 }
@@ -425,6 +432,24 @@ fn collect_candidates(
                 source: PurgeSource::Receipt,
                 secret: entry.secret,
             });
+
+            // A database is more than the file the receipt names, and its
+            // sidecars are siblings rather than children — containment cannot
+            // reach them, so they are derived here or not at all.
+            if entry.kind == EntryKind::File && entry.id == "db" {
+                if let Some(db) = entry.path.as_deref().map(Path::new) {
+                    let tier = classify(&entry.id);
+                    for sidecar in sqlite_sidecars(db) {
+                        out.push(Candidate::path_entry(
+                            sidecar_id(db, &sidecar),
+                            PurgeKind::File,
+                            sidecar,
+                            tier,
+                            PurgeSource::Derived,
+                        ));
+                    }
+                }
+            }
         }
     }
 
@@ -443,6 +468,61 @@ fn collect_candidates(
     out.extend(platform_candidates(&req.roots));
     out.extend(legacy_candidates(&req.data_dir, &req.roots));
     (out, refused)
+}
+
+/// The files that live beside a SQLite database and belong to it: the `-wal`
+/// and `-shm` sidecars, a rollback `-journal`, and the copies the kernel takes
+/// before a risky migration (`…db.pre486bak`, `…db.corrupt-*.bak`).
+///
+/// Derived at plan time instead of recorded in the receipt, because the receipt
+/// names the *logical* database while the set of physical files beside it is a
+/// property of SQLite's journal mode and of whatever the app has done since the
+/// receipt was last written. A tier-2 plan that lists the `.db` alone offers to
+/// remove the user's data and then leaves the newest of it behind in a WAL that
+/// was 4 MB on the machine where this was found.
+///
+/// The rule is a prefix match on the file name, so a sidecar or backup suffix
+/// this version has never heard of is still enumerated. Anything named
+/// `<database><suffix>` in the database's own directory is the database's by
+/// construction.
+fn sqlite_sidecars(db: &Path) -> Vec<PathBuf> {
+    let (Some(dir), Some(name)) = (db.parent(), db.file_name()) else {
+        return Vec::new();
+    };
+    // An unreadable directory yields nothing rather than an error: the
+    // database entry itself is already in the plan and carries the
+    // `unreadable` flag that says the enumeration could not see in there.
+    let Ok(listing) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let base = name.as_encoded_bytes();
+    let mut out: Vec<PathBuf> = listing
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name().is_some_and(|f| {
+                let bytes = f.as_encoded_bytes();
+                bytes.len() > base.len() && bytes.starts_with(base)
+            })
+        })
+        .collect();
+    // Directory order is not defined; a plan has to be reproducible.
+    out.sort();
+    out
+}
+
+/// Plan id for a sidecar: `db` plus the part of the file name the database's
+/// own name does not account for, so the plan reads `db-wal` / `db.pre486bak`
+/// rather than an opaque index. Ids are labels — the path is what the executor
+/// acts on — so a suffix that is not UTF-8 is rendered lossily here and refused
+/// later, when the *path* is checked against what a plan file can carry.
+fn sidecar_id(db: &Path, sidecar: &Path) -> String {
+    let base_len = db.file_name().map_or(0, |n| n.as_encoded_bytes().len());
+    let name = sidecar.file_name().map(std::ffi::OsStr::as_encoded_bytes);
+    let suffix = name.map_or_else(String::new, |bytes| {
+        String::from_utf8_lossy(&bytes[base_len.min(bytes.len())..]).into_owned()
+    });
+    format!("db{suffix}")
 }
 
 /// Artifacts outside the receipt's reach (§7): the launchd plist, the systemd
@@ -1613,6 +1693,166 @@ mod tests {
             );
             assert!(render_text(&plan).contains("contains secrets"));
         }
+    }
+
+    // ── Database sidecars ──
+
+    /// A data dir holding a database, everything SQLite and the app keep beside
+    /// it, and one file that merely lives there. Sizes are all different so a
+    /// total can only come out right if the plan picked the right files.
+    fn data_dir_with_sidecars() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("cloto_memories.db");
+        touch(&db, 1_000);
+        touch(&dir.path().join("cloto_memories.db-wal"), 4_000);
+        touch(&dir.path().join("cloto_memories.db-shm"), 32);
+        touch(&dir.path().join("cloto_memories.db.pre486bak"), 900);
+        touch(&dir.path().join("cloto_memories.db-wal.pre486bak"), 1_900);
+        touch(
+            &dir.path().join("cloto_memories.db.corrupt-20260701.bak"),
+            700,
+        );
+        // Not the database's: same directory, unrelated name.
+        touch(&dir.path().join("seal.key"), 64);
+        footprint::record(dir.path(), vec![ReceiptEntry::file("db", &db)]);
+        (dir, db)
+    }
+
+    #[test]
+    fn a_database_is_enumerated_with_its_sidecars_and_its_backup_copies() {
+        let (dir, _db) = data_dir_with_sidecars();
+        let plan = build_plan(&isolated(dir.path(), PurgeTier::UserData));
+
+        // The defect this pins: a WAL holds committed data, and listing the
+        // .db alone offered to remove "user data" while leaving 4 MB of it.
+        for id in [
+            "db",
+            "db-wal",
+            "db-shm",
+            "db.pre486bak",
+            "db-wal.pre486bak",
+            "db.corrupt-20260701.bak",
+        ] {
+            assert!(
+                ids(&plan).contains(&id),
+                "{id} must be listed at the tier that claims to remove user data; got {:?}",
+                ids(&plan)
+            );
+        }
+        // Two stages have to agree for this to hold: the prefix rule excludes
+        // the database itself, and path dedup would collapse it anyway. Pinned
+        // here as the property; `sidecar_enumeration_is_ordered_…` is what
+        // fails if only the second one is still doing the work.
+        assert_eq!(
+            ids(&plan).iter().filter(|id| **id == "db").count(),
+            1,
+            "the database must not be listed twice"
+        );
+        assert!(
+            !ids(&plan).contains(&"seal.key"),
+            "a prefix rule must not swallow unrelated files in the same directory"
+        );
+        assert_eq!(
+            plan.total_bytes(),
+            1_000 + 4_000 + 32 + 900 + 1_900 + 700,
+            "the total has to account for every file the plan would remove"
+        );
+        for entry in plan.entries.iter().filter(|e| e.id != "db") {
+            assert_eq!(
+                entry.source,
+                PurgeSource::Derived,
+                "{} was not in the receipt, so the plan must not claim it was recorded",
+                entry.id
+            );
+        }
+    }
+
+    #[test]
+    fn a_sidecar_is_never_removed_below_the_tier_that_removes_the_database() {
+        let (dir, _db) = data_dir_with_sidecars();
+        let plan = build_plan(&isolated(dir.path(), PurgeTier::Application));
+        assert!(
+            ids(&plan).is_empty(),
+            "tier 1 removes the application, not the database or anything beside it: {:?}",
+            ids(&plan)
+        );
+        for id in ["db", "db-wal", "db.pre486bak"] {
+            assert_eq!(
+                skipped_for(&plan, id),
+                Some(SkipReason::AboveTier),
+                "{id} must be reported as out of scope, not omitted"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sidecar_collapses_into_the_data_directory_instead_of_double_counting() {
+        let (dir, db) = data_dir_with_sidecars();
+        footprint::record(
+            dir.path(),
+            vec![
+                ReceiptEntry::dir("data_dir", dir.path()),
+                ReceiptEntry::file("db", &db),
+            ],
+        );
+        let plan = build_plan(&isolated(dir.path(), PurgeTier::Everything));
+
+        assert!(ids(&plan).contains(&"data_dir"));
+        for id in ["db", "db-wal", "db-shm"] {
+            assert_eq!(
+                skipped_for(&plan, id),
+                Some(SkipReason::CoveredByParent),
+                "{id} is inside the directory being removed"
+            );
+        }
+        let dir_size = plan
+            .entries
+            .iter()
+            .find(|e| e.id == "data_dir")
+            .and_then(|e| e.size_bytes)
+            .expect("the container is measured");
+        assert_eq!(
+            plan.total_bytes(),
+            dir_size,
+            "a sidecar counted both on its own and inside its parent inflates the total"
+        );
+    }
+
+    #[test]
+    fn a_sidecar_id_says_which_sidecar_it_is() {
+        let db = Path::new("/data/cloto_memories.db");
+        assert_eq!(
+            sidecar_id(db, Path::new("/data/cloto_memories.db-wal")),
+            "db-wal"
+        );
+        assert_eq!(
+            sidecar_id(db, Path::new("/data/cloto_memories.db.pre486bak")),
+            "db.pre486bak"
+        );
+        // Whichever branch of `classify` answers, a sidecar has to land in the
+        // tier that removes the database — never tier 1.
+        for id in ["db-wal", "db-shm", "db.pre486bak"] {
+            assert_eq!(classify(id), PurgeTier::UserData);
+            assert!(!PurgeTier::Application.includes(classify(id)));
+        }
+    }
+
+    #[test]
+    fn sidecar_enumeration_is_ordered_and_ignores_a_directory_it_cannot_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("cloto_memories.db");
+        touch(&db, 1);
+        touch(&dir.path().join("cloto_memories.db-wal"), 1);
+        touch(&dir.path().join("cloto_memories.db-shm"), 1);
+        let found = sqlite_sidecars(&db);
+        let mut sorted = found.clone();
+        sorted.sort();
+        assert_eq!(found, sorted, "a plan has to be reproducible");
+        assert_eq!(found.len(), 2);
+
+        // A database whose directory does not exist yields nothing rather than
+        // failing the whole enumeration.
+        assert!(sqlite_sidecars(&dir.path().join("nowhere/cloto_memories.db")).is_empty());
     }
 
     // ── Existence and safety floor ──
