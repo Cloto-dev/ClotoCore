@@ -213,9 +213,17 @@ pub fn spawn_detached(exe: &Path, args: &[String]) -> anyhow::Result<()> {
 /// uninstall. A refusal (or a timeout) comes back as an error, which is what
 /// lets the caller keep the app running instead of exiting into nothing.
 ///
-/// Arguments are passed as single-quoted PowerShell strings with embedded
-/// quotes doubled. Windows paths cannot contain `"`, so the only quote that has
-/// to survive is `'`.
+/// Each argument is quoted twice, for two different readers. `-ArgumentList` is
+/// not an argv: PowerShell joins its elements with spaces into one command line
+/// and quotes nothing, so the argument first has to carry the quoting the
+/// *child* needs to split it out again (`win_argv_quote` — without it, `--root
+/// C:\Program Files\ClotoCore` reached the helper as two arguments and the
+/// uninstall died in argument parsing, before it could report anything). That
+/// result is then wrapped as a single-quoted PowerShell string so PowerShell
+/// itself passes it through untouched.
+///
+/// `-FilePath` takes a single value rather than a command line, so the
+/// executable path needs the PowerShell quoting only.
 pub fn spawn_elevated_and_wait(
     exe: &Path,
     args: &[String],
@@ -223,7 +231,7 @@ pub fn spawn_elevated_and_wait(
 ) -> anyhow::Result<()> {
     let arg_list = args
         .iter()
-        .map(|a| ps_single_quote(a))
+        .map(|a| ps_single_quote(&super::win_argv_quote(a)))
         .collect::<Vec<_>>()
         .join(",");
     let script = format!(
