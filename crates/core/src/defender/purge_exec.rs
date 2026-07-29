@@ -526,15 +526,15 @@ fn remove_symlink(path: &Path) -> std::io::Result<()> {
     }
 }
 
-/// The only registry location an uninstall may delete: one application's own
-/// entry under the per-machine or per-user uninstall list.
+/// The uninstall list: one application's own entry under the per-machine or
+/// per-user list is removable, the list itself is not.
 ///
-/// `reg delete /f` is recursive and the helper runs elevated (§7), so without
-/// this an edited plan could ask for `HKLM\Software` and be obeyed. `Service`
-/// closes exactly this hole by ignoring the plan's unit name; the registry
-/// branch has to close it by checking the key, because unlike the service
-/// there is more than one legitimate key (`purge.rs` emits four: `HKLM` and
-/// `HKCU` × `ClotoCore` and the pre-rename `cloto-system`).
+/// `reg delete /f` is recursive and the helper runs elevated (§7), so without a
+/// floor here an edited plan could ask for `HKLM\Software` and be obeyed.
+/// `Service` closes exactly this hole by ignoring the plan's unit name; the
+/// registry branch has to close it by checking the key, because unlike the
+/// service there is more than one legitimate key (`purge.rs` emits four here:
+/// `HKLM` and `HKCU` × `ClotoCore` and the pre-rename `cloto-system`).
 const UNINSTALL_KEY_PREFIX: [&str; 5] = [
     "Software",
     "Microsoft",
@@ -543,11 +543,17 @@ const UNINSTALL_KEY_PREFIX: [&str; 5] = [
     "Uninstall",
 ];
 
-/// Is `key` exactly `HK(LM|CU)\Software\Microsoft\Windows\CurrentVersion\
-/// Uninstall\<one component>`? Case-insensitive, because registry paths are.
-fn is_uninstall_entry_key(key: &str) -> bool {
+/// Is `key` one of the two shapes an uninstall may delete — an entry in the
+/// uninstall list, or this product's own key under its vendor namespace
+/// (`Software\<manufacturer>\<product>`, which Tauri's NSIS template writes)?
+/// Case-insensitive, because registry paths are.
+///
+/// Each shape is matched to its exact depth. The vendor level above the product
+/// key is *not* removable: `cloto` is a namespace a sibling product could share,
+/// and a recursive delete of it would take that product's keys too.
+pub(crate) fn is_removable_key(key: &str) -> bool {
     // Only backslashes separate registry components. Accepting `/` would let a
-    // single component smuggle a deeper path past the length check below.
+    // single component smuggle a deeper path past the length checks below.
     if key.contains('/') {
         return false;
     }
@@ -564,25 +570,32 @@ fn is_uninstall_entry_key(key: &str) -> bool {
     }
 
     let rest: Vec<&str> = parts.collect();
-    // The five fixed components plus exactly one leaf: no shorter (that would
-    // be the whole uninstall list), no longer, no empty component from a
-    // doubled or trailing separator.
-    if rest.len() != UNINSTALL_KEY_PREFIX.len() + 1 {
-        return false;
-    }
+    // No empty component from a doubled or trailing separator, and no component
+    // is ever a pattern.
     if rest.iter().any(|c| c.trim().is_empty()) {
         return false;
     }
-    if !UNINSTALL_KEY_PREFIX
-        .iter()
-        .zip(&rest)
-        .all(|(expected, actual)| expected.eq_ignore_ascii_case(actual))
-    {
+    if rest.iter().any(|c| c.contains('*') || c.contains('?')) {
         return false;
     }
-    // A leaf is one key name, never a pattern.
-    let leaf = rest[UNINSTALL_KEY_PREFIX.len()];
-    !leaf.contains('*') && !leaf.contains('?')
+
+    let matches_exactly = |shape: &[&str]| {
+        rest.len() == shape.len()
+            && shape
+                .iter()
+                .zip(&rest)
+                .all(|(expected, actual)| expected.eq_ignore_ascii_case(actual))
+    };
+
+    // The five fixed components plus exactly one leaf: no shorter, which would
+    // be the whole uninstall list, and no longer.
+    let uninstall_entry = rest.len() == UNINSTALL_KEY_PREFIX.len() + 1
+        && UNINSTALL_KEY_PREFIX
+            .iter()
+            .zip(&rest)
+            .all(|(expected, actual)| expected.eq_ignore_ascii_case(actual));
+
+    uninstall_entry || matches_exactly(&crate::defender::purge::PRODUCT_KEY_COMPONENTS)
 }
 
 fn remove_registry(key: Option<&str>) -> EntryOutcome {
@@ -591,11 +604,11 @@ fn remove_registry(key: Option<&str>) -> EntryOutcome {
     };
     // Checked before the platform gate so the boundary is testable — and
     // reviewable — on every platform, not only where it can be exercised.
-    if !is_uninstall_entry_key(key) {
+    if !is_removable_key(key) {
         return refuse(format!(
-            "registry key is outside the uninstall list: {key} (only \
-             HKLM|HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\<name> may be \
-             removed)"
+            "registry key is outside this installation's own keys: {key} (only \
+             HKLM|HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\<name> and \
+             HKLM|HKCU\\Software\\<manufacturer>\\<product> may be removed)"
         ));
     }
     if !cfg!(windows) {
@@ -1181,18 +1194,35 @@ mod tests {
             for name in ["ClotoCore", "cloto-system"] {
                 let key =
                     format!(r"{hive}\Software\Microsoft\Windows\CurrentVersion\Uninstall\{name}");
-                assert!(is_uninstall_entry_key(&key), "{key} is what purge.rs emits");
+                assert!(is_removable_key(&key), "{key} is what purge.rs emits");
             }
         }
         assert!(
-            is_uninstall_entry_key(
-                r"hklm\software\microsoft\windows\currentversion\uninstall\ClotoCore"
-            ),
+            is_removable_key(r"hklm\software\microsoft\windows\currentversion\uninstall\ClotoCore"),
+            "registry paths are case-insensitive"
+        );
+
+        // The product key Tauri's own installer template writes (bug-497): the
+        // purge never runs the NSIS uninstaller, so this key is removable only
+        // if the executor's floor admits it.
+        for hive in ["HKLM", "HKCU"] {
+            let key = format!(r"{hive}\Software\cloto\ClotoCore");
+            assert!(is_removable_key(&key), "{key} is what purge.rs emits");
+        }
+        assert!(
+            is_removable_key(r"hkcu\software\CLOTO\clotocore"),
             "registry paths are case-insensitive"
         );
 
         for bad in [
             r"HKLM\SOFTWARE",
+            // The vendor level above the product key: a namespace a sibling
+            // product could share, and `reg delete` is recursive.
+            r"HKLM\Software\cloto",
+            r"HKCU\Software\cloto",
+            r"HKLM\Software\cloto\ClotoCore\Inner",
+            r"HKLM\Software\cloto\SomethingElse",
+            r"HKLM\Software\other\ClotoCore",
             r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall",
             r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\ClotoCore\Inner",
             r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\",
@@ -1204,10 +1234,7 @@ mod tests {
             r"HKLM\Software\Microsoft\Windows\Uninstall\ClotoCore",
             r"HKLM\Software\..\Software\Microsoft\Windows\CurrentVersion\Uninstall\X",
         ] {
-            assert!(
-                !is_uninstall_entry_key(bad),
-                "{bad} must never be removable"
-            );
+            assert!(!is_removable_key(bad), "{bad} must never be removable");
         }
     }
 
@@ -1224,9 +1251,11 @@ mod tests {
                 Some(r"HKLM\SOFTWARE"),
             )]),
         );
+        let reason = refusal(&report, "registry_uninstall_hklm");
         assert!(
-            refusal(&report, "registry_uninstall_hklm").contains("outside the uninstall list"),
-            "an elevated recursive delete of a whole hive must be refused by name"
+            reason.contains(r"HKLM\SOFTWARE"),
+            "an elevated recursive delete of a whole hive must be refused, and the refusal must \
+             name the key it refused: {reason}"
         );
     }
 
