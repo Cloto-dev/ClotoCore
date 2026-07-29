@@ -648,6 +648,7 @@ fn platform_candidates(roots: &ProbeRoots) -> Vec<Candidate> {
                 });
             }
         }
+        out.extend(product_registry_candidates());
         out.extend(desktop_integration_candidates(roots));
     }
 
@@ -701,10 +702,56 @@ fn identifier_container_candidates(roots: &ProbeRoots) -> Vec<Candidate> {
         .collect()
 }
 
+/// The key the NSIS template writes for the installed product itself, in both
+/// hives because `installMode: "both"` decides at install time which one runs.
+///
+/// This is not the ARP entry under `…\CurrentVersion\Uninstall` — it is the
+/// separate `Software\<manufacturer>\<product>` key that Tauri's own installer
+/// template creates. The purge is plan-bound and deliberately never runs the
+/// NSIS uninstaller (`DEFENDER_DESIGN.md` §8.5), so anything only that
+/// uninstaller knows about has to be named here or it survives: after a tier-4
+/// purge whose report said `7 removed / 0 refused / 0 failed`, an independent
+/// sweep of the machine still found this key (bug-497, measured on the Windows
+/// VM).
+///
+/// The manufacturer key *above* it is intentionally left alone. `cloto` is a
+/// vendor namespace rather than this product's own, so removing it would take a
+/// sibling product's keys with it — `reg delete` is recursive. What remains
+/// after this candidate is removed is an empty shell of a key, which is the
+/// price of not deleting something that was never ours.
+fn product_registry_candidates() -> Vec<Candidate> {
+    ["HKLM", "HKCU"]
+        .into_iter()
+        .map(|hive| Candidate {
+            id: format!("registry_product_{}", hive.to_lowercase()),
+            kind: PurgeKind::Registry,
+            path: Some(PathBuf::from(format!(
+                r"{hive}\Software\{MANUFACTURER}\{PRODUCT_NAME}"
+            ))),
+            name: None,
+            tier: PurgeTier::Everything,
+            source: PurgeSource::Platform,
+            secret: false,
+        })
+        .collect()
+}
+
 /// Product name as the installers write it: the NSIS shortcut is
 /// `<PRODUCT>.lnk` and the `.deb` ships `usr/share/applications/<PRODUCT>
 /// .desktop`. Mirrors `productName` in `dashboard/src-tauri/tauri.conf.json`.
 const PRODUCT_NAME: &str = "ClotoCore";
+
+/// Vendor segment of the bundle identifier (`com.cloto.app`), which is what
+/// Tauri's NSIS template uses for the `Software\<manufacturer>` level. Read off
+/// an installed machine (`HKLM\Software\cloto\ClotoCore`) rather than derived
+/// from the template, because a name guessed wrong would make the candidate
+/// report "we looked and it was not there".
+const MANUFACTURER: &str = "cloto";
+
+/// Components of the product key, below the hive. Shared with `purge_exec`,
+/// whose registry floor has to admit exactly the shape this one emits — the
+/// floor is what makes a plan safe to execute, so the two must not drift.
+pub(crate) const PRODUCT_KEY_COMPONENTS: [&str; 3] = ["Software", MANUFACTURER, PRODUCT_NAME];
 
 /// The Start Menu's `Programs` directory, relative to `%ProgramData%` (all
 /// users) or `%APPDATA%` (one user). Shared with `purge_exec`, whose root set
@@ -2620,6 +2667,60 @@ mod tests {
     }
 
     #[test]
+    fn every_product_registry_key_is_one_the_executor_will_accept() {
+        // The companion to the cross-check below, which can only reach the
+        // registry branch on Windows: these candidates take no roots, so the
+        // planner↔executor agreement they need is assertable on every host. That
+        // matters because the drift this catches is what bug-497's fix had to
+        // repair in two places at once — the planner started emitting a key the
+        // executor's floor still refused, and a plan that names something the
+        // executor will not remove is a false claim of coverage.
+        let candidates = product_registry_candidates();
+        assert!(
+            !candidates.is_empty(),
+            "an empty set would make this invariant vacuous"
+        );
+        for candidate in candidates {
+            assert!(matches!(candidate.kind, PurgeKind::Registry));
+            assert_eq!(candidate.tier, PurgeTier::Everything);
+            let key = candidate
+                .path
+                .as_deref()
+                .and_then(Path::to_str)
+                .expect("a registry candidate carries its key as its path");
+            assert!(
+                crate::defender::purge_exec::is_removable_key(key),
+                "the planner emits `{key}` ({}) but the executor's registry floor refuses it",
+                candidate.id
+            );
+        }
+    }
+
+    #[test]
+    fn the_vendor_key_above_the_product_key_is_never_a_candidate() {
+        // `reg delete` is recursive and `cloto` is a vendor namespace, not this
+        // product's own key: removing it would take a sibling product's keys
+        // with it. Stated as a test because "we chose not to remove it" is
+        // otherwise indistinguishable from "we forgot".
+        for candidate in product_registry_candidates() {
+            let key = candidate.path.as_deref().and_then(Path::to_str).unwrap();
+            let components: Vec<&str> = key.split('\\').collect();
+            assert_eq!(
+                components.len(),
+                4,
+                "hive + Software + vendor + product, no shorter: {key}"
+            );
+            assert_eq!(*components.last().unwrap(), PRODUCT_NAME);
+        }
+        for vendor_only in [r"HKLM\Software\cloto", r"HKCU\Software\cloto"] {
+            assert!(
+                !crate::defender::purge_exec::is_removable_key(vendor_only),
+                "{vendor_only} must not be removable even if a plan asks for it"
+            );
+        }
+    }
+
+    #[test]
     fn every_path_the_planner_emits_is_one_the_executor_will_accept() {
         // The planner and the executor have separate notions of what belongs to
         // this installation: the plan lists paths, and `purge_exec` refuses any
@@ -2653,8 +2754,27 @@ mod tests {
             "this platform must probe for something, or the invariant is vacuous"
         );
         for candidate in candidates {
-            if matches!(candidate.kind, PurgeKind::Registry | PurgeKind::Service) {
-                continue; // removed through OS calls, not by path
+            // A registry key is removed through an OS call rather than by path,
+            // so the roots do not apply — but the executor has a second floor
+            // for exactly these, and skipping the kind outright is what let
+            // `HKLM\Software\cloto\ClotoCore` be planned-and-refused (bug-497).
+            // Same invariant, different floor.
+            if matches!(candidate.kind, PurgeKind::Registry) {
+                let key = candidate
+                    .path
+                    .as_deref()
+                    .and_then(Path::to_str)
+                    .expect("a registry candidate carries its key as its path");
+                assert!(
+                    crate::defender::purge_exec::is_removable_key(key),
+                    "the planner can emit the registry key `{key}` ({}) but the executor's \
+                     registry floor would refuse it",
+                    candidate.id
+                );
+                continue;
+            }
+            if matches!(candidate.kind, PurgeKind::Service) {
+                continue; // removed through an OS call that ignores the plan's name
             }
             let Some(path) = candidate.path.as_deref() else {
                 continue;
