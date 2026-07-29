@@ -323,6 +323,51 @@ mod tests {
     }
 
     #[test]
+    fn roots_with_spaces_survive_the_elevated_launch() {
+        // The elevated launch cannot let `std::process::Command` quote for it:
+        // the UAC prompt goes through PowerShell, whose `-ArgumentList` joins
+        // its elements into one command line without quoting anything (see
+        // `platform::win_argv_quote`). A per-machine Windows install puts a
+        // space in two of the roots — `C:\Program Files\ClotoCore` and the Start
+        // Menu directory — so every one of them arrived at the helper split in
+        // half, argument parsing rejected the command line, and the uninstall
+        // removed nothing without writing a report.
+        //
+        // Asserted here rather than in a Windows-only test because the property
+        // is about the argument list `helper_args` produces, and that is worth
+        // checking on the platform this is developed on.
+        let data = tempfile::tempdir().unwrap();
+        let prefix = if cfg!(windows) {
+            r"C:\Program Files\ClotoCore"
+        } else {
+            "/opt/Program Files/ClotoCore"
+        };
+        let staged = stage(data.path(), PurgeTier::Everything, Some(Path::new(prefix)))
+            .expect("staging only writes to a temp dir");
+
+        let args = helper_args(&staged, 4242);
+        assert!(
+            args.iter().any(|a| a.contains(' ')),
+            "the fixture must exercise the case that broke: {args:?}"
+        );
+
+        // How PowerShell builds the child's command line out of -ArgumentList.
+        let command_line = args
+            .iter()
+            .map(|a| crate::platform::win_argv_quote(a))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        assert_eq!(
+            crate::platform::parse_windows_arguments(&command_line),
+            args,
+            "the helper must receive each root as one argument; command line was: {command_line}"
+        );
+
+        discard(staged);
+    }
+
+    #[test]
     fn each_staging_directory_is_its_own() {
         // Two runs must not share a directory: the second would overwrite the
         // first's plan while its helper was still reading it.
