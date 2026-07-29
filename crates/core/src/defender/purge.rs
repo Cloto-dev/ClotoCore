@@ -627,15 +627,7 @@ fn platform_candidates(roots: &ProbeRoots) -> Vec<Candidate> {
     }
 
     if cfg!(target_os = "windows") {
-        if let Some(local) = &roots.platform_local {
-            out.push(Candidate::path_entry(
-                "webview_0",
-                PurgeKind::Dir,
-                local.join("com.cloto.app").join("EBWebView"),
-                PurgeTier::Everything,
-                PurgeSource::Platform,
-            ));
-        }
+        out.extend(identifier_container_candidates(roots));
         // `ClotoCore` is the current key (install.ps1 / installer/uninstall.ps1);
         // `cloto-system` is the pre-rename one that installer.nsh still reads,
         // and an upgraded machine can carry both. Which hive holds a key
@@ -660,6 +652,53 @@ fn platform_candidates(roots: &ProbeRoots) -> Vec<Candidate> {
     }
 
     out
+}
+
+/// The per-user directories Windows names after the bundle identifier
+/// (`com.cloto.app`, from `dashboard/src-tauri/tauri.conf.json`):
+/// `%LOCALAPPDATA%\com.cloto.app`, which holds the webview profile
+/// (`EBWebView`), and `%APPDATA%\com.cloto.app`, which is where
+/// `tauri-plugin-window-state` writes `.window-state.json`.
+///
+/// The *containers* are the candidates, at the same granularity as macOS
+/// (`Library/Application Support/com.cloto.app`) and Linux
+/// (`platform_data.join("com.cloto.app")`). Windows used to name only
+/// `%LOCALAPPDATA%\com.cloto.app\EBWebView`, one directory *inside* one of the
+/// two, so a tier-4 uninstall reported `6 removed / 0 failed` and left both
+/// identifier directories standing: the local one as an empty shell, the
+/// roaming one still holding a `.window-state.json` older than the purge
+/// (bug-496, measured on the Windows VM). Nothing enumerated the roaming
+/// container at all.
+///
+/// The profile is no longer a candidate of its own: it is a strict descendant
+/// of a container that is now always enumerated, so `collapse_nested` could
+/// only ever report it as `covered_by_parent` — the directory that has to be
+/// removed is the container.
+///
+/// Ids are positional over the fixed list, as on the other platforms, and the
+/// index is taken before the absent roots are dropped, so `webview_0` names the
+/// same location on a machine where the other probe came back empty.
+///
+/// Kept out of `platform_candidates` so a test on any host can assert this set:
+/// that function's Windows arm is dead code everywhere else, and the Windows CI
+/// job is non-blocking (`continue-on-error`), so a Windows-only assertion is
+/// the weakest place to put this invariant.
+fn identifier_container_candidates(roots: &ProbeRoots) -> Vec<Candidate> {
+    [&roots.platform_local, &roots.platform_data]
+        .into_iter()
+        .enumerate()
+        .filter_map(|(idx, root)| {
+            root.as_ref().map(|dir| {
+                Candidate::path_entry(
+                    format!("webview_{idx}"),
+                    PurgeKind::Dir,
+                    dir.join("com.cloto.app"),
+                    PurgeTier::Everything,
+                    PurgeSource::Platform,
+                )
+            })
+        })
+        .collect()
 }
 
 /// Product name as the installers write it: the NSIS shortcut is
@@ -2317,6 +2356,171 @@ mod tests {
                 ids(&plan)
             );
         }
+    }
+
+    /// The two Windows identifier containers, as `identifier_container_candidates`
+    /// derives them from the probe roots.
+    fn windows_containers(root: &Path) -> (PathBuf, PathBuf, ProbeRoots) {
+        let (local, roaming) = (root.join("Local"), root.join("Roaming"));
+        let roots = ProbeRoots {
+            platform_local: Some(local.clone()),
+            platform_data: Some(roaming.clone()),
+            ..ProbeRoots::default()
+        };
+        (
+            local.join("com.cloto.app"),
+            roaming.join("com.cloto.app"),
+            roots,
+        )
+    }
+
+    #[test]
+    fn both_windows_identifier_containers_are_candidates() {
+        // Asserted over the pure enumeration rather than through
+        // `platform_candidates`, so it runs on every host: bug-496 was a
+        // Windows-only omission, the dev platform is macOS, and the Windows CI
+        // job is `continue-on-error`, which makes a `cfg!(windows)`-gated
+        // assertion the weakest available place for this invariant.
+        let root = Path::new(if cfg!(windows) { r"C:\probe" } else { "/probe" });
+        let (local_container, roaming_container, roots) = windows_containers(root);
+
+        let candidates = identifier_container_candidates(&roots);
+        let listed: Vec<(&str, PathBuf)> = candidates
+            .iter()
+            .map(|c| {
+                (
+                    c.id.as_str(),
+                    c.path.clone().expect("a container is named by path"),
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            vec![
+                ("webview_0", local_container.clone()),
+                ("webview_1", roaming_container.clone()),
+            ],
+            "a tier-4 uninstall that leaves either identifier container behind is the bug this \
+             enumeration exists for: %LOCALAPPDATA% held the webview profile and %APPDATA% held \
+             the window state (bug-496)"
+        );
+        for candidate in &candidates {
+            assert_eq!(candidate.kind, PurgeKind::Dir);
+            assert_eq!(
+                candidate.tier,
+                PurgeTier::Everything,
+                "same tier as the macOS and Linux containers, so no platform disagrees about \
+                 when the identifier directory goes"
+            );
+            assert_eq!(candidate.source, PurgeSource::Platform);
+        }
+
+        // The index names a probe location, not a position in the output: on a
+        // machine where `dirs::data_local_dir()` came back empty, `webview_1`
+        // still means the roaming container.
+        let roaming_only = ProbeRoots {
+            platform_local: None,
+            ..roots.clone()
+        };
+        let ids: Vec<String> = identifier_container_candidates(&roaming_only)
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(ids, vec!["webview_1".to_string()]);
+
+        // That the enumeration is wired into the Windows arm at all is only
+        // observable where that arm is live.
+        if cfg!(target_os = "windows") {
+            let emitted: Vec<PathBuf> = platform_candidates(&roots)
+                .into_iter()
+                .filter_map(|c| c.path)
+                .collect();
+            for expected in [&local_container, &roaming_container] {
+                assert!(
+                    emitted.contains(expected),
+                    "`{}` is enumerated as a candidate but never reaches the Windows plan: {:?}",
+                    expected.display(),
+                    emitted
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_executor_admits_the_windows_identifier_containers() {
+        // A candidate the executor refuses is worse than an omission — the plan
+        // offers to remove the directory and the uninstall reports `refused` for
+        // it. `every_path_the_planner_emits_is_one_the_executor_will_accept`
+        // makes that claim for the *host's* candidates only, and the Windows arm
+        // is dead code on the dev platform, so the containers are checked
+        // against the root set here as well. `from_probe` adds
+        // `platform_local` / `platform_data` on every platform, so this runs
+        // everywhere.
+        let root = tempfile::tempdir().unwrap();
+        let data_dir = root.path().join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let (_, _, roots) = windows_containers(root.path());
+
+        let allowed = crate::defender::purge_exec::PurgeRoots::from_probe(&data_dir, None, &roots);
+        for candidate in identifier_container_candidates(&roots) {
+            let path = candidate.path.expect("a container is named by path");
+            assert!(
+                allowed.covers(&path),
+                "the planner emits `{}` ({}) but the executor would refuse it as outside this \
+                 installation's footprint",
+                path.display(),
+                candidate.id
+            );
+        }
+    }
+
+    #[test]
+    fn a_container_candidate_absorbs_the_webview_profile_inside_it() {
+        // Why `%LOCALAPPDATA%\com.cloto.app\EBWebView` is no longer a candidate
+        // of its own: with the container enumerated, the profile can only ever
+        // be reported as `covered_by_parent`, and removing the container is what
+        // bug-496 needed. Driven through `finish_plan` with hand-built
+        // candidates so the host platform does not decide whether it runs.
+        let root = tempfile::tempdir().unwrap();
+        let (container, _, roots) = windows_containers(root.path());
+        let profile = container.join("EBWebView");
+        touch(&profile.join("Default/Cookies"), 64);
+        let receipt_dir = root.path().join("r");
+        std::fs::create_dir_all(&receipt_dir).unwrap();
+
+        // The candidates are supplied rather than probed, so `req` only carries
+        // the tier and the receipt location.
+        let req = isolated(&receipt_dir, PurgeTier::Everything);
+        let mut candidates = identifier_container_candidates(&roots);
+        candidates.push(Candidate::path_entry(
+            "webview_profile",
+            PurgeKind::Dir,
+            profile.clone(),
+            PurgeTier::Everything,
+            PurgeSource::Platform,
+        ));
+        let plan = finish_plan(&req, candidates, Vec::new(), None);
+
+        let listed = plan
+            .entries
+            .iter()
+            .find(|e| e.id == "webview_0")
+            .expect("the container is what the plan removes");
+        assert_eq!(
+            listed.path.as_deref(),
+            Some(container.display().to_string().as_str())
+        );
+        assert_eq!(
+            skipped_for(&plan, "webview_profile"),
+            Some(SkipReason::CoveredByParent),
+            "the profile sits inside a directory the plan already removes: {:?}",
+            plan.skipped
+        );
+        assert_eq!(
+            plan.total_bytes(),
+            64,
+            "collapsing into the parent must not double-count the profile"
+        );
     }
 
     /// A machine where every location the planner probes exists, so a test can
