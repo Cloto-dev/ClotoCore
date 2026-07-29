@@ -4369,7 +4369,7 @@
       "expected": "present",
       "status": "fixed",
       "notes": "Found by the sweep that closed bug-495/496, not by review: after a tier-4 purge on the Windows VM whose report read 7 removed / 3 absent / 0 refused / 0 failed, an independent sweep of the machine went from 13 items before the purge to exactly 1 after — this key, with an empty default value and an empty vendor key above it, no app process running. The sweep was run against the live install first for that reason: a detector that reports zero proves nothing until it has been seen to report something. FIXED (branch fix/product-registry-key): `product_registry_candidates` emits the product key in both hives at tier Everything, and the executor's floor admits exactly that shape in addition to the uninstall-list shape, matched to its exact depth. The vendor level above it is deliberately NOT removable and there is a test saying so — `cloto` is a namespace a sibling product could share and `reg delete` is recursive, so what remains after a purge is an empty shell of a key, which is the price of not deleting something that was never ours. The cross-check test now asserts the registry floor instead of skipping the kind, which closes the class rather than this instance. Mutation-checked: reverting the executor floor kills 2 tests (including the planner↔executor invariant); dropping the planner wiring is NOT killed by a test on macOS — that arm is dead code off Windows — but the CI Lint job rejects it with exit 101 under its own flags (`-D warnings` turns the dead-code warning into an error), verified by running those exact flags. Re-measurement on the VM is owed (an earlier decision).",
-      "github_issue": null
+      "github_issue": 408
     }
   ]
 }
