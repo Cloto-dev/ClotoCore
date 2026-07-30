@@ -195,3 +195,19 @@ measurement), re-verify the fingerprint (installed version, no unexpected
 `%APPDATA%` state, `/health` ok), then `qm snapshot 104 clean-install-<new>
 --vmstate 1` with a description recording the contents. Keep the previous
 snapshot as a fallback until the new one has survived one journey.
+
+## Journey preconditions (learned 2026-07-31, danger-zone round 3)
+
+Every committed journey assumes it starts from the **plain main window — no
+settings modal open**. A run started with the modal already up is invalid from
+step one: the journey's own `open-settings` click lands on the modal backdrop,
+which CLOSES the modal, and every later step then fails as `frontend_bug`
+against the bare main window (observed as 6 ops flipping to failing at once —
+a signature worth recognizing: near-total frontend_bug across successive steps
+usually means a dirty starting state, not six real GUI defects).
+
+Two related facts about the SETTINGS modal:
+- **Esc does not close it.** Close it by clicking the backdrop (e.g. (640,700),
+  below the modal) or its X button — verify with a grab afterwards.
+- Reopening the modal resets its pane state (component unmounts on close), so
+  a fresh open is a fresh danger-zone card — collapsed plan, top scroll.
