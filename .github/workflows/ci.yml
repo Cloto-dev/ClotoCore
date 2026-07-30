@@ -51,6 +51,12 @@ jobs:
       - name: opverify ledger self-test
         run: python3 -m scripts.opverify.ledger_selftest
 
+      # Same reason: the visual apex loop (dual-oracle tiering, settle,
+      # runtime-derived danger-zone questions) otherwise only executes on a
+      # live VM run.
+      - name: opverify visual self-test
+        run: python3 -m scripts.opverify.visual.selftest
+
       - name: Language pack checker self-test
         run: python3 scripts/check-language-packs.py --selftest
 

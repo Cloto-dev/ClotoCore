@@ -283,9 +283,11 @@ route around the rule. Two escapes, both explicit — fold the run into the
 release-time VM verify when a cut is imminent, or write one line saying it was
 skipped and why. A *silent* skip is the exact failure this rule removes.
 
-Record every apex run with `python -m scripts.opverify.visual.run_vm <journey>
---ledger` so it lands in `qa/opverify/history.jsonl` alongside the kernel tiers.
-Apex rows carry their own target label, so they are only ever compared against
+Every apex run (`python -m scripts.opverify.visual.run_vm <journey>`) is
+recorded to `qa/opverify/history.jsonl` by default — the ledger flag flipped
+to default-on after a run shipped unrecorded because `--ledger` was forgotten
+(2026-07-30). Skipping is `--no-ledger`, a deliberate visible choice. Apex
+rows carry their own target label, so they are only ever compared against
 prior apex rows.
 
 The VM tiers of the *kernel* emulation (`--target linux-vm` / `windows-vm`) are
