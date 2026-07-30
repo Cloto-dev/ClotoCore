@@ -408,6 +408,47 @@ pub struct MgpServerCapabilities {
     pub tools_for_capability: Option<std::collections::HashMap<String, Vec<String>>>,
 }
 
+/// Extract MGP server capabilities from a modern-era (`MCP 2026-07-28`)
+/// `DiscoverResult.capabilities`, where they are advertised under
+/// `extensions["dev.cloto/mgp"]`.
+///
+/// The advertised object is field-identical to the legacy `initialize`
+/// `capabilities.mgp` payload (mgp-spec 0.8.0-draft), so the same serde type is
+/// reused rather than duplicated. A missing or malformed extension yields
+/// `None` — exactly like a plain MCP server — and `negotiate()` then treats the
+/// connection as non-MGP.
+#[must_use]
+pub fn server_caps_from_discover(capabilities: Option<&Value>) -> Option<MgpServerCapabilities> {
+    let mgp = capabilities?
+        .get("extensions")?
+        .get(super::mcp_protocol::MGP_CAPABILITY_EXTENSION)?;
+    match serde_json::from_value::<MgpServerCapabilities>(mgp.clone()) {
+        Ok(caps) => Some(caps),
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "Server advertised a dev.cloto/mgp capability that failed to parse — treating as non-MGP"
+            );
+            None
+        }
+    }
+}
+
+/// MGP capabilities the kernel declares in the modern era's per-request
+/// `clientCapabilities` `_meta` (the replacement for the `initialize`
+/// piggyback). Same version + extension list as [`MgpClientCapabilities`].
+#[must_use]
+pub fn client_capabilities_extension() -> Value {
+    serde_json::json!({
+        "extensions": {
+            super::mcp_protocol::MGP_CAPABILITY_EXTENSION: {
+                "version": MGP_VERSION,
+                "extensions": CLIENT_EXTENSIONS,
+            }
+        }
+    })
+}
+
 /// Result of MGP capability negotiation, stored in `McpServerHandle`.
 #[derive(Debug, Clone)]
 pub struct NegotiatedMgp {
