@@ -429,6 +429,48 @@ resolution. The future approach (C) will use Python package-based invocation
 (`python -m cloto_mcp_servers.terminal`), eliminating path configuration entirely.
 The root `pyproject.toml` in clotohub-servers is prepared for this migration.
 
+### 3.1.3 Protocol Era Negotiation
+
+MCP 2026-07-28 ("stateless core") removed the `initialize` / `notifications/initialized`
+handshake and protocol-level sessions: a request now carries its own context in
+`params._meta`. The kernel's MCP client is therefore **dual-era** — it decides at
+connect time which era a server speaks, and the two are never mixed on one connection.
+
+| | Legacy (≤ 2025-11-25) | Modern (2026-07-28+) |
+|---|---|---|
+| Connect exchange | `initialize` + `notifications/initialized` | `server/discover` probe only |
+| Per-request context | none (session-scoped) | `_meta` `protocolVersion` / `clientInfo` / `clientCapabilities` |
+| Log severity | one `logging/setLevel` after initialize | `_meta` `logLevel` per request (method removed from the protocol) |
+| HTTP session | `Mcp-Session-Id` sent and tracked | not sent; `mcp-protocol-version` / `mcp-method` routing headers instead |
+| MGP activation | `initialize.capabilities.mgp` piggyback | `capabilities.extensions["dev.cloto/mgp"]` |
+| MGP grants | `mgp/permission/grant` RPC | same RPC, plus per-request `_meta` `dev.cloto/mgp/grants` |
+
+**Era decision** (`McpClient::negotiate`, mirroring the reference SDK's denylist probe):
+anything that is not positive evidence of a modern server falls back to the handshake.
+A `server/discover` probe is sent at the newest modern version; `UNSUPPORTED_PROTOCOL_VERSION`
+(`-32022`) naming a mutual modern version triggers one downgrade re-probe, while the same
+code naming neither a known modern nor any handshake version fails the connect as a genuine
+incompatibility. Every other JSON-RPC error — including `METHOD_NOT_FOUND`, an unparseable
+result, a reply advertising no modern version, and probe silence — falls back to `initialize`.
+Transport and process failures propagate instead: an outage must never be read as an era
+verdict. The era is settled once per connection (a stdio server's process lifetime).
+
+Consequences for the legacy path are deliberately nil — its wire traffic, ordering and
+session handling are unchanged, which the pre-existing connection tests pin (their
+assertions were not touched). In the modern era, a `resultType` of `input_required` (MRTR, a multi-round
+continuation the kernel host has no flow for) surfaces as an explicit error rather than
+parsing as a final result, and `DiscoverResult.instructions` is captured on the server
+handle for the agent-prompt consumer.
+
+**Escape hatch:** `protocol_era = "legacy"` on a server entry in `mcp.toml` skips the probe
+entirely, for a server that mishandles unknown methods; an unrecognized value warns and
+behaves as `auto`. The probe costs one bounded window (≤ 10 s) against a server that
+answers unknown methods with silence — a conformant server replies immediately.
+
+Protocol versions, `_meta` keys, routing header names and the error code are defined once in
+`crates/core/src/managers/mcp_protocol.rs` and are the single source of truth for the client
+(`mcp_client.rs`), the HTTP transport (`mcp_transport.rs`) and the tests.
+
 ### 3.2 Architecture History
 
 > **Note:** The original Three-Tier Plugin Model (Rust compiled, Python Bridge, WASM)
@@ -474,3 +516,4 @@ These principles define the "correct approach" within ClotoCore. The following c
 
 - [MGP_SPEC.md](MGP_SPEC.md) — Multi-Agent Gateway Protocol specification (index)
 - [MGP Isolation Design](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_ISOLATION_DESIGN.md) — OS-Level isolation design (in the mgp-spec repo)
+- [MGP Modernization Design](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_MODERNIZATION_DESIGN.md) — MGP's adaptation to MCP 2026-07-28; the specification counterpart to §3.1.3 (in the mgp-spec repo)
