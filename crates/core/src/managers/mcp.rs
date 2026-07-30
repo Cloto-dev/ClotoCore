@@ -674,6 +674,8 @@ impl McpClientManager {
                         audit_seq: Arc::new(AtomicU64::new(0)),
                         connected_at: None,
                         isolation_profile: None,
+                        protocol_era: None,
+                        instructions: None,
                     });
             }
         }
@@ -690,6 +692,7 @@ impl McpClientManager {
     }
 
     /// Restore persisted MCP servers from the database (concurrently).
+    #[allow(clippy::too_many_lines)]
     pub async fn restore_from_db(&self) -> Result<()> {
         let records = crate::db::load_active_mcp_servers(&self.pool).await?;
         if records.is_empty() {
@@ -752,6 +755,7 @@ impl McpClientManager {
                 seal: record.seal.clone(),
                 isolation: None,
                 marketplace_id: record.marketplace_id.clone(),
+                protocol_era: None,
             });
         }
 
@@ -795,6 +799,8 @@ impl McpClientManager {
                         audit_seq: Arc::new(AtomicU64::new(0)),
                         connected_at: None,
                         isolation_profile: None,
+                        protocol_era: None,
+                        instructions: None,
                     });
             }
         }
@@ -1137,9 +1143,8 @@ impl McpClientManager {
         }
 
         // Retry with exponential backoff (3 attempts)
-        let (client, mgp_server_caps) = {
-            let mut result: Option<(McpClient, Option<super::mcp_mgp::MgpServerCapabilities>)> =
-                None;
+        let (client, negotiated) = {
+            let mut result: Option<(McpClient, super::mcp_client::NegotiatedProtocol)> = None;
             let mut last_err = None;
             for attempt in 1..=3u32 {
                 let connect_future = if is_http_transport {
@@ -1161,6 +1166,7 @@ impl McpClientManager {
                         self.mcp_request_timeout_secs,
                         self.mcp_stream_idle_timeout_secs,
                         &self.mcp_default_log_level,
+                        config.protocol_era.as_deref(),
                     )
                     .await
                 } else {
@@ -1184,12 +1190,13 @@ impl McpClientManager {
                         self.llm_proxy_port,
                         &self.sensitive_env_keys,
                         &self.mcp_default_log_level,
+                        config.protocol_era.as_deref(),
                     )
                     .await
                 };
                 match connect_future {
-                    Ok((c, caps)) => {
-                        result = Some((c, caps));
+                    Ok((c, negotiated)) => {
+                        result = Some((c, negotiated));
                         break;
                     }
                     Err(e) => {
@@ -1205,8 +1212,8 @@ impl McpClientManager {
                     }
                 }
             }
-            if let Some((c, caps)) = result {
-                (c, caps)
+            if let Some((c, negotiated)) = result {
+                (c, negotiated)
             } else {
                 let msg = format!(
                     "Failed to connect to MCP server '{}' after 3 attempts: {}",
@@ -1219,6 +1226,22 @@ impl McpClientManager {
                 return Err(anyhow::anyhow!("{}", msg));
             }
         };
+
+        // Protocol era decided at connect time (MCP 2026-07-28 stateless core vs
+        // the `initialize` handshake). The MGP advertisement arrives on whichever
+        // channel that era uses — `initialize.capabilities.mgp` or
+        // `DiscoverResult.capabilities.extensions["dev.cloto/mgp"]` — and is
+        // field-identical either way, so everything below is era-agnostic.
+        let super::mcp_client::NegotiatedProtocol {
+            era: protocol_era,
+            mgp: mgp_server_caps,
+            instructions: server_instructions,
+        } = negotiated;
+        info!(
+            id = %id,
+            era = %protocol_era.as_str(),
+            "MCP protocol era negotiated"
+        );
 
         // MGP capability negotiation (§2)
         let config_trust = config.mgp.as_ref().and_then(|m| m.trust_level.as_deref());
@@ -1386,11 +1409,28 @@ impl McpClientManager {
                 } else {
                     "operator"
                 };
+                let grants: serde_json::Map<String, serde_json::Value> = all_perms
+                    .iter()
+                    .map(|p| {
+                        (
+                            p.clone(),
+                            serde_json::json!({
+                                "decision": "approved",
+                            }),
+                        )
+                    })
+                    .collect();
+
+                // Modern era additionally carries the approved grants on every
+                // `tools/call` `_meta` (mgp-spec 0.8.0-draft): there is no
+                // session for the grant RPC to have established state in. The
+                // setter is a no-op on the wire for legacy connections, which
+                // keep the RPC below as their only channel.
+                client.set_mgp_grants(serde_json::Value::Object(grants.clone()));
+
                 let grant_params = serde_json::json!({
                     "request_id": format!("perm-{}", id),
-                    "grants": all_perms.iter().map(|p| (p.clone(), serde_json::json!({
-                        "decision": "approved",
-                    }))).collect::<serde_json::Map<String, serde_json::Value>>(),
+                    "grants": grants,
                     "approved_by": approver,
                 });
                 if let Err(e) = client
@@ -1402,11 +1442,15 @@ impl McpClientManager {
             }
         }
 
-        // Send initialized notification (after Permission Flow completes)
-        if let Err(e) = client.send_initialized_notification().await {
-            let msg = format!("Failed to send initialized notification to [{}]: {}", id, e);
-            self.set_server_error(&id, &msg).await;
-            return Err(anyhow::anyhow!("{}", msg));
+        // Send initialized notification (after Permission Flow completes).
+        // Handshake era only: MCP 2026-07-28 removed initialize/initialized, so a
+        // modern server has no handshake to acknowledge and would reject one.
+        if protocol_era == super::mcp_protocol::ProtocolEra::Legacy {
+            if let Err(e) = client.send_initialized_notification().await {
+                let msg = format!("Failed to send initialized notification to [{}]: {}", id, e);
+                self.set_server_error(&id, &msg).await;
+                return Err(anyhow::anyhow!("{}", msg));
+            }
         }
 
         // Discover tools
@@ -1461,6 +1505,8 @@ impl McpClientManager {
             audit_seq: Arc::new(AtomicU64::new(0)),
             connected_at: Some(std::time::Instant::now()),
             isolation_profile,
+            protocol_era: Some(protocol_era),
+            instructions: server_instructions,
         };
 
         // Orphan-leak fix (Step 1): if a handle for this id already holds a live
@@ -2685,6 +2731,7 @@ impl McpClientManager {
             seal: seal.clone(),
             isolation: None,
             marketplace_id: None,
+            protocol_era: None,
         };
 
         // Persist to DB first (so server is always tracked even if connect fails).
@@ -2728,6 +2775,8 @@ impl McpClientManager {
                         audit_seq: Arc::new(AtomicU64::new(0)),
                         connected_at: None,
                         isolation_profile: None,
+                        protocol_era: None,
+                        instructions: None,
                     });
                 Ok(Vec::new())
             }
@@ -3133,6 +3182,7 @@ impl McpClientManager {
             seal: None,
             isolation: None,
             marketplace_id: record.marketplace_id.clone(),
+            protocol_era: None,
         };
 
         self.connect_server(config).await
@@ -4053,6 +4103,7 @@ mod tests {
     /// client.shutdown() → kill_and_wait() with a real subprocess tree.
     #[cfg(unix)]
     #[tokio::test]
+    #[allow(clippy::too_many_lines)]
     async fn drain_all_reaps_connected_server_subtree() {
         // Mock MCP server: fork a long-lived `sleep 600` grandchild, record its
         // PID to a file, answer `initialize`, then stay alive on stdin.
@@ -4097,7 +4148,7 @@ while True:\n\
         let manager = std::sync::Arc::new(McpClientManager::new(pool, false, 30, 30));
 
         let (notif_tx, _notif_rx) = tokio::sync::mpsc::channel::<McpNotification>(16);
-        let (client, _caps) = McpClient::connect(
+        let (client, _negotiated) = McpClient::connect(
             "mock-drain",
             "python3",
             &["-c".to_string(), MOCK.to_string()],
@@ -4109,6 +4160,7 @@ while True:\n\
             0,
             &[],
             crate::managers::mcp_client::DEFAULT_MCP_LOG_LEVEL,
+            None,
         )
         .await
         .expect("mock server should complete the initialize handshake");
@@ -4130,6 +4182,8 @@ while True:\n\
             audit_seq: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             connected_at: Some(std::time::Instant::now()),
             isolation_profile: None,
+            protocol_era: None,
+            instructions: None,
         };
         manager
             .state
@@ -4211,7 +4265,7 @@ while True:\n\
         let manager = std::sync::Arc::new(McpClientManager::new(pool, false, 30, 30));
 
         let (notif_tx, _notif_rx) = tokio::sync::mpsc::channel::<McpNotification>(16);
-        let (client, _caps) = McpClient::connect(
+        let (client, _negotiated) = McpClient::connect(
             "mock-immune",
             "python3",
             &["-c".to_string(), MOCK.to_string()],
@@ -4223,6 +4277,7 @@ while True:\n\
             0,
             &[],
             crate::managers::mcp_client::DEFAULT_MCP_LOG_LEVEL,
+            None,
         )
         .await
         .expect("mock server should complete the initialize handshake");
@@ -4251,6 +4306,8 @@ while True:\n\
             audit_seq: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             connected_at: Some(std::time::Instant::now()),
             isolation_profile: None,
+            protocol_era: None,
+            instructions: None,
         };
         manager
             .state
