@@ -278,9 +278,29 @@ def _danger_zone_journey(health_probe, make_api_probe, fetch_json):
                     "/api/system/uninstall/plan?tier=1", '"tier":"application"'
                 ),
             ),
+            # Ride back up one notch so the scope-checkbox column is fully on
+            # screen before clicking. The 2026-07-31 apex run proved why the
+            # click needs its own visual verification: the old blind click at
+            # (455,227) landed on "+ everything else" (the column had scrolled)
+            # and cumulative tiers silently over-selected to 11 items.
+            J.Step(
+                name="scroll-back-to-scopes",
+                action=scroll(400),
+                trigger=J.CHECKPOINT,
+                settle=False,
+            ),
             J.Step(
                 name="widen-to-user-data",
-                action=click(455, 227),  # "+ User data" checkbox
+                action=click(455, 453),  # "+ ユーザーデータ" checkbox (measured 2026-07-31)
+                trigger=J.CHECKPOINT,
+                vision_question="is the '+ user data' scope checkbox now checked, while the two wider scopes (large assets / everything else) remain unchecked?",
+                kernel_probe=make_api_probe(
+                    "/api/system/uninstall/plan?tier=2", '"tier":"user_data"'
+                ),
+            ),
+            J.Step(
+                name="tier2-enumeration",
+                action=scroll(-400),
                 trigger=J.CHECKPOINT,
                 vision_question=q_tier2,
                 kernel_probe=make_api_probe(
@@ -326,6 +346,7 @@ _JOURNEYS = {
             {"visible": True, "detail": "DANGER ZONE card with review button"},
             {"visible": True, "detail": "scope checkboxes, tier 1 checked+disabled"},
             {"visible": True, "detail": "tier-1 enumeration matches the plan count"},
+            {"visible": True, "detail": "user-data checkbox checked, wider tiers unchecked"},
             {"visible": True, "detail": "tier-2 re-enumeration matches the plan count"},
         ],
     ),
