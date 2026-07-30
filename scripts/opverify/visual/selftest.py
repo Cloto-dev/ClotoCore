@@ -167,6 +167,25 @@ def scenario_settle_hashpoll() -> None:
     assert probe_calls["n"] == 3, f"three hash polls expected, got {probe_calls['n']}"
 
 
+def scenario_fetch_plan_envelope() -> None:
+    """_fetch_plan must unwrap the kernel's {"data": ...} response envelope
+    (handlers/response.rs ok_data wraps every handler payload). The first live
+    apex run crashed because the fixture here matched the doc comment, not the
+    write path — this fixture is the real wrapped shape."""
+    from .run_vm import _fetch_plan
+
+    wrapped = {"data": {"plan": {"data_dir": "X"}, "summary": {"entries": 1}}}
+    body = _fetch_plan(lambda path: wrapped, 1)
+    assert body["summary"]["entries"] == 1, body
+
+    try:
+        _fetch_plan(lambda path: {"data": {"error": "forbidden"}}, 1)
+    except RuntimeError as e:
+        assert "unexpected plan response" in str(e), e
+    else:
+        raise AssertionError("_fetch_plan accepted a payload without plan/summary")
+
+
 def scenario_derived_questions() -> None:
     """The danger-zone questions embed the kernel plan's current counts and
     conditional clauses (runtime derivation — never an authored baseline).
@@ -215,6 +234,7 @@ def main() -> int:
         scenario_agree_fail,
         scenario_settle,
         scenario_settle_hashpoll,
+        scenario_fetch_plan_envelope,
         scenario_derived_questions,
     ]
     for sc in scenarios:
