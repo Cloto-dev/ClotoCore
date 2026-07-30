@@ -277,6 +277,9 @@ def _danger_zone_journey(health_probe, make_api_probe, fetch_json):
                 kernel_probe=make_api_probe(
                     "/api/system/uninstall/plan?tier=1", '"tier":"application"'
                 ),
+                # The enumeration lives in the settings content pane; a count
+                # question doesn't need the rail, taskbar, or backdrop (#446).
+                roi=(420, 155, 600, 475),
             ),
             # Ride back up one notch so the scope-checkbox column is fully on
             # screen before clicking. The 2026-07-31 apex run proved why the
@@ -297,6 +300,7 @@ def _danger_zone_journey(health_probe, make_api_probe, fetch_json):
                 kernel_probe=make_api_probe(
                     "/api/system/uninstall/plan?tier=2", '"tier":"user_data"'
                 ),
+                roi=(420, 330, 600, 300),  # the scope-checkbox column
             ),
             J.Step(
                 name="tier2-enumeration",
@@ -306,6 +310,7 @@ def _danger_zone_journey(health_probe, make_api_probe, fetch_json):
                 kernel_probe=make_api_probe(
                     "/api/system/uninstall/plan?tier=2", '"tier":"user_data"'
                 ),
+                roi=(420, 155, 600, 475),
             ),
         ],
     )

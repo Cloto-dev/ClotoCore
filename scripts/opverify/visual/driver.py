@@ -30,6 +30,7 @@ from .interfaces import (
     VisionAssessment,
     VisionAssessor,
 )
+from .roi import crop_frame
 from .settle import poll_until_visible, settle
 
 
@@ -82,6 +83,7 @@ class VisualDriver:
         assessor: VisionAssessor,
         *,
         change_probe: Optional[Callable[[], str]] = None,
+        crop: Callable[[Frame, tuple], Frame] = crop_frame,
         now: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
     ):
@@ -91,6 +93,9 @@ class VisualDriver:
         # Optional cheap settle signal (e.g. agent /grabhash) — halves settle
         # cost from N full grabs to N hash polls + one grab. None → grab-based.
         self._change_probe = change_probe
+        # ROI implementation, injectable so the stub selftest can exercise the
+        # plumbing without the orchestrator host's Pillow dependency.
+        self._crop = crop
         self._now = now
         self._sleep = sleep
 
@@ -138,7 +143,12 @@ class VisualDriver:
                 else self.screen.grab()
             )
             if step.vision_question:
-                visual = self.assessor.assess(frame, step.vision_question)
+                # ROI narrows only the assessor's copy — `frame` stays full for
+                # the forensic and the saved-frame trail.
+                assess_frame = (
+                    self._crop(frame, step.roi) if step.roi is not None else frame
+                )
+                visual = self.assessor.assess(assess_frame, step.vision_question)
                 visual_ok = visual.visible
             else:
                 visual_ok = True  # visual oracle not asked for this step
