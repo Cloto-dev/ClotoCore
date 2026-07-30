@@ -157,3 +157,41 @@ blocked and return what you have with the blocker in `notes`.
   mis-maps some shifted characters on a JP keyboard layout (observed 2026-07-14:
   `:` → `*` in the sent text). It does not affect alphanumeric nonces. For exact
   literal text, prefer clipboard paste over simulated keystrokes.
+
+## VM state reset (snapshot rollback) — orchestrator op
+
+Every apex / uninstall measurement starts from a **known clean state** by
+rolling the VM back to a `clean-install-*` snapshot instead of reinstalling
+(~16 s measured vs ~6 min for a scripted reinstall). This also structurally
+removes the "residue of the previous experiment" class of mismeasurement
+(observed 2026-07-30). Adopted with an earlier decision (an earlier decision).
+
+```bash
+ssh root@192.0.2.2 'qm rollback 104 clean-install-0-6-8-beta-2 && qm start 104'
+# vmstate snapshot → the VM resumes the saved live session; qm start is a
+# no-op safety for the non-vmstate case. Agent answers /health in ~16 s.
+```
+
+Wait for readiness the same way the verify script does — poll the actuator:
+`ssh PC@192.0.2.252 'curl.exe -s -m 2 http://127.0.0.1:8900/health'` until
+`"ok": true`.
+
+Snapshot lineage on VM 104 (`qm listsnapshot 104` is authoritative):
+
+- `pristine` — blank Win11 + OpenSSH only. For installer-diff verify runs.
+- `agent-base-20260727` — OS + Python + opv_agent, ClotoCore UNINSTALLED,
+  deliberate `%APPDATA%\cloto-system` residue kept as a Defender purge
+  fixture. The durable base; app versions go stale, this does not.
+- `clean-install-<version>` — ClotoCore `<version>` installed via NSIS and
+  **never launched** (no `%APPDATA%` data), opv_agent listening, vmstate =
+  live logged-in session 1. The default reset target for apex / uninstall
+  journeys. Proxmox snapshot names cannot contain dots, so the version is
+  dash-encoded (`0.6.8-beta.2` → `clean-install-0-6-8-beta-2`); the exact
+  version is in the snapshot description.
+
+**On a version change**: roll back to the current `clean-install-*`, silently
+install the new installer over it (or uninstall + install for a fresh-path
+measurement), re-verify the fingerprint (installed version, no unexpected
+`%APPDATA%` state, `/health` ok), then `qm snapshot 104 clean-install-<new>
+--vmstate 1` with a description recording the contents. Keep the previous
+snapshot as a fallback until the new one has survived one journey.
