@@ -282,7 +282,14 @@ jobs:
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           shared-key: release-tauri-windows
-          cache-targets: false
+          # Hybrid, and only on this job (the draft_only critical path): the
+          # full target archive gives ~8 min on repeat iterations with an
+          # unchanged Cargo.lock (the common apex loop), while sccache above
+          # rescues the archive-miss case (~14 min instead of ~18) after a
+          # dependency bump. Measured 2026-07-30: the 10 GB Actions quota
+          # cannot hold per-unit caches for every job, so the other jobs stay
+          # registry-only + sccache and this one job keeps its archive.
+          cache-targets: true
 
       - name: Build Tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
