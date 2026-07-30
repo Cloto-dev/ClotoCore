@@ -735,6 +735,41 @@ mod tests {
         assert_eq!(mixed.supported_versions(), vec!["2026-07-28"]);
     }
 
+    /// The escape hatch documented in `docs/ARCHITECTURE.md` §3.1.3 is reached
+    /// through `mcp.toml`, so the whole path — TOML field → config → era
+    /// preference — is pinned here rather than only the parser half. A server
+    /// entry that omits the key must keep probing.
+    #[test]
+    fn protocol_era_escape_hatch_survives_mcp_toml() {
+        let parsed: McpConfigFile = toml::from_str(
+            r#"
+[[servers]]
+id = "pinned"
+command = "python"
+protocol_era = "legacy"
+
+[[servers]]
+id = "probed"
+command = "python"
+"#,
+        )
+        .expect("mcp.toml with protocol_era must parse");
+
+        assert_eq!(parsed.servers[0].protocol_era.as_deref(), Some("legacy"));
+        assert_eq!(
+            EraPreference::from_config(parsed.servers[0].protocol_era.as_deref()),
+            EraPreference::LegacyOnly,
+            "protocol_era=\"legacy\" in mcp.toml must skip the discover probe"
+        );
+
+        assert!(parsed.servers[1].protocol_era.is_none());
+        assert_eq!(
+            EraPreference::from_config(parsed.servers[1].protocol_era.as_deref()),
+            EraPreference::Auto,
+            "a server entry without protocol_era must still probe"
+        );
+    }
+
     #[test]
     fn era_preference_parses_config_values() {
         assert_eq!(EraPreference::from_config(None), EraPreference::Auto);
