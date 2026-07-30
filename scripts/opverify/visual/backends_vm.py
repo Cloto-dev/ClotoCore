@@ -507,6 +507,52 @@ class TunnelApiProbe:
         return self._want in body
 
 
+class TunnelJsonFetch:
+    """Authenticated kernel JSON GET over the port-forward, for journey
+    construction that derives its visual expectations from the kernel at run
+    time — e.g. the danger-zone questions embed the exact entry count the plan
+    endpoint reports, so the question text cannot go stale when the plan
+    changes shape."""
+
+    def __init__(self, tunnel: SshTunnel, api_key: Optional[str] = None):
+        self._t = tunnel
+        self._key = api_key if api_key is not None else _cfg("OPV_API_KEY", "")
+
+    def __call__(self, path: str) -> dict:
+        body = _http_get(
+            self._t.local_kernel,
+            path,
+            headers={"X-API-Key": self._key},
+            timeout=15.0,
+        )
+        try:
+            return json.loads(body)
+        except ValueError as e:
+            raise RuntimeError(
+                f"kernel returned non-JSON for {path}: {body[:200]!r}"
+            ) from e
+
+
+class KernelJsonFetch:
+    """ssh+curl counterpart of :class:`TunnelJsonFetch` for the no-setup
+    fallback transport."""
+
+    def __init__(self, api_key: Optional[str] = None):
+        self._key = api_key if api_key is not None else _cfg("OPV_API_KEY", "")
+
+    def __call__(self, path: str) -> dict:
+        body = _run(
+            f"curl.exe -s -m 8 -H 'X-API-Key: {self._key}' {_kernel_url(path)}",
+            timeout=15,
+        )
+        try:
+            return json.loads(body)
+        except ValueError as e:
+            raise RuntimeError(
+                f"kernel returned non-JSON for {path}: {body[:200]!r}"
+            ) from e
+
+
 class TunnelHashSource:
     """Settle change-signal over the port-forward: GET /grabhash (agent ≥ v3)."""
 

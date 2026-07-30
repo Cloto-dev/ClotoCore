@@ -14,7 +14,8 @@ multimodal-model assessor to fully automate.
 Usage (env: OPV_VM_IP / OPV_VM_USER / OPV_AGENT_PORT / OPV_KERNEL_PORT):
 
     python -m scripts.opverify.visual.run_vm liveness
-    python -m scripts.opverify.visual.run_vm onboarding --ledger
+    python -m scripts.opverify.visual.run_vm danger-zone   # ledger is default-on
+    python -m scripts.opverify.visual.run_vm liveness --no-ledger  # explicit skip
 """
 
 from __future__ import annotations
@@ -29,12 +30,14 @@ from .. import ledger as ledger_mod
 from . import journey as J
 from .backends_vm import (
     KernelApiProbe,
+    KernelJsonFetch,
     RecordedVision,
     SshTunnel,
     TunnelActuator,
     TunnelApiProbe,
     TunnelHashSource,
     TunnelHealthProbe,
+    TunnelJsonFetch,
     TunnelScreen,
     VmAgentActuator,
     VmAgentHashSource,
@@ -65,7 +68,54 @@ class _SavingScreen:
         return f
 
 
-def _liveness_journey(health_probe, make_api_probe):
+def derive_danger_zone_questions(plan1: dict, plan2: dict) -> tuple:
+    """Build the tier-1 / tier-2 visual questions from the kernel's own
+    ``/api/system/uninstall/plan`` responses.
+
+    Authoring-time question text baked in the plan's shape ("exactly one
+    item", "8 items") and went stale when the plan changed — the assessor's
+    lenient reading then let a mismatching frame agree_pass (observed
+    2026-07-30). Deriving the expected count / data dir / warning clauses from
+    the same endpoint the kernel probe hits makes the visual oracle assert the
+    kernel's *current* answer, so a GUI that disagrees with it fails the step
+    as FRONTEND_BUG instead of slipping through.
+    """
+    s1, s2 = plan1["summary"], plan2["summary"]
+    n1, n2 = s1["entries"], s2["entries"]
+    elev = (
+        " and say administrator approval will be requested"
+        if s1["needs_elevation"]
+        else ""
+    )
+    secret = (
+        ", with a warning that credentials will be destroyed"
+        if s2["contains_secret"]
+        else ""
+    )
+    data_dir = plan2["plan"]["data_dir"]
+    q1 = (
+        f"does the enumeration list exactly {n1} item{'s' if n1 != 1 else ''}, "
+        f"including the app executable under Program Files{elev}?"
+    )
+    q2 = (
+        f"did the list re-enumerate to {n2} item{'s' if n2 != 1 else ''} "
+        f"including paths under {data_dir}{secret}?"
+    )
+    return q1, q2
+
+
+def _fetch_plan(fetch_json, tier: int) -> dict:
+    path = f"/api/system/uninstall/plan?tier={tier}"
+    body = fetch_json(path)
+    if "summary" not in body or "plan" not in body:
+        raise RuntimeError(
+            f"unexpected plan response from {path} (403? bad OPV_API_KEY?): "
+            f"{str(body)[:200]}"
+        )
+    return body
+
+
+def _liveness_journey(health_probe, make_api_probe, fetch_json):
     """Single no-action step: the app is rendered AND the kernel is healthy."""
     return J.Journey(
         name="vm-liveness",
@@ -81,7 +131,7 @@ def _liveness_journey(health_probe, make_api_probe):
     )
 
 
-def _onboarding_journey(health_probe, make_api_probe):
+def _onboarding_journey(health_probe, make_api_probe, fetch_json):
     """Drive the first-run onboarding: advance one page and re-verify. Assumes
     the app is on the onboarding carousel (fresh profile)."""
     return J.Journey(
@@ -106,7 +156,7 @@ def _onboarding_journey(health_probe, make_api_probe):
     )
 
 
-def _agents_journey(health_probe, make_api_probe):
+def _agents_journey(health_probe, make_api_probe, fetch_json):
     """Operation-level dual oracle: the GUI is rendered (visual) AND the kernel's
     authenticated /api/agents confirms the seeded default agent exists (op-level
     kernel hard-gate). Requires OPV_API_KEY = the CLOTO_API_KEY the harness
@@ -140,7 +190,7 @@ def _scroll_steps(label: str, amount: int, times: int):
     ]
 
 
-def _danger_zone_journey(health_probe, make_api_probe):
+def _danger_zone_journey(health_probe, make_api_probe, fetch_json):
     """Settings → Health → Danger Zone, dry-run only (`docs/DEFENDER_DESIGN.md`
     §7). The GUI's enumeration is cross-checked against the kernel's own
     `/api/system/uninstall/plan` for the same scope: the user is told, in
@@ -155,7 +205,14 @@ def _danger_zone_journey(health_probe, make_api_probe):
     Coordinates are for the 1280×800 VM at the app's default zoom. A drifted
     coordinate does not silently pass: the step's visual question fails, because
     the assessor is asked what the frame actually shows.
+
+    The tier-1 / tier-2 questions are derived at construction time from the
+    plan endpoint itself (:func:`derive_danger_zone_questions`) — the expected
+    counts are the kernel's current answer, never an authored baseline.
     """
+    q_tier1, q_tier2 = derive_danger_zone_questions(
+        _fetch_plan(fetch_json, 1), _fetch_plan(fetch_json, 2)
+    )
     return J.Journey(
         name="danger-zone-dry-run",
         steps=[
@@ -212,7 +269,7 @@ def _danger_zone_journey(health_probe, make_api_probe):
                 name="tier1-enumeration",
                 action=scroll(400),
                 trigger=J.CHECKPOINT,
-                vision_question="does the enumeration list exactly one item, the app executable under Program Files, and say administrator approval will be requested?",
+                vision_question=q_tier1,
                 kernel_probe=make_api_probe(
                     "/api/system/uninstall/plan?tier=1", '"tier":"application"'
                 ),
@@ -221,7 +278,7 @@ def _danger_zone_journey(health_probe, make_api_probe):
                 name="widen-to-user-data",
                 action=click(455, 227),  # "+ User data" checkbox
                 trigger=J.CHECKPOINT,
-                vision_question="did the list re-enumerate to 8 items including paths under AppData\\Roaming\\cloto-system, with a warning that credentials will be destroyed?",
+                vision_question=q_tier2,
                 kernel_probe=make_api_probe(
                     "/api/system/uninstall/plan?tier=2", '"tier":"user_data"'
                 ),
@@ -264,8 +321,8 @@ _JOURNEYS = {
             {"visible": True, "detail": "health check list shown"},
             {"visible": True, "detail": "DANGER ZONE card with review button"},
             {"visible": True, "detail": "scope checkboxes, tier 1 checked+disabled"},
-            {"visible": True, "detail": "1 item: Program Files app.exe, elevation flagged"},
-            {"visible": True, "detail": "8 items under cloto-system, credentials flagged"},
+            {"visible": True, "detail": "tier-1 enumeration matches the plan count"},
+            {"visible": True, "detail": "tier-2 re-enumeration matches the plan count"},
         ],
     ),
 }
@@ -286,8 +343,8 @@ def _hashpoll_enabled() -> bool:
 
 
 def _build_transport(transport: str):
-    """Return (screen, actuator, health_probe, make_api_probe, change_probe,
-    teardown) for the chosen transport.
+    """Return (screen, actuator, health_probe, make_api_probe, fetch_json,
+    change_probe, teardown) for the chosen transport.
 
     - ``tunnel`` (default, #235): a persistent SSH port-forward — every call is a
       plain local HTTP hit, no per-call ssh/PowerShell/curl spawn (measured ~2.3x
@@ -302,6 +359,7 @@ def _build_transport(transport: str):
             VmAgentActuator(),
             health_probe,
             KernelApiProbe,
+            KernelJsonFetch(),
             change_probe,
             lambda: None,
         )
@@ -313,6 +371,7 @@ def _build_transport(transport: str):
         TunnelActuator(tunnel),
         TunnelHealthProbe(tunnel),
         lambda path, want: TunnelApiProbe(tunnel, path, want),
+        TunnelJsonFetch(tunnel),
         change_probe,
         tunnel.close,
     )
@@ -331,10 +390,13 @@ def _parse_args(argv):
     )
     p.add_argument(
         "--ledger",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="append this apex run to qa/opverify/history.jsonl and check for "
         "regressions vs the prior apex baseline (apex rows are compared only "
-        "against apex rows)",
+        "against apex rows). Default ON — an unrecorded run is invisible to "
+        "the usage ledger, so skipping (--no-ledger) must be a deliberate, "
+        "visible choice, not a forgotten flag",
     )
     p.add_argument(
         "--history",
@@ -367,7 +429,7 @@ def main(argv) -> int:
     else:
         assessor = RecordedVision(recorded)
 
-    screen, actuator, health_probe, make_api_probe, change_probe, teardown = (
+    screen, actuator, health_probe, make_api_probe, fetch_json, change_probe, teardown = (
         _build_transport(transport)
     )
     try:
@@ -377,7 +439,7 @@ def main(argv) -> int:
             assessor=assessor,
             change_probe=change_probe,
         )
-        report = driver.run(make_journey(health_probe, make_api_probe))
+        report = driver.run(make_journey(health_probe, make_api_probe, fetch_json))
     finally:
         teardown()
         if handshake is not None:

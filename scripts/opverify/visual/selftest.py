@@ -167,6 +167,46 @@ def scenario_settle_hashpoll() -> None:
     assert probe_calls["n"] == 3, f"three hash polls expected, got {probe_calls['n']}"
 
 
+def scenario_derived_questions() -> None:
+    """The danger-zone questions embed the kernel plan's current counts and
+    conditional clauses (runtime derivation — never an authored baseline).
+    Fixtures are asymmetric on every axis (counts differ, elevation and secret
+    flags come from different tiers) so a swapped or ignored field cannot pass
+    by coincidence."""
+    from .run_vm import derive_danger_zone_questions
+
+    plan1 = {
+        "plan": {"data_dir": "C:\\Users\\PC\\AppData\\Roaming\\cloto-system"},
+        "summary": {"entries": 3, "needs_elevation": True, "contains_secret": False},
+    }
+    plan2 = {
+        "plan": {"data_dir": "C:\\Users\\PC\\AppData\\Roaming\\cloto-system"},
+        "summary": {"entries": 7, "needs_elevation": False, "contains_secret": True},
+    }
+    q1, q2 = derive_danger_zone_questions(plan1, plan2)
+    assert "exactly 3 items" in q1, q1
+    assert "administrator approval" in q1, q1
+    assert "7 items" in q2, q2
+    assert "cloto-system" in q2, q2
+    assert "credentials will be destroyed" in q2, q2
+
+    plan1["summary"] = {
+        "entries": 1,
+        "needs_elevation": False,
+        "contains_secret": False,
+    }
+    plan2["summary"] = {
+        "entries": 2,
+        "needs_elevation": False,
+        "contains_secret": False,
+    }
+    q1, q2 = derive_danger_zone_questions(plan1, plan2)
+    assert "exactly 1 item," in q1, q1
+    assert "administrator" not in q1, q1
+    assert "2 items" in q2, q2
+    assert "credentials" not in q2, q2
+
+
 def main() -> int:
     scenarios = [
         scenario_happy,
@@ -175,6 +215,7 @@ def main() -> int:
         scenario_agree_fail,
         scenario_settle,
         scenario_settle_hashpoll,
+        scenario_derived_questions,
     ]
     for sc in scenarios:
         sc()
