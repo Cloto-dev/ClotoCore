@@ -167,6 +167,59 @@ def scenario_settle_hashpoll() -> None:
     assert probe_calls["n"] == 3, f"three hash polls expected, got {probe_calls['n']}"
 
 
+def scenario_roi_crop() -> None:
+    """A step with an ROI hands the assessor a CROPPED frame while the run's
+    own record keeps the full frame (#446). The crop implementation is
+    injected so this exercises the driver's plumbing without Pillow; the
+    assertions are asymmetric — the assessor must see the cropped bytes, and
+    a failing step's forensic must still be the full frame."""
+    from .interfaces import Frame
+
+    full = frame("full")
+    crops: list = []
+
+    def fake_crop(f: Frame, roi: tuple) -> Frame:
+        crops.append(roi)
+        return Frame.of(b"cropped:" + f.data)
+
+    class CapturingVision:
+        def __init__(self) -> None:
+            self.seen: list = []
+
+        def assess(self, f: Frame, question: str):
+            self.seen.append(f.data)
+            from .interfaces import VisionAssessment
+
+            return VisionAssessment(visible=False, detail="mismatch", defects=[])
+
+    vision = CapturingVision()
+    screen = ScriptedScreen([full])
+    driver = VisualDriver(
+        screen, RecordingActuator(), vision, crop=fake_crop, now=FakeClock().now,
+        sleep=FakeClock().sleep,
+    )
+    report = driver.run(
+        J.Journey(
+            name="roi",
+            steps=[
+                J.Step(
+                    name="counted",
+                    trigger=J.CHECKPOINT,
+                    settle=False,
+                    vision_question="exactly 3 items?",
+                    roi=(10, 20, 30, 40),
+                )
+            ],
+        )
+    )
+    assert crops == [(10, 20, 30, 40)], crops
+    assert vision.seen == [b"cropped:" + full.data], vision.seen
+    # visible=False with no kernel probe → soft-tier failure; the forensic
+    # must be the FULL frame, not the assessor's crop.
+    assert report.steps[0].forensic is not None
+    assert report.steps[0].forensic.data == full.data
+
+
 def scenario_fetch_plan_envelope() -> None:
     """_fetch_plan must unwrap the kernel's {"data": ...} response envelope
     (handlers/response.rs ok_data wraps every handler payload). The first live
@@ -234,6 +287,7 @@ def main() -> int:
         scenario_agree_fail,
         scenario_settle,
         scenario_settle_hashpoll,
+        scenario_roi_crop,
         scenario_fetch_plan_envelope,
         scenario_derived_questions,
     ]
