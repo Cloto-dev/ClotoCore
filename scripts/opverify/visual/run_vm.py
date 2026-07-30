@@ -107,6 +107,10 @@ def derive_danger_zone_questions(plan1: dict, plan2: dict) -> tuple:
 def _fetch_plan(fetch_json, tier: int) -> dict:
     path = f"/api/system/uninstall/plan?tier={tier}"
     body = fetch_json(path)
+    # Every kernel handler wraps its payload in a {"data": ...} envelope
+    # (handlers/response.rs ok_data) — the 2026-07-31 apex run crashed here
+    # because this checked the envelope for the payload's keys.
+    body = body.get("data", body)
     if "summary" not in body or "plan" not in body:
         raise RuntimeError(
             f"unexpected plan response from {path} (403? bad OPV_API_KEY?): "

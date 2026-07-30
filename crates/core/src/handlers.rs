@@ -443,8 +443,10 @@ pub struct UninstallPlanQuery {
 /// so a scope this endpoint accepts is one the uninstall accepts.
 ///
 /// # Response
-/// - **200 OK:** `{ "plan": …, "summary": { "entries", "skipped",
-///   "total_bytes", "total_truncated", "contains_secret", "needs_elevation" } }`
+/// - **200 OK:** `{ "data": { "plan": …, "summary": { "entries", "skipped",
+///   "total_bytes", "total_truncated", "contains_secret", "needs_elevation" } } }`
+///   (the standard `ok_data` envelope — a consumer written against this list
+///   without the envelope crashed on first contact, 2026-07-31)
 /// - **400 Bad Request:** invalid tier or prefix
 /// - **403 Forbidden:** invalid or missing API key
 pub async fn system_uninstall_plan_handler(
