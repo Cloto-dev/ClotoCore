@@ -106,10 +106,24 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # Per-compilation-unit object cache. rust-cache's target archive restores
+      # only on an exact key match (Cargo.lock hash), so every dependency bump
+      # rebuilt the whole tree (~18 min observed on the Windows installer job);
+      # sccache keys per unit, so only changed crates recompile. Not usable on
+      # the cross leg — the container has no sccache binary.
+      - name: Setup sccache
+        if: ${{ !matrix.cross }}
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           shared-key: release-${{ matrix.target }}
+          # Native legs get object caching from sccache; keep only the cargo
+          # registry/git caches here so the all-or-nothing target archives stop
+          # crowding the repo's 10 GB Actions cache quota (measured at 9.5 GB
+          # with release-target archives already evicted).
+          cache-targets: ${{ matrix.cross }}
 
       # H-11: Pre-build version validation
       - name: Determine version
@@ -143,6 +157,12 @@ jobs:
       - name: Build (native)
         if: ${{ !matrix.cross }}
         run: cargo build --release --target ${{ matrix.target }} --package cloto_core
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: sccache
+          # Degrade to an uncached compile if the cache service is flaky,
+          # instead of failing the release build.
+          SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
 
       - name: Build (cross)
         if: matrix.cross
@@ -253,10 +273,16 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      # See the build job's sccache comment: per-unit object cache so a
+      # dependency bump no longer voids the entire compile cache.
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           shared-key: release-tauri-windows
+          cache-targets: false
 
       - name: Build Tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
@@ -264,6 +290,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: sccache
+          SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
         with:
           projectPath: dashboard
           tauriScript: npx tauri
@@ -334,10 +363,16 @@ jobs:
         with:
           targets: x86_64-unknown-linux-gnu
 
+      # See the build job's sccache comment: per-unit object cache so a
+      # dependency bump no longer voids the entire compile cache.
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           shared-key: release-tauri-linux
+          cache-targets: false
 
       - name: Build Tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
@@ -345,6 +380,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: sccache
+          SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
         with:
           projectPath: dashboard
           tauriScript: npx tauri
@@ -423,10 +461,16 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # See the build job's sccache comment: per-unit object cache so a
+      # dependency bump no longer voids the entire compile cache.
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           shared-key: release-tauri-macos-${{ matrix.arch }}
+          cache-targets: false
 
       - name: Build Tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
@@ -434,6 +478,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: sccache
+          SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
           # macOS code signing — uncomment when valid Apple Developer certificates
           # are configured in GitHub Secrets (APPLE_CERTIFICATE must be a valid
           # base64-encoded .p12 file)

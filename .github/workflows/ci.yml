@@ -97,16 +97,30 @@ jobs:
             experimental: true
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.experimental || false }}
+    # Per-compilation-unit object cache: rust-cache's target archive restores
+    # only on an exact key match (Cargo.lock hash), so every dependency bump
+    # recompiled the whole tree; sccache keys per unit, so only changed crates
+    # recompile. rust-cache stays for the registry/git caches (cache-targets
+    # off) — the full target archives were crowding the repo's 10 GB Actions
+    # cache quota (measured at 9.5 GB with release archives already evicted).
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           shared-key: ci-test-${{ matrix.os }}
+          cache-targets: false
 
       - name: Create dashboard dist placeholder
         shell: bash
@@ -144,16 +158,25 @@ jobs:
             experimental: true
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.experimental || false }}
+    # sccache: same rationale as the test job (see its comment).
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           shared-key: ci-smoke-${{ matrix.os }}
+          cache-targets: false
 
       # Build-time only — `app --smoke` never initializes GTK/WebKit at runtime
       # (it exits before the Tauri builder), so no xvfb/display is needed to run it.
