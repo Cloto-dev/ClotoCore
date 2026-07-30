@@ -9,7 +9,7 @@ find, so the driver stays generic and journeys are data.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .interfaces import Action, KernelProbe, noop
 
@@ -35,6 +35,11 @@ class Step:
     kernel_probe: Optional[KernelProbe] = None
     # Bound for POLL_UNTIL_VISIBLE.
     poll_timeout: float = 15.0
+    # Crop the ASSESSOR'S copy of the frame to (x, y, w, h) before asking the
+    # vision question (checkpoint steps only) — image tokens dominate assessor
+    # cost, and a count/state question only needs its pane. The full frame is
+    # still saved and kept as the forensic. None ⇒ assess the full frame.
+    roi: Optional[Tuple[int, int, int, int]] = None
 
 
 @dataclass
