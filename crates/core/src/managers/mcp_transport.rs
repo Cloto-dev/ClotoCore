@@ -600,7 +600,18 @@ impl HttpTransport {
     }
 
     /// Start an HTTP transport connection to a remote MCP server.
-    pub async fn start(url: &str, auth_token: Option<&str>) -> Result<Self> {
+    ///
+    /// `era` is the connection's shared protocol-era state, still unset at this
+    /// point: the client negotiates *through* this transport. The request loop
+    /// therefore reads it per message, which is what lets the modern era add its
+    /// routing headers and stop sending `Mcp-Session-Id` (a header MCP
+    /// 2026-07-28 removed) the moment negotiation settles.
+    #[allow(clippy::too_many_lines)]
+    pub async fn start(
+        url: &str,
+        auth_token: Option<&str>,
+        era: super::mcp_protocol::EraHandle,
+    ) -> Result<Self> {
         // URL validation: HTTPS required for non-localhost
         validate_http_url(url)?;
 
@@ -631,21 +642,49 @@ impl HttpTransport {
                 if let Some(ref token) = auth {
                     request = request.header("Authorization", format!("Bearer {token}"));
                 }
-                if let Some(ref sid) = *session_id
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                {
-                    request = request.header("Mcp-Session-Id", sid.clone());
-                }
 
                 // bug-450: capture the request id before `msg` is moved into the
                 // body — error envelopes must echo it so start_response_loop can
                 // route the failure to the exact pending request (a null id
                 // never matches, leaving the caller to a generic timeout).
-                let req_id = serde_json::from_str::<serde_json::Value>(&msg)
-                    .ok()
+                let parsed = serde_json::from_str::<serde_json::Value>(&msg).ok();
+                let req_id = parsed
+                    .as_ref()
                     .and_then(|v| v.get("id").cloned())
                     .unwrap_or(serde_json::Value::Null);
+                let method = parsed
+                    .as_ref()
+                    .and_then(|v| v.get("method"))
+                    .and_then(|m| m.as_str())
+                    .map(str::to_string);
+
+                // Modern era (and the `server/discover` probe that decides it,
+                // which necessarily runs before the era is known) declares the
+                // protocol version and method out-of-band so the server's era
+                // router can dispatch without parsing the body.
+                let is_modern = era.is_modern();
+                let is_probe = method.as_deref() == Some(super::mcp_protocol::DISCOVER_METHOD);
+                if is_modern || is_probe {
+                    let version = era.wire_version().unwrap_or_else(|| {
+                        super::mcp_protocol::MODERN_PROTOCOL_VERSION.to_string()
+                    });
+                    request = request.header(super::mcp_protocol::HEADER_PROTOCOL_VERSION, version);
+                    if let Some(ref m) = method {
+                        request = request.header(super::mcp_protocol::HEADER_METHOD, m.clone());
+                    }
+                }
+
+                // `Mcp-Session-Id` is legacy-only: MCP 2026-07-28 removed
+                // session identity from the protocol, so a modern connection
+                // neither sends nor tracks it.
+                if !is_modern {
+                    if let Some(ref sid) = *session_id
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    {
+                        request = request.header("Mcp-Session-Id", sid.clone());
+                    }
+                }
 
                 // bug-356: bound each request so one slow message can't stall the
                 // serial request loop (and the queue behind it). This is in
@@ -694,13 +733,16 @@ impl HttpTransport {
                     continue;
                 }
 
-                // Track session ID from response header
-                if let Some(sid) = response.headers().get("mcp-session-id") {
-                    if let Ok(sid_str) = sid.to_str() {
-                        let mut guard = session_id
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        *guard = Some(sid_str.to_string());
+                // Track session ID from response header (legacy era only — see
+                // the send-side guard above).
+                if !is_modern {
+                    if let Some(sid) = response.headers().get("mcp-session-id") {
+                        if let Ok(sid_str) = sid.to_str() {
+                            let mut guard = session_id
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                            *guard = Some(sid_str.to_string());
+                        }
                     }
                 }
 
