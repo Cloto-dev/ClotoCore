@@ -13,7 +13,7 @@ If a proposed change conflicts with any of these, flag it before proceeding.
 
 ## Commands
 
-- Rust lint: `cargo clippy --workspace --exclude app --all-targets -- -D warnings`
+- Rust lint: `bash scripts/lint-rust.sh` (CI's clippy flags, read out of `ci.yml`, plus `--all-targets`)
 - Rust format: `cargo fmt --all -- --check`
 - Rust test: `cargo test --workspace --exclude app`
 - Dashboard lint: `cd dashboard && npx biome check src/`
@@ -25,7 +25,7 @@ If a proposed change conflicts with any of these, flag it before proceeding.
 - Test ratchet: `bash scripts/check-test-count.sh`
 - Language packs: `python3 scripts/check-language-packs.py` (blocking CI gate — every key in `dashboard/src/locales/en/` must exist in each pack under `dashboard/src-tauri/resources/`. Adding UI strings means adding the ja values in the same PR; `fallbackLng` hides the gap at runtime and the component tests only see English)
 
-**MUST (pre-push lint for Rust changes):** before pushing any change under `crates/`, run **both** `cargo fmt --all -- --check` **and** clippy locally — the CI **Lint** job gates on both and a formatting/clippy diff fails the PR. Running the dashboard `biome` check alone does **not** cover the Rust Lint job. The clippy command above (`--all-targets`) is stricter than CI; to reproduce CI exactly use the flags in `.github/workflows/ci.yml` (Lint job: no `--all-targets`, plus an `-A clippy::*` allowlist). `.github/workflows/ci.yml` is the authoritative gate.
+**MUST (pre-push lint for Rust changes):** before pushing any change under `crates/`, run **both** `cargo fmt --all -- --check` **and** clippy locally — the CI **Lint** job gates on both and a formatting/clippy diff fails the PR. Running the dashboard `biome` check alone does **not** cover the Rust Lint job. `scripts/lint-rust.sh` reads the clippy invocation out of the CI Lint job and adds `--all-targets`, so it is stricter than CI in exactly one dimension (it also lints tests, benches and examples) and never disagrees with CI on which lints are enabled — do not hand-copy the `-A clippy::*` allowlist anywhere. It is expected to be **green**; a red local gate means a real regression, not a known-bad baseline. To reproduce CI byte-for-byte, drop `--all-targets`. `.github/workflows/ci.yml` is the authoritative gate.
 
 ## SQLx Migration Rules (CRITICAL)
 

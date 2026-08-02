@@ -5006,7 +5006,7 @@ mod tests {
         // stored in the tracking slot.
         let handle = tokio::spawn(async {
             loop {
-                tokio::time::sleep(Duration::from_secs(3600)).await;
+                tokio::time::sleep(Duration::from_hours(1)).await;
             }
         });
         *state.install_task.lock().await = Some(handle);

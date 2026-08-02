@@ -319,6 +319,10 @@ mod tests {
         }
     }
 
+    // The boundaries are asserted as a ladder (60/61, 120/121); rewriting the
+    // round values as `from_mins` would break the symmetry that makes the
+    // off-by-one pairs readable.
+    #[allow(clippy::duration_suboptimal_units)]
     #[test]
     fn from_elapsed_picks_correct_tier() {
         let h = Duration::from_secs(30);
