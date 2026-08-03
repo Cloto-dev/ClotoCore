@@ -1,6 +1,6 @@
 {
   "rust_test_count": 612,
-  "dashboard_test_count": 55,
-  "updated_at": "2026-07-27",
+  "dashboard_test_count": 60,
+  "updated_at": "2026-08-03",
   "updated_by": "check-test-count.sh --update"
 }

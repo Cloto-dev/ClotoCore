@@ -298,29 +298,23 @@ def _chat_journey(health_probe, make_api_probe, fetch_json):
                     timeout=60.0,
                 ),
             ),
-            # The thread does not follow its own tail: a new turn renders, but
-            # below the fold, and the pane does not scroll to it (measured
-            # 2026-08-03 on 0.6.8-beta.3 — filed separately as a UX defect).
-            # Scroll before asserting so this step answers "did the reply
-            # render", not "did the pane auto-scroll" — one assertion per step.
-            # The agent scrolls at the pointer, so park it over the transcript
-            # first; without this the wheel events land on whatever pane the
-            # cursor was left on.
+            # Asserted WITHOUT scrolling first, deliberately. Until bug-498 the
+            # thread did not follow its own tail — the turn rendered below the
+            # fold — and this journey scrolled before asserting so the step
+            # answered "did the reply render" rather than "did the pane follow".
+            # With the fix landed the two questions collapse into one: a reply
+            # the user can see without touching the wheel. The scroll steps are
+            # gone rather than kept "just in case", because a journey that
+            # scrolls first can never fail on a regression of the fix.
             J.Step(
-                name="point-at-transcript",
-                action=move(700, 400),
-                trigger=J.CHECKPOINT,
-                settle=False,
-            ),
-            *_scroll_steps("to-latest-reply", -400, 5),
-            J.Step(
-                name="reply-rendered",
+                name="reply-rendered-without-scrolling",
                 trigger=J.CHECKPOINT,
                 settle=False,
                 vision_question=(
-                    f"is there an assistant reply — a bubble on the LEFT, not "
-                    f"the user's own message on the right — whose text is "
-                    f"'{nonce}'?"
+                    f"is an assistant reply — a bubble on the LEFT, not the "
+                    f"user's own message on the right — whose text is "
+                    f"'{nonce}' visible in this frame, without anyone having "
+                    f"scrolled the transcript?"
                 ),
             ),
         ],
@@ -490,9 +484,10 @@ _JOURNEYS = {
     "chat-render": (
         _chat_journey,
         # RecordedVision fallback: one entry per *assessed* step, in call order.
-        # The three positioning steps ask nothing. Prefer OPV_ASSESSOR=handshake
-        # — a canned "the reply rendered" is worth nothing on the one journey
-        # whose whole point is that the reply rendered.
+        # The typing / send / wait steps ask nothing. Prefer
+        # OPV_ASSESSOR=handshake — a canned "the reply rendered" is worth
+        # nothing on the one journey whose whole point is that the reply
+        # rendered, unscrolled, where the user is already looking.
         [
             {"visible": True, "detail": "chat view with a bottom input box"},
             {"visible": True, "detail": "assistant reply bubble echoing the nonce"},
