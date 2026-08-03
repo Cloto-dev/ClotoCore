@@ -332,6 +332,135 @@ def scenario_op_regression_on_apex() -> None:
     assert "app-rendered-and-kernel-healthy" not in regs[0].detail, regs[0].detail
 
 
+def scenario_assessor_is_recorded_on_the_row() -> None:
+    """The assessor that produced the visual verdicts is persisted, and absent
+    (rather than guessed) when the caller does not say."""
+    labelled = L.entry_from_apex_report(
+        clean_apex_report(),
+        ts=1_700_000_000.0,
+        os_label="windows-vm",
+        sha=FAKE_SHA,
+        assessor="handshake",
+    )
+    assert labelled.assessor == "handshake", labelled.assessor
+    assert labelled.journey == "vm-liveness", labelled.journey
+    assert "assessor" in asdict(labelled), "the field must survive serialisation"
+
+    unlabelled = L.entry_from_apex_report(
+        clean_apex_report(), ts=1_700_000_010.0, os_label="windows-vm", sha=FAKE_SHA
+    )
+    assert unlabelled.assessor is None, unlabelled.assessor
+
+
+def scenario_baseline_isolated_by_journey() -> None:
+    """Two journeys have disjoint step names, so one must never be the other's
+    baseline: every step of the newcomer would read as 'passed before, failing
+    now'. Only ``journey`` separates them — both are apex rows on the same OS."""
+    liveness = asdict(
+        L.entry_from_apex_report(
+            clean_apex_report(journey="vm-liveness"),
+            ts=1_700_000_000.0,
+            os_label="windows-vm",
+            sha=FAKE_SHA,
+            assessor="handshake",
+        )
+    )
+    other = apex_report(journey="danger-zone-dry-run", verdict="warn")
+    now = L.entry_from_apex_report(
+        other, ts=1_700_000_600.0, os_label="windows-vm", sha=FAKE_SHA,
+        assessor="handshake",
+    )
+    assert now.journey != liveness["journey"], "the scenario needs two journeys"
+    assert now.failed_ops, "the newcomer must have a failing step to misreport"
+    regs = L.detect_regressions(now, [json.loads(json.dumps(liveness))])
+    assert regs == [], [f"{r.kind}: {r.detail}" for r in regs]
+
+
+def scenario_baseline_isolated_by_assessor() -> None:
+    """A 'recorded' row replays canned verdicts, so it carries no visual
+    evidence; scoring a live 'handshake' run against it compares different
+    things. Same journey, same OS — only the assessor differs."""
+    canned = asdict(
+        L.entry_from_apex_report(
+            clean_apex_report(),
+            ts=1_700_000_000.0,
+            os_label="windows-vm",
+            sha=FAKE_SHA,
+            assessor="recorded",
+        )
+    )
+    rep = clean_apex_report()
+    rep["verdict"] = "warn"
+    rep["steps"][1].update(
+        {"diagnosis": "frontend_bug", "hard_fail": False, "soft_fail": True}
+    )
+    live = L.entry_from_apex_report(
+        rep, ts=1_700_000_600.0, os_label="windows-vm", sha=FAKE_SHA,
+        assessor="handshake",
+    )
+    assert live.journey == canned["journey"], "the scenario needs one journey"
+    assert live.failed_ops, "the live run must have a failing step"
+    regs = L.detect_regressions(live, [json.loads(json.dumps(canned))])
+    assert regs == [], [f"{r.kind}: {r.detail}" for r in regs]
+
+    # …and two live runs of the same journey DO form a line, so narrowing the
+    # key has not disabled regression detection outright.
+    live_base = asdict(
+        L.entry_from_apex_report(
+            clean_apex_report(),
+            ts=1_700_000_100.0,
+            os_label="windows-vm",
+            sha=FAKE_SHA,
+            assessor="handshake",
+        )
+    )
+    regs = L.detect_regressions(live, [json.loads(json.dumps(live_base))])
+    assert len(regs) == 1, [r.kind for r in regs]
+    assert regs[0].kind == "op-regression", regs[0].kind
+
+
+def scenario_legacy_apex_row_is_not_a_baseline() -> None:
+    """Rows written before the provenance fields existed read back as None. An
+    unknown assessor is not evidence of a matching one, so such a row forms its
+    own line instead of silently backing a run whose provenance is known."""
+    legacy = asdict(
+        L.entry_from_apex_report(
+            clean_apex_report(), ts=1_700_000_000.0, os_label="windows-vm", sha=FAKE_SHA
+        )
+    )
+    legacy.pop("journey", None)
+    legacy.pop("assessor", None)
+    assert "assessor" not in legacy
+
+    rep = clean_apex_report()
+    rep["verdict"] = "warn"
+    rep["steps"][1].update(
+        {"diagnosis": "frontend_bug", "hard_fail": False, "soft_fail": True}
+    )
+    now = L.entry_from_apex_report(
+        rep, ts=1_700_000_600.0, os_label="windows-vm", sha=FAKE_SHA,
+        assessor="handshake",
+    )
+    regs = L.detect_regressions(now, [json.loads(json.dumps(legacy))])
+    assert regs == [], [f"{r.kind}: {r.detail}" for r in regs]
+
+
+def scenario_harness_rows_are_unaffected() -> None:
+    """The provenance fields are apex-only: harness rows carry None for both, so
+    the narrowed key must leave their existing baseline behaviour intact."""
+    base = asdict(
+        L.entry_from_report(harness_report(), ts=1_700_000_000.0, sha=FAKE_SHA)
+    )
+    assert base["journey"] is None and base["assessor"] is None
+    worse = L.entry_from_report(
+        harness_report(), ts=1_700_000_600.0, sha=FAKE_SHA
+    )
+    worse.failed_ops = sorted(set(worse.failed_ops) | {"health.scan"})
+    regs = L.detect_regressions(worse, [json.loads(json.dumps(base))])
+    assert len(regs) == 1, [r.kind for r in regs]
+    assert "health.scan" in regs[0].detail, regs[0].detail
+
+
 def scenario_record_appends() -> None:
     """``record`` / ``record_apex`` append to the same file without disturbing
     prior rows — and regressions are computed before the append, so a fresh row
@@ -409,6 +538,11 @@ def main() -> int:
         scenario_baseline_isolated_by_target_kind,
         scenario_no_false_coverage_drop,
         scenario_op_regression_on_apex,
+        scenario_assessor_is_recorded_on_the_row,
+        scenario_baseline_isolated_by_journey,
+        scenario_baseline_isolated_by_assessor,
+        scenario_legacy_apex_row_is_not_a_baseline,
+        scenario_harness_rows_are_unaffected,
         scenario_record_appends,
         scenario_repo_history_untouched,
     ]

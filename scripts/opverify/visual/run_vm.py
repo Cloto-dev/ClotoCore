@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import sys
 import time
 
@@ -45,7 +46,7 @@ from .backends_vm import (
 )
 from .assessor_cache import CachingAssessor
 from .driver import VisualDriver
-from .interfaces import Frame, click, move, scroll
+from .interfaces import Frame, click, move, press_key, scroll, type_text
 from .live_assessor import AgentHandshakeAssessor
 
 
@@ -175,6 +176,153 @@ def _agents_journey(health_probe, make_api_probe, fetch_json):
                 vision_question="is the ClotoCore GUI rendered with visible content?",
                 kernel_probe=make_api_probe("/api/agents", '"agent_type":"agent"'),
             )
+        ],
+    )
+
+
+# Chat view geometry on the 1280x800 VM screen (measured 2026-08-03 against
+# 0.6.8-beta.3). The composer runs along the bottom; clicking mid-width focuses
+# it without hitting the attach / mic / model-picker controls on the left or the
+# send button on the right.
+_CHAT_INPUT_XY = (800, 714)
+
+
+class _AwaitingProbe:
+    """A kernel probe for an *asynchronous* outcome: retry until true or the
+    bound elapses.
+
+    The driver evaluates ``kernel_probe`` exactly once, after the visual poll
+    returns. That is right for a synchronous step, but for a step waiting on an
+    LLM round trip it ties the kernel sample to how long the *visual* oracle
+    happened to take — so under ``OPV_ASSESSOR=recorded``, whose canned verdict
+    returns instantly, the kernel is sampled before the reply can possibly
+    exist and the step fails with ``backend_or_hidden`` on a perfectly healthy
+    app (observed 2026-08-03). Letting the kernel wait on its own clock
+    decouples the two oracles, so the recorded fallback still carries a real
+    kernel half.
+    """
+
+    def __init__(self, inner, timeout: float = 60.0, interval: float = 2.0):
+        self._inner = inner
+        self._timeout = timeout
+        self._interval = interval
+
+    def check(self) -> bool:
+        deadline = time.time() + self._timeout
+        while True:
+            if self._inner.check():
+                return True
+            if time.time() >= deadline:
+                return False
+            time.sleep(self._interval)
+
+
+def _chat_nonce() -> str:
+    """A per-run token the reply must echo. Alphanumeric on purpose: the
+    session-1 agent types via pyautogui ``write()``, which mis-maps some shifted
+    characters on the VM's JP keyboard layout (VM_EXECUTOR_RUNBOOK.md, "Known
+    harness artifacts") — an alphanumeric nonce is unaffected."""
+    return "opv" + secrets.token_hex(4)
+
+
+def _chat_journey(health_probe, make_api_probe, fetch_json):
+    """The headline dual-oracle journey: a real user types into the chat box,
+    the assistant's reply **renders**, and the kernel **persists** it.
+
+    Driven ad hoc on 2026-07-14 (FIRST_RUN.md) but never registered, so it could
+    not be re-run — which is exactly what the opverify anti-rot design is meant
+    to prevent. Registered here.
+
+    The kernel oracle is deliberately narrow. The nonce also appears in the
+    user's own message echoed back in ``/api/history``, so matching the nonce
+    alone would pass even if the assistant never answered. Requiring
+    ``"content":"<nonce>","engine_id":"`` pins the match to a ThoughtResponse
+    whose content is *exactly* the nonce — the engine name is left unpinned so
+    the journey survives a default-engine change.
+
+    Preconditions: the app is on an agent's chat view (not onboarding, not the
+    settings modal) and a reasoning engine is connected. A disconnected engine
+    renders an error bubble instead of a reply, which surfaces as AGREE_FAIL
+    rather than a silent pass.
+    """
+    nonce = _chat_nonce()
+    return J.Journey(
+        name="chat-render",
+        steps=[
+            J.Step(
+                name="chat-view-rendered",
+                trigger=J.CHECKPOINT,
+                settle=False,
+                vision_question=(
+                    "is a chat view rendered, with a message input box along "
+                    "the bottom of the window?"
+                ),
+                kernel_probe=health_probe,
+            ),
+            # Positioning steps: they assert nothing, so they ask the assessor
+            # nothing (image tokens are the dominant cost).
+            J.Step(
+                name="focus-chat-input",
+                action=click(*_CHAT_INPUT_XY),
+                trigger=J.CHECKPOINT,
+                settle=False,
+            ),
+            J.Step(
+                name="type-nonce",
+                action=type_text(
+                    f"Reply with exactly this token and nothing else: {nonce}"
+                ),
+                trigger=J.CHECKPOINT,
+                settle=False,
+            ),
+            J.Step(
+                name="send",
+                action=press_key("enter"),
+                trigger=J.CHECKPOINT,
+                settle=False,
+            ),
+            # Wait for the backend first, on its own clock. Splitting the wait
+            # out of the visual step is deliberate: the driver samples
+            # kernel_probe once, after the visual poll returns, so a combined
+            # step would sample the kernel at whatever moment the *visual*
+            # oracle happened to finish — instantly, under the canned recorded
+            # assessor, which is before any reply can exist.
+            J.Step(
+                name="await-reply-persisted",
+                trigger=J.CHECKPOINT,
+                settle=False,
+                kernel_probe=_AwaitingProbe(
+                    make_api_probe(
+                        "/api/history", f'"content":"{nonce}","engine_id":"'
+                    ),
+                    timeout=60.0,
+                ),
+            ),
+            # The thread does not follow its own tail: a new turn renders, but
+            # below the fold, and the pane does not scroll to it (measured
+            # 2026-08-03 on 0.6.8-beta.3 — filed separately as a UX defect).
+            # Scroll before asserting so this step answers "did the reply
+            # render", not "did the pane auto-scroll" — one assertion per step.
+            # The agent scrolls at the pointer, so park it over the transcript
+            # first; without this the wheel events land on whatever pane the
+            # cursor was left on.
+            J.Step(
+                name="point-at-transcript",
+                action=move(700, 400),
+                trigger=J.CHECKPOINT,
+                settle=False,
+            ),
+            *_scroll_steps("to-latest-reply", -400, 5),
+            J.Step(
+                name="reply-rendered",
+                trigger=J.CHECKPOINT,
+                settle=False,
+                vision_question=(
+                    f"is there an assistant reply — a bubble on the LEFT, not "
+                    f"the user's own message on the right — whose text is "
+                    f"'{nonce}'?"
+                ),
+            ),
         ],
     )
 
@@ -339,6 +487,17 @@ _JOURNEYS = {
             {"visible": True, "detail": "ClotoCore UI rendered (onboarding/main)"},
         ],
     ),
+    "chat-render": (
+        _chat_journey,
+        # RecordedVision fallback: one entry per *assessed* step, in call order.
+        # The three positioning steps ask nothing. Prefer OPV_ASSESSOR=handshake
+        # — a canned "the reply rendered" is worth nothing on the one journey
+        # whose whole point is that the reply rendered.
+        [
+            {"visible": True, "detail": "chat view with a bottom input box"},
+            {"visible": True, "detail": "assistant reply bubble echoing the nonce"},
+        ],
+    ),
     "danger-zone": (
         _danger_zone_journey,
         # RecordedVision fallback (OPV_ASSESSOR=recorded). One entry per assessed
@@ -484,12 +643,23 @@ def main(argv) -> int:
             ts=time.time(),
             os_label=APEX_OS_LABEL,
             history_path=args.history,
+            assessor=assessor_kind,
         )
         print(
             f"\nledger: recorded {entry.run_id} "
             f"(git={entry.git_sha or 'n/a'}, os={entry.os}, "
+            f"assessor={entry.assessor}, "
             f"steps={entry.ops_passed}/{entry.ops_total})"
         )
+        if entry.assessor == "recorded":
+            # Say it where the operator is already looking. A recorded row
+            # carries no visual evidence — the verdicts were canned before the
+            # run — and reading it as an apex pass is the mistake this label
+            # exists to prevent.
+            print(
+                "  note: visual verdicts were REPLAYED, not assessed. "
+                "Re-run with OPV_ASSESSOR=handshake for a live visual oracle."
+            )
         for reg in regressions:
             regressed = True
             print(
