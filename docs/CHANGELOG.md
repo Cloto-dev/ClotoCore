@@ -7,6 +7,36 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.8-beta.4] — 2026-08-03
+
+Soak release. It exists because the fix below is not in beta.3, and the
+promotion criteria for this line count soak time on the *published* artifact —
+not on whatever master happens to hold.
+
+### Fixed
+
+- **The chat pane follows new turns again** (bug-498). Its scroll effect had
+  been reduced to a mount-only effect since 2026-03-15, when a lint autofix
+  removed the dependencies it used as change triggers, so a reply rendered
+  below the fold and the view never moved — indistinguishable, from the user's
+  side, from a reply that never arrived. Every release since had shipped that
+  way. Pinning now lives in a `useStickToBottom` hook driven by a
+  MutationObserver, which also follows a reply as the typewriter reveals it.
+  Found by the opverify visual apex against the real installed GUI, and
+  re-verified there after the fix. (#429)
+
+### Changed
+
+- Dependency bumps (patch/minor only): tokio 1.53.1, tauri 2.11.5,
+  rust-embed 8.12.0, log 0.4.33; `@tauri-apps/cli` 2.11.4, `@biomejs/biome`
+  2.5.6, `@tauri-apps/plugin-global-shortcut` 2.3.2.
+  (#421, #425, #426, #427, #422, #423, #424)
+
+> Note: 0.6.8-beta.3 (2026-08-03) shipped without an entry here; its contents
+> are in the GitHub release notes.
+
+---
+
 ## [0.6.8-beta.2] — 2026-07-12
 
 Second beta of the 0.6.8 line — and the **first release whose updater
