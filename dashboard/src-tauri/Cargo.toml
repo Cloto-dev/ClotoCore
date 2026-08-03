@@ -46,4 +46,4 @@ rand = "0.8"
 # Headless `--smoke` release-gate self-check: own async runtime + raw-TCP health
 # probe (no HTTP-client/TLS dep for a loopback call). Feature set unions with the
 # kernel's `tokio = full`, so this adds no extra build cost.
-tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "io-util", "sync"] }
