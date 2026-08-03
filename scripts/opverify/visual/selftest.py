@@ -311,11 +311,14 @@ def scenario_chat_journey_probe_discriminates() -> None:
         "send",
         "await-reply-persisted",
     ], names
-    assert names[-1] == "reply-rendered", names
-    # Between the wait and the assertion sit the positioning steps that bring
-    # the newest turn into view; the thread does not follow its own tail.
-    assert any(n.startswith("scroll-to-latest-reply") for n in names), names
-    assert "point-at-transcript" in names, names
+    assert names[-1] == "reply-rendered-without-scrolling", names
+    # Nothing may sit between the wait and the assertion. The journey used to
+    # scroll the newest turn into view first, because the thread did not follow
+    # its own tail (bug-498); with that fixed the assertion covers auto-scroll
+    # itself, and a re-introduced scroll step would silently take that away —
+    # the assert would pass again on a pane that never moved.
+    assert not any(n.startswith("scroll-") for n in names), names
+    assert "point-at-transcript" not in names, names
 
     assessed = [s for s in journey.steps if s.vision_question]
     assert len(assessed) == len(recorded), (len(assessed), len(recorded))
