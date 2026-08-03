@@ -102,6 +102,66 @@ fn begin_shutdown(app: &tauri::AppHandle) {
     });
 }
 
+/// Name of the environment variable WebView2's loader reads for extra browser
+/// arguments. We honour it ourselves because the loader does not: once a host
+/// passes `AdditionalBrowserArguments` explicitly — and this app does, from
+/// `tauri.conf.json` — the variable is ignored. Measured on a real install
+/// 2026-08-03: the variable reached the process and the port stayed closed.
+const WEBVIEW2_EXTRA_ARGS_ENV: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+
+/// Append `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` to the window's configured
+/// browser arguments, when it is set.
+///
+/// This exists so the verification harness can drive **the artifact users
+/// actually install** — opening `--remote-debugging-port` for a run gives it
+/// the DOM: deterministic targeting instead of hard-coded pixel coordinates,
+/// and a structural oracle to cross-check the visual one against. Building a
+/// separate instrumented artifact was the alternative, and it would have meant
+/// verifying something other than what ships.
+///
+/// Two properties this deliberately keeps:
+///
+/// * **Closed by default.** With the variable unset the config is returned
+///   untouched, byte for byte.
+/// * **Appended, never replaced.** The configured arguments carry real settings
+///   (`--disable-features=…`, autoplay policy); overwriting them would change
+///   how the app behaves under verification, which defeats the point of
+///   verifying it.
+///
+/// The threat model is narrow: setting this variable requires control of the
+/// app's environment, and anyone holding that can already replace the binary.
+fn verification_browser_args(mut ctx: tauri::Context) -> tauri::Context {
+    let Ok(extra) = std::env::var(WEBVIEW2_EXTRA_ARGS_ENV) else {
+        return ctx;
+    };
+    let extra = extra.trim();
+    if extra.is_empty() {
+        return ctx;
+    }
+    for window in &mut ctx.config_mut().app.windows {
+        window.additional_browser_args = Some(append_browser_args(
+            window.additional_browser_args.as_deref(),
+            extra,
+        ));
+    }
+    // Visible on purpose: a run with a debug channel open should be
+    // identifiable from the log afterwards, not silently indistinguishable
+    // from an ordinary one.
+    log::warn!("{WEBVIEW2_EXTRA_ARGS_ENV} is set; appending to the window browser arguments");
+    ctx
+}
+
+/// Join configured browser arguments with the ones the environment adds.
+///
+/// Split from [`verification_browser_args`] because this is the part that can
+/// silently lose settings, and a `tauri::Context` cannot be built in a test.
+fn append_browser_args(existing: Option<&str>, extra: &str) -> String {
+    match existing.map(str::trim) {
+        Some(existing) if !existing.is_empty() => format!("{existing} {extra}"),
+        _ => extra.to_string(),
+    }
+}
+
 /// Run the shared safe-shutdown sequence from the dashboard UI (Goal #164).
 /// The frontend shows the shutdown overlay immediately; the `shutdown-started`
 /// event keeps any other window in sync.
@@ -199,6 +259,31 @@ mod tests {
         assert!(
             !MCP_DRAINED.load(Ordering::SeqCst),
             "standing down must not touch the drain guard the UI path is relying on"
+        );
+    }
+
+    #[test]
+    fn env_browser_args_are_appended_never_substituted() {
+        // The configured arguments are real settings, not decoration: this app
+        // ships `--disable-features=…` and an autoplay policy. Replacing them
+        // would change how the app behaves during the very run meant to verify
+        // it — and overwriting is exactly what WebView2's own loader does with
+        // this variable, which is why the app has to join them itself.
+        assert_eq!(
+            append_browser_args(
+                Some("--disable-features=msWebOOUI"),
+                "--remote-debugging-port=9222"
+            ),
+            "--disable-features=msWebOOUI --remote-debugging-port=9222"
+        );
+        assert_eq!(
+            append_browser_args(None, "--remote-debugging-port=9222"),
+            "--remote-debugging-port=9222"
+        );
+        assert_eq!(
+            append_browser_args(Some("   "), "--remote-debugging-port=9222"),
+            "--remote-debugging-port=9222",
+            "whitespace-only config must not produce a leading separator"
         );
     }
 }
@@ -900,7 +985,7 @@ pub fn run() {
                 with_window_log!(window.hide());
             }
         })
-        .build(tauri::generate_context!())
+        .build(verification_browser_args(tauri::generate_context!()))
         .expect("error while building tauri application");
 
     // Run with cleanup on exit
