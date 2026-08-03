@@ -196,6 +196,55 @@ measurement), re-verify the fingerprint (installed version, no unexpected
 --vmstate 1` with a description recording the contents. Keep the previous
 snapshot as a fallback until the new one has survived one journey.
 
+**Look at the live state before rolling back.** `qm rollback` discards it —
+there is no "current" snapshot to return to. On 2026-08-03 a rollback threw
+away the only configured (onboarded + engine + provider key) environment,
+which existed nowhere else because no `clean-install-*` snapshot carries app
+data by definition. Rebuilding it is the recipe below, not a disaster, but it
+is twenty minutes that a five-second look would have priced in. If a
+configured state is worth keeping, snapshot it *first* under its own name.
+
+## Rebuilding chat preconditions from a clean-install snapshot
+
+`clean-install-*` is deliberately data-free, so any journey needing a working
+engine starts with onboarding, no MCP servers and no provider key. All of it
+except the wizard clicks is scriptable through the authenticated admin API —
+which is also how the provider key stays out of the GUI, the actuator's
+request bodies and every frame:
+
+1. Launch with a known admin key — `POST :8900/run` with
+   `{"path": "C:\\Program Files\\ClotoCore\\app.exe", "env": {"CLOTO_API_KEY": "…"}}`.
+2. Install the engine — `POST :8081/api/marketplace/install`
+   `{"server_id": "cerebras", "auto_start": true}`. It comes up `Connected`
+   and creates the provider row (`has_key: false`).
+3. Set the provider key — `POST :8081/api/llm/providers/cerebras/key`
+   `{"api_key": "…"}`. Confirm with `GET /api/llm/providers`: `has_key: true`,
+   `configured: true`.
+4. Click through the wizard: name → **skip** the assistant preset (its batch
+   install is minutes of work that step 2 already did) → tick the admin-key
+   acknowledgement, and **do not press the regenerate button** — it would
+   invalidate the `CLOTO_API_KEY` every later probe authenticates with.
+5. Prove the kernel oracle before driving any GUI: `POST /api/chat` with a
+   nonce, then find the `ThoughtResponse` in `/api/history` with the expected
+   `engine_id` and the nonce as its content.
+
+**A chat journey also needs a tall thread.** Messages posted to `/api/chat`
+land in kernel history but *not* in the console's store (`/chat/{agent}/messages`),
+so they do not fill the pane — send the filler turns through the GUI. Without
+them the transcript is shorter than the viewport, every new turn is visible
+however the scroll logic behaves, and `reply-rendered-without-scrolling`
+passes while testing nothing. Click the composer before *each* send: focus is
+not retained after Enter, so a loop that clicks once silently drops every turn
+after the first.
+
+Two quoting traps on the way in, both costly to rediscover: the guest's default
+shell is PowerShell, so `curl.exe -H "…"` inside an `ssh` command line arrives
+mangled — put headers in a curl config file (`curl.exe -K C:\opv\auth.cfg`,
+one `header = "X-API-Key: …"` line per header, plus a second file adding
+`Content-Type: application/json` for POSTs, which the kernel requires). And
+`--data-binary @-` over stdin is parsed by PowerShell before curl sees it; copy
+the body to the guest and use `-d @C:\opv\body.json`.
+
 ## Journey preconditions (learned 2026-07-31, danger-zone round 3)
 
 Every committed journey assumes it starts from the **plain main window — no
