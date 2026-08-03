@@ -279,6 +279,129 @@ def scenario_derived_questions() -> None:
     assert "credentials" not in q2, q2
 
 
+def scenario_chat_journey_probe_discriminates() -> None:
+    """The registered ``chat-render`` journey's kernel oracle must confirm the
+    ASSISTANT answered — not merely that the nonce exists somewhere in the
+    history.
+
+    This is the trap the journey is built around: the user's own message is
+    echoed back in ``/api/history`` and contains the nonce, so a probe matching
+    the bare nonce passes even when the assistant never replied. The probe is
+    therefore anchored to a ThoughtResponse whose content is *exactly* the
+    nonce. Bodies below are compact JSON because that is what the kernel emits
+    (verified against a live VM on 2026-08-03) — the probe is a substring test,
+    so spacing is part of the contract.
+    """
+    from .run_vm import _JOURNEYS
+
+    seen: list = []
+
+    def fake_api_probe(path, want):
+        seen.append((path, want))
+        return object()
+
+    factory, recorded = _JOURNEYS["chat-render"]
+    journey = factory(object(), fake_api_probe, None)
+
+    names = [s.name for s in journey.steps]
+    assert names[:5] == [
+        "chat-view-rendered",
+        "focus-chat-input",
+        "type-nonce",
+        "send",
+        "await-reply-persisted",
+    ], names
+    assert names[-1] == "reply-rendered", names
+    # Between the wait and the assertion sit the positioning steps that bring
+    # the newest turn into view; the thread does not follow its own tail.
+    assert any(n.startswith("scroll-to-latest-reply") for n in names), names
+    assert "point-at-transcript" in names, names
+
+    assessed = [s for s in journey.steps if s.vision_question]
+    assert len(assessed) == len(recorded), (len(assessed), len(recorded))
+
+    assert len(seen) == 1, seen
+    path, want = seen[0]
+    assert path == "/api/history", path
+
+    # Recover the nonce the journey minted, then build the two history bodies.
+    nonce = want.split('"content":"', 1)[1].split('"', 1)[0]
+    assert nonce.isalnum(), f"nonce must survive the JP-layout keyboard: {nonce!r}"
+
+    user_echo_only = (
+        '{"data":[{"data":{"content":"Reply with exactly this token and nothing'
+        f' else: {nonce}","id":"abc"}},"type":"ChatMessage"}}]}}'
+    )
+    assert want not in user_echo_only, (
+        "the probe passes on the user's own echoed message — it would report a "
+        "reply that never came"
+    )
+
+    with_assistant_reply = (
+        user_echo_only[:-2]
+        + ',{"data":{"agent_id":"agent.cloto_default","auto_spoken":false,'
+        f'"content":"{nonce}","engine_id":"cerebras"}},"type":"ThoughtResponse"}}]}}'
+    )
+    assert want in with_assistant_reply, "the probe misses a genuine reply"
+
+    # A reply that merely mentions the nonce inside a longer answer is not an
+    # exact echo, and must not satisfy the oracle either.
+    chatty = with_assistant_reply.replace(
+        f'"content":"{nonce}"', f'"content":"sure, the token is {nonce}"'
+    )
+    assert want not in chatty, "the probe accepts a non-exact echo"
+
+    # …and the asymmetric case: a reply that *begins* with the nonce and then
+    # keeps talking. Only the closing anchor after the nonce rejects this, so
+    # without it the oracle would accept a model that ignored "and nothing
+    # else" — the exact drift the journey is supposed to notice.
+    trailing = with_assistant_reply.replace(
+        f'"content":"{nonce}"', f'"content":"{nonce} — here you go"'
+    )
+    assert want not in trailing, (
+        "the probe accepts a reply that starts with the nonce but continues"
+    )
+
+    # The visual assertion must come AFTER the backend has the reply, and the
+    # wait must live on its own step: the driver samples kernel_probe once,
+    # after the visual oracle returns, so pinning the wait to the visual step
+    # would sample the kernel at whatever moment that oracle happened to
+    # finish — instantly, under the canned recorded assessor, which is before
+    # any reply can exist (observed as a spurious backend_or_hidden on a
+    # healthy app, 2026-08-03).
+    wait = next(s for s in journey.steps if s.name == "await-reply-persisted")
+    assert wait.vision_question is None, "the wait step must not cost an assessment"
+    probe = wait.kernel_probe
+    assert hasattr(probe, "_timeout"), "the kernel oracle does not wait"
+    assert probe._timeout >= 60.0, probe._timeout
+
+    reply = journey.steps[-1]
+    assert reply.kernel_probe is None, (
+        "the rendering assertion must not re-sample the kernel — the wait step "
+        "already established it, and one step should carry one assertion"
+    )
+    assert journey.steps.index(wait) < journey.steps.index(reply)
+
+    class _LateProbe:
+        def __init__(self, succeed_on):
+            self.calls = 0
+            self._succeed_on = succeed_on
+
+        def check(self):
+            self.calls += 1
+            return self.calls >= self._succeed_on
+
+    late = _LateProbe(succeed_on=3)
+    waiting = type(probe)(late, timeout=60.0, interval=0.0)
+    assert waiting.check() is True, "a reply that lands late must still count"
+    assert late.calls == 3, late.calls
+
+    never = _LateProbe(succeed_on=10**9)
+    bounded = type(probe)(never, timeout=0.0, interval=0.0)
+    assert bounded.check() is False, "the wait must be bounded, not infinite"
+    assert never.calls == 1, never.calls
+
+
 def main() -> int:
     scenarios = [
         scenario_happy,
@@ -290,6 +413,7 @@ def main() -> int:
         scenario_roi_crop,
         scenario_fetch_plan_envelope,
         scenario_derived_questions,
+        scenario_chat_journey_probe_discriminates,
     ]
     for sc in scenarios:
         sc()

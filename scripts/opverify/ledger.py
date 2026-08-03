@@ -57,6 +57,22 @@ class LedgerEntry:
     covered: int = 0
     total_routes: int = 0
     ratchet_mode: str = "report"
+    # Apex-only provenance. Both are part of the baseline key (see
+    # _latest_baseline) because rows that differ in either are not comparable:
+    #
+    #   journey  — different journeys have disjoint step names, so a
+    #              "passed before, failing now" diff across two of them is
+    #              noise, not a regression.
+    #   assessor — "recorded" replays canned visual verdicts, so such a row
+    #              carries no visual evidence at all; scoring it against a
+    #              "handshake" row (live assessor) compares different things.
+    #              Recorded on the row so the committed trend cannot present
+    #              the two as equivalent.
+    #
+    # None on harness rows (and on apex rows written before this field
+    # existed, whose assessor is genuinely unknown).
+    journey: Optional[str] = None
+    assessor: Optional[str] = None
 
 
 @dataclass
@@ -146,7 +162,11 @@ def _apex_step_bucket(step: dict) -> str:
 
 
 def entry_from_apex_report(
-    report: dict, ts: float, os_label: str, sha: Optional[str] = None
+    report: dict,
+    ts: float,
+    os_label: str,
+    sha: Optional[str] = None,
+    assessor: Optional[str] = None,
 ) -> LedgerEntry:
     """Distil a visual-apex ``RunReport.as_dict()`` into a compact ledger entry.
 
@@ -184,6 +204,8 @@ def entry_from_apex_report(
         covered=0,
         total_routes=0,
         ratchet_mode=APEX_RATCHET_MODE,
+        journey=journey,
+        assessor=assessor,
     )
 
 
@@ -205,14 +227,30 @@ def load_history(history_path: str) -> List[dict]:
 
 
 def _latest_baseline(
-    history: List[dict], target_kind: str, os_label: str
+    history: List[dict],
+    target_kind: str,
+    os_label: str,
+    journey: Optional[str] = None,
+    assessor: Optional[str] = None,
 ) -> Optional[dict]:
-    """Most recent prior entry for the same target+os (by list order, which is
-    append order = chronological)."""
+    """Most recent prior entry for the same target+os+journey+assessor (by list
+    order, which is append order = chronological).
+
+    ``journey`` and ``assessor`` are None on harness rows, where they match the
+    None stored on every other harness row and so change nothing. On apex rows
+    they narrow the line to rows that are actually comparable — see the field
+    docs on :class:`LedgerEntry`. Legacy apex rows predate both fields, so they
+    read back as None and form their own line rather than silently becoming the
+    baseline for a run whose provenance is known; the first row of each new
+    line establishes it, as with any first run.
+    """
     match = [
         e
         for e in history
-        if e.get("target_kind") == target_kind and e.get("os") == os_label
+        if e.get("target_kind") == target_kind
+        and e.get("os") == os_label
+        and e.get("journey") == journey
+        and e.get("assessor") == assessor
     ]
     return match[-1] if match else None
 
@@ -220,7 +258,9 @@ def _latest_baseline(
 def detect_regressions(entry: LedgerEntry, history: List[dict]) -> List[Regression]:
     """Compare a fresh entry against the latest same-target baseline. A missing
     baseline yields no regressions (first run establishes the line)."""
-    base = _latest_baseline(history, entry.target_kind, entry.os)
+    base = _latest_baseline(
+        history, entry.target_kind, entry.os, entry.journey, entry.assessor
+    )
     if base is None:
         return []
     regs: List[Regression] = []
@@ -286,15 +326,20 @@ def record_apex(
     os_label: str,
     history_path: Optional[str] = None,
     sha: Optional[str] = None,
+    assessor: Optional[str] = None,
 ) -> tuple[LedgerEntry, List[Regression]]:
     """:func:`record` for a visual-apex run — same ledger, same file, same
     detect-then-append ordering; only the distillation differs.
 
     ``os_label`` names the OS *under verification* (the VM the GUI runs on),
-    not the host that orchestrated the run.
+    not the host that orchestrated the run. ``assessor`` names which visual
+    oracle produced the verdicts; pass it so the row cannot be mistaken for
+    one gathered by a different oracle.
     """
     path = history_path or os.path.join(_repo_root(), DEFAULT_HISTORY_REL)
-    entry = entry_from_apex_report(report, ts=ts, os_label=os_label, sha=sha)
+    entry = entry_from_apex_report(
+        report, ts=ts, os_label=os_label, sha=sha, assessor=assessor
+    )
     history = load_history(path)
     regressions = detect_regressions(entry, history)
 
