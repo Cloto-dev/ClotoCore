@@ -110,6 +110,99 @@ fn shutdown_app(app: tauri::AppHandle) {
     begin_shutdown(&app);
 }
 
+/// End the process for a shutdown the *kernel* sequenced (bug-499).
+///
+/// `POST /api/system/shutdown` and the Danger Zone's `/api/system/uninstall`
+/// both finish by signalling [`cloto_core::KernelHandle::shutdown`] — and that
+/// signal only stops the HTTP server and the kernel's background tasks. Nothing
+/// in the kernel can end the process, because the process belongs to this
+/// shell: `app.exit(0)` is reachable from [`begin_shutdown`] alone. Until this
+/// waiter existed, those two endpoints left the app running with its API gone.
+///
+/// For an uninstall that is not cosmetic. The detached purge helper is started
+/// with this pid and waits 30s for it to exit (`PARENT_EXIT_TIMEOUT`); a parent
+/// that never exits means the helper removes **nothing** — deliberately, since
+/// deleting a running installation is how targets end up half-removed and
+/// locked — and the window sits on the shutdown overlay forever. Measured on a
+/// user's machine on 2026-08-03: plan and helper staged, no report, no listening
+/// ports, install fully intact, app still up.
+///
+/// Deliberately *not* [`begin_shutdown`]: the kernel has already drained MCP
+/// (and, on the uninstall path, closed the pool) before it signals. Re-draining
+/// would spend seconds out of the helper's 30s budget to redo finished work.
+fn exit_after_kernel_shutdown(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+
+    if !claim_kernel_exit() {
+        return;
+    }
+    if let Err(e) = app.emit("shutdown-started", ()) {
+        log::warn!("failed to emit shutdown-started: {e}");
+    }
+    log::info!("kernel signalled shutdown; exiting the app");
+    app.exit(0);
+}
+
+/// Decide whether this kernel-signalled shutdown owns the exit, and record that
+/// the drain is already done. Split out from [`exit_after_kernel_shutdown`] so
+/// the re-entrancy rule — the part that can actually race — is testable without
+/// a `tauri::AppHandle`.
+///
+/// Returns `false` when a UI path claimed the sequence first: that path
+/// signalled this very Notify on its way to its own `app.exit`, so exiting here
+/// too would race it.
+fn claim_kernel_exit() -> bool {
+    use std::sync::atomic::Ordering;
+    if SHUTDOWN_STARTED.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    // The kernel drains before it signals, on both endpoints. Claiming this
+    // guard keeps the `ExitRequested` backstop from draining an already-drained
+    // manager and spending the purge helper's 30s budget on finished work.
+    MCP_DRAINED.store(true, Ordering::SeqCst);
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    /// One test, not three: the guards are process-wide statics, so separate
+    /// `#[test]` functions would race each other inside the same binary.
+    #[test]
+    fn kernel_exit_is_claimed_once_and_marks_the_drain_done() {
+        SHUTDOWN_STARTED.store(false, Ordering::SeqCst);
+        MCP_DRAINED.store(false, Ordering::SeqCst);
+
+        assert!(
+            claim_kernel_exit(),
+            "the first kernel-signalled shutdown must own the exit — nothing else will end the process"
+        );
+        assert!(
+            MCP_DRAINED.load(Ordering::SeqCst),
+            "the kernel drained before signalling; the exit backstop must not drain again"
+        );
+        assert!(
+            !claim_kernel_exit(),
+            "a second signal must not re-enter: app.exit is already under way"
+        );
+
+        // A UI path that started first owns the sequence, and this waiter — which
+        // that path's own notify_waiters() wakes — must stand down.
+        SHUTDOWN_STARTED.store(true, Ordering::SeqCst);
+        MCP_DRAINED.store(false, Ordering::SeqCst);
+        assert!(
+            !claim_kernel_exit(),
+            "begin_shutdown claimed the sequence; the kernel waiter must not race it"
+        );
+        assert!(
+            !MCP_DRAINED.load(Ordering::SeqCst),
+            "standing down must not touch the drain guard the UI path is relying on"
+        );
+    }
+}
+
 /// Returns the kernel HTTP port (used by frontend to construct API URLs).
 #[tauri::command]
 fn get_kernel_port() -> u16 {
@@ -728,6 +821,24 @@ pub fn run() {
                         // drain and reap MCP subprocesses (orphan-leak fix, Step 4);
                         // the kernel task keeps running regardless. Shutdown is also
                         // available via the /api/system/shutdown endpoint.
+                        //
+                        // Give the kernel's shutdown signal somewhere to land
+                        // (bug-499): it stops the HTTP server, and this ends the
+                        // process it belongs to. `enable()` registers interest
+                        // before the first await point, so a signal that fires
+                        // between spawning this task and polling it is still
+                        // received — `notify_waiters` only wakes registered
+                        // waiters, and a missed one here is an app that never
+                        // exits.
+                        let exit_signal = handle.shutdown.clone();
+                        let exit_app = kernel_app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let notified = exit_signal.notified();
+                            tokio::pin!(notified);
+                            notified.as_mut().enable();
+                            notified.await;
+                            exit_after_kernel_shutdown(&exit_app);
+                        });
                         let _ = KERNEL_HANDLE.set(handle);
                     }
                     Err(e) => {
