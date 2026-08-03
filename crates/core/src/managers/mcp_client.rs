@@ -1363,9 +1363,9 @@ while True:\n\
                     got = Some(n);
                     break;
                 }
-                Ok(Some(_)) => continue, // some other notification, keep looking
-                Ok(None) => break,       // channel closed
-                Err(_) => continue,      // timeout tick
+                Ok(Some(_)) => {}  // some other notification, keep looking
+                Ok(None) => break, // channel closed
+                Err(_) => {}       // timeout tick
             }
         }
 
@@ -1473,9 +1473,9 @@ while True:\n\
                     got = Some(n);
                     break;
                 }
-                Ok(Some(_)) => continue,
+                Ok(Some(_)) => {}
                 Ok(None) => break,
-                Err(_) => continue,
+                Err(_) => {}
             }
         }
 

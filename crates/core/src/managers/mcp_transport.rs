@@ -1060,12 +1060,11 @@ mod tests {
         };
 
         // First stderr line is the grandchild PID.
-        let line = match tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await {
-            Ok(Some(l)) => l,
-            _ => {
-                eprintln!("skipping: no grandchild PID line from python3");
-                return;
-            }
+        let Ok(Some(line)) =
+            tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await
+        else {
+            eprintln!("skipping: no grandchild PID line from python3");
+            return;
         };
         let grandchild: libc::pid_t = line.trim().parse().expect("grandchild pid");
 

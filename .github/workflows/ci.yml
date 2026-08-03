@@ -40,8 +40,28 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      # --all-targets also lints tests, benches and examples. Without it these
+      # rot unnoticed: 12 violations had accumulated there behind a local gate
+      # that was permanently red for an unrelated reason (an earlier decision).
       - name: Run clippy
-        run: cargo clippy --workspace --exclude app -- -D warnings -A clippy::too-many-lines -A clippy::struct-excessive-bools -A clippy::match-same-arms -A clippy::cast-possible-wrap -A clippy::trivially-copy-pass-by-ref -A clippy::manual-let-else -A clippy::option-if-let-else -A clippy::case-sensitive-file-extension-comparisons -A clippy::unwrap-used -A clippy::type-complexity
+        run: cargo clippy --workspace --exclude app --all-targets -- -D warnings -A clippy::too-many-lines -A clippy::struct-excessive-bools -A clippy::match-same-arms -A clippy::cast-possible-wrap -A clippy::trivially-copy-pass-by-ref -A clippy::manual-let-else -A clippy::option-if-let-else -A clippy::case-sensitive-file-extension-comparisons -A clippy::unwrap-used -A clippy::type-complexity
+
+      # scripts/lint-rust.sh derives the local lint gate from the step above so
+      # the allowlist is never hand-copied. If that step is reshaped (renamed,
+      # `run:` turned multiline) the script fails closed — but only for whoever
+      # runs it locally, which is how the gate rotted last time. Assert here that
+      # the derivation still works and still carries --all-targets. No compile.
+      - name: lint-rust.sh self-check
+        run: |
+          derived="$(bash scripts/lint-rust.sh --print)"
+          echo "derived: $derived"
+          case "$derived" in
+            *" --all-targets "*) ;;
+            *)
+              echo "::error::lint-rust.sh derived a command without --all-targets" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Feed generator self-test
         run: python3 scripts/generate-release-feed.py --selftest

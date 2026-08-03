@@ -1263,9 +1263,8 @@ mod tests {
         let mut old_headers = HeaderMap::new();
         old_headers.insert("X-API-Key", HeaderValue::from_static("old-key"));
 
-        let resp = match regenerate_api_key(State(state.clone()), old_headers.clone()).await {
-            Ok(r) => r,
-            Err(_) => panic!("regenerate_api_key failed"),
+        let Ok(resp) = regenerate_api_key(State(state.clone()), old_headers.clone()).await else {
+            panic!("regenerate_api_key failed")
         };
         let new_key = resp.0["data"]["api_key"].as_str().unwrap().to_string();
         assert_eq!(new_key.len(), 64);
@@ -1290,14 +1289,12 @@ mod tests {
     /// safe to drive from the opverify harness.
     fn staging_dirs_for_this_process() -> usize {
         let prefix = format!("clotocore-uninstall-{}-", std::process::id());
-        std::fs::read_dir(std::env::temp_dir())
-            .map(|entries| {
-                entries
-                    .filter_map(Result::ok)
-                    .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
-                    .count()
-            })
-            .unwrap_or(0)
+        std::fs::read_dir(std::env::temp_dir()).map_or(0, |entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+                .count()
+        })
     }
 
     #[tokio::test]
@@ -1307,15 +1304,14 @@ mod tests {
         headers.insert("X-API-Key", HeaderValue::from_static("plan-key"));
 
         let before = staging_dirs_for_this_process();
-        let resp = match system_uninstall_plan_handler(
+        let Ok(resp) = system_uninstall_plan_handler(
             State(state),
             headers,
             axum::extract::Query(UninstallPlanQuery::default()),
         )
         .await
-        {
-            Ok(r) => r,
-            Err(_) => panic!("plan enumeration failed"),
+        else {
+            panic!("plan enumeration failed")
         };
 
         let plan = &resp.0["data"]["plan"];
