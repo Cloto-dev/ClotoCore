@@ -50,7 +50,7 @@ All tests must pass before submitting a pull request:
 ```bash
 # Rust (234 tests)
 cargo test --workspace --exclude app
-cargo clippy --workspace --exclude app --all-targets -- -D warnings
+bash scripts/lint-rust.sh   # the CI Lint job's clippy, read out of ci.yml
 
 # Python MCP — in the private clotohub-servers repository (maintainers only)
 cd ../clotohub-servers/servers && python -m pytest tests/ -v

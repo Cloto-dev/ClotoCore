@@ -227,7 +227,7 @@ New event_type `TOOL_REJECTED` added in Phase C. Schema:
 Copy this into each phase's PR description:
 
 ```
-□ cargo clippy --workspace --exclude app --all-targets -- -D warnings
+□ bash scripts/lint-rust.sh
 □ cargo fmt --all -- --check
 □ cargo test --workspace --exclude app
 □ cd dashboard && npx biome check src/
