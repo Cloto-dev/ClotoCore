@@ -44,7 +44,9 @@ from .backends_vm import (
     VmAgentHashSource,
     make_cofetch_backend,
 )
+from . import os_oracle as OS
 from .assessor_cache import CachingAssessor
+from .cdp import CdpTargeter, CdpTunnel
 from .driver import VisualDriver
 from .interfaces import Frame, click, move, press_key, scroll, type_text
 from .live_assessor import AgentHandshakeAssessor
@@ -458,6 +460,203 @@ def _danger_zone_journey(health_probe, make_api_probe, fetch_json):
     )
 
 
+def _danger_zone_purge_journey(health_probe, make_api_probe, fetch_json):
+    """The danger zone driven to its **outcome**: execute, the app ends, the
+    detached helper purges, nothing of the product is left on the machine.
+
+    Why this exists as its own journey rather than a longer `danger-zone`: that
+    one is a dry run by construction — it never presses the button — and
+    bug-499 (the full uninstall removed nothing and hung on an overlay) lived
+    behind exactly that boundary while 22/22 steps agreed pass. A preview
+    journey cannot fail on an outcome it never reaches.
+
+    Three things make it different from every journey before it:
+
+    * **It runs at tier 4** (everything). The narrower tiers deliberately leave
+      the ARP entry and the vendor key behind, so "residue is zero" is only a
+      meaningful assertion at the widest scope.
+    * **Its oracles outlive the kernel.** After the confirm, the HTTP oracle is
+      gone on purpose; what must be true is about the machine, and
+      :mod:`.os_oracle` asserts it.
+    * **The sweep runs before as well as after.** A detector that has only ever
+      reported zero has not been shown to work — the lesson bug-497 left.
+
+    Destructive, and only sane on a VM that can be put back. It needs an install
+    with data to remove: `PurgeReportClean` fails a run whose report is all
+    `absent`, because a purge with nothing to purge verifies nothing.
+    """
+    plan = _fetch_plan(fetch_json, 4)
+    data_dir = plan["plan"]["data_dir"]
+    entries = plan["summary"]["entries"]
+    if entries == 0:
+        raise RuntimeError(
+            "the tier-4 plan is empty — this journey needs an installed app with "
+            "data to remove. Roll the VM to a fixture that has some (CSC #497); "
+            "passing on an empty plan would verify nothing."
+        )
+    admin_key = os.environ.get("OPV_API_KEY", "")
+    if not admin_key:
+        raise RuntimeError("OPV_API_KEY is required: gate 3 asks for the admin key")
+
+    # Locale-independent anchors: the VM runs the Japanese pack, the locale
+    # files are authored in English, and buttons render through
+    # `text-transform: uppercase`. Matching is case-insensitive.
+    SETTINGS = ("設定", "settings")
+    HEALTH = ("ヘルス", "health")
+    REVIEW = ("削除される対象を確認", "review what would be removed")
+    EVERYTHING = ("その他すべて", "everything else")
+    KEY_FIELD = ("管理 API キー", "admin api key")
+    # The card's button and the confirm dialog's button are on screen together
+    # once the dialog opens, and one name contains the other. The card's is
+    # matched by the part the dialog's lacks; the dialog's is matched exactly.
+    EXECUTE = ("をアンインストール", "uninstall clotocore")
+    CONFIRM = ("アンインストール", "uninstall")
+
+    return J.Journey(
+        name="danger-zone-purge",
+        steps=[
+            # Step one is also the fixture check. "Is the app rendered?" is too
+            # loose to be that: a freshly installed app renders its onboarding
+            # carousel and passes, and then eight targets in a row fail to
+            # resolve against a screen the journey was never written for
+            # (measured 2026-08-05 — after a purge removed the data directory,
+            # the reinstall came back onboarding and the run read as nine
+            # defects). The precondition has to fail here, once, by name.
+            J.Step(
+                name="app-rendered",
+                trigger=J.CHECKPOINT,
+                settle=False,
+                vision_question=(
+                    "is the ClotoCore MAIN window shown — a left navigation rail with "
+                    "entries for agents, MCP, CRON and settings — and NOT a first-run "
+                    "onboarding or setup screen?"
+                ),
+                kernel_probe=health_probe,
+            ),
+            # The detector, shown working on this machine before its zero is
+            # used as evidence at the end.
+            J.Step(
+                name="residue-present-before-purge",
+                trigger=J.CHECKPOINT,
+                settle=False,
+                kernel_probe=OS.ResidueSweep(data_dir=data_dir, expect="present"),
+            ),
+            J.Step(
+                name="open-settings",
+                target=J.TargetSpec(contains=SETTINGS, nth=0),
+                trigger=J.CHECKPOINT,
+                vision_question="is the SETTINGS modal open?",
+                kernel_probe=health_probe,
+            ),
+            J.Step(
+                name="open-health",
+                target=J.TargetSpec(contains=HEALTH),
+                trigger=J.CHECKPOINT,
+                vision_question="does the settings pane show a system-health check list?",
+                kernel_probe=health_probe,
+            ),
+            # The wheel acts under the pointer, and every target below scrolls
+            # itself into view from here.
+            J.Step(
+                name="hover-health-pane",
+                action=move(720, 450),
+                trigger=J.CHECKPOINT,
+                settle=False,
+            ),
+            J.Step(
+                name="open-the-plan",
+                target=J.TargetSpec(contains=REVIEW),
+                trigger=J.CHECKPOINT,
+                # Asked about what opening the card actually puts on screen. The
+                # scope checkboxes are below the fold at this moment, so asking
+                # about them here fails on the journey's own scroll position
+                # rather than on the app (measured 2026-08-05); the next step
+                # scrolls to them and asserts them where they are visible.
+                vision_question="did the danger-zone card expand into a review of what would be removed, with a scope section?",
+                kernel_probe=make_api_probe(
+                    "/api/system/uninstall/plan?tier=1", '"tier":"application"'
+                ),
+            ),
+            J.Step(
+                name="widen-to-everything",
+                target=J.TargetSpec(contains=EVERYTHING),
+                trigger=J.CHECKPOINT,
+                # About the one checkbox this step acted on, not all four: the
+                # column is taller than the space the scroll leaves for it, so
+                # "are all four checked" is a question about the scroll position
+                # (measured 2026-08-05 — the assessor could see three). That the
+                # scope really widened is the kernel probe's job, and it says so
+                # authoritatively.
+                vision_question="is the widest scope checkbox — the one labelled 'everything else' / 'その他すべて' — checked?",
+                kernel_probe=make_api_probe(
+                    "/api/system/uninstall/plan?tier=4", '"tier":"everything"'
+                ),
+            ),
+            J.Step(
+                name="enter-the-admin-key",
+                target=J.TargetSpec(contains=KEY_FIELD, type_text=admin_key),
+                trigger=J.CHECKPOINT,
+                # Asked about the *state*, never the value: the field masks its
+                # contents and the frame is kept as a forensic. Only about the
+                # field — the button sits further down the card and asking about
+                # both makes the answer depend on the scroll position rather than
+                # on the app (measured 2026-08-05).
+                vision_question="is the admin-key field filled, showing a masked value rather than empty placeholder text?",
+                kernel_probe=make_api_probe(
+                    "/api/system/uninstall/plan?tier=4", '"tier":"everything"'
+                ),
+            ),
+            J.Step(
+                name="press-uninstall",
+                target=J.TargetSpec(contains=EXECUTE, require_enabled=True),
+                trigger=J.CHECKPOINT,
+                # The last screen before the point of no return states the scope
+                # it is about to act on, so this is the last place a wrong scope
+                # can be caught — and it is a real risk: the 2026-08-05 run
+                # reached this dialog still saying tier 1 because the widening
+                # never landed. The expected numbers come from the kernel's own
+                # plan, not from an authored baseline.
+                vision_question=(
+                    f"does the confirmation dialog say the scope is tier 4 "
+                    f"and list {entries} items?"
+                ),
+                kernel_probe=health_probe,
+            ),
+            # Past this step the kernel is on its way out; no HTTP oracle below.
+            J.Step(
+                name="confirm-the-uninstall",
+                target=J.TargetSpec(contains=CONFIRM, exact=True, require_enabled=True),
+                trigger=J.CHECKPOINT,
+                settle=False,
+            ),
+            J.Step(
+                name="the-app-ends",
+                trigger=J.POLL_UNTIL_VISIBLE,
+                poll_timeout=60.0,
+                # bug-499's user-visible signature was the opposite of this: a
+                # window parked on a shutdown overlay that never resolved.
+                vision_question=(
+                    "is the ClotoCore window gone from the desktop — no window and "
+                    "no shutdown overlay left on screen?"
+                ),
+                kernel_probe=OS.ProcessAbsent(wait_s=60.0),
+            ),
+            J.Step(
+                name="the-helper-reports",
+                trigger=J.CHECKPOINT,
+                settle=False,
+                kernel_probe=OS.PurgeReportClean(wait_s=180.0),
+            ),
+            J.Step(
+                name="residue-sweep-is-zero",
+                trigger=J.CHECKPOINT,
+                settle=False,
+                kernel_probe=OS.ResidueSweep(data_dir=data_dir, expect="empty"),
+            ),
+        ],
+    )
+
+
 _JOURNEYS = {
     "liveness": (
         _liveness_journey,
@@ -509,7 +708,20 @@ _JOURNEYS = {
             {"visible": True, "detail": "tier-2 re-enumeration matches the plan count"},
         ],
     ),
+    "danger-zone-purge": (
+        _danger_zone_purge_journey,
+        # Deliberately empty: this journey refuses to run under the `recorded`
+        # assessor (see DESTRUCTIVE_JOURNEYS), so there is nothing to replay.
+        [],
+    ),
 }
+
+
+# Journeys that change the machine irreversibly. Two rules apply to them:
+# canned visual verdicts are refused (replaying "yes, it rendered" while
+# actually uninstalling would be evidence of nothing), and the operator is
+# expected to have a way to put the VM back.
+DESTRUCTIVE_JOURNEYS = {"danger-zone-purge"}
 
 
 # The OS label recorded on an apex ledger row. It names the machine *under
@@ -601,6 +813,14 @@ def main(argv) -> int:
     # order) or 'handshake' (live — a Sonnet VM-executor subagent reads each
     # frame and writes the verdict; unattended AI, no API key). #237.
     assessor_kind = os.environ.get("OPV_ASSESSOR", "recorded")
+    if name in DESTRUCTIVE_JOURNEYS and assessor_kind != "handshake":
+        print(
+            f"{name} changes the machine irreversibly; it requires a live visual "
+            "oracle (OPV_ASSESSOR=handshake). Replayed verdicts would agree with "
+            "anything while the uninstall proceeded.",
+            file=sys.stderr,
+        )
+        return 2
     handshake = None
     if assessor_kind == "handshake":
         handshake = AgentHandshakeAssessor(
@@ -616,15 +836,26 @@ def main(argv) -> int:
     screen, actuator, health_probe, make_api_probe, fetch_json, change_probe, teardown = (
         _build_transport(transport)
     )
+    cdp_tunnel = None
     try:
+        journey = make_journey(health_probe, make_api_probe, fetch_json)
+        # Targets are resolved live, so the debug port only has to be open for
+        # journeys that declare any — the rest keep working with it closed.
+        targeter = None
+        if any(s.target is not None for s in journey.steps):
+            cdp_tunnel = CdpTunnel().open()
+            targeter = CdpTargeter(cdp_tunnel)
         driver = VisualDriver(
             screen=_SavingScreen(screen, frame_dir),
             actuator=actuator,
             assessor=assessor,
             change_probe=change_probe,
+            targeter=targeter,
         )
-        report = driver.run(make_journey(health_probe, make_api_probe, fetch_json))
+        report = driver.run(journey)
     finally:
+        if cdp_tunnel is not None:
+            cdp_tunnel.close()
         teardown()
         if handshake is not None:
             handshake.signal_done()
