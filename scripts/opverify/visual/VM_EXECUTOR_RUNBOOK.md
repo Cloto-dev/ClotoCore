@@ -245,6 +245,48 @@ one `header = "X-API-Key: …"` line per header, plus a second file adding
 `--data-binary @-` over stdin is parsed by PowerShell before curl sees it; copy
 the body to the guest and use `-d @C:\opv\body.json`.
 
+## `danger-zone-purge` — the outcome journey (destructive)
+
+`danger-zone` stops at the preview. `danger-zone-purge` presses the button and
+then asserts the machine: the app ends, the detached helper writes a clean
+report, and a sweep of the OS finds nothing left. It runs at **tier 4**, because
+the narrower tiers deliberately keep the ARP entry and the vendor key, so
+"residue is zero" only means anything at the widest scope.
+
+Three things it needs, each of which fails the run loudly rather than quietly
+passing:
+
+1. **A launch with the debug port open and a known admin key.** Targets are
+   resolved live over CDP (`cdp.py`), and gate 3 asks for the key:
+   `POST :8900/run` with `{"env": {"CLOTO_API_KEY": "…",
+   "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": "--remote-debugging-port=9222"}}`,
+   and `OPV_API_KEY` set to the same key for the harness.
+2. **An install with data to remove.** The journey refuses to build on an empty
+   tier-4 plan, and `PurgeReportClean` fails a report whose entries are all
+   `absent` — a purge with nothing to purge verifies nothing. A *fresh* install
+   is not enough on its own: it comes up on the onboarding carousel, which the
+   first step rejects by name (the main window is what the rest is written
+   against). Walk onboarding first — name → **skip** the assistant preset → tick
+   the admin-key acknowledgement, and **do not press regenerate**.
+3. **A live visual oracle.** `OPV_ASSESSOR=handshake` is enforced: replayed
+   verdicts would agree with anything while the uninstall proceeded.
+
+Restoring afterwards is a reinstall, not only a snapshot rollback — the
+installer is already on the guest at `C:\opv\` after the first run.
+
+Two lessons from building it, both about *targeting* rather than the product:
+
+- **The window is not what an element is visible within.** A control scrolled
+  just past the bottom of the modal's scroll pane still has a rect inside the
+  window; clicking it lands on the backdrop and closes the modal, and the run
+  then reads as "the app refused to uninstall". `cdp.py` intersects the
+  clipping ancestors and hit-tests with `elementFromPoint`, so a target is only
+  actionable when a click would actually reach it.
+- **Ask the visual oracle only what the frame can answer.** "Are all four
+  checkboxes checked" is a question about the scroll position; "is the widest
+  one checked" is a question about the app. The scope really widening is the
+  kernel probe's job, and it answers authoritatively.
+
 ## Journey preconditions (learned 2026-07-31, danger-zone round 3)
 
 Every committed journey assumes it starts from the **plain main window — no

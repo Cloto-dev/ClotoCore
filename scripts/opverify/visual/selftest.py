@@ -10,6 +10,7 @@ kernel-only or DOM-selector check is blind to.
 
 from __future__ import annotations
 
+import os
 import sys
 
 from . import journey as J
@@ -405,6 +406,239 @@ def scenario_chat_journey_probe_discriminates() -> None:
     assert never.calls == 1, never.calls
 
 
+def scenario_targeted_step_resolves_and_scrolls():
+    """A step that declares a target clicks where the element *is now*, and
+    wheels toward it first when it is off screen.
+
+    The coordinate-in-the-journey failure mode is not theoretical: a stale
+    (455, 453) selected the widest scope on 2026-07-31, and a stale (455, 725)
+    closed the modal on 2026-08-05. Both landed on something, which is why they
+    were only caught later, elsewhere.
+    """
+    class _T:
+        def __init__(self, y, in_viewport, off):
+            self.text, self.role = "UNINSTALL", "button"
+            self.x, self.y = 700, y
+            self.width = self.height = 20
+            self.enabled, self.in_viewport, self.off_screen = True, in_viewport, off
+
+    class _Targeter:
+        """Off screen below until wheeled at twice, then in view — and it moves,
+        so a driver that cached the first answer would click the wrong place."""
+
+        def __init__(self):
+            self.calls = 0
+
+        def find(self, contains, *, nth=0, require_enabled=False, exact=False):
+            self.calls += 1
+            if self.calls < 3:
+                return _T(1300, False, "below")
+            return _T(640, True, "")
+
+    class _DriftingTargeter:
+        """In view, but still moving — the pane is animating after the wheel.
+        Settles on the third reading."""
+
+        def __init__(self):
+            self.ys = [500, 560, 640, 640, 640]
+            self.i = -1
+
+        def find(self, contains, *, nth=0, require_enabled=False, exact=False):
+            self.i = min(self.i + 1, len(self.ys) - 1)
+            return _T(self.ys[self.i], True, "")
+
+    targeter = _Targeter()
+    actuator = RecordingActuator()
+    driver = VisualDriver(
+        screen=ScriptedScreen([frame("a")]),
+        actuator=actuator,
+        assessor=ScriptedVision({}, default=True),
+        targeter=targeter,
+        sleep=lambda _s: None,
+    )
+    report = driver.run(
+        J.Journey(
+            name="t",
+            steps=[
+                J.Step(
+                    name="press",
+                    target=J.TargetSpec(contains=("uninstall",), require_enabled=True),
+                    vision_question="?",
+                    settle=False,
+                )
+            ],
+        )
+    )
+    kinds = [a.kind for a in actuator.actions]
+    assert kinds == ["scroll", "scroll", "click"], kinds
+    assert all(a.amount == -600 for a in actuator.actions if a.kind == "scroll"), actuator.actions
+    click_action = actuator.actions[-1]
+    assert (click_action.x, click_action.y) == (700, 640), click_action
+    assert report.verdict == "pass", report.as_dict()
+
+    # A journey that declares targets with no targeter must fail loudly rather
+    # than fall through to `action` (which defaults to noop — a step that does
+    # nothing and then reports on whatever was already on screen).
+    blind = VisualDriver(
+        screen=ScriptedScreen([frame("a")]),
+        actuator=RecordingActuator(),
+        assessor=ScriptedVision({}, default=True),
+        sleep=lambda _s: None,
+    )
+    out = blind.run(J.Journey(name="t", steps=[J.Step(name="press", target=J.TargetSpec(contains="x"))]))
+    assert out.verdict == "fail", out.as_dict()
+    assert "targeter" in (out.steps[0].error or ""), out.steps[0].error
+
+    # A target that is in view but still drifting must not be clicked at the
+    # position it had while the pane was animating: that click lands wherever
+    # the pane finally stops — the backdrop, on 2026-08-05, which closed the
+    # modal and made the app look like it had refused to uninstall.
+    drifting = RecordingActuator()
+    VisualDriver(
+        screen=ScriptedScreen([frame("a")]),
+        actuator=drifting,
+        assessor=ScriptedVision({}, default=True),
+        targeter=_DriftingTargeter(),
+        sleep=lambda _s: None,
+    ).run(
+        J.Journey(
+            name="t",
+            steps=[J.Step(name="press", target=J.TargetSpec(contains="x"), settle=False)],
+        )
+    )
+    clicks = [a for a in drifting.actions if a.kind == "click"]
+    assert len(clicks) == 1, drifting.actions
+    assert clicks[0].y == 640, f"clicked a position the pane had already left: {clicks[0]}"
+
+
+def scenario_exact_match_separates_nested_names():
+    """One control's name containing another's is not a corner case: the
+    danger zone's card button reads "Uninstall ClotoCore" and the confirm
+    dialog's reads "Uninstall", and they are on screen together. A substring
+    match takes whichever the DOM lists first — on 2026-08-05 the one *behind*
+    the modal — so the confirmation was never given and the run recorded the
+    app "failing to exit"."""
+    from .cdp import CdpTargeter, Target
+
+    card = Target(text="UNINSTALL CLOTOCORE", role="button", x=1, y=1, width=1,
+                  height=1, enabled=True, in_viewport=True)
+    dialog = Target(text="アンインストール", role="button", x=2, y=2, width=1,
+                    height=1, enabled=True, in_viewport=True)
+
+    targeter = CdpTargeter.__new__(CdpTargeter)
+    targeter.last_affordances = []
+    targeter.affordances = lambda: [card, dialog]  # DOM order: card first
+
+    loose = targeter.find(("アンインストール", "uninstall"))
+    assert loose is card, "the substring match is what picked the wrong button"
+
+    exact = targeter.find(("アンインストール", "uninstall"), exact=True)
+    assert exact is dialog, exact
+
+    # And the card is still addressable by the part the dialog's name lacks.
+    assert targeter.find(("をアンインストール", "uninstall clotocore")) is card
+
+
+def scenario_purge_journey_shape():
+    """The outcome journey asserts the machine after the kernel is gone, and
+    refuses the fixtures that would make it vacuous."""
+    from .run_vm import DESTRUCTIVE_JOURNEYS, _JOURNEYS, _danger_zone_purge_journey
+
+    assert "danger-zone-purge" in DESTRUCTIVE_JOURNEYS
+    assert _JOURNEYS["danger-zone-purge"][1] == [], (
+        "a destructive journey must carry no recorded verdicts to replay"
+    )
+
+    def plan(entries, tier=4):
+        return {
+            "data": {
+                "summary": {"entries": entries, "needs_elevation": False, "contains_secret": False},
+                "plan": {"data_dir": "C:\\d", "tier": "everything"},
+            }
+        }
+
+    os.environ["OPV_API_KEY"] = "k"
+    journey = _danger_zone_purge_journey(object(), lambda p, w: object(), lambda p: plan(9))
+    names = [s.name for s in journey.steps]
+    # The three assertions that only exist past the point of no return.
+    assert names[-3:] == ["the-app-ends", "the-helper-reports", "residue-sweep-is-zero"], names
+    # The detector is exercised before its zero is used as evidence (bug-497).
+    assert names[1] == "residue-present-before-purge", names
+    assert journey.steps[1].kernel_probe.expect == "present"
+    assert journey.steps[-1].kernel_probe.expect == "empty"
+    # The key is typed, never named in the step or the visual question.
+    key_step = next(s for s in journey.steps if s.name == "enter-the-admin-key")
+    assert key_step.target.type_text == "k"
+    assert "k" not in (key_step.vision_question or "").split(), key_step.vision_question
+
+    # An empty plan is refused: a purge with nothing to purge passes trivially.
+    try:
+        _danger_zone_purge_journey(object(), lambda p, w: object(), lambda p: plan(0))
+    except RuntimeError as e:
+        assert "empty" in str(e), e
+    else:
+        raise AssertionError("an empty tier-4 plan must refuse to build the journey")
+
+    del os.environ["OPV_API_KEY"]
+    try:
+        _danger_zone_purge_journey(object(), lambda p, w: object(), lambda p: plan(9))
+    except RuntimeError as e:
+        assert "OPV_API_KEY" in str(e), e
+    else:
+        raise AssertionError("gate 3 needs the admin key; building without it must fail")
+
+
+def scenario_residue_sweep_reports_what_it_finds():
+    """The sweep is a detector, and its two directions are not symmetric: an
+    empty result is a pass only when `expect='empty'`."""
+    from . import os_oracle
+
+    found = ["vendor_key_not_empty"]
+    os_oracle.run_powershell_json = lambda script, timeout=60.0: found
+
+    after = os_oracle.ResidueSweep(data_dir="C:\\d", expect="empty")
+    assert after.check() is False and "vendor_key_not_empty" in after.detail
+    before = os_oracle.ResidueSweep(data_dir="C:\\d", expect="present")
+    assert before.check() is True
+
+    found = []
+    assert os_oracle.ResidueSweep(data_dir="C:\\d", expect="empty").check() is True
+    assert os_oracle.ResidueSweep(data_dir="C:\\d", expect="present").check() is False, (
+        "a sweep that finds nothing before the purge means the detector has not "
+        "been shown to work on this machine"
+    )
+    # ConvertTo-Json collapses a single-element array to a bare string.
+    found = "arp_key"
+    assert os_oracle.ResidueSweep(data_dir="C:\\d", expect="empty").check() is False
+
+
+def scenario_purge_report_is_not_satisfied_by_nothing():
+    """bug-499 left no report at all, and a report whose entries are all
+    `absent` is the empty-fixture case — neither may pass."""
+    from . import os_oracle
+
+    report = {"entries": []}
+    os_oracle.run_powershell_json = lambda script, timeout=60.0: report
+
+    probe = os_oracle.PurgeReportClean(wait_s=0.0)
+    report = None
+    assert probe.check() is False and "no report" in probe.detail
+
+    report = {"entries": [{"id": "db", "outcome": "absent"}]}
+    probe = os_oracle.PurgeReportClean(wait_s=0.0)
+    assert probe.check() is False and "none removed" in probe.detail
+
+    report = {"entries": [{"id": "db", "outcome": "removed"}, {"id": "x", "outcome": "refused"}]}
+    probe = os_oracle.PurgeReportClean(wait_s=0.0)
+    assert probe.check() is False and "refused" in probe.detail
+
+    report = {
+        "entries": [{"id": "db", "outcome": "removed"}, {"id": "wal", "outcome": "absent"}]
+    }
+    probe = os_oracle.PurgeReportClean(wait_s=0.0)
+    assert probe.check() is True and probe.detail == "1 removed / 1 absent"
+
+
 def main() -> int:
     scenarios = [
         scenario_happy,
@@ -417,6 +651,11 @@ def main() -> int:
         scenario_fetch_plan_envelope,
         scenario_derived_questions,
         scenario_chat_journey_probe_discriminates,
+        scenario_targeted_step_resolves_and_scrolls,
+        scenario_exact_match_separates_nested_names,
+        scenario_purge_journey_shape,
+        scenario_residue_sweep_reports_what_it_finds,
+        scenario_purge_report_is_not_satisfied_by_nothing,
     ]
     for sc in scenarios:
         sc()
