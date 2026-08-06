@@ -246,6 +246,39 @@ def scenario_a_surface_that_did_not_change_is_refused() -> None:
     assert "agents" not in census.surfaces, census.surfaces
 
 
+def scenario_backdrop_point_never_lands_on_a_control() -> None:
+    """The reset clicks the backdrop, so "where there is nothing" has to be
+    computed rather than guessed — a click that lands on a control is an action
+    the census had no business taking."""
+    class _T:
+        last_frame = {"screenX": 0, "screenY": 0, "innerWidth": 1000, "innerHeight": 800, "dpr": 1}
+        last_affordances = []
+
+    t = _T()
+    spot = C._backdrop_point(t)
+    assert spot is not None and 0 <= spot[0] <= 1000 and 0 <= spot[1] <= 800, spot
+
+    # A control sitting on the first candidate pushes the choice elsewhere.
+    class _Wide:
+        def __init__(self, x, y, w, h):
+            self.x, self.y, self.width, self.height = x, y, w, h
+
+    t.last_affordances = [_Wide(970, 744, 200, 200)]
+    other = C._backdrop_point(t)
+    assert other != spot, (spot, other)
+    assert not (870 <= other[0] <= 1070 and 644 <= other[1] <= 844), other
+
+    # Nothing clear at all -> no click, rather than a blind one.
+    t.last_affordances = [_Wide(500, 400, 4000, 4000)]
+    assert C._backdrop_point(t) is None
+
+    # No frame reported yet -> nothing to compute from.
+    class _Blank:
+        last_frame = {}
+        last_affordances = []
+    assert C._backdrop_point(_Blank()) is None
+
+
 def main() -> int:
     scenarios = [
         scenario_walk_records_each_surface,
@@ -257,6 +290,7 @@ def main() -> int:
         scenario_the_escape_hatch_needs_a_written_reason,
         scenario_unclickable_entry_point_is_not_clicked,
         scenario_a_surface_that_did_not_change_is_refused,
+        scenario_backdrop_point_never_lands_on_a_control,
     ]
     for sc in scenarios:
         sc()
