@@ -301,8 +301,9 @@ def scenario_chat_journey_probe_discriminates() -> None:
         seen.append((path, want))
         return object()
 
-    factory, recorded = _JOURNEYS["chat-render"]
-    journey = factory(object(), fake_api_probe, None)
+    spec = _JOURNEYS["chat-render"]
+    recorded = spec.recorded
+    journey = spec.factory(object(), fake_api_probe, None)
 
     names = [s.name for s in journey.steps]
     assert names[:5] == [
@@ -545,7 +546,7 @@ def scenario_purge_journey_shape():
     from .run_vm import DESTRUCTIVE_JOURNEYS, _JOURNEYS, _danger_zone_purge_journey
 
     assert "danger-zone-purge" in DESTRUCTIVE_JOURNEYS
-    assert _JOURNEYS["danger-zone-purge"][1] == [], (
+    assert _JOURNEYS["danger-zone-purge"].recorded == [], (
         "a destructive journey must carry no recorded verdicts to replay"
     )
 
@@ -639,6 +640,183 @@ def scenario_purge_report_is_not_satisfied_by_nothing():
     assert probe.check() is True and probe.detail == "1 removed / 1 absent"
 
 
+def _kernel_state(
+    *,
+    healthy=True,
+    setup_complete=True,
+    plan_entries=11,
+    providers=None,
+    messages=0,
+):
+    """A fake `fetch_json` returning the shapes the kernel really serializes —
+    measured on VM 104 (2026-08-06), envelope included. A fixture check that
+    passes against a hand-drawn shape and fails against the product's is worth
+    less than no check at all."""
+
+    def fetch(path: str) -> dict:
+        if path == "/api/system/health":
+            if not healthy:
+                raise RuntimeError("connection refused")
+            return {"data": {"status": "ok"}}
+        if path == "/api/setup/status":
+            return {"data": {"setup_complete": setup_complete, "uv_available": False}}
+        if path.startswith("/api/system/uninstall/plan"):
+            return {
+                "data": {
+                    "plan": {"data_dir": "C:\\d", "tier": "everything"},
+                    "summary": {"entries": plan_entries, "total_bytes": 133977721},
+                }
+            }
+        if path == "/api/llm/providers":
+            return {"data": {"providers": providers if providers is not None else []}}
+        if path.endswith("/messages"):
+            return {
+                "data": {
+                    "has_more": False,
+                    "messages": [{"id": i} for i in range(messages)],
+                }
+            }
+        raise AssertionError(f"unexpected path {path}")
+
+    return fetch
+
+
+def scenario_fixture_refuses_the_vacuous_states() -> None:
+    """The three states that produce a green run asserting nothing, each
+    caught by name before step one.
+
+    Every one of these was observed as a *pass*: a purge on a data-free
+    install (all entries `absent`), a chat journey on an empty thread (every
+    turn visible whatever the scroll logic does), and a main-window journey
+    started on the onboarding carousel (eight targets failing as if they were
+    eight product defects).
+    """
+    from . import fixtures as FX
+
+    empty_plan = FX.verify("onboarded", _kernel_state(plan_entries=0))
+    assert not empty_plan.ok
+    assert [n for n, ok, _ in empty_plan.failures()] == ["purge-plan-has-entries"], (
+        empty_plan.as_dict()
+    )
+
+    carousel = FX.verify("onboarded", _kernel_state(setup_complete=False))
+    assert not carousel.ok
+    assert "setup-complete" in [n for n, ok, _ in carousel.failures()]
+
+    configured = [
+        {"id": "cerebras", "has_key": True, "configured": True, "engine_status": "connected"}
+    ]
+    # Read the threshold off the fixture rather than pinning it here: raising
+    # the required depth is a normal edit, and a test that hardcodes the old
+    # number fails for a reason that has nothing to do with the behaviour it
+    # is checking (which is exactly what happened while writing this one).
+    depth = next(
+        c for c in FX.FIXTURES["configured-chat"].checks
+        if isinstance(c, FX.ThreadDepth)
+    ).minimum
+
+    short = FX.verify(
+        "configured-chat", _kernel_state(providers=configured, messages=depth - 1)
+    )
+    assert not short.ok
+    assert [n for n, ok, _ in short.failures()] == ["thread-depth"], short.as_dict()
+
+    ok = FX.verify(
+        "configured-chat", _kernel_state(providers=configured, messages=depth)
+    )
+    assert ok.ok, ok.as_dict()
+
+
+def scenario_fixture_reports_every_failure() -> None:
+    """One trip to the VM, not one per failure: checks keep running after the
+    first one fails, and a dead kernel is a failure rather than a crash."""
+    from . import fixtures as FX
+
+    both = FX.verify(
+        "configured-chat", _kernel_state(providers=[], messages=0)
+    )
+    names = [n for n, ok, _ in both.failures()]
+    assert names == ["provider-ready:cerebras", "thread-depth"], both.as_dict()
+    assert "not present" in dict((n, d) for n, _, d in both.results)[
+        "provider-ready:cerebras"
+    ]
+
+    dead = FX.verify("onboarded", _kernel_state(healthy=False))
+    assert not dead.ok
+    assert dead.results[0][0] == "kernel-responds" and not dead.results[0][1]
+    assert len(dead.results) == 3, "a dead kernel must not stop the other checks"
+
+
+def scenario_fixture_checks_are_specific() -> None:
+    """A provider that exists but is half-configured does not satisfy the
+    fixture — `has_key` alone is the state a purge left behind, and an
+    uninstalled engine still lists as a provider (`engine_status`)."""
+    from . import fixtures as FX
+
+    half = [{"id": "cerebras", "has_key": False, "configured": True, "engine_status": "connected"}]
+    assert not FX.ProviderReady("cerebras").check(
+        _kernel_state(providers=half)
+    )[0]
+
+    gone = [{"id": "cerebras", "has_key": True, "configured": True, "engine_status": "uninstalled"}]
+    ok, detail = FX.ProviderReady("cerebras").check(_kernel_state(providers=gone))
+    assert not ok and "uninstalled" in detail, detail
+    # …unless the caller only needs the settings, not a live engine.
+    assert FX.ProviderReady("cerebras", require_connected=False).check(
+        _kernel_state(providers=gone)
+    )[0]
+
+
+def scenario_every_journey_declares_a_known_fixture() -> None:
+    """A journey's declared start state has to name a fixture that exists.
+
+    This is the ratchet: a typo, or a fixture deleted out from under a
+    journey, fails here in CI instead of on the VM at the end of a rollback.
+    """
+    from . import fixtures as FX
+    from .run_vm import _JOURNEYS
+
+    for name, spec in _JOURNEYS.items():
+        assert spec.fixture is None or spec.fixture in FX.FIXTURES, (
+            f"journey {name!r} declares unknown fixture {spec.fixture!r}"
+        )
+    assert _JOURNEYS["danger-zone-purge"].fixture == "onboarded", (
+        "the purge journey needs an install with data to remove"
+    )
+    assert _JOURNEYS["chat-render"].fixture == "configured-chat"
+    # Every fixture that claims a snapshot must say what state it is, so an
+    # operator reading the failure knows what they are being asked to restore.
+    for name, fixture in FX.FIXTURES.items():
+        assert fixture.summary and fixture.checks, name
+        assert fixture.snapshot or fixture.build, name
+
+
+def scenario_fixture_restore_is_never_implicit() -> None:
+    """Unknown fixtures are an error, not a silent pass, and a fixture with no
+    snapshot refuses to roll back rather than inventing a name for `qm`."""
+    from . import fixtures as FX
+
+    unknown = FX.verify("no-such-fixture", _kernel_state())
+    assert not unknown.ok and "unknown fixture" in unknown.error
+
+    handmade = FX.Fixture(
+        name="handmade", summary="s", checks=[FX.KernelResponds()], build="by hand"
+    )
+    FX.FIXTURES["handmade"] = handmade
+    try:
+        FX.rollback("handmade")
+    except RuntimeError as e:
+        assert "no snapshot" in str(e), e
+    else:
+        raise AssertionError("rollback invented a snapshot for a hand-built fixture")
+    finally:
+        del FX.FIXTURES["handmade"]
+
+    text = FX.remedy("onboarded")
+    assert "DISCARDS" in text, "the remedy must say what a rollback costs"
+    assert FX.FIXTURES["onboarded"].snapshot in text
+
+
 def main() -> int:
     scenarios = [
         scenario_happy,
@@ -656,6 +834,11 @@ def main() -> int:
         scenario_purge_journey_shape,
         scenario_residue_sweep_reports_what_it_finds,
         scenario_purge_report_is_not_satisfied_by_nothing,
+        scenario_fixture_refuses_the_vacuous_states,
+        scenario_fixture_reports_every_failure,
+        scenario_fixture_checks_are_specific,
+        scenario_every_journey_declares_a_known_fixture,
+        scenario_fixture_restore_is_never_implicit,
     ]
     for sc in scenarios:
         sc()

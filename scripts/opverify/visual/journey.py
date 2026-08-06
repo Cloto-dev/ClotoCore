@@ -83,3 +83,9 @@ class Step:
 class Journey:
     name: str
     steps: List[Step] = field(default_factory=list)
+    # The start state this journey is written against, by name in
+    # :mod:`.fixtures`. Declaring it is what lets the harness refuse to run
+    # against a machine that cannot answer the question — an empty thread or a
+    # data-free install turns the assertions vacuous rather than failing them.
+    # None ⇒ the journey makes no demand of the state.
+    fixture: Optional[str] = None
