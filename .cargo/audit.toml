@@ -1,5 +1,25 @@
 # Known advisories from transitive dependencies that cannot be resolved
 # without upstream changes (Tauri, sqlx, validator).
+#
+# RUSTSEC-2026-0235 (rkyv 0.7.46) is a different shape from the rest, and the
+# difference is the reason it is ignored rather than fixed: the crate is in
+# `Cargo.lock` but is **never compiled**. `cargo audit` reads the lockfile,
+# which records a package's optional dependencies whether or not any feature
+# turns them on — and `rust_decimal`'s `rkyv` feature (its 0.7 path) is off in
+# this graph. Bumping does not help: rust_decimal still declares
+# `rkyv ^0.7.46` as an optional dependency as of 1.42.1, so a newer version
+# carries the same lock entry. The rkyv that IS built is 0.8.17, via lindera,
+# which is at or above the advisory's fixed version.
+#
+# Re-verify before trusting this (it stops being true the moment something
+# enables that feature) — both commands must agree:
+#
+#     cargo tree --target all -e all | grep -c 'rkyv v0.7'   # expect 0
+#     cargo tree -i rkyv@0.8.17                              # the compiled one
+#
+# The structural fix is to audit the artifact instead of the lockfile
+# (`cargo auditable build` + `cargo audit bin`), which resolves features and
+# would drop this entry along with any future one like it.
 [advisories]
 ignore = [
     "RUSTSEC-2023-0071", # rsa Marvin Attack — transitive via sqlx-mysql (we use sqlite only)
@@ -11,4 +31,5 @@ ignore = [
     "RUSTSEC-2026-0009", # time DoS — pinned to 0.3.45 by mac-notification-sys 0.6.10
     "RUSTSEC-2026-0194", # quick-xml attribute-check DoS — transitive via tauri/plist; patched only in 0.41, no parent supports it yet (plist 1.9.0 wants ^0.39); no untrusted XML parsed
     "RUSTSEC-2026-0195", # quick-xml NsReader memory-exhaustion DoS — same transitive pin as 0194
+    "RUSTSEC-2026-0235", # rkyv 0.7.46 OOB read — an OPTIONAL dep of rust_decimal that nothing enables; see below
 ]
