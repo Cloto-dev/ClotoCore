@@ -167,6 +167,55 @@ def scenario_ignore_is_explicit() -> None:
     assert len(census.ids(ignore={("button", "設定")})) == 4
 
 
+def scenario_unnamed_controls_do_not_collapse_into_one() -> None:
+    """Seven nameless buttons are seven affordances.
+
+    Measured on the real app (2026-08-06): the main window carries history
+    back/forward, help, minimize, maximize, close and an in-page back arrow,
+    none of which renders an accessible name. Identified by name alone they
+    became a single row and the denominator was six short — which flatters the
+    coverage percentage by shrinking what it divides by.
+    """
+    c = AC.Census(language="en", app_version="x")
+    class _T:
+        def __init__(self, role, text): self.role, self.text = role, text
+    c.add_targets("main", [
+        _T("button", ""), _T("button", ""), _T("button", "  "),
+        _T("link", ""), _T("button", "Agents"),
+    ])
+    ids = c.ids()
+    assert len(ids) == 5, sorted(a.name for a in ids)
+    unnamed = sorted((a.role, a.name) for a in ids if a.name.startswith(AC.UNNAMED))
+    assert unnamed == [
+        ("button", "«unnamed»#1"),
+        ("button", "«unnamed»#2"),
+        ("button", "«unnamed»#3"),
+        ("link", "«unnamed»#1"),
+    ], unnamed
+    # Whitespace-only text is no name at all, so it is numbered too rather
+    # than colliding with the genuinely empty ones.
+    assert sum(1 for r, _ in unnamed if r == "button") == 3, unnamed
+
+
+def scenario_unnamed_controls_are_numbered_per_role() -> None:
+    """The ordinal restarts per role, so a nameless link and a nameless button
+    are not forced to share a number, and a role gaining a control does not
+    renumber another role's."""
+    c = AC.Census(language="en", app_version="x")
+    class _T:
+        def __init__(self, role, text): self.role, self.text = role, text
+    c.add_targets("main", [_T("button", ""), _T("link", ""), _T("button", "")])
+    names = sorted((a.role, a.name) for a in c.ids())
+    assert names == [
+        ("button", "«unnamed»#1"), ("button", "«unnamed»#2"), ("link", "«unnamed»#1")
+    ], names
+
+    # A journey cannot declare one of these — it has no visible text to name —
+    # so they stay uncovered rather than quietly counting as reached.
+    rep = AC.coverage(c, [AC.Declaration("j", "s", ("",)), AC.Declaration("j", "s", ("#1",))])
+    assert rep.covered == 0, rep.as_dict()
+
+
 def main() -> int:
     scenarios = [
         scenario_digits_are_state_not_identity,
@@ -177,6 +226,8 @@ def main() -> int:
         scenario_coverage_arithmetic,
         scenario_census_round_trips,
         scenario_ignore_is_explicit,
+        scenario_unnamed_controls_do_not_collapse_into_one,
+        scenario_unnamed_controls_are_numbered_per_role,
     ]
     for sc in scenarios:
         sc()

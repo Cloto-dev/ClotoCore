@@ -4,6 +4,30 @@
   "description": "Mechanical verification registry for documented issues. Source of truth for bug existence proof.",
   "issues": [
     {
+      "id": "bug-501",
+      "summary": "LOW: no modal in the dashboard can be dismissed with the Escape key. `Modal` (dashboard/src/components/Modal.tsx) is the shared implementation behind Settings (AppLayout.tsx:134), Help and the rest; it registers no keydown listener anywhere, so its only dismissal paths are a click on the backdrop (`if (e.target === e.currentTarget) onClose()`) and the header's close button. Escape closing a modal is a convention users arrive with, and its absence is invisible until someone presses the key and nothing happens. Measured on VM 104 (2026-08-06): the actuator reported the key delivered and the frame two seconds later was byte-for-byte the settings modal still open. Confirmed not intentional by the maintainer. Also blocks automation that has no other handle: the census walk (scripts/opverify/visual/census.py) could not leave a modal it had opened, so every later run found the sidebar covered and reported eight surfaces unreached.",
+      "severity": "LOW",
+      "discovered": "2026-08-06T00:00:00Z",
+      "version": "0.6.8-beta.4",
+      "file": "dashboard/src/components/Modal.tsx",
+      "pattern": "if \\(e\\.target === e\\.currentTarget\\) onClose\\(\\);",
+      "expected": "present",
+      "status": "open",
+      "notes": "The pinned pattern is the backdrop dismissal — the app's only pointer-driven way out, and the line that makes it the sole programmatic handle while no key listener exists. It is evidence about the current implementation rather than the defect itself, which is an absence a grep cannot assert; the summary carries that. To verify by hand: open Settings and press Escape. Fix shape: a keydown listener on document while the modal is mounted, calling onClose on Escape, removed on unmount — applied in Modal.tsx so every modal gains it at once rather than per caller. Worth checking at the same time whether focus is trapped inside the modal, which is the other half of the same convention and was not examined."
+    },
+    {
+      "id": "bug-502",
+      "summary": "LOW (a11y): the window and modal chrome is built from icon-only buttons with no accessible name. Measured by enumerating the rendered DOM on VM 104 (2026-08-06): the main window carries seven such buttons — history back/forward, help, minimize, maximize, close, and the in-page back arrow — and opening Settings adds an eighth, the modal's own close control (`Modal.tsx` renders `<button onClick={onClose}>` wrapping only `<X size={16} />`, with no aria-label and no text). A screen reader announces these as unlabelled buttons, so the difference between 'close the window' and 'close this dialog' is not conveyed at all. The same gap makes them unaddressable by any tool that identifies controls the way a person does: the opverify census could not close a modal it had opened, because the only distinction between the modal's X and the window's X — which would terminate the app — is their pixel position.",
+      "severity": "LOW",
+      "discovered": "2026-08-06T00:00:00Z",
+      "version": "0.6.8-beta.4",
+      "file": "dashboard/src/components/Modal.tsx",
+      "pattern": "<X size=\\{16\\} />",
+      "expected": "present",
+      "status": "open",
+      "notes": "The pinned pattern is the modal's close glyph — the one instance of this class that lives in a shared component, so fixing it there covers every modal. The other seven are window chrome rendered elsewhere and are NOT covered by this pin; they were found by DOM enumeration, not by grep, and the count (7 on the main window, 8 with Settings open) is the measurement to reproduce. Fix shape: an aria-label on each control, distinct enough that 'close the dialog' and 'close the application' cannot be confused. Severity LOW as a product defect but it is the direct cause of a harness limitation, so the two should be weighed together rather than separately."
+    },
+    {
       "id": "bug-500",
       "summary": "MEDIUM: the opverify fixture gate could not tell 'the kernel refused to answer' from 'the machine is not in that state', and answered the first with the remedy for the second. `_http_get` returned the response body without ever reading the status, so a 403 from the admin routes (`/api/llm/providers`, `/api/chat/{agent}/messages`) came back as an ordinary dict; `fixtures._unwrap` passes a non-envelope through unchanged and `.get('providers', [])` / `.get('messages', [])` then rendered a rejected request as a machine with no engine and an empty thread. `KernelResponds` catches exceptions, but a non-2xx that carries JSON is not an exception, and the two routes that DO answer unauthenticated (`/api/system/health`, `/api/setup/status`) still passed — so the report read as a specific, credible unmet fixture. Amplifier: `_cfg('OPV_API_KEY', '')` defaults to an empty key, so merely forgetting the credential produces the same silent 403. Consequence: run_vm exited 3 and printed `--rollback-to-fixture`, i.e. it advised `qm rollback` — which discards the VM's live state with no snapshot of 'now' — against a machine that was in the wanted state all along. Measured 2026-08-06 on VM 104: the gate reported 'providers: none / 0 messages' while the same kernel, asked with the right key, answered 200 with cerebras connected and 18 clean messages.",
       "severity": "MEDIUM",
