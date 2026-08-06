@@ -120,6 +120,30 @@ class VisionAssessor(Protocol):
 
 
 # --------------------------------------------------------------------------
+# "I could not ask" — distinct from "the answer is no"
+# --------------------------------------------------------------------------
+class ProbeUnavailable(RuntimeError):
+    """The kernel could not be *asked*, so nothing was learned about its state.
+
+    The distinction this class carries is the whole point of it. A kernel that
+    answers 403 because the key is wrong returns a body with no ``providers``
+    key in it, and ``body.get("providers", [])`` turns that into "this machine
+    has no providers" — an absent *state* rather than an absent *answer*. On
+    2026-08-06 that read a fully configured VM as an unmet fixture and printed
+    the remedy for an unmet fixture, which is a rollback that would have
+    discarded the very state it failed to see (bug-500).
+
+    So: raise this when the question could not be put to the kernel (non-2xx,
+    unset credentials), and let a genuine "no" be an ordinary False. Callers
+    that treat both the same are the bug.
+    """
+
+    def __init__(self, message: str, status: Optional[int] = None):
+        super().__init__(message)
+        self.status = status
+
+
+# --------------------------------------------------------------------------
 # Kernel oracle — the deterministic hard-gate cross-check (opverify-style)
 # --------------------------------------------------------------------------
 class KernelProbe(Protocol):

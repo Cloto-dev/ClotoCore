@@ -35,6 +35,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
+from .interfaces import ProbeUnavailable
+
 # (ok, human-readable detail) — the same shape every check returns, so the
 # report can print a failed one without knowing what it asked.
 Verdict = Tuple[bool, str]
@@ -323,10 +325,40 @@ def verify(name: str, fetch_json) -> FixtureReport:
     for check in fixture.checks:
         try:
             ok, detail = check.check(fetch_json)
+        except ProbeUnavailable as e:
+            # The check did not fail — it never ran. Recording it as an
+            # ordinary failure is what made a 403 read as an unmet fixture and
+            # sent the operator to `--rollback-to-fixture`, which would have
+            # destroyed the state the harness could not see (bug-500). The
+            # first one wins: once the kernel cannot be asked, every later
+            # answer is equally uninformative.
+            ok, detail = False, f"could not ask the kernel: {e}"
+            report.error = report.error or str(e)
         except Exception as e:
             ok, detail = False, f"check raised {type(e).__name__}: {e}"
         report.results.append((getattr(check, "name", type(check).__name__), ok, detail))
     return report
+
+
+def probe_remedy(error: str) -> str:
+    """What to do when the fixture could not be *evaluated*.
+
+    Deliberately not :func:`remedy`: that one offers a rollback, and a
+    rollback is the worst possible response to a probe that failed to see a
+    machine which may be in exactly the state wanted. Nothing here changes the
+    VM.
+    """
+    return "\n".join(
+        [
+            f"fixture probe failed: {error}",
+            "  the START STATE IS UNKNOWN — this is not evidence that the VM is in "
+            "the wrong state, and it is NOT a reason to roll back.",
+            "  check first:  OPV_API_KEY matches the CLOTO_API_KEY the app under "
+            "test was launched with (admin routes answer 403 without it, and a 403 "
+            "body has no state in it)",
+            "               the SSH port-forward is up and reaching the VM's kernel port",
+        ]
+    )
 
 
 def remedy(name: str) -> str:
