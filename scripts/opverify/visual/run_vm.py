@@ -46,6 +46,7 @@ from .backends_vm import (
     VmAgentHashSource,
     make_cofetch_backend,
 )
+from . import affordance_coverage as AC
 from . import fixtures as FX
 from . import os_oracle as OS
 from .assessor_cache import CachingAssessor
@@ -660,6 +661,37 @@ def _danger_zone_purge_journey(health_probe, make_api_probe, fetch_json):
     )
 
 
+DEFAULT_CENSUS_REL = os.path.join("qa", "opverify", "affordance-census.json")
+
+
+def _affordance_coverage(journey) -> Optional[dict]:
+    """What share of the app's affordances this journey declares it acts on.
+
+    Returns None when no census has been taken, which the ledger records as
+    0 of 0 = *not measured* — deliberately distinct from "covers nothing", so a
+    run on a machine without the census cannot look like a coverage collapse.
+    """
+    root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+    path = os.environ.get("OPV_CENSUS", os.path.join(root, DEFAULT_CENSUS_REL))
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            census = AC.Census.from_json(fh.read())
+        report = AC.coverage(census, AC.declared_targets(journey))
+    except Exception as e:  # noqa: BLE001 — a missing denominator must not fail a run
+        print(f"affordance census unusable ({e}); recording no coverage", file=sys.stderr)
+        return None
+    return {
+        "coverage_pct": report.coverage_pct,
+        "covered": report.covered,
+        "total": report.total,
+        "unmatched": [f"{d.step}: {d.alternatives}" for d in report.unmatched_declarations],
+    }
+
+
 @dataclass
 class _Spec:
     """A committed journey: how to build it, what to replay under the
@@ -966,12 +998,24 @@ def main(argv) -> int:
 
     regressed = False
     if args.ledger:
+        coverage = _affordance_coverage(journey)
+        if coverage:
+            print(
+                f"affordances: {journey.name} declares {coverage['covered']} of "
+                f"{coverage['total']} ({coverage['coverage_pct']}%)"
+            )
+            for miss in coverage["unmatched"]:
+                # A declaration matching nothing means this journey has gone
+                # stale against the UI, or the census never visited the surface
+                # it acts on. Silence here reads as low coverage instead.
+                print(f"  unmatched declaration: {miss}", file=sys.stderr)
         entry, regressions = ledger_mod.record_apex(
             report.as_dict(),
             ts=time.time(),
             os_label=APEX_OS_LABEL,
             history_path=args.history,
             assessor=assessor_kind,
+            coverage=coverage,
         )
         print(
             f"\nledger: recorded {entry.run_id} "
