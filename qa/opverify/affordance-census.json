@@ -1,0 +1,560 @@
+{
+  "app_version": "0.6.8-beta.4",
+  "language": "ja",
+  "surfaces": {
+    "agents": [
+      {
+        "name": "",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "システム",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "cloto assistant",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "エージェント",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "mcp",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "cron",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "メモリ",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "設定",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "折りたたむ",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "終了",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "構成インポート",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "on",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "チャット",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "例: マイク",
+        "role": "input",
+        "surface": "agents"
+      },
+      {
+        "name": "エージェントの役割を記述",
+        "role": "textarea",
+        "surface": "agents"
+      },
+      {
+        "name": "なし",
+        "role": "select",
+        "surface": "agents"
+      },
+      {
+        "name": "電源切替パスワード",
+        "role": "input",
+        "surface": "agents"
+      },
+      {
+        "name": "エージェント作成",
+        "role": "button",
+        "surface": "agents"
+      }
+    ],
+    "cron": [
+      {
+        "name": "",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "システム",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "cloto assistant",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "エージェント",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "mcp",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "cron",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "メモリ",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "設定",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "折りたたむ",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "終了",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "新規ジョブ",
+        "role": "button",
+        "surface": "cron"
+      }
+    ],
+    "main": [
+      {
+        "name": "",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "システム",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "cloto assistant",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "エージェント",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "mcp",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "cron",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "メモリ",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "設定",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "折りたたむ",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "終了",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "console.back",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "リセット",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "メッセージを編集",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "読み上げ",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "応答を再生成",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "copy code",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "download code",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "auto",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "コマンドを入力...",
+        "role": "input",
+        "surface": "main"
+      }
+    ],
+    "mcp": [
+      {
+        "name": "",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "システム",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "cloto assistant",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "エージェント",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "mcp",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "cron",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "メモリ",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "設定",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "折りたたむ",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "終了",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "更新",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "サーバー追加",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "サーバー",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "マーケットプレイス",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "cerebras mgp 稼働中 # ツール",
+        "role": "button",
+        "surface": "mcp"
+      }
+    ],
+    "memory": [
+      {
+        "name": "",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "システム",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "cloto assistant",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "エージェント",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "mcp",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "cron",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "メモリ",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "設定",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "折りたたむ",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "終了",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "エクスポート",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "インポート",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "すべて",
+        "role": "button",
+        "surface": "memory"
+      }
+    ],
+    "settings": [
+      {
+        "name": "",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "システム",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "cloto assistant",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "エージェント",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "mcp",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "cron",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "メモリ",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "設定",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "折りたたむ",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "終了",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "一般",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "セキュリティ",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "詳細",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "ヘルス",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "ログ",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "情報",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "ライト",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "ダーク",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "english 日本語",
+        "role": "select",
+        "surface": "settings"
+      },
+      {
+        "name": "テンプレート出力",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "インポート",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "ユーザー",
+        "role": "input",
+        "surface": "settings"
+      }
+    ],
+    "system": [
+      {
+        "name": "",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "システム",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "cloto assistant",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "エージェント",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "mcp",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "cron",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "メモリ",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "設定",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "折りたたむ",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "終了",
+        "role": "button",
+        "surface": "system"
+      }
+    ]
+  }
+}

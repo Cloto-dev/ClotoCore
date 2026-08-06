@@ -531,8 +531,55 @@ def scenario_repo_history_untouched() -> None:
     assert before == after, f"committed ledger changed: {before} -> {after}"
 
 
+def scenario_apex_coverage_is_recorded_when_measured() -> None:
+    """An affordance census turns the apex's dead coverage columns into a
+    number, and marks the row as one that measured something."""
+    cov = {"coverage_pct": 7.4, "covered": 8, "total": 108}
+    e = L.entry_from_apex_report(
+        apex_report(), ts=1_700_000_200.0, os_label="windows-vm", sha=FAKE_SHA, coverage=cov
+    )
+    assert (e.coverage_pct, e.covered, e.total_routes) == (7.4, 8, 108), e
+    assert e.ratchet_mode == "report", e.ratchet_mode
+
+    bare = L.entry_from_apex_report(
+        apex_report(), ts=1_700_000_201.0, os_label="windows-vm", sha=FAKE_SHA
+    )
+    assert (bare.coverage_pct, bare.covered, bare.total_routes) == (0.0, 0, 0), bare
+    assert bare.ratchet_mode == L.APEX_RATCHET_MODE, bare.ratchet_mode
+
+
+def scenario_unmeasured_coverage_is_not_a_drop() -> None:
+    """0 of 0 means "not measured", not "covers nothing".
+
+    A run taken on a machine without the census would otherwise report a
+    collapse from whatever the last censused run scored — a regression that
+    never happened, raised against the one signal the ratchet exists to give.
+    """
+    baseline = {
+        "target_kind": L.APEX_TARGET_KIND, "os": "windows-vm", "journey": "onboarding-advance",
+        "assessor": "handshake", "run_id": "base", "failed_ops": [],
+        "coverage_pct": 7.4, "total_routes": 108,
+    }
+    unmeasured = L.entry_from_apex_report(
+        apex_report(), ts=1_700_000_300.0, os_label="windows-vm", sha=FAKE_SHA,
+        assessor="handshake",
+    )
+    kinds = [r.kind for r in L.detect_regressions(unmeasured, [baseline])]
+    assert "coverage-drop" not in kinds, kinds
+
+    # A real drop between two measured runs is still caught.
+    worse = L.entry_from_apex_report(
+        apex_report(), ts=1_700_000_301.0, os_label="windows-vm", sha=FAKE_SHA,
+        assessor="handshake", coverage={"coverage_pct": 3.7, "covered": 4, "total": 108},
+    )
+    kinds = [r.kind for r in L.detect_regressions(worse, [baseline])]
+    assert "coverage-drop" in kinds, kinds
+
+
 def main() -> int:
     scenarios = [
+        scenario_apex_coverage_is_recorded_when_measured,
+        scenario_unmeasured_coverage_is_not_a_drop,
         scenario_apex_mapping,
         scenario_errored_step_is_not_a_pass,
         scenario_baseline_isolated_by_target_kind,
