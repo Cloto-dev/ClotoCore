@@ -46,6 +46,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+# Placeholder for a control that renders no accessible name at all. Kept
+# distinctive so an uncovered report says plainly that the thing has no name,
+# rather than showing a blank the reader has to interpret.
+UNNAMED = "«unnamed»#"
+
 # Runs of digits are state, not identity — see the module docstring.
 _DIGITS = re.compile(r"\d+")
 _SPACE = re.compile(r"\s+")
@@ -113,11 +118,33 @@ class Census:
                 bucket.append(a)
 
     def add_targets(self, surface: str, targets: Iterable) -> None:
-        """Ingest :class:`cdp.Target` rows (or anything with .role/.text)."""
-        self.add(
-            surface,
-            [AffordanceId.of(surface, t.role, t.text) for t in targets],
-        )
+        """Ingest :class:`cdp.Target` rows (or anything with .role/.text).
+
+        Controls with no accessible name are numbered per role, in enumeration
+        order, instead of all collapsing onto one nameless identity. They have
+        to be: the main window carries seven of them — history back/forward,
+        help, minimize, maximize, close, and an in-page back arrow — and one
+        name for all seven understated the denominator by six (measured
+        2026-08-06, and the reason bug-502 was filed).
+
+        The ordinal is DOM order, which is as stable as an unnamed control can
+        be. It is deliberately not position: a coordinate moves with the
+        window, and identity that moves is not identity. A journey can never
+        match one of these anyway — journeys declare targets by visible text —
+        so they stay uncovered, which is the truthful reading rather than an
+        inflated score.
+        """
+        ids: List[AffordanceId] = []
+        anonymous: Dict[str, int] = {}
+        for t in targets:
+            a = AffordanceId.of(surface, t.role, t.text)
+            if not a.name:
+                anonymous[a.role] = anonymous.get(a.role, 0) + 1
+                a = AffordanceId(
+                    surface=surface, role=a.role, name=f"{UNNAMED}{anonymous[a.role]}"
+                )
+            ids.append(a)
+        self.add(surface, ids)
 
     def ids(self, ignore: Optional[Set[Tuple[str, str]]] = None) -> Set[AffordanceId]:
         drop = DEFAULT_IGNORE if ignore is None else ignore
