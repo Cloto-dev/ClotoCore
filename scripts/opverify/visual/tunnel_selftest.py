@@ -18,6 +18,12 @@ from . import backends_vm as B
 from .interfaces import Action
 
 
+# Captured before any scenario swaps it out: the status-handling tests need the
+# real implementation, and by the time they run the earlier scenarios have
+# replaced the module attribute with a stub.
+_REAL_HTTP_GET = B._http_get
+
+
 class _StubTunnel:
     local_agent = 18900
     local_kernel = 18081
@@ -93,6 +99,103 @@ def scenario_hash() -> None:
     assert B.TunnelHashSource(_StubTunnel()).hash() == "deadbeef"
 
 
+class _FakeResponse:
+    def __init__(self, status: int, body: bytes):
+        self.status = status
+        self._body = body
+
+    def read(self) -> bytes:
+        return self._body
+
+
+class _FakeConn:
+    """Stands in for http.client.HTTPConnection so the status handling in
+    `_http_get` can be exercised without a socket."""
+
+    status = 200
+    body = b'{"data":{"providers":[]}}'
+
+    def __init__(self, host, port, timeout=None):
+        pass
+
+    def request(self, method, path, headers=None, body=None):
+        pass
+
+    def getresponse(self):
+        return _FakeResponse(_FakeConn.status, _FakeConn.body)
+
+    def close(self):
+        pass
+
+
+def scenario_non_2xx_is_not_a_body() -> None:
+    """A 403 must not be handed back as data (bug-500).
+
+    Returning the body let `.get("providers", [])` read a rejected request as
+    a machine with no providers — an absent state rather than an absent
+    answer. The status is only visible here, so this is where it is enforced.
+    """
+    import http.client
+
+    from .interfaces import ProbeUnavailable
+
+    orig = http.client.HTTPConnection
+    http.client.HTTPConnection = _FakeConn
+    try:
+        _FakeConn.status, _FakeConn.body = 200, b'{"data":{"ok":true}}'
+        assert _REAL_HTTP_GET(18081, "/api/llm/providers") == b'{"data":{"ok":true}}'
+
+        _FakeConn.status, _FakeConn.body = 403, b'{"error":"forbidden"}'
+        try:
+            _REAL_HTTP_GET(18081, "/api/llm/providers")
+        except ProbeUnavailable as e:
+            assert e.status == 403, e.status
+            # The message has to point at the credential, because that is the
+            # cause an operator can act on.
+            assert "OPV_API_KEY" in str(e), str(e)
+        else:
+            raise AssertionError("a 403 body was returned as if it were state")
+    finally:
+        http.client.HTTPConnection = orig
+        _FakeConn.status, _FakeConn.body = 200, b'{"data":{"providers":[]}}'
+
+
+def scenario_unset_key_refuses_to_probe() -> None:
+    """`OPV_API_KEY` defaults to empty, so forgetting it used to send a keyless
+    request and collect a 403 — the silent first step of the same failure. The
+    authenticated probes must refuse before the request goes out, and the
+    unauthenticated ones must be unaffected."""
+    from .interfaces import ProbeUnavailable
+
+    for name, call in (
+        ("TunnelJsonFetch", lambda: B.TunnelJsonFetch(_StubTunnel(), "")("/api/llm/providers")),
+        ("TunnelApiProbe", lambda: B.TunnelApiProbe(_StubTunnel(), "/api/history", "x", "").check()),
+        ("KernelApiProbe", lambda: B.KernelApiProbe("/api/history", "x", "").check()),
+        ("KernelJsonFetch", lambda: B.KernelJsonFetch("")("/api/llm/providers")),
+    ):
+        try:
+            call()
+        except ProbeUnavailable as e:
+            assert "OPV_API_KEY" in str(e), (name, str(e))
+        else:
+            raise AssertionError(f"{name} probed with no credential")
+
+    # Liveness is unauthenticated: it must still work with no key at all.
+    _install_http(get=lambda p, path, h: b'{"data":{"status": "ok"}}')
+    assert B.TunnelHealthProbe(_StubTunnel()).check() is True
+
+
+def scenario_status_trailer_parsing() -> None:
+    """The curl transport carries the status in a trailer, so a body that
+    happens to end in a newline, or a reply with no trailer at all, must not
+    be read as a success."""
+    assert B._split_status(b'{"a":1}\n200') == (b'{"a":1}', 200)
+    assert B._split_status(b'{"a":1}\n\n403') == (b'{"a":1}\n', 403)
+    # No trailer → unknown, not 200. Callers treat 0 as "could not ask".
+    assert B._split_status(b'{"a":1}')[1] == 0
+    assert B._split_status(b'{"a":1}\nnot-a-status')[1] == 0
+
+
 def main() -> int:
     orig_get, orig_post = B._http_get, B._http_post
     scenarios = [
@@ -101,6 +204,9 @@ def main() -> int:
         scenario_health,
         scenario_api_probe,
         scenario_hash,
+        scenario_non_2xx_is_not_a_body,
+        scenario_unset_key_refuses_to_probe,
+        scenario_status_trailer_parsing,
     ]
     try:
         for sc in scenarios:

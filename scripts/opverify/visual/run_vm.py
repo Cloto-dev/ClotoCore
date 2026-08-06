@@ -913,7 +913,18 @@ def main(argv) -> int:
             for check_name, ok, detail in fx_report.results:
                 print(f"fixture[{spec.fixture}] {'ok  ' if ok else 'FAIL'} {check_name}: {detail}")
             if fx_report.error:
-                print(f"fixture[{spec.fixture}] error: {fx_report.error}", file=sys.stderr)
+                # Could not ask ≠ the answer is no. Exit 4, not 3, and never
+                # the rollback remedy: the machine may well be in the wanted
+                # state, and rolling it back would discard it (bug-500).
+                sys.stdout.flush()
+                print(
+                    f"\n{name} could not confirm its start state — the kernel did "
+                    "not answer the question. NOT running, and NOT concluding the "
+                    "VM is in the wrong state.\n",
+                    file=sys.stderr,
+                )
+                print(FX.probe_remedy(fx_report.error), file=sys.stderr)
+                return 4
             if not fx_report.ok:
                 # The per-check lines above are the evidence for the refusal
                 # below; unflushed they arrive after it and read as an answer
