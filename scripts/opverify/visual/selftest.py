@@ -817,6 +817,63 @@ def scenario_fixture_restore_is_never_implicit() -> None:
     assert FX.FIXTURES["onboarded"].snapshot in text
 
 
+def scenario_probe_failure_is_not_state_absence() -> None:
+    """A kernel that cannot be asked must not be reported as a kernel that
+    answered "no" (bug-500).
+
+    The measured incident: the admin routes answered 403, the envelope had no
+    `providers` / `messages` keys, and `.get(..., [])` turned that into a
+    machine with no engine and an empty thread. Every check failed by name,
+    the fixture read as unmet, and the printed remedy was a rollback — which
+    discards the state the harness had merely failed to see.
+    """
+    from . import fixtures as FX
+    from .interfaces import ProbeUnavailable
+
+    def denied(path: str) -> dict:
+        # Unauthenticated routes still answer; the admin ones do not. This is
+        # exactly the shape of a wrong OPV_API_KEY, and the reason
+        # `setup-complete` passing proves nothing about the credential.
+        if path in ("/api/system/health", "/api/setup/status"):
+            return _kernel_state()(path)
+        raise ProbeUnavailable("kernel answered 403 for " + path, status=403)
+
+    report = FX.verify("configured-chat", denied)
+    assert not report.ok, "an unanswerable probe cannot be a pass"
+    assert report.error, "the report must carry WHY it could not be evaluated"
+    assert "403" in report.error, report.error
+
+    # The distinction has to survive into what the operator reads: the checks
+    # that never ran must not accuse the machine of lacking the state.
+    details = {n: d for n, _, d in report.results}
+    assert "could not ask" in details["provider-ready:cerebras"], details
+    assert "not present" not in details["provider-ready:cerebras"], details
+
+    # And the reachable ones still report honestly — the failure is localized.
+    assert dict((n, ok) for n, ok, _ in report.results)["kernel-responds"] is True
+
+    # A genuinely absent state is still an ordinary failure, with no error set:
+    # the fix must not turn every unmet fixture into "unknown".
+    absent = FX.verify("configured-chat", _kernel_state(providers=[], messages=0))
+    assert not absent.ok and not absent.error, absent.as_dict()
+
+
+def scenario_unanswerable_probe_is_never_told_to_roll_back() -> None:
+    """The two remedies must stay different. `remedy` offers a rollback because
+    the state is known to be wrong; `probe_remedy` must not, because the state
+    is not known at all — and `qm rollback` discards the live machine with no
+    snapshot of "now" to return to."""
+    from . import fixtures as FX
+
+    unmet = FX.remedy("configured-chat")
+    assert "--rollback-to-fixture" in unmet, "a known-unmet fixture keeps its remedy"
+
+    unknown = FX.probe_remedy("kernel answered 403 for /api/llm/providers")
+    assert "rollback" not in unknown.lower(), unknown
+    assert "OPV_API_KEY" in unknown, "name the credential that is actually suspect"
+    assert "UNKNOWN" in unknown, "say plainly that nothing was learned"
+
+
 def main() -> int:
     scenarios = [
         scenario_happy,
@@ -839,6 +896,8 @@ def main() -> int:
         scenario_fixture_checks_are_specific,
         scenario_every_journey_declares_a_known_fixture,
         scenario_fixture_restore_is_never_implicit,
+        scenario_probe_failure_is_not_state_absence,
+        scenario_unanswerable_probe_is_never_told_to_roll_back,
     ]
     for sc in scenarios:
         sc()

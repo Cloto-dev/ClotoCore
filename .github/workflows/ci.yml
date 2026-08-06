@@ -77,6 +77,26 @@ jobs:
       - name: opverify visual self-test
         run: python3 -m scripts.opverify.visual.selftest
 
+      # The other five visual suites were written and then never wired to
+      # anything: `visual.selftest` was the only one CI ran, so the transport
+      # backends — where a 403 was being handed back as if it were state
+      # (bug-500) — had no gate at all. None of them needs a VM; they are the
+      # same class of pure-logic test as the step above.
+      - name: opverify transport self-test
+        run: python3 -m scripts.opverify.visual.tunnel_selftest
+
+      - name: opverify co-fetch self-test
+        run: python3 -m scripts.opverify.visual.cofetch_selftest
+
+      - name: opverify live-assessor self-test
+        run: python3 -m scripts.opverify.visual.live_assessor_selftest
+
+      - name: opverify assessor-cache self-test
+        run: python3 -m scripts.opverify.visual.assessor_cache_selftest
+
+      - name: opverify deploy-agent self-test
+        run: python3 -m scripts.opverify.visual.deploy_agent_selftest
+
       - name: Language pack checker self-test
         run: python3 scripts/check-language-packs.py --selftest
 
