@@ -307,6 +307,7 @@ class CdpTargeter:
     def __init__(self, tunnel: CdpTunnel):
         self.tunnel = tunnel
         self.last_affordances: List[Target] = []
+        self.last_frame: dict = {}
 
     def affordances(self) -> List[Target]:
         target = self.tunnel.page_target()
@@ -319,6 +320,12 @@ class CdpTargeter:
             ws.close()
         data = json.loads(res["result"]["value"])
         f = data["frame"]
+        # Kept so a caller can aim the pointer at the window itself. Every
+        # affordance is a *thing*, and when the only controls inside a scroll
+        # pane are below its fold there is no visible thing to point at — the
+        # census hit exactly that in the settings modal (2026-08-06) and moved
+        # the cursor to y=915 on an 800px screen, so the wheel reached nothing.
+        self.last_frame = f
         self.last_affordances = [
             Target(
                 text=a["text"],

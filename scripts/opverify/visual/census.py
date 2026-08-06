@@ -166,6 +166,71 @@ SURFACES: List[Surface] = [
 ]
 
 
+def _backdrop_point(targeter) -> Optional[Tuple[int, int]]:
+    """A point inside the window that no affordance occupies.
+
+    A modal in this app closes when its backdrop is clicked — the apex runbook
+    records that as the way three runs accidentally dismissed one. Escape does
+    not close it (measured 2026-08-06: the actuator reports the key sent and
+    the frame is unchanged) and its close button carries no accessible name, so
+    the backdrop is the only handle a perceptual harness has.
+
+    "Where there is nothing" is computed, not guessed: candidates are rejected
+    if they fall inside any enumerated affordance's rect, so the click cannot
+    land on a control. Returns None when no candidate is clear, and the caller
+    then leaves the screen alone rather than clicking blind.
+    """
+    f = getattr(targeter, "last_frame", {}) or {}
+    if not f:
+        return None
+    dpr = f.get("dpr", 1) or 1
+    ox, oy = f.get("screenX", 0), f.get("screenY", 0)
+    w, h = f.get("innerWidth", 0) * dpr, f.get("innerHeight", 0) * dpr
+    if not w or not h:
+        return None
+    boxes = [
+        (a.x - a.width / 2, a.y - a.height / 2, a.x + a.width / 2, a.y + a.height / 2)
+        for a in getattr(targeter, "last_affordances", [])
+    ]
+    # Down the right-hand edge and along the bottom: the regions a centred
+    # modal leaves clear. Ordered outside-in so the first hit is the furthest
+    # from anything the modal owns.
+    for fx, fy in ((0.97, 0.93), (0.97, 0.5), (0.5, 0.97), (0.03, 0.93)):
+        px, py = round(ox + w * fx), round(oy + h * fy)
+        if not any(x0 <= px <= x1 and y0 <= py <= y1 for x0, y0, x1, y1 in boxes):
+            return px, py
+    return None
+
+
+def _pointer_anchor(targeter, surface: "Surface") -> Tuple[int, int]:
+    """Where to put the cursor so the wheel moves the pane in question.
+
+    Prefer the declared control, but only while it is actually visible: an
+    anchor below the fold is a cursor outside the window, and the wheel then
+    reaches nothing at all. The fallback is the window's own centre, computed
+    from the frame CDP reports rather than hardcoded — when every control in a
+    scroll pane is below its fold there is no visible thing left to point at,
+    which is exactly the state the settings modal is in.
+    """
+    over = surface.scroll_over
+    if over is not None:
+        try:
+            a = targeter.find(
+                over.contains, nth=over.nth,
+                require_enabled=over.require_enabled, exact=over.exact,
+            )
+            if a.in_viewport:
+                return a.x, a.y
+        except LookupError:
+            pass
+    f = getattr(targeter, "last_frame", {}) or {}
+    dpr = f.get("dpr", 1) or 1
+    return (
+        round(f.get("screenX", 0) + f.get("innerWidth", 0) * dpr / 2),
+        round(f.get("screenY", 0) + f.get("innerHeight", 0) * dpr / 2),
+    )
+
+
 def _bring_into_view(targeter, actuator, surface: "Surface", target, settle: float):
     """Wheel the pane until the entry point is actually clickable.
 
@@ -180,14 +245,11 @@ def _bring_into_view(targeter, actuator, surface: "Surface", target, settle: flo
     spec = surface.open_target
     if target.in_viewport or surface.scroll_over is None:
         return target
-    over = surface.scroll_over
     for _ in range(getattr(spec, "scroll_attempts", 12) or 12):
         if target.in_viewport or target.off_screen == "covered":
             break
-        anchor = targeter.find(
-            over.contains, nth=over.nth, require_enabled=over.require_enabled, exact=over.exact
-        )
-        actuator.send(move(anchor.x, anchor.y))
+        ax, ay = _pointer_anchor(targeter, surface)
+        actuator.send(move(ax, ay))
         actuator.send(scroll(240 if target.off_screen == "above" else -240))
         time.sleep(max(settle, 0.4))
         target = targeter.find(
@@ -252,6 +314,20 @@ def take_census(
         actuator.send(press_key(key))
     if reset_keys:
         time.sleep(max(settle, 0.4))
+    # Escape does not close this app's settings modal, so a walk that ended
+    # inside one would otherwise poison every later run: the sidebar comes back
+    # "covered" and eight surfaces go unreached. Clicking the backdrop is the
+    # only handle left (the close button has no accessible name), and the point
+    # is chosen to be somewhere no affordance sits.
+    if reset_keys:
+        try:
+            targeter.affordances()
+            spot = _backdrop_point(targeter)
+            if spot:
+                actuator.send(click(*spot))
+                time.sleep(max(settle, 0.4))
+        except Exception:  # noqa: BLE001 — a reset that fails must not lose the walk
+            pass
     for surface in surfaces:
         try:
             if surface.open_target is not None:

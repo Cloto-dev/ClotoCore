@@ -79,6 +79,11 @@
         "surface": "agents"
       },
       {
+        "name": "選択... cerebras",
+        "role": "select",
+        "surface": "agents"
+      },
+      {
         "name": "なし",
         "role": "select",
         "surface": "agents"
@@ -200,51 +205,6 @@
       {
         "name": "終了",
         "role": "button",
-        "surface": "main"
-      },
-      {
-        "name": "console.back",
-        "role": "button",
-        "surface": "main"
-      },
-      {
-        "name": "リセット",
-        "role": "button",
-        "surface": "main"
-      },
-      {
-        "name": "メッセージを編集",
-        "role": "button",
-        "surface": "main"
-      },
-      {
-        "name": "読み上げ",
-        "role": "button",
-        "surface": "main"
-      },
-      {
-        "name": "応答を再生成",
-        "role": "button",
-        "surface": "main"
-      },
-      {
-        "name": "copy code",
-        "role": "button",
-        "surface": "main"
-      },
-      {
-        "name": "download code",
-        "role": "button",
-        "surface": "main"
-      },
-      {
-        "name": "auto",
-        "role": "button",
-        "surface": "main"
-      },
-      {
-        "name": "コマンドを入力...",
-        "role": "input",
         "surface": "main"
       }
     ],
@@ -502,6 +462,245 @@
         "name": "ユーザー",
         "role": "input",
         "surface": "settings"
+      }
+    ],
+    "settings-danger-zone": [
+      {
+        "name": "",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "システム",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "cloto assistant",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "エージェント",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "mcp",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "cron",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "メモリ",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "設定",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "折りたたむ",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "終了",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "一般",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "セキュリティ",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "詳細",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "ヘルス",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "ログ",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "情報",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "スキャン",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "修復",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "アプリケーションのみ(常に含まれます) 実行ファイルまたはアプリバンドル、インストール先、ショートカットとデスクトップエントリ、os サービス、自動起動。",
+        "role": "input",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "+ ユーザーデータ データベース、シールキー、.env、添付ファイル、アバター。",
+        "role": "input",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "+ 大容量アセットと mcp サーバー モデル、音声アセット、ダウンロード済みランタイム、mcp サーバーとその venv。",
+        "role": "input",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "+ その他すべて データディレクトリのコンテナ、webview プロファイル、アンインストール用レジストリキー、インストールレシート自体。",
+        "role": "input",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "# 件の候補をスキップ",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "管理 api キーを入力または貼り付け",
+        "role": "input",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "show value",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "閉じる",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "再確認",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "clotocore をアンインストール",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      }
+    ],
+    "settings-health": [
+      {
+        "name": "",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "システム",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "cloto assistant",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "エージェント",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "mcp",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "cron",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "メモリ",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "設定",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "折りたたむ",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "終了",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "一般",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "セキュリティ",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "詳細",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "ヘルス",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "ログ",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "情報",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "スキャン",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "修復",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "削除される対象を確認",
+        "role": "button",
+        "surface": "settings-health"
       }
     ],
     "system": [
