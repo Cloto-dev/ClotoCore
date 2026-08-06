@@ -167,9 +167,14 @@ removes the "residue of the previous experiment" class of mismeasurement
 (observed 2026-07-30). Adopted with an earlier decision (an earlier decision).
 
 ```bash
-ssh root@192.0.2.2 'qm rollback 104 clean-install-0-6-8-beta-2 && qm start 104'
-# vmstate snapshot → the VM resumes the saved live session; qm start is a
-# no-op safety for the non-vmstate case. Agent answers /health in ~16 s.
+ssh root@192.0.2.2 'qm rollback 104 clean-install-0-6-8-beta-2; qm start 104'
+# vmstate snapshot → the VM resumes the saved live session (measured ~12 s for
+# the rollback task itself; the agent answers /health a few seconds later).
+# `qm start` is the safety net for a snapshot taken WITHOUT vmstate, which
+# comes back stopped. After a vmstate rollback it exits non-zero with "VM 104
+# already running" — expected, not an error. Note the `;`: chaining with `&&`
+# makes that benign message the exit status of the whole command, which reads
+# as a failed rollback that in fact succeeded (measured 2026-08-06).
 ```
 
 Wait for readiness the same way the verify script does — poll the actuator:

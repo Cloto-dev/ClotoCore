@@ -410,13 +410,24 @@ def rollback(name: str, *, wait: bool = True) -> str:
             f"fixture {name!r} has no snapshot to roll back to — it is built by "
             f"hand: {fixture.build}"
         )
-    cmd = f"qm rollback {vm_id()} {fixture.snapshot} && qm start {vm_id()}"
-    proc = _ssh(pve_host(), cmd, timeout=300.0)
+    proc = _ssh(pve_host(), f"qm rollback {vm_id()} {fixture.snapshot}", timeout=300.0)
     if proc.returncode != 0:
         raise RuntimeError(
             f"rollback failed ({proc.returncode}): "
             f"{proc.stderr.decode('utf-8', 'replace')[:300]}"
         )
+    # `qm start` is the safety net for a snapshot taken WITHOUT vmstate, which
+    # comes back stopped. Every fixture here carries vmstate, so the rollback
+    # resumes a running VM and the start fails with "already running" — which
+    # is the expected outcome, not an error. Chaining the two with `&&` (as the
+    # runbook's hand-run recipe does) reports a successful rollback as a
+    # failure, which is how this was found: the VM had been put back and the
+    # caller was told it had not.
+    started = _ssh(pve_host(), f"qm start {vm_id()}", timeout=120.0)
+    if started.returncode != 0:
+        err = started.stderr.decode("utf-8", "replace")
+        if "already running" not in err:
+            raise RuntimeError(f"rolled back, but the VM would not start: {err[:300]}")
     if wait and not agent_ready():
         raise RuntimeError(
             f"rolled back to {fixture.snapshot!r} but the session-1 actuator never "
