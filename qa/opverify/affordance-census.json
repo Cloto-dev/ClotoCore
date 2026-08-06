@@ -4,7 +4,32 @@
   "surfaces": {
     "agents": [
       {
-        "name": "",
+        "name": "«unnamed»#1",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "«unnamed»#2",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "«unnamed»#3",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "«unnamed»#4",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "«unnamed»#5",
+        "role": "button",
+        "surface": "agents"
+      },
+      {
+        "name": "«unnamed»#6",
         "role": "button",
         "surface": "agents"
       },
@@ -101,7 +126,32 @@
     ],
     "cron": [
       {
-        "name": "",
+        "name": "«unnamed»#1",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "«unnamed»#2",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "«unnamed»#3",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "«unnamed»#4",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "«unnamed»#5",
+        "role": "button",
+        "surface": "cron"
+      },
+      {
+        "name": "«unnamed»#6",
         "role": "button",
         "surface": "cron"
       },
@@ -158,7 +208,32 @@
     ],
     "main": [
       {
-        "name": "",
+        "name": "«unnamed»#1",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "«unnamed»#2",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "«unnamed»#3",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "«unnamed»#4",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "«unnamed»#5",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "«unnamed»#6",
         "role": "button",
         "surface": "main"
       },
@@ -206,11 +281,41 @@
         "name": "終了",
         "role": "button",
         "surface": "main"
+      },
+      {
+        "name": "«unnamed»#7",
+        "role": "button",
+        "surface": "main"
       }
     ],
     "mcp": [
       {
-        "name": "",
+        "name": "«unnamed»#1",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "«unnamed»#2",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "«unnamed»#3",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "«unnamed»#4",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "«unnamed»#5",
+        "role": "button",
+        "surface": "mcp"
+      },
+      {
+        "name": "«unnamed»#6",
         "role": "button",
         "surface": "mcp"
       },
@@ -287,7 +392,32 @@
     ],
     "memory": [
       {
-        "name": "",
+        "name": "«unnamed»#1",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "«unnamed»#2",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "«unnamed»#3",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "«unnamed»#4",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "«unnamed»#5",
+        "role": "button",
+        "surface": "memory"
+      },
+      {
+        "name": "«unnamed»#6",
         "role": "button",
         "surface": "memory"
       },
@@ -354,7 +484,32 @@
     ],
     "settings": [
       {
-        "name": "",
+        "name": "«unnamed»#1",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "«unnamed»#2",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "«unnamed»#3",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "«unnamed»#4",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "«unnamed»#5",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "«unnamed»#6",
         "role": "button",
         "surface": "settings"
       },
@@ -400,6 +555,16 @@
       },
       {
         "name": "終了",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "«unnamed»#7",
+        "role": "button",
+        "surface": "settings"
+      },
+      {
+        "name": "«unnamed»#8",
         "role": "button",
         "surface": "settings"
       },
@@ -466,7 +631,32 @@
     ],
     "settings-danger-zone": [
       {
-        "name": "",
+        "name": "«unnamed»#1",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "«unnamed»#2",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "«unnamed»#3",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "«unnamed»#4",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "«unnamed»#5",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "«unnamed»#6",
         "role": "button",
         "surface": "settings-danger-zone"
       },
@@ -512,6 +702,16 @@
       },
       {
         "name": "終了",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "«unnamed»#7",
+        "role": "button",
+        "surface": "settings-danger-zone"
+      },
+      {
+        "name": "«unnamed»#8",
         "role": "button",
         "surface": "settings-danger-zone"
       },
@@ -608,7 +808,32 @@
     ],
     "settings-health": [
       {
-        "name": "",
+        "name": "«unnamed»#1",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "«unnamed»#2",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "«unnamed»#3",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "«unnamed»#4",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "«unnamed»#5",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "«unnamed»#6",
         "role": "button",
         "surface": "settings-health"
       },
@@ -654,6 +879,16 @@
       },
       {
         "name": "終了",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "«unnamed»#7",
+        "role": "button",
+        "surface": "settings-health"
+      },
+      {
+        "name": "«unnamed»#8",
         "role": "button",
         "surface": "settings-health"
       },
@@ -705,7 +940,32 @@
     ],
     "system": [
       {
-        "name": "",
+        "name": "«unnamed»#1",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "«unnamed»#2",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "«unnamed»#3",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "«unnamed»#4",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "«unnamed»#5",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "«unnamed»#6",
         "role": "button",
         "surface": "system"
       },
@@ -751,6 +1011,11 @@
       },
       {
         "name": "終了",
+        "role": "button",
+        "surface": "system"
+      },
+      {
+        "name": "«unnamed»#7",
         "role": "button",
         "surface": "system"
       }
