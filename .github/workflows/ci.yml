@@ -100,6 +100,9 @@ jobs:
       - name: opverify affordance-coverage self-test
         run: python3 -m scripts.opverify.visual.affordance_coverage_selftest
 
+      - name: opverify census self-test
+        run: python3 -m scripts.opverify.visual.census_selftest
+
       - name: Language pack checker self-test
         run: python3 scripts/check-language-packs.py --selftest
 

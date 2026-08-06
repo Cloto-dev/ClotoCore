@@ -167,6 +167,7 @@ def entry_from_apex_report(
     os_label: str,
     sha: Optional[str] = None,
     assessor: Optional[str] = None,
+    coverage: Optional[dict] = None,
 ) -> LedgerEntry:
     """Distil a visual-apex ``RunReport.as_dict()`` into a compact ledger entry.
 
@@ -174,8 +175,15 @@ def entry_from_apex_report(
     harness one, so this is a sibling of :func:`entry_from_report` rather than a
     branch inside it. Steps map onto the ledger's operation fields, so the
     existing op-regression check ("a step that passed last time is failing
-    now") applies unchanged. Coverage fields stay 0 — the apex measures no
-    route coverage, and 0.0 -> 0.0 can never trip the coverage-drop check.
+    now") applies unchanged.
+
+    ``coverage`` carries the affordance numbers when an affordance census was
+    available (``{"coverage_pct", "covered", "total"}`` — see
+    :mod:`visual.affordance_coverage`). Without one the fields stay 0 of 0,
+    which :func:`detect_regressions` reads as "not measured" rather than as a
+    collapse to zero. The apex measures no *route* coverage either way; the
+    columns are reused rather than duplicated because the ratchet's question
+    ("did this run reach less than last time") is the same question.
     """
     steps = report.get("steps", [])
     journey = report.get("journey", "?")
@@ -200,10 +208,10 @@ def entry_from_apex_report(
         ops_passed=sum(1 for st in steps if not _apex_step_failed(st)),
         failed_ops=failed,
         per_domain_pass=per_bucket,
-        coverage_pct=0.0,
-        covered=0,
-        total_routes=0,
-        ratchet_mode=APEX_RATCHET_MODE,
+        coverage_pct=float((coverage or {}).get("coverage_pct", 0.0)),
+        covered=int((coverage or {}).get("covered", 0)),
+        total_routes=int((coverage or {}).get("total", 0)),
+        ratchet_mode="report" if coverage else APEX_RATCHET_MODE,
         journey=journey,
         assessor=assessor,
     )
@@ -280,8 +288,16 @@ def detect_regressions(entry: LedgerEntry, history: List[dict]) -> List[Regressi
         )
 
     # (b) coverage dropped (a route lost its owning operation)
+    #
+    # Only when both rows actually measured coverage. An apex run taken without
+    # a census records 0 of 0 — that is "not measured", not "covers nothing",
+    # and comparing it against a row that did measure reports a collapse that
+    # never happened. A zero denominator is the honest marker of an unmeasured
+    # run, so it is the thing to test.
     base_cov = float(base.get("coverage_pct", 0.0))
-    if entry.coverage_pct + 1e-9 < base_cov:
+    measured_now = entry.total_routes > 0
+    measured_before = int(base.get("total_routes", 0)) > 0
+    if measured_now and measured_before and entry.coverage_pct + 1e-9 < base_cov:
         regs.append(
             Regression(
                 kind="coverage-drop",
@@ -327,6 +343,7 @@ def record_apex(
     history_path: Optional[str] = None,
     sha: Optional[str] = None,
     assessor: Optional[str] = None,
+    coverage: Optional[dict] = None,
 ) -> tuple[LedgerEntry, List[Regression]]:
     """:func:`record` for a visual-apex run — same ledger, same file, same
     detect-then-append ordering; only the distillation differs.
@@ -338,7 +355,7 @@ def record_apex(
     """
     path = history_path or os.path.join(_repo_root(), DEFAULT_HISTORY_REL)
     entry = entry_from_apex_report(
-        report, ts=ts, os_label=os_label, sha=sha, assessor=assessor
+        report, ts=ts, os_label=os_label, sha=sha, assessor=assessor, coverage=coverage
     )
     history = load_history(path)
     regressions = detect_regressions(entry, history)
