@@ -188,6 +188,41 @@ Snapshot lineage on VM 104 (`qm listsnapshot 104` is authoritative):
   journeys. Proxmox snapshot names cannot contain dots, so the version is
   dash-encoded (`0.6.8-beta.2` → `clean-install-0-6-8-beta-2`); the exact
   version is in the snapshot description.
+- `onboarded-<version>` — installed, onboarding walked, main window, and
+  `%APPDATA%` data a purge plan can enumerate (tier 4: 11 entries). What
+  `clean-install-*` cannot be, because it is data-free by definition.
+- `configured-chat-<version>` — the above plus a Connected cerebras engine
+  with a key, a transcript of 18 clean messages, and the GUI sitting on the
+  chat view. The state that used to cost half an hour to rebuild by hand.
+
+## Journeys declare the state they need (`fixtures.py`, CSC Task #497)
+
+A journey names its start state (`_JOURNEYS[...].fixture`), and `run_vm`
+verifies it over the kernel API before driving anything. An unmet
+precondition **fails the run (exit 3) with the remedy printed** — it is not a
+warning, because the failure mode is not a red run, it is a green one:
+
+- a purge journey on a data-free install builds an empty plan and reports that
+  everything it did not remove is absent;
+- a chat journey on a short thread asserts that a reply is visible without
+  scrolling in a pane nothing has ever filled;
+- a main-window journey started on the onboarding carousel fails eight targets
+  in a row, which reads as eight product defects (2026-08-05).
+
+```sh
+python -m scripts.opverify.visual.run_vm agents          # gate on by default
+python -m scripts.opverify.visual.run_vm agents --no-check-fixture
+python -m scripts.opverify.visual.run_vm chat-render --rollback-to-fixture
+```
+
+`--rollback-to-fixture` is the only thing here that touches the VM, and it is
+never implied: it runs `qm rollback`, which **discards the live state** with no
+snapshot of "now" to come back to.
+
+Fixtures are checked, not assumed: `verify()` runs every check even after one
+fails (one trip to the VM, not one per failure), and `TranscriptClean` exists
+because depth alone let a rate-limited build pass with two thirds of the pane
+full of `[Error]` bubbles (2026-08-06).
 
 **On a version change**: roll back to the current `clean-install-*`, silently
 install the new installer over it (or uninstall + install for a fresh-path
@@ -228,14 +263,32 @@ request bodies and every frame:
    nonce, then find the `ThoughtResponse` in `/api/history` with the expected
    `engine_id` and the nonce as its content.
 
-**A chat journey also needs a tall thread.** Messages posted to `/api/chat`
-land in kernel history but *not* in the console's store (`/chat/{agent}/messages`),
-so they do not fill the pane — send the filler turns through the GUI. Without
-them the transcript is shorter than the viewport, every new turn is visible
-however the scroll logic behaves, and `reply-rendered-without-scrolling`
-passes while testing nothing. Click the composer before *each* send: focus is
-not retained after Enter, so a loop that clicks once silently drops every turn
-after the first.
+**A chat journey also needs a tall thread.** Without one the transcript is
+shorter than the viewport, every new turn is visible however the scroll logic
+behaves, and `reply-rendered-without-scrolling` passes while testing nothing.
+
+Build it through the API, not the GUI. The kernel persists **both sides** of
+an `/api/chat` turn into the console store, keyed by `user_id =
+source.id` (`handlers/system.rs`, `extract_user_id`), and the pane reads
+`user_id` `default` (`handlers/chat.rs`, `DEFAULT_USER_ID`). So a turn posted
+as `{"source": {"type": "User", "id": "default", …}}` lands in the pane, and
+one posted under any other sender id does not — which is what the earlier
+version of this section had recorded as "API posts do not reach the console
+store" (measured and corrected 2026-08-06: it is the identity, not the
+transport). Nine paced turns take a couple of minutes and no clicking.
+
+Three things that bite:
+
+- **Pace the turns.** The provider rate-limits, and a rate-limited turn is
+  persisted as an ordinary agent row carrying `[Error] …`. Row count goes up,
+  the pane fills with error bubbles, and a check that counts rows is happy.
+- **The console renders what it loaded.** Rebuilding the store behind an open
+  chat view leaves the old messages on screen — navigate away and back
+  (the component remounts and refetches) before trusting a frame or taking a
+  vmstate snapshot of it.
+- If you do drive the GUI instead, click the composer before *each* send:
+  focus is not retained after Enter, so a loop that clicks once silently drops
+  every turn after the first.
 
 Two quoting traps on the way in, both costly to rediscover: the guest's default
 shell is PowerShell, so `curl.exe -H "…"` inside an `ssh` command line arrives

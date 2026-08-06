@@ -26,6 +26,8 @@ import os
 import secrets
 import sys
 import time
+from dataclasses import dataclass
+from typing import Optional
 
 from .. import ledger as ledger_mod
 from . import journey as J
@@ -44,6 +46,7 @@ from .backends_vm import (
     VmAgentHashSource,
     make_cofetch_backend,
 )
+from . import fixtures as FX
 from . import os_oracle as OS
 from .assessor_cache import CachingAssessor
 from .cdp import CdpTargeter, CdpTunnel
@@ -657,8 +660,24 @@ def _danger_zone_purge_journey(health_probe, make_api_probe, fetch_json):
     )
 
 
+@dataclass
+class _Spec:
+    """A committed journey: how to build it, what to replay under the
+    `recorded` assessor, and the start state it is written against.
+
+    The fixture is declared here rather than inside the factory because it has
+    to be known *before* the kernel is reachable — `--rollback-to-fixture` runs
+    while the VM is still being put back, and two of the factories read the
+    kernel to build their questions.
+    """
+
+    factory: object
+    recorded: list
+    fixture: Optional[str] = None
+
+
 _JOURNEYS = {
-    "liveness": (
+    "liveness": _Spec(
         _liveness_journey,
         [
             {
@@ -666,21 +685,26 @@ _JOURNEYS = {
                 "detail": "onboarding/main UI rendered, non-black window",
             },
         ],
+        # Deliberately none: "did anything render at all" is the one question
+        # that is worth asking of whatever state the machine happens to be in.
+        fixture=None,
     ),
-    "onboarding": (
+    "onboarding": _Spec(
         _onboarding_journey,
         [
             {"visible": True, "detail": "welcome screen + Get Started button"},
             {"visible": True, "detail": "advanced to language-select page (page 2/7)"},
         ],
+        fixture="first-run",
     ),
-    "agents": (
+    "agents": _Spec(
         _agents_journey,
         [
             {"visible": True, "detail": "ClotoCore UI rendered (onboarding/main)"},
         ],
+        fixture="onboarded",
     ),
-    "chat-render": (
+    "chat-render": _Spec(
         _chat_journey,
         # RecordedVision fallback: one entry per *assessed* step, in call order.
         # The typing / send / wait steps ask nothing. Prefer
@@ -691,8 +715,13 @@ _JOURNEYS = {
             {"visible": True, "detail": "chat view with a bottom input box"},
             {"visible": True, "detail": "assistant reply bubble echoing the nonce"},
         ],
+        # Needs an engine, a key AND a transcript taller than the pane: on a
+        # short thread every new turn is visible however the scroll logic
+        # behaves, so `reply-rendered-without-scrolling` passes on a pane that
+        # is broken (the bug-498 class).
+        fixture="configured-chat",
     ),
-    "danger-zone": (
+    "danger-zone": _Spec(
         _danger_zone_journey,
         # RecordedVision fallback (OPV_ASSESSOR=recorded). One entry per assessed
         # step, in call order; the two positioning steps ask nothing. Prefer
@@ -707,12 +736,14 @@ _JOURNEYS = {
             {"visible": True, "detail": "user-data checkbox checked, wider tiers unchecked"},
             {"visible": True, "detail": "tier-2 re-enumeration matches the plan count"},
         ],
+        fixture="onboarded",
     ),
-    "danger-zone-purge": (
+    "danger-zone-purge": _Spec(
         _danger_zone_purge_journey,
         # Deliberately empty: this journey refuses to run under the `recorded`
         # assessor (see DESTRUCTIVE_JOURNEYS), so there is nothing to replay.
         [],
+        fixture="onboarded",
     ),
 }
 
@@ -799,13 +830,33 @@ def _parse_args(argv):
         default=None,
         help="override ledger history path (default qa/opverify/history.jsonl)",
     )
+    p.add_argument(
+        "--check-fixture",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="verify the journey's declared start state before driving it, and "
+        "refuse to run when it is not satisfied. Default ON: an unmet "
+        "precondition does not fail a journey, it makes it vacuous — an empty "
+        "thread or a data-free install produces a green run that asserted "
+        "nothing (measured 2026-08-03 / 2026-08-05)",
+    )
+    p.add_argument(
+        "--rollback-to-fixture",
+        action="store_true",
+        help="roll the VM back to the snapshot of the journey's fixture before "
+        "running. DESTRUCTIVE: qm rollback discards whatever is on the VM now, "
+        "and there is no snapshot of 'now' to return to — on 2026-08-03 it "
+        "threw away the only configured environment in existence. Never "
+        "implied by --check-fixture",
+    )
     return p.parse_args(argv)
 
 
 def main(argv) -> int:
     args = _parse_args(argv)
     name = args.journey
-    make_journey, recorded = _JOURNEYS[name]
+    spec = _JOURNEYS[name]
+    make_journey, recorded = spec.factory, spec.recorded
     frame_dir = os.environ.get("OPV_FRAME_DIR", "/tmp/opv-frames")
     transport = os.environ.get("OPV_TRANSPORT", "tunnel")
 
@@ -833,12 +884,52 @@ def main(argv) -> int:
     else:
         assessor = RecordedVision(recorded)
 
+    # Putting the VM back happens before any transport is opened: the rollback
+    # restarts the guest, which would drop an SSH master opened first.
+    if args.rollback_to_fixture:
+        if not spec.fixture:
+            print(
+                f"{name} declares no fixture, so there is nothing to roll back to.",
+                file=sys.stderr,
+            )
+            return 2
+        print(
+            f"rolling VM {FX.vm_id()} back to fixture {spec.fixture!r} — this "
+            f"DISCARDS the machine's current state, which no snapshot holds."
+        )
+        snapshot = FX.rollback(spec.fixture)
+        print(f"  restored {snapshot!r}; session-1 actuator is answering")
+
     screen, actuator, health_probe, make_api_probe, fetch_json, change_probe, teardown = (
         _build_transport(transport)
     )
     cdp_tunnel = None
     try:
+        # The start state, before the journey is even built: two of the
+        # factories read the kernel to derive their questions, so a bad state
+        # would otherwise surface as a confusing failure inside construction.
+        if spec.fixture and args.check_fixture:
+            fx_report = FX.verify(spec.fixture, fetch_json)
+            for check_name, ok, detail in fx_report.results:
+                print(f"fixture[{spec.fixture}] {'ok  ' if ok else 'FAIL'} {check_name}: {detail}")
+            if fx_report.error:
+                print(f"fixture[{spec.fixture}] error: {fx_report.error}", file=sys.stderr)
+            if not fx_report.ok:
+                # The per-check lines above are the evidence for the refusal
+                # below; unflushed they arrive after it and read as an answer
+                # to a question nobody asked yet.
+                sys.stdout.flush()
+                print(
+                    f"\n{name} needs a start state this machine is not in. Running "
+                    "anyway would not fail the journey — it would make its "
+                    "assertions vacuous.\n",
+                    file=sys.stderr,
+                )
+                print(FX.remedy(spec.fixture), file=sys.stderr)
+                return 3
+
         journey = make_journey(health_probe, make_api_probe, fetch_json)
+        journey.fixture = spec.fixture
         # Targets are resolved live, so the debug port only has to be open for
         # journeys that declare any — the rest keep working with it closed.
         targeter = None
