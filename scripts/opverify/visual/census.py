@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
 from .affordance_coverage import Census
-from .interfaces import click, press_key
+from .interfaces import click, move, press_key, scroll
 from .journey import TargetSpec
 
 # Words that name an action rather than a destination. Matched against a
@@ -87,22 +87,39 @@ class Surface:
     starts. `close_key` returns from a modal — without it the next surface's
     navigation target is behind an overlay and resolves to something the click
     cannot reach.
+
+    `reviewed_safe` is the escape hatch for a control whose *name* reads as an
+    action but whose behaviour is navigation. It is deliberately awkward: it
+    takes a written reason, it is per-surface, and it never widens
+    :data:`_ACTS_NOT_NAVIGATES` — because relaxing the word list to admit one
+    reviewed control would silently admit every unreviewed one that shares the
+    word.
     """
 
     name: str
     open_target: Optional[TargetSpec] = None
     close_key: Optional[str] = None
+    reviewed_safe: str = ""
+    # A control inside the scrolling pane that holds `open_target`, used to put
+    # the pointer somewhere the wheel will move the right thing. The wheel acts
+    # where the cursor is, so without this the census would scroll the window
+    # behind the modal and conclude the entry point is unreachable.
+    scroll_over: Optional[TargetSpec] = None
 
     def __post_init__(self):
         if self.open_target is None:
             return
         contains = self.open_target.contains
         alts = (contains,) if isinstance(contains, str) else tuple(contains or ())
-        if not is_safe_nav(alts):
-            raise UnsafeNavigation(
-                f"surface {self.name!r} navigates by clicking {alts!r}, which names "
-                "an action. The census may only click its way between screens."
-            )
+        if is_safe_nav(alts):
+            return
+        if self.reviewed_safe:
+            return
+        raise UnsafeNavigation(
+            f"surface {self.name!r} navigates by clicking {alts!r}, which names "
+            "an action. The census may only click its way between screens. If "
+            "this control navigates despite its name, say why in reviewed_safe."
+        )
 
 
 # VM 104 runs the Japanese pack while the locale files are authored in English,
@@ -114,10 +131,97 @@ SURFACES: List[Surface] = [
     Surface("cron", TargetSpec(contains=("CRON", "cron"))),
     Surface("memory", TargetSpec(contains=("メモリ", "memory"))),
     Surface("system", TargetSpec(contains=("システム", "system"))),
-    # Last, and it closes itself: everything after a modal would otherwise be
-    # censused through an overlay.
-    Surface("settings", TargetSpec(contains=("設定", "settings")), close_key="esc"),
+    # The settings modal and its nested views come last, and only the last of
+    # them closes: an `esc` in the middle would drop the walk back to the main
+    # window and every later view would be censused through an overlay.
+    Surface("settings", TargetSpec(contains=("設定", "settings"))),
+    Surface("settings-health", TargetSpec(contains=("ヘルス", "health"))),
+    # The Danger Zone. Five of danger-zone-purge's seven declarations act in
+    # here, and while it was outside the census they matched nothing — the
+    # denominator was short by a whole view and the suite's score understated
+    # what it covers.
+    #
+    # The walk STOPS at this view. It enumerates the scope checkboxes, the
+    # admin-key field and the uninstall button, and touches none of them: the
+    # next step widens the scope, and the one after that is the real thing. The
+    # confirm dialog's button can therefore never be censused — it exists only
+    # once an uninstall has been initiated — so one declaration stays
+    # permanently unmatched, and that is the honest state rather than a gap to
+    # paper over.
+    Surface(
+        "settings-danger-zone",
+        TargetSpec(contains=("削除される対象を確認", "review what would be removed")),
+        close_key="esc",
+        # The button sits below the health pane's fold; the wheel has to act
+        # inside that pane, so the pointer goes to a control known to be in it.
+        scroll_over=TargetSpec(contains=("スキャン", "scan")),
+        reviewed_safe=(
+            "Named for what the uninstall would remove, but it performs no "
+            "removal: it opens the Danger Zone's read-only enumeration (the "
+            "plan endpoint is a GET, documented as the first gate precisely "
+            "so the dashboard can show what an uninstall would take before "
+            "one is started). Reviewed 2026-08-06."
+        ),
+    ),
 ]
+
+
+def _bring_into_view(targeter, actuator, surface: "Surface", target, settle: float):
+    """Wheel the pane until the entry point is actually clickable.
+
+    A transcription of what the driver does for a journey step, and for the
+    same reasons: wheel rather than scrollIntoView so the pane moves the way it
+    moves for a person; give up immediately on "covered", because the wheel
+    will not move an overlay and scrolling would blame the scroll bound for
+    what is really a modal in the way; and require the coordinate to hold still
+    before trusting it, because the WebView animates the scroll and a position
+    read mid-animation is stale by the time a click lands.
+    """
+    spec = surface.open_target
+    if target.in_viewport or surface.scroll_over is None:
+        return target
+    over = surface.scroll_over
+    for _ in range(getattr(spec, "scroll_attempts", 12) or 12):
+        if target.in_viewport or target.off_screen == "covered":
+            break
+        anchor = targeter.find(
+            over.contains, nth=over.nth, require_enabled=over.require_enabled, exact=over.exact
+        )
+        actuator.send(move(anchor.x, anchor.y))
+        actuator.send(scroll(240 if target.off_screen == "above" else -240))
+        time.sleep(max(settle, 0.4))
+        target = targeter.find(
+            spec.contains, nth=spec.nth, require_enabled=spec.require_enabled, exact=spec.exact
+        )
+    # Hold still before it is acted on.
+    for _ in range(3):
+        time.sleep(max(settle, 0.4))
+        again = targeter.find(
+            spec.contains, nth=spec.nth, require_enabled=spec.require_enabled, exact=spec.exact
+        )
+        if (again.x, again.y) == (target.x, target.y):
+            return again
+        target = again
+    return target
+
+
+def _previous_surface(census: Census, current: str) -> str:
+    """The surface recorded immediately before this one, or "" if none."""
+    names = [n for n in census.surfaces if n != current]
+    return names[-1] if names else ""
+
+
+def _same_screen(previous, names_now) -> bool:
+    """True when a freshly walked surface is indistinguishable from the last.
+
+    Compared as the canonical identities the census stores, so a counter
+    ticking over between two screens does not read as a difference.
+    """
+    from .affordance_coverage import canon_name
+
+    before = {(a.role, a.name) for a in previous}
+    after = {((r or "").strip().casefold(), canon_name(t)) for r, t in names_now}
+    return bool(before) and before == after
 
 
 def take_census(
@@ -128,6 +232,7 @@ def take_census(
     language: str,
     app_version: str,
     settle: float = 1.5,
+    reset_keys: Sequence[str] = ("esc",),
     on_error=None,
 ) -> Tuple[Census, List[str]]:
     """Walk the surfaces and record what is on each.
@@ -139,6 +244,14 @@ def take_census(
     """
     census = Census(language=language, app_version=app_version)
     unreached: List[str] = []
+    # Leave whatever the last walk left open. Without this the census depends on
+    # how the previous run ended: on 2026-08-06 a walk finished inside the
+    # settings modal and the next one found every sidebar entry "covered",
+    # which is true but useless.
+    for key in reset_keys:
+        actuator.send(press_key(key))
+    if reset_keys:
+        time.sleep(max(settle, 0.4))
     for surface in surfaces:
         try:
             if surface.open_target is not None:
@@ -149,9 +262,34 @@ def take_census(
                     require_enabled=spec.require_enabled,
                     exact=spec.exact,
                 )
+                target = _bring_into_view(targeter, actuator, surface, target, settle)
+                # Resolving a target is not the same as being able to click it.
+                # A control scrolled just past a scroll pane's edge still
+                # reports a rect inside the window, and clicking it hits
+                # whatever is actually on top — which for the census meant a
+                # surface silently recording a byte-identical copy of the
+                # previous one (observed 2026-08-06: settings-danger-zone came
+                # back identical to settings-health). Counted twice, that is a
+                # denominator inflated with a screen nobody ever saw.
+                if not target.in_viewport:
+                    raise RuntimeError(
+                        f"target {target.text!r} is not clickable "
+                        f"({target.off_screen or 'covered'}); the census does not "
+                        "scroll, so this surface needs a reachable entry point"
+                    )
                 actuator.send(click(target.x, target.y))
                 time.sleep(settle)
-            census.add_targets(surface.name, targeter.affordances())
+            found = targeter.affordances()
+            # A surface that reproduces the previous one exactly is the same
+            # screen counted twice: the navigation did not take.
+            previous = census.surfaces.get(_previous_surface(census, surface.name))
+            names_now = [(t.role, t.text) for t in found]
+            if previous is not None and names_now and _same_screen(previous, names_now):
+                raise RuntimeError(
+                    "navigation did not change the screen — this surface is "
+                    "identical to the one before it"
+                )
+            census.add_targets(surface.name, found)
         except Exception as e:  # noqa: BLE001 — one bad surface must not lose the rest
             unreached.append(f"{surface.name}: {type(e).__name__}: {str(e)[:160]}")
             if on_error:
