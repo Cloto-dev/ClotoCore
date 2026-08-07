@@ -13,7 +13,8 @@
       "pattern": "if \\(e\\.target === e\\.currentTarget\\) onClose\\(\\);",
       "expected": "present",
       "status": "open",
-      "notes": "The pinned pattern is the backdrop dismissal — the app's only pointer-driven way out, and the line that makes it the sole programmatic handle while no key listener exists. It is evidence about the current implementation rather than the defect itself, which is an absence a grep cannot assert; the summary carries that. To verify by hand: open Settings and press Escape. Fix shape: a keydown listener on document while the modal is mounted, calling onClose on Escape, removed on unmount — applied in Modal.tsx so every modal gains it at once rather than per caller. Worth checking at the same time whether focus is trapped inside the modal, which is the other half of the same convention and was not examined."
+      "notes": "The pinned pattern is the backdrop dismissal — the app's only pointer-driven way out, and the line that makes it the sole programmatic handle while no key listener exists. It is evidence about the current implementation rather than the defect itself, which is an absence a grep cannot assert; the summary carries that. To verify by hand: open Settings and press Escape. Fix shape: a keydown listener on document while the modal is mounted, calling onClose on Escape, removed on unmount — applied in Modal.tsx so every modal gains it at once rather than per caller. Worth checking at the same time whether focus is trapped inside the modal, which is the other half of the same convention and was not examined.",
+      "github_issue": 442
     },
     {
       "id": "bug-502",
@@ -25,7 +26,8 @@
       "pattern": "<X size=\\{16\\} />",
       "expected": "present",
       "status": "open",
-      "notes": "The pinned pattern is the modal's close glyph — the one instance of this class that lives in a shared component, so fixing it there covers every modal. The other seven are window chrome rendered elsewhere and are NOT covered by this pin; they were found by DOM enumeration, not by grep, and the count (7 on the main window, 8 with Settings open) is the measurement to reproduce. Fix shape: an aria-label on each control, distinct enough that 'close the dialog' and 'close the application' cannot be confused. Severity LOW as a product defect but it is the direct cause of a harness limitation, so the two should be weighed together rather than separately."
+      "notes": "The pinned pattern is the modal's close glyph — the one instance of this class that lives in a shared component, so fixing it there covers every modal. The other seven are window chrome rendered elsewhere and are NOT covered by this pin; they were found by DOM enumeration, not by grep, and the count (7 on the main window, 8 with Settings open) is the measurement to reproduce. Fix shape: an aria-label on each control, distinct enough that 'close the dialog' and 'close the application' cannot be confused. Severity LOW as a product defect but it is the direct cause of a harness limitation, so the two should be weighed together rather than separately.",
+      "github_issue": 443
     },
     {
       "id": "bug-500",
