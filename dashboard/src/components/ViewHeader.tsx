@@ -50,6 +50,7 @@ export function ViewHeader({
       {typeof onBack === 'string' ? (
         <Link
           to={onBack}
+          aria-label={t('back')}
           className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
         >
           <ArrowLeft size={16} />
@@ -57,6 +58,7 @@ export function ViewHeader({
       ) : onBack ? (
         <button
           onClick={onBack}
+          aria-label={t('back')}
           className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
         >
           <ArrowLeft size={16} />
@@ -131,18 +133,21 @@ export function ViewHeader({
           <>
             <button
               onClick={minimizeWindow}
+              aria-label={t('minimize_window')}
               className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
             >
               <Minus size={14} />
             </button>
             <button
               onClick={toggleMaximizeWindow}
+              aria-label={t('maximize_window')}
               className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
             >
               <Square size={13} />
             </button>
             <button
               onClick={closeWindow}
+              aria-label={t('close_window')}
               className="p-1.5 ml-1 rounded hover:bg-red-500/20 text-content-tertiary hover:text-red-500 transition-colors"
             >
               <X size={14} />
