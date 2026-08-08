@@ -103,6 +103,13 @@ jobs:
       - name: opverify census self-test
         run: python3 -m scripts.opverify.visual.census_selftest
 
+      # The CSS-to-screen conversion, asserted at display scales this runner
+      # does not have. A conversion bug here does not fail a run, it aims the
+      # click at the wrong control and blames the product for what follows
+      # (bug-503).
+      - name: opverify CDP conversion self-test
+        run: python3 -m scripts.opverify.visual.cdp_selftest
+
       - name: Language pack checker self-test
         run: python3 scripts/check-language-packs.py --selftest
 

@@ -4434,6 +4434,30 @@
       "status": "fixed",
       "notes": "Reported by the maintainer against a real 0.6.8-beta.4 install, not found by a test — the uninstall path is outside CI's reach in both directions (`cargo test --workspace --exclude app`, and the same exclusion on clippy), so nothing in the pipeline could have caught it. Measured on that machine and each step matched the code: staging dir present with `purge-plan.json` and a 61MB helper copy (stage + launch ran), no `.report.json` anywhere (the helper bailed before execute), zero listening ports for the live pid (the kernel's server had stopped), install prefix / data dir / ARP key / vendor keys all intact (nothing removed), app process still alive minutes later at 0.9s CPU. Not a beta.4 regression: `git log v0.6.8-beta.3..HEAD -- crates/core/src/defender/ dashboard/src/components/settings/DangerZone.tsx` is empty. FIXED (branch fix/uninstall-never-exits): the shell now waits on the kernel's shutdown Notify and ends the process, registering interest with `Notified::enable()` before its first await so a signal that fires between spawn and first poll is not missed. It deliberately does not re-run `begin_shutdown`'s drain — the kernel drains before it signals, and repeating it would spend the helper's 30s budget on finished work. Behaviour change beyond the bug: `/api/system/shutdown` now also ends the app, which is what every other user of that signal already meant. Guard logic split into `claim_kernel_exit` and unit-tested (2 mutations killed); that test runs only under `cargo test -p app`, which CI does not run — the real proof is the end-to-end uninstall on a VM.",
       "github_issue": 436
+    },
+    {
+      "id": "bug-503",
+      "summary": "MEDIUM: the apex's CSS-to-screen conversion dropped the window origin out of the display scaling, so every CDP-resolved click landed in the wrong place on any display not set to 100 %. `cdp.py` computed `screenX + cx * dpr`, which scales the offset inside the window but leaves the window's own origin unscaled; the correct conversion is `(screenX + cx) * dpr`. The two are the same arithmetic whenever dpr is 1, which is the only scale the apex had ever run at, so the defect was invisible rather than dormant. Measured on VM 104 at 125 % with the window at screenX=307: aiming at the sidebar's 'agents' entry put the pointer on 'cron', and aiming at the minimise button ran off the right edge of the screen onto the header. Nothing failed loudly - the run acted on a different control and reported whatever followed as the application's behaviour, which is the class of false product defect the apex exists to avoid manufacturing.",
+      "severity": "MEDIUM",
+      "discovered": "2026-08-09T00:00:00Z",
+      "version": "0.6.8-beta.4",
+      "file": "scripts/opverify/visual/cdp.py",
+      "pattern": "a\\[\"cx\"\\] \\* f\\[\"dpr\"\\]",
+      "expected": "absent",
+      "status": "fixed",
+      "notes": "Found by an earlier decision, which existed because the module docstring said in writing that the conversion had never been checked at a scale other than 100 % - the harness recorded its own untested condition and the task came from reading it. No past apex result is invalidated: every previous run was at 100 %, where the old and new formulas agree. Fixed by extracting the arithmetic into `to_screen(frame, cx, cy)` and calling it from both `CdpTargeter.affordances` and the two places in `census.py` that had open-coded the same wrong pattern (`_backdrop_point`, `_pointer_anchor`). Guarded by `scripts/opverify/visual/cdp_selftest.py`, which states a scale per scenario instead of inheriting the machine's - a test that read `devicePixelRatio` from wherever it ran would have been just as blind as the four days this shipped. Verified end to end on VM 104: with the fix, 6/6 aimed affordances put the pointer within 1 CSS pixel of the intended centre at 125 % and again at 100 % with the window off the origin; before the fix the same probe scored 3/6 at 125 %."
+    },
+    {
+      "id": "bug-504",
+      "summary": "MEDIUM: the VM actuator never declared DPI awareness, so at any display scale above 100 % Windows handed it virtualised metrics and the visual oracle silently changed units. Measured on VM 104 at 125 %: `/health` reported the 1280x800 panel as 1024x640 and `/grab` returned a 1024x640 downscaled PNG. Every ROI rectangle in the journeys, the census's surface geometry and the remaining hardcoded coordinates are all authored in the 1280x800 space, so at 125 % they address the wrong region of a frame that is itself a rescaled image - and the assessor is asked its visual question about that region without anything reporting that the frame changed shape.",
+      "severity": "MEDIUM",
+      "discovered": "2026-08-09T00:00:00Z",
+      "version": "0.6.8-beta.4",
+      "file": "scripts/opverify/visual/vm_agent.py",
+      "pattern": "SetProcessDpiAwarenessContext",
+      "expected": "present",
+      "status": "fixed",
+      "notes": "Same root cause as bug-503 and found in the same measurement (an earlier decision), but a separate defect: 503 is arithmetic in the orchestrator, 504 is which coordinate space the guest agent lives in. Fixed by declaring PER_MONITOR_AWARE_V2 before mss and pyautogui are imported, which keeps the agent in physical pixels at any scale - so frames, ROIs and coordinates measured at 100 % keep their meaning instead of needing a scale-dependent correction everywhere. This choice is load-bearing for bug-503's formula: with a DPI-unaware agent the correct conversion would instead be `screenX + cx` with no scaling at all. Both alternatives were measured on the live VM before choosing. Requires `python -m scripts.opverify.visual.deploy_agent --redeploy` to take effect on a VM; verified there on 2026-08-09 (/health and /grab both back to 1280x800 while the session was at 125 %)."
     }
   ]
 }

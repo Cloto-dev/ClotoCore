@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
 from .affordance_coverage import Census
+from .cdp import captured_size, space_mismatch, to_screen
 from .interfaces import click, move, press_key, scroll
 from .journey import TargetSpec
 
@@ -183,9 +184,7 @@ def _backdrop_point(targeter) -> Optional[Tuple[int, int]]:
     f = getattr(targeter, "last_frame", {}) or {}
     if not f:
         return None
-    dpr = f.get("dpr", 1) or 1
-    ox, oy = f.get("screenX", 0), f.get("screenY", 0)
-    w, h = f.get("innerWidth", 0) * dpr, f.get("innerHeight", 0) * dpr
+    w, h = f.get("innerWidth", 0), f.get("innerHeight", 0)
     if not w or not h:
         return None
     boxes = [
@@ -196,7 +195,7 @@ def _backdrop_point(targeter) -> Optional[Tuple[int, int]]:
     # modal leaves clear. Ordered outside-in so the first hit is the furthest
     # from anything the modal owns.
     for fx, fy in ((0.97, 0.93), (0.97, 0.5), (0.5, 0.97), (0.03, 0.93)):
-        px, py = round(ox + w * fx), round(oy + h * fy)
+        px, py = to_screen(f, w * fx, h * fy)
         if not any(x0 <= px <= x1 and y0 <= py <= y1 for x0, y0, x1, y1 in boxes):
             return px, py
     return None
@@ -224,11 +223,9 @@ def _pointer_anchor(targeter, surface: "Surface") -> Tuple[int, int]:
         except LookupError:
             pass
     f = getattr(targeter, "last_frame", {}) or {}
-    dpr = f.get("dpr", 1) or 1
-    return (
-        round(f.get("screenX", 0) + f.get("innerWidth", 0) * dpr / 2),
-        round(f.get("screenY", 0) + f.get("innerHeight", 0) * dpr / 2),
-    )
+    if not f:
+        return (0, 0)
+    return to_screen(f, f.get("innerWidth", 0) / 2, f.get("innerHeight", 0) / 2)
 
 
 def _bring_into_view(targeter, actuator, surface: "Surface", target, settle: float):
@@ -401,6 +398,16 @@ def main(argv=None) -> int:
         actuator = B.TunnelActuator(tunnel)
         cdp = CdpTunnel().open()
         targeter = CdpTargeter(cdp)
+        # The denominator is only meaningful if the walk actually reached the
+        # surfaces it claims to have visited, and that needs the frames and the
+        # coordinates to be in one pixel space (bug-503/504).
+        targeter.affordances()
+        problem = space_mismatch(
+            targeter.last_frame, captured_size(B.TunnelScreen(tunnel))
+        )
+        if problem:
+            print(f"census: {problem}", file=sys.stderr)
+            return 3
         census, unreached = take_census(
             targeter,
             actuator,

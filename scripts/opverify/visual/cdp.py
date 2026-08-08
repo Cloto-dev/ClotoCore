@@ -24,10 +24,27 @@ Two deliberate limits:
 * **Dependency-free.** A minimal RFC6455 client rather than a package, so the
   harness keeps installing with nothing but the stdlib on the orchestrator.
 
-The screen conversion is ``screenX + css_x * devicePixelRatio``. Verified on
-2026-08-05 against a window at the origin and a window snapped to
-``screenX=495``; **not** verified at a display scale other than 100 %, where
-``devicePixelRatio`` is the term that would carry the correction.
+The screen conversion is ``(screenX + css_x) * devicePixelRatio`` -- see
+:func:`to_screen`. It was ``screenX + css_x * dpr`` until 2026-08-09, which is
+the same arithmetic whenever ``dpr`` is 1 and wrong by a quarter of the window
+offset at 125 % (an earlier decision): measured on VM 104, a click aimed at the
+sidebar's "agents" entry landed on "cron", and one aimed at the minimise button
+ran off the edge of the screen onto the header. Nothing failed loudly -- the run
+simply acted on the wrong control and reported what followed as the app's
+behaviour.
+
+Three coordinate spaces meet here, and the conversion is only correct while two
+of them are pinned:
+
+* ``window.screenX`` and ``getBoundingClientRect`` are CSS pixels, which equal
+  Windows' logical (DPI-virtualised) pixels while the page zoom is 1.
+* ``devicePixelRatio`` is the display scale (1.25 at 125 %).
+* The actuator injects into *physical* pixels, because ``vm_agent`` declares
+  per-monitor DPI awareness. Without that declaration it would be handed the
+  virtualised space instead and the correct conversion would be
+  ``screenX + css_x`` with no scaling at all -- both were measured, 2026-08-09.
+  The agent's awareness is therefore part of this module's contract, not an
+  unrelated detail of the VM.
 """
 
 from __future__ import annotations
@@ -215,7 +232,12 @@ class Target:
 
     text: str
     role: str
-    x: int  # screen coordinates, ready for the actuator
+    # Every geometric field here is in *screen* pixels, ready for the actuator —
+    # never CSS pixels. Mixing the two is invisible at 100 % scale and wrong
+    # everywhere else: `_backdrop_point` built its rejection boxes as
+    # `x ± width/2` and would have grown a quarter too small at 125 % had these
+    # stayed in CSS (bug-503's class, found while fixing it).
+    x: int
     y: int
     width: int
     height: int
@@ -288,11 +310,74 @@ _AFFORDANCES = r"""
   }
   return JSON.stringify({
     frame: {screenX: window.screenX, screenY: window.screenY, dpr: devicePixelRatio,
-            innerWidth: innerWidth, innerHeight: innerHeight},
+            innerWidth: innerWidth, innerHeight: innerHeight,
+            screenWidth: screen.width, screenHeight: screen.height},
     affordances: out
   });
 })()
 """
+
+
+def to_screen(frame: dict, cx: float, cy: float) -> tuple:
+    """CSS point inside the page -> physical screen point for the actuator.
+
+    A free function so the arithmetic can be asserted without a VM: the bug it
+    replaces (see the module docstring) was invisible at the only scale anyone
+    ever ran, so the guard has to be able to state a scale rather than inherit
+    whichever one the machine happens to have.
+    """
+    dpr = frame["dpr"]
+    return (
+        round((frame["screenX"] + cx) * dpr),
+        round((frame["screenY"] + cy) * dpr),
+    )
+
+
+def captured_size(screen) -> tuple:
+    """The pixel dimensions of a real capture, or ``(None, None)``.
+
+    A grab that fails here must not fail the run: the journey's own first step
+    reports a dead screen far more clearly than a setup check would.
+    """
+    try:
+        frame = screen.grab()
+        return (frame.width, frame.height)
+    except Exception:
+        return (None, None)
+
+
+def space_mismatch(frame: dict, captured: tuple) -> str:
+    """Say so when the picture and the coordinates are in different spaces.
+
+    :func:`to_screen` is only correct while the actuator works in physical
+    pixels, which it does because ``vm_agent`` declares DPI awareness — but the
+    agent is *deployed*, so a VM left on an older copy silently moves back to
+    the virtualised space and every aim is wrong again by the display scale.
+    Nothing about that failure is loud: the run still clicks, still gets a
+    frame, and still reports whatever the wrong control did.
+
+    The page knows the screen in logical pixels; the capture is in whatever
+    space the agent lives in. Multiply the first by the scale and they must
+    agree. Returns "" when they do, and at 100 % they always do — which is
+    correct, because there the two spaces genuinely are the same one.
+    """
+    if not frame or not captured or captured[0] is None:
+        return ""
+    want = (
+        round(frame.get("screenWidth", 0) * frame.get("dpr", 1)),
+        round(frame.get("screenHeight", 0) * frame.get("dpr", 1)),
+    )
+    if not want[0] or tuple(captured) == want:
+        return ""
+    return (
+        f"the captured screen is {captured[0]}x{captured[1]} but the page reports a "
+        f"{frame.get('screenWidth')}x{frame.get('screenHeight')} screen at scale "
+        f"{frame.get('dpr')} (= {want[0]}x{want[1]} physical). The VM's agent is "
+        f"running without DPI awareness, so its coordinates and frames are "
+        f"virtualised while this harness computes physical ones — every click "
+        f"would land off by the display scale. Redeploy it: "
+        f"python -m scripts.opverify.visual.deploy_agent --redeploy"
+    )
 
 
 class CdpTargeter:
@@ -326,20 +411,22 @@ class CdpTargeter:
         # census hit exactly that in the settings modal (2026-08-06) and moved
         # the cursor to y=915 on an 800px screen, so the wheel reached nothing.
         self.last_frame = f
-        self.last_affordances = [
-            Target(
-                text=a["text"],
-                role=a["role"],
-                x=round(f["screenX"] + a["cx"] * f["dpr"]),
-                y=round(f["screenY"] + a["cy"] * f["dpr"]),
-                width=a["w"],
-                height=a["h"],
-                enabled=a["enabled"],
-                in_viewport=a["inViewport"],
-                off_screen=a.get("offScreen", ""),
+        self.last_affordances = []
+        for a in data["affordances"]:
+            x, y = to_screen(f, a["cx"], a["cy"])
+            self.last_affordances.append(
+                Target(
+                    text=a["text"],
+                    role=a["role"],
+                    x=x,
+                    y=y,
+                    width=round(a["w"] * f["dpr"]),
+                    height=round(a["h"] * f["dpr"]),
+                    enabled=a["enabled"],
+                    in_viewport=a["inViewport"],
+                    off_screen=a.get("offScreen", ""),
+                )
             )
-            for a in data["affordances"]
-        ]
         return self.last_affordances
 
     def find(
