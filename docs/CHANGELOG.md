@@ -7,6 +7,43 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.8-beta.5] — 2026-08-09
+
+Soak release, cut because the first fix below is a CRITICAL one that beta.4
+does not contain — and this line counts soak on the *published* artifact, so
+leaving it on master would mean two weeks of soak that never exercised it.
+
+### Fixed
+
+- **Uninstalling actually uninstalls** (bug-499, CRITICAL). The Danger Zone's
+  full uninstall removed nothing and left the window on a shutdown overlay
+  that never resolved. `POST /api/system/uninstall` staged the purge plan,
+  copied the helper, launched it and signalled the kernel's shutdown — which
+  stopped the HTTP server and nothing else. The detached helper waits for its
+  parent to exit and, when it does not, bails without touching anything, which
+  is correct on its own terms: deleting a running installation is how targets
+  end up half-removed. The app now ends its process when the kernel says
+  shutdown. `POST /api/system/shutdown` shared the same defect silently and is
+  fixed with it. Verified end to end on a real installed build, not only in a
+  test. (#432)
+- **Escape closes a dialog** (bug-501). No modal in the dashboard could be
+  dismissed with the key every desktop application answers to — including the
+  settings modal, whose close control also carried no accessible name, so a
+  keyboard or screen-reader user had no way out but the backdrop. (#444)
+- **The window controls say what they are** (bug-502). Minimise, maximise,
+  close and the modal dismiss buttons were icon-only with no accessible name,
+  reaching assistive technology as unlabelled buttons. (#441, #444)
+
+### Added
+
+- The environment may pass extra WebView2 browser arguments at launch
+  (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`), which is what lets the
+  verification harness reach the DOM of a *shipped* build rather than an
+  instrumented one. Closed unless the variable is set, so a normal launch is
+  unchanged. (#433)
+
+---
+
 ## [0.6.8-beta.4] — 2026-08-03
 
 Soak release. It exists because the fix below is not in beta.3, and the
