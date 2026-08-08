@@ -60,6 +60,25 @@ def noop() -> Action:
 # Screen frames + fingerprints (settle detection needs a cheap "did it
 # change?" signal without decoding the image)
 # --------------------------------------------------------------------------
+def _png_size(data: bytes):
+    """(width, height) of a PNG, or (None, None) for anything else.
+
+    The size of the picture is how the harness knows which pixel space it is
+    looking at -- a DPI-unaware capture of a 1280x800 panel comes back 1024x640
+    at 125 % scale, and nothing else in a frame says so. Stub frames are not
+    PNGs, so this stays quiet rather than raising for them.
+    """
+    if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n":
+        return None, None
+    try:
+        return (
+            int.from_bytes(data[16:20], "big"),
+            int.from_bytes(data[20:24], "big"),
+        )
+    except Exception:
+        return None, None
+
+
 @dataclass
 class Frame:
     """A captured screen image plus a cheap fingerprint used by settle to
@@ -76,6 +95,8 @@ class Frame:
     def of(
         cls, data: bytes, width: Optional[int] = None, height: Optional[int] = None
     ) -> "Frame":
+        if width is None and height is None:
+            width, height = _png_size(data)
         return cls(
             data=data,
             fingerprint=hashlib.sha256(data).hexdigest(),

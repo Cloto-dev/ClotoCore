@@ -50,7 +50,7 @@ from . import affordance_coverage as AC
 from . import fixtures as FX
 from . import os_oracle as OS
 from .assessor_cache import CachingAssessor
-from .cdp import CdpTargeter, CdpTunnel
+from .cdp import CdpTargeter, CdpTunnel, captured_size, space_mismatch
 from .driver import VisualDriver
 from .interfaces import Frame, click, move, press_key, scroll, type_text
 from .live_assessor import AgentHandshakeAssessor
@@ -979,6 +979,13 @@ def main(argv) -> int:
         if any(s.target is not None for s in journey.steps):
             cdp_tunnel = CdpTunnel().open()
             targeter = CdpTargeter(cdp_tunnel)
+            # Before the first aim, not after the run reads oddly: check that the
+            # frames and the coordinates are in one pixel space (bug-503/504).
+            targeter.affordances()
+            problem = space_mismatch(targeter.last_frame, captured_size(screen))
+            if problem:
+                print(f"opverify apex: {problem}", file=sys.stderr)
+                return 3
         driver = VisualDriver(
             screen=_SavingScreen(screen, frame_dir),
             actuator=actuator,
