@@ -157,6 +157,29 @@ def scenario_census_round_trips() -> None:
     assert len(census.surfaces["main"]) == 3, census.surfaces["main"]
 
 
+def scenario_start_state_survives_and_is_never_assumed() -> None:
+    """The start state is carried, and its absence reads as unknown.
+
+    Two things have to hold for the field to be worth anything. It has to
+    survive the round trip — an artifact that drops it is an artifact nobody
+    can check. And an older artifact, written before the field existed, has to
+    come back as "" rather than inherit the reader's own label: the failure
+    being prevented (an earlier decision) is precisely two censuses being treated as
+    comparable when nothing recorded that they were.
+    """
+    census = AC.Census(
+        language="ja", app_version="0.6.8-beta.5", start_state="configured-chat/chat-view"
+    )
+    census.add_targets("main", [type("T", (), {"role": "button", "text": "設定"})()])
+    back = AC.Census.from_json(census.to_json())
+    assert back.start_state == "configured-chat/chat-view", back.start_state
+
+    legacy = AC.Census.from_dict(
+        {"language": "ja", "app_version": "0.6.8-beta.4", "surfaces": {}}
+    )
+    assert legacy.start_state == "", legacy.start_state
+
+
 def scenario_ignore_is_explicit() -> None:
     """The ignore set shrinks the denominator, so it is opt-in and starts
     empty: an entry invented before a census exists to justify it would quietly
@@ -225,6 +248,7 @@ def main() -> int:
         scenario_unmatched_declaration_is_reported_not_zero,
         scenario_coverage_arithmetic,
         scenario_census_round_trips,
+        scenario_start_state_survives_and_is_never_assumed,
         scenario_ignore_is_explicit,
         scenario_unnamed_controls_do_not_collapse_into_one,
         scenario_unnamed_controls_are_numbered_per_role,

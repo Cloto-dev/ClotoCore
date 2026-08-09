@@ -290,6 +290,7 @@ def take_census(
     *,
     language: str,
     app_version: str,
+    start_state: str = "",
     settle: float = 1.5,
     reset_keys: Sequence[str] = ("esc",),
     on_error=None,
@@ -301,7 +302,9 @@ def take_census(
     partial walk is still worth having as long as nobody mistakes it for a
     complete one, and the caller is told exactly which screens are missing.
     """
-    census = Census(language=language, app_version=app_version)
+    census = Census(
+        language=language, app_version=app_version, start_state=start_state
+    )
     unreached: List[str] = []
     # Leave whatever the last walk left open. Without this the census depends on
     # how the previous run ended: on 2026-08-06 a walk finished inside the
@@ -385,6 +388,20 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--out", required=True, help="where to write the census JSON")
     p.add_argument("--language", default="ja", help="UI language the app is running in")
+    # Required, with no default. `main` is "wherever the app already is", so an
+    # unlabelled census is a denominator nobody can compare against — which is
+    # exactly how two of them ended up differing by 8 affordances for reasons
+    # that had nothing to do with the app (an earlier decision). Defaulting the label
+    # would restore the silence: the operator would get one without choosing.
+    p.add_argument(
+        "--start-state",
+        required=True,
+        help=(
+            "what the app is showing when the walk begins, e.g. "
+            "'configured-chat/chat-view'. Recorded in the artifact; two "
+            "censuses with different labels are not comparable."
+        ),
+    )
     p.add_argument("--settle", type=float, default=1.5)
     args = p.parse_args(argv)
 
@@ -413,6 +430,7 @@ def main(argv=None) -> int:
             actuator,
             language=args.language,
             app_version=version,
+            start_state=args.start_state,
             settle=args.settle,
         )
     finally:
@@ -428,6 +446,7 @@ def main(argv=None) -> int:
         print(f"  {surface:10s} {len(rows):3d} affordances")
     print(f"census: {total} distinct affordances over {len(census.surfaces)} surfaces")
     print(f"        language={census.language} app_version={census.app_version}")
+    print(f"        start_state={census.start_state}")
     print(f"        written to {args.out}")
     if unreached:
         # Loud, and non-zero: a denominator quietly short by a whole screen
