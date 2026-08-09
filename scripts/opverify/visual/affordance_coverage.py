@@ -107,6 +107,15 @@ class Census:
 
     language: str
     app_version: str
+    # What the app was showing when the walk began. `main` is defined as
+    # "wherever the app already is", so the denominator moves with the start
+    # state and two censuses taken from different ones are not comparable —
+    # measured 2026-08-08, when a re-take put main at 24 against a baseline's
+    # 16 because an agent-creation form happened to be open. The totals looked
+    # like coverage had changed; nothing had. An artifact that does not say
+    # where it started cannot be checked for this, so the field is required at
+    # the point of capture (census.py --start-state) rather than optional here.
+    start_state: str = ""
     surfaces: Dict[str, List[AffordanceId]] = field(default_factory=dict)
 
     def add(self, surface: str, affordances: Iterable[AffordanceId]) -> None:
@@ -159,6 +168,7 @@ class Census:
         return {
             "language": self.language,
             "app_version": self.app_version,
+            "start_state": self.start_state,
             "surfaces": {
                 s: [a.as_dict() for a in bucket] for s, bucket in self.surfaces.items()
             },
@@ -169,7 +179,13 @@ class Census:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Census":
-        c = cls(language=d["language"], app_version=d["app_version"])
+        # Absent on artifacts taken before the field existed. They read back as
+        # "" — unknown, not "the same start state as yours".
+        c = cls(
+            language=d["language"],
+            app_version=d["app_version"],
+            start_state=d.get("start_state", ""),
+        )
         for surface, rows in d.get("surfaces", {}).items():
             c.surfaces[surface] = [
                 AffordanceId(surface=r["surface"], role=r["role"], name=r["name"])

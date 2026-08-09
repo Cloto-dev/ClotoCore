@@ -1,6 +1,7 @@
 {
-  "app_version": "0.6.8-beta.4",
+  "app_version": "0.6.8-beta.5",
   "language": "ja",
+  "start_state": "configured-chat/chat-view",
   "surfaces": {
     "agents": [
       {
@@ -19,17 +20,17 @@
         "surface": "agents"
       },
       {
-        "name": "«unnamed»#4",
+        "name": "最小化",
         "role": "button",
         "surface": "agents"
       },
       {
-        "name": "«unnamed»#5",
+        "name": "最大化",
         "role": "button",
         "surface": "agents"
       },
       {
-        "name": "«unnamed»#6",
+        "name": "ウィンドウを閉じる",
         "role": "button",
         "surface": "agents"
       },
@@ -141,17 +142,17 @@
         "surface": "cron"
       },
       {
-        "name": "«unnamed»#4",
+        "name": "最小化",
         "role": "button",
         "surface": "cron"
       },
       {
-        "name": "«unnamed»#5",
+        "name": "最大化",
         "role": "button",
         "surface": "cron"
       },
       {
-        "name": "«unnamed»#6",
+        "name": "ウィンドウを閉じる",
         "role": "button",
         "surface": "cron"
       },
@@ -223,17 +224,17 @@
         "surface": "main"
       },
       {
-        "name": "«unnamed»#4",
+        "name": "最小化",
         "role": "button",
         "surface": "main"
       },
       {
-        "name": "«unnamed»#5",
+        "name": "最大化",
         "role": "button",
         "surface": "main"
       },
       {
-        "name": "«unnamed»#6",
+        "name": "ウィンドウを閉じる",
         "role": "button",
         "surface": "main"
       },
@@ -283,7 +284,62 @@
         "surface": "main"
       },
       {
-        "name": "«unnamed»#7",
+        "name": "console.back",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "リセット",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "メッセージを編集",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "読み上げ",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "応答を再生成",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "copy code",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "download code",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "«unnamed»#4",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "«unnamed»#5",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "auto",
+        "role": "button",
+        "surface": "main"
+      },
+      {
+        "name": "コマンドを入力...",
+        "role": "input",
+        "surface": "main"
+      },
+      {
+        "name": "«unnamed»#6",
         "role": "button",
         "surface": "main"
       }
@@ -305,17 +361,17 @@
         "surface": "mcp"
       },
       {
-        "name": "«unnamed»#4",
+        "name": "最小化",
         "role": "button",
         "surface": "mcp"
       },
       {
-        "name": "«unnamed»#5",
+        "name": "最大化",
         "role": "button",
         "surface": "mcp"
       },
       {
-        "name": "«unnamed»#6",
+        "name": "ウィンドウを閉じる",
         "role": "button",
         "surface": "mcp"
       },
@@ -407,17 +463,17 @@
         "surface": "memory"
       },
       {
-        "name": "«unnamed»#4",
+        "name": "最小化",
         "role": "button",
         "surface": "memory"
       },
       {
-        "name": "«unnamed»#5",
+        "name": "最大化",
         "role": "button",
         "surface": "memory"
       },
       {
-        "name": "«unnamed»#6",
+        "name": "ウィンドウを閉じる",
         "role": "button",
         "surface": "memory"
       },
@@ -499,17 +555,17 @@
         "surface": "settings"
       },
       {
-        "name": "«unnamed»#4",
+        "name": "最小化",
         "role": "button",
         "surface": "settings"
       },
       {
-        "name": "«unnamed»#5",
+        "name": "最大化",
         "role": "button",
         "surface": "settings"
       },
       {
-        "name": "«unnamed»#6",
+        "name": "ウィンドウを閉じる",
         "role": "button",
         "surface": "settings"
       },
@@ -559,12 +615,12 @@
         "surface": "settings"
       },
       {
-        "name": "«unnamed»#7",
+        "name": "«unnamed»#4",
         "role": "button",
         "surface": "settings"
       },
       {
-        "name": "«unnamed»#8",
+        "name": "閉じる",
         "role": "button",
         "surface": "settings"
       },
@@ -646,17 +702,17 @@
         "surface": "settings-danger-zone"
       },
       {
-        "name": "«unnamed»#4",
+        "name": "最小化",
         "role": "button",
         "surface": "settings-danger-zone"
       },
       {
-        "name": "«unnamed»#5",
+        "name": "最大化",
         "role": "button",
         "surface": "settings-danger-zone"
       },
       {
-        "name": "«unnamed»#6",
+        "name": "ウィンドウを閉じる",
         "role": "button",
         "surface": "settings-danger-zone"
       },
@@ -706,12 +762,12 @@
         "surface": "settings-danger-zone"
       },
       {
-        "name": "«unnamed»#7",
+        "name": "«unnamed»#4",
         "role": "button",
         "surface": "settings-danger-zone"
       },
       {
-        "name": "«unnamed»#8",
+        "name": "閉じる",
         "role": "button",
         "surface": "settings-danger-zone"
       },
@@ -791,11 +847,6 @@
         "surface": "settings-danger-zone"
       },
       {
-        "name": "閉じる",
-        "role": "button",
-        "surface": "settings-danger-zone"
-      },
-      {
         "name": "再確認",
         "role": "button",
         "surface": "settings-danger-zone"
@@ -823,17 +874,17 @@
         "surface": "settings-health"
       },
       {
-        "name": "«unnamed»#4",
+        "name": "最小化",
         "role": "button",
         "surface": "settings-health"
       },
       {
-        "name": "«unnamed»#5",
+        "name": "最大化",
         "role": "button",
         "surface": "settings-health"
       },
       {
-        "name": "«unnamed»#6",
+        "name": "ウィンドウを閉じる",
         "role": "button",
         "surface": "settings-health"
       },
@@ -883,12 +934,12 @@
         "surface": "settings-health"
       },
       {
-        "name": "«unnamed»#7",
+        "name": "«unnamed»#4",
         "role": "button",
         "surface": "settings-health"
       },
       {
-        "name": "«unnamed»#8",
+        "name": "閉じる",
         "role": "button",
         "surface": "settings-health"
       },
@@ -955,17 +1006,17 @@
         "surface": "system"
       },
       {
-        "name": "«unnamed»#4",
+        "name": "最小化",
         "role": "button",
         "surface": "system"
       },
       {
-        "name": "«unnamed»#5",
+        "name": "最大化",
         "role": "button",
         "surface": "system"
       },
       {
-        "name": "«unnamed»#6",
+        "name": "ウィンドウを閉じる",
         "role": "button",
         "surface": "system"
       },
@@ -1015,7 +1066,7 @@
         "surface": "system"
       },
       {
-        "name": "«unnamed»#7",
+        "name": "«unnamed»#4",
         "role": "button",
         "surface": "system"
       }
