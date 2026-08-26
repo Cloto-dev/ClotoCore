@@ -123,8 +123,9 @@ class Surface:
         )
 
 
-# VM 104 runs the Japanese pack while the locale files are authored in English,
-# so every surface carries both spellings — the same reason journeys do.
+# The Windows verify guest runs the Japanese pack while the locale files are
+# authored in English, so every surface carries both spellings — the same reason
+# journeys do.
 SURFACES: List[Surface] = [
     Surface("main"),  # the walk starts wherever the app already is
     Surface("agents", TargetSpec(contains=("エージェント", "agents"))),

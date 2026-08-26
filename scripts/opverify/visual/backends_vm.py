@@ -394,9 +394,9 @@ def make_cofetch_backend(
 # port-forward pays that once: a persistent master forwards the VM's agent (8900)
 # and kernel (8081) loopback ports to local ports, and the Mac then hits them
 # with a plain local HTTP client — no per-call ssh exec, no PowerShell, no remote
-# curl. Measured on VM104: /grab 606→259ms (2.3x), kernel probe ~350→7.5ms. The
-# ~258ms /grab floor that remains is the VM's mss screen capture (grab ≈ grabhash
-# over the tunnel), which this transport cannot touch.
+# curl. Measured on the Windows guest: /grab 606→259ms (2.3x), kernel probe
+# ~350→7.5ms. The ~258ms /grab floor that remains is the VM's mss screen capture
+# (grab ≈ grabhash over the tunnel), which this transport cannot touch.
 
 
 def _free_local_port() -> int:

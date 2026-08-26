@@ -789,7 +789,7 @@ DESTRUCTIVE_JOURNEYS = {"danger-zone-purge"}
 
 # The OS label recorded on an apex ledger row. It names the machine *under
 # verification*, not the orchestrating host: the apex drives the real installed
-# GUI on the Windows VM (VM 104 — see VM_EXECUTOR_RUNBOOK.md), while the
+# GUI on the Windows guest (see VM_EXECUTOR_RUNBOOK.md), while the
 # orchestrator typically runs on macOS. Hardcoded because the apex has exactly
 # one VM target today; a second one would make this a CLI argument.
 APEX_OS_LABEL = "windows-vm"

@@ -211,7 +211,7 @@ class ThreadDepth:
 class Fixture:
     """A named start state: how to recognize it, and how to get back to it.
 
-    `snapshot` is the VM 104 snapshot that restores it (None = it has to be
+    `snapshot` is the hypervisor snapshot that restores it (None = it has to be
     built by hand, and `build` says how). Snapshot names carry the app version
     dash-encoded because Proxmox forbids dots, and they go stale on a version
     bump by design — the ritual for re-cutting one is in

@@ -186,7 +186,7 @@ Once the chokepoint enforces uniformly, these collapse:
 - **Kernel-native tools** (`mgp.*`, `gui.*`): keep the dedicated
   `server_id="kernel"` RBAC, evaluated on the kernel-native early-return path
   **before** the central gate; do not route through `resolve_tool_access` server
-  grants. **Decision (the maintainer 2026-07-01): the kernel gate special-cases the default
+  grants. **Decision 2026-07-01: the kernel gate special-cases the default
   to Allow (Deny-only RBAC).** This fixes a **confirmed live defect** — the live
   `kernel` row is `opt-in`, so `resolve_tool_access(...,"kernel",...)` currently
   returns Deny for every agent without an explicit kernel grant; today only
@@ -213,7 +213,7 @@ actually deny, and an agent that was *never* granted an engine still runs it
 (the LM Studio repro). This is a **policy default**, separate from the
 enforcement unification.
 
-**Decision (the maintainer, 2026-06-30): flip every server back to `opt-in`
+**Decision 2026-06-30: flip every server back to `opt-in`
 (deny-by-default) globally.** Rationale — the simplest, most predictable mental
 model: `grant ⇒ allow`, `no grant ⇒ deny`, `revoke = delete ⇒ deny` falls out
 for free. This makes both the zero-grant case (LM Studio) and the
@@ -278,7 +278,7 @@ mandatory; `granted_at` is `NOT NULL` with no default and must be supplied.
    The `NOT EXISTS` also matches `permission='deny'` rows, so existing explicit
    DENYs (e.g. `cpersona_bench`) are preserved.
 
-**Decisions (the maintainer, 2026-07-01) — strict enforcement, consistent with global opt-in:**
+**Decisions 2026-07-01 — strict enforcement, consistent with global opt-in:**
 
 - **Engine backfill grants only `default_engine_id`** (not routing /
   `escalate_to` / `fallback` / `engine_override` — 0 live rows; reached engines

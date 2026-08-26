@@ -19,7 +19,8 @@ The deploy is **verified-not-speculative**: after standing the agent up it polls
 in the committed ``vm_agent.py`` source — proving the running agent *is* the
 committed code, not a stale copy left on the VM.
 
-Reproduced end state (the "correct form", captured from VM104 2026-07-15):
+Reproduced end state (the "correct form", captured from the Windows guest
+2026-07-15):
   * ``C:\\opv\\opv_agent.py`` = this repo's ``vm_agent.py``
   * deps ``mss`` + ``pyautogui`` importable by the VM's Python
   * Task Scheduler task ``opv_agent``: Action ``pythonw.exe C:\\opv\\opv_agent.py``,
