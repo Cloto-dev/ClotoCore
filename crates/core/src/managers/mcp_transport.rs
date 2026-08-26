@@ -277,6 +277,14 @@ impl StdioTransport {
     ///   are set to the kernel LLM proxy.
     /// - Sensitive env vars (LLM API keys) are stripped from the child environment.
     #[allow(clippy::too_many_lines)]
+    // clippy: the body has no `.await`, but the `async` is not decoration. It
+    // calls `tokio::spawn`, which panics outside a runtime. Being an `async fn`
+    // is what makes running it outside one structurally impossible; the
+    // suggested `-> impl Future` + `std::future::ready(..)` rewrite would run
+    // the spawn eagerly at call time instead, at the caller's mercy for a
+    // runtime. The `?` operators through the body would also have to be
+    // restructured for no gain.
+    #[allow(clippy::unused_async_trait_impl)]
     pub async fn start(
         command: &str,
         args: &[String],
@@ -607,6 +615,14 @@ impl HttpTransport {
     /// routing headers and stop sending `Mcp-Session-Id` (a header MCP
     /// 2026-07-28 removed) the moment negotiation settles.
     #[allow(clippy::too_many_lines)]
+    // clippy: the body has no `.await`, but the `async` is not decoration. It
+    // calls `tokio::spawn`, which panics outside a runtime. Being an `async fn`
+    // is what makes running it outside one structurally impossible; the
+    // suggested `-> impl Future` + `std::future::ready(..)` rewrite would run
+    // the spawn eagerly at call time instead, at the caller's mercy for a
+    // runtime. The `?` operators through the body would also have to be
+    // restructured for no gain.
+    #[allow(clippy::unused_async_trait_impl)]
     pub async fn start(
         url: &str,
         auth_token: Option<&str>,

@@ -3312,7 +3312,7 @@ impl McpClientManager {
 
     /// Look up the kernel-side validator name for a given tool.
     /// Returns `Some("sandbox")` if the tool has a sandbox validator configured, etc.
-    pub async fn get_tool_validator(&self, tool_name: &str) -> Option<String> {
+    pub fn get_tool_validator(&self, tool_name: &str) -> Option<String> {
         super::mcp_tool_validator::get_kernel_validator(tool_name).map(String::from)
     }
 
