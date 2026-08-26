@@ -1071,7 +1071,7 @@ pub struct SetRecallPrecisionRequest {
 
 /// **Route:** `POST /api/agents/:id/recall-precision`
 ///
-/// Set an agent's recall precision (Goal #120, knob 3). This is an OPTIONAL,
+/// Set an agent's recall precision (knob 3). This is an OPTIONAL,
 /// feature-detected memory-capability operation: it routes through the capability
 /// dispatcher to whichever memory server backs the agent (no hardcoded provider),
 /// and returns 400 when the active memory server does not advertise
@@ -1114,7 +1114,7 @@ pub async fn set_recall_precision(
 
 /// **Route:** `GET /api/agents/:id/recall-precision`
 ///
-/// Read an agent's effective recall precision (Goal #120, knob 3) — the read-back
+/// Read an agent's effective recall precision (knob 3) — the read-back
 /// companion to [`set_recall_precision`], so the dashboard can load the current value
 /// and present the control as read-edit-save rather than write-only. Same OPTIONAL,
 /// feature-detected memory-capability contract: it routes through the capability

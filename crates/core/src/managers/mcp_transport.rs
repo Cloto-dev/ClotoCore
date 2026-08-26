@@ -349,7 +349,7 @@ impl StdioTransport {
         // discover it at runtime (supplements config-level env vars).
         cmd.env("CLOTO_LLM_PROXY_PORT", llm_proxy_port.to_string());
 
-        // Never hand a child the Magic Seal key (CSC Task #322). There is no
+        // Never hand a child the Magic Seal key. There is no
         // `env_clear` here — a child inherits the kernel's environment — so
         // when the kernel was started with `CLOTO_SEAL_KEY` set, every
         // connector was being given the key that authenticates its own
@@ -977,7 +977,7 @@ mod tests {
         assert_eq!(resolve_env_value("${NONEXISTENT_CLOTO_VAR_12345}"), "");
     }
 
-    // ── validate_entry_point_exists (bug-398 / Task #105 robustness) ──
+    // ── validate_entry_point_exists (bug-398 robustness) ──
 
     #[test]
     fn entry_point_missing_absolute_script_is_rejected() {

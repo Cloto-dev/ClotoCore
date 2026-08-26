@@ -1,6 +1,6 @@
 name: opverify nightly
 
-# Operation-to-success verification (CSC Goal #169). Boots a live headless
+# Operation-to-success verification. Boots a live headless
 # `clotocore` kernel and drives real operations to success over its HTTP admin
 # API, asserting each actually took effect — the quality layer between `--smoke`
 # (boot-only) and the release-time VM verify (installer diff).

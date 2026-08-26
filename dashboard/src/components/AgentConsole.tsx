@@ -347,7 +347,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
       }
 
       // Thinking process visualization. An event carrying engine_id is an
-      // engine event by construction — ids are bare (Goal #143), so presence
+      // engine event by construction — ids are bare, so presence
       // is the signal, not a prefix.
       if (event.data?.agent_id === agent.id || event.data?.engine_id !== undefined) {
         if (event.type === 'ToolInvoked' && event.data.agent_id === agent.id) {

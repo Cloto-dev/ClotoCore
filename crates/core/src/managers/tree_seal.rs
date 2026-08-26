@@ -1,4 +1,4 @@
-//! Installed-tree integrity sealing (CSC Task #322, Goal #188).
+//! Installed-tree integrity sealing.
 //!
 //! The Magic Seal minted at install time (`mgp_seal::compute_seal`) covers
 //! the connector's `entry_point` — one file. Since connectors became
@@ -130,7 +130,7 @@ fn collect_files(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
                 }
             }
             // Symlinks and special files are neither hashed nor walked.
-            // Extraction refuses to create them (Task #321), so one here
+            // Extraction refuses to create them, so one here
             // arrived after install; `verify_tree_seal` reports that as a
             // mismatch via the file count rather than silently skipping.
         }
@@ -245,7 +245,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The whole point of Goal #188: rewriting the implementation body must
+    /// The whole point of sealing the tree: rewriting the implementation body must
     /// be caught even though the entry point is untouched.
     #[test]
     fn tree_seal_catches_a_rewritten_implementation_file() {

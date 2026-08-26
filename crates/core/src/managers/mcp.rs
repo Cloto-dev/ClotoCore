@@ -979,7 +979,7 @@ impl McpClientManager {
                         .parent()
                         .unwrap_or(std::path::Path::new("data")),
                 )?;
-                // Task #322: a `tree-sha256:` seal covers the whole installed
+                // A `tree-sha256:` seal covers the whole installed
                 // tree, so it is verified against that tree instead of the
                 // entry point. Servers sealed before this existed still carry
                 // an entry-point seal and take the unchanged path below — the
@@ -1529,7 +1529,7 @@ impl McpClientManager {
         // Skip reasoning engines — their tools (think, think_with_tools) are
         // engine-internal and called directly via call_server_tool(engine_id, ...),
         // not through tool_index. Detected by tool surface, not id prefix, so
-        // bare-id engines (local, ollama, deepseek, …) are all recognised (Goal #142).
+        // bare-id engines (local, ollama, deepseek, …) are all recognised.
         {
             let mut state = self.state.write().await;
             state.servers.insert(id.clone(), handle);
@@ -1738,7 +1738,7 @@ impl McpClientManager {
     /// Return IDs of connected reasoning engines (servers exposing the
     /// think / think_with_tools tool surface). Detected by tool surface, not id
     /// prefix, so bare-id engines (local, ollama, deepseek, …) are all included
-    /// (Goal #142).
+    /// prefix.
     pub async fn list_connected_mind_servers(&self) -> Vec<String> {
         let state = self.state.read().await;
         state
@@ -1750,7 +1750,7 @@ impl McpClientManager {
     }
 
     /// Registered MCP-server status keyed by server id, for classifying whether
-    /// an LLM provider's backing engine actually exists (Goal #147).
+    /// an LLM provider's backing engine actually exists.
     ///
     /// The join key for the provider → engine view is *registration presence*,
     /// not `is_reasoning_engine()`: a stopped engine keeps its handle (status
@@ -1833,7 +1833,7 @@ impl McpClientManager {
                 continue;
             }
             // Skip reasoning engines — think/think_with_tools are engine-internal,
-            // not agent-facing. Detected by tool surface, not id prefix (Goal #142).
+            // not agent-facing. Detected by tool surface, not id prefix.
             if handle.is_reasoning_engine() {
                 continue;
             }
@@ -1919,7 +1919,7 @@ impl McpClientManager {
                 continue;
             }
             // Skip reasoning engines — think/think_with_tools are engine-internal,
-            // not agent-facing. Detected by tool surface, not id prefix (Goal #142).
+            // not agent-facing. Detected by tool surface, not id prefix.
             if handle.is_reasoning_engine() {
                 continue;
             }
@@ -3236,7 +3236,7 @@ impl McpClientManager {
     /// Engines are identified by having a matching `llm_providers` row — an
     /// ordinary MCP server (cpersona, github-bridge, …) has none, so the DB
     /// lookup misses and the env is returned untouched. This replaces the
-    /// retired `mind.` prefix classifier (Goal #142): engine ids are bare
+    /// retired `mind.` prefix classifier: engine ids are bare
     /// (`local`, `ollama`, `deepseek`, …) and equal their provider id.
     ///
     /// This exists because engine servers usually receive their model via the
@@ -3658,7 +3658,7 @@ pub(crate) fn detect_external_rejection(text: &str) -> Option<cloto_shared::Tool
 mod tests {
     use super::*;
 
-    // ── normalize_legacy_server_id (Goal #143) ──
+    // ── normalize_legacy_server_id ──
 
     #[test]
     fn legacy_prefixed_config_ids_normalize_to_bare() {

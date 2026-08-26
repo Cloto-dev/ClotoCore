@@ -1,7 +1,6 @@
 # Release Pipeline Design — Single Signed Manifest + Lifecycle Tiers
 
-Status: **Adopted** (maintainer decision, 2026-07-12). Implementation tracked
-as CSC Goal #165.
+Status: **Adopted** (maintainer decision, 2026-07-12).
 
 This document specifies ClotoCore's distribution pipeline: a single signed
 release manifest that every update consumer reads, with release channels

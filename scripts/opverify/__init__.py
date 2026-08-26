@@ -7,7 +7,7 @@ crash"). The harness itself only needs an HTTP endpoint + admin key; where
 the daemon runs (local process, Linux VM, Windows VM) is a deployment
 detail handled under ``opverify.deploy``.
 
-Design authority: ClotoCore CSC Goal #169 / the approved plan. This package
+Design authority: the approved operation-to-success plan. This package
 is intentionally dependency-free (Python standard library only) so it runs
 unchanged on a bare CI runner or inside a freshly-provisioned VM.
 """

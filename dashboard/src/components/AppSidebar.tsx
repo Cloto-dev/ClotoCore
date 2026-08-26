@@ -204,7 +204,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
           {!collapsed && <span className="text-xs font-bold uppercase tracking-wide">{t('collapse')}</span>}
         </button>
 
-        {/* Safe shutdown (Goal #164) — same sequence as the tray Quit */}
+        {/* Safe shutdown — same sequence as the tray Quit */}
         <button
           onClick={() => setShutdownConfirm(true)}
           title={collapsed ? t('shutdown') : undefined}

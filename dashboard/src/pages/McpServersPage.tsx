@@ -46,7 +46,7 @@ export function McpServersPage() {
 
   const selectedServer = servers.find((s) => s.id === selectedId);
 
-  // Category sort — ids are bare (Goal #143), so grouping comes from the
+  // Category sort — ids are bare, so grouping comes from the
   // tool surface: engines first, memory second, everything else alphabetical.
   const getOrder = (server: McpServerInfo) => {
     if (isEngineServer(server)) return 0;

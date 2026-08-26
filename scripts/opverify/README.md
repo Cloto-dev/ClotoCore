@@ -8,7 +8,7 @@ existing quality layers (`--smoke` boot check; `proxmox-windows-verify.sh`
 installer/upgrade diff) with the missing layer: *does the running app hold
 up under many kinds of real use?*
 
-Design authority: CSC Goal #169. This is meant to be a **permanent**
+This is meant to be a **permanent**
 capability — committed package, coverage ratchet, nightly CI, and a result
 ledger that is actually written and committed (see Status: the ledger existed
 in code but was wired to nothing until 2026-07-27, which is exactly the rot
@@ -80,7 +80,7 @@ present; each degrades to `None` rather than failing where unavailable.
   unchanged across a run). The result **ledger** (`qa/opverify/history.jsonl`,
   via `--ledger`) records each run and flags regressions vs the prior
   same-target baseline. Domains landed so far: health, agents, memory, events,
-  mcp (list **+ register→call→stop→reap** lifecycle — the Goal #145 orphan
+  mcp (list **+ register→call→stop→reap** lifecycle — the subprocess-orphan
   target), chat (deepseek), **llm** (inspect + configure/real-connection test),
   **cron** (full job lifecycle), **marketplace** (catalog), **permissions**
   (approve/deny against staged pending requests), **system**, **plugins**, and

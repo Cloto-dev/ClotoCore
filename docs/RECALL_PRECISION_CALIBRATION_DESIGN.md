@@ -4,8 +4,6 @@
 > [`RECALL_CONTAMINATION_AB_2026-06-14.md`](RECALL_CONTAMINATION_AB_2026-06-14.md).
 > **Scope:** CPersona recall pipeline (`memory_handlers.py`, `vector.py`,
 > `admin_handlers.py`) + ClotoCore per-agent recall config.
-> **Tracks:** CScheduler Goal #132 (this design / the calibration work) which blocks
-> Goal #120 (per-agent recall knobs); Scope #17.
 
 ## 1. Summary
 
@@ -76,9 +74,9 @@ one knob:
 
 | Axis | Determined by | Treatment | Origin |
 | --- | --- | --- | --- |
-| **Timing** — when to recall (always / session_start / +active / manual) | use-case | knob 1 | Goal #120 |
-| **Session scope** — boundary (channel / per_user / thread) | deployment | knob 2 | Goal #120 |
-| **Precision curve** — score↔relevance map (the ROC) | corpus + embedding model | **calibrate (no human input)** | This design (Goal #132) |
+| **Timing** — when to recall (always / session_start / +active / manual) | use-case | knob 1 | Per-agent recall knobs |
+| **Session scope** — boundary (channel / per_user / thread) | deployment | knob 2 | Per-agent recall knobs |
+| **Precision curve** — score↔relevance map (the ROC) | corpus + embedding model | **calibrate (no human input)** | This design |
 | **Precision point** — where on the curve (precision↔recall weight) | use-case value judgement | **knob 3 (new)** | This design |
 
 This split is the same data-vs-policy doctrine the project applied when it removed
@@ -103,7 +101,7 @@ The Discord-recall redesign branch (`feat/discord-recall-gating`) therefore stay
 "measured, not landing" as a contamination fix; its Phase-1 bridge change may stand on
 its own cost/UX merits.
 
-## 5. The calibration work (Goal #132)
+## 5. The calibration work
 
 Apply the existing separation methodology (null distribution vs. a temporal-adjacency
 positive proxy, Youden-J operating point — already in `admin_handlers.do_calibrate_threshold`)
@@ -145,7 +143,7 @@ it encodes the use-case's relative cost of a contaminant vs. a missed memory.
 - **Calibration layer — CPersona.** Per-agent, keyed by embedding dimension,
   recalibrated on model/corpus change at startup (extends the v2.4.24 sidecar +
   startup-guard mechanism to gate (b)).
-- **Knobs — per-agent config.** knob 1/2 (Goal #120) and knob 3 as agent metadata,
+- **Knobs — per-agent config.** knob 1/2 and knob 3 as agent metadata,
   surfaced in the Dashboard agent-config UI (deferred-save pattern). knob 3 spelled
   e.g. `recall_precision: strict | balanced | lenient` (or a raw β).
 
@@ -165,9 +163,9 @@ it encodes the use-case's relative cost of a contaminant vs. a missed memory.
 
 ## 8. Relationship to existing tracks
 
-- **Goal #119** (recall redesign v1): closed on the contamination axis; redesign held,
+- **Recall redesign v1**: closed on the contamination axis; redesign held,
   not landing. This design relocates contamination ownership to precision.
-- **Goal #120** (per-agent recall knobs): extended from 2 knobs to 3 (+ calibrate
-  layer); blocked by Goal #132.
-- **Goal #132** (this design / calibration work): the curve-calibration that must land
+- **Per-agent recall knobs**: extended from 2 knobs to 3 (+ calibrate
+  layer); blocked by this design.
+- **This design (the calibration work)**: the curve-calibration that must land
   before knob 3 can offer a meaningful operating point.

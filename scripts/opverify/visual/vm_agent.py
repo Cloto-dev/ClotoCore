@@ -32,7 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # injected coordinate is read in that shrunken space -- so a frame, an ROI or a
 # coordinate measured at 100 % silently means something else at 125 %. Awareness
 # keeps this agent in physical pixels at any scale (measured 2026-08-09, CSC
-# Task #530). Best effort: an OS without the call runs as before.
+# Best effort: an OS without the call runs as before.
 try:
     ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
 except Exception:

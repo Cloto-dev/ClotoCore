@@ -1,4 +1,4 @@
-"""Self-test of the CSS -> screen conversion (CSC Task #530), no VM needed.
+"""Self-test of the CSS -> screen conversion, no VM needed.
 Run: ``python -m scripts.opverify.visual.cdp_selftest`` (exit 0 = all passed).
 
 The bug this guards was live for four days and never failed a run, because

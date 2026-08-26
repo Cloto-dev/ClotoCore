@@ -37,7 +37,7 @@ pub struct McpServerHandle {
 /// engine-internal (invoked directly via `call_server_tool(engine_id, …)`),
 /// not agent-facing, so classifiers use this tool surface — not an id prefix —
 /// to recognise an engine. This is the id-prefix-agnostic replacement for the
-/// retired `mind.` prefix (Goal #142: engine ids are bare, e.g. `local`,
+/// retired `mind.` prefix (engine ids are bare, e.g. `local`,
 /// `ollama`, `deepseek`).
 pub const ENGINE_TOOL_NAMES: [&str; 2] = ["think", "think_with_tools"];
 
@@ -53,7 +53,7 @@ pub fn tools_expose_reasoning(tools: &[McpTool]) -> bool {
 impl McpServerHandle {
     /// True when this server is a reasoning engine (exposes the
     /// `think` / `think_with_tools` tool surface). Replaces the legacy
-    /// `id.starts_with("mind.")` classifier (Goal #142) so bare-id engines
+    /// `id.starts_with("mind.")` classifier so bare-id engines
     /// (`local`, `ollama`, `deepseek`, …) are recognised uniformly.
     #[must_use]
     pub fn is_reasoning_engine(&self) -> bool {
@@ -157,7 +157,7 @@ mod tests {
     fn tools_expose_reasoning_keys_on_think_surface_not_id() {
         // A reasoning engine is recognised by its think / think_with_tools tool
         // surface regardless of id — bare `local`/`ollama`/`deepseek` all qualify
-        // (Goal #142), replacing the retired `mind.` prefix classifier.
+        // replacing the retired `mind.` prefix classifier.
         assert!(tools_expose_reasoning(&[tool("think")]));
         assert!(tools_expose_reasoning(&[
             tool("switch_model"),

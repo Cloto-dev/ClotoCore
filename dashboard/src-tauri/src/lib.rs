@@ -29,7 +29,7 @@ static MCP_DRAINED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 /// once, no matter which UI path fires it (tray quit / dashboard button).
 static SHUTDOWN_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Drain parameters shared by every exit path (Goal #164: tray quit and the
+/// Drain parameters shared by every exit path (tray quit and the
 /// dashboard shutdown button must run the identical sequence).
 const DRAIN_GRACE_MS: u64 = 2000;
 const DRAIN_GLOBAL_CAP_SECS: u64 = 6;
@@ -68,7 +68,7 @@ fn drain_mcp_before_exit() {
 }
 
 /// The one safe-shutdown sequence shared by both user-facing exit paths
-/// (Goal #164): the tray-menu Quit and the dashboard's shutdown button.
+/// the tray-menu Quit and the dashboard's shutdown button.
 ///
 /// Sequence: surface the window and emit `shutdown-started` (the webview shows
 /// the shutdown overlay), drain and reap all MCP subprocesses off the GUI
@@ -162,7 +162,7 @@ fn append_browser_args(existing: Option<&str>, extra: &str) -> String {
     }
 }
 
-/// Run the shared safe-shutdown sequence from the dashboard UI (Goal #164).
+/// Run the shared safe-shutdown sequence from the dashboard UI.
 /// The frontend shows the shutdown overlay immediately; the `shutdown-started`
 /// event keeps any other window in sync.
 #[tauri::command]
@@ -850,7 +850,7 @@ pub fn run() {
                         }
                     }
                     "quit" => {
-                        // Shared safe-shutdown sequence (Goal #164): overlay +
+                        // Shared safe-shutdown sequence: overlay +
                         // MCP drain off the GUI thread + kernel shutdown + exit.
                         // Same path as the dashboard's shutdown button.
                         begin_shutdown(app);

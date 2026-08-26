@@ -192,7 +192,7 @@ async function bootstrap() {
               <ConnectionProvider>
                 <App />
                 {/* Above the connection gate: must survive the kernel going
-                    away mid-shutdown (Goal #164). */}
+                    away mid-shutdown. */}
                 <ShutdownOverlay />
               </ConnectionProvider>
             </UserIdentityProvider>
