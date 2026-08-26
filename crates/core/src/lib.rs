@@ -134,7 +134,7 @@ pub type ActiveCronContexts = Arc<dashmap::DashMap<String, CronExecContext>>;
 pub struct EnvelopedEvent {
     pub event: Arc<ClotoEvent>,
     pub issuer: Option<cloto_shared::ClotoId>, // None = System/Kernel
-    pub correlation_id: Option<cloto_shared::ClotoId>, // 親イベントの trace_id
+    pub correlation_id: Option<cloto_shared::ClotoId>, // trace_id of the parent event
     pub depth: u8,
 }
 
@@ -602,7 +602,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     // 0d. Set database timeout from config
     db::set_db_timeout(config.db_timeout_secs);
 
-    // 1. データベースの初期化
+    // 1. Initialize the database.
     //
     // Opens the pool and runs migrations, self-healing a corrupt / non-SQLite
     // DB file (bug-486) instead of dead-ending the launch. See `open_kernel_db`.
@@ -669,7 +669,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     let metrics = Arc::new(managers::SystemMetrics::new());
     let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
 
-    // 🔌 System Handler の登録
+    // Register the System Handler.
     let pending_command_approvals: handlers::command_approval::PendingApprovals =
         Arc::new(dashmap::DashMap::new());
     let session_trusted_commands: handlers::command_approval::SessionTrustedCommands =

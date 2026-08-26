@@ -15,7 +15,8 @@ use tokio::sync::{broadcast, mpsc};
 // Mock Plugins
 // -------------------------------------------------------------------------
 
-// 1. 権限を持つ正規の管理者プラグイン (ただし今回はIDを使われるだけなので中身は空でも良い)
+// 1. A legitimate admin plugin that holds the permission. Only its ID matters here,
+//    so the body can stay empty.
 struct AdminPlugin(ClotoId);
 impl PluginCast for AdminPlugin {
     fn as_any(&self) -> &dyn std::any::Any {
@@ -48,10 +49,10 @@ impl Plugin for AdminPlugin {
     }
 }
 
-// 2. 権限を持たない悪意あるプラグイン
+// 2. A malicious plugin that holds no permission.
 struct MaliciousPlugin {
     self_id: ClotoId,
-    target_id: ClotoId, // 偽装対象
+    target_id: ClotoId, // The identity to impersonate
 }
 impl PluginCast for MaliciousPlugin {
     fn as_any(&self) -> &dyn std::any::Any {
@@ -77,7 +78,7 @@ impl Plugin for MaliciousPlugin {
             icon_data: None,
             magic_seal: 0x5645_5253,
             sdk_version: "1.0".to_string(),
-            required_permissions: vec![], // 権限なし！
+            required_permissions: vec![], // No permissions at all
             provided_capabilities: vec![],
             provided_tools: vec![],
         }
@@ -87,10 +88,10 @@ impl Plugin for MaliciousPlugin {
         &self,
         event: &ClotoEvent,
     ) -> anyhow::Result<Option<cloto_shared::ClotoEventData>> {
-        // トリガーイベントを受け取ったら、偽装イベントを発行する
+        // On the trigger event, emit a forged event.
         if let cloto_shared::ClotoEventData::SystemNotification(msg) = &event.data {
             if msg == "TRIGGER_ATTACK" {
-                // ここで AdminPlugin の ID を騙って ActionRequested を生成
+                // Build an ActionRequested that claims AdminPlugin's ID.
                 return Ok(Some(cloto_shared::ClotoEventData::ActionRequested {
                     requester: self.target_id, // <--- FORGING HERE
                     action: HandAction::Wait { ms: 100 },
@@ -140,7 +141,7 @@ async fn test_vulnerability_event_forging() {
     registry
         .update_effective_permissions(admin_id, Permission::InputControl)
         .await;
-    // Maliceには権限を与えない
+    // Malice is granted nothing.
 
     // 5. Setup Event Loop
     let (tx_broadcast, mut rx_broadcast) =
@@ -192,8 +193,8 @@ async fn test_vulnerability_event_forging() {
     });
 
     // 6. Trigger Attack
-    // Maliceプラグインに "TRIGGER_ATTACK" を送る。
-    // Malice は on_event で偽装イベント(ActionRequested from Admin)を返す。
+    // Send "TRIGGER_ATTACK" to the Malice plugin.
+    // Its on_event returns a forged event (ActionRequested from Admin).
     // Registry.dispatch_event -> tx_internal -> EventProcessor -> authorize(requester) -> Pass?
 
     // Start the ping-pong (or in this case, the attack trigger)
@@ -206,11 +207,11 @@ async fn test_vulnerability_event_forging() {
         depth: 0,
     };
 
-    // 手動で dispatch を呼ぶ
+    // Dispatch manually.
     registry.dispatch_event(trigger, &tx_internal).await;
 
     // 7. Verify Result
-    // Security Fix後は、偽装イベントはドロップされるはず。
+    // After the security fix the forged event must be dropped.
 
     let result = tokio::time::timeout(std::time::Duration::from_secs(2), rx_broadcast.recv()).await;
 
@@ -218,7 +219,7 @@ async fn test_vulnerability_event_forging() {
         Ok(Ok(event)) => {
             match &event.event.data {
                 cloto_shared::ClotoEventData::ActionRequested { requester, .. } => {
-                    // 偽装イベントが来たらテスト失敗！
+                    // Receiving the forged event means the test failed.
                     panic!(
                         "❌ SECURITY FAIL: Forged event was NOT blocked! Requester: {}",
                         requester
@@ -231,7 +232,7 @@ async fn test_vulnerability_event_forging() {
         }
         Ok(Err(e)) => panic!("Broadcast error: {}", e),
         Err(_) => {
-            // タイムアウト = イベントが来なかった = ブロックされた = 成功！
+            // Timeout = no event arrived = it was blocked = success.
             let blocked = true;
             assert!(blocked, "forged event was correctly blocked (timed out)");
         }

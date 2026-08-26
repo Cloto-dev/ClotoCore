@@ -229,7 +229,7 @@ pub async fn grant_permission_handler(
         .grant_permission(&id, payload.permission.clone())
         .await?;
 
-    // イベントループに通知して Capability を注入させる
+    // Notify the event loop so it injects the capability.
     let envelope = crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::PermissionGranted {
         plugin_id: id.clone(),
         permission: payload.permission.to_string(),
