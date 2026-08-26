@@ -61,7 +61,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import List, Optional
 
-from .backends_vm import _cfg
+from .backends_vm import _cfg, vm_host
 
 # Port the app is told to open on the guest, and the local port the tunnel maps
 # it to. Both overridable so two runs can coexist on one orchestrator.
@@ -91,7 +91,7 @@ class CdpTunnel:
     def __init__(self):
         self.local = int(_cfg("OPV_CDP_LOCAL_PORT", LOCAL_DEBUG_PORT))
         self.guest = _cfg("OPV_CDP_GUEST_PORT", GUEST_DEBUG_PORT)
-        self.vm = f"{_cfg('OPV_VM_USER', 'PC')}@{_cfg('OPV_VM_IP', '192.168.0.252')}"
+        self.vm = vm_host()
         self._ctl = f"/tmp/opv-cdp-{self.local}-%r@%h:%p"
 
     def open(self, timeout: float = 20.0) -> "CdpTunnel":
