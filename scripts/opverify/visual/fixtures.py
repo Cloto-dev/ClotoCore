@@ -29,12 +29,12 @@ Two deliberate limits:
 
 from __future__ import annotations
 
-import os
 import subprocess
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
+from .backends_vm import _required, vm_host
 from .interfaces import ProbeUnavailable
 
 # (ok, human-readable detail) — the same shape every check returns, so the
@@ -385,17 +385,17 @@ def remedy(name: str) -> str:
 # Restoring one (explicit, never a side effect)
 # --------------------------------------------------------------------------
 def pve_host() -> str:
-    return os.environ.get("OPV_PVE_HOST", "root@192.0.2.2")
+    """``ssh-user@host`` for the hypervisor (no default -- see _required)."""
+    return _required("OPV_PVE_HOST")
 
 
 def vm_id() -> str:
-    return os.environ.get("OPV_VM_ID", "104")
+    """The hypervisor's id for the guest (no default -- see _required)."""
+    return _required("OPV_VM_ID")
 
 
 def guest() -> str:
-    user = os.environ.get("OPV_VM_USER", "PC")
-    ip = os.environ.get("OPV_VM_IP", "192.0.2.252")
-    return f"{user}@{ip}"
+    return vm_host()
 
 
 def _ssh(host: str, command: str, timeout: float) -> subprocess.CompletedProcess:
