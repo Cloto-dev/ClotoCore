@@ -14,7 +14,7 @@ pub mod llm;
 /// M-14: Plugins should reference this instead of their own CARGO_PKG_VERSION
 pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Clotoプラットフォーム内での一意の識別子（Agent, Plugin, Session等）
+/// Unique identifier within the Cloto platform (agents, plugins, sessions, ...).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ClotoId(Uuid);
@@ -40,7 +40,7 @@ impl ClotoId {
         Self(Uuid::new_v4())
     }
 
-    /// トレース用のIDを生成
+    /// Generate an ID for tracing.
     #[must_use]
     pub fn new_trace_id() -> Self {
         Self(Uuid::new_v4())
@@ -55,23 +55,23 @@ impl ClotoId {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CapabilityType {
-    /// 思考・推論能力 (ReasoningEngine)
+    /// Thinking and inference (ReasoningEngine).
     Reasoning,
-    /// 記憶・永続化能力 (MemoryProvider)
+    /// Memory and persistence (MemoryProvider).
     Memory,
-    /// 外部通信・入出力能力 (CommunicationAdapter)
+    /// External communication and I/O (CommunicationAdapter).
     Communication,
-    /// 特定タスク実行能力 (Tool)
+    /// Execution of a specific task (Tool).
     Tool,
-    /// 視覚・画像処理能力
+    /// Vision and image processing.
     Vision,
-    /// 音声文字起こし能力 (Speech-to-Text)
+    /// Speech transcription (Speech-to-Text).
     Stt,
-    /// 音声出力能力 (Text-to-Speech / speak)
+    /// Speech output (Text-to-Speech / speak).
     Speech,
-    /// 物理/ハードウェア操作能力
+    /// Physical and hardware actuation.
     HAL,
-    /// Webサーバー拡張能力 (APIエンドポイント提供)
+    /// Web server extension (serves API endpoints).
     Web,
 }
 
@@ -120,32 +120,32 @@ pub enum ClotoError {
 
 pub type ClotoResult<T> = std::result::Result<T, ClotoError>;
 
-/// プラグインがデータを保存するための抽象ストレージインターフェース (Principle #4: Data Sovereignty / Principle #6: SAL)
+/// Abstract storage interface plugins use to persist data (Principle #4: Data Sovereignty / Principle #6: SAL).
 #[async_trait]
 pub trait PluginDataStore: Send + Sync {
-    /// JSON形式でデータを保存
+    /// Store a value as JSON.
     async fn set_json(
         &self,
         plugin_id: &str,
         key: &str,
         value: serde_json::Value,
     ) -> anyhow::Result<()>;
-    /// JSON形式でデータを取得
+    /// Read a value stored as JSON.
     async fn get_json(
         &self,
         plugin_id: &str,
         key: &str,
     ) -> anyhow::Result<Option<serde_json::Value>>;
-    /// 指定されたプレフィックスを持つ全てのデータを取得
+    /// Read every value whose key starts with the given prefix.
     async fn get_all_json(
         &self,
         plugin_id: &str,
         key_prefix: &str,
     ) -> anyhow::Result<Vec<(String, serde_json::Value)>>;
 
-    /// アトミックにカウンタをインクリメントし、更新後の値を返す (TOCTOU防止)
+    /// Atomically increment a counter and return the updated value (prevents TOCTOU).
     async fn increment_counter(&self, plugin_id: &str, key: &str) -> anyhow::Result<i64> {
-        // デフォルト実装: get→increment→set (非アトミック、テスト用フォールバック)
+        // Default implementation: get -> increment -> set (non-atomic, test fallback).
         // SqliteDataStore overrides this with an atomic UPSERT.
         tracing::warn!(plugin_id = %plugin_id, key = %key,
             "Using non-atomic default increment_counter; override with atomic implementation for production use");
@@ -222,7 +222,7 @@ pub trait ProcessCapability: Send + Sync {
     async fn execute(&self, cmd: &str, args: &[String]) -> anyhow::Result<(String, String, i32)>;
 }
 
-/// 実行時に注入される具体的な能力のラッパー
+/// Wrapper around a concrete capability injected at runtime.
 #[derive(Clone)]
 pub enum PluginCapability {
     Network(Arc<dyn NetworkCapability>),
@@ -243,10 +243,10 @@ pub enum ServiceType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PluginCategory {
-    Agent,  // 対話可能な人格 (#MIND)
-    Tool,   // 機能・道具 (#TOOL)
-    Memory, // 記憶 (#MEMORY)
-    System, // システム内部 (#SYSTEM)
+    Agent,  // A conversational persona (#MIND)
+    Tool,   // A function or instrument (#TOOL)
+    Memory, // Memory (#MEMORY)
+    System, // Kernel internals (#SYSTEM)
     Other,
 }
 
@@ -256,7 +256,7 @@ pub struct PluginManifest {
     pub name: String,
     pub description: String,
     pub version: String,
-    pub category: PluginCategory, // 追加
+    pub category: PluginCategory,
     pub service_type: ServiceType,
     pub tags: Vec<String>,
     pub is_active: bool,
@@ -315,7 +315,7 @@ pub enum HandAction {
     ClickElement { label: String },
 }
 
-/// プラグインのダウンキャストを補助するためのトレイト
+/// Helper trait for downcasting a plugin to its concrete capability traits.
 pub trait PluginCast {
     fn as_any(&self) -> &dyn Any;
     fn as_tool(&self) -> Option<&dyn Tool> {
@@ -329,23 +329,23 @@ pub trait PluginCast {
     }
 }
 
-/// 全てのプラグインが実装するベースとなるマーカートレイト
+/// Base marker trait implemented by every plugin.
 #[async_trait]
 pub trait Plugin: Any + Send + Sync + PluginCast {
     fn manifest(&self) -> PluginManifest;
 
-    /// システムイベントの購読（デフォルトは何もしない）
-    /// 戻り値としてイベントデータを返すと、Kernelによって再配信される
+    /// Subscribe to system events (the default does nothing).
+    /// Returning event data re-dispatches it through the kernel.
     async fn on_event(&self, _event: &ClotoEvent) -> anyhow::Result<Option<ClotoEventData>> {
         Ok(None)
     }
 
-    /// エージェント初期化時のフック（メタデータの注入など）
+    /// Hook run when an agent is initialized (e.g. to inject metadata).
     async fn on_agent_init(&self, _agent: &mut AgentMetadata) -> anyhow::Result<()> {
         Ok(())
     }
 
-    /// 実行中に権限が承認され、Capabilityが注入された際のフック
+    /// Hook run when a permission is granted at runtime and a capability is injected.
     async fn on_capability_injected(&self, _capability: PluginCapability) -> anyhow::Result<()> {
         Ok(())
     }
@@ -536,7 +536,7 @@ pub struct GazeData {
     pub x: i32,
     pub y: i32,
     pub confidence: f32,
-    pub fixated: bool, // 一定時間留まっているか
+    pub fixated: bool, // Whether the gaze has dwelled in place
 }
 
 /// Where an [`ClotoEventData::McpServerLog`] line originated. Shown as a badge
@@ -576,22 +576,22 @@ pub enum ClotoEventData {
         detected_elements: Vec<serde_json::Value>,
         image_ref: Option<String>,
     },
-    /// 視線データの更新
+    /// Gaze data was updated.
     GazeUpdated(GazeData),
-    /// プラグインからのアクション要求（権限チェック対象）
+    /// A plugin requested an action (subject to a permission check).
     ActionRequested {
         requester: ClotoId,
         action: HandAction,
     },
     SystemNotification(String),
-    /// プラグインに対して思考（推論）を要求する
+    /// Ask a plugin to think (run inference).
     ThoughtRequested {
         agent: AgentMetadata,
         engine_id: String,
         message: ClotoMessage,
         context: Vec<ClotoMessage>,
     },
-    /// プラグインからの思考結果
+    /// A plugin returned its thinking result.
     ThoughtResponse {
         agent_id: String,
         engine_id: String,
@@ -602,12 +602,12 @@ pub enum ClotoEventData {
         #[serde(default)]
         auto_spoken: bool,
     },
-    /// 複数プラグインによる合意形成の開始
+    /// Start consensus-building across several plugins.
     ConsensusRequested {
         task: String,
         engine_ids: Vec<String>,
     },
-    /// プラグインの設定が更新された通知
+    /// A plugin's configuration was updated.
     ConfigUpdated {
         plugin_id: String,
         config: std::collections::HashMap<String, String>,
@@ -620,13 +620,13 @@ pub enum ClotoEventData {
         permission: String,
         reason: String,
     },
-    /// 権限が承認された通知
+    /// A permission was granted.
     PermissionGranted {
         plugin_id: String,
         /// MGP permission string (e.g., "shell.execute", "network.outbound").
         permission: String,
     },
-    /// エージェントの電源状態が変更された通知
+    /// An agent's power state changed.
     AgentPowerChanged {
         agent_id: String,
         enabled: bool,

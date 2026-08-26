@@ -761,7 +761,7 @@ pub struct VisemeRequest {
 ///
 /// # Request Body
 /// ```json
-/// { "text": "こんにちは" }
+/// { "text": "hello" }
 /// ```
 ///
 /// # Response
