@@ -42,7 +42,7 @@ import sys
 import time
 from typing import Optional, Tuple
 
-from .backends_vm import _cfg
+from .backends_vm import _cfg, vm_host
 
 AGENT_SRC = os.path.join(os.path.dirname(__file__), "vm_agent.py")
 REMOTE_DIR = r"C:\opv"
@@ -52,7 +52,7 @@ TASK_NAME = "opv_agent"
 
 
 def _vm() -> str:
-    return f"{_cfg('OPV_VM_USER', 'PC')}@{_cfg('OPV_VM_IP', '192.168.0.252')}"
+    return vm_host()
 
 
 def _ssh_base() -> list:

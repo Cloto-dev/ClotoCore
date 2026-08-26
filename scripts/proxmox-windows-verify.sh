@@ -27,18 +27,23 @@
 #     --to-asset ./artifacts/ClotoCore_0.6.8-alpha.1_x64-setup.exe \
 #     --out /tmp/verify-report.json
 #
-# Environment overrides:
-#   PVE_HOST=192.168.0.2         Proxmox host IP
-#   PVE_USER=root                Proxmox SSH user
-#   PVE_VMID=104                 Win11 VM ID
-#   VM_IP=192.168.0.252          Win11 guest IP (DHCP-stable via MAC binding)
-#   VM_USER=PC                   Win11 local administrator account
+# Required environment (no defaults). These name machines that belong to
+# whoever runs the script, so a value committed here would be wrong for every
+# other reader. An unset one is reported by name, rather than reaching ssh and
+# surfacing minutes later as a connect timeout:
+#   PVE_HOST     Proxmox host address
+#   PVE_USER     Proxmox SSH user
+#   PVE_VMID     Win11 VM id on that host
+#   VM_IP        Win11 guest address (keep it stable, e.g. a DHCP MAC binding)
+#   VM_USER      Win11 local administrator account
+#
+# Optional environment:
 #   PRISTINE_SNAPSHOT=pristine   PVE snapshot name to rollback to
 #   GH_REPO=Cloto-dev/ClotoCore  GitHub repository for release asset lookup
 #
 # Prerequisites:
-#   * Mac ssh-key wired to root@PVE_HOST and Administrators on VM (see
-#     [[reference-proxmox-windows-verify-setup]]).
+#   * Mac ssh-key wired to ${PVE_USER}@${PVE_HOST} and to Administrators on
+#     the guest.
 #   * gh CLI authenticated (gh auth login) for `gh release view`.
 #   * jq installed.
 
@@ -52,7 +57,7 @@ while [[ $# -gt 0 ]]; do
     --to-version) TO="$2"; shift 2 ;;
     --to-asset)   TO_ASSET="$2"; shift 2 ;;
     --out)        OUT="$2"; shift 2 ;;
-    -h|--help)    sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help)    sed -n '2,/^$/p' "$0"; exit 0 ;;
     *) echo "ERROR: unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -60,11 +65,11 @@ done
 [[ -z "$TO_ASSET" || -f "$TO_ASSET" ]] || { echo "ERROR: --to-asset not found: $TO_ASSET" >&2; exit 2; }
 
 # ─── env ───────────────────────────────────────────────────────────────
-PVE_HOST="${PVE_HOST:-192.168.0.2}"
-PVE_USER="${PVE_USER:-root}"
-PVE_VMID="${PVE_VMID:-104}"
-VM_IP="${VM_IP:-192.168.0.252}"
-VM_USER="${VM_USER:-PC}"
+: "${PVE_HOST:?not set -- the Proxmox host address (see --help)}"
+: "${PVE_USER:?not set -- the Proxmox SSH user (see --help)}"
+: "${PVE_VMID:?not set -- the Win11 VM id (see --help)}"
+: "${VM_IP:?not set -- the Win11 guest address (see --help)}"
+: "${VM_USER:?not set -- the Win11 administrator account (see --help)}"
 PRISTINE_SNAPSHOT="${PRISTINE_SNAPSHOT:-pristine}"
 GH_REPO="${GH_REPO:-Cloto-dev/ClotoCore}"
 

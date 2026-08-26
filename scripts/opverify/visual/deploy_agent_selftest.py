@@ -14,6 +14,7 @@ lifecycle against a live host is exercised by the real deploy, not here.
 
 from __future__ import annotations
 
+import os
 import sys
 
 from . import deploy_agent as D
@@ -119,7 +120,22 @@ def scenario_version_mismatch_fails() -> None:
         pass
 
 
+def _placeholder_vm_config() -> None:
+    """Name a machine for the scenarios that only format commands.
+
+    These tests build ssh/qm command strings; they never open a connection. The
+    host config has no default (it would be the author's own machine), so the
+    test supplies its own. The .invalid TLD can never resolve, so a scenario
+    that ever did try to connect would fail loudly instead of reaching someone.
+    """
+    os.environ.setdefault("OPV_PVE_HOST", "selftest@pve.invalid")
+    os.environ.setdefault("OPV_VM_USER", "selftest")
+    os.environ.setdefault("OPV_VM_IP", "vm.invalid")
+    os.environ.setdefault("OPV_VM_ID", "0")
+
+
 def main() -> int:
+    _placeholder_vm_config()
     orig_ssh, orig_scp = D._ssh, D._scp
     scenarios = [
         scenario_version,
