@@ -649,9 +649,9 @@ def _kernel_state(
     messages=0,
 ):
     """A fake `fetch_json` returning the shapes the kernel really serializes —
-    measured on VM 104 (2026-08-06), envelope included. A fixture check that
-    passes against a hand-drawn shape and fails against the product's is worth
-    less than no check at all."""
+    measured on the Windows guest (2026-08-06), envelope included. A fixture
+    check that passes against a hand-drawn shape and fails against the product's
+    is worth less than no check at all."""
 
     def fetch(path: str) -> dict:
         if path == "/api/system/health":

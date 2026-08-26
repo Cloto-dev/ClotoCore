@@ -34,9 +34,9 @@ affordance in two states, not two affordances, and counting them separately
 would inflate the denominator every time the app was used.
 
 A census is only comparable to another census of the same UI language and app
-version, which is why it records both. VM 104 runs a Japanese UI; a census
-taken there cannot be divided into an English one's numbers. (The ledger draws
-the same line when it keys baselines by target/os/journey/assessor.)
+version, which is why it records both. The Windows verify guest runs a Japanese
+UI; a census taken there cannot be divided into an English one's numbers. (The
+ledger draws the same line when it keys baselines by target/os/journey/assessor.)
 """
 
 from __future__ import annotations

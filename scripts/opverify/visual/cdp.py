@@ -27,11 +27,11 @@ Two deliberate limits:
 The screen conversion is ``(screenX + css_x) * devicePixelRatio`` -- see
 :func:`to_screen`. It was ``screenX + css_x * dpr`` until 2026-08-09, which is
 the same arithmetic whenever ``dpr`` is 1 and wrong by a quarter of the window
-offset at 125 % (CSC Task #530): measured on VM 104, a click aimed at the
-sidebar's "agents" entry landed on "cron", and one aimed at the minimise button
-ran off the edge of the screen onto the header. Nothing failed loudly -- the run
-simply acted on the wrong control and reported what followed as the app's
-behaviour.
+offset at 125 %: measured on the Windows guest at that scale, a click aimed at
+the sidebar's "agents" entry landed on "cron", and one aimed at the minimise
+button ran off the edge of the screen onto the header. Nothing failed loudly --
+the run simply acted on the wrong control and reported what followed as the
+app's behaviour.
 
 Three coordinate spaces meet here, and the conversion is only correct while two
 of them are pinned:

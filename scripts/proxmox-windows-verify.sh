@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# proxmox-windows-verify.sh — Mac-side verify driver for Proxmox Win11 VM 104.
+# proxmox-windows-verify.sh — Mac-side verify driver for a Proxmox Win11 guest.
 #
-# Rolls back VM 104 to a pristine snapshot, installs the FROM version from
+# Rolls the guest back to a pristine snapshot, installs the FROM version from
 # GitHub Releases, seeds a dummy database to detect data preservation, then
 # installs the TO version (from a local file or GitHub Releases) and diffs
 # the pre/post Windows fingerprint against the bug-386 NSIS hook assertion
 # matrix. Replaces ~30-45 min Windows Sandbox manual verify with ~6 min
-# automation. See [[reference-proxmox-windows-verify-pattern]] and
-# [[reference-proxmox-windows-verify-setup]] in user memory for the
-# infrastructure and chain background.
+# automation. Which host and which guest are named entirely by the
+# environment (see "Required environment" below); this script ships no
+# defaults for them.
 #
 # Usage:
 #   ./scripts/proxmox-windows-verify.sh \

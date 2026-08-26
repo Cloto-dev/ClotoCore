@@ -95,7 +95,7 @@ channel. The invariant is locked by `derive_channel_matches_recall_channel_for_e
 
 **Run arms on the same build** by toggling the env var per deployment: arm A = flag unset, arm B = `CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true`. (The harness's `--arm` only labels output; behavior is whichever build/env is running — see `scripts/recall_ab/README.md`.) **Because the store channel is now flag-dependent, the corpus must be re-seeded inside each arm** (reset the test agent with `delete_agent_data` between arms), not seeded once — see the README "Ready-made v2 fixtures".
 
-**Still pending (the actual gate, 博士-environment):** author a multi-channel corpus (§5) where the same user/agent is active across ≥2 concrete channels, run arm A vs arm B, and flip the hardcoded default in `from_metadata`'s `PerUser` branch only if cross-channel contamination drops with no recall-quality regression. The corpus is best authored against real responses during the run rather than blind.
+**Still pending (the actual gate, and it needs a real multi-channel deployment):** author a multi-channel corpus (§5) where the same user/agent is active across ≥2 concrete channels, run arm A vs arm B, and flip the hardcoded default in `from_metadata`'s `PerUser` branch only if cross-channel contamination drops with no recall-quality regression. The corpus is best authored against real responses during the run rather than blind.
 
 ## 7. Relationship to other deferred slices (independent of v2)
 

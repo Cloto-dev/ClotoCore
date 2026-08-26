@@ -167,9 +167,9 @@ The dashboard has two distinct surface patterns. Pick the right one for the role
 
 ### VM verify policy (every release, adopted 2026-07-13)
 
-`scripts/proxmox-windows-verify.sh` (Proxmox VM 104, ~6 min automated NSIS
-upgrade verify) is gated on the **release event**, not on NSIS-touching diffs —
-the diff detector (`nsis-touching-detect.yml`) remains as an extra per-PR
+`scripts/proxmox-windows-verify.sh` (Proxmox Windows guest, ~6 min automated
+NSIS upgrade verify) is gated on the **release event**, not on NSIS-touching
+diffs — the diff detector (`nsis-touching-detect.yml`) remains as an extra per-PR
 signal, but a quiet detector never waives this policy:
 
 - **Stable release (`X.Y.Z`)**: VM verify is **MUST** before publish, no

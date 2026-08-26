@@ -2323,7 +2323,7 @@ impl McpClientManager {
     /// the synthetic `"kernel"` server — the server's `default_policy` is never
     /// consulted (via [`crate::db::resolve_explicit_permission`]), so the §6
     /// global opt-in flip cannot turn kernel tools into deny-by-default. This is
-    /// the code-level "kernel default-Allow special-case" (博士 decision
+    /// the code-level "kernel default-Allow special-case" (decision
     /// 2026-07-01). [`Caller::System`] bypasses.
     async fn enforce_kernel_rbac(&self, caller: &Caller, tool_name: &str) -> Result<()> {
         let agent_id = match caller {
