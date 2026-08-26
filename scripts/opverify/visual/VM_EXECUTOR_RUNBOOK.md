@@ -80,7 +80,7 @@ it: that file is read by the Rust core, not by these scripts.
    - **Eyeball the critical frame(s)** the executor saved (the response render at
      minimum). The visual oracle is the apex's whole point; don't take it on
      faith.
-3. **Record + decide.** Log the outcome (an earlier decision / ledger), file any real
+3. **Record + decide.** Log the outcome in the ledger, file any real
    defect, choose the next journey.
 
 ## VM executor task template (hand this, filled in, to the subagent)
@@ -183,7 +183,7 @@ Every apex / uninstall measurement starts from a **known clean state** by
 rolling the VM back to a `clean-install-*` snapshot instead of reinstalling
 (~16 s measured vs ~6 min for a scripted reinstall). This also structurally
 removes the "residue of the previous experiment" class of mismeasurement
-(observed 2026-07-30). Adopted with an earlier decision (an earlier decision).
+(observed 2026-07-30). Adopted with the apex lightening line.
 
 ```bash
 ssh "$OPV_PVE_HOST" "qm rollback $OPV_VM_ID clean-install-0-6-8-beta-2; qm start $OPV_VM_ID"
@@ -219,7 +219,7 @@ Snapshot lineage on the guest (`qm listsnapshot "$OPV_VM_ID"` is authoritative):
   with a key, a transcript of 18 clean messages, and the GUI sitting on the
   chat view. The state that used to cost half an hour to rebuild by hand.
 
-## Journeys declare the state they need (`fixtures.py`, an earlier decision)
+## Journeys declare the state they need (`fixtures.py`)
 
 A journey names its start state (`_JOURNEYS[...].fixture`), and `run_vm`
 verifies it over the kernel API before driving anything. An unmet

@@ -352,7 +352,7 @@ def _danger_zone_journey(health_probe, make_api_probe, fetch_json):
 
     Nothing here is destructive: the plan endpoint is read-only, and the journey
     stops short of the admin-key field, so the uninstall button stays disabled.
-    Executing a purge is the VM-tier kernel scenario (an earlier decision), not this.
+    Executing a purge is the VM-tier kernel scenario, not this.
 
     Coordinates are for the 1280×800 VM at the app's default zoom. A drifted
     coordinate does not silently pass: the step's visual question fails, because
@@ -495,7 +495,7 @@ def _danger_zone_purge_journey(health_probe, make_api_probe, fetch_json):
     if entries == 0:
         raise RuntimeError(
             "the tier-4 plan is empty — this journey needs an installed app with "
-            "data to remove. Roll the VM to a fixture that has some (an earlier decision); "
+            "data to remove. Roll the VM to a fixture that has some; "
             "passing on an empty plan would verify nothing."
         )
     admin_key = os.environ.get("OPV_API_KEY", "")

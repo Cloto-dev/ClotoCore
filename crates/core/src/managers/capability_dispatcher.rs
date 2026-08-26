@@ -409,7 +409,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_bare_ids_classify_by_tool_surface() {
-        // Category prefixes are retired (an earlier decision): bare catalog ids must
+        // Category prefixes are retired: bare catalog ids must
         // classify purely from their tool surface.
         let dispatcher = CapabilityDispatcher::new();
         dispatcher

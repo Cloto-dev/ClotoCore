@@ -42,11 +42,11 @@ const TOTAL_STEPS = 8;
 
 import { type PresetInfo, STANDARD_SERVERS } from '../lib/presets';
 
-// Engine ids are bare (an earlier decision — the `mind.` prefix is retired). Catalog
+// Engine ids are bare (the `mind.` prefix is retired). Catalog
 // engines were already bare; built-ins (local/ollama) are now bare too.
 const ENGINE_IDS = ['cerebras', 'groq', 'deepseek', 'claude', 'local', 'ollama'] as const;
 
-// Server ids are bare (an earlier decision — category prefixes retired). The former
+// Server ids are bare (category prefixes retired). The former
 // `voice.tts` entry was removed rather than renamed: no such server exists
 // (TTS ships inside the avatar server via VOICEVOX), so installing it could
 // never succeed.

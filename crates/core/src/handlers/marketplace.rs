@@ -1400,7 +1400,7 @@ async fn build_and_register(
 }
 
 /// What the catalog entry's `signature_payload` says about the archive
-/// its seal was signed over (ClotoHub an earlier decision — `dual-v2` seals).
+/// its seal was signed over (`dual-v2` seals).
 enum ArchiveBinding {
     /// A `dual-v1` seal, or no seal: nothing about an archive was signed.
     Absent,
@@ -1595,7 +1595,7 @@ fn local_seal_for_install(
     }
 
     let seal_key = mgp_seal::load_or_generate_seal_key(data_dir)?;
-    // an earlier decision: seal the installed tree rather than the entry point alone.
+    // Seal the installed tree rather than the entry point alone.
     // Since connectors became packaged the entry point is usually a shim, so
     // an entry-point seal certified almost none of the code that runs. When
     // the install directory does not resolve — dev layouts, tests, a server
@@ -1724,7 +1724,7 @@ async fn register_server(
         warn!("Failed to set marketplace fields: {e}");
     }
 
-    // Engine provider metadata (an earlier decision): a reasoning-engine connector
+    // Engine provider metadata: a reasoning-engine connector
     // (`category = "mind"`) carries its upstream LLM-provider metadata in the
     // catalog entry's `provider` block. Ingest it into the `llm_providers`
     // credential registry so a new engine needs only a catalog entry, not a
@@ -2147,7 +2147,7 @@ async fn install_from_git(
 /// adversary able to forge the response substitutes the archive and that
 /// digest together, and this check passes.
 ///
-/// A `dual-v2` seal (ClotoHub an earlier decision) carries the digest **and length
+/// A `dual-v2` seal carries the digest **and length
 /// inside the signed message**, so when the entry has one we compare
 /// against that instead, and treat a disagreement between the two as a
 /// tamper signal. The signature over those values is verified later, in
@@ -2506,7 +2506,7 @@ async fn install_from_raw_url(
     }
     tokio::fs::create_dir_all(&staging_dir).await?;
 
-    // an earlier decision: a `raw_url` source may carry a `subdir` (mgp-sdk
+    // A `raw_url` source may carry a `subdir` (mgp-sdk
     // v0.3.0) when the tarball is a whole monorepo served by the
     // ClotoHub blob mirror. With a subdir we extract only the
     // connector's tree (plus the sibling `common/` package when
@@ -2946,7 +2946,7 @@ fn effective_install_dir(entry: &RegistryEntry) -> &str {
     // (also "servers/websearch") at the extract / register / uninstall sites,
     // doubling the on-disk path to
     // mcp-servers/servers/<name>/servers/<name>/server.py — the launch then
-    // fails because no server.py exists there (bug-399, an earlier decision). Collapse to
+    // fails because no server.py exists there (bug-399). Collapse to
     // the final path component so a malformed multi-segment value stays flat;
     // well-formed ids (incl. dotted "memory.cpersona") pass through unchanged.
     raw.trim_matches('/')
@@ -3064,7 +3064,7 @@ fn validate_dest_path(target_dir: &std::path::Path, dest: &std::path::Path) -> a
 /// Ceiling on what one archive may expand to on disk.
 ///
 /// A verified digest proves the bytes are the ones the hub signed; it says
-/// nothing about what they expand to. The signed `archive_length` (an earlier decision)
+/// nothing about what they expand to. The signed `archive_length`
 /// bounds the *compressed* transfer only, so a few tens of kilobytes can still
 /// decompress to gigabytes. Extraction therefore carries its own budget.
 const MAX_EXTRACTED_BYTES: u64 = 512 * 1024 * 1024;
@@ -3328,7 +3328,7 @@ fn extract_tarball_stripped(
 /// `common/` package) from a tarball, preserving repo-relative paths
 /// under `target_dir` after stripping a single shared top-level prefix
 /// (GitHub-archive-style). Used by the `raw_url` + `subdir` install
-/// path (an earlier decision, mgp-sdk v0.3.0): the resulting layout
+/// path (mgp-sdk v0.3.0): the resulting layout
 /// (`{target_dir}/{subdir}/…` with `common` as the subdir's sibling)
 /// matches a nested git clone, so `resolve_common_source` and the
 /// uninstall directory candidates work unchanged. Zip-slip safe via
@@ -4181,7 +4181,7 @@ mod tests {
         ("repo-v0/servers/other/server.py", b"print('other')"),
     ];
 
-    // ── Extraction policy (an earlier decision) ───────────────────────────────
+    // ── Extraction policy ──────────────────────────────────────────
 
     /// Build a GitHub-style tarball carrying one link entry of
     /// `entry_type` alongside an ordinary file.
@@ -4242,7 +4242,7 @@ mod tests {
         write_entry(&mut entry, dest, budget)
     }
 
-    /// A symlink in the archive must be refused outright. Before an earlier decision
+    /// A symlink in the archive must be refused outright. Before the
     /// the extractor split on `is_dir()` alone and wrote every other kind
     /// through `File::create`, so this landed as an *empty regular file* —
     /// harmless by accident, and silently restored the moment anyone
@@ -4284,7 +4284,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&work);
     }
 
-    /// The signed `archive_length` (an earlier decision) bounds the compressed
+    /// The signed `archive_length` bounds the compressed
     /// transfer only, so expansion needs its own ceiling — otherwise a
     /// digest-verified archive can still be a decompression bomb.
     #[test]
@@ -4402,7 +4402,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&work);
     }
 
-    /// Regression for the an earlier decision E2E failure: real GitHub archives
+    /// Regression for the subdir E2E failure: real GitHub archives
     /// open with `pax_global_header` and the top-level directory entry,
     /// both of which made `detect_shared_prefix` give up (`None`) — so
     /// stripped extraction kept the `<repo>-<ref>/` wrapper and subdir
@@ -4674,7 +4674,7 @@ mod tests {
         assert_eq!(entry_signature_kid(&entry("demo", "demo")), None);
     }
 
-    // ── dual-v2 seals: the archive binding (ClotoHub an earlier decision) ──
+    // ── dual-v2 seals: the archive binding ──
     //
     // The existing tests above cover v1 entries and are also the
     // backward-compatibility proof: an entry with no `archive` block must
@@ -4975,7 +4975,7 @@ mod tests {
 
     #[test]
     fn effective_install_dir_collapses_monorepo_relative_directory() {
-        // bug-399 / an earlier decision: a stale catalog `directory` carrying the
+        // bug-399: a stale catalog `directory` carrying the
         // monorepo-relative path must not double with the source `subdir`. Only
         // the final component is used as the on-disk install dir, so
         // mcp-servers/<dir>/<subdir> stays single-nested instead of

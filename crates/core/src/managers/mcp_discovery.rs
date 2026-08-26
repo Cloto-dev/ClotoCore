@@ -194,7 +194,7 @@ pub(super) async fn execute_discovery_list(
 
             // Skip reasoning engines (think/think_with_tools are engine-internal).
             // Detected by tool surface, not id prefix, so bare-id engines are all
-            // hidden (an earlier decision).
+            // hidden.
             if handle.is_reasoning_engine() {
                 continue;
             }

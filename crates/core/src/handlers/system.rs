@@ -111,7 +111,7 @@ enum HandleOutcome {
     Skipped(String),
 }
 
-/// Per-agent recall timing policy (knob 1, an earlier decision). Selects *when* the
+/// Per-agent recall timing policy (knob 1). Selects *when* the
 /// kernel issues a long-term memory recall, gating it on the session tier so a
 /// redundant plugin call is skipped whenever the kernel-owned short-term
 /// transcript (T1) already covers the context.
@@ -170,7 +170,7 @@ impl RecallPolicy {
     }
 }
 
-/// Per-agent session scope (knob 2, an earlier decision). Selects how an agent's
+/// Per-agent session scope (knob 2). Selects how an agent's
 /// long-term recall is partitioned when several users share a channel: by user,
 /// by the whole channel, or by thread. It drives the two long-term axes the
 /// kernel assembles for the recall call — the CPersona `source_id` (user axis)
@@ -361,7 +361,7 @@ impl SystemHandler {
     /// of `engine_think_with_tools`, so this need not re-test that the target is an
     /// engine. The stream hint is soft (`_mgp.stream`): an engine that ignores it
     /// still returns its final result, so this is safe for every MCP engine
-    /// regardless of id (an earlier decision — no `mind.` prefix consulted).
+    /// regardless of id (no `mind.` prefix consulted).
     fn should_stream_engine(&self) -> bool {
         self.mcp_streaming_enabled
     }
@@ -599,7 +599,7 @@ impl SystemHandler {
             None
         };
 
-        // knob1 (an earlier decision): per-agent recall timing policy. Gate the long-term
+        // knob1: per-agent recall timing policy. Gate the long-term
         // recall on the session tier so any policy other than `always` skips the
         // plugin call when T1 already covers the context. `force_recall` (set by
         // a bridge / UI / cron) overrides the policy, including `manual_only`.
@@ -681,7 +681,7 @@ impl SystemHandler {
                 _ => String::new(),
             };
 
-            // knob2 (an earlier decision): per-agent session scope drives the two long-term
+            // knob2: per-agent session scope drives the two long-term
             // recall axes (CPersona source_id + channel) from one declarative
             // setting, so they stay coherent. Every scope files episodes per
             // concrete channel; the default PerUser keeps the per-user source_id
@@ -784,7 +784,7 @@ impl SystemHandler {
             .to_lowercase()
             .starts_with(&self.consensus_prefix.to_lowercase())
         {
-            // Consensus mode — orchestrated in-kernel (an earlier decision). Every engine
+            // Consensus mode — orchestrated in-kernel. Every engine
             // runs through the same `run_agentic_loop` the normal path uses; the
             // kernel collects the proposals, runs the synthesizer in-kernel, and
             // emits one final ThoughtResponse stamped with the synthetic agent id.
@@ -1487,7 +1487,7 @@ impl SystemHandler {
         Ok(HandleOutcome::Executed)
     }
 
-    // ── Consensus (in-kernel orchestration, an earlier decision) ──
+    // ── Consensus (in-kernel orchestration) ──
 
     /// The engine servers this agent is actually assigned — i.e. its granted MCP
     /// servers that are reasoning engines. This mirrors the dashboard's per-agent
@@ -1497,7 +1497,7 @@ impl SystemHandler {
     /// granted engine servers. Classification matches `serverCategory.ts`
     /// `isEngineServer` (#234): an engine is a Rust engine plugin, a server
     /// exposing the `think` / `think_with_tools` tool surface, or a legacy
-    /// `mind.*` grant (an earlier decision back-compat — see [`Self::is_engine_server`]).
+    /// `mind.*` grant (back-compat — see [`Self::is_engine_server`]).
     async fn agent_engine_servers(&self, granted_server_ids: &[String]) -> Vec<String> {
         let mut engines = Vec::new();
         for id in granted_server_ids {
@@ -1511,7 +1511,7 @@ impl SystemHandler {
     /// True when `id` is a reasoning engine (see [`Self::agent_engine_servers`]).
     ///
     /// The `mind.` prefix is retained here as a back-compat classifier for any
-    /// un-migrated legacy engine grant (an earlier decision): unlike the tool-surface
+    /// un-migrated legacy engine grant: unlike the tool-surface
     /// fallback below, it recognises an engine grant that is *not currently
     /// connected* (tool discovery requires a live server), which the consensus
     /// path relies on to count an agent's assigned-but-offline engines.
@@ -3406,7 +3406,7 @@ impl SystemHandler {
     /// `context_overflow` code when the estimated input wouldn't leave room for
     /// a response. The `engine_id` (bare, or a legacy `mind.`-prefixed alias)
     /// must resolve to an `llm_providers` row; non-MCP / unknown engines are
-    /// cheap no-ops via the `get_llm_provider` miss below (an earlier decision).
+    /// cheap no-ops via the `get_llm_provider` miss below.
     async fn preflight_token_budget(
         &self,
         engine_id: &str,
@@ -4098,7 +4098,7 @@ mod consensus_engine_filter_tests {
 
     #[test]
     fn matches_bare_ids_post_prefix_retirement() {
-        // an earlier decision world: every id is bare on both sides. The retained
+        // Post-retirement world: every id is bare on both sides. The retained
         // `mind.`-normalization is a no-op here and bare-vs-bare still matches.
         let agent = ids(&["local", "ollama", "deepseek"]);
         let global = ids(&["local", "deepseek"]);
@@ -4262,7 +4262,7 @@ mod phase_c_rejection_helpers_tests {
 
 #[cfg(test)]
 mod recall_policy_tests {
-    //! knob1 (an earlier decision) recall-timing gate. Covers metadata parsing (with the
+    //! knob1 recall-timing gate. Covers metadata parsing (with the
     //! behavior-preserving `always` default) and the per-tier `should_recall`
     //! truth table, including the `force_recall` override.
     use super::{RecallPolicy, SessionTier};
@@ -4353,7 +4353,7 @@ mod recall_policy_tests {
 
 #[cfg(test)]
 mod session_scope_tests {
-    //! knob2 (an earlier decision) session scope. Covers metadata parsing (with the
+    //! knob2 session scope. Covers metadata parsing (with the
     //! `per_user` default) and the (source_id, channel) long-term recall
     //! derivation for each scope after the v2 flip — every scope files episodes
     //! under the concrete channel; the scope only differentiates the source_id

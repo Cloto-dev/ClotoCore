@@ -1295,7 +1295,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             "/agents/{id}/last-usage",
             get(handlers::get_agent_last_usage),
         )
-        // Recall precision (an earlier decision knob 3) — optional memory-capability op,
+        // Recall precision (knob 3) — optional memory-capability op,
         // routed to the agent's memory server via the capability dispatcher.
         .route(
             "/agents/{id}/recall-precision",
