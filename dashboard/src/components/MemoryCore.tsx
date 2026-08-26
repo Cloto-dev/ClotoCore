@@ -25,7 +25,7 @@ function agentDisplayName(agentId: string, agentMap: Map<string, string>): strin
  *  legacy externally-tagged {"User":{"name":"..."}} formats. */
 function memorySpeakerName(source: Record<string, unknown>, agentId: string, agentMap: Map<string, string>): string {
   if (!source || typeof source !== 'object') return agentDisplayName(agentId, agentMap);
-  // Internally-tagged: { type: "User", name: "cycia2", id: "discord:123" }
+  // Internally-tagged: { type: "User", name: "sample-user", id: "discord:123" }
   if (source.type === 'User') {
     const name = source.name as string | undefined;
     if (name && name !== 'User') return name;
@@ -35,7 +35,7 @@ function memorySpeakerName(source: Record<string, unknown>, agentId: string, age
     return 'User';
   }
   if (source.type === 'Agent') return agentDisplayName(agentId, agentMap);
-  // Externally-tagged: { User: { name: "cycia2" } }
+  // Externally-tagged: { User: { name: "sample-user" } }
   const userObj = source.User ?? source.user;
   if (userObj && typeof userObj === 'object') {
     const name = (userObj as Record<string, string>).name;
