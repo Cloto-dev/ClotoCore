@@ -500,7 +500,7 @@ impl SystemHandler {
             );
         }
 
-        // 1. エージェント情報の取得
+        // 1. Fetch the agent configuration.
         let (agent, default_engine_id) = self
             .agent_manager
             .get_agent_config(&target_agent_id)
@@ -561,7 +561,7 @@ impl SystemHandler {
         let msg = self.maybe_analyze_images(msg).await;
         let msg = self.maybe_transcribe_audio(msg).await;
 
-        // 2. メモリからのコンテキスト取得 (Dual Dispatch: Rust Plugin → MCP Server)
+        // 2. Pull context out of memory (dual dispatch: Rust plugin -> MCP server).
         let memory_plugin = if let Some(preferred_id) = agent.metadata.get("preferred_memory") {
             self.registry.get_engine(preferred_id).await
         } else {
@@ -631,7 +631,7 @@ impl SystemHandler {
                     .is_some_and(|p| p.contains(&cloto_shared::Permission::MemoryRead));
                 drop(reg_state);
                 if has_memory_read {
-                    // 🛑 停滞対策: メモリの呼び出しにタイムアウトを設定
+                    // Stall guard: bound the memory call with a timeout.
                     match tokio::time::timeout(
                         Duration::from_secs(self.memory_timeout_secs),
                         mem.recall(agent.id.clone(), &msg.content, self.memory_context_limit),
@@ -769,7 +769,7 @@ impl SystemHandler {
             .session_manager
             .append_message(&session_key, msg.clone());
 
-        // 3. 【核心】思考要求イベントを発行
+        // 3. The core step: emit the thought-request event.
         info!(
             target_agent_id = %target_agent_id,
             agent_name = %agent.name,
@@ -907,7 +907,7 @@ impl SystemHandler {
                 error!(agent_id = %agent.id, "❌ Direct tool: no MCP manager available");
             }
         } else {
-            // 通常モード: エージェントループで処理
+            // Normal mode: handle it in the agent loop.
             // 3-layer engine selection: override > routing rules > default
             let selection = if let Some(ov) = msg.metadata.get("engine_override") {
                 EngineSelection {
@@ -1048,7 +1048,7 @@ impl SystemHandler {
                         .session_manager
                         .append_message(&session_key, assistant_resp);
 
-                    // エージェント返答もメモリに保存 (user messageと対で保存)
+                    // Persist the agent reply too, paired with the user message.
                     self.spawn_store_agent_response(
                         &agent.id,
                         &msg,
@@ -1351,7 +1351,7 @@ impl SystemHandler {
             }
         }
 
-        // メモリへの保存 (below agentic loop / consensus dispatch)
+        // Persist to memory (below agentic loop / consensus dispatch).
         if let Some(plugin) = memory_plugin {
             if let Some(_mem) = plugin.as_memory() {
                 // 🔐 Check MemoryWrite permission before store
@@ -1369,7 +1369,7 @@ impl SystemHandler {
                     let plugin_clone = plugin.clone();
                     let metrics = self.metrics.clone();
                     let store_mem_timeout = Duration::from_secs(self.memory_timeout_secs);
-                    // 🛑 停滞対策: 保存処理はバックグラウンドで行い、メインループをブロックしない
+                    // Stall guard: persist in the background so the main loop never blocks.
                     tokio::spawn(async move {
                         if let Some(mem) = plugin_clone.as_memory() {
                             match tokio::time::timeout(
@@ -2054,9 +2054,9 @@ impl SystemHandler {
     /// Fire-and-forget persist of an agent response into the agent's memory —
     /// native Rust plugin (`mem.store`) or MCP memory server (`ToolKind::Store`
     /// with the derived channel). Mirrors the normal agentic path so both
-    /// ordinary replies and consensus (合議) answers reach long-term memory.
-    /// Consensus delivery previously wrote only chat history, so合議 answers
-    /// were never recalled later (bug-419).
+    /// ordinary replies and consensus answers reach long-term memory.
+    /// Consensus delivery previously wrote only chat history, so consensus
+    /// answers were never recalled later (bug-419).
     ///
     /// `memory_plugin` / `mcp_memory` are the already-resolved memory targets
     /// (native plugin takes precedence; the MCP fallback is gated by

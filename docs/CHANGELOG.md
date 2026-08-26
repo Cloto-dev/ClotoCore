@@ -382,7 +382,7 @@ CRITICAL hotfix release. Restores the auto-update path for v0.6.5 users (broken 
 
 ## [0.6.6] — 2026-05-24
 
-Kernel structural cleanup release. Two long-pending architectural threads ship together in a single release with bisect-friendly per-PR isolation: (1) the surface product is renamed `cloto-system` → `ClotoCore` to align with the three-layer doctrine (`ClotoCore + ClotoCloud + Cloto アプリ + ClotoHub`), and (2) the kernel is decoupled from hardcoded knowledge of any specific memory plugin id. Cumulative since v0.6.5.
+Kernel structural cleanup release. Two long-pending architectural threads ship together in a single release with bisect-friendly per-PR isolation: (1) the surface product is renamed `cloto-system` → `ClotoCore` to align with the three-layer doctrine (`ClotoCore + ClotoCloud + Cloto app + ClotoHub`), and (2) the kernel is decoupled from hardcoded knowledge of any specific memory plugin id. Cumulative since v0.6.5.
 
 ### Changed
 

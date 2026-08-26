@@ -337,7 +337,7 @@ impl PluginRegistry {
         .into())
     }
 
-    /// 全てのアクティブなプラグインにイベントを配信する
+    /// Deliver an event to every active plugin.
     pub async fn dispatch_event(
         &self,
         envelope: crate::EnvelopedEvent,
@@ -356,7 +356,7 @@ impl PluginRegistry {
             );
         }
 
-        // 🚨 連鎖爆発の防止 (Guardrail #2)
+        // Guard against cascade explosion (Guardrail #2).
         if current_depth >= self.max_event_depth {
             error!(
                 event_type = ?event,
@@ -401,10 +401,10 @@ impl PluginRegistry {
             }));
         }
 
-        // ロックを早めに解放
+        // Release the lock early.
         drop(state);
 
-        // 完了した順に結果を処理
+        // Process results in completion order.
         while let Some(join_result) = futures.next().await {
             let (id, timeout_result) = match join_result {
                 Ok(pair) => pair,

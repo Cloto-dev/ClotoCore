@@ -12,8 +12,8 @@ struct Asset;
 pub async fn static_handler(uri: Uri) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/');
 
-    // 1. 指定されたパスを検索
-    // 2. なければ index.html を返す（SPA対応）
+    // 1. Look up the requested path.
+    // 2. Fall back to index.html when it is missing (SPA routing).
     // H-09: Replace unwrap() with safe error handling
     if let Some(file) = Asset::get(path) {
         let mime_type = mime_guess::from_path(path).first_or_octet_stream();
