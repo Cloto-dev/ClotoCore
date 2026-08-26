@@ -199,7 +199,7 @@ Once the chokepoint enforces uniformly, these collapse:
   (`mcp.rs:1480`), **DeleteAgentData** (`agents.rs:339`): `Caller::System`.
 - **Background memory ops** (`system.rs:703/1113/1294/1506/3550+`):
   `Caller::Agent(agent_id)`.
-- **Default-proceed (AI, 2026-07-01, 事後 override 可)**: media preprocessing
+- **Default-proceed (AI, 2026-07-01, reversible by a later override)**: media preprocessing
   (`AnalyzeImage` `system.rs:3092`, `Transcribe` `system.rs:3202`) → `System`
   (kernel preprocessing, not agent-initiated); episode-archival summarizer
   (`system.rs:3863`) → `Agent(message-agent)`.
@@ -284,7 +284,7 @@ mandatory; `granted_at` is `NOT NULL` with no default and must be supplied.
   `escalate_to` / `fallback` / `engine_override` — 0 live rows; reached engines
   surface the "engine not granted" error below). It deliberately grants only what
   an agent demonstrably owns; it does **not** re-grant every active server.
-- **Repro agent `agent.テスト用` is EXCLUDED** from the backfill (the `a.id !=`
+- **Repro agent `agent.テスト用` ("for testing") is EXCLUDED** from the backfill (the `a.id !=`
   guard above), so it is genuinely denied after the flip — this validates the
   reported "grant-0 agent still responds" bug on the real agent. (For all other
   agents the bug is fixed for future never-granted agents + revoke semantics.)
