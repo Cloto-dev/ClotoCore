@@ -6,7 +6,7 @@ runnable servers, but the list route must return a well-formed
 
 ``lifecycle`` drives the full register → connect → tool-discovery → call →
 stop → **reap (orphan 0)** path — the operation that exercises the
-OS-dependent subprocess-reaping bug class (Goal #145). It registers a
+OS-dependent subprocess-reaping bug class. It registers a
 hermetic single-tool stdio server (``_mcp_probe_server.py``) via bare
 ``command="python3"``, which the kernel resolves to its own mcp-equipped venv
 (``resolve_python_command``), so no system ``mcp`` install is needed. Success
@@ -235,7 +235,7 @@ class McpLifecycle(Operation):
             )
             assert not result["leaked_pids"], (
                 f"orphaned child processes survived stop: {result['leaked_pids']} "
-                f"(process-group reap regression — Goal #145)"
+                f"(process-group reap regression)"
             )
 
     def teardown(self, ctx: RunContext):

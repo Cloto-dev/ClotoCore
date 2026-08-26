@@ -1,4 +1,4 @@
-"""ROI cropping for assessor input (CSC Task #446).
+"""ROI cropping for assessor input.
 
 The assessor's cost is dominated by image input tokens — a full 1280×800 frame
 is ~1.5–2k tokens per read, and count/state questions only need the pane they

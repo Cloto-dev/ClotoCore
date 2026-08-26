@@ -20,7 +20,7 @@ describe('isEngineServer', () => {
   });
 
   it('carries no id semantics — a dotted id without the tool surface is not an engine', () => {
-    // Goal #143: prefixes are retired; classification is tool-surface only.
+    // Prefixes are retired; classification is tool-surface only.
     expect(isEngineServer(server('mind.local'))).toBe(false);
   });
 

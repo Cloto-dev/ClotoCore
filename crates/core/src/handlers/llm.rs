@@ -14,8 +14,8 @@ const MODELS_FETCH_TIMEOUT_SECS: u64 = 15;
 /// Fallback example model-id for a provider, shown as the model-input
 /// placeholder when the provider row's `quirks.model_placeholder` is absent.
 ///
-/// Goal #147 moved this off the dashboard onto the backend; Goal #148 makes the
-/// catalog `provider` block the source of truth (ingested into
+/// The placeholder moved off the dashboard onto the backend, and the catalog
+/// `provider` block is now the source of truth (ingested into
 /// `quirks.model_placeholder`). This hardcoded map remains only as the fallback
 /// for the original seeded engines until they are re-ingested from the catalog.
 fn model_placeholder(provider_id: &str) -> Option<&'static str> {
@@ -31,7 +31,7 @@ fn model_placeholder(provider_id: &str) -> Option<&'static str> {
 }
 
 /// Classify a provider's backing engine into one of four states for the
-/// dashboard (Goal #147):
+/// dashboard:
 ///   * `connected`    — a registered engine server is operational.
 ///   * `disconnected` — a registered engine server exists but is down/stopped.
 ///   * `uninstalled`  — no engine server, but the user has configured this
@@ -77,7 +77,7 @@ pub async fn list_llm_providers(
             let configured =
                 !p.api_key.is_empty() || p.context_length.is_some() || p.thinking_mode != "auto";
             let engine_status = classify_engine_status(server_statuses.get(&p.id), configured);
-            // Registry-ingested placeholder (Goal #148) wins; fall back to the
+            // Registry-ingested placeholder wins; fall back to the
             // hardcoded map for engines not yet re-ingested from the catalog.
             let placeholder = p
                 .quirks_parsed()
@@ -174,7 +174,7 @@ pub async fn set_llm_provider_model(
     if let Some(tool_name) = quirks.switch_model_tool.clone() {
         let mcp_mgr = state.mcp_manager.clone();
         let model_owned = model_id.to_string();
-        // Engine server ids are bare and equal their provider id (Goal #142):
+        // Engine server ids are bare and equal their provider id:
         // the running server is registered as e.g. `ollama`, not `mind.ollama`.
         let server_id = provider_id.clone();
         let provider_id_audit = provider_id.clone();

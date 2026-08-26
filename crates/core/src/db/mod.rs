@@ -549,7 +549,7 @@ mod tests {
         repair_cpersona_rename_collision(&pool).await.unwrap();
     }
 
-    // ── 20260701120000_retire_mind_prefix (Goal #142 / Task #128) ──
+    // ── 20260701120000_retire_mind_prefix ──
 
     const MIND_PREFIX_MIGRATION: &str =
         include_str!("../../migrations/20260701120000_retire_mind_prefix.sql");
@@ -683,7 +683,7 @@ mod tests {
         assert_eq!(servers, vec!["deepseek"]);
     }
 
-    // ── 20260704130000_retire_category_prefixes (Goal #143 / Task #153) ──
+    // ── 20260704130000_retire_category_prefixes ──
 
     const CATEGORY_PREFIX_MIGRATION: &str =
         include_str!("../../migrations/20260704130000_retire_category_prefixes.sql");
@@ -785,7 +785,7 @@ mod tests {
             ]
         );
 
-        // Goal #142 residue: cron_jobs.engine_id de-prefixed; bare and NULL
+        // Prefix-retirement residue: cron_jobs.engine_id de-prefixed; bare and NULL
         // values untouched.
         let engines: Vec<(i64, Option<String>)> =
             sqlx::query_as("SELECT id, engine_id FROM cron_jobs ORDER BY id")

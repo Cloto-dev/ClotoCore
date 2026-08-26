@@ -21,7 +21,7 @@
 
 ### 1.1 What the redesign changed
 
-The Discord-recall redesign (CSC Goal #119) hypothesised that **per-turn long-term
+The Discord-recall redesign hypothesised that **per-turn long-term
 recall** is the contamination source, and gated it. The branches under test:
 
 - **ClotoCore** `feat/discord-recall-gating` — Phase 2a: the kernel pulls long-term

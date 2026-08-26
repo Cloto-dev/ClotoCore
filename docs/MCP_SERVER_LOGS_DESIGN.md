@@ -1,7 +1,6 @@
 # MCP Server Logs — Design
 
 **Status:** Proposed
-**Scope:** CScheduler Scope #12 · Goal #141
 **Author:** kernel team · 2026-07-01
 
 Per-server log streaming for the MCP server detail modal's **Log** tab
@@ -55,7 +54,7 @@ predicate at `:32` can never be true for a real event:
   is `false`.
 
 Both are currently harmless (no log events flow) but must be fixed for this
-feature; they are fixed under Task #125.
+feature; they are fixed by the frontend work in §8.
 
 ### MGP spec
 
@@ -184,7 +183,7 @@ contract.
 
 ---
 
-## 6. Source A — stderr forwarding (Task #123)
+## 6. Source A — stderr forwarding
 
 **Capture point:** the Logger Task at `mcp_transport.rs:404-411`. Today it only
 `warn!`s each line. Change it to also forward each line out of the transport.
@@ -216,7 +215,7 @@ stream.
 
 ---
 
-## 7. Source B — MCP logging capability (Task #124)
+## 7. Source B — MCP logging capability
 
 MCP models logging as a **server** capability: a server that advertises
 `capabilities.logging` sends `notifications/message` with `{ level, logger?,
@@ -244,7 +243,7 @@ logging-capable servers. The config key SHOULD allow overriding the default
 
 ---
 
-## 8. Frontend (Task #125)
+## 8. Frontend
 
 `McpServerLogsTab.tsx`:
 
@@ -319,14 +318,3 @@ color/`bg-glass` conventions; no new Tailwind classes without regenerating
   and sends `logging/setLevel`. Confirm the exact field names against the
   targeted MCP spec revision at implementation time. §7.
 - **D3 — resolved: keep the dual sink** (forward + `warn!`) for stderr. §6.
-
----
-
-## 12. Task mapping (Goal #141)
-
-| Task | This doc |
-| --- | --- |
-| #122 [design] | this document |
-| #123 [backend-A] | §6 |
-| #124 [backend-B] | §7 |
-| #125 [frontend] | §8 (fixes bug-423 / bug-424) |

@@ -20,7 +20,7 @@ Two deliberate limits:
   role, visible text, rect and enabled-ness — never ``data-testid`` or route
   names. An exploring agent that could read internal identifiers would know
   things a user cannot, and "the user cannot find this" is the defect class the
-  apex exists to catch (Goal #211).
+  apex exists to catch.
 * **Dependency-free.** A minimal RFC6455 client rather than a package, so the
   harness keeps installing with nothing but the stdlib on the orchestrator.
 

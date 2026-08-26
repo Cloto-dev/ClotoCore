@@ -1,7 +1,6 @@
 # Lifecycle Defender — Unified Health, Repair, and Clean-Uninstall Subsystem
 
 **Status**: Approved (2026-07-17) — Phase 1 (receipt / check registry / doctor / updater-guard / advisories) and Phase 2 (repair verb / clean-update first-boot) implemented; Phase 3 pending
-**Tracking**: CSC Goal #173 (Scope #12, 0.6.8 line)
 **Related**: `ONBOARDING_MODERNIZATION_DESIGN.md` (admin-key handover is the prerequisite for the sudo-mode gate in §7), `RELEASE_PIPELINE_DESIGN.md` (signed manifest carries the advisory feed), `INSTALLER_DISTRIBUTION.md`
 
 ---
@@ -371,7 +370,7 @@ app instead of executing the plan.
 | 3 | purge plan + `purge-exec` helper + Danger Zone UI + CLI/NSIS wrappers | complete uninstall on all platforms |
 
 Each phase consumes the previous phase's ledger unchanged; no rework between
-phases. opverify (Goal #169/#170) gains an E2E scenario per phase (doctor
+phases. opverify gains an E2E scenario per phase (doctor
 verdict on a seeded-corruption VM; GUI-driven full uninstall → zero-residue
 assertion).
 

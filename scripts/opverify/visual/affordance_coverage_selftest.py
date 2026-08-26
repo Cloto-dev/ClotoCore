@@ -164,7 +164,7 @@ def scenario_start_state_survives_and_is_never_assumed() -> None:
     survive the round trip — an artifact that drops it is an artifact nobody
     can check. And an older artifact, written before the field existed, has to
     come back as "" rather than inherit the reader's own label: the failure
-    being prevented (CSC #554) is precisely two censuses being treated as
+    being prevented is precisely two censuses being treated as
     comparable when nothing recorded that they were.
     """
     census = AC.Census(

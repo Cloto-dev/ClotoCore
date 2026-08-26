@@ -1,4 +1,4 @@
-"""Self-test of the grab + liveness co-fetch fast path (Task #233) — proves the
+"""Self-test of the grab + liveness co-fetch fast path — proves the
 one-round-trip fusion without a real VM. Run:
 ``python -m scripts.opverify.visual.cofetch_selftest`` (exit 0 = all passed).
 

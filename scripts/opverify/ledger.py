@@ -1,7 +1,7 @@
 """Result ledger — the persistent, append-only record of every verification
 run, plus regression detection against the prior baseline.
 
-This is permanence mechanism ③ (CSC Goal #169): each run distils the full
+This is permanence mechanism ③: each run distils the full
 report into one compact JSON line appended to ``qa/opverify/history.jsonl``
 (committed to the repo, so quality trend is tracked over time). Before
 appending, the new entry is compared against the most recent prior entry for

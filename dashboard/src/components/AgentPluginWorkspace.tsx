@@ -47,7 +47,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
   const [agentName, setAgentName] = useState(agent.name);
   const [agentDescription, setAgentDescription] = useState(agent.description);
 
-  // Recall config state (knob 1 / knob 2, Goal #120) — deferred to Save.
+  // Recall config state (knob 1 / knob 2) — deferred to Save.
   const [recallPolicy, setRecallPolicy] = useState<RecallPolicyValue>(
     normalizeRecallPolicy(agent.metadata?.recall_policy),
   );
@@ -186,7 +186,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
         delete metadata.preferred_memory;
       }
 
-      // Recall knobs (Goal #120) — see applyRecallMetadata for the set/delete contract.
+      // Recall knobs — see applyRecallMetadata for the set/delete contract.
       applyRecallMetadata(metadata, recallPolicy, sessionScope);
 
       // Step 1: updateAgent FIRST (full metadata replacement via COALESCE)
@@ -393,7 +393,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
               onApplyPreset={applyPreset}
             />
 
-            {/* Recall configuration (Goal #120 — per-agent recall knobs) */}
+            {/* Recall configuration (per-agent recall knobs) */}
             <RecallSection
               recallPolicy={recallPolicy}
               sessionScope={sessionScope}
