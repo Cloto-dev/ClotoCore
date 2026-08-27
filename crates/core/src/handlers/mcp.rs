@@ -348,24 +348,29 @@ if __name__ == "__main__":
         code = code,
     );
 
-    let script_filename = format!("mcp_{}.py", name);
-    let scripts_dir = std::path::Path::new("data/mcp_scripts");
+    let script_filename = crate::managers::mcp_types::mcp_script_filename(name);
+    let scripts_dir = std::path::Path::new(crate::managers::mcp_types::MCP_SCRIPTS_DIR);
     if !scripts_dir.exists() {
         std::fs::create_dir_all(scripts_dir).map_err(|e| {
             AppError::Internal(anyhow::anyhow!(
-                "Failed to create data/mcp_scripts directory: {}",
+                "Failed to create {} directory: {}",
+                crate::managers::mcp_types::MCP_SCRIPTS_DIR,
                 e
             ))
         })?;
     }
-    std::fs::write(scripts_dir.join(&script_filename), &script).map_err(|e| {
+    std::fs::write(crate::managers::mcp_types::mcp_script_path(name), &script).map_err(|e| {
         AppError::Internal(anyhow::anyhow!("Failed to write MCP server script: {}", e))
     })?;
 
     let python = if cfg!(windows) { "python" } else { "python3" };
     Ok((
         python.to_string(),
-        vec![format!("data/mcp_scripts/{}", script_filename)],
+        vec![format!(
+            "{}/{}",
+            crate::managers::mcp_types::MCP_SCRIPTS_DIR,
+            script_filename
+        )],
         script,
     ))
 }
@@ -498,10 +503,19 @@ pub async fn delete_mcp_server(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
 
-    // Remove auto-generated script file if it exists
-    let script_path = std::path::Path::new("scripts").join(format!("mcp_{}.py", name));
-    if script_path.exists() {
-        let _ = std::fs::remove_file(&script_path);
+    // Remove the auto-generated script, through the same helper that writes it.
+    // A failure here is reported rather than swallowed: the file holds
+    // user-supplied Python, and "the server is gone" must not quietly mean
+    // "its code is still on disk".
+    match crate::managers::mcp_types::remove_mcp_script(&name) {
+        Ok(true) => tracing::debug!(name = %name, "Removed generated MCP server script"),
+        Ok(false) => {}
+        Err(e) => tracing::warn!(
+            name = %name,
+            error = %e,
+            path = %crate::managers::mcp_types::mcp_script_path(&name).display(),
+            "MCP server removed but its generated script could not be deleted"
+        ),
     }
 
     tracing::info!(name = %name, "🗑️ MCP server removed");

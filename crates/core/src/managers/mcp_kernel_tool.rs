@@ -485,12 +485,17 @@ if __name__ == "__main__":
     };
 
     // Write script file
-    let scripts_dir = std::path::Path::new("data/mcp_scripts");
+    let scripts_dir = std::path::Path::new(super::mcp_types::MCP_SCRIPTS_DIR);
     if !scripts_dir.exists() {
-        std::fs::create_dir_all(scripts_dir)
-            .map_err(|e| anyhow::anyhow!("Failed to create data/mcp_scripts directory: {}", e))?;
+        std::fs::create_dir_all(scripts_dir).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to create {} directory: {}",
+                super::mcp_types::MCP_SCRIPTS_DIR,
+                e
+            )
+        })?;
     }
-    let script_path = scripts_dir.join(format!("mcp_{name}.py"));
+    let script_path = super::mcp_types::mcp_script_path(name);
     std::fs::write(&script_path, &script)
         .map_err(|e| anyhow::anyhow!("Failed to write script: {}", e))?;
 
