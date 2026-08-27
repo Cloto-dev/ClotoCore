@@ -4460,6 +4460,18 @@
       "status": "fixed",
       "notes": "Same root cause as bug-503 and found in the same measurement, but a separate defect: 503 is arithmetic in the orchestrator, 504 is which coordinate space the guest agent lives in. Fixed by declaring PER_MONITOR_AWARE_V2 before mss and pyautogui are imported, which keeps the agent in physical pixels at any scale - so frames, ROIs and coordinates measured at 100 % keep their meaning instead of needing a scale-dependent correction everywhere. This choice is load-bearing for bug-503's formula: with a DPI-unaware agent the correct conversion would instead be `screenX + cx` with no scaling at all. Both alternatives were measured on the live VM before choosing. Requires `python -m scripts.opverify.visual.deploy_agent --redeploy` to take effect on a VM; verified there on 2026-08-09 (/health and /grab both back to 1280x800 while the session was at 125 %).",
       "github_issue": 447
+    },
+    {
+      "id": "bug-505",
+      "summary": "MEDIUM: deleting a dynamic MCP server left its generated script on disk. Three call sites write that script to `data/mcp_scripts/mcp_<name>.py` -- the HTTP create path, the kernel-tool path, and the regeneration that runs when servers are restored from the database -- while `delete_mcp_server` looked for it under `scripts/mcp_<name>.py`, a directory the writers had stopped using. The existence check was therefore always false and the unlink was never reached, so the user-supplied Python a server was created from stayed on disk after the server row and its connection were gone. The removal was also discarded with `let _ =`, so a genuine failure would have looked exactly like success.",
+      "severity": "MEDIUM",
+      "discovered": "2026-08-27T00:00:00Z",
+      "version": "0.6.8-beta.5",
+      "file": "crates/core/src/handlers/mcp.rs",
+      "pattern": "remove_mcp_script",
+      "expected": "present",
+      "status": "fixed",
+      "notes": "Found while rewriting comments: the delete path's comment said it removes the generated script, and the directory next to it did not match the one the writers use. Nothing pointed at it because the path has no test and a no-op unlink is silent. Fixed by giving the location one definition -- MCP_SCRIPTS_DIR, mcp_script_filename, mcp_script_path and remove_mcp_script in managers/mcp_types.rs -- and routing all four call sites through it, so a future move cannot leave one of them behind; the directory literal now appears once outside its own test. A removal failure is logged with the path instead of discarded. VERIFICATION: pattern 'remove_mcp_script' expected=present pins that the delete path goes through the shared helper rather than deriving a second path of its own. Four unit tests in managers::mcp_types cover the helper; both mutations turn them red -- reporting success without unlinking, and resolving the path without the server name (which would delete a prefix-sharing sibling)."
     }
   ]
 }
