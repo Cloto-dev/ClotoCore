@@ -7,6 +7,7 @@ use super::mcp_client::McpClient;
 use super::mcp_mgp::{NegotiatedMgp, ToolSecurityMetadata};
 use super::mcp_protocol::{ClotoHandshakeResult, McpServerConfig, McpTool};
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
@@ -140,6 +141,50 @@ pub fn mcp_tool_schema(tool: &McpTool, security: Option<&ToolSecurityMetadata>) 
     schema
 }
 
+/// Where the kernel keeps the Python scripts it generates for dynamic MCP
+/// servers, relative to the process working directory.
+pub const MCP_SCRIPTS_DIR: &str = "data/mcp_scripts";
+
+/// File name of the generated script for `name`.
+#[must_use]
+pub fn mcp_script_filename(name: &str) -> String {
+    format!("mcp_{name}.py")
+}
+
+/// Path of that script under `base`.
+///
+/// Every caller that writes, regenerates or removes one of these files goes
+/// through here. They used to derive the path independently, and when the
+/// directory moved the removal path was left behind, so deleting a dynamic
+/// server left its script -- user-supplied Python -- on disk (bug-505).
+#[must_use]
+pub fn mcp_script_path_in(base: &Path, name: &str) -> PathBuf {
+    base.join(mcp_script_filename(name))
+}
+
+/// [`mcp_script_path_in`] against the kernel's own script directory.
+#[must_use]
+pub fn mcp_script_path(name: &str) -> PathBuf {
+    mcp_script_path_in(Path::new(MCP_SCRIPTS_DIR), name)
+}
+
+/// Remove the generated script for `name` under `base`.
+///
+/// Returns whether a file was there to remove; a server that never had a
+/// generated script is not an error, but a file that refuses to go is.
+pub fn remove_mcp_script_in(base: &Path, name: &str) -> std::io::Result<bool> {
+    match std::fs::remove_file(mcp_script_path_in(base, name)) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// [`remove_mcp_script_in`] against the kernel's own script directory.
+pub fn remove_mcp_script(name: &str) -> std::io::Result<bool> {
+    remove_mcp_script_in(Path::new(MCP_SCRIPTS_DIR), name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,5 +213,54 @@ mod tests {
         assert!(!tools_expose_reasoning(&[]));
         // A tool merely containing "think" as a substring is not the surface.
         assert!(!tools_expose_reasoning(&[tool("rethink_plan")]));
+    }
+
+    #[test]
+    fn script_path_pins_the_generated_location() {
+        assert_eq!(
+            mcp_script_path("weather")
+                .to_string_lossy()
+                .replace('\\', "/"),
+            "data/mcp_scripts/mcp_weather.py"
+        );
+    }
+
+    #[test]
+    fn the_stored_command_argument_stays_a_forward_slash_relative_path() {
+        // This exact string is written into the server row's args and handed
+        // to python, so it must not pick up platform separators. That the
+        // delete path targets the same file is enforced by construction --
+        // both sides go through the helpers above -- not by this assertion.
+        let stored = format!("{MCP_SCRIPTS_DIR}/{}", mcp_script_filename("weather"));
+        assert_eq!(stored, "data/mcp_scripts/mcp_weather.py");
+        assert_eq!(
+            Path::new(&stored).file_name(),
+            mcp_script_path("weather").file_name()
+        );
+    }
+
+    #[test]
+    fn removing_a_script_takes_the_file_and_reports_whether_one_was_there() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = mcp_script_path_in(dir.path(), "weather");
+        std::fs::write(&path, "print('hi')").expect("seed");
+
+        assert!(path.exists());
+        assert!(remove_mcp_script_in(dir.path(), "weather").expect("remove"));
+        assert!(!path.exists());
+        // A second removal is a no-op, not an error: a server may never have
+        // had a generated script.
+        assert!(!remove_mcp_script_in(dir.path(), "weather").expect("remove again"));
+    }
+
+    #[test]
+    fn removing_a_script_leaves_its_neighbours_alone() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let keep = mcp_script_path_in(dir.path(), "weather_v2");
+        std::fs::write(&keep, "print('keep')").expect("seed");
+        std::fs::write(mcp_script_path_in(dir.path(), "weather"), "print('go')").expect("seed");
+
+        assert!(remove_mcp_script_in(dir.path(), "weather").expect("remove"));
+        assert!(keep.exists(), "a prefix-sharing sibling must survive");
     }
 }
