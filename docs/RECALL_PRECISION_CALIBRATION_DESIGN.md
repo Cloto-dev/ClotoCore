@@ -68,9 +68,9 @@ vs 2 / 20). RSF preserves score margins so the keyword channel down-ranks contam
 
 ## 3. The principle and the three orthogonal knobs
 
-Recall configurability has **three orthogonal axes**. Two are use-case knobs (Goal
-#120); the third was a hidden magic constant and is split into a calibrated curve plus
-one knob:
+Recall configurability has **three orthogonal axes**. Two are use-case knobs; the
+third was a hidden magic constant and is split into a calibrated curve plus one
+knob:
 
 | Axis | Determined by | Treatment | Origin |
 | --- | --- | --- | --- |
