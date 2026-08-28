@@ -2395,7 +2395,7 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.3",
-      "fix_note": "Phase 1 (cpersona v2.4.20 e83f532) + Phase 3a (ClotoCore fda3549): cpersona's recall now accepts a `source_id` prefix filter, and the kernel derives `recall_source_id` from `msg.source` (User → id, otherwise empty for v2.4.19 fallback) and threads it into the MCP recall payload at handlers/system.rs:504. The empty fallback preserves backwards-compatible all-users recall for Agent/System messages and the legacy single-user path."
+      "fix_note": "Phase 1 (cpersona v2.4.20 e83f532) + Phase 3a (ClotoCore b98d410): cpersona's recall now accepts a `source_id` prefix filter, and the kernel derives `recall_source_id` from `msg.source` (User → id, otherwise empty for v2.4.19 fallback) and threads it into the MCP recall payload at handlers/system.rs:504. The empty fallback preserves backwards-compatible all-users recall for Agent/System messages and the legacy single-user path."
     },
     {
       "id": "bug-345",
@@ -2581,7 +2581,7 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.3",
-      "fix_note": "Phase 3b (commit 1652dbf): SetupWizard now guards re-entrancy with `installingRef.current`, closing the old EventSource and clearing `installEventSource` before opening a new one on retry. Pattern switched to the `installingRef.current` fix marker so regressions in the guard register as STALE."
+      "fix_note": "Phase 3b (commit d0b8fd1): SetupWizard now guards re-entrancy with `installingRef.current`, closing the old EventSource and clearing `installEventSource` before opening a new one on retry. Pattern switched to the `installingRef.current` fix marker so regressions in the guard register as STALE."
     },
     {
       "id": "bug-360",
@@ -2595,7 +2595,7 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.3",
-      "fix_note": "Phase 3b (commit 1652dbf): SetupWizard step 4 preset-apply now guards re-entrancy with `applyingRef.current` to suppress double-click duplicates. Pattern switched to the `applyingRef.current` fix marker."
+      "fix_note": "Phase 3b (commit d0b8fd1): SetupWizard step 4 preset-apply now guards re-entrancy with `applyingRef.current` to suppress double-click duplicates. Pattern switched to the `applyingRef.current` fix marker."
     },
     {
       "id": "bug-361",
@@ -2609,7 +2609,7 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.3",
-      "fix_note": "Phase 3b (commit 1652dbf): SetupWizard back-from-step-5 navigation now resets installation state by calling `setInstallStarted(false)` (plus closing the EventSource and clearing the install ref), so step 4 can be re-entered cleanly. Pattern switched to the `setInstallStarted(false)` fix marker."
+      "fix_note": "Phase 3b (commit d0b8fd1): SetupWizard back-from-step-5 navigation now resets installation state by calling `setInstallStarted(false)` (plus closing the EventSource and clearing the install ref), so step 4 can be re-entered cleanly. Pattern switched to the `setInstallStarted(false)` fix marker."
     },
     {
       "id": "bug-362",
@@ -2623,7 +2623,7 @@
       "expected": "present",
       "status": "fixed",
       "fixed_in": "0.6.3",
-      "fix_note": "Phase 3b (commit 1652dbf): marketplace.rs now writes setup-complete.json atomically via `setup-complete.json.tmp` + rename, eliminating the corrupted-file → re-setup loop. Pattern switched to the `setup-complete.json.tmp` fix marker."
+      "fix_note": "Phase 3b (commit d0b8fd1): marketplace.rs now writes setup-complete.json atomically via `setup-complete.json.tmp` + rename, eliminating the corrupted-file → re-setup loop. Pattern switched to the `setup-complete.json.tmp` fix marker."
     },
     {
       "id": "bug-363",
@@ -2864,7 +2864,7 @@
       "severity": "HIGH",
       "discovered": "2026-05-23T00:00:00Z",
       "version": "0.6.4",
-      "commit": "7946f69",
+      "commit": "bec9b6f",
       "file": "dashboard/src/main.tsx",
       "pattern": "checkOnUpgradeRef",
       "expected": "present",
@@ -2879,7 +2879,7 @@
       "severity": "HIGH",
       "discovered": "2026-05-21T00:00:00Z",
       "version": "0.6.3",
-      "commit": "d544035",
+      "commit": "c6dbb4f",
       "file": "dashboard/src/main.tsx",
       "pattern": "useRef<boolean>\\(setupDone\\)",
       "expected": "present",
@@ -2894,7 +2894,7 @@
       "severity": "CRITICAL",
       "discovered": "2026-05-21T00:00:00Z",
       "version": "0.6.3",
-      "commit": "d544035",
+      "commit": "c6dbb4f",
       "file": "crates/core/src/config.rs",
       "pattern": "pub fn data_dir\\(",
       "expected": "present",
@@ -2909,7 +2909,7 @@
       "severity": "CRITICAL",
       "discovered": "2026-05-24T00:00:00Z",
       "version": "0.6.4",
-      "commit": "a420e01",
+      "commit": "eb044d9",
       "file": "dashboard/src/lib/tauri.ts",
       "pattern": "Command\\.create\\('cloto_system'",
       "expected": "absent",
@@ -2924,7 +2924,7 @@
       "severity": "CRITICAL",
       "discovered": "2026-05-24T00:00:00Z",
       "version": "0.6.6",
-      "commit": "e4b8f5e",
+      "commit": "3163ddd",
       "file": "dashboard/src-tauri/installer.nsh",
       "pattern": "NSIS_HOOK_PREINSTALL",
       "expected": "present",
@@ -2943,7 +2943,7 @@
       "severity": "CRITICAL",
       "discovered": "2026-05-26T00:00:00Z",
       "version": "0.6.6",
-      "commit": "caa94d9",
+      "commit": "b4981ed",
       "file": "dashboard/src/components/mcp/InstallDialog.tsx",
       "pattern": "vars\\[ev\\.key\\]",
       "expected": "absent",
@@ -2958,7 +2958,7 @@
       "severity": "HIGH",
       "discovered": "2026-06-09T19:10:00Z",
       "version": "0.6.8-alpha.3",
-      "commit": "9f7f498",
+      "commit": "de1aed8",
       "file": "crates/core/src/db/mod.rs",
       "pattern": "repair_cpersona_rename_collision",
       "expected": "present",
@@ -2972,7 +2972,7 @@
       "severity": "HIGH",
       "discovered": "2026-06-09T19:40:00Z",
       "version": "0.6.8-alpha.3",
-      "commit": "9f7f498",
+      "commit": "de1aed8",
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "servers_dir\\.join\\(\"common\"\\)\\.join\\(\"__init__\\.py\"\\)\\.exists\\(\\)",
       "expected": "absent",
@@ -2986,7 +2986,7 @@
       "severity": "HIGH",
       "discovered": "2026-06-09T19:40:00Z",
       "version": "0.6.8-alpha.3",
-      "commit": "9f7f498",
+      "commit": "de1aed8",
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "common_path\\.join\\(\"pyproject\\.toml\"\\)\\.exists\\(\\)",
       "expected": "absent",
@@ -3000,7 +3000,7 @@
       "severity": "CRITICAL",
       "discovered": "2026-06-09T19:40:00Z",
       "version": "0.6.8-alpha.3",
-      "commit": "9f7f498",
+      "commit": "de1aed8",
       "file": "crates/core/src/managers/mcp.rs",
       "pattern": "std::path::Path::new\\(&config\\.command\\)",
       "expected": "absent",
@@ -3014,7 +3014,7 @@
       "severity": "MEDIUM",
       "discovered": "2026-06-09T19:40:00Z",
       "version": "0.6.8-alpha.3",
-      "commit": "9f7f498",
+      "commit": "de1aed8",
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "join\\(\"mcp-servers\"\\)\\.join\\(&directory\\)",
       "expected": "absent",
@@ -3028,7 +3028,7 @@
       "severity": "MEDIUM",
       "discovered": "2026-06-10T05:00:00Z",
       "version": "0.6.8-alpha.3",
-      "commit": "cc71954",
+      "commit": "f020b28",
       "file": "dashboard/src/services/api.ts",
       "pattern": "throw new Error\\(`Failed to \\$\\{ctx\\}: \\$\\{res\\.statusText\\}`\\)",
       "expected": "absent",
@@ -3042,7 +3042,7 @@
       "severity": "HIGH",
       "discovered": "2026-06-11T08:00:00Z",
       "version": "0.6.8-alpha.4",
-      "commit": "6b7b30f",
+      "commit": "0f89529",
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "^ +entry\\.seal\\.clone\\(\\),$",
       "expected": "absent",
@@ -3056,7 +3056,7 @@
       "severity": "HIGH",
       "discovered": "2026-06-14T03:00:00Z",
       "version": "0.6.8-beta.1",
-      "commit": "3b4bde7",
+      "commit": "a8a8e98",
       "file": "crates/core/src/config.rs",
       "pattern": "PathBuf::from\\(\"data/mcp-sandbox\"\\)",
       "expected": "absent",
@@ -3115,7 +3115,7 @@
       "severity": "HIGH",
       "discovered": "2026-06-29T00:00:00Z",
       "version": "0.6.8-beta.1",
-      "commit": "9d311a3",
+      "commit": "a90c0f0",
       "file": "crates/core/src/handlers/marketplace.rs",
       "pattern": "effective_install_dir_collapses_monorepo_relative_directory",
       "expected": "present",
@@ -4126,7 +4126,7 @@
     },
     {
       "id": "bug-476",
-      "summary": "LOW: avatar_updated_at is dropped by update_agent_config's metadata-preservation CASE (incomplete fix vs. set_avatar) — Commit df55bb6 built the CASE-based preserve-list for avatar_path/avatar_description/vrm_path specifically so that the full-metadata-replace COALESCE pattern used by PUT /api/agents/:id would not clobber fields owned by the dedicated avatar/VRM APIs. Commit 39df825 (later) added a fourth field, avatar_updated_at, to set_avatar's json_set call and wired it into the frontend (dashboard/src/lib/agentIdentity.tsx) as the avatar cache-busting key, but never updated update_agent_config's preserve-list to include it. The doc comment at agents.rs:389-391 states the intent ('Preserve fields managed by dedicated APIs... Without this, COALESCE full-replacement would overwrite these fields') but the implementation is now incomplete relative to that stated contract — a regression introduced when the field set diverged from the preservation list. Impact is limited (the frontend falls back to a mount-time cache key when avatar_updated_at is absent, so the avatar still renders, just with a less stable cache-bust value), and clear_avatar similarly never removes avatar_updated_at on delete, compounding the drift.",
+      "summary": "LOW: avatar_updated_at is dropped by update_agent_config's metadata-preservation CASE (incomplete fix vs. set_avatar) — Commit 8c3c4d1 built the CASE-based preserve-list for avatar_path/avatar_description/vrm_path specifically so that the full-metadata-replace COALESCE pattern used by PUT /api/agents/:id would not clobber fields owned by the dedicated avatar/VRM APIs. Commit 14bf3a7 (later) added a fourth field, avatar_updated_at, to set_avatar's json_set call and wired it into the frontend (dashboard/src/lib/agentIdentity.tsx) as the avatar cache-busting key, but never updated update_agent_config's preserve-list to include it. The doc comment at agents.rs:389-391 states the intent ('Preserve fields managed by dedicated APIs... Without this, COALESCE full-replacement would overwrite these fields') but the implementation is now incomplete relative to that stated contract — a regression introduced when the field set diverged from the preservation list. Impact is limited (the frontend falls back to a mount-time cache key when avatar_updated_at is absent, so the avatar still renders, just with a less stable cache-bust value), and clear_avatar similarly never removes avatar_updated_at on delete, compounding the drift.",
       "severity": "LOW",
       "discovered": "2026-07-12T00:00:00Z",
       "version": "0.6.8-beta.2",
@@ -4380,7 +4380,7 @@
       "pattern": "super::win_argv_quote",
       "expected": "present",
       "status": "fixed",
-      "notes": "Measured on the Windows verify guest (Windows 11, per-machine NSIS install of 0.6.8-beta.2 built from master 2c3ef4a), not inferred. Three POSTs of tier 4 each returned 200 with a 9-entry plan and each left every entry in place; a process watcher sampling Win32_Process every 200ms for 120s saw the parent app.exe and no helper process at all. Reproducing the exact `Start-Process -FilePath <staged app.exe> -ArgumentList @(\"purge-exec\",\"--plan\",...,\"--root\",\"C:\\Program Files\\ClotoCore\")` shape with stderr redirected yields `error: unexpected argument 'Files\\ClotoCore' found` — the decisive evidence. Running the same staged helper by hand with each --root quoted removed 5 of 9 entries and refused only `C:\\Program Files\\ClotoCore`, and that refusal was an artifact of the manual invocation omitting --root (the helper then derives roots from its own environment, whose exe_dir is the temp staging directory) rather than a second bug. WHY IT WAS INVISIBLE: `needs_elevation()` is false for a per-user install, which takes `spawn_detached` = `std::process::Command`, and that quotes for the child itself — so dev machines, per-user installs and every non-Windows platform were unaffected, and the broken line sits inside `#[cfg(windows)]` where macOS and Linux never compile it. FIXED (branch fix/elevated-helper-argv-quoting): `platform::win_argv_quote` implements the `CommandLineToArgvW` rules (quote on whitespace or an embedded quote, `\\\"` for a literal quote, double a backslash run before any quote including the closing one) and `spawn_elevated_and_wait` now quotes twice — once for the child, once as a PowerShell literal. The function is deliberately outside the `#[cfg(windows)]` module so its tests run on every OS; behind the cfg they would run only on the Windows CI runner, which is where the original defect survived. VERIFICATION: 8 tests, all executing on macOS, covering whitespace, absence of whitespace (the command line stays readable), embedded quotes, a trailing backslash before the closing quote, the empty argument, and a round-trip of the real `helper_args` output through an independently written parser; mutation-checked (disabling the quoting kills 6, dropping the trailing-backslash doubling kills 3, dropping the quote-escape increment kills 2, dropping the empty-argument case kills 2, quoting unconditionally kills 1). RESIDUAL, stated because it is easy to assume otherwise: no test covers the wiring line itself, because `spawn_elevated_and_wait` compiles only under `#[cfg(windows)]` and the Windows CI job is still experimental/non-blocking — removing the `win_argv_quote` call would go green. The end-to-end proof is the run on the Windows verify guest, not CI. A separate gap remains open as a follow-up: the helper writes no report when argument parsing fails, so any future argv mistake reproduces the same silent 'uninstalling' spinner.",
+      "notes": "Measured on the Windows verify guest (Windows 11, per-machine NSIS install of 0.6.8-beta.2 built from master 47895e8), not inferred. Three POSTs of tier 4 each returned 200 with a 9-entry plan and each left every entry in place; a process watcher sampling Win32_Process every 200ms for 120s saw the parent app.exe and no helper process at all. Reproducing the exact `Start-Process -FilePath <staged app.exe> -ArgumentList @(\"purge-exec\",\"--plan\",...,\"--root\",\"C:\\Program Files\\ClotoCore\")` shape with stderr redirected yields `error: unexpected argument 'Files\\ClotoCore' found` — the decisive evidence. Running the same staged helper by hand with each --root quoted removed 5 of 9 entries and refused only `C:\\Program Files\\ClotoCore`, and that refusal was an artifact of the manual invocation omitting --root (the helper then derives roots from its own environment, whose exe_dir is the temp staging directory) rather than a second bug. WHY IT WAS INVISIBLE: `needs_elevation()` is false for a per-user install, which takes `spawn_detached` = `std::process::Command`, and that quotes for the child itself — so dev machines, per-user installs and every non-Windows platform were unaffected, and the broken line sits inside `#[cfg(windows)]` where macOS and Linux never compile it. FIXED (branch fix/elevated-helper-argv-quoting): `platform::win_argv_quote` implements the `CommandLineToArgvW` rules (quote on whitespace or an embedded quote, `\\\"` for a literal quote, double a backslash run before any quote including the closing one) and `spawn_elevated_and_wait` now quotes twice — once for the child, once as a PowerShell literal. The function is deliberately outside the `#[cfg(windows)]` module so its tests run on every OS; behind the cfg they would run only on the Windows CI runner, which is where the original defect survived. VERIFICATION: 8 tests, all executing on macOS, covering whitespace, absence of whitespace (the command line stays readable), embedded quotes, a trailing backslash before the closing quote, the empty argument, and a round-trip of the real `helper_args` output through an independently written parser; mutation-checked (disabling the quoting kills 6, dropping the trailing-backslash doubling kills 3, dropping the quote-escape increment kills 2, dropping the empty-argument case kills 2, quoting unconditionally kills 1). RESIDUAL, stated because it is easy to assume otherwise: no test covers the wiring line itself, because `spawn_elevated_and_wait` compiles only under `#[cfg(windows)]` and the Windows CI job is still experimental/non-blocking — removing the `win_argv_quote` call would go green. The end-to-end proof is the run on the Windows verify guest, not CI. A separate gap remains open as a follow-up: the helper writes no report when argument parsing fails, so any future argv mistake reproduces the same silent 'uninstalling' spinner.",
       "github_issue": null
     },
     {
@@ -4411,7 +4411,7 @@
     },
     {
       "id": "bug-498",
-      "summary": "HIGH: the chat stream stopped following new turns. AgentConsole's scroll-to-bottom effect says in its own comment that it fires on initial load *and new messages*, but its dependency array is `[isLoading]` — so it only ever runs on mount. A sent message and its reply do render, below the fold, and the pane never moves: the reply looks like it never arrived. Leaving the view and coming back (remount flips isLoading) is the only way to see it. Introduced by the Biome adoption commit c3de983 (2026-03-15), whose useExhaustiveDependencies autofix stripped `messages.length` and `pendingResponse` from the array — a scroll effect uses those as change triggers, not as values read in the body, which is precisely the shape that rule cannot see. Every release since has shipped with auto-scroll dead.",
+      "summary": "HIGH: the chat stream stopped following new turns. AgentConsole's scroll-to-bottom effect says in its own comment that it fires on initial load *and new messages*, but its dependency array is `[isLoading]` — so it only ever runs on mount. A sent message and its reply do render, below the fold, and the pane never moves: the reply looks like it never arrived. Leaving the view and coming back (remount flips isLoading) is the only way to see it. Introduced by the Biome adoption commit 51c2f64 (2026-03-15), whose useExhaustiveDependencies autofix stripped `messages.length` and `pendingResponse` from the array — a scroll effect uses those as change triggers, not as values read in the body, which is precisely the shape that rule cannot see. Every release since has shipped with auto-scroll dead.",
       "severity": "HIGH",
       "discovered": "2026-08-03T00:00:00Z",
       "version": "0.6.8-beta.3",
