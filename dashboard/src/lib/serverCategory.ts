@@ -5,7 +5,7 @@ import type { McpServerInfo } from '../types';
 //
 // Classification is tool-surface only. Server ids are bare and carry no
 // category semantics — the legacy `mind.` / `memory.` prefix arms were
-// retired with the prefixed ids themselves (Goals #142/#143,
+// retired with the prefixed ids themselves (see
 // docs/CATEGORY_PREFIX_RETIREMENT_DESIGN.md).
 
 const REASONING_TOOLS = ['think', 'think_with_tools'];

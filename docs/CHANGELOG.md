@@ -100,7 +100,7 @@ signature ever published.
   A/B), and read-edit-save precision control in the dashboard. (#190–#203)
 - **Per-server MCP log streaming** in the dashboard Log tab. (#244)
 - **LLM provider metadata** seeded from the marketplace catalog; the agent
-  console lists only real engines and warns on uninstall (Goals #147/#148).
+  console lists only real engines and warns on uninstall.
   (#249–#251)
 - **Release pipeline**: Release Lifecycle Standard adoption
   (`SUPPORT.md` / `SECURITY.md`), signed updater feed with per-tier channel
@@ -233,8 +233,7 @@ verification source of truth for every entry.
 ### Changed
 
 - Engine/server ids de-prefixed: the `mind.` engine prefix and category id
-  prefixes are retired; classification is tool-surface based (Goals
-  #142/#143). (#247, #252)
+  prefixes are retired; classification is tool-surface based. (#247, #252)
 - axum 0.8 migration and dependency refresh (tauri 2.11, tower-http,
   quinn-proto RUSTSEC advisory). (#224 et al.)
 - Cross-platform release gate: Windows tests + headless `--smoke` in CI. (#185)
