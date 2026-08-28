@@ -551,8 +551,8 @@ impl McpClientManager {
             .servers
             .into_iter()
             .map(|mut server_config| {
-                // Config files predating the prefix retirement (an earlier decision)
-                // spell ids as `tool.terminal`, `mind.local`, … . Normalize at
+                // Config files predating the prefix retirement spell ids as
+                // `tool.terminal`, `mind.local`, … . Normalize at
                 // this ingestion boundary so a stale mcp.toml(.migrated) —
                 // re-read whenever `config-loaded` placeholders need repair —
                 // cannot re-insert prefixed rows after the DB migration
@@ -3560,7 +3560,7 @@ fn expand_path_vars(input: &str, paths: &HashMap<String, String>) -> String {
 /// canonical bare form (docs/CATEGORY_PREFIX_RETIREMENT_DESIGN.md §5).
 ///
 /// `mcp.toml` / `mcp.toml.migrated` files written before the prefix
-/// retirement (an earlier decision) spell ids as `tool.terminal`, `mind.local`,
+/// retirement spell ids as `tool.terminal`, `mind.local`,
 /// … . Those files are re-read whenever `config-loaded` placeholder rows need
 /// repair, so this one-shot normalization at the ingestion boundary is what
 /// keeps a stale file from re-inserting prefixed rows after the DB migration

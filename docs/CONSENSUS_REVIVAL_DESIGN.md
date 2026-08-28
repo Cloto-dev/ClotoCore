@@ -279,7 +279,7 @@ surfaces `SERVER_NOT_READY` (2000); a timeout surfaces `TIMEOUT` (3003). The
 kernel's `MgpError` codes are a faithful port of `mgp-spec` §14.3 (the `mgp-py`
 SDK provides the matching `ErrorData{code, message, data._mgp}` envelope).
 
-## 8. Test plan (for the implementation an earlier decision)
+## 8. Test plan (for the implementation work)
 
 - **Unit**: combined-views builder formatting; fail-safe branches
   (`< min` engines configured; an engine erroring; `< min` collected; synthesizer

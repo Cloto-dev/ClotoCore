@@ -315,7 +315,7 @@ impl CapabilityDispatcher {
 /// (docs/CATEGORY_PREFIX_RETIREMENT_DESIGN.md §5). Server ids carry no
 /// category semantics — the historical `memory.` / `mind.` / `vision.` /
 /// `stt.` / `output.` prefix arms were retired along with the prefixed ids
-/// themselves (an earlier decision); dotted ids remain legal but meaningless.
+/// themselves; dotted ids remain legal but meaningless.
 fn classify_tool(_server_id: &str, tool_name: &str) -> Option<CapabilityType> {
     match tool_name {
         "store"
