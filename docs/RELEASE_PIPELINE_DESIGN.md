@@ -86,8 +86,9 @@ version-scheme translation exists anywhere in the pipeline.
 
 ### 3.1 Initial state: no certified stable line yet
 
-ClotoCore has never certified a line as Stable (the 0.6.8 soak, an earlier decision, will be the first certification event). The standard does not define
-this state — reported upstream as a standard defect for v1.1 (§9 below).
+ClotoCore has never certified a line as Stable (the 0.6.8 soak will be the
+first certification event). The standard does not define this state —
+reported upstream as a standard defect for v1.1 (§9 below).
 
 Rule: **while `stable_line` is null, the `stable` channel aliases
 `current`**, and the generated stable view carries `"stable_alias": true` so

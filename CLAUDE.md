@@ -191,7 +191,8 @@ elsewhere; event-based triggers cannot be missed.
 ### opverify quality gate (stable cut, adopted 2026-07-14)
 
 `scripts/opverify/` drives a broad catalog of **real operations to success**
-against a live headless `clotocore` kernel over its HTTP admin API (an earlier decision) — the operation-coverage complement to the boot-only `--smoke` and the
+against a live headless `clotocore` kernel over its HTTP admin API — the
+operation-coverage complement to the boot-only `--smoke` and the
 installer-diff VM verify above. See `scripts/opverify/README.md`.
 
 - **Before a stable cut (`X.Y.Z`)**: opverify is **MUST**. At minimum the
