@@ -50,6 +50,12 @@ ext=""
 if [ -z "$out" ]; then
   out="$here/dashboard/src-tauri/binaries/cloto-installer-${target}${ext}"
 fi
+# The build runs from the module directory below; a relative --out must
+# stay relative to where the caller stood.
+case "$out" in
+  /*) ;;
+  *) out="$(pwd)/$out" ;;
+esac
 
 # The kernel accepts the engine only when it reports the kernel's own
 # version (managers::installer), so stamp exactly what Cargo.toml says.
