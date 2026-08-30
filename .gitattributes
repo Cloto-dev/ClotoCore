@@ -10,3 +10,7 @@ crates/core/migrations/*.sql text eol=crlf
 # with empty body, very hard to diagnose).
 .env text eol=lf
 .env.* text eol=lf
+
+# Seal parity fixtures are hashed byte-for-byte; any line-ending conversion
+# would change every expected value on a Windows checkout.
+crates/core/tests/fixtures/seal/** -text

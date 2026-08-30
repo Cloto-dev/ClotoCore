@@ -1442,9 +1442,68 @@ fn archive_binding(entry: &RegistryEntry) -> ArchiveBinding {
     }
 }
 
+/// Why an install proceeds without a local seal. The server is registered
+/// unsealed, and MGP §10 invariant 3 forces the untrusted profile at spawn.
+///
+/// Serialized as `snake_case` so the same names can appear in fixtures and
+/// in any other implementation that has to agree with this decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnsealedReason {
+    /// The catalog entry records no `entry_point_sha256`.
+    NoEntryPointHash,
+    /// No `ed25519` block in `signature_payload` (pre-Ed25519 catalog).
+    NoSignature,
+    /// The `ed25519` block lacks `sig` or `key_id`.
+    MalformedSignatureBlock,
+    /// `sig` or `key_id` is present but cannot be decoded.
+    UndecodableSignature,
+    /// The hub JWKS is unreachable or does not carry the entry's `key_id`.
+    HubKeyUnavailable,
+    /// An `archive` block is present but unusable, so the signed message
+    /// cannot be reconstructed.
+    MalformedArchiveBinding,
+}
+
+/// Outcome of the install-time seal decision for one catalog entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SealVerdict {
+    /// Entry-point hash and Ed25519 signature both verified: mint a local
+    /// seal at the declared trust tier.
+    Verified,
+    /// Benign non-verification: register unsealed.
+    Unsealed(UnsealedReason),
+}
+
+/// A well-formed, resolvable claim that does not match what was delivered.
+/// Installation must stop; `code` is the audit-log reason and the display
+/// text is what the user sees.
+#[derive(Debug)]
+pub struct TamperSuspect {
+    /// `integrity_mismatch` or `signature_invalid`.
+    pub code: &'static str,
+    message: String,
+}
+
+impl std::fmt::Display for TamperSuspect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for TamperSuspect {}
+
 /// bug-394 proper fix: decide the install-time seal from the catalog
 /// entry's cryptographic evidence (D2 bifurcation — see
 /// `project_clotohub_ed25519_seal_verification.md` §5).
+///
+/// This is the pure half of [`local_seal_for_install`]: it touches no
+/// filesystem, so the same inputs can be replayed against fixtures — and
+/// against any other implementation that must agree with this one byte
+/// for byte. `installed_entry_point_sha256` is only called once the
+/// catalog has recorded a hash to compare against, so an entry without one
+/// never has its entry point read; an error from it aborts the install (a
+/// file that cannot be hashed cannot be verified).
 ///
 /// The catalog seal is HMAC-signed with the *hub* master key and can
 /// never verify against this kernel's local seal key, so it is never
@@ -1453,28 +1512,26 @@ fn archive_binding(entry: &RegistryEntry) -> ArchiveBinding {
 /// - **Verified** — the entry carries an Ed25519 signature whose key we
 ///   resolved from the hub JWKS, the signature validates over
 ///   `canonical_message(id, version, entry_point_sha256)`, and the
-///   installed entry point hashes to that `entry_point_sha256` → mint a
-///   LOCAL seal (declared trust tier preserved; every later spawn check
-///   verifies under the local protocol).
-/// - **Benign non-verification** (`Ok(None)` → register unsealed; MGP
+///   installed entry point hashes to that `entry_point_sha256` → the
+///   caller mints a LOCAL seal (declared trust tier preserved; every later
+///   spawn check verifies under the local protocol).
+/// - **Benign non-verification** (`Unsealed` → register unsealed; MGP
 ///   §10 invariant 3 forces the untrusted profile at spawn): no
 ///   signature (pre-Ed25519 catalog), malformed signature block, or
 ///   JWKS unreachable / kid unknown (offline, rotation lag).
-/// - **Tamper suspect** (`Err` → install hard-blocks, loud audit log):
-///   a resolvable, well-formed signature that fails verification
-///   (the signed identity does not match the served entry), or an
-///   entry-point hash mismatch (the delivered bytes do not match what
-///   was signed / recorded).
+/// - **Tamper suspect** (`Err` carrying [`TamperSuspect`] → install
+///   hard-blocks, loud audit log): a resolvable, well-formed signature
+///   that fails verification (the signed identity does not match the
+///   served entry), or an entry-point hash mismatch (the delivered bytes
+///   do not match what was signed / recorded).
 ///
 /// `hub_key` is the signing key pre-resolved for the entry's `kid` via
 /// [`hub_signing_key`]; `None` means the JWKS path is unavailable.
-fn local_seal_for_install(
-    data_dir: &std::path::Path,
+pub fn install_seal_verdict(
     entry: &RegistryEntry,
-    command: &str,
-    args: &[String],
+    installed_entry_point_sha256: impl FnOnce() -> anyhow::Result<String>,
     hub_key: Option<&mgp_seal::ed25519::PublicKey>,
-) -> anyhow::Result<Option<String>> {
+) -> anyhow::Result<SealVerdict> {
     let ed25519_block = entry
         .signature_payload
         .as_ref()
@@ -1493,33 +1550,27 @@ fn local_seal_for_install(
                 entry.id
             );
         }
-        return Ok(None);
+        return Ok(SealVerdict::Unsealed(UnsealedReason::NoEntryPointHash));
     };
 
     // Keyless integrity check first: a hash mismatch is the strongest
     // tamper signal regardless of signature state, and hard-blocks
     // (unchanged from the interim fix).
-    let entry_point = crate::managers::mcp::resolve_sealable_entry_point(command, args);
-    let data = std::fs::read(entry_point).map_err(|e| {
-        anyhow::anyhow!(
-            "read entry point for integrity check ({}): {e}",
-            entry_point.display()
-        )
-    })?;
-    let actual = {
-        use sha2::Digest;
-        hex::encode(sha2::Sha256::digest(&data))
-    };
+    let actual = installed_entry_point_sha256()?;
     if !actual.eq_ignore_ascii_case(expected) {
         error!(
             "{}: TAMPER SUSPECT (integrity_mismatch) — catalog records sha256 {expected}, \
              installed entry point hashes to {actual}",
             entry.id
         );
-        anyhow::bail!(
-            "entry point integrity check failed for '{}': catalog expects sha256 {expected}, installed file hashes to {actual}",
-            entry.id
-        );
+        return Err(TamperSuspect {
+            code: "integrity_mismatch",
+            message: format!(
+                "entry point integrity check failed for '{}': catalog expects sha256 {expected}, installed file hashes to {actual}",
+                entry.id
+            ),
+        }
+        .into());
     }
 
     // Ed25519 layer: upgrade the trust anchor from "HTTPS to the
@@ -1530,7 +1581,7 @@ fn local_seal_for_install(
              (untrusted at spawn)",
             entry.id
         );
-        return Ok(None);
+        return Ok(SealVerdict::Unsealed(UnsealedReason::NoSignature));
     };
     let (Some(sig_b64), Some(kid_str)) = (
         block.get("sig").and_then(serde_json::Value::as_str),
@@ -1540,7 +1591,9 @@ fn local_seal_for_install(
             "{}: malformed ed25519 block in signature_payload — registering unsealed",
             entry.id
         );
-        return Ok(None);
+        return Ok(SealVerdict::Unsealed(
+            UnsealedReason::MalformedSignatureBlock,
+        ));
     };
     let (Ok(sig), Ok(kid)) = (
         mgp_seal::ed25519::Signature::from_base64(sig_b64),
@@ -1550,7 +1603,7 @@ fn local_seal_for_install(
             "{}: undecodable Ed25519 signature or key id — registering unsealed",
             entry.id
         );
-        return Ok(None);
+        return Ok(SealVerdict::Unsealed(UnsealedReason::UndecodableSignature));
     };
     let Some(pk) = hub_key else {
         warn!(
@@ -1558,7 +1611,7 @@ fn local_seal_for_install(
              signature; registering unsealed (untrusted at spawn)",
             entry.id
         );
-        return Ok(None);
+        return Ok(SealVerdict::Unsealed(UnsealedReason::HubKeyUnavailable));
     };
 
     // A `dual-v2` seal signed the archive alongside the entry point, so
@@ -1579,7 +1632,9 @@ fn local_seal_for_install(
                  the signed message; registering unsealed (untrusted at spawn)",
                 entry.id
             );
-            return Ok(None);
+            return Ok(SealVerdict::Unsealed(
+                UnsealedReason::MalformedArchiveBinding,
+            ));
         }
     };
     if !mgp_seal::ed25519::verify(pk, &kid, &canonical, &sig) {
@@ -1588,11 +1643,49 @@ fn local_seal_for_install(
              '{kid_str}' does not match the entry's signed identity",
             entry.id
         );
-        anyhow::bail!(
-            "Ed25519 seal verification failed for '{}': the catalog's signature does not match its signed identity under hub key '{kid_str}' — refusing install",
-            entry.id
-        );
+        return Err(TamperSuspect {
+            code: "signature_invalid",
+            message: format!(
+                "Ed25519 seal verification failed for '{}': the catalog's signature does not match its signed identity under hub key '{kid_str}' — refusing install",
+                entry.id
+            ),
+        }
+        .into());
     }
+    Ok(SealVerdict::Verified)
+}
+
+/// Decide the install-time seal for `entry` (see [`install_seal_verdict`])
+/// and, when it verifies, mint the local seal over the installed files.
+///
+/// Returns `Ok(None)` to register unsealed, `Ok(Some(seal))` with the local
+/// seal to record, and `Err` when the install must not proceed.
+fn local_seal_for_install(
+    data_dir: &std::path::Path,
+    entry: &RegistryEntry,
+    command: &str,
+    args: &[String],
+    hub_key: Option<&mgp_seal::ed25519::PublicKey>,
+) -> anyhow::Result<Option<String>> {
+    let entry_point = crate::managers::mcp::resolve_sealable_entry_point(command, args);
+    let verdict = install_seal_verdict(
+        entry,
+        || {
+            let data = std::fs::read(entry_point).map_err(|e| {
+                anyhow::anyhow!(
+                    "read entry point for integrity check ({}): {e}",
+                    entry_point.display()
+                )
+            })?;
+            use sha2::Digest;
+            Ok(hex::encode(sha2::Sha256::digest(&data)))
+        },
+        hub_key,
+    )?;
+    if verdict != SealVerdict::Verified {
+        return Ok(None);
+    }
+    let kid_str = entry_signature_kid(entry).unwrap_or_default();
 
     let seal_key = mgp_seal::load_or_generate_seal_key(data_dir)?;
     // Seal the installed tree rather than the entry point alone.
