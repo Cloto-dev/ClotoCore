@@ -860,6 +860,90 @@ def scenario_fixture_restore_is_never_implicit() -> None:
     assert FX.FIXTURES["onboarded"].snapshot in text
 
 
+def scenario_typing_goes_around_the_keyboard_layout() -> None:
+    """Text is inserted through CDP, not synthesised as keystrokes.
+
+    Keystrokes are interpreted by the guest's keyboard layout. On the Japanese
+    one the harness drives, `a:b;c@d[e]f^g` arrives as ``a*b;c`d[e]f~g`` —
+    three substitutions, measured 2026-08-31. Nothing caught it because
+    nothing read back what it had typed, and the characters it mangles are the
+    ones a URL and an admin key are made of.
+
+    The layout only exists on a real machine, so what is checked here is the
+    routing: with a targeter present, typing must not reach the actuator. Both
+    paths that type are covered — a literal `type` action and a target's
+    `type_text`, which is the one that carries the admin key.
+    """
+    from .interfaces import Frame
+
+    class Recorder:
+        def __init__(self):
+            self.typed = []
+            self.clicked = []
+
+        def send(self, action):
+            if action.kind == "type":
+                self.typed.append(action.text)
+            else:
+                self.clicked.append(action.kind)
+
+    class FakeTargeter:
+        def __init__(self):
+            self.inserted = []
+
+        def find(self, contains, **kw):
+            from .cdp import Target
+
+            return Target(
+                text="composer", role="textbox", x=1, y=2, width=10, height=4,
+                enabled=True, in_viewport=True, off_screen="",
+            )
+
+        def insert_text(self, text):
+            self.inserted.append(text)
+
+    secret = "k:e@y^1"
+    for step in (
+        J.Step(name="literal", action=type_text(secret), trigger=J.CHECKPOINT,
+               settle=False, target=None),
+        J.Step(name="targeted", trigger=J.CHECKPOINT, settle=False,
+               target=J.TargetSpec(contains="composer", type_text=secret,
+                                   scroll_attempts=0)),
+    ):
+        rec, tgt = Recorder(), FakeTargeter()
+        driver = VisualDriver(
+            ScriptedScreen([frame("f"), frame("f")]),
+            rec,
+            ScriptedVision({}, default=True),
+            targeter=tgt,
+            now=FakeClock().now,
+            sleep=FakeClock().sleep,
+        )
+        driver.run(J.Journey(name="t", steps=[step]))
+        assert tgt.inserted == [secret], (step.name, tgt.inserted)
+        assert rec.typed == [], (
+            f"{step.name}: text was synthesised as keystrokes, which the guest's "
+            f"layout rewrites: {rec.typed}"
+        )
+
+    # No targeter (debug port closed) is the documented fallback, not a crash.
+    rec = Recorder()
+    VisualDriver(
+        ScriptedScreen([frame("f"), frame("f")]),
+        rec,
+        ScriptedVision({}, default=True),
+        now=FakeClock().now,
+        sleep=FakeClock().sleep,
+    ).run(
+        J.Journey(
+            name="t",
+            steps=[J.Step(name="literal", action=type_text(secret),
+                          trigger=J.CHECKPOINT, settle=False)],
+        )
+    )
+    assert rec.typed == [secret], rec.typed
+
+
 def scenario_remedy_survives_an_unset_vm_id() -> None:
     """The remedy for an unmet fixture must print without OPV_VM_ID.
 
@@ -988,6 +1072,7 @@ def main() -> int:
         scenario_every_journey_declares_a_known_fixture,
         scenario_fixture_restore_is_never_implicit,
         scenario_remedy_survives_an_unset_vm_id,
+        scenario_typing_goes_around_the_keyboard_layout,
         scenario_probe_failure_is_not_state_absence,
         scenario_unanswerable_probe_is_never_told_to_roll_back,
     ]

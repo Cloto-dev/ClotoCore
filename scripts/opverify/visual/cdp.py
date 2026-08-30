@@ -429,6 +429,31 @@ class CdpTargeter:
             )
         return self.last_affordances
 
+    def insert_text(self, text: str) -> None:
+        """Put `text` into the focused element without a keyboard layout.
+
+        Synthesised keystrokes are interpreted by whatever layout the guest is
+        configured with, and the guest runs a Japanese one. Measured there on
+        2026-08-31, `a:b;c@d[e]f^g` came back as ``a*b;c`d[e]f~g``: three
+        substitutions, all of them characters whose shifted position differs
+        between layouts. Nothing in the harness noticed, because nothing read
+        back what it had typed — the chat journey's model answered the mangled
+        prompt correctly and the kernel oracle passed.
+
+        The characters that break are the ones a journey most needs to get
+        right: ``:`` and ``@`` are in every URL, and an admin key is typed
+        verbatim into a field that compares it byte for byte.
+
+        `Input.insertText` is delivered as text, not as key events, so the
+        layout is not consulted at all.
+        """
+        target = self.tunnel.page_target()
+        ws = _WebSocket(target["webSocketDebuggerUrl"], self.tunnel.local)
+        try:
+            ws.call("Input.insertText", {"text": text})
+        finally:
+            ws.close()
+
     def find(
         self,
         contains,

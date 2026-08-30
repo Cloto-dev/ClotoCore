@@ -122,7 +122,9 @@ class VisualDriver:
         """Perform the step's input: a resolved target if it declares one, else
         its literal action."""
         if step.target is None:
-            if step.action.kind != "noop":
+            if step.action.kind == "type":
+                self._type(step.action.text)
+            elif step.action.kind != "noop":
                 self.actuator.send(step.action)
             return
         if self._targeter is None:
@@ -181,7 +183,23 @@ class VisualDriver:
             )
         self.actuator.send(click(t.x, t.y))
         if step.target.type_text is not None:
-            self.actuator.send(type_text(step.target.type_text))
+            self._type(step.target.type_text)
+
+    def _type(self, text: str) -> None:
+        """Type into whatever is focused, preferring the layout-independent path.
+
+        Synthesised keystrokes go through the guest's keyboard layout and come
+        out wrong for `:`, `@` and `^` on a Japanese one (measured 2026-08-31).
+        A targeter means a CDP session, and CDP can deliver text as text. The
+        actuator stays the fallback for a run with no debug port — that run
+        simply cannot type those characters faithfully, which is worth knowing
+        rather than hiding.
+        """
+        insert = getattr(self._targeter, "insert_text", None)
+        if insert is not None:
+            insert(text)
+            return
+        self.actuator.send(type_text(text))
 
     def _run_step(self, step: J.Step) -> StepResult:
         try:
