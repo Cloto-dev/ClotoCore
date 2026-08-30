@@ -195,6 +195,23 @@ Plugins maintain their own version numbers because they can evolve independently
 
 ---
 
+## 3.1 CI only runs on pull requests that target `master`
+
+`ci.yml` triggers on `pull_request: branches: [master]`. A pull request whose
+base is another branch — a stacked one, for instance — gets the NSIS diff
+detector and nothing else. The checks tab looks calm because almost nothing
+ran, which is the failure mode worth knowing: **an absent check and a passing
+check are not distinguishable at a glance.** Read what actually ran before
+treating a stacked pull request as verified.
+
+Changing the base afterwards does not start the workflows either — a base edit
+is not one of the activity types the `pull_request` event fires on by default.
+Closing and reopening the pull request does, because `reopened` is. The other
+way is to rebase onto the current `master` and push, which both starts CI and
+reduces the diff to the change under review.
+
+---
+
 ## 4. Known Limitations
 
 ### 4.1 Tauri CSP: `unsafe-eval` Requirement
