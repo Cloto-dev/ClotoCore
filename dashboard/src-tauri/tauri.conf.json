@@ -40,6 +40,7 @@
       "icons/icon.ico"
     ],
     "createUpdaterArtifacts": "v1Compatible",
+    "externalBin": ["binaries/cloto-installer"],
     "windows": {
       "nsis": {
         "displayLanguageSelector": true,

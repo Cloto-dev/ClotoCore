@@ -58,3 +58,6 @@ dashboard/public/*
 
 # Ad-hoc test scripts
 scripts/test-mcp-server.ps1
+
+# Marketplace install engine sidecar (built by scripts/build-installer.sh)
+dashboard/src-tauri/binaries/

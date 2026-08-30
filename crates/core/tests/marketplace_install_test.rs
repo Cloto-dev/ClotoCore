@@ -1,34 +1,38 @@
 //! Characterization tests for the marketplace `raw_url` install path.
 //!
-//! These pin what the installer *does today* at the boundaries another
-//! implementation would have to reproduce: what is fetched and how it is
-//! verified, where the tree lands on disk, which commands the Python
-//! environment step runs, what each failure leaves behind, and — above
-//! all — what is written to the database and when. They record current
-//! behaviour, including quirks; a change in behaviour belongs in its own
-//! commit with the expectation updated first.
+//! These pin what the installer does at the boundaries: what is fetched
+//! and how it is verified, where the tree lands on disk, which commands
+//! the Python environment step runs, what each failure leaves behind, and
+//! — above all — what is written to the database and when. A change in
+//! behaviour belongs in its own commit with the expectation updated first.
+//!
+//! The path runs through the install engine (`tools/cloto-installer`),
+//! which these tests build from source once and hand to the kernel via
+//! `CLOTO_INSTALLER`; the kernel's side of the contract — inputs, event
+//! forwarding, the verdict, registration — is what is exercised here.
 //!
 //! The download stage refuses loopback addresses (its SSRF guard), so the
 //! whole path cannot be driven end to end against a local server. The
 //! tests drive the two stages `install_from_raw_url` is made of —
-//! `download_raw_url_archive` with an unpinned client against a local
-//! server, then `materialize_and_register` — exactly as the production
-//! wrapper chains them, and pin the guard itself through `run_install`.
-//! The Python environment step is observed through a stand-in `uv` that
-//! records its arguments, which is why this file is Unix-only.
+//! `fetch_raw_url_archive` pinned to the local server's address, then
+//! `materialize_with_installer` — exactly as the production wrapper chains
+//! them, and pin the guard itself through `run_install`. The Python
+//! environment step is observed through a stand-in `uv` that records its
+//! arguments, which is why this file is Unix-only.
 #![cfg(unix)]
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
 use cloto_core::handlers::marketplace::{
-    catalog_handler, download_raw_url_archive, materialize_and_register, run_install, CatalogQuery,
+    catalog_handler, fetch_raw_url_archive, materialize_with_installer, run_install, CatalogQuery,
     RegistryEntry,
 };
 use cloto_core::handlers::setup::SetupProgressEvent;
+use cloto_core::managers::installer::{self, InstallerState};
 use cloto_core::test_utils::create_test_app_state_in;
 use cloto_core::AppState;
 use mgp_sdk::adapters::{RawUrlSpec, SourceSpec};
@@ -62,12 +66,22 @@ fn sha256_hex(data: &[u8]) -> String {
     hex::encode(sha2::Sha256::digest(data))
 }
 
-/// A gzipped tarball with the given entries, GitHub-style (one shared
-/// top-level directory, which the installer strips).
+/// A gzipped tarball with the given entries, `git archive`-style: a global
+/// pax header naming the commit first (as GitHub and the hub serve them —
+/// an entry the extractor must not mistake for a top-level file), then one
+/// shared top-level directory, which the installer strips.
 fn tarball(files: &[(&str, &[u8])]) -> Vec<u8> {
     let mut tar_buf = Vec::new();
     {
         let mut builder = tar::Builder::new(&mut tar_buf);
+        let record = b"52 comment=d2368156b0f34f1c7930400cb4d35ed77c2eafb3\n";
+        let mut global = tar::Header::new_ustar();
+        global.set_entry_type(tar::EntryType::XGlobalHeader);
+        global.set_path("pax_global_header").unwrap();
+        global.set_mode(0o644);
+        global.set_size(record.len() as u64);
+        global.set_cksum();
+        builder.append(&global, &record[..]).unwrap();
         for (name, data) in files {
             let mut header = tar::Header::new_gnu();
             header.set_size(data.len() as u64);
@@ -111,6 +125,33 @@ fn uv_calls(log: &Path) -> Vec<String> {
     std::fs::read_to_string(log)
         .map(|s| s.lines().map(str::to_owned).collect())
         .unwrap_or_default()
+}
+
+/// The install engine, built from `tools/cloto-installer` once per test
+/// process and stamped with this crate's version — the version the kernel
+/// requires of it. Needs a Go toolchain on `PATH`; the build failing is a
+/// test failure, not a skip, so a missing toolchain cannot quietly turn
+/// this file into a no-op.
+fn install_engine() -> &'static Path {
+    static ENGINE: OnceLock<PathBuf> = OnceLock::new();
+    ENGINE.get_or_init(|| {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/cloto-installer");
+        let out_dir =
+            std::env::temp_dir().join(format!("clotocore-install-engine-{}", std::process::id()));
+        std::fs::create_dir_all(&out_dir).unwrap();
+        let out = out_dir.join("cloto-installer");
+        let status = std::process::Command::new("go")
+            .args(["build", "-trimpath", "-ldflags"])
+            .arg(format!("-X main.version={}", env!("CARGO_PKG_VERSION")))
+            .arg("-o")
+            .arg(&out)
+            .arg(".")
+            .current_dir(&source)
+            .status()
+            .expect("`go` is required to build the install engine for these tests");
+        assert!(status.success(), "go build of the install engine failed");
+        out
+    })
 }
 
 struct Hub {
@@ -213,6 +254,7 @@ impl Harness {
             "CLOTO_SEAL_JWKS_URL",
             format!("{}/api/seal/keys", mock.uri()),
         );
+        std::env::set_var(installer::ENV_OVERRIDE, install_engine());
         let events = state.setup_progress_tx.subscribe();
         Self {
             state,
@@ -253,7 +295,8 @@ impl Harness {
     }
 
     /// The two stages of `install_from_raw_url`, chained as it chains them,
-    /// with an unpinned HTTP client so the local server is reachable.
+    /// with the download pinned to the local server's address (the guard
+    /// that would refuse it is exercised separately through `run_install`).
     async fn download_and_materialize(&self, entry: &RegistryEntry) -> anyhow::Result<()> {
         let Some(InstallShape {
             source: SourceSpec::RawUrl(spec),
@@ -265,20 +308,21 @@ impl Harness {
         let tmp_dir = self.data_dir.join("tmp");
         tokio::fs::create_dir_all(&tmp_dir).await?;
         let archive_path = tmp_dir.join(format!("{}-raw-url.tar.gz", entry.id));
-        let client = reqwest::Client::new();
-        if !download_raw_url_archive(
+        let engine = install_engine();
+        if !fetch_raw_url_archive(
             &self.state.setup_progress_tx,
+            engine,
             entry,
-            spec,
-            client,
+            &[*self.mock.address()],
             &archive_path,
         )
         .await?
         {
             return Ok(());
         }
-        materialize_and_register(
+        materialize_with_installer(
             &self.state,
+            engine,
             entry,
             spec.subdir.as_deref(),
             &archive_path,
@@ -326,8 +370,22 @@ impl Harness {
     /// process-global state (the running binary's location), which the
     /// tests record rather than hide — it is an input the boundary carries.
     fn venv_dir(&self) -> PathBuf {
-        cloto_core::managers::mcp_venv::resolve_venv_dir()
-            .unwrap_or_else(|| self.servers_dir().join(".venv"))
+        let venv = cloto_core::managers::mcp_venv::resolve_venv_dir()
+            .unwrap_or_else(|| self.servers_dir().join(".venv"));
+        // The resolver can hand back an unnormalized path (`repo/../x`) on a
+        // development machine; the engine joins it lexically, so `uv` sees
+        // the cleaned form.
+        let mut clean = PathBuf::new();
+        for component in venv.components() {
+            match component {
+                std::path::Component::ParentDir => {
+                    clean.pop();
+                }
+                std::path::Component::CurDir => {}
+                other => clean.push(other),
+            }
+        }
+        clean
     }
 
     async fn db_row(&self, id: &str) -> Option<DbRow> {
@@ -451,8 +509,12 @@ async fn standalone_archive_is_verified_extracted_built_and_registered() {
     );
 
     // The Python environment step: create the shared venv only when it
-    // does not exist yet, then install the server tree into it.
+    // does not exist yet, then install the server tree into it. The
+    // install runs against the staged tree, before it is swapped into
+    // place, so the path `uv` sees is the staging path; the command
+    // registered below names the final location.
     let venv = h.venv_dir();
+    let staging_dir = h.data_dir.join("tmp/demo-staging");
     let mut expected_uv = Vec::new();
     if !venv_before {
         expected_uv.push(format!("venv --python 3.13 {}", venv.display()));
@@ -460,7 +522,7 @@ async fn standalone_archive_is_verified_extracted_built_and_registered() {
     expected_uv.push(format!(
         "pip install --no-progress --python {} {}",
         venv.join("bin/python").display(),
-        install_dir.display()
+        staging_dir.display()
     ));
     assert_eq!(uv_calls(&h.uv_log), expected_uv);
 
@@ -546,9 +608,11 @@ async fn monorepo_subdir_archive_keeps_repo_relative_layout_and_installs_common_
     assert!(!install_dir.join("servers/other").exists());
     assert!(!h.servers_dir().join("servers").exists());
 
-    // `common` is installed into the venv before the connector itself.
+    // `common` is installed into the venv before the connector itself,
+    // both from the staged tree (see the standalone test).
     let venv = h.venv_dir();
     let python = venv.join("bin/python").display().to_string();
+    let staging_dir = h.data_dir.join("tmp/demo-staging");
     let calls = uv_calls(&h.uv_log);
     let pip_calls: Vec<&String> = calls.iter().filter(|c| c.starts_with("pip ")).collect();
     assert_eq!(
@@ -556,11 +620,11 @@ async fn monorepo_subdir_archive_keeps_repo_relative_layout_and_installs_common_
         [
             &format!(
                 "pip install --no-progress --python {python} {}",
-                install_dir.join("servers/common").display()
+                staging_dir.join("servers/common").display()
             ),
             &format!(
                 "pip install --no-progress --python {python} {}",
-                server_path.display()
+                staging_dir.join("servers/demo").display()
             ),
         ]
     );
@@ -767,28 +831,32 @@ async fn dependency_install_failure_leaves_the_tree_unregistered() {
             "install:Demo:installing",
         ]
     );
-    // The failure detail is wrapped twice ("uv pip install failed: uv pip
-    // install failed: ..."): recorded as it is, not endorsed.
+    // The failure detail carries the prefix exactly once, followed by what
+    // `uv` printed.
     assert!(
         steps[5].starts_with(
-            "error:install_deps:recoverable:uv pip install failed: uv pip install failed: "
+            "error:install_deps:recoverable:uv pip install failed: simulated dependency failure"
         ),
         "{}",
         steps[5]
     );
     assert_eq!(steps.len(), 6, "{steps:?}");
 
-    // The extracted tree stays on disk, the archive is cleaned up, and no
-    // row is written. The catalog view then reports the server as installed
-    // on the strength of the directory alone, with no version — recorded
-    // here as current behaviour, not endorsed.
-    assert!(h.servers_dir().join("demo/server.py").is_file());
+    // Dependencies are installed against the staged tree, so a failure
+    // leaves nothing under the servers root, nothing in tmp, and no row —
+    // and the catalog view does not mistake a half-built tree for an
+    // install.
+    assert!(!h.servers_dir().join("demo").exists());
     assert!(!h.data_dir.join("tmp/demo-raw-url.tar.gz").exists());
+    assert_eq!(
+        std::fs::read_dir(h.data_dir.join("tmp")).unwrap().count(),
+        0
+    );
     assert!(h.db_row("demo").await.is_none());
     assert_eq!(
         h.catalog_state("demo").await,
         serde_json::json!({
-            "installed": true,
+            "installed": false,
             "installed_version": null,
             "update_available": false,
             "running": false,
@@ -818,7 +886,13 @@ async fn invalid_hub_signature_blocks_registration_after_materialization() {
         "{last}"
     );
     assert!(steps.contains(&"complete:install_deps".to_string()));
-    assert!(h.servers_dir().join("demo/server.py").is_file());
+    // The verdict is decided on the staged tree: a tamper suspect never
+    // reaches the servers root and leaves nothing behind in tmp.
+    assert!(!h.servers_dir().join("demo").exists());
+    assert_eq!(
+        std::fs::read_dir(h.data_dir.join("tmp")).unwrap().count(),
+        0
+    );
     assert!(h.db_row("demo").await.is_none());
 }
 
@@ -868,19 +942,112 @@ async fn run_install_refuses_loopback_download_targets() {
 
     let steps = h.steps();
     assert_eq!(
-        steps[..2],
-        ["start:check_uv", "complete:check_uv"],
-        "the toolchain check precedes the download: {steps:?}"
+        steps[..4],
+        [
+            "start:check_installer",
+            "complete:check_installer",
+            "start:check_uv",
+            "complete:check_uv"
+        ],
+        "the install engine and toolchain checks precede the download: {steps:?}"
     );
-    assert_eq!(steps[2], "start:download");
+    assert_eq!(steps[4], "start:download");
     assert!(
-        steps[3].starts_with("error:download:fatal:Access to host '127.0.0.1' is denied"),
+        steps[5].starts_with("error:download:fatal:Access to host '127.0.0.1' is denied"),
         "{}",
-        steps[3]
+        steps[5]
     );
-    assert_eq!(steps.len(), 4, "{steps:?}");
+    assert_eq!(steps.len(), 6, "{steps:?}");
     assert!(!h.data_dir.join("tmp/demo-raw-url.tar.gz").exists());
     assert!(!h.servers_dir().join("demo").exists());
     assert!(uv_calls(&h.uv_log).is_empty());
     assert!(h.db_row("demo").await.is_none());
+}
+
+// ── the install engine itself: absent or stale is an error, never a fallback ──
+
+#[tokio::test]
+async fn run_install_stops_when_the_install_engine_is_missing() {
+    let _guard = ENV_LOCK.lock().await;
+    let mut h = Harness::new("noengine", false).await;
+    let archive = standalone_archive(SERVER_PY);
+    let url = h.archive_url("demo.tar.gz");
+    let entry = h
+        .hub
+        .entry("demo", "", "1.0.0", SERVER_PY, &archive, &url, None, &[]);
+    h.serve_archive("demo.tar.gz", archive).await;
+    let nowhere = h.data_dir.join("no-such-installer");
+    std::env::set_var(installer::ENV_OVERRIDE, &nowhere);
+
+    run_install(&h.state, &entry, HashMap::new(), false)
+        .await
+        .unwrap();
+
+    // Nothing is provisioned, fetched or written: the check comes first
+    // and its failure is final.
+    let steps = h.steps();
+    assert_eq!(steps[0], "start:check_installer");
+    assert!(
+        steps[1].starts_with(&format!(
+            "error:check_installer:fatal:marketplace install engine not found at {}",
+            nowhere.display()
+        )),
+        "{}",
+        steps[1]
+    );
+    assert_eq!(steps.len(), 2, "{steps:?}");
+    assert!(uv_calls(&h.uv_log).is_empty());
+    assert!(!h.data_dir.join("tmp/demo-raw-url.tar.gz").exists());
+    assert!(!h.servers_dir().join("demo").exists());
+    assert!(h.db_row("demo").await.is_none());
+
+    // The health endpoint sees the same answer.
+    let status = installer::last_status().expect("probed");
+    assert_eq!(status.state, InstallerState::Missing);
+    assert_eq!(status.path, nowhere);
+}
+
+#[tokio::test]
+async fn run_install_stops_when_the_install_engine_is_another_version() {
+    let _guard = ENV_LOCK.lock().await;
+    let mut h = Harness::new("staleengine", false).await;
+    let archive = standalone_archive(SERVER_PY);
+    let url = h.archive_url("demo.tar.gz");
+    let entry = h
+        .hub
+        .entry("demo", "", "1.0.0", SERVER_PY, &archive, &url, None, &[]);
+    h.serve_archive("demo.tar.gz", archive).await;
+
+    // An engine left behind by another release: it runs and identifies
+    // itself, but not as the version this kernel was built with.
+    let stale = h.data_dir.join("stale-installer");
+    std::fs::write(
+        &stale,
+        "#!/bin/sh\necho 'cloto-installer 0.0.0 commit=none go=go0 test/arch'\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::env::set_var(installer::ENV_OVERRIDE, &stale);
+
+    run_install(&h.state, &entry, HashMap::new(), false)
+        .await
+        .unwrap();
+
+    let steps = h.steps();
+    assert_eq!(steps[0], "start:check_installer");
+    assert!(
+        steps[1].starts_with("error:check_installer:fatal:marketplace install engine at ")
+            && steps[1].contains("is version 0.0.0, this ClotoCore is "),
+        "{}",
+        steps[1]
+    );
+    assert_eq!(steps.len(), 2, "{steps:?}");
+    assert!(uv_calls(&h.uv_log).is_empty());
+    assert!(h.db_row("demo").await.is_none());
+
+    let status = installer::last_status().expect("probed");
+    assert_eq!(status.state, InstallerState::VersionMismatch);
+    assert_eq!(status.version.as_deref(), Some("0.0.0"));
+    assert_eq!(status.expected, env!("CARGO_PKG_VERSION"));
 }

@@ -22,6 +22,10 @@ func file(name string, data string) entry {
 }
 func dir(name string) entry { return entry{name: name, typ: tar.TypeDir} }
 
+// globalHeader is the `pax_global_header` entry `git archive` (and so
+// GitHub and the hub) opens an archive with, carrying the source commit.
+func globalHeader() entry { return entry{name: "pax_global_header", typ: tar.TypeXGlobalHeader} }
+
 func tarball(t *testing.T, entries ...entry) string {
 	t.Helper()
 	var buf bytes.Buffer
@@ -31,6 +35,10 @@ func tarball(t *testing.T, entries ...entry) string {
 		hdr := &tar.Header{Name: e.name, Typeflag: e.typ, Mode: 0o644, Size: int64(len(e.data)), Linkname: e.link}
 		if e.typ == tar.TypeDir {
 			hdr.Mode = 0o755
+		}
+		if e.typ == tar.TypeXGlobalHeader {
+			hdr.Mode = 0
+			hdr.PAXRecords = map[string]string{"comment": "d2368156b0f34f1c7930400cb4d35ed77c2eafb3"}
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
 			t.Fatal(err)
@@ -223,5 +231,39 @@ func TestComponentsFollowTheKernelsPathIterator(t *testing.T) {
 		if strings.Join(got, "|") != strings.Join(want, "|") {
 			t.Errorf("components(%q) = %v, want %v", name, got, want)
 		}
+	}
+}
+
+// A `git archive` tarball opens with a global pax header naming the
+// commit. The reader hands that header back as an entry of its own, and
+// it must not count as a top-level file: the shared prefix is still
+// stripped and the subdir is still found. Caught by the first real hub
+// archive after the fixtures above — all written without one — passed.
+func TestGlobalPaxHeaderDoesNotHideTheSharedPrefix(t *testing.T) {
+	archive := tarball(t,
+		globalHeader(),
+		dir("repo-1.0/"),
+		dir("repo-1.0/servers/"),
+		dir("repo-1.0/servers/demo/"),
+		file("repo-1.0/servers/demo/server.py", "print('hi')"),
+	)
+
+	stripped := t.TempDir()
+	if err := TarballStripped(archive, stripped, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(t, filepath.Join(stripped, "servers", "demo", "server.py")) {
+		t.Fatal("stripped extraction did not remove the shared prefix past the global header")
+	}
+	if exists(t, filepath.Join(stripped, "pax_global_header")) {
+		t.Fatal("the global header was written out as a file")
+	}
+
+	selective := t.TempDir()
+	if err := SubdirSelective(archive, selective, "servers/demo", false, nil); err != nil {
+		t.Fatalf("subdir extraction failed: %v", err)
+	}
+	if !exists(t, filepath.Join(selective, "servers", "demo", "server.py")) {
+		t.Fatal("subdir extraction did not find the connector past the global header")
 	}
 }
