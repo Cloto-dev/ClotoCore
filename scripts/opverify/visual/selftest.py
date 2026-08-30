@@ -647,6 +647,7 @@ def _kernel_state(
     plan_entries=11,
     providers=None,
     messages=0,
+    agent_engine=None,
 ):
     """A fake `fetch_json` returning the shapes the kernel really serializes —
     measured on the Windows guest (2026-08-06), envelope included. A fixture
@@ -669,6 +670,24 @@ def _kernel_state(
             }
         if path == "/api/llm/providers":
             return {"data": {"providers": providers if providers is not None else []}}
+        if path == "/api/agents":
+            from . import fixtures as _FX
+
+            engine = agent_engine if agent_engine is not None else _FX.CHAT_PROVIDER
+            # Measured on the guest (2026-08-31): this endpoint puts the list
+            # straight in the envelope, unlike /api/llm/providers which nests it
+            # under a key. The first draft of this stub nested it, the check
+            # passed here and raised against the product, and the run that
+            # caught it was a VM run — which is what this stub exists to avoid.
+            return {
+                "data": [
+                    {
+                        "id": _FX.DEFAULT_AGENT,
+                        "agent_type": "agent",
+                        "default_engine_id": engine,
+                    }
+                ]
+            }
         if path.endswith("/messages"):
             return {
                 "data": {
@@ -703,8 +722,17 @@ def scenario_fixture_refuses_the_vacuous_states() -> None:
     assert not carousel.ok
     assert "setup-complete" in [n for n, ok, _ in carousel.failures()]
 
+    # Name the provider the fixture names, not a literal: which engine the
+    # guest runs is environment, and a stub that pins one fails the moment the
+    # guest is moved to another (2026-08-31, after a provider started
+    # answering 402).
     configured = [
-        {"id": "cerebras", "has_key": True, "configured": True, "engine_status": "connected"}
+        {
+            "id": FX.CHAT_PROVIDER,
+            "has_key": True,
+            "configured": True,
+            "engine_status": "connected",
+        }
     ]
     # Read the threshold off the fixture rather than pinning it here: raising
     # the required depth is a normal edit, and a test that hardcodes the old
@@ -726,6 +754,22 @@ def scenario_fixture_refuses_the_vacuous_states() -> None:
     )
     assert ok.ok, ok.as_dict()
 
+    # A ready provider the agent does not use. This is the state the guest was
+    # actually in on 2026-08-31: the old engine stayed installed, connected and
+    # keyed after the agent had been moved off it, so every check about the
+    # provider passed while the turns went somewhere else. Only the check that
+    # asks what the agent points at can name this.
+    elsewhere = FX.verify(
+        "configured-chat",
+        _kernel_state(
+            providers=configured, messages=depth, agent_engine="some-other-engine"
+        ),
+    )
+    assert not elsewhere.ok
+    assert [n for n, ok_, _ in elsewhere.failures()] == [
+        f"agent-uses:{FX.CHAT_PROVIDER}"
+    ], elsewhere.as_dict()
+
 
 def scenario_fixture_reports_every_failure() -> None:
     """One trip to the VM, not one per failure: checks keep running after the
@@ -736,10 +780,9 @@ def scenario_fixture_reports_every_failure() -> None:
         "configured-chat", _kernel_state(providers=[], messages=0)
     )
     names = [n for n, ok, _ in both.failures()]
-    assert names == ["provider-ready:cerebras", "thread-depth"], both.as_dict()
-    assert "not present" in dict((n, d) for n, _, d in both.results)[
-        "provider-ready:cerebras"
-    ]
+    want = f"provider-ready:{FX.CHAT_PROVIDER}"
+    assert names == [want, "thread-depth"], both.as_dict()
+    assert "not present" in dict((n, d) for n, _, d in both.results)[want]
 
     dead = FX.verify("onboarded", _kernel_state(healthy=False))
     assert not dead.ok
@@ -878,8 +921,9 @@ def scenario_probe_failure_is_not_state_absence() -> None:
     # The distinction has to survive into what the operator reads: the checks
     # that never ran must not accuse the machine of lacking the state.
     details = {n: d for n, _, d in report.results}
-    assert "could not ask" in details["provider-ready:cerebras"], details
-    assert "not present" not in details["provider-ready:cerebras"], details
+    want = f"provider-ready:{FX.CHAT_PROVIDER}"
+    assert "could not ask" in details[want], details
+    assert "not present" not in details[want], details
 
     # And the reachable ones still report honestly — the failure is localized.
     assert dict((n, ok) for n, ok, _ in report.results)["kernel-responds"] is True
