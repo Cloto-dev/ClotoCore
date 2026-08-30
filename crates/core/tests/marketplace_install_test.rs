@@ -451,8 +451,12 @@ async fn standalone_archive_is_verified_extracted_built_and_registered() {
     );
 
     // The Python environment step: create the shared venv only when it
-    // does not exist yet, then install the server tree into it.
+    // does not exist yet, then install the server tree into it. The
+    // install runs against the staged tree, before it is swapped into
+    // place, so the path `uv` sees is the staging path; the command
+    // registered below names the final location.
     let venv = h.venv_dir();
+    let staging_dir = h.data_dir.join("tmp/demo-staging");
     let mut expected_uv = Vec::new();
     if !venv_before {
         expected_uv.push(format!("venv --python 3.13 {}", venv.display()));
@@ -460,7 +464,7 @@ async fn standalone_archive_is_verified_extracted_built_and_registered() {
     expected_uv.push(format!(
         "pip install --no-progress --python {} {}",
         venv.join("bin/python").display(),
-        install_dir.display()
+        staging_dir.display()
     ));
     assert_eq!(uv_calls(&h.uv_log), expected_uv);
 
@@ -546,9 +550,11 @@ async fn monorepo_subdir_archive_keeps_repo_relative_layout_and_installs_common_
     assert!(!install_dir.join("servers/other").exists());
     assert!(!h.servers_dir().join("servers").exists());
 
-    // `common` is installed into the venv before the connector itself.
+    // `common` is installed into the venv before the connector itself,
+    // both from the staged tree (see the standalone test).
     let venv = h.venv_dir();
     let python = venv.join("bin/python").display().to_string();
+    let staging_dir = h.data_dir.join("tmp/demo-staging");
     let calls = uv_calls(&h.uv_log);
     let pip_calls: Vec<&String> = calls.iter().filter(|c| c.starts_with("pip ")).collect();
     assert_eq!(
@@ -556,11 +562,11 @@ async fn monorepo_subdir_archive_keeps_repo_relative_layout_and_installs_common_
         [
             &format!(
                 "pip install --no-progress --python {python} {}",
-                install_dir.join("servers/common").display()
+                staging_dir.join("servers/common").display()
             ),
             &format!(
                 "pip install --no-progress --python {python} {}",
-                server_path.display()
+                staging_dir.join("servers/demo").display()
             ),
         ]
     );
@@ -767,28 +773,32 @@ async fn dependency_install_failure_leaves_the_tree_unregistered() {
             "install:Demo:installing",
         ]
     );
-    // The failure detail is wrapped twice ("uv pip install failed: uv pip
-    // install failed: ..."): recorded as it is, not endorsed.
+    // The failure detail carries the prefix exactly once, followed by what
+    // `uv` printed.
     assert!(
         steps[5].starts_with(
-            "error:install_deps:recoverable:uv pip install failed: uv pip install failed: "
+            "error:install_deps:recoverable:uv pip install failed: simulated dependency failure"
         ),
         "{}",
         steps[5]
     );
     assert_eq!(steps.len(), 6, "{steps:?}");
 
-    // The extracted tree stays on disk, the archive is cleaned up, and no
-    // row is written. The catalog view then reports the server as installed
-    // on the strength of the directory alone, with no version — recorded
-    // here as current behaviour, not endorsed.
-    assert!(h.servers_dir().join("demo/server.py").is_file());
+    // Dependencies are installed against the staged tree, so a failure
+    // leaves nothing under the servers root, nothing in tmp, and no row —
+    // and the catalog view does not mistake a half-built tree for an
+    // install.
+    assert!(!h.servers_dir().join("demo").exists());
     assert!(!h.data_dir.join("tmp/demo-raw-url.tar.gz").exists());
+    assert_eq!(
+        std::fs::read_dir(h.data_dir.join("tmp")).unwrap().count(),
+        0
+    );
     assert!(h.db_row("demo").await.is_none());
     assert_eq!(
         h.catalog_state("demo").await,
         serde_json::json!({
-            "installed": true,
+            "installed": false,
             "installed_version": null,
             "update_available": false,
             "running": false,
@@ -818,7 +828,13 @@ async fn invalid_hub_signature_blocks_registration_after_materialization() {
         "{last}"
     );
     assert!(steps.contains(&"complete:install_deps".to_string()));
-    assert!(h.servers_dir().join("demo/server.py").is_file());
+    // The verdict is decided on the staged tree: a tamper suspect never
+    // reaches the servers root and leaves nothing behind in tmp.
+    assert!(!h.servers_dir().join("demo").exists());
+    assert_eq!(
+        std::fs::read_dir(h.data_dir.join("tmp")).unwrap().count(),
+        0
+    );
     assert!(h.db_row("demo").await.is_none());
 }
 
@@ -868,17 +884,22 @@ async fn run_install_refuses_loopback_download_targets() {
 
     let steps = h.steps();
     assert_eq!(
-        steps[..2],
-        ["start:check_uv", "complete:check_uv"],
-        "the toolchain check precedes the download: {steps:?}"
+        steps[..4],
+        [
+            "start:check_installer",
+            "complete:check_installer",
+            "start:check_uv",
+            "complete:check_uv"
+        ],
+        "the install engine and toolchain checks precede the download: {steps:?}"
     );
-    assert_eq!(steps[2], "start:download");
+    assert_eq!(steps[4], "start:download");
     assert!(
-        steps[3].starts_with("error:download:fatal:Access to host '127.0.0.1' is denied"),
+        steps[5].starts_with("error:download:fatal:Access to host '127.0.0.1' is denied"),
         "{}",
-        steps[3]
+        steps[5]
     );
-    assert_eq!(steps.len(), 4, "{steps:?}");
+    assert_eq!(steps.len(), 6, "{steps:?}");
     assert!(!h.data_dir.join("tmp/demo-raw-url.tar.gz").exists());
     assert!(!h.servers_dir().join("demo").exists());
     assert!(uv_calls(&h.uv_log).is_empty());
