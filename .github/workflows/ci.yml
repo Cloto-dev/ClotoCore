@@ -278,6 +278,45 @@ jobs:
       - name: Verify installer.nsh hook integrity (bug-386)
         run: bash scripts/check-nsis-hook.sh
 
+  installer:
+    name: Installer (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/cloto-installer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/cloto-installer/go.mod
+          # No module dependencies, so there is no go.sum to key a cache on.
+          cache: false
+
+      - name: Format check
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt would reformat:" "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # The seal parity tests read crates/core/tests/fixtures/seal/, the
+      # same fixtures the Rust suite is held to.
+      - name: Test
+        run: go test ./...
+
+      - name: Cross-compile the release targets
+        run: |
+          for target in darwin/arm64 linux/amd64 windows/amd64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w" -o /dev/null .
+          done
+
   sentinel:
     name: Sentinel
     runs-on: ubuntu-latest
