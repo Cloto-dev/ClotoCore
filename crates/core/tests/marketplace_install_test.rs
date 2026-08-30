@@ -66,12 +66,22 @@ fn sha256_hex(data: &[u8]) -> String {
     hex::encode(sha2::Sha256::digest(data))
 }
 
-/// A gzipped tarball with the given entries, GitHub-style (one shared
-/// top-level directory, which the installer strips).
+/// A gzipped tarball with the given entries, `git archive`-style: a global
+/// pax header naming the commit first (as GitHub and the hub serve them —
+/// an entry the extractor must not mistake for a top-level file), then one
+/// shared top-level directory, which the installer strips.
 fn tarball(files: &[(&str, &[u8])]) -> Vec<u8> {
     let mut tar_buf = Vec::new();
     {
         let mut builder = tar::Builder::new(&mut tar_buf);
+        let record = b"52 comment=d2368156b0f34f1c7930400cb4d35ed77c2eafb3\n";
+        let mut global = tar::Header::new_ustar();
+        global.set_entry_type(tar::EntryType::XGlobalHeader);
+        global.set_path("pax_global_header").unwrap();
+        global.set_mode(0o644);
+        global.set_size(record.len() as u64);
+        global.set_cksum();
+        builder.append(&global, &record[..]).unwrap();
         for (name, data) in files {
             let mut header = tar::Header::new_gnu();
             header.set_size(data.len() as u64);

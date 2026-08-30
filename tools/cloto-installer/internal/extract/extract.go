@@ -177,11 +177,20 @@ func open(archive string) (*os.File, *tar.Reader, error) {
 	return f, tar.NewReader(gz), nil
 }
 
+// isMetadata reports a tar entry that describes the archive rather than a
+// file in it. The reader folds per-file pax headers into the entry they
+// belong to, but a *global* pax header (`pax_global_header`, which
+// GitHub- and hub-served archives open with, carrying the source commit)
+// is returned as an entry of its own — a top-level "file" that would
+// otherwise defeat shared-prefix detection and be reported as unsupported.
+func isMetadata(hdr *tar.Header) bool {
+	return hdr.Typeflag == tar.TypeXGlobalHeader || hdr.Typeflag == tar.TypeXHeader
+}
+
 // detectSharedPrefix finds a single top-level directory every entry sits
 // under (the GitHub archive convention). A top-level file, or a second
 // distinct top-level component, means there is none; a prefix is only
-// strippable when something lives under it. Pax headers never reach here:
-// the reader consumes them.
+// strippable when something lives under it.
 func detectSharedPrefix(archive string) ([]string, error) {
 	f, tr, err := open(archive)
 	if err != nil {
@@ -197,6 +206,9 @@ func detectSharedPrefix(archive string) ([]string, error) {
 		}
 		if err != nil {
 			return nil, err
+		}
+		if isMetadata(hdr) {
+			continue
 		}
 		parts := components(hdr.Name)
 		if len(parts) == 0 {
@@ -242,6 +254,9 @@ func TarballStripped(archive, target string, warn Warn) error {
 		}
 		if err != nil {
 			return err
+		}
+		if isMetadata(hdr) {
+			continue
 		}
 		rel := components(hdr.Name)
 		if prefix != nil {
@@ -296,6 +311,9 @@ func SubdirSelective(archive, target, subdir string, includeCommon bool, warn Wa
 		}
 		if err != nil {
 			return err
+		}
+		if isMetadata(hdr) {
+			continue
 		}
 		rel := components(hdr.Name)
 		if prefix != nil {
