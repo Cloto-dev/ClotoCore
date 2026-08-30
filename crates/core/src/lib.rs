@@ -595,6 +595,21 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         tokio::spawn(async move {
             managers::mcp_venv::ensure_mcp_venv(&data_dir_bg).await;
         });
+        // Probe the marketplace install engine so a missing or stale binary
+        // is in the boot log and on the health endpoint before anyone
+        // opens the marketplace. Off the critical path: it is re-probed by
+        // every install, which is where it is enforced.
+        tokio::spawn(async {
+            let status = managers::installer::probe().await;
+            match status.error {
+                None => tracing::info!(
+                    "Marketplace install engine ready: {} ({})",
+                    status.path.display(),
+                    status.version.as_deref().unwrap_or("?")
+                ),
+                Some(error) => tracing::warn!("{error}"),
+            }
+        });
     } else {
         tracing::info!("Setup not complete — skipping MCP venv sync");
     }

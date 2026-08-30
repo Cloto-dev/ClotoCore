@@ -50,7 +50,8 @@ pub fn data_dir() -> PathBuf {
 /// True when running from a Cargo workspace (`cargo run`, `cargo test`,
 /// `cargo tauri dev`). Detected by walking up from the running exe and finding
 /// a `Cargo.toml`. Returns false in shipped binaries installed outside the repo.
-fn is_dev_layout() -> bool {
+#[must_use]
+pub fn is_dev_layout() -> bool {
     let Ok(exe) = std::env::current_exe() else {
         return false;
     };

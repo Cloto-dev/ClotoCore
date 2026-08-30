@@ -63,10 +63,27 @@ pub async fn version_handler() -> axum::Json<serde_json::Value> {
     }))
 }
 
-/// GET /api/system/health — lightweight liveness check (no auth required)
+/// GET /api/system/health — lightweight liveness check (no auth required).
+///
+/// `installer` reports the marketplace install engine as last probed (at
+/// boot, then by each install): `ready`, or why not — `missing`,
+/// `version_mismatch`, `unusable` — and `unknown` before the first probe.
+/// A broken engine does not make the kernel unhealthy; it makes marketplace
+/// installs stop with an explicit error, and this is where that shows.
 pub async fn health_handler() -> axum::Json<serde_json::Value> {
+    let installer = crate::managers::installer::last_status().map_or_else(
+        || serde_json::json!({ "status": "unknown" }),
+        |status| {
+            serde_json::json!({
+                "status": status.state,
+                "version": status.version,
+                "expected": status.expected,
+            })
+        },
+    );
     json_data(serde_json::json!({
-        "status": "ok"
+        "status": "ok",
+        "installer": installer,
     }))
 }
 
