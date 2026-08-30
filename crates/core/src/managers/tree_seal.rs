@@ -140,8 +140,10 @@ fn collect_files(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(found)
 }
 
-/// Build the canonical manifest text for `root`.
-fn tree_manifest(root: &Path) -> anyhow::Result<String> {
+/// Build the canonical manifest text for `root`: one `HEX  relpath` line
+/// per file, sorted by path components, `/`-separated. Public so a fixture
+/// can pin the exact bytes the seal is computed over, not just the seal.
+pub fn tree_manifest(root: &Path) -> anyhow::Result<String> {
     let files = collect_files(root)?;
     let mut manifest = String::new();
     for relative in files {
