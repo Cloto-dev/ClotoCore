@@ -1043,7 +1043,8 @@ fn rust_binary_path(server_path: &std::path::Path, entry: &RegistryEntry) -> Pat
 /// working unchanged. Per-source installers handle materialization, then
 /// share [`build_and_register`] / [`register_server`] for the toolchain
 /// + add_server + auto_start steps.
-async fn run_install(
+#[allow(clippy::implicit_hasher)]
+pub async fn run_install(
     state: &AppState,
     entry: &RegistryEntry,
     env_overrides: HashMap<String, String>,
@@ -2343,6 +2344,38 @@ async fn install_from_raw_url(
         .redirect(reqwest::redirect::Policy::none())
         .resolve_to_addrs(&host, &resolved)
         .build()?;
+    if !download_raw_url_archive(tx, entry, spec, client, &archive_path).await? {
+        return Ok(());
+    }
+    materialize_and_register(
+        state,
+        entry,
+        spec.subdir.as_deref(),
+        &archive_path,
+        &tmp_dir,
+        env_overrides,
+        auto_start,
+    )
+    .await
+}
+
+/// Stage 1 of a `raw_url` install: fetch the archive over `client` into
+/// `archive_path`, checking it against the signed archive binding (or,
+/// failing that, the catalog-served digest) while it streams.
+///
+/// `client` is built by the caller, already pinned to addresses that
+/// passed the SSRF guard. Returns `Ok(false)` after emitting a `StepError`
+/// when the download must not proceed — nothing is left at `archive_path`
+/// in that case — and `Ok(true)` once `archive_path` holds a verified
+/// archive. `Err` is an I/O failure.
+pub async fn download_raw_url_archive(
+    tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>,
+    entry: &RegistryEntry,
+    spec: &mgp_sdk::adapters::RawUrlSpec,
+    client: reqwest::Client,
+    archive_path: &std::path::Path,
+) -> anyhow::Result<bool> {
+    let parsed_url = reqwest::Url::parse(&spec.url)?;
     let resp = client
         .get(parsed_url)
         .header("User-Agent", "ClotoCore")
@@ -2358,7 +2391,7 @@ async fn install_from_raw_url(
                 recoverable: true,
             },
         );
-        return Ok(());
+        return Ok(false);
     }
 
     // Prefer the signed digest over the catalog-served one. When both
@@ -2385,7 +2418,7 @@ async fn install_from_raw_url(
                             recoverable: false,
                         },
                     );
-                    return Ok(());
+                    return Ok(false);
                 }
             }
             (Some(sha256), Some(length))
@@ -2419,7 +2452,7 @@ async fn install_from_raw_url(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(false);
         }
     }
 
@@ -2466,7 +2499,7 @@ async fn install_from_raw_url(
                         recoverable: false,
                     },
                 );
-                return Ok(());
+                return Ok(false);
             }
         }
 
@@ -2511,7 +2544,7 @@ async fn install_from_raw_url(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(false);
         }
     }
 
@@ -2541,7 +2574,7 @@ async fn install_from_raw_url(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(false);
         }
     }
 
@@ -2551,6 +2584,30 @@ async fn install_from_raw_url(
             step: "download".into(),
         },
     );
+    Ok(true)
+}
+
+/// Stage 2 of a `raw_url` install: extract the verified archive under a
+/// staging directory in `tmp_dir`, swap it into `{data_dir}/mcp-servers/`,
+/// build the Python environment (or the Rust binary), register the server
+/// and remove the archive. `spec_subdir` is the connector's directory
+/// inside a monorepo archive, if any.
+///
+/// Failures are reported through `StepError` events and `Ok(())`; `Err`
+/// is an I/O failure. Nothing is written to the database before the tree
+/// is in place and its dependencies are installed.
+#[allow(clippy::too_many_lines, clippy::implicit_hasher)]
+pub async fn materialize_and_register(
+    state: &AppState,
+    entry: &RegistryEntry,
+    spec_subdir: Option<&str>,
+    archive_path: &std::path::Path,
+    tmp_dir: &std::path::Path,
+    env_overrides: HashMap<String, String>,
+    auto_start: bool,
+) -> anyhow::Result<()> {
+    let tx = &state.setup_progress_tx;
+    let is_rust = entry.runtime == "rust";
 
     emit(
         tx,
@@ -2607,14 +2664,12 @@ async fn install_from_raw_url(
     // matches a nested git clone — `resolve_common_source` and
     // uninstall both already understand that shape. Without a subdir
     // the tarball is standalone and extracts whole, as before.
-    let subdir = spec
-        .subdir
-        .clone()
+    let subdir = spec_subdir
         .filter(|s| !s.is_empty())
         .map(|s| s.trim_matches('/').to_owned());
     let needs_common = !is_rust && entry.dependencies.contains(&"common".to_string());
 
-    let archive_path_clone = archive_path.clone();
+    let archive_path_clone = archive_path.to_path_buf();
     let staging_dir_clone = staging_dir.clone();
     let subdir_clone = subdir.clone();
     let extract_result = tokio::task::spawn_blocking(move || match &subdir_clone {
