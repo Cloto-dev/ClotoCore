@@ -368,9 +368,18 @@ def remedy(name: str) -> str:
         return ""
     lines = [f"fixture {fixture.name!r}: {fixture.summary}"]
     if fixture.snapshot:
+        # The remedy is printed *because* the run could not go ahead, so it must
+        # not have preconditions the run itself lacks. `vm_id()` raises when
+        # OPV_VM_ID is unset — which a run needs only to roll back — and that
+        # turned an unmet fixture into a traceback, replacing the guidance at
+        # exactly the moment it was being asked for (measured 2026-08-31).
+        try:
+            where = f"VM {vm_id()}"
+        except Exception:
+            where = "the VM named by OPV_VM_ID (currently unset)"
         lines.append(
             f"  restore it:  python -m scripts.opverify.visual.run_vm <journey> "
-            f"--rollback-to-fixture     (rolls VM {vm_id()} to {fixture.snapshot!r})"
+            f"--rollback-to-fixture     (rolls {where} to {fixture.snapshot!r})"
         )
         lines.append(
             "               NOTE: a rollback DISCARDS the VM's current state. "

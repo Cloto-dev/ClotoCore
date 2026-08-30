@@ -817,6 +817,38 @@ def scenario_fixture_restore_is_never_implicit() -> None:
     assert FX.FIXTURES["onboarded"].snapshot in text
 
 
+def scenario_remedy_survives_an_unset_vm_id() -> None:
+    """The remedy for an unmet fixture must print without OPV_VM_ID.
+
+    It is printed *because* the run could not go ahead, so it cannot have
+    preconditions the run itself lacks. OPV_VM_ID is needed only to roll back,
+    and reading it while composing the text turned an unmet fixture into a
+    traceback — the guidance was replaced by a stack trace at exactly the
+    moment it was being asked for (measured 2026-08-31, driving chat-render).
+
+    This scenario clears the variable deliberately: the module preamble does
+    `setdefault("OPV_VM_ID", "0")`, so every other scenario runs with it set
+    and none of them could have seen this.
+    """
+    import os
+
+    from . import fixtures as FX
+
+    saved = os.environ.pop("OPV_VM_ID", None)
+    try:
+        for name, fixture in FX.FIXTURES.items():
+            if not fixture.snapshot:
+                continue
+            text = FX.remedy(name)
+            assert fixture.snapshot in text, name
+            assert "OPV_VM_ID" in text, (
+                f"remedy for {name!r} must name the variable it could not read"
+            )
+    finally:
+        if saved is not None:
+            os.environ["OPV_VM_ID"] = saved
+
+
 def scenario_probe_failure_is_not_state_absence() -> None:
     """A kernel that cannot be asked must not be reported as a kernel that
     answered "no" (bug-500).
@@ -911,6 +943,7 @@ def main() -> int:
         scenario_fixture_checks_are_specific,
         scenario_every_journey_declares_a_known_fixture,
         scenario_fixture_restore_is_never_implicit,
+        scenario_remedy_survives_an_unset_vm_id,
         scenario_probe_failure_is_not_state_absence,
         scenario_unanswerable_probe_is_never_told_to_roll_back,
     ]
