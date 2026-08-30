@@ -11,12 +11,13 @@
 package materialize
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -415,7 +416,7 @@ func (r *run) pythonEnv(serverPath string, needsCommon bool) (*VenvState, bool, 
 	}
 
 	em.ServerInstall(r.name, "installing")
-	if detail := r.pipInstallStreaming(state.Python, serverPath, timeout); detail != "" {
+	if ok, detail := r.pipInstallStreaming(state.Python, serverPath, timeout); !ok {
 		em.StepError("install_deps", "uv pip install failed: "+detail, true)
 		return nil, false, nil
 	}
@@ -442,28 +443,44 @@ func (r *run) status(name string, args []string, dir string, timeout time.Durati
 	return err == nil, false
 }
 
+// lineWriter hands complete lines to a callback as a child process writes
+// them. It is handed to exec as the command's Stderr, so the copy is done by
+// exec's own goroutine and Wait does not return until it has finished —
+// reading a pipe from a separate goroutine loses whatever is still in
+// flight when Wait closes it.
+type lineWriter struct {
+	buf  []byte
+	line func(string)
+}
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			break
+		}
+		w.line(strings.TrimRight(string(w.buf[:i]), "\r"))
+		w.buf = w.buf[i+1:]
+	}
+	return len(p), nil
+}
+
+// flush delivers a final line that had no newline. Call after Wait.
+func (w *lineWriter) flush() {
+	if len(w.buf) > 0 {
+		w.line(string(w.buf))
+		w.buf = nil
+	}
+}
+
 // pipInstallStreaming runs `uv pip install` for one tree, streaming its
-// stderr as progress and into the install log. Returns "" on success or
-// the failure detail.
-func (r *run) pipInstallStreaming(python, serverPath string, timeout time.Duration) string {
+// stderr as progress and into the install log. Returns ok=false with the
+// failure detail when the install did not succeed.
+func (r *run) pipInstallStreaming(python, serverPath string, timeout time.Duration) (ok bool, detail string) {
 	in := r.in
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, in.UV, "pip", "install", "--no-progress", "--python", python, serverPath)
-	cmd.Stdin = nil
-	cmd.WaitDelay = 5 * time.Second
-	hideWindow(cmd)
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return "failed to run uv: " + err.Error()
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "failed to run uv: " + err.Error()
-	}
-	if err := cmd.Start(); err != nil {
-		return "failed to run uv: " + err.Error()
-	}
 
 	var logFile *os.File
 	if in.InstallLog != "" {
@@ -473,48 +490,49 @@ func (r *run) pipInstallStreaming(python, serverPath string, timeout time.Durati
 			defer f.Close()
 		}
 	}
-	tail := make(chan []string, 1)
-	go func() {
-		var last []string
-		scanner := bufio.NewScanner(stderr)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.TrimSpace(line) != "" {
-				r.em.StepProgress("install_deps", -1, "["+r.name+"] "+line)
-				if logFile != nil {
-					ts := time.Now().Format("2006-01-02T15:04:05")
-					_, _ = fmt.Fprintf(logFile, "[%s] [%s] %s\n", ts, r.name, line)
-				}
-			}
-			last = append(last, line)
-			if len(last) > 5 {
-				last = last[1:]
+	var last []string
+	stderr := &lineWriter{line: func(line string) {
+		if strings.TrimSpace(line) != "" {
+			r.em.StepProgress("install_deps", -1, "["+r.name+"] "+line)
+			if logFile != nil {
+				ts := time.Now().Format("2006-01-02T15:04:05")
+				_, _ = fmt.Fprintf(logFile, "[%s] [%s] %s\n", ts, r.name, line)
 			}
 		}
-		tail <- last
-	}()
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for scanner.Scan() {
+		last = append(last, line)
+		if len(last) > 5 {
+			last = last[1:]
 		}
-	}()
+	}}
 
-	err = cmd.Wait()
-	last := <-tail
+	cmd := exec.CommandContext(ctx, in.UV, "pip", "install", "--no-progress", "--python", python, serverPath)
+	cmd.Stdin = nil
+	cmd.Stdout = io.Discard
+	cmd.Stderr = stderr
+	// Bound the wait for the pipes once the process is gone (a grandchild
+	// could keep them open).
+	cmd.WaitDelay = 5 * time.Second
+	hideWindow(cmd)
+	if err := cmd.Start(); err != nil {
+		return false, "failed to run uv: " + err.Error()
+	}
+	err := cmd.Wait()
+	stderr.flush()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return fmt.Sprintf("timed out (%ds)", in.ChildTimeoutSecs)
+		return false, fmt.Sprintf("timed out (%ds)", in.ChildTimeoutSecs)
 	}
 	if err == nil {
-		return ""
+		return true, ""
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		// The caller adds the "uv pip install failed:" prefix once.
-		return strings.Join(last, " | ")
+		if len(last) == 0 {
+			return false, err.Error()
+		}
+		return false, strings.Join(last, " | ")
 	}
-	return "failed to wait for uv: " + err.Error()
+	return false, "failed to wait for uv: " + err.Error()
 }
 
 // cargoBuild runs `cargo build --release` in the staged tree. Returns
@@ -543,46 +561,27 @@ func (r *run) cargoBuild(serverPath string) (bool, error) {
 	em.StepStart("cargo_build", fmt.Sprintf("Building %s (this may take several minutes)", r.name))
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(in.BuildTimeoutSecs)*time.Second)
 	defer cancel()
+	var last []string
+	stderr := &lineWriter{line: func(line string) {
+		if strings.Contains(line, "Compiling") || strings.Contains(line, "Downloading") {
+			em.StepProgress("cargo_build", -1, line)
+		} else if strings.Contains(line, "error") {
+			last = append(last, line)
+			if len(last) > 5 {
+				last = last[1:]
+			}
+		}
+	}}
 	cmd := exec.CommandContext(ctx, in.Cargo, "build", "--release")
 	cmd.Dir = serverPath
+	cmd.Stdout = io.Discard
+	cmd.Stderr = stderr
 	cmd.WaitDelay = 5 * time.Second
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return false, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return false, err
-	}
 	if err := cmd.Start(); err != nil {
 		return false, err
 	}
-	errLines := make(chan []string, 1)
-	go func() {
-		var last []string
-		scanner := bufio.NewScanner(stderr)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.Contains(line, "Compiling") || strings.Contains(line, "Downloading") {
-				em.StepProgress("cargo_build", -1, line)
-			} else if strings.Contains(line, "error") {
-				last = append(last, line)
-				if len(last) > 5 {
-					last = last[1:]
-				}
-			}
-		}
-		errLines <- last
-	}()
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for scanner.Scan() {
-		}
-	}()
-	err = cmd.Wait()
-	last := <-errLines
+	err := cmd.Wait()
+	stderr.flush()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		r.warn(fmt.Sprintf("cargo build --release timed out after %d minutes for %s", in.BuildTimeoutSecs/60, r.name))
 		em.StepError("cargo_build", fmt.Sprintf("Build timed out after %d minutes", in.BuildTimeoutSecs/60), true)
