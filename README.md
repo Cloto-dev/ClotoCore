@@ -361,7 +361,7 @@ are opt-in only and carry no guarantees.
 - [MGP Communication](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_COMMUNICATION.md) — MGP communication protocol
 - [MGP Discovery](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_DISCOVERY.md) — MGP service discovery
 - [MCP Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) — MCP server communication protocol
-- [CPersona Memory](docs/CPERSONA_MEMORY_DESIGN.md) — Memory system design
+- [CPersona Memory](https://github.com/Cloto-dev/cpersona/blob/master/docs/architecture.md) — Memory system design
 - [Database Schema](docs/SCHEMA.md) — SQLite schema reference
 - [Changelog](docs/CHANGELOG.md) — Development history
 
