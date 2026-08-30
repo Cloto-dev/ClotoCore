@@ -150,5 +150,26 @@ go test ./...
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$V -X main.commit=$C" .
 ```
 
+`scripts/build-installer.sh` (repo root) does this for a Rust target
+triple with the workspace version stamped in — the version the kernel
+requires the engine to report — and puts the binary where the kernel
+looks: the Tauri sidecar slot `dashboard/src-tauri/binaries/` by default
+(`bundle.externalBin`; the app does not build without it), or `--out
+target/debug/cloto-installer` beside a `cargo run --bin clotocore`
+kernel. `CLOTO_INSTALLER=<path>` points the kernel at an engine anywhere
+else; a `dev`-stamped build is accepted only through that variable or in
+a development checkout.
+
+## How the kernel drives it
+
+`crates/core/src/managers/installer.rs` locates the engine, probes
+`version` before every install (and once at boot, for
+`GET /api/system/health` → `installer`), and runs a stage with the input
+on stdin, forwarding each event line to the kernel's progress stream. A
+missing, unrunnable or differently-versioned engine stops the install at
+its first step, `check_installer`, with a non-recoverable error.
+`crates/core/tests/marketplace_install_test.rs` builds this engine from
+source and drives the kernel's side of the contract through it.
+
 Cross-compile with `GOOS`/`GOARCH` (`darwin/arm64`, `linux/amd64`,
 `windows/amd64`); no cgo, so every target builds from any host.

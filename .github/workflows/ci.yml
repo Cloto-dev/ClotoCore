@@ -187,6 +187,15 @@ jobs:
           mkdir -p dashboard/dist
           echo '<html><body></body></html>' > dashboard/dist/index.html
 
+      # The marketplace install path runs through the Go install engine
+      # (tools/cloto-installer); its characterization tests build the engine
+      # from source and fail — not skip — without a toolchain.
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/cloto-installer/go.mod
+          cache: false
+
       - name: Run tests
         run: cargo test --workspace --exclude app
         env:
@@ -253,6 +262,18 @@ jobs:
         run: |
           mkdir -p dashboard/dist
           echo '<html><body></body></html>' > dashboard/dist/index.html
+
+      # The app bundles the install engine as a Tauri sidecar
+      # (bundle.externalBin); tauri-build refuses to compile without it.
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/cloto-installer/go.mod
+          cache: false
+
+      - name: Build install engine sidecar
+        shell: bash
+        run: bash scripts/build-installer.sh
 
       - name: Build app
         run: cargo build --package app

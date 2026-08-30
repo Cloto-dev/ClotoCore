@@ -19,6 +19,7 @@ If a proposed change conflicts with any of these, flag it before proceeding.
 - Dashboard lint: `cd dashboard && npx biome check src/`
 - Dashboard format: `cd dashboard && npx biome format --write src/`
 - Dashboard build: `cd dashboard && npm run build`
+- Install engine sidecar: `bash scripts/build-installer.sh` (needs Go; builds `tools/cloto-installer` into `dashboard/src-tauri/binaries/`. **Run it before any `app` build** — `tauri dev`, `tauri build`, `cargo build -p app` — because `bundle.externalBin` makes tauri-build fail without it. For a bare kernel (`cargo run --bin clotocore`) use `--out target/debug/cloto-installer`, or point `CLOTO_INSTALLER` at a build. `cargo test` builds its own copy and needs `go` on `PATH`)
 - Dev launch: `cd dashboard && npx tauri dev` (starts Vite + Tauri together. Do NOT run `app.exe` directly — the debug build's devUrl points to the Vite dev server)
 - Release build: `cd dashboard && npx tauri build` (`cargo build --release -p app` is prohibited)
 - Bug verify: `bash scripts/verify-issues.sh`
