@@ -158,8 +158,9 @@ decides where it sits and how it is split.
 ## 7. What enforces this
 
 The rules above are only worth writing down if something fails when they are
-broken. Three things run in CI on every change to `docs/`, `mkdocs.yml` or the
-checker itself.
+broken. Two of the three checks below run in CI on every change to `docs/`,
+`mkdocs.yml` or a checker; the third runs on every pull request, for a reason
+given where it is described.
 
 **The build, with `--strict`.** Every validation level in `mkdocs.yml` is set
 to `warn`, and `--strict` turns warnings into failures. The one that carries
@@ -189,6 +190,41 @@ Both arms were checked by breaking them on purpose: removing a heading id from
 a built page turns the anchor arm red and leaves the link arm green, and adding
 a link to an excluded document turns the link arm red while the strict build
 stays at exit 0.
+
+**A facts checker against the code** (`scripts/check-docs-facts.py`). The
+checks above ask whether the site is internally consistent. This one asks
+whether what the documents *say* is still true: test counts, the current
+version, release names, and the environment defaults documented in the README.
+
+It runs in `ci.yml` rather than in this workflow, because what invalidates
+these claims is a **code** change — a test added, a version bumped, a setting
+renamed — and this workflow only fires when `docs/` changes. A drift gate that
+runs only on documentation edits cannot see the edit that caused the drift.
+
+What it found on the day it was written, all of it green in CI until then: the
+README badge claimed 234 passing tests against a suite of 666; the contributor
+guide named `0.6.3-alpha.11` as the current phase against a version of
+`0.6.8-beta.5`; the support policy named a pre-release four cuts behind; one
+documented default no longer matched the code; and two documented settings —
+one of them with instructions telling contributors to export it for faster
+builds — were read by nothing in the repository at all.
+
+Two limits are worth knowing, because both were reached while building it:
+
+* **A version number is only checked where the document says it is a claim.**
+  A blanket scan for release-shaped strings was written first and withdrawn: it
+  fired on the line of the support policy that *explains* semver notation,
+  which is not an assertion about what is current. Prose cannot be asked which
+  of its numbers are claims, so a document marks them —
+  `<!-- docs-facts: latest-prerelease -->` — and a new claim is covered once it
+  is marked. That is a real gap, and a visible one, which a checker that
+  guessed would not have been.
+* **A setting counts as live if the project mentions it outside these
+  documents** — source, `.env.example`, scripts, workflows. Looking only for
+  `env::var` would have reported six live settings as dead: provider keys reach
+  the code through a mapping table, the log filter is consumed by a library,
+  and pass-through settings for plugin servers live in `.env.example`, which is
+  the file the README tells the reader to copy.
 
 **Not yet: the translation gates.** Coverage, drift, heading parity and
 language routing all presuppose a published bilingual site. They arrive with

@@ -291,6 +291,27 @@ jobs:
       - name: Verify issue registry
         run: bash scripts/verify-issues.sh
 
+  docs-facts:
+    name: Docs Facts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Tags are the source of truth for the release claims, and the
+          # default checkout fetches none. Without them the version checks
+          # would have nothing to compare against — the script treats that as
+          # a failure rather than a skip, so a shallow checkout here would go
+          # red loudly rather than pass by default, but the fix is to have the
+          # tags.
+          fetch-depth: 0
+      - name: Verify documented facts against the code
+        # Lives in ci.yml rather than docs.yml on purpose. What invalidates
+        # these claims is a CODE change — a test added, a version bumped, a
+        # setting renamed — and docs.yml only runs when docs/ changes. A gate
+        # for documentation drift that only fires on documentation edits
+        # cannot see the edit that caused the drift.
+        run: python3 scripts/check-docs-facts.py
+
   nsis-hook-gate:
     name: NSIS Hook Gate
     runs-on: ubuntu-latest
